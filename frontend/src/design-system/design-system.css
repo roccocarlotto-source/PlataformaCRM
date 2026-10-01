@@ -810,6 +810,59 @@ fieldset.ds-field {
   margin: var(--space-3) 0;
 }
 
+/* ErrorState con onRetry: el mensaje y el botón en la misma caja, el botón a
+   la derecha si entra y debajo si no (wrap). */
+.ds-error--retry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ds-error--retry > p {
+  flex: 1 1 12rem;
+}
+
+/* EmptyState en su forma completa (con title): el vacío de una pantalla o de
+   un listado entero. Centrado, con aire, y la acción debajo. */
+.ds-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.ds-empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: var(--space-1);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.ds-empty-state-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ds-empty-state-text {
+  max-width: 28rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.ds-empty-state-action {
+  margin-top: var(--space-3);
+}
+
 /* ---------------------------------------------------------------------------
    Filtros — la barra de search/select que encabeza cada ListPage (y la
    toolbar del tablero de oportunidades, que es la misma barra en la otra

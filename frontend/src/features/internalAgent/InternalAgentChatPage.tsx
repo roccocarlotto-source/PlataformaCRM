@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { Bot } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
@@ -160,13 +161,20 @@ export function InternalAgentChatPage() {
     let cuerpo: ReactNode;
     if (status === 404) {
       cuerpo = isAdmin ? (
-        <EmptyState>
-          Todavía no hay un agente interno configurado.{" "}
-          <Link to="/internal-agent/settings">Configuralo acá</Link>.
+        <EmptyState
+          title="Todavía no hay un agente interno configurado"
+          icon={Bot}
+          action={
+            <Link className="ds-link-button" to="/internal-agent/settings">
+              Configurar agente interno
+            </Link>
+          }
+        >
+          Configuralo para que tu equipo pueda hablarle desde acá.
         </EmptyState>
       ) : (
-        <EmptyState>
-          Todavía no hay un agente interno configurado. Pedíselo a un administrador.
+        <EmptyState title="Todavía no hay un agente interno configurado" icon={Bot}>
+          Pedíselo a un administrador.
         </EmptyState>
       );
     } else if (status === 403) {

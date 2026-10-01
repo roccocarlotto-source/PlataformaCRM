@@ -213,7 +213,7 @@ describe("InternalAgentChatPage", () => {
     apiMock.listInternalAgentMessages.mockRejectedValue(new ApiError(404, "no configurado"));
     renderPage();
 
-    expect(await screen.findByRole("link", { name: "Configuralo acá" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "Configurar agente interno" })).toHaveAttribute(
       "href",
       "/internal-agent/settings",
     );
@@ -225,11 +225,12 @@ describe("InternalAgentChatPage", () => {
     renderPage();
 
     expect(
-      await screen.findByText(
-        "Todavía no hay un agente interno configurado. Pedíselo a un administrador.",
-      ),
+      await screen.findByText("Todavía no hay un agente interno configurado"),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Configuralo acá" })).not.toBeInTheDocument();
+    expect(screen.getByText("Pedíselo a un administrador.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Configurar agente interno" }),
+    ).not.toBeInTheDocument();
   });
 
   it("sin acceso (403): muestra el mensaje del backend y no reintenta", async () => {
