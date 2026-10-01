@@ -9,14 +9,12 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { CHANNEL_LABEL } from "../agent/labels";
-import { ToolCallBlock } from "../agent/ToolCallBlock";
 import { ConversationBriefCard } from "./ConversationBriefCard";
 import { ConversationReplyCard } from "./ConversationReplyCard";
 import { DELIVERY_STATUS_LABEL, STATUS_BADGE_VARIANT, STATUS_LABEL } from "./labels";
 import { useCloseConversation, useRetryConversationMessage } from "./mutations";
 import { puedeAtender } from "./permissions";
 import { useConversation } from "./queries";
-import { parseToolCalls } from "./toolCalls";
 import type { Conversation, ConversationMessage } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -54,7 +52,51 @@ import type { Conversation, ConversationMessage } from "./types";
 // decisión. Lo único nuevo es .ds-chat-bubble--humano, porque acá sí aparece
 // un tercer autor que el probador no puede producir: una persona de la
 // organización contestando después de una derivación.
+//
+// SIN HERRAMIENTAS. El hilo muestra solo lo que se dijeron el cliente, el
+// agente, el vendedor y las automatizaciones. Hasta acá también pintaba
+// Message.toolCalls con ToolCallBlock, y eso dejaba a la vista los argumentos
+// y resultados crudos de cada tool (la lista de search_vehicles con códigos
+// internos y precios de lista, por ejemplo). Eso es diagnóstico y se sigue
+// viendo en el probador, que es donde sirve.
+//
+// SE REFRESCA SOLA (queries.ts, cada 5 s). Por eso un error de un refetch no
+// reemplaza la pantalla por el ErrorState: desmontaría la tarjeta "Responder"
+// y con ella el borrador, y el <ol> del hilo, y con él el scroll de quien
+// estaba leyendo más arriba. El error solo se muestra si no hay nada cargado.
 // ---------------------------------------------------------------------------
+
+// Lo que la burbuja muestra de un mensaje, o null si no tiene nada visible
+// (y entonces no hay burbuja). Dos casos:
+//   - sin texto: un turno del agente que solo ejecutó tools, o un contenido
+//     vacío por cualquier otra razón;
+//   - un saliente del agente o de una automatización cuyo texto es JSON (un
+//     objeto o una lista): el resultado de una tool que se coló como
+//     contenido. runAgentTurn no guarda mensajes así, pero si alguno existe
+//     no es algo que se le dijo al cliente. Solo para esos dos autores: lo
+//     que escribe una persona (cliente o vendedor) se muestra siempre.
+function textoVisible(message: ConversationMessage): string | null {
+  const texto = message.content.trim();
+  if (texto.length === 0) return null;
+  if (
+    (message.senderType === "AGENT" || message.senderType === "AUTOMATION") &&
+    pareceJson(texto)
+  ) {
+    return null;
+  }
+  return message.content;
+}
+
+function pareceJson(texto: string): boolean {
+  const primero = texto[0];
+  if (primero !== "{" && primero !== "[") return false;
+  try {
+    const valor: unknown = JSON.parse(texto);
+    return typeof valor === "object" && valor !== null;
+  } catch {
+    return false;
+  }
+}
 
 // De qué lado va cada mensaje. Lo decide `direction` y no `senderType`, y es
 // a propósito: los dos enums son ortogonales en el schema (la dirección dice
@@ -128,7 +170,9 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
     return <LoadingState variant="lines" />;
   }
 
-  if (conversationQuery.isError || !conversationQuery.data) {
+  // Con datos ya cargados, un refetch que falla no tapa la pantalla: se sigue
+  // mostrando lo último que llegó (ver la cabecera, SE REFRESCA SOLA).
+  if (!conversationQuery.data) {
     return (
       <ErrorState>
         No pudimos cargar la conversación
@@ -150,6 +194,10 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
     cerrar.mutate();
   }
   const nombreDelContacto = `${conversation.contact.firstName} ${conversation.contact.lastName}`;
+  const visibles = conversation.messages.flatMap((message) => {
+    const texto = textoVisible(message);
+    return texto === null ? [] : [{ message, texto }];
+  });
 
   const sections: DetailSection[] = [
     {
@@ -214,37 +262,14 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
         <ConversationBriefCard conversation={conversation} />
 
         <Card heading="Mensajes">
-          {conversation.messages.length === 0 ? (
+          {visibles.length === 0 ? (
             <EmptyState>Esta conversación todavía no tiene mensajes.</EmptyState>
           ) : (
             <ol className="ds-chat" aria-label="Mensajes de la conversación">
-              {conversation.messages.map((message) => {
-                const llamadas = parseToolCalls(message.toolCalls);
+              {visibles.map(({ message, texto }) => {
                 const lado = ladoDelMensaje(message);
                 return (
                   <li key={message.id} className="ds-chat-item">
-                    {/* Las tool calls van ARRIBA de la burbuja porque es el
-                        orden en que ocurrieron: el modelo las ejecuta y
-                        recién después produce el texto de la respuesta.
-                        Mismo orden que el probador. */}
-                    {llamadas
-                      ? llamadas.map((llamada) => (
-                          <div key={llamada.id} className="ds-chat-row ds-chat-row--tool">
-                            <ToolCallBlock llamada={llamada} />
-                          </div>
-                        ))
-                      : null}
-                    {/* Una forma que no reconocemos no se esconde: el JSON
-                        crudo sigue diciendo más que nada. Ver toolCalls.ts. */}
-                    {llamadas === null && message.toolCalls ? (
-                      <div className="ds-chat-row ds-chat-row--tool">
-                        <div className="ds-chat-tool">
-                          <p className="ds-chat-tool-line">
-                            Herramientas: <code>{JSON.stringify(message.toolCalls)}</code>
-                          </p>
-                        </div>
-                      </div>
-                    ) : null}
                     <div className={`ds-chat-row ds-chat-row--${lado}`}>
                       <div className={claseDeBurbuja(message)}>
                         <span className="ds-chat-author">
@@ -260,7 +285,7 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
                             </span>
                           ) : null}
                         </span>
-                        {message.content}
+                        {texto}
                         {/* I-03: una respuesta de una persona que no salió
                             dice por qué, y se reintenta sobre el MISMO
                             mensaje. Solo quien atiende la conversación. */}

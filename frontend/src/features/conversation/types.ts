@@ -89,9 +89,9 @@ export interface Conversation {
 // runAgentTurn con la forma de ToolCallDelTurno, pero eso es una convención
 // del código, no una restricción de Postgres ni un schema de Zod. Por eso acá
 // es `unknown` y no TestMessageToolCall[] — tiparlo como si estuviera
-// garantizado sería prometer algo que no es cierto. Quien lo muestra lo
-// estrecha con parseToolCalls y cae en JSON crudo si no reconoce la forma,
-// mismo criterio que Agent.guardrails con Record<string, unknown>.
+// garantizado sería prometer algo que no es cierto. Mismo criterio que
+// Agent.guardrails con Record<string, unknown>. El detalle de la conversación
+// NO lo muestra: las herramientas se ven solo en el probador.
 export interface ConversationMessage {
   id: string;
   organizationId: string;

@@ -75,7 +75,7 @@ const HILO: ConversationMessage[] = [
 function renderDetail(role: "ADMIN" | "USER" = "ADMIN") {
   useAuthMock.mockReturnValue(mockAuth(role));
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/conversations/conv-1"]}>
         <Routes>
@@ -84,6 +84,9 @@ function renderDetail(role: "ADMIN" | "USER" = "ADMIN") {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  // El QueryClient sale para los tests del polling: un refetchQueries() a mano
+  // es exactamente lo que dispara el refetchInterval, sin esperar 5 s reales.
+  return { ...utils, queryClient };
 }
 
 // El segundo uso del componente (ítem 73): montado a mano con el id por prop,
@@ -265,41 +268,101 @@ describe("ConversationDetail", () => {
     expect(screen.queryByText(/· Enviado/)).not.toBeInTheDocument();
   });
 
-  it("las tool calls guardadas se muestran igual de compactas que en el probador", async () => {
-    server.use(http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))));
-
-    renderDetail();
-
-    const bloque = (await screen.findByText("Crear oportunidad")).closest(".ds-chat-tool");
-    expect(bloque).not.toBeNull();
-    const dentro = within(bloque as HTMLElement);
-    // El rótulo en castellano Y el nombre crudo, como en el playground.
-    expect(dentro.getByText("create_opportunity")).toBeInTheDocument();
-    expect(dentro.getByText(/Argumentos:/)).toHaveTextContent('{"title":"Corolla"}');
-    expect(dentro.getByText(/Resultado:/)).toHaveTextContent('{"opportunityId":"op-1"}');
+  // Lo que se vio en producción: el resultado de search_vehicles, con códigos
+  // internos y precios de lista, como JSON en el hilo. Datos ficticios.
+  const BUSQUEDA: ConversationMessage = makeMessage({
+    id: "m2",
+    direction: "OUTBOUND",
+    senderType: "AGENT",
+    content: "Tenemos dos Corolla disponibles",
+    toolCalls: [
+      {
+        id: "call-1",
+        name: "search_vehicles",
+        arguments: { query: "Corolla" },
+        allowed: true,
+        result: {
+          ok: true,
+          data: [{ id: "v1", internalCode: "INT-0001", priceListUsd: 12345 }],
+        },
+      },
+      { herramienta: "forma_que_no_reconocemos" },
+    ],
   });
 
-  it("una tool bloqueada por las reglas del agente dice el motivo", async () => {
+  it.each(["ADMIN", "USER"] as const)(
+    "el hilo no muestra herramientas ni JSON (%s): solo el texto del agente",
+    async (role) => {
+      server.use(
+        http.get(detailUrl, () =>
+          HttpResponse.json(makeConversationDetail({}, [makeMessage({ id: "m1" }), BUSQUEDA])),
+        ),
+      );
+
+      const { container } = renderDetail(role);
+
+      expect(
+        await screen.findByText("Tenemos dos Corolla disponibles", { selector: ".ds-chat-bubble" }),
+      ).toBeInTheDocument();
+      expect(container.querySelector(".ds-chat-tool")).toBeNull();
+      expect(container.querySelector(".ds-chat-row--tool")).toBeNull();
+      const hilo = screen.getByRole("list", { name: "Mensajes de la conversación" });
+      for (const rastro of [
+        "search_vehicles",
+        "Buscar vehículos",
+        "internalCode",
+        "priceListUsd",
+        "INT-0001",
+        "Argumentos:",
+        "Resultado:",
+        "Herramientas:",
+        "forma_que_no_reconocemos",
+      ]) {
+        expect(hilo).not.toHaveTextContent(rastro);
+      }
+    },
+  );
+
+  it("un mensaje sin texto visible no deja burbuja: ni vacío ni con el JSON de una tool", async () => {
     server.use(
       http.get(detailUrl, () =>
         HttpResponse.json(
           makeConversationDetail({}, [
+            makeMessage({ id: "m1", content: "¿Qué autos tienen?" }),
+            // Un turno que solo ejecutó tools.
+            makeMessage({ ...BUSQUEDA, id: "m2", content: "  " }),
+            // El resultado de una tool guardado como contenido.
             makeMessage({
-              id: "m1",
+              id: "m3",
               direction: "OUTBOUND",
               senderType: "AGENT",
-              content: "No puedo hacer eso",
-              toolCalls: [
-                {
-                  id: "call-1",
-                  name: "update_opportunity",
-                  arguments: {},
-                  allowed: false,
-                  reason: "acción prohibida por los guardrails",
-                },
-              ],
+              content: '[{"internalCode":"INT-0001","priceListUsd":12345}]',
+            }),
+            makeMessage({
+              id: "m4",
+              direction: "OUTBOUND",
+              senderType: "AUTOMATION",
+              content: '{"ok":true,"data":{}}',
             }),
           ]),
+        ),
+      ),
+    );
+
+    const { container } = renderDetail();
+
+    expect(
+      await screen.findByText("¿Qué autos tienen?", { selector: ".ds-chat-bubble" }),
+    ).toBeInTheDocument();
+    expect(container.querySelectorAll(".ds-chat-bubble")).toHaveLength(1);
+    expect(container.querySelectorAll(".ds-chat-item")).toHaveLength(1);
+  });
+
+  it("lo que escribe el cliente se muestra siempre, aunque parezca JSON", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(
+          makeConversationDetail({}, [makeMessage({ id: "m1", content: '{"hola":"che"}' })]),
         ),
       ),
     );
@@ -307,36 +370,60 @@ describe("ConversationDetail", () => {
     renderDetail();
 
     expect(
-      await screen.findByText(/Bloqueada por las reglas del agente: acción prohibida/),
+      await screen.findByText('{"hola":"che"}', { selector: ".ds-chat-bubble" }),
     ).toBeInTheDocument();
   });
 
-  it("un toolCalls con una forma que no reconocemos se muestra crudo, no se esconde", async () => {
+  it("el polling trae los mensajes nuevos sin borrar el borrador ni rearmar el hilo", async () => {
+    let mensajes: ConversationMessage[] = [makeMessage({ id: "m1" })];
+    server.use(http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, mensajes))));
+    const user = userEvent.setup();
+    const { queryClient } = renderDetail();
+
+    const caja = await screen.findByLabelText("Mensaje para el cliente");
+    await user.type(caja, "Hola Ana, te escribo por");
+    const hiloAntes = screen.getByRole("list", { name: "Mensajes de la conversación" });
+
+    mensajes = [...mensajes, makeMessage({ id: "m2", content: "¿Siguen ahí?" })];
+    await queryClient.refetchQueries();
+
+    expect(
+      await screen.findByText("¿Siguen ahí?", { selector: ".ds-chat-bubble" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Mensaje para el cliente")).toHaveValue(
+      "Hola Ana, te escribo por",
+    );
+    // El MISMO <ol>: un nodo nuevo volvería el scroll del hilo arriba de todo.
+    expect(screen.getByRole("list", { name: "Mensajes de la conversación" })).toBe(hiloAntes);
+  });
+
+  it("un refetch que falla no tapa la conversación ni borra el borrador", async () => {
+    let falla = false;
     server.use(
       http.get(detailUrl, () =>
-        HttpResponse.json(
-          makeConversationDetail({}, [
-            makeMessage({
-              id: "m1",
-              direction: "OUTBOUND",
-              senderType: "AGENT",
-              content: "Listo",
-              // Sin `name`: no es una tool call reconocible. El dato real
-              // informa más que su ausencia.
-              toolCalls: [{ herramienta: "algo_nuevo" }],
-            }),
-          ]),
-        ),
+        falla
+          ? HttpResponse.json({ error: { message: "se cortó" } }, { status: 500 })
+          : HttpResponse.json(makeConversationDetail({}, HILO)),
+      ),
+    );
+    const user = userEvent.setup();
+    const { queryClient } = renderDetail();
+
+    const caja = await screen.findByLabelText("Mensaje para el cliente");
+    await user.type(caja, "Borrador a medias");
+
+    falla = true;
+    await queryClient.refetchQueries();
+    await waitFor(() =>
+      expect(queryClient.getQueryState(["conversations", "detail", "conv-1"])?.status).toBe(
+        "error",
       ),
     );
 
-    renderDetail();
-
-    expect(await screen.findByText(/Herramientas:/)).toHaveTextContent(
-      '[{"herramienta":"algo_nuevo"}]',
-    );
+    expect(screen.queryByText(/No pudimos cargar la conversación/)).not.toBeInTheDocument();
+    expect(screen.getByText("Hola Ana, sigo yo desde acá")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mensaje para el cliente")).toHaveValue("Borrador a medias");
   });
-
   it("una conversación sin mensajes se abre igual y lo dice", async () => {
     server.use(
       http.get(detailUrl, () =>
