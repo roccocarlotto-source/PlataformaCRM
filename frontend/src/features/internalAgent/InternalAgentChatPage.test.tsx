@@ -106,7 +106,6 @@ describe("InternalAgentChatPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Asistente" })).toBeInTheDocument();
     expect(burbujas()).toEqual(["Vos¿Qué tengo mañana?", "AsistenteMañana tenés 2 turnos."]);
-    expect(screen.getByRole("link", { name: "‹ Volver" })).toHaveAttribute("href", "/");
     expect(apiMock.listInternalAgentMessages).toHaveBeenCalledWith(
       { page: 1, pageSize: 50 },
       expect.anything(),

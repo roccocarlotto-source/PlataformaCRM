@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   MailPlus,
   MapPin,
+  Menu,
   MessageCircle,
   MessagesSquare,
   MessageSquareText,
@@ -209,6 +210,37 @@ export function AppLayout() {
   // solo si un ADMIN lo habilitó.
   const canUseInternalAgent = isAdmin || me?.canUseInternalAgent === true;
 
+  // Menú del celular. Por debajo de 768px (ver el bloque responsive de
+  // AppLayout en design-system.css) la sidebar sale de la pantalla y se abre
+  // como panel desde la barra superior; en escritorio este estado no tiene
+  // ningún efecto visual. Se cierra al navegar (mismo patrón que
+  // useSectionOpen: ajuste de estado durante el render ante un cambio de
+  // pathname), con Escape y tocando el fondo.
+  const { pathname } = useLocation();
+  const [isNavOpen, setIsNavOpen] = useState(false);
+  const [navPathname, setNavPathname] = useState(pathname);
+  if (pathname !== navPathname) {
+    setNavPathname(pathname);
+    setIsNavOpen(false);
+  }
+  const sidebarId = useId();
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Al abrir, el foco entra al panel (primer link); con Escape vuelve al
+  // botón que lo abrió.
+  useEffect(() => {
+    if (!isNavOpen) return;
+    sidebarRef.current?.querySelector<HTMLElement>("a, button")?.focus();
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setIsNavOpen(false);
+      menuButtonRef.current?.focus();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isNavOpen]);
+
   async function handleLogout() {
     setIsLoggingOut(true);
     setLogoutError(null);
@@ -225,8 +257,8 @@ export function AppLayout() {
   }
 
   return (
-    <div className="ds-shell">
-      <aside className="ds-sidebar">
+    <div className={`ds-shell${isNavOpen ? " is-nav-open" : ""}`}>
+      <aside id={sidebarId} ref={sidebarRef} className="ds-sidebar">
         <Link to="/" className="ds-sidebar-brand">
           <span className="ds-sidebar-brand-mark" aria-hidden="true">
             <LayoutDashboard size={16} strokeWidth={1.5} />
@@ -240,7 +272,7 @@ export function AppLayout() {
           {/* Agente interno (ítem 180): suelto, al lado de Dashboard, y no dentro
               de "Agentes de IA" — esa sección es ADMIN-only entera, y esto lo usa
               también un USER habilitado. Es una herramienta de trabajo diaria,
-              no configuración. La pantalla abre fuera del shell (sin sidebar). */}
+              no configuración. */}
           {canUseInternalAgent ? (
             <SidebarLink to="/internal-agent" end icon={MessageSquareText}>
               Agente interno
@@ -248,7 +280,7 @@ export function AppLayout() {
           ) : null}
           {/* Canjear cupón (ítem 178): para cualquier rol, igual que el canje en
               el backend (sin authorize). Suelto al lado del agente interno por
-              el mismo motivo: herramienta de mostrador, y abre fuera del shell. */}
+              el mismo motivo: herramienta de mostrador. */}
           <SidebarLink to="/vouchers/scan" end icon={TicketCheck}>
             Canjear cupón
           </SidebarLink>
@@ -486,7 +518,35 @@ export function AppLayout() {
         </div>
         {logoutError ? <ErrorState>{logoutError}</ErrorState> : null}
       </aside>
+      {isNavOpen ? (
+        <div
+          className="ds-sidebar-backdrop"
+          aria-hidden="true"
+          onClick={() => setIsNavOpen(false)}
+        />
+      ) : null}
       <div className="ds-shell-body">
+        {/* Barra superior: solo se ve en el celular (CSS), donde la sidebar
+            no entra al lado del contenido. */}
+        <header className="ds-topbar">
+          <button
+            ref={menuButtonRef}
+            type="button"
+            className="ds-topbar-menu"
+            aria-label={isNavOpen ? "Cerrar menú" : "Abrir menú"}
+            aria-expanded={isNavOpen}
+            aria-controls={sidebarId}
+            onClick={() => setIsNavOpen((open) => !open)}
+          >
+            <Menu size={20} strokeWidth={1.5} aria-hidden="true" />
+          </button>
+          <Link to="/" className="ds-topbar-brand">
+            <span className="ds-sidebar-brand-mark" aria-hidden="true">
+              <LayoutDashboard size={16} strokeWidth={1.5} />
+            </span>
+            <span className="ds-sidebar-brand-name">Plataforma CRM</span>
+          </Link>
+        </header>
         <main>
           <Outlet />
         </main>

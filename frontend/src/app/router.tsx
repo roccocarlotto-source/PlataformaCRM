@@ -85,22 +85,23 @@ export const router = createBrowserRouter([
   {
     element: <ProtectedRoute />,
     children: [
-      // Chat con el agente de IA interno (ítem 180). Dentro de ProtectedRoute
-      // pero FUERA de AppLayout: el shell es una sidebar fija que no colapsa en
-      // un teléfono, y esta pantalla se usa desde el celular — tiene su propio
-      // layout de una columna. Sin AdminRoute: la usan también los USER
-      // habilitados, y quién pasa lo decide requireInternalAgentAccess en el
-      // backend (la pantalla muestra su 403). La configuración, en cambio, va
-      // dentro de AppLayout y de AdminRoute (/internal-agent/settings).
-      { path: "/internal-agent", element: <InternalAgentChatPage /> },
-      // Escáner de cupones de descuento (ítem 178): mismo criterio y mismo
-      // motivo que /internal-agent — pantalla de celular, fuera de AppLayout.
-      // Sin AdminRoute: el canje (POST /api/vouchers/:id/redeem) no restringe
-      // por rol; cualquier usuario de la organización puede canjear.
-      { path: "/vouchers/scan", element: <VoucherScanPage /> },
       {
         element: <AppLayout />,
         children: [
+          // Chat con el agente de IA interno (ítem 180). Se usa desde el
+          // celular: vivió fuera de AppLayout hasta que el shell tuvo layout
+          // responsive (sidebar como menú desplegable por debajo de 768px).
+          // Sin AdminRoute: la usan también los USER habilitados, y quién pasa
+          // lo decide requireInternalAgentAccess en el backend (la pantalla
+          // muestra su 403). La configuración, en cambio, va dentro de
+          // AdminRoute (/internal-agent/settings).
+          { path: "/internal-agent", element: <InternalAgentChatPage /> },
+          // Escáner de cupones de descuento (ítem 178): pantalla de mostrador,
+          // también pensada para el celular, con la misma historia que
+          // /internal-agent. Sin AdminRoute: el canje
+          // (POST /api/vouchers/:id/redeem) no restringe por rol; cualquier
+          // usuario de la organización puede canjear.
+          { path: "/vouchers/scan", element: <VoucherScanPage /> },
           // M8: "/" deja de ser un placeholder — es el Dashboard real,
           // primera pantalla útil tras login/aceptación de invitación (ambos
           // ya redirigen acá, ver LoginPage/AcceptInvitationPage).

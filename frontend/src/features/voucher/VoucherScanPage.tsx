@@ -3,7 +3,6 @@ import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { FormField } from "../../design-system/FormField";
-import { MobileScreen } from "../../design-system/MobileScreen";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { ApiError } from "../../lib/api";
 import { useRedeemVoucher } from "./mutations";
@@ -40,8 +39,9 @@ function mensajeDeError(error: unknown): string {
 // POST /api/vouchers/:id/redeem. Cualquier usuario de la organización puede:
 // el backend no restringe por rol, y esta pantalla tampoco.
 //
-// FUERA DE AppLayout, mismo criterio que el chat del agente interno (ítem
-// 180): se usa desde el celular y la sidebar no colapsa. Mismo MobileScreen.
+// Se usa sobre todo desde el celular: vive dentro de AppLayout, que en un
+// teléfono pliega la sidebar en un menú, y el contenido va en una columna
+// angosta (.ds-voucher-scan) que en una compu tampoco se estira.
 //
 // La cámara queda prendida entre canje y canje: el resultado del último queda
 // a la vista y el siguiente QR se procesa apenas aparece, sin tocar nada.
@@ -98,8 +98,9 @@ export function VoucherScanPage() {
   }
 
   return (
-    <MobileScreen title="Canjear cupón">
-      <div className="ds-voucher-scan">
+    <div className="ds-voucher-scan">
+      <h1>Canjear cupón</h1>
+      <div className="ds-voucher-scan-body">
         {sinCamara === null ? (
           <>
             <QrCameraReader onDecode={handleDecode} onUnavailable={setSinCamara} />
@@ -141,6 +142,6 @@ export function VoucherScanPage() {
           </Button>
         </form>
       </div>
-    </MobileScreen>
+    </div>
   );
 }
