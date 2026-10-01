@@ -27,6 +27,10 @@ export interface OrganizationSettings {
   // con el que el backend completa los teléfonos cargados en formato local.
   // null = sin país por defecto.
   defaultPhoneCountryCode: string | null;
+  // Seguimiento de T-01: zona IANA de la organización. Nunca null: "UTC" si
+  // nunca se configuró. El backend acepta cualquier zona IANA válida; la UI
+  // acota a ORGANIZATION_TIMEZONE_OPTIONS (features/branch/timezones.ts).
+  timezone: string;
   // Una fila por moneda configurada distinta de USD (con cotización cargada).
   // Con el universo USD/UYU de la UI, como máximo una.
   exchangeRates: OrganizationExchangeRate[];
@@ -41,6 +45,8 @@ export interface UpdateOrganizationSettingsInput {
   preferredCurrency?: string | null;
   alternateCurrency?: string | null;
   defaultPhoneCountryCode?: string | null;
+  // No nullable: la zona no se puede vaciar (400).
+  timezone?: string;
 }
 
 // Conexión de la página de Facebook de la organización (ítem 173 en el

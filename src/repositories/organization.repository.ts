@@ -78,6 +78,7 @@ export function updateOrganizationSettings(
     preferredCurrency?: string | null;
     alternateCurrency?: string | null;
     defaultPhoneCountryCode?: string | null;
+    timezone?: string;
   },
   db: Db = prisma,
 ) {

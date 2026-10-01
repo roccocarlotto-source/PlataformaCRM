@@ -52,3 +52,20 @@ test("F5-b: defaultPhoneCountryCode rechaza lo que no es un código de país", (
     assert.equal(parsed.success, false, `${JSON.stringify(valor)} no es un código de país`);
   }
 });
+
+// T-01: la zona horaria de la organización.
+test("T-01: timezone acepta zonas IANA y las recorta", () => {
+  for (const valor of ["America/Montevideo", "America/Argentina/Buenos_Aires", "UTC"]) {
+    const parsed = updateOrganizationSettingsSchema.safeParse({ timezone: valor });
+    assert.equal(parsed.success, true, `${valor} tiene que aceptarse`);
+  }
+  const recortada = updateOrganizationSettingsSchema.safeParse({ timezone: " America/Santiago " });
+  assert.deepEqual(recortada.success && recortada.data, { timezone: "America/Santiago" });
+});
+
+test("T-01: timezone rechaza lo que no es una zona IANA, offsets crudos y null", () => {
+  for (const valor of ["", "Buenos Aires", "GMT-3", "-03:00", "No/Existe", null, 3]) {
+    const parsed = updateOrganizationSettingsSchema.safeParse({ timezone: valor });
+    assert.equal(parsed.success, false, `${JSON.stringify(valor)} no es una zona válida`);
+  }
+});

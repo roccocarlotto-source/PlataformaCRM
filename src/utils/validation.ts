@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AppError } from "./AppError";
+import { esZonaHorariaValida } from "./timezone";
 
 // Parsea `data` con un schema de Zod; si falla, lanza el mismo AppError(400)
 // que ya usaba onboarding.controller.ts, ahora compartido para no repetir
@@ -47,3 +48,18 @@ export const currencySchema = z
   .trim()
   .toUpperCase()
   .regex(/^[A-Z]{3}$/, "currency debe ser un código ISO 4217 de 3 letras");
+
+// Zona horaria IANA, validada contra el runtime y no contra una lista propia
+// (ver utils/timezone.ts): una zona mal tipeada no falla al guardarse, falla
+// después, con un turno a la hora equivocada o un "hoy" corrido en el
+// dashboard como único síntoma. El tope de 50 es el VarChar(50) de las dos
+// columnas que la usan. Compartido entre Branch.timezone y
+// Organization.timezone, mismo criterio que currencySchema.
+export const timezoneSchema = z
+  .string()
+  .trim()
+  .min(1, "timezone es requerido")
+  .max(50, "timezone no puede superar los 50 caracteres")
+  .refine(esZonaHorariaValida, {
+    message: "timezone debe ser una zona horaria IANA válida (ej. America/Argentina/Buenos_Aires)",
+  });

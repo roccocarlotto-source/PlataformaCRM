@@ -250,6 +250,8 @@ test("GET /api/organization — sin moneda configurada: las dos en null, sin cot
     preferredCurrency: null,
     alternateCurrency: null,
     defaultPhoneCountryCode: null,
+    // T-01: una organización recién creada queda en el default de la columna.
+    timezone: "UTC",
     exchangeRates: [],
   });
   for (const interno of ["nextVehicleStockNumber", "slug"]) {
@@ -317,6 +319,7 @@ test("PATCH /api/organization — null limpia una moneda y USD no pide cotizaci�
     preferredCurrency: "USD",
     alternateCurrency: null,
     defaultPhoneCountryCode: null,
+    timezone: "UTC",
     exchangeRates: [],
   });
 });
@@ -405,4 +408,49 @@ test("F5-b: un código de país que no son 1 a 3 dígitos es 400", async () => {
     });
     assert.equal(res.status, 400, `${JSON.stringify(valor)} no es un código de país`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// T-01: la zona horaria de la organización. La usan el dashboard (hoy, esta
+// semana, este mes) y la fecha de cierre de una venta. La configura solo un
+// ADMIN; la lee cualquiera.
+// ---------------------------------------------------------------------------
+
+test("T-01: PATCH con timezone la guarda y el GET la expone", async () => {
+  try {
+    const patch = await call("PATCH", "/api/organization", admin.accessToken, {
+      timezone: "America/Argentina/Buenos_Aires",
+    });
+    assert.equal(patch.status, 200);
+    assert.equal(
+      ((await patch.json()) as Record<string, unknown>).timezone,
+      "America/Argentina/Buenos_Aires",
+    );
+
+    const get = await call("GET", "/api/organization", user.accessToken);
+    assert.equal(
+      ((await get.json()) as Record<string, unknown>).timezone,
+      "America/Argentina/Buenos_Aires",
+    );
+  } finally {
+    await prisma.organization.update({ where: { id: orgId }, data: { timezone: "UTC" } });
+  }
+});
+
+test("T-01: USER recibe 403 al cambiar la zona y nada cambia", async () => {
+  const res = await call("PATCH", "/api/organization", user.accessToken, {
+    timezone: "America/Montevideo",
+  });
+  assert.equal(res.status, 403);
+  const row = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+  assert.equal(row.timezone, "UTC");
+});
+
+test("T-01: una zona que no es IANA válida es 400, y null también (la zona no se puede vaciar)", async () => {
+  for (const valor of ["Buenos Aires", "GMT-3", "-03:00", "No/Existe", "", null, 3]) {
+    const res = await call("PATCH", "/api/organization", admin.accessToken, { timezone: valor });
+    assert.equal(res.status, 400, `${JSON.stringify(valor)} no es una zona IANA`);
+  }
+  const row = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+  assert.equal(row.timezone, "UTC");
 });

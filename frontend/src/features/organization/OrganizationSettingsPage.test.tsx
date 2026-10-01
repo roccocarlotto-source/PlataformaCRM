@@ -158,6 +158,7 @@ describe("OrganizationSettingsPage — guardado", () => {
         preferredCurrency: "USD",
         alternateCurrency: "UYU",
         defaultPhoneCountryCode: null,
+        timezone: "UTC",
       }),
     );
     expect(screen.getByRole("status")).toHaveTextContent("Configuración guardada");
@@ -180,6 +181,7 @@ describe("OrganizationSettingsPage — guardado", () => {
         preferredCurrency: "USD",
         alternateCurrency: null,
         defaultPhoneCountryCode: null,
+        timezone: "UTC",
       }),
     );
   });
@@ -279,5 +281,50 @@ describe("OrganizationSettingsPage — Facebook e Instagram (ítem 173)", () => 
     expect(
       await screen.findByRole("button", { name: "Conectar con Facebook" }),
     ).toBeInTheDocument();
+  });
+});
+
+// Seguimiento de T-01: la zona horaria de la organización.
+describe("OrganizationSettingsPage — zona horaria", () => {
+  it("una organización en UTC muestra UTC como opción extra, las ciudades de la región y el texto de ayuda", async () => {
+    mockSettings(makeOrganizationSettings({ timezone: "UTC" }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByLabelText("Zona horaria")).toHaveValue("UTC"));
+    const opciones = await optionsOf(user, "Zona horaria");
+    expect(opciones[0]).toBe("UTC");
+    expect(opciones).toEqual(
+      expect.arrayContaining([
+        "Montevideo (America/Montevideo)",
+        "Buenos Aires (America/Argentina/Buenos_Aires)",
+        "Santiago (America/Santiago)",
+        "São Paulo (America/Sao_Paulo)",
+      ]),
+    );
+    expect(
+      screen.getByText("Se usa para calcular hoy, esta semana y este mes en el dashboard."),
+    ).toBeInTheDocument();
+  });
+
+  it("una zona de la lista no agrega opción extra, y elegir otra viaja en el PATCH", async () => {
+    const { getPatchedBody } = mockSettings(
+      makeOrganizationSettings({ timezone: "America/Montevideo" }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Zona horaria")).toHaveValue("Montevideo (America/Montevideo)"),
+    );
+    expect(await optionsOf(user, "Zona horaria")).not.toContain("UTC");
+
+    await chooseSelectOption(
+      user,
+      screen.getByRole("combobox", { name: "Zona horaria" }),
+      "Buenos Aires (America/Argentina/Buenos_Aires)",
+    );
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(getPatchedBody()?.timezone).toBe("America/Argentina/Buenos_Aires"));
   });
 });

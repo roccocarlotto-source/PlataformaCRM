@@ -10,22 +10,9 @@ import {
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { QR_DESTINATION_URL_MAX_LENGTH } from "./qr.controller";
-import { esZonaHorariaValida } from "../utils/timezone";
-import { parseOrThrow } from "../utils/validation";
+import { parseOrThrow, timezoneSchema } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
-
-// La zona horaria se valida contra el runtime, no contra una lista propia — ver
-// src/utils/timezone.ts. Una zona mal tipeada no falla al guardarse: falla
-// después, con un turno a la hora equivocada como único síntoma.
-const timezoneSchema = z
-  .string()
-  .trim()
-  .min(1, "timezone es requerido")
-  .max(50, "timezone no puede superar los 50 caracteres")
-  .refine(esZonaHorariaValida, {
-    message: "timezone debe ser una zona horaria IANA válida (ej. America/Argentina/Buenos_Aires)",
-  });
 
 // Datos de cobro (ítem 74). El link de pago se valida con la MISMA forma que
 // destinationUrl de qr.controller.ts —http(s):// y el mismo tope de 2048—: es

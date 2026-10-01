@@ -30,6 +30,7 @@ export function makeOrganizationSettings(
     preferredCurrency: "USD",
     alternateCurrency: null,
     defaultPhoneCountryCode: null,
+    timezone: "UTC",
     exchangeRates: [],
     ...overrides,
   };
