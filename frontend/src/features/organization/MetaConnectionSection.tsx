@@ -1,3 +1,4 @@
+import { useConfirm } from "../../design-system/useConfirm";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -41,6 +42,7 @@ interface MetaConnectionSectionProps {
 // guardarse). Se aplica al momento: no pasa por el "Guardar" de la moneda.
 // ---------------------------------------------------------------------------
 export function MetaConnectionSection({ resultadoDelCallback }: MetaConnectionSectionProps) {
+  const confirm = useConfirm();
   const connectionQuery = useMetaConnection();
   const startMutation = useStartMetaConnection();
   const disconnectMutation = useDisconnectMetaConnection();
@@ -69,11 +71,12 @@ export function MetaConnectionSection({ resultadoDelCallback }: MetaConnectionSe
     }
   }
 
-  function handleDesconectar() {
+  async function handleDesconectar() {
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Desconectar la página de Facebook? Los agentes dejan de contestar por Messenger y por Instagram.",
-      )
+        { confirmLabel: "Desconectar", danger: true },
+      ))
     ) {
       return;
     }

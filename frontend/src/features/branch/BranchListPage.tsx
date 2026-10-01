@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { MapPin, Plus } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -24,6 +25,7 @@ const PAGE_SIZE = 20;
 // ve las sucursales donde las necesita (BranchSelect en QR y Vehículo); acá no
 // hay nada para él más que botones que el backend rechazaría.
 export function BranchListPage() {
+  const confirm = useConfirm();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<BranchSortBy>("createdAt");
@@ -46,11 +48,11 @@ export function BranchListPage() {
   const [searchParams] = useSearchParams();
   const calendarError = searchParams.get("calendarError");
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     // window.confirm, igual que Source/Pipeline. El RESTRICT (recursos,
     // servicios, QRs activos o Google Calendar conectado) NO se anticipa acá:
     // lo decide el backend y su 400 trae el mensaje a mostrar, ver abajo.
-    if (!window.confirm("¿Eliminar esta sucursal?")) {
+    if (!(await confirm("¿Eliminar esta sucursal?", { confirmLabel: "Eliminar", danger: true }))) {
       return;
     }
     deleteBranchMutation.mutate(id);

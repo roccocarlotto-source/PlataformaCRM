@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { useParams } from "react-router-dom";
 import { X } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Notice } from "../../design-system/Notice";
 import { Badge } from "../../design-system/Badge";
@@ -71,6 +72,7 @@ function formatFechaHora(iso: string): string {
 // evalúa a false, mismo criterio que AgentListPage.
 // ---------------------------------------------------------------------------
 export function AgentEmbedPage() {
+  const confirm = useConfirm();
   const { id } = useParams<{ id: string }>();
   const agentId = id ?? "";
 
@@ -152,11 +154,12 @@ export function AgentEmbedPage() {
     }
   }
 
-  function handleRevocar(tokenId: string) {
+  async function handleRevocar(tokenId: string) {
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Revocar este token? El widget que lo esté usando deja de responder de inmediato y hay que pegar el código de nuevo con un token nuevo.",
-      )
+        { confirmLabel: "Revocar", danger: true },
+      ))
     ) {
       return;
     }

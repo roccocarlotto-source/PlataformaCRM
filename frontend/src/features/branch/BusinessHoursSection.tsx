@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -39,6 +40,7 @@ interface BusinessHoursSectionProps {
 // ninguna franja tiene el mismo efecto.
 // ---------------------------------------------------------------------------
 export function BusinessHoursSection({ branchId }: BusinessHoursSectionProps) {
+  const confirm = useConfirm();
   const hoursQuery = useBranchBusinessHours(branchId);
   const replaceMutation = useReplaceBranchBusinessHours(branchId);
 
@@ -107,11 +109,12 @@ export function BusinessHoursSection({ branchId }: BusinessHoursSectionProps) {
     void guardar(aplanar(horario), "El horario de atención quedó guardado.");
   }
 
-  function handleVolverAlDefault() {
+  async function handleVolverAlDefault() {
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Volver al horario por defecto? Se borra el horario de atención cargado para esta sucursal.",
-      )
+        { confirmLabel: "Volver al horario por defecto", danger: true },
+      ))
     ) {
       return;
     }

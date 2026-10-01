@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -63,6 +64,7 @@ function PlantillaActual({
   plantilla: WhatsappTemplate;
   onBorrada: (plantilla: WhatsappTemplate) => void;
 }) {
+  const confirm = useConfirm();
   const refreshMutation = useRefreshWhatsappTemplate();
   const deleteMutation = useDeleteWhatsappTemplate();
   const toast = useToast();
@@ -81,9 +83,10 @@ function PlantillaActual({
 
   async function borrar() {
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Borrar esta plantilla? Se borra también en WhatsApp y, hasta que cargues otra y Meta la apruebe, esta automatización no manda ningún mensaje.",
-      )
+        { confirmLabel: "Borrar", danger: true },
+      ))
     ) {
       return;
     }

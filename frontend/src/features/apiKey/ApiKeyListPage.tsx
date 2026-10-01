@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Key } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -37,6 +38,7 @@ interface SecretoVisible {
 }
 
 export function ApiKeyListPage() {
+  const confirm = useConfirm();
   // El sourceId puede venir preseleccionado en la URL: es el cross-link "Ver
   // claves" de SourceListPage. Vive en la URL y no en estado local justamente
   // para que ese link pueda armarlo.
@@ -124,11 +126,12 @@ export function ApiKeyListPage() {
     }
   }
 
-  function handleRevoke(id: string) {
+  async function handleRevoke(id: string) {
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Revocar esta clave? Deja de funcionar de inmediato y no se puede volver atrás.",
-      )
+        { confirmLabel: "Revocar", danger: true },
+      ))
     ) {
       return;
     }

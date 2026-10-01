@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Zap } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -35,6 +36,7 @@ const PAGE_SIZE = 20;
 // no achica nada — es un filtro que no puede filtrar. El día que haya un
 // segundo trigger es un <Select> más sobre TRIGGER_OPTIONS, que ya existe.
 export function AutomationListPage() {
+  const confirm = useConfirm();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [isActive, setIsActive] = useState<"" | "true" | "false">("");
@@ -52,14 +54,15 @@ export function AutomationListPage() {
 
   const deleteAutomationMutation = useDeleteAutomation();
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     // window.confirm, igual que Knowledge Base, Agent, Branch y Source. El
     // borrado es lógico; lo que se dice acá es la consecuencia que no se ve en
     // la pantalla: la regla deja de ejecutarse desde el próximo evento.
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Eliminar esta automatización? Deja de ejecutarse de inmediato; lo que ya generó no se toca.",
-      )
+        { confirmLabel: "Eliminar", danger: true },
+      ))
     ) {
       return;
     }
