@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -53,9 +54,7 @@ export function WhatsappTemplateListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Plantillas de WhatsApp</h1>
-      </div>
+      <PageHeader title="Plantillas de WhatsApp" />
 
       <div className="ds-list-card">
         <p className="ds-hint">

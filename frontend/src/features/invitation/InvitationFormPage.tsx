@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -45,7 +46,7 @@ export function InvitationFormPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <h1>Invitar</h1>
+      <PageHeader title="Invitar" />
       <div className="ds-stack">
         <Card heading="Datos de la invitación">
           <div className="ds-field-grid">

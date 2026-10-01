@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -120,9 +121,7 @@ export function IngestionEventListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Eventos de ingesta</h1>
-      </div>
+      <PageHeader title="Eventos de ingesta" />
 
       {/* El batchId no tiene control para tipearlo: es un filtro de "llegué acá
           desde un link", no algo que alguien escriba. Pero si está aplicado hay

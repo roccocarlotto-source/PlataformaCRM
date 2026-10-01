@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useParams } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Notice } from "../../design-system/Notice";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -224,10 +225,15 @@ export function AgentPlaygroundPage() {
 
   return (
     <div className="ds-form">
-      <h1>Probar el agente</h1>
-      <p className="ds-hint">
-        Agente: <strong>{agent.name}</strong>. <Link to="/agents">Volver a Agentes</Link>
-      </p>
+      <PageHeader
+        title="Probar el agente"
+        back={{ to: "/agents", label: "Agentes de IA" }}
+        subtitle={
+          <>
+            Agente: <strong>{agent.name}</strong>
+          </>
+        }
+      />
 
       {/* role="alert" a propósito, aunque esté desde que la pantalla carga y
           normalmente ese rol se reserve para lo que irrumpe: es la única

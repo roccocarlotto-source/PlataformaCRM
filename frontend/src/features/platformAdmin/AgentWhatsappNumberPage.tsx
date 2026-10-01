@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -53,7 +54,7 @@ export function AgentWhatsappNumberPage() {
   if (assigned) {
     return (
       <div className="ds-form">
-        <h1>Número de WhatsApp actualizado</h1>
+        <PageHeader title="Número de WhatsApp actualizado" />
         <div className="ds-stack">
           <Card heading={assigned.name}>
             <p>
@@ -84,7 +85,7 @@ export function AgentWhatsappNumberPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <h1>Número de WhatsApp de un agente</h1>
+      <PageHeader title="Número de WhatsApp de un agente" />
       <div className="ds-stack">
         <Card heading="Asignación">
           <div className="ds-field-grid">

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -137,7 +138,7 @@ export function BranchFormPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <h1>{isEditMode ? "Editar sucursal" : "Nueva sucursal"}</h1>
+      <PageHeader title={isEditMode ? "Editar sucursal" : "Nueva sucursal"} />
       <div className="ds-stack">
         <Card heading="Datos de la sucursal">
           <div className="ds-field-grid">

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -89,13 +90,17 @@ export function SourceListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Fuentes de ingesta</h1>
-        <Link to="/sources/new" className="ds-link-button">
-          <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-          Nueva fuente
-        </Link>
-      </div>
+      <PageHeader
+        title="Fuentes de ingesta"
+        actions={
+          <>
+            <Link to="/sources/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nueva fuente
+            </Link>
+          </>
+        }
+      />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

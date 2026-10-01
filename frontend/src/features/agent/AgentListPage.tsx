@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -75,13 +76,17 @@ export function AgentListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Agentes de IA</h1>
-        <Link to="/agents/new" className="ds-link-button">
-          <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-          Nuevo agente
-        </Link>
-      </div>
+      <PageHeader
+        title="Agentes de IA"
+        actions={
+          <>
+            <Link to="/agents/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nuevo agente
+            </Link>
+          </>
+        }
+      />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

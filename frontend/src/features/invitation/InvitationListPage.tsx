@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -70,12 +71,16 @@ export function InvitationListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Invitaciones</h1>
-        <Link to="/invitations/new" className="ds-link-button">
-          Invitar
-        </Link>
-      </div>
+      <PageHeader
+        title="Invitaciones"
+        actions={
+          <>
+            <Link to="/invitations/new" className="ds-link-button">
+              Invitar
+            </Link>
+          </>
+        }
+      />
 
       <h2 className="ds-filters-title">Filtros</h2>
       <div className="ds-filters">

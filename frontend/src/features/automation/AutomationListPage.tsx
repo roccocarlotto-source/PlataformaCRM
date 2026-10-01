@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -67,13 +68,17 @@ export function AutomationListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Automatizaciones</h1>
-        <Link to="/automations/new" className="ds-link-button">
-          <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-          Nueva automatización
-        </Link>
-      </div>
+      <PageHeader
+        title="Automatizaciones"
+        actions={
+          <>
+            <Link to="/automations/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nueva automatización
+            </Link>
+          </>
+        }
+      />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>
