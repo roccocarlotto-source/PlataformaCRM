@@ -1,3 +1,4 @@
+import { PageHeader } from "../../design-system/PageHeader";
 import { useState } from "react";
 import type { OpportunityRevenueGranularity } from "../opportunity/types";
 import { VehicleSummaryCards } from "../vehicle/VehicleSummaryCards";
@@ -49,10 +50,14 @@ export function DashboardPage() {
     <div>
       {/* La misma clase que los listados para "título + acción a la derecha"
           (CompanyListPage y el resto): el selector es un control de página. */}
-      <div className="ds-page-header">
-        <h1>Dashboard</h1>
-        <PeriodToggle value={granularity} onChange={setGranularity} />
-      </div>
+      <PageHeader
+        title="Dashboard"
+        actions={
+          <>
+            <PeriodToggle value={granularity} onChange={setGranularity} />
+          </>
+        }
+      />
       <div className="ds-stack">
         <VehicleSummaryCards countUp />
         <OpportunityKpiCards granularity={granularity} />

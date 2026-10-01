@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -90,9 +91,7 @@ export function ConversationListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Conversaciones</h1>
-      </div>
+      <PageHeader title="Conversaciones" />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

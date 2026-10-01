@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
@@ -119,15 +120,17 @@ export function ContactListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Contactos</h1>
-        {isAdmin ? (
-          <Link to="/contacts/new" className="ds-link-button">
-            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-            Nuevo contacto
-          </Link>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Contactos"
+        actions={
+          isAdmin ? (
+            <Link to="/contacts/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nuevo contacto
+            </Link>
+          ) : null
+        }
+      />
 
       {/* Filtros inline, mismo patrón que CompanyListPage. El diseño los
           colapsa detrás de un botón "Filtrar"; ese panel es un patrón de

@@ -914,7 +914,7 @@ describe("ConversationDetail", () => {
 
     // Lo único que cambia: adentro del pop up el encabezado lo pone el Modal.
     expect(screen.queryByRole("heading", { name: "Conversación" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Volver a Conversaciones" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Conversaciones" })).not.toBeInTheDocument();
   });
 
   it("como ruta sí lleva el encabezado y el link de vuelta", async () => {
@@ -923,7 +923,7 @@ describe("ConversationDetail", () => {
     renderDetail();
 
     expect(await screen.findByRole("heading", { name: "Conversación" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Volver a Conversaciones" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Conversaciones" })).toHaveAttribute(
       "href",
       "/conversations",
     );

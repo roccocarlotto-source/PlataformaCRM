@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -111,9 +112,7 @@ export function BookingListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Reservas</h1>
-      </div>
+      <PageHeader title="Reservas" />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

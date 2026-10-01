@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Plus } from "lucide-react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -102,14 +104,18 @@ export function StageListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Etapas de {pipeline.name}</h1>
-        {isAdmin ? (
-          <Link to={`/pipelines/${pipelineId}/stages/new`} className="ds-link-button">
-            Nueva etapa
-          </Link>
-        ) : null}
-      </div>
+      <PageHeader
+        title={<>Etapas de {pipeline.name}</>}
+        back={{ to: "/pipelines", label: "Procesos de venta" }}
+        actions={
+          isAdmin ? (
+            <Link to={`/pipelines/${pipelineId}/stages/new`} className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nueva etapa
+            </Link>
+          ) : null
+        }
+      />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

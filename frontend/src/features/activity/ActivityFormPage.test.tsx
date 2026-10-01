@@ -140,7 +140,7 @@ describe("ActivityFormPage — create", () => {
     ]);
   });
 
-  // "+ Nueva tarea" de "Mis tareas" llega con ?assigneeId=<yo>: el
+  // "Nueva tarea" de "Mis tareas" llega con ?assigneeId=<yo>: el
   // formulario lo toma como valor inicial de "Asignado a" en creación.
   it("create: ?assigneeId preselecciona 'Asignado a' y viaja en el payload", async () => {
     server.use(...baseHandlers());

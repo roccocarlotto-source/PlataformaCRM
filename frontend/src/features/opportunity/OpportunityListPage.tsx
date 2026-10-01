@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge } from "../../design-system/Badge";
@@ -54,20 +55,36 @@ type View = "table" | "board";
 
 export function OpportunityListPage() {
   const [view, setView] = useState<View>("table");
+  const { me } = useAuth();
+  const isAdmin = me?.role === "ADMIN";
 
+  // "Nueva oportunidad" vive en el encabezado y no dentro de la vista de
+  // tabla: así está en las dos vistas, a la derecha del título como en el
+  // resto de los listados (antes quedaba suelta debajo del encabezado y
+  // desaparecía en el embudo).
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Oportunidades</h1>
-        <div className="ds-segmented" role="group" aria-label="Vista">
-          <Button aria-pressed={view === "table"} onClick={() => setView("table")}>
-            Vista de tabla
-          </Button>
-          <Button aria-pressed={view === "board"} onClick={() => setView("board")}>
-            Vista de embudo
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Oportunidades"
+        actions={
+          <>
+            <div className="ds-segmented" role="group" aria-label="Vista">
+              <Button aria-pressed={view === "table"} onClick={() => setView("table")}>
+                Vista de tabla
+              </Button>
+              <Button aria-pressed={view === "board"} onClick={() => setView("board")}>
+                Vista de embudo
+              </Button>
+            </div>
+            {isAdmin ? (
+              <Link to="/opportunities/new" className="ds-link-button">
+                <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+                Nueva oportunidad
+              </Link>
+            ) : null}
+          </>
+        }
+      />
 
       {view === "table" ? <OpportunityTableView /> : <OpportunityBoardView />}
     </div>
@@ -154,13 +171,6 @@ function OpportunityTableView() {
 
   return (
     <div>
-      {isAdmin ? (
-        <Link to="/opportunities/new" className="ds-link-button">
-          <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-          Nueva oportunidad
-        </Link>
-      ) : null}
-
       {/* Los mismos filtros que ya existían, con el look del sistema. El
           diseño muestra además Etapa y Asignado, y no muestra el orden:
           agregar filtros es funcionalidad nueva y sacar los que funcionan

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { DetailList } from "../../design-system/DetailList";
@@ -82,17 +83,19 @@ export function CompanyListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Empresas</h1>
-        {isAdmin ? (
-          <Link to="/companies/new" className="ds-link-button">
-            {/* Ícono decorativo (16px/1.5, como los del sidebar): el texto
+      <PageHeader
+        title="Empresas"
+        actions={
+          isAdmin ? (
+            <Link to="/companies/new" className="ds-link-button">
+              {/* Ícono decorativo (16px/1.5, como los del sidebar): el texto
                 del link sigue siendo exactamente "Nueva empresa". */}
-            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-            Nueva empresa
-          </Link>
-        ) : null}
-      </div>
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nueva empresa
+            </Link>
+          ) : null
+        }
+      />
 
       {/* Filtros inline, mismo patrón que ContactListPage. El diseño mete la
           búsqueda y un único filtro dentro de la misma tarjeta que la tabla;

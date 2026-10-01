@@ -366,8 +366,7 @@ describe("DashboardPage — render general y estados", () => {
 
     const toggle = screen.getByRole("group", { name: "Período" });
     const titulo = screen.getByRole("heading", { name: "Dashboard" });
-    expect(toggle.parentElement).toHaveClass("ds-page-header");
-    expect(toggle.parentElement).toContainElement(titulo);
+    expect(toggle.closest(".ds-page-header")).toContainElement(titulo);
     expect(within(toggle).getByRole("button", { name: "Mensual" })).toHaveAttribute(
       "aria-pressed",
       "true",
