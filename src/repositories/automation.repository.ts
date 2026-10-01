@@ -1,4 +1,4 @@
-import type { AutomationExecutionStatus, Prisma } from "@prisma/client";
+import { Prisma, type AutomationExecutionStatus } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
@@ -210,27 +210,56 @@ export interface UpsertAutomationExecutionData {
   error: string | null;
 }
 
-// Upsert sobre el UNIQUE (automation_id, outbox_event_id): la primera vez
-// crea la marca; en un reintento después de un FAILED la pisa (FAILED ->
-// SUCCESS, o FAILED -> FAILED con el error nuevo y executedAt actualizado).
-// Un SUCCESS nunca vuelve a FAILED por construcción: el dispatcher salta las
-// reglas que ya tienen SUCCESS y no llega a escribir.
+// Crea la marca la primera vez; en un reintento después de un FAILED la pisa
+// (FAILED -> SUCCESS, o FAILED -> FAILED con el error nuevo y executedAt
+// actualizado). Un SUCCESS nunca vuelve a FAILED por construcción: el
+// dispatcher salta las reglas que ya tienen SUCCESS y no llega a escribir.
 //
-// El WHERE del upsert es la clave única y no lleva organizationId porque
-// Prisma no lo admite ahí; el automationId viene de una fila que
-// findActiveAutomationsByTrigger ya filtró por organización, y organizationId
-// va en el `create` de todos modos — una marca nunca puede quedar colgada de
-// otra organización porque la FK compuesta (organization_id, automation_id)
-// la rechazaría.
-export function upsertAutomationExecution(data: UpsertAutomationExecutionData, db: Db = prisma) {
-  return db.automationExecution.upsert({
-    where: {
-      automationId_outboxEventId: {
+// SIN el upsert de Prisma, y es el arreglo del hallazgo de H-01
+// (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): su WHERE solo
+// admite la clave única (automation_id, outbox_event_id), sin organizationId,
+// así que el UPDATE pisaba la ejecución de OTRA organización si alguien le
+// pasaba su regla y su evento. Ahora la fila se busca con organizationId en el
+// WHERE y se actualiza por su id; si no hay, se crea (y ahí la FK compuesta
+// (organization_id, automation_id) rechaza una regla ajena). Si la clave ya
+// existe en otra organización, el INSERT choca con el único y falla: nunca
+// se toca la fila ajena.
+//
+// La carrera de dos despachos que crean la misma marca a la vez (el segundo
+// choca con el único, P2002) se resuelve releyendo y actualizando, como hacía
+// el upsert.
+export async function upsertAutomationExecution(
+  data: UpsertAutomationExecutionData,
+  db: Db = prisma,
+) {
+  const actualizar = (id: string) =>
+    db.automationExecution.update({
+      where: { id },
+      data: { status: data.status, error: data.error, executedAt: new Date() },
+    });
+  const buscar = () =>
+    db.automationExecution.findFirst({
+      where: {
+        organizationId: data.organizationId,
         automationId: data.automationId,
         outboxEventId: data.outboxEventId,
       },
-    },
-    create: data,
-    update: { status: data.status, error: data.error, executedAt: new Date() },
-  });
+      select: { id: true },
+    });
+
+  const existente = await buscar();
+  if (existente) {
+    return actualizar(existente.id);
+  }
+  try {
+    return await db.automationExecution.create({ data });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const ganadora = await buscar();
+      if (ganadora) {
+        return actualizar(ganadora.id);
+      }
+    }
+    throw err;
+  }
 }
