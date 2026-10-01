@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -53,7 +54,7 @@ export function AgentFacebookPagePage() {
   if (assigned) {
     return (
       <div className="ds-form">
-        <h1>Página de Facebook actualizada</h1>
+        <PageHeader title="Página de Facebook actualizada" />
         <div className="ds-stack">
           <Card heading={assigned.name}>
             <p>
@@ -84,7 +85,7 @@ export function AgentFacebookPagePage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <h1>Página de Facebook de un agente</h1>
+      <PageHeader title="Página de Facebook de un agente" />
       <div className="ds-stack">
         <Card heading="Asignación">
           <div className="ds-field-grid">

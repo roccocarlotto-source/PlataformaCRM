@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { DetailList } from "../../design-system/DetailList";
@@ -88,12 +89,7 @@ export function ImportPage() {
   if (source && source.type !== "FILE_IMPORT") {
     return (
       <div className="ds-form">
-        <div className="ds-page-header">
-          <h1>Importar archivo</h1>
-          <Link to="/sources" className="ds-link-button">
-            Volver a fuentes
-          </Link>
-        </div>
+        <PageHeader title="Importar archivo" back={{ to: "/sources", label: "Fuentes" }} />
         <ErrorState>
           La fuente <strong>{source.name}</strong> no es de tipo Importación de archivo, así que no
           acepta subidas.
@@ -108,19 +104,17 @@ export function ImportPage() {
   // fondo.
   return (
     <div className="ds-form">
-      <div className="ds-page-header">
-        <div>
-          <h1>Importar archivo</h1>
-          {source ? (
-            <p className="ds-page-subtitle">
+      <PageHeader
+        title="Importar archivo"
+        back={{ to: "/sources", label: "Fuentes" }}
+        subtitle={
+          source ? (
+            <>
               Fuente: <strong>{source.name}</strong>
-            </p>
-          ) : null}
-        </div>
-        <Link to="/sources" className="ds-link-button">
-          Volver a fuentes
-        </Link>
-      </div>
+            </>
+          ) : undefined
+        }
+      />
 
       <div className="ds-stack">
         {source && !source.isActive ? (

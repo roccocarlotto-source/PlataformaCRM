@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -291,10 +292,13 @@ export function WhatsappTemplatePage() {
     // rechazaría con un 400); se dice acá en vez de ofrecer un formulario
     // que no puede funcionar.
     return (
-      <ErrorState>
-        Esta automatización no manda WhatsApp, así que no lleva plantilla.{" "}
-        <Link to="/whatsapp-template">Volver a Plantillas de WhatsApp</Link>
-      </ErrorState>
+      <div className="ds-form">
+        <PageHeader
+          title="Plantilla de WhatsApp"
+          back={{ to: "/whatsapp-template", label: "Plantillas de WhatsApp" }}
+        />
+        <ErrorState>Esta automatización no manda WhatsApp, así que no lleva plantilla.</ErrorState>
+      </div>
     );
   }
 
@@ -302,12 +306,16 @@ export function WhatsappTemplatePage() {
 
   return (
     <div className="ds-form">
-      <h1>Plantilla de WhatsApp</h1>
+      <PageHeader
+        title="Plantilla de WhatsApp"
+        back={{ to: "/whatsapp-template", label: "Plantillas de WhatsApp" }}
+        subtitle={
+          <>
+            Automatización: <strong>{regla.name}</strong> ({accion.label})
+          </>
+        }
+      />
       <div className="ds-stack">
-        <p className="ds-hint">
-          Automatización: <strong>{regla.name}</strong> ({accion.label}).{" "}
-          <Link to="/whatsapp-template">Volver a Plantillas de WhatsApp</Link>
-        </p>
         <p className="ds-hint">
           Es el mensaje con el que sale esta automatización por WhatsApp. Sin una plantilla aprobada
           por Meta, no se manda ninguno.

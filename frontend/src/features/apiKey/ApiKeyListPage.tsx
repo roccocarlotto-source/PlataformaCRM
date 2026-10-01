@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -135,9 +136,7 @@ export function ApiKeyListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Claves de ingesta</h1>
-      </div>
+      <PageHeader title="Claves de ingesta" />
 
       {/* CREACIÓN SIN PANTALLA APARTE: es un solo campo. Un formulario en su
           propia ruta sería una pantalla entera para elegir una fuente. Va sin

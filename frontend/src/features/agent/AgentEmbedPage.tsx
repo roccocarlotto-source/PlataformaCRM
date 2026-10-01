@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { X } from "lucide-react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Notice } from "../../design-system/Notice";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -200,10 +201,15 @@ export function AgentEmbedPage() {
 
   return (
     <div className="ds-form">
-      <h1>Instalar el widget en un sitio</h1>
-      <p className="ds-hint">
-        Agente: <strong>{agent.name}</strong>. <Link to="/agents">Volver a Agentes</Link>
-      </p>
+      <PageHeader
+        title="Instalar el widget en un sitio"
+        back={{ to: "/agents", label: "Agentes de IA" }}
+        subtitle={
+          <>
+            Agente: <strong>{agent.name}</strong>
+          </>
+        }
+      />
 
       <div className="ds-stack">
         <Card heading="1. Dominios permitidos">

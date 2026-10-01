@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -57,13 +58,17 @@ export function BranchListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Sucursales</h1>
-        <Link to="/branches/new" className="ds-link-button">
-          <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-          Nueva sucursal
-        </Link>
-      </div>
+      <PageHeader
+        title="Sucursales"
+        actions={
+          <>
+            <Link to="/branches/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nueva sucursal
+            </Link>
+          </>
+        }
+      />
 
       {calendarError ? (
         <ErrorState>No se pudo conectar Google Calendar: {calendarError}</ErrorState>

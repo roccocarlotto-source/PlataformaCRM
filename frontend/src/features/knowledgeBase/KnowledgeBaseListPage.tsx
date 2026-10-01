@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, RefreshCw } from "lucide-react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -201,32 +202,29 @@ export function KnowledgeBaseListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Base de conocimiento</h1>
-        {/* Dos acciones en el header por primera vez en el proyecto. El
-            envoltorio reusa .ds-card-actions —un flex con wrap y gap que ya
-            existe y que usan la galería de fotos y el formulario de vehículo—
-            en vez de sumar una clase nueva al design system para acomodar dos
-            botones. */}
-        <div className="ds-card-actions">
-          <Button
-            onClick={() => void handleSync()}
-            disabled={!branchId || isBusy}
-            loading={syncMutation.isPending}
-          >
-            {/* Mientras sincroniza, el spinner del botón ocupa el lugar del
+      <PageHeader
+        title="Base de conocimiento"
+        actions={
+          <>
+            <Button
+              onClick={() => void handleSync()}
+              disabled={!branchId || isBusy}
+              loading={syncMutation.isPending}
+            >
+              {/* Mientras sincroniza, el spinner del botón ocupa el lugar del
                 ícono: dos marcas redondas juntas se leen como un error. */}
-            {syncMutation.isPending ? null : (
-              <RefreshCw size={16} strokeWidth={1.5} aria-hidden="true" />
-            )}
-            {syncMutation.isPending ? "Sincronizando…" : "Sincronizar stock"}
-          </Button>
-          <Link to="/knowledge-base/new" className="ds-link-button">
-            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-            Nueva entrada
-          </Link>
-        </div>
-      </div>
+              {syncMutation.isPending ? null : (
+                <RefreshCw size={16} strokeWidth={1.5} aria-hidden="true" />
+              )}
+              {syncMutation.isPending ? "Sincronizando…" : "Sincronizar stock"}
+            </Button>
+            <Link to="/knowledge-base/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nueva entrada
+            </Link>
+          </>
+        }
+      />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -57,7 +58,7 @@ export function NewOrganizationPage() {
   if (created) {
     return (
       <div className="ds-form">
-        <h1>Organización creada</h1>
+        <PageHeader title="Organización creada" />
         <div className="ds-stack">
           <Card heading={created.organization.name}>
             <p>
@@ -80,7 +81,7 @@ export function NewOrganizationPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <h1>Nueva organización</h1>
+      <PageHeader title="Nueva organización" />
       <div className="ds-stack">
         <Card heading="Organización">
           <div className="ds-field-grid">

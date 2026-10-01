@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { DetailList } from "../../design-system/DetailList";
@@ -206,9 +207,7 @@ export function UserListPage() {
     <div>
       {/* Sin acción a la derecha: no hay ruta de creación de usuarios (entran
           por invitación). */}
-      <div className="ds-page-header">
-        <h1>Usuarios</h1>
-      </div>
+      <PageHeader title="Usuarios" />
 
       <h2 className="ds-filters-title">Filtros</h2>
       <div className="ds-filters">

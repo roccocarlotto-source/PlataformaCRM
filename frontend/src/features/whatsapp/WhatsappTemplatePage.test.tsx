@@ -244,7 +244,7 @@ describe("WhatsappTemplatePage — la regla de la URL (ítem 181)", () => {
 
     expect(await screen.findByText("QR al ganar")).toBeInTheDocument();
     expect(screen.getByText(/Enviar QR por WhatsApp/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Volver a Plantillas de WhatsApp" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Plantillas de WhatsApp" })).toHaveAttribute(
       "href",
       "/whatsapp-template",
     );

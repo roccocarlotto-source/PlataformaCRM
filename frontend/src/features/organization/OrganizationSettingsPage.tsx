@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -160,7 +161,7 @@ export function OrganizationSettingsPage() {
   // lectura: la carga el worker diario, no se edita desde acá.
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <h1>Organización</h1>
+      <PageHeader title="Organización" />
       <div className="ds-stack">
         <Card heading="Moneda">
           <div className="ds-stack">
