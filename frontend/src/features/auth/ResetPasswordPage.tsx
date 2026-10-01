@@ -103,6 +103,7 @@ export function ResetPasswordPage() {
     return (
       <AuthShell>
         <div>
+          <h1>Elegí una nueva contraseña</h1>
           <ErrorState>Este enlace no es válido o expiró.</ErrorState>
           <p className="ds-auth-links">
             <Link to="/forgot-password">Solicitar un nuevo link</Link>

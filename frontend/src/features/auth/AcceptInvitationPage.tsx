@@ -256,6 +256,7 @@ export function AcceptInvitationPage() {
   if (status === "unauthenticated") {
     return (
       <AuthShell>
+        <h1>Aceptar invitación</h1>
         <ErrorState>
           Este enlace no es válido o expiró. Pedile a tu administrador que te reinvite.
         </ErrorState>
@@ -266,12 +267,8 @@ export function AcceptInvitationPage() {
   if (status === "profile-error" && step === "form") {
     return (
       <AuthShell>
-        <div>
-          <ErrorState>No pudimos verificar tu sesión.</ErrorState>
-          <Button variant="primary" onClick={handleRetryProfile}>
-            Reintentar
-          </Button>
-        </div>
+        <h1>Aceptar invitación</h1>
+        <ErrorState onRetry={handleRetryProfile}>No pudimos verificar tu sesión.</ErrorState>
       </AuthShell>
     );
   }
@@ -297,6 +294,7 @@ export function AcceptInvitationPage() {
     return (
       <AuthShell>
         <div>
+          <h1>Configurá tu contraseña</h1>
           <p className="ds-auth-text">
             Ya iniciaste sesión como {alreadyLoggedInEmail}. Si esta invitación es para otra cuenta,
             cerrá sesión primero.
@@ -334,12 +332,8 @@ export function AcceptInvitationPage() {
   if (step === "accept-failed") {
     return (
       <AuthShell>
-        <div>
-          <ErrorState>{error}</ErrorState>
-          <Button variant="primary" onClick={() => void runAccept()}>
-            Reintentar
-          </Button>
-        </div>
+        <h1>Aceptar invitación</h1>
+        <ErrorState onRetry={() => void runAccept()}>{error}</ErrorState>
       </AuthShell>
     );
   }
@@ -347,15 +341,11 @@ export function AcceptInvitationPage() {
   if (step === "password-failed") {
     return (
       <AuthShell>
-        <div>
-          <ErrorState>{error}</ErrorState>
-          <p className="ds-auth-text">
-            Tu cuenta ya fue creada. Solo falta configurar tu contraseña.
-          </p>
-          <Button variant="primary" onClick={() => void runSetPassword()}>
-            Reintentar
-          </Button>
-        </div>
+        <h1>Configurá tu contraseña</h1>
+        <p className="ds-auth-text">
+          Tu cuenta ya fue creada. Solo falta configurar tu contraseña.
+        </p>
+        <ErrorState onRetry={() => void runSetPassword()}>{error}</ErrorState>
       </AuthShell>
     );
   }
@@ -363,12 +353,10 @@ export function AcceptInvitationPage() {
   if (step === "profile-failed") {
     return (
       <AuthShell>
-        <div>
-          <ErrorState>No pudimos confirmar tu perfil{error ? `: ${error}` : "."}</ErrorState>
-          <Button variant="primary" onClick={handleRetryProfile}>
-            Reintentar
-          </Button>
-        </div>
+        <h1>Aceptar invitación</h1>
+        <ErrorState onRetry={handleRetryProfile}>
+          No pudimos confirmar tu perfil{error ? `: ${error}` : "."}
+        </ErrorState>
       </AuthShell>
     );
   }

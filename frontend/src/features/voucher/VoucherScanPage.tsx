@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
+import { LoadingState } from "../../design-system/LoadingState";
 import { FormField } from "../../design-system/FormField";
 import { MobileScreen } from "../../design-system/MobileScreen";
 import { formatDateTime } from "../../design-system/detailFormat";
@@ -109,7 +110,7 @@ export function VoucherScanPage() {
         )}
 
         {canjear.isPending ? (
-          <p role="status">Canjeando…</p>
+          <LoadingState>Canjeando…</LoadingState>
         ) : resultado?.tipo === "canjeado" ? (
           <div role="status" className="ds-voucher-scan-ok">
             <strong>Cupón canjeado</strong>
@@ -134,6 +135,7 @@ export function VoucherScanPage() {
             type="submit"
             variant="primary"
             disabled={canjear.isPending || manual.trim().length === 0}
+            loading={canjear.isPending}
           >
             Canjear
           </Button>
