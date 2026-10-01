@@ -38,6 +38,9 @@ export interface OrganizationSettings {
   alternateCurrency: string | null;
   // F5-b: código de país sin "+" ("598"), o null = sin país por defecto.
   defaultPhoneCountryCode: string | null;
+  // T-01: zona IANA de la organización ("America/Montevideo"); "UTC" si
+  // nunca se configuró. La usan el dashboard y la fecha de cierre.
+  timezone: string;
   exchangeRates: OrganizationExchangeRate[];
 }
 
@@ -57,6 +60,7 @@ export async function getOrganizationSettings(
     preferredCurrency: organization.preferredCurrency,
     alternateCurrency: organization.alternateCurrency,
     defaultPhoneCountryCode: organization.defaultPhoneCountryCode,
+    timezone: organization.timezone,
     exchangeRates: rates.map((row) => ({
       targetCurrency: row.targetCurrency,
       rate: row.rate.toString(),
@@ -71,6 +75,8 @@ export interface UpdateOrganizationSettingsInput {
   alternateCurrency?: string | null;
   // F5-b. null = sacar el país por defecto; undefined = no tocarlo.
   defaultPhoneCountryCode?: string | null;
+  // T-01. Zona IANA ya validada por el controller; undefined = no tocarla.
+  timezone?: string;
 }
 
 export const MONEDAS_IGUALES = "La moneda de preferencia y la alternativa no pueden ser la misma";

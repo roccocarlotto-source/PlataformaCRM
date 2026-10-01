@@ -7,7 +7,7 @@ import {
 import { CODIGO_DE_PAIS } from "../lib/telefono";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
-import { currencySchema, parseOrThrow } from "../utils/validation";
+import { currencySchema, parseOrThrow, timezoneSchema } from "../utils/validation";
 
 // Cada moneda es opcional Y nullable: null = "des-configurar esa moneda",
 // mismo patrón que expectedCloseDate en updateOpportunitySchema. Cuando no es
@@ -33,6 +33,10 @@ export const updateOrganizationSettingsSchema = z
       )
       .nullable()
       .optional(),
+    // T-01: la zona en la que se cortan "hoy", "esta semana" y "este mes" del
+    // dashboard y con la que se fecha el cierre de una venta. NO nullable: la
+    // columna es NOT NULL con default 'UTC', y "sin zona" no existe.
+    timezone: timezoneSchema.optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",

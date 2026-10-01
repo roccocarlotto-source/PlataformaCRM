@@ -1,4 +1,4 @@
-import { prisma } from "../lib/prisma";
+import { prisma, type Db } from "../lib/prisma";
 import { countAgentsByBranch } from "../repositories/agent.repository";
 import { countConfirmedBookingsOf } from "../repositories/booking.repository";
 import {
@@ -15,6 +15,10 @@ import {
 import { countOpenConversationsOf } from "../repositories/conversation.repository";
 import { countConnectionsWithSecretByBranch } from "../repositories/googleCalendarConnection.repository";
 import { countKnowledgeBaseEntriesByBranch } from "../repositories/knowledgeBaseEntry.repository";
+import {
+  findOrganizationById,
+  updateOrganizationSettings,
+} from "../repositories/organization.repository";
 import { countActiveQrCodesByBranch } from "../repositories/qrCode.repository";
 import { countActiveResourcesByBranch } from "../repositories/resource.repository";
 import { countActiveServiceTypesByBranch } from "../repositories/serviceType.repository";
@@ -87,14 +91,48 @@ export async function createBranch(organizationId: string, input: CreateBranchIn
   // dos ciudades). No hay ninguna constraint que traducir a 409, así que no hay
   // rethrowAsConflict que escribir — a diferencia de Pipeline, que sí tiene un
   // único (organizationId, name).
-  return createBranchRepo({
-    organizationId,
-    name: input.name,
-    timezone: input.timezone,
-    defaultOwnerId: await resolverDefaultOwnerId(organizationId, input.defaultOwnerId),
-    paymentLinkUrl: input.paymentLinkUrl,
-    bankTransferDetails: input.bankTransferDetails,
+  const defaultOwnerId = await resolverDefaultOwnerId(organizationId, input.defaultOwnerId);
+  return prisma.$transaction(async (tx) => {
+    const otrasSucursales = await countBranches(organizationId, {}, tx);
+    const branch = await createBranchRepo(
+      {
+        organizationId,
+        name: input.name,
+        timezone: input.timezone,
+        defaultOwnerId,
+        paymentLinkUrl: input.paymentLinkUrl,
+        bankTransferDetails: input.bankTransferDetails,
+      },
+      tx,
+    );
+    await heredarZonaDeLaPrimeraSucursal(organizationId, otrasSucursales, branch.timezone, tx);
+    return branch;
   });
+}
+
+// La zona de una organización recién creada es el default de la columna,
+// "UTC": ni el onboarding ni el alta por platform admin la eligen, y ahí todavía
+// no se sabe dónde opera. La primera sucursal SÍ la trae, obligatoria y elegida
+// a mano (createBranchSchema). Si la organización sigue en UTC al crear su
+// primera sucursal activa, hereda esa zona: es la mejor señal de "dónde opera" y
+// es la que usan el dashboard y la fecha de cierre (T-01).
+//
+// Solo la PRIMERA (ninguna otra activa): una organización que ya tiene
+// sucursales y sigue en UTC no cambia sola al sumar otra. Esas se corrigen a
+// mano desde Configuración → Organización. Límite conocido: no se distingue
+// "UTC por default" de "UTC elegido a propósito" (no hay columna para eso). Una
+// organización que haya elegido UTC a mano antes de tener sucursales lo pierde
+// con la primera. Se vuelve a elegir desde la misma pantalla.
+async function heredarZonaDeLaPrimeraSucursal(
+  organizationId: string,
+  otrasSucursales: number,
+  zonaDeLaSucursal: string,
+  tx: Db,
+): Promise<void> {
+  if (otrasSucursales > 0 || zonaDeLaSucursal === "UTC") return;
+  const organization = await findOrganizationById(organizationId, tx);
+  if (organization?.timezone !== "UTC") return;
+  await updateOrganizationSettings(organizationId, { timezone: zonaDeLaSucursal }, tx);
 }
 
 // El vendedor por defecto, validado antes de guardarse. NO se reutiliza

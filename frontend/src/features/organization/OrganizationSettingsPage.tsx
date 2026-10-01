@@ -9,6 +9,7 @@ import { Select } from "../../design-system/Select";
 import { useToast } from "../../design-system/useToast";
 import { CURRENCY_OPTIONS, isKnownCurrency } from "../../lib/currencies";
 import { useFormDraft } from "../../lib/useFormDraft";
+import { ORGANIZATION_TIMEZONE_OPTIONS, isKnownOrganizationTimezone } from "../branch/timezones";
 import { formatDate } from "../opportunity/format";
 import { formatExchangeRate } from "./format";
 import { MetaConnectionSection } from "./MetaConnectionSection";
@@ -31,12 +32,14 @@ interface OrganizationFormValues {
   preferredCurrency: string;
   alternateCurrency: string;
   defaultPhoneCountryCode: string;
+  timezone: string;
 }
 
 const EMPTY_FORM: OrganizationFormValues = {
   preferredCurrency: "",
   alternateCurrency: "",
   defaultPhoneCountryCode: "",
+  timezone: "UTC",
 };
 
 function toFormValues(settings: OrganizationSettings): OrganizationFormValues {
@@ -44,6 +47,7 @@ function toFormValues(settings: OrganizationSettings): OrganizationFormValues {
     preferredCurrency: settings.preferredCurrency ?? "",
     alternateCurrency: settings.alternateCurrency ?? "",
     defaultPhoneCountryCode: settings.defaultPhoneCountryCode ?? "",
+    timezone: settings.timezone,
   };
 }
 
@@ -128,6 +132,7 @@ export function OrganizationSettingsPage() {
         preferredCurrency: values.preferredCurrency || null,
         alternateCurrency: values.alternateCurrency || null,
         defaultPhoneCountryCode: values.defaultPhoneCountryCode.trim() || null,
+        timezone: values.timezone,
       });
       toast.show("Configuración guardada");
     } catch (err) {
@@ -198,6 +203,33 @@ export function OrganizationSettingsPage() {
           </div>
           <p className="ds-hint">
             Se usa para completar los teléfonos cargados sin código de país.
+          </p>
+        </Card>
+
+        {/* Seguimiento de T-01. Valor persistido fuera de la lista ("UTC", la
+          zona de una organización recién creada sin sucursales) se muestra
+          como opción extra mientras sea el vigente, mismo criterio que la
+          zona de la sucursal y que CurrencySelect: el selector nunca muestra
+          una ciudad mientras el PATCH manda otra cosa. Sin opción vacía: la
+          zona no se puede vaciar. */}
+        <Card heading="Zona horaria">
+          <div className="ds-field-grid">
+            <Select
+              label="Zona horaria"
+              value={values.timezone}
+              options={[
+                ...(isKnownOrganizationTimezone(values.timezone)
+                  ? []
+                  : [{ value: values.timezone, label: values.timezone }]),
+                ...ORGANIZATION_TIMEZONE_OPTIONS,
+              ]}
+              onChange={(timezone) => {
+                if (timezone) setValues({ ...values, timezone });
+              }}
+            />
+          </div>
+          <p className="ds-hint">
+            Se usa para calcular hoy, esta semana y este mes en el dashboard.
           </p>
         </Card>
 

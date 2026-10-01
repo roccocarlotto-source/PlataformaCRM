@@ -38,3 +38,39 @@ export const DEFAULT_TIMEZONE: KnownTimezone = "America/Montevideo";
 export function isKnownTimezone(timezone: string): timezone is KnownTimezone {
   return TIMEZONE_OPTIONS.some((option) => option.value === timezone);
 }
+
+// ---------------------------------------------------------------------------
+// Zonas para la ORGANIZACIÓN (Configuración → Organización, seguimiento de
+// T-01). Lista aparte y más larga a propósito, que NO revierte el criterio de
+// arriba para sucursales.
+//
+// La zona de una sucursal define horarios de turnos: ahí importa solo cómo se
+// comporta el reloj, y Buenos Aires = Montevideo = São Paulo. La de la
+// organización define "hoy / esta semana / este mes" del dashboard, y quien la
+// elige busca SU ciudad. Ver "Montevideo" sin "Buenos Aires" se lee como "mi
+// país no está". Por eso acá va una opción por ciudad de la región, aunque
+// varias den el mismo offset.
+//
+// Mismo contrato que TIMEZONE_OPTIONS para valores fuera de la lista (por
+// ejemplo "UTC", la zona de una organización recién creada): quien la use la
+// muestra como opción extra mientras sea la vigente.
+// ---------------------------------------------------------------------------
+
+export const ORGANIZATION_TIMEZONE_OPTIONS = [
+  { value: "America/Montevideo", label: "Montevideo (America/Montevideo)" },
+  {
+    value: "America/Argentina/Buenos_Aires",
+    label: "Buenos Aires (America/Argentina/Buenos_Aires)",
+  },
+  { value: "America/Santiago", label: "Santiago (America/Santiago)" },
+  { value: "America/Sao_Paulo", label: "São Paulo (America/Sao_Paulo)" },
+  { value: "America/Asuncion", label: "Asunción (America/Asuncion)" },
+  { value: "America/La_Paz", label: "La Paz (America/La_Paz)" },
+  { value: "America/Lima", label: "Lima (America/Lima)" },
+  { value: "America/Bogota", label: "Bogotá (America/Bogota)" },
+  { value: "America/Mexico_City", label: "Ciudad de México (America/Mexico_City)" },
+] as const;
+
+export function isKnownOrganizationTimezone(timezone: string): boolean {
+  return ORGANIZATION_TIMEZONE_OPTIONS.some((option) => option.value === timezone);
+}
