@@ -1852,37 +1852,43 @@ test("H-01 AutomationExecution: una ejecución NUEVA de X sobre la regla de Y la
   );
 });
 
-// HALLAZGO ABIERTO de H-01 (docs-privados/auditoria-2026-09-24-punta-a-punta.md,
-// local), pendiente de decisión de Rocco: cuando la ejecución YA existe, el
-// upsert va por el UPDATE, que busca por el único (automation_id,
-// outbox_event_id) SIN organizationId, y pisa la fila de Y (status y error).
-// Hoy no es explotable —el único caller, automationDispatch, pasa siempre la
-// organización del evento—, pero la garantía a nivel repositorio no está.
-// Queda como `todo`: corre y documenta el comportamiento, sin romper la suite.
-test(
-  "H-01 AutomationExecution: upsertAutomationExecution con la organización de X no pisa la ejecución existente de Y",
-  { todo: "hallazgo H-01 abierto: el UPDATE del upsert no filtra por organizationId" },
-  async () => {
-    const antes = await prisma.automationExecution.findFirstOrThrow({
-      where: { automationId: nx.automationY, outboxEventId: nx.outboxEventY },
-    });
-    await upsertAutomationExecution({
+// Hallazgo de H-01 (docs-privados/auditoria-2026-09-24-punta-a-punta.md,
+// local), cerrado: el UPDATE del upsert buscaba por el único (automation_id,
+// outbox_event_id) SIN organizationId y pisaba la ejecución existente de otra
+// organización. Ahora busca con organizationId; con la organización de X no
+// encuentra la de Y, el INSERT choca con el único, y la fila de Y no cambia.
+test("H-01 AutomationExecution: upsertAutomationExecution con la organización de X no pisa la ejecución existente de Y", async () => {
+  const antes = await prisma.automationExecution.findFirstOrThrow({
+    where: { automationId: nx.automationY, outboxEventId: nx.outboxEventY },
+  });
+  await assert.rejects(() =>
+    upsertAutomationExecution({
       organizationId: nx.orgX,
       automationId: nx.automationY,
       outboxEventId: nx.outboxEventY,
       status: "FAILED",
       error: "h01",
-    }).catch(() => undefined);
-    const despues = await prisma.automationExecution.findUniqueOrThrow({ where: { id: antes.id } });
-    // Se restaura antes de afirmar, para no dejar el fixture mutado.
-    await prisma.automationExecution.update({
-      where: { id: antes.id },
-      data: { status: antes.status, error: antes.error },
-    });
-    assert.equal(despues.status, antes.status);
-    assert.equal(despues.error, antes.error);
-  },
-);
+    }),
+  );
+  const despues = await prisma.automationExecution.findUniqueOrThrow({ where: { id: antes.id } });
+  assert.deepEqual(despues, antes);
+});
+
+test("H-01 AutomationExecution: con su propia organización, el reintento sí actualiza la marca", async () => {
+  const eventoY = await prisma.outboxEvent.create({
+    data: { organizationId: nx.orgY, eventType: "h01.reintento", payload: {} },
+  });
+  const datos = {
+    organizationId: nx.orgY,
+    automationId: nx.automationY,
+    outboxEventId: eventoY.id,
+  };
+  const primera = await upsertAutomationExecution({ ...datos, status: "FAILED", error: "x" });
+  const segunda = await upsertAutomationExecution({ ...datos, status: "SUCCESS", error: null });
+  assert.equal(segunda.id, primera.id, "es la misma marca, no una nueva");
+  assert.equal(segunda.status, "SUCCESS");
+  assert.equal(segunda.error, null);
+});
 
 test("H-01 BranchBusinessHours: replaceBusinessHours con la sucursal de Y no borra su horario (y no puede escribirle)", async () => {
   const antes = await leerY.horarios();
