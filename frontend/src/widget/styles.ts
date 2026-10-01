@@ -11,20 +11,30 @@
 //
 // z-index 2147483647 en el contenedor raíz: el máximo práctico, mismo
 // criterio que Intercom/Drift, para no perder contra el CSS del sitio.
+//
+// La paleta copia los VALORES del tema claro de design-system/tokens.css (el
+// acento, los textos, los bordes y el rojo de la marca), no las variables:
+// tokens.css no llega al shadow root de un sitio ajeno. Sin tema oscuro
+// automático (D-5 de la auditoría de diseño): el widget vive en el sitio del
+// cliente, y un panel oscuro sobre un sitio claro desentonaría. La tipografía
+// sigue siendo la del sistema: cargar Public Sans en un sitio ajeno es un
+// pedido de red más para un chat.
 // ---------------------------------------------------------------------------
 
 export const WIDGET_STYLES = `
 :host {
   all: initial;
-  --widget-accent: #2563eb;
+  --widget-accent: #3d47ad;
   --pcw-accent-text: #ffffff;
   --pcw-surface: #ffffff;
-  --pcw-surface-muted: #f3f4f6;
-  --pcw-text: #111827;
-  --pcw-text-muted: #6b7280;
-  --pcw-border: #e5e7eb;
-  --pcw-danger: #b91c1c;
-  --pcw-danger-bg: #fef2f2;
+  --pcw-surface-muted: #f0efeb;
+  --pcw-text: #1b1b18;
+  --pcw-text-muted: #57564d;
+  --pcw-border: #e6e5e0;
+  --pcw-danger: #b8402f;
+  --pcw-danger-bg: #fbecea;
+  --pcw-danger-border: rgba(184, 64, 47, 0.25);
+  --pcw-danger-hover: rgba(184, 64, 47, 0.08);
   --pcw-radius: 14px;
   --pcw-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
@@ -86,6 +96,7 @@ export const WIDGET_STYLES = `
   max-width: calc(100vw - 40px);
   height: 520px;
   max-height: calc(100vh - 110px);
+  max-height: calc(100dvh - 110px);
   display: flex;
   flex-direction: column;
   background: var(--pcw-surface);
@@ -174,7 +185,7 @@ export const WIDGET_STYLES = `
   border-radius: 10px;
   background: var(--pcw-danger-bg);
   color: var(--pcw-danger);
-  border: 1px solid rgba(185, 28, 28, 0.25);
+  border: 1px solid var(--pcw-danger-border);
 }
 .pcw-retry {
   border: 1px solid var(--pcw-danger);
@@ -186,7 +197,7 @@ export const WIDGET_STYLES = `
   cursor: pointer;
 }
 .pcw-retry:hover {
-  background: rgba(185, 28, 28, 0.08);
+  background: var(--pcw-danger-hover);
 }
 
 .pcw-composer {
@@ -206,6 +217,7 @@ export const WIDGET_STYLES = `
   border: 1px solid var(--pcw-border);
   border-radius: 10px;
   font: inherit;
+  font-size: max(16px, 1rem);
   color: var(--pcw-text);
   background: var(--pcw-surface);
 }
@@ -239,6 +251,7 @@ export const WIDGET_STYLES = `
     width: calc(100vw - 24px);
     max-width: none;
     height: calc(100vh - 100px);
+    height: calc(100dvh - 100px);
   }
 }
 `;
