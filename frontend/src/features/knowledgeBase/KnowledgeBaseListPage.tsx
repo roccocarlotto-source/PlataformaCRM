@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { BookOpen, Plus, RefreshCw } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -74,6 +75,7 @@ function textoDelResultado(resultado: {
 // la vista y nada más: la selección no cruza páginas, y el backend borra de a
 // uno.
 export function KnowledgeBaseListPage() {
+  const confirm = useConfirm();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
@@ -129,14 +131,15 @@ export function KnowledgeBaseListPage() {
     seleccion.clear();
   }
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     // window.confirm, igual que Agent/Branch/Source. El borrado es lógico; lo
     // que se dice acá es la consecuencia que no se ve en la pantalla: los
     // agentes de esa sucursal dejan de tener esa información.
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Eliminar esta entrada? Los agentes de esa sucursal dejan de usarla para responder.",
-      )
+        { confirmLabel: "Eliminar", danger: true },
+      ))
     ) {
       return;
     }
@@ -156,7 +159,7 @@ export function KnowledgeBaseListPage() {
   // -------------------------------------------------------------------------
   async function handleSync() {
     if (!branchId) return;
-    if (!window.confirm(CONFIRMAR_SINCRONIZAR)) return;
+    if (!(await confirm(CONFIRMAR_SINCRONIZAR, { confirmLabel: "Sincronizar" }))) return;
 
     setResultadoSync(null);
     try {
@@ -179,7 +182,7 @@ export function KnowledgeBaseListPage() {
       ids.length === 1
         ? "¿Eliminar la entrada seleccionada? Los agentes de esa sucursal dejan de usarla para responder."
         : `¿Eliminar las ${ids.length} entradas seleccionadas? Los agentes de esas sucursales dejan de usarlas para responder.`;
-    if (!window.confirm(pregunta)) return;
+    if (!(await confirm(pregunta, { confirmLabel: "Eliminar", danger: true }))) return;
 
     setBulkError(null);
     setIsBulkDeleting(true);

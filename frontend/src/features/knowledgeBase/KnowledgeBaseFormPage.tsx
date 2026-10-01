@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Notice } from "../../design-system/Notice";
 import { Button } from "../../design-system/Button";
@@ -105,6 +106,7 @@ function validar(values: KnowledgeBaseFormValues): string | null {
 // src/services/knowledgeBaseEntry.service.ts.
 // ---------------------------------------------------------------------------
 export function KnowledgeBaseFormPage() {
+  const confirm = useConfirm();
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
@@ -149,7 +151,10 @@ export function KnowledgeBaseFormPage() {
       return;
     }
 
-    if (values.content.trim() !== "" && !window.confirm(CONFIRMAR_PISAR_CONTENIDO)) {
+    if (
+      values.content.trim() !== "" &&
+      !(await confirm(CONFIRMAR_PISAR_CONTENIDO, { confirmLabel: "Reemplazar" }))
+    ) {
       setNombreArchivo(null);
       return;
     }
@@ -199,8 +204,11 @@ export function KnowledgeBaseFormPage() {
   // no existe más. Por eso el mensaje lo dice antes de que la persona
   // confirme.
   // -------------------------------------------------------------------------
-  function handleQuitarArchivo() {
-    if (!window.confirm(CONFIRMAR_QUITAR_ARCHIVO)) return;
+  async function handleQuitarArchivo() {
+    if (
+      !(await confirm(CONFIRMAR_QUITAR_ARCHIVO, { confirmLabel: "Quitar archivo", danger: true }))
+    )
+      return;
     setNombreArchivo(null);
     setValues({ ...values, content: "" });
     // El aviso de recorte hablaba del texto de ESE archivo; sin el texto no

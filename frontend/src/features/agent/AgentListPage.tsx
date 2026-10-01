@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Bot, Plus } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -33,6 +34,7 @@ const SIN_RESOLVER = "—";
 // agentes a un USER — acá no hay nada para él más que botones que el backend
 // rechazaría.
 export function AgentListPage() {
+  const confirm = useConfirm();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
@@ -60,14 +62,15 @@ export function AgentListPage() {
 
   const deleteAgentMutation = useDeleteAgent();
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     // window.confirm, igual que Branch/Source/Pipeline. El borrado es lógico y
     // además revoca los tokens de embed del agente (agent.service.ts): se dice
     // acá porque es la parte que no se puede deshacer desde la pantalla.
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Eliminar este agente? Deja de responder de inmediato y sus tokens de embed quedan revocados.",
-      )
+        { confirmLabel: "Eliminar", danger: true },
+      ))
     ) {
       return;
     }

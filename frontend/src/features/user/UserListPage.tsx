@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { UserCog } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -42,6 +43,7 @@ function UserRow({
   isSelf: boolean;
   onVerDetalle: () => void;
 }) {
+  const confirm = useConfirm();
   const updateUserMutation = useUpdateUser(user.id);
   const deleteUserMutation = useDeleteUser();
 
@@ -60,8 +62,14 @@ function UserRow({
     updateUserMutation.mutate({ isActive: !user.isActive });
   }
 
-  function handleDelete() {
-    if (!window.confirm(`¿Eliminar a ${user.fullName} de la organización?`)) return;
+  async function handleDelete() {
+    if (
+      !(await confirm(`¿Eliminar a ${user.fullName} de la organización?`, {
+        confirmLabel: "Eliminar",
+        danger: true,
+      }))
+    )
+      return;
     deleteUserMutation.mutate(user.id);
   }
 

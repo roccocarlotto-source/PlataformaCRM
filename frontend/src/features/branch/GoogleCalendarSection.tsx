@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -44,6 +45,7 @@ export function GoogleCalendarSection({
   branchId,
   resultadoDelCallback,
 }: GoogleCalendarSectionProps) {
+  const confirm = useConfirm();
   const connectionQuery = useGoogleCalendarConnection(branchId);
   const startMutation = useStartGoogleCalendarConnection(branchId);
   const disconnectMutation = useDisconnectGoogleCalendar(branchId);
@@ -62,11 +64,12 @@ export function GoogleCalendarSection({
     }
   }
 
-  function handleDesconectar() {
+  async function handleDesconectar() {
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Desconectar Google Calendar? Las reservas nuevas de esta sucursal dejan de aparecer en el calendario.",
-      )
+        { confirmLabel: "Desconectar", danger: true },
+      ))
     ) {
       return;
     }

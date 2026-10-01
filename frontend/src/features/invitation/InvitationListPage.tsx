@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { MailPlus } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -42,6 +43,7 @@ function formatDate(iso: string): string {
 // PipelineListPage. Textos, rótulos y condiciones (Revocar solo en PENDING,
 // "—" para el rol, nombre resuelto del invitador) no cambian.
 export function InvitationListPage() {
+  const confirm = useConfirm();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<InvitationStatus | "">("");
   const [sortBy, setSortBy] = useState<InvitationSortBy>("createdAt");
@@ -65,8 +67,9 @@ export function InvitationListPage() {
   // puntuales (ese hook no lo soporta), sin duplicarla.
   const inviterNames = useOwnerNames(true);
 
-  function handleRevoke(id: string) {
-    if (!window.confirm("¿Revocar esta invitación?")) return;
+  async function handleRevoke(id: string) {
+    if (!(await confirm("¿Revocar esta invitación?", { confirmLabel: "Revocar", danger: true })))
+      return;
     revokeInvitationMutation.mutate(id);
   }
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Database, Plus } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { DetailList } from "../../design-system/DetailList";
@@ -45,6 +46,7 @@ function describirMapeo(fieldMapping: FieldMapping | null): string {
 // muerto que sugiere una posibilidad que no existe. Mismo criterio que
 // UserListPage e InvitationListPage.
 export function SourceListPage() {
+  const confirm = useConfirm();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [type, setType] = useState<SourceType | "">("");
@@ -75,13 +77,14 @@ export function SourceListPage() {
 
   const deleteSourceMutation = useDeleteSource();
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     // window.confirm, igual que Company/Contact. No hay modal de confirmación en
     // el proyecto y esta pantalla no es el lugar para estrenar uno.
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Retirar esta fuente? Sus claves de ingesta se revocan y dejan de funcionar.",
-      )
+        { confirmLabel: "Retirar", danger: true },
+      ))
     ) {
       return;
     }
