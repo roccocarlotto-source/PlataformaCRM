@@ -7,7 +7,7 @@ import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Select } from "../../design-system/Select";
 import { Table } from "../../design-system/Table";
-import { EMPTY_VALUE, formatDateTime } from "../../design-system/detailFormat";
+import { EMPTY_VALUE, formatDateTime, formatShortDateTime } from "../../design-system/detailFormat";
 import { AGENTS_PARA_SELECT, useAgents } from "../agent/queries";
 import { CHANNEL_LABEL, CHANNEL_OPTIONS } from "../agent/labels";
 import { BranchSelect } from "../branch/BranchSelect";
@@ -17,18 +17,6 @@ import { useConversations } from "./queries";
 import type { ConversationChannel, ConversationStatus } from "./types";
 
 const PAGE_SIZE = 20;
-
-// Largo del brief en la fila. No es el largo del brief: el resumen entero son
-// 2 a 4 oraciones y entra cómodo en el pop up; acá se muestra el arranque, que
-// es lo que sirve para decidir cuál abrir.
-const BRIEF_EN_LA_FILA = 120;
-
-function truncar(texto: string): string {
-  const limpio = texto.trim().replace(/\s+/g, " ");
-  return limpio.length > BRIEF_EN_LA_FILA
-    ? `${limpio.slice(0, BRIEF_EN_LA_FILA).trimEnd()}…`
-    : limpio;
-}
 
 // ---------------------------------------------------------------------------
 // Bandeja de conversaciones (ítem 66 de docs/frontend-cambios-pendientes.md):
@@ -174,8 +162,8 @@ export function ConversationListPage() {
             <thead>
               <tr>
                 <th>Contacto</th>
-                <th>Canal</th>
-                <th>Estado</th>
+                <th className="ds-cell-fit">Canal</th>
+                <th className="ds-cell-fit">Estado</th>
                 <th>Sucursal</th>
                 <th>Agente</th>
                 <th>Último mensaje</th>
@@ -201,26 +189,53 @@ export function ConversationListPage() {
                     >
                       {conversation.contact.firstName} {conversation.contact.lastName}
                     </button>
-                    {/* El brief truncado, debajo del nombre: es lo que deja
-                        escanear la bandeja sin abrir una por una. Solo cuando
-                        existe — una segunda línea vacía en cada fila sería
-                        ruido, y la fila sin resumen ya se explica sola al
-                        abrirla. */}
+                    {/* El brief, debajo del nombre: es lo que deja escanear la
+                        bandeja sin abrir una por una. Solo cuando existe — una
+                        segunda línea vacía en cada fila sería ruido, y la fila
+                        sin resumen ya se explica sola al abrirla.
+                        Lo corta el CSS (.ds-cell-clamp: dos líneas, "…" y un
+                        ancho tope), no un slice por caracteres: así no estira
+                        la columna y el corte cae donde se acaba el espacio.
+                        El texto entero queda en el title. */}
                     {conversation.brief ? (
-                      <span className="ds-cell-secondary">{truncar(conversation.brief)}</span>
+                      <span className="ds-cell-secondary ds-cell-clamp" title={conversation.brief}>
+                        {conversation.brief}
+                      </span>
                     ) : null}
                   </td>
-                  <td>{CHANNEL_LABEL[conversation.channel]}</td>
-                  <td>
+                  <td className="ds-cell-fit">{CHANNEL_LABEL[conversation.channel]}</td>
+                  <td className="ds-cell-fit">
                     <Badge variant={STATUS_BADGE_VARIANT[conversation.status]}>
                       {STATUS_LABEL[conversation.status]}
                     </Badge>
                   </td>
-                  <td>{conversation.branch.name}</td>
-                  <td>{conversation.agent.name}</td>
+                  <td
+                    className="ds-cell-truncate ds-cell-truncate-sm"
+                    title={conversation.branch.name}
+                  >
+                    {conversation.branch.name}
+                  </td>
+                  <td
+                    className="ds-cell-truncate ds-cell-truncate-sm"
+                    title={conversation.agent.name}
+                  >
+                    {conversation.agent.name}
+                  </td>
                   {/* Sin mensajes todavía: la conversación existe (la creó el
-                      primer turno) pero no hay fecha que mostrar. */}
-                  <td>{formatDateTime(conversation.lastMessageAt) || EMPTY_VALUE}</td>
+                      primer turno) pero no hay fecha que mostrar. Con fecha, la
+                      forma corta en la celda y la completa al pasar el mouse. */}
+                  <td className="ds-cell-fit">
+                    {conversation.lastMessageAt ? (
+                      <time
+                        dateTime={conversation.lastMessageAt}
+                        title={formatDateTime(conversation.lastMessageAt)}
+                      >
+                        {formatShortDateTime(conversation.lastMessageAt)}
+                      </time>
+                    ) : (
+                      EMPTY_VALUE
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

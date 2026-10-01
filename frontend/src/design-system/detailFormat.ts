@@ -26,3 +26,26 @@ export function formatDateTime(iso: string | null): string {
   if (!iso) return "";
   return new Date(iso).toLocaleString();
 }
+
+// Fecha con hora en su forma corta, para una columna de tabla que no puede
+// pagar el ancho de formatDateTime ("29/9/2026, 14:05:33"): "hoy 14:05",
+// "ayer 14:05", "29/9 14:05" en el año en curso y "29/9/2025 14:05" fuera de
+// él. Hora local, sin segundos. La fecha completa va en el title de la celda
+// (formatDateTime), así que acá se puede perder precisión. `now` es
+// parámetro solo para que los tests no dependan del reloj.
+export function formatShortDateTime(iso: string | null, now: Date = new Date()): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  const hora = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  const mismoDia = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  if (mismoDia(date, now)) return `hoy ${hora}`;
+  const ayer = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (mismoDia(date, ayer)) return `ayer ${hora}`;
+  const diaMes = `${date.getDate()}/${date.getMonth() + 1}`;
+  return date.getFullYear() === now.getFullYear()
+    ? `${diaMes} ${hora}`
+    : `${diaMes}/${date.getFullYear()} ${hora}`;
+}

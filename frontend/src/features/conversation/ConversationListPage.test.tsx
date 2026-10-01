@@ -12,6 +12,7 @@ import { makeBranch } from "../../test/branchFixtures";
 import { makeConversation, makeConversationDetail } from "../../test/conversationFixtures";
 import { cellByHeader } from "../../test/cellByHeader";
 import { chooseSelectOption } from "../../test/chooseSelectOption";
+import { formatDateTime, formatShortDateTime } from "../../design-system/detailFormat";
 import { ConversationListPage } from "./ConversationListPage";
 import type { ConversationListResponse } from "./types";
 
@@ -123,6 +124,26 @@ describe("ConversationListPage", () => {
     expect(cellByHeader(fila, "Último mensaje")).not.toHaveTextContent("—");
   });
 
+  it("último mensaje en formato corto, con la fecha completa en el title", async () => {
+    const lastMessageAt = "2026-03-03T10:00:00.000Z";
+    server.use(
+      ...mockFiltros(),
+      http.get(baseUrl, () =>
+        HttpResponse.json(listResponse({ data: [makeConversation({ lastMessageAt })] })),
+      ),
+    );
+
+    renderPage();
+
+    const fila = (await screen.findByText("Ana Pérez")).closest("tr");
+    const fecha = cellByHeader(fila, "Último mensaje")?.querySelector("time");
+    // Mismas funciones que la página: el formato exacto ya lo cubre
+    // detailFormat.test.ts, y depende de la zona horaria de quien corre.
+    expect(fecha).toHaveTextContent(formatShortDateTime(lastMessageAt));
+    expect(fecha).toHaveAttribute("title", formatDateTime(lastMessageAt));
+    expect(fecha).toHaveAttribute("dateTime", lastMessageAt);
+  });
+
   it("los tres estados tienen su etiqueta propia; derivada dice a quién", async () => {
     server.use(
       ...mockFiltros(),
@@ -231,7 +252,7 @@ describe("ConversationListPage", () => {
   // El brief en la fila (ítem 73)
   // -------------------------------------------------------------------------
 
-  it("el brief aparece truncado bajo el nombre del contacto", async () => {
+  it("el brief aparece bajo el nombre del contacto, recortado por CSS y entero en el title", async () => {
     const largo = `Ana preguntó por el precio del Corolla automático y por la financiación. ${"El agente le pasó la lista y le ofreció una prueba de manejo. ".repeat(5)}`;
     server.use(
       ...mockFiltros(),
@@ -245,9 +266,11 @@ describe("ConversationListPage", () => {
     const fila = (await screen.findByText("Ana Pérez")).closest("tr");
     const resumen = fila?.querySelector(".ds-cell-secondary");
     expect(resumen).toHaveTextContent("Ana preguntó por el precio del Corolla automático");
-    // Truncado, no el brief entero pegado en la celda.
-    expect(resumen?.textContent).toContain("…");
-    expect(resumen!.textContent!.length).toBeLessThan(largo.length);
+    // El corte a dos líneas lo hace .ds-cell-clamp (jsdom no hace layout, así
+    // que acá solo se puede afirmar que la clase está); el texto completo
+    // queda a mano al pasar el mouse.
+    expect(resumen).toHaveClass("ds-cell-clamp");
+    expect(resumen).toHaveAttribute("title", largo);
   });
 
   it("una conversación sin brief no muestra una segunda línea vacía", async () => {

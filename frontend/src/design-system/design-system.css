@@ -514,9 +514,14 @@ fieldset.ds-field {
 /* Columna de casillas de selección múltiple (ítem 64), siempre la primera.
    width: 1% es el truco de tabla de siempre: con el resto de las columnas
    sin ancho fijo, el navegador le da a esta lo mínimo que necesita su
-   contenido en vez de repartirle una parte proporcional. */
+   contenido en vez de repartirle una parte proporcional.
+   .ds-cell-fit es el mismo truco para cualquier columna corta (un canal, un
+   badge de estado, una fecha corta): mide lo que mide su contenido y el ancho
+   sobrante va a las columnas que lo aprovechan. */
 .ds-table th.ds-cell-pick,
-.ds-table td.ds-cell-pick {
+.ds-table td.ds-cell-pick,
+.ds-table th.ds-cell-fit,
+.ds-table td.ds-cell-fit {
   width: 1%;
 }
 
@@ -3323,6 +3328,23 @@ a.ds-button--secondary:hover {
   color: var(--color-text-muted);
 }
 
+/* Texto libre de varias líneas dentro de una celda (hoy, el brief bajo el
+   contacto en Conversaciones): máximo dos líneas y "…". Las celdas de
+   .ds-table son nowrap, así que esto vuelve a dejar partir el texto; el
+   max-width es lo que evita que la columna se estire hasta el largo del
+   texto en una sola línea (el navegador dimensiona la columna por el ancho
+   máximo de su contenido). Mismo tope que .ds-cell-truncate. El consumidor
+   pone title={texto} para leerlo entero. */
+.ds-cell-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 320px;
+  white-space: normal;
+}
+
 /* ---------------------------------------------------------------------------
    Acciones de una fila de tabla — varios botones chicos de texto + ícono en
    línea (Ver imagen, Enviar, Copiar link, Editar, Eliminar). Medidas del
@@ -3704,6 +3726,13 @@ a.ds-button--secondary:hover {
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Variante con tope más bajo, para nombres que normalmente son cortos pero
+   pueden no serlo (una sucursal, un agente) en una tabla con muchas columnas:
+   ahí 320px por columna ya no entra en 1366px. */
+.ds-cell-truncate.ds-cell-truncate-sm {
+  max-width: 180px;
 }
 
 /* ---------------------------------------------------------------------------
