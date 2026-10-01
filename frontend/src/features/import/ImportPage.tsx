@@ -1,9 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
+import { Card } from "../../design-system/Card";
+import { DetailList } from "../../design-system/DetailList";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FileInputButton } from "../../design-system/FileInputButton";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Notice } from "../../design-system/Notice";
 import { Table } from "../../design-system/Table";
 import { useSource } from "../source/queries";
 import { validarArchivo } from "./fileValidation";
@@ -84,123 +87,162 @@ export function ImportPage() {
   // (import.service.ts), así que no se ofrece el formulario en absoluto.
   if (source && source.type !== "FILE_IMPORT") {
     return (
-      <div>
-        <h1>Importar archivo</h1>
+      <div className="ds-form">
+        <div className="ds-page-header">
+          <h1>Importar archivo</h1>
+          <Link to="/sources" className="ds-link-button">
+            Volver a fuentes
+          </Link>
+        </div>
         <ErrorState>
           La fuente <strong>{source.name}</strong> no es de tipo Importación de archivo, así que no
-          acepta subidas. Solo las fuentes FILE_IMPORT reciben archivos.
+          acepta subidas.
         </ErrorState>
-        <Link to="/sources">Volver a fuentes</Link>
       </div>
     );
   }
 
+  // Misma estructura que un formulario (.ds-form + tarjetas en .ds-stack): la
+  // subida en una tarjeta, el resultado en otra, con los contadores en
+  // DetailList. Hasta acá era un <section> con <h2>/<ul> sueltos sobre el
+  // fondo.
   return (
-    <div>
+    <div className="ds-form">
       <div className="ds-page-header">
-        <h1>Importar archivo{source ? `: ${source.name}` : ""}</h1>
+        <div>
+          <h1>Importar archivo</h1>
+          {source ? (
+            <p className="ds-page-subtitle">
+              Fuente: <strong>{source.name}</strong>
+            </p>
+          ) : null}
+        </div>
         <Link to="/sources" className="ds-link-button">
           Volver a fuentes
         </Link>
       </div>
 
-      {source && !source.isActive ? (
-        <ErrorState>
-          Esta fuente está pausada. El backend rechaza las importaciones de una fuente pausada:
-          reactivala antes de subir un archivo.
-        </ErrorState>
-      ) : null}
+      <div className="ds-stack">
+        {source && !source.isActive ? (
+          <Notice tone="warning" title="Esta fuente está pausada">
+            Las importaciones de una fuente pausada se rechazan: reactivala antes de subir un
+            archivo.
+          </Notice>
+        ) : null}
 
-      <form onSubmit={handleSubmit}>
-        {/* Solo la ELECCIÓN del archivo: la importación sigue siendo el submit
-            del botón de abajo, que es lo que gasta la subida. */}
-        <FileInputButton
-          label="Archivo (.csv o .xlsx, hasta 10 MB)"
-          accept=".csv,.xlsx"
-          selectedFileName={archivo?.name ?? null}
-          onFileSelected={(elegido) => {
-            setArchivo(elegido);
-            setErrorLocal(null);
-          }}
-        />
+        <Card heading="Archivo">
+          <form className="ds-stack" onSubmit={handleSubmit}>
+            {/* Solo la ELECCIÓN del archivo: la importación sigue siendo el submit
+                del botón de abajo, que es lo que gasta la subida. */}
+            <FileInputButton
+              label="Archivo (.csv o .xlsx, hasta 10 MB)"
+              accept=".csv,.xlsx"
+              selectedFileName={archivo?.name ?? null}
+              onFileSelected={(elegido) => {
+                setArchivo(elegido);
+                setErrorLocal(null);
+              }}
+            />
 
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={importFileMutation.isPending}
-          loading={importFileMutation.isPending}
-        >
-          {importFileMutation.isPending ? "Importando…" : "Importar"}
-        </Button>
-      </form>
+            {errorLocal ? <ErrorState>{errorLocal}</ErrorState> : null}
 
-      {errorLocal ? <ErrorState>{errorLocal}</ErrorState> : null}
+            {importFileMutation.isError ? (
+              <ErrorState>
+                No pudimos importar el archivo
+                {importFileMutation.error instanceof Error
+                  ? `: ${importFileMutation.error.message}`
+                  : "."}
+              </ErrorState>
+            ) : null}
 
-      {importFileMutation.isError ? (
-        <ErrorState>
-          No pudimos importar el archivo
-          {importFileMutation.error instanceof Error
-            ? `: ${importFileMutation.error.message}`
-            : "."}
-        </ErrorState>
-      ) : null}
-
-      {resultado ? (
-        <section>
-          <h2>Resultado de la importación</h2>
-          <p>
-            Lote <code>{resultado.batchId}</code>
-          </p>
-          <ul>
-            <li>Filas leídas: {resultado.filasLeidas}</li>
-            <li>Eventos creados: {resultado.insertados}</li>
-            {/* `duplicados` SOLO se ve acá: las filas repetidas quedan bajo el
-                lote que las trajo primero, no bajo este, así que el resumen del
-                lote no las cuenta (§9.9 de docs/ingestion-architecture.md). */}
-            <li>Filas ya importadas antes (no se duplicaron): {resultado.duplicados}</li>
-          </ul>
-          <p className="ds-hint">Columnas detectadas: {resultado.encabezados.join(", ")}</p>
-
-          {/* Las dos vistas se complementan en vez de competir: acá viven los
-              contadores agregados del lote (un GROUP BY barato), allá la cola
-              fila por fila, con el motivo de cada falla y el botón de
-              reintentar. El batchId del filtro viaja por la URL. */}
-          <p>
-            <Link to={`/ingestion-events?batchId=${resultado.batchId}`}>Ver estas filas</Link>
-          </p>
-
-          <p className="ds-hint">
-            Las filas se procesan en segundo plano: entran pendientes y se promueven a contactos
-            después. Actualizá el estado para ver cómo va.
-          </p>
-
-          <Button
-            onClick={() => void batchQuery.refetch()}
-            disabled={batchQuery.isFetching}
-            loading={batchQuery.isFetching}
-          >
-            {batchQuery.isFetching ? "Actualizando…" : "Actualizar estado"}
-          </Button>
-
-          {batchQuery.isError ? (
-            <ErrorState>
-              No pudimos consultar el estado del lote
-              {batchQuery.error instanceof Error ? `: ${batchQuery.error.message}` : "."}
-            </ErrorState>
-          ) : null}
-
-          {batchQuery.data ? (
             <div>
-              <ul>
-                <li>Total: {batchQuery.data.total}</li>
-                <li>Pendientes: {batchQuery.data.pendientes}</li>
-                <li>Promovidos a contactos: {batchQuery.data.promovidos}</li>
-                <li>Fallidos: {batchQuery.data.fallidos}</li>
-              </ul>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={importFileMutation.isPending}
+                loading={importFileMutation.isPending}
+              >
+                {importFileMutation.isPending ? "Importando…" : "Importar"}
+              </Button>
+            </div>
+          </form>
+        </Card>
 
-              {batchQuery.data.fallas.length > 0 ? (
-                <>
-                  <h3>Filas que fallaron</h3>
+        {resultado ? (
+          <Card heading="Resultado de la importación">
+            <div className="ds-stack">
+              <DetailList
+                sections={[
+                  {
+                    items: [
+                      { label: "Lote", value: <code>{resultado.batchId}</code> },
+                      { label: "Filas leídas", value: resultado.filasLeidas },
+                      { label: "Eventos creados", value: resultado.insertados },
+                      // `duplicados` SOLO se ve acá: las filas repetidas quedan
+                      // bajo el lote que las trajo primero, no bajo este, así que
+                      // el resumen del lote no las cuenta (§9.9 de
+                      // docs/ingestion-architecture.md).
+                      {
+                        label: "Filas ya importadas antes (no se duplicaron)",
+                        value: resultado.duplicados,
+                      },
+                      { label: "Columnas detectadas", value: resultado.encabezados.join(", ") },
+                    ],
+                  },
+                ]}
+              />
+
+              <Notice>
+                Las filas se procesan en segundo plano: entran pendientes y se promueven a contactos
+                después. Actualizá el estado para ver cómo va.
+              </Notice>
+
+              {/* Las dos vistas se complementan en vez de competir: acá viven los
+                  contadores agregados del lote (un GROUP BY barato), allá la cola
+                  fila por fila, con el motivo de cada falla y el botón de
+                  reintentar. El batchId del filtro viaja por la URL. */}
+              <div className="ds-card-actions">
+                <Button
+                  onClick={() => void batchQuery.refetch()}
+                  disabled={batchQuery.isFetching}
+                  loading={batchQuery.isFetching}
+                >
+                  {batchQuery.isFetching ? "Actualizando…" : "Actualizar estado"}
+                </Button>
+                <Link
+                  to={`/ingestion-events?batchId=${resultado.batchId}`}
+                  className="ds-button ds-button--secondary"
+                >
+                  Ver estas filas
+                </Link>
+              </div>
+
+              {batchQuery.isError ? (
+                <ErrorState>
+                  No pudimos consultar el estado del lote
+                  {batchQuery.error instanceof Error ? `: ${batchQuery.error.message}` : "."}
+                </ErrorState>
+              ) : null}
+
+              {batchQuery.data ? (
+                <DetailList
+                  sections={[
+                    {
+                      heading: "Estado del lote",
+                      items: [
+                        { label: "Total", value: batchQuery.data.total },
+                        { label: "Pendientes", value: batchQuery.data.pendientes },
+                        { label: "Promovidos a contactos", value: batchQuery.data.promovidos },
+                        { label: "Fallidos", value: batchQuery.data.fallidos },
+                      ],
+                    },
+                  ]}
+                />
+              ) : null}
+
+              {batchQuery.data && batchQuery.data.fallas.length > 0 ? (
+                <div>
+                  <h3 className="ds-detail-heading">Filas que fallaron</h3>
                   <Table>
                     <thead>
                       <tr>
@@ -215,21 +257,21 @@ export function ImportPage() {
                       ))}
                     </tbody>
                   </Table>
-                </>
+                </div>
               ) : null}
 
               {/* Nunca truncar en silencio, mismo criterio que el backend, que
                   topea la muestra en 100 y devuelve el resto como un número. */}
-              {batchQuery.data.fallasOmitidas > 0 ? (
+              {batchQuery.data && batchQuery.data.fallasOmitidas > 0 ? (
                 <p className="ds-hint">
                   Se muestran las primeras {batchQuery.data.fallas.length} fallas;{" "}
                   {batchQuery.data.fallasOmitidas} quedaron afuera.
                 </p>
               ) : null}
             </div>
-          ) : null}
-        </section>
-      ) : null}
+          </Card>
+        ) : null}
+      </div>
     </div>
   );
 }

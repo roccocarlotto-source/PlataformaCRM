@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { X } from "lucide-react";
+import { Notice } from "../../design-system/Notice";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -261,11 +262,7 @@ export function AgentEmbedPage() {
             </Button>
           </div>
 
-          {addError !== null ? (
-            <p role="alert" className="ds-error">
-              {addError}
-            </p>
-          ) : null}
+          {addError !== null ? <ErrorState>{addError}</ErrorState> : null}
 
           <p className="ds-hint">
             Solo el dominio, sin ninguna ruta después: <code>https://tusitio.com</code>, no{" "}
@@ -321,11 +318,11 @@ export function AgentEmbedPage() {
 
           {tokenEnClaro !== null ? (
             <div>
-              <p role="alert" className="ds-error">
+              <Notice tone="warning">
                 Esta es la única vez que vas a poder ver este token. No se guarda en ningún lado: si
                 lo perdés, hay que revocarlo y generar otro. El código del paso 3 ya lo tiene
                 puesto.
-              </p>
+              </Notice>
               <label className="ds-field">
                 <span className="ds-field-label">Token</span>
                 {/* readOnly y no disabled: un input deshabilitado no se puede
@@ -439,10 +436,10 @@ export function AgentEmbedPage() {
             // lector de pantalla lo lee al llegar, en su orden. El alert
             // queda para lo que sí aparece de golpe (el token recién
             // generado, los errores).
-            <p className="ds-error">
+            <Notice tone="warning" alert={false}>
               Este código todavía no va a funcionar: falta agregar al menos un dominio en el paso 1
               y guardarlo.
-            </p>
+            </Notice>
           ) : null}
 
           {tokenEnClaro === null ? (

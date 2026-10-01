@@ -824,6 +824,62 @@ fieldset.ds-field {
   flex: 1 1 12rem;
 }
 
+/* Notice — aviso que no es error ni ayuda. Misma geometría que .ds-error
+   (borde de 1px, radio md, padding 3/4) para que convivan en una pantalla
+   sin verse de dos familias; el color lo pone el tono. */
+.ds-notice {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3) 0;
+  border: 1px solid var(--ds-notice-color);
+  border-radius: var(--radius-md);
+  background: var(--ds-notice-bg);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.ds-notice--info {
+  --ds-notice-color: var(--color-border-strong);
+  --ds-notice-bg: var(--color-surface-muted);
+}
+
+.ds-notice--warning {
+  --ds-notice-color: var(--color-warning);
+  --ds-notice-bg: var(--color-warning-soft);
+}
+
+.ds-notice--danger {
+  --ds-notice-color: var(--color-danger);
+  --ds-notice-bg: var(--color-danger-soft);
+}
+
+.ds-notice-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--ds-notice-color);
+}
+
+.ds-notice--info .ds-notice-icon {
+  color: var(--color-text-muted);
+}
+
+.ds-notice-body {
+  min-width: 0;
+}
+
+.ds-notice-title {
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+/* Dentro de un .ds-stack el aviso va sin margen: lo separa el gap del stack.
+   Suelto (en una Card sin stack, entre párrafos) conserva el suyo. */
+.ds-stack > .ds-notice {
+  margin: 0;
+}
+
 /* EmptyState en su forma completa (con title): el vacío de una pantalla o de
    un listado entero. Centrado, con aire, y la acción debajo. */
 .ds-empty-state {

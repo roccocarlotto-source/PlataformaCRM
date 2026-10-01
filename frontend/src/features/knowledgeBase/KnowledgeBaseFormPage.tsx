@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Notice } from "../../design-system/Notice";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -376,9 +377,11 @@ export function KnowledgeBaseFormPage() {
               )}
             </p>
             {truncado ? (
-              <p className="ds-hint ds-field-grid--full">
-                El archivo era muy largo, se cortó el texto — revisalo antes de guardar.
-              </p>
+              <div className="ds-field-grid--full">
+                <Notice tone="warning" alert={false}>
+                  El archivo era muy largo, se cortó el texto — revisalo antes de guardar.
+                </Notice>
+              </div>
             ) : null}
             {/* El maxLength del textarea frena lo que se TIPEA, no lo que se
                 asigna desde el archivo: un documento de 12.000 caracteres
@@ -388,11 +391,13 @@ export function KnowledgeBaseFormPage() {
                 mano. El tope sigue validándose en un solo lugar de verdad —el
                 backend—; acá no se corta nada. */}
             {values.content.length > MAX_CONTENT ? (
-              <p className="ds-hint ds-field-grid--full">
-                El texto tiene {values.content.length.toLocaleString("es-UY")} caracteres y el
-                máximo por entrada es {MAX_CONTENT.toLocaleString("es-UY")}. Recortá{" "}
-                {(values.content.length - MAX_CONTENT).toLocaleString("es-UY")} antes de guardar.
-              </p>
+              <div className="ds-field-grid--full">
+                <Notice tone="warning" alert={false}>
+                  El texto tiene {values.content.length.toLocaleString("es-UY")} caracteres y el
+                  máximo por entrada es {MAX_CONTENT.toLocaleString("es-UY")}. Recortá{" "}
+                  {(values.content.length - MAX_CONTENT).toLocaleString("es-UY")} antes de guardar.
+                </Notice>
+              </div>
             ) : null}
           </div>
         </Card>

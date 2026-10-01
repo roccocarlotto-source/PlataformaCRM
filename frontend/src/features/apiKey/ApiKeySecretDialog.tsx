@@ -1,3 +1,4 @@
+import { Notice } from "../../design-system/Notice";
 import { CopyButton } from "../../design-system/CopyButton";
 import { Modal } from "../../design-system/Modal";
 
@@ -32,10 +33,10 @@ export interface ApiKeySecretDialogProps {
 export function ApiKeySecretDialog({ apiKey, sourceName, onClose }: ApiKeySecretDialogProps) {
   return (
     <Modal title="Clave de ingesta creada" onClose={onClose} closeLabel="Listo, ya la guardé">
-      <p role="alert" className="ds-error">
+      <Notice tone="warning">
         Esta es la única vez que vas a poder ver esta clave. No se guarda en ningún lado: si la
         perdés, hay que revocarla y crear otra.
-      </p>
+      </Notice>
 
       <p>
         Fuente: <strong>{sourceName}</strong>

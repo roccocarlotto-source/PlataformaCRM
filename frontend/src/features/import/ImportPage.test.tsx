@@ -10,6 +10,12 @@ import { makeSource } from "../../test/sourceFixtures";
 import { ImportPage } from "./ImportPage";
 import { IMPORT_MAX_FILE_BYTES } from "./types";
 
+// Los contadores del resultado son filas de DetailList: el rótulo (<dt>) y el
+// valor (<dd>) van en elementos separados, así que se busca la fila entera.
+function fila(rotulo: string): HTMLElement {
+  return screen.getByText(rotulo).closest(".ds-detail-row") as HTMLElement;
+}
+
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
@@ -218,9 +224,9 @@ describe("ImportPage — subida y resultado", () => {
     // Y el panel quedó en la pantalla, no en un modal.
     expect(await screen.findByText("Resultado de la importación")).toBeInTheDocument();
     expect(screen.getByText("batch-1")).toBeInTheDocument();
-    expect(screen.getByText("Filas leídas: 12")).toBeInTheDocument();
-    expect(screen.getByText("Eventos creados: 10")).toBeInTheDocument();
-    expect(screen.getByText("Filas ya importadas antes (no se duplicaron): 2")).toBeInTheDocument();
+    expect(fila("Filas leídas")).toHaveTextContent("12");
+    expect(fila("Eventos creados")).toHaveTextContent("10");
+    expect(fila("Filas ya importadas antes (no se duplicaron)")).toHaveTextContent("2");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -275,9 +281,10 @@ describe("ImportPage — subida y resultado", () => {
 
     await user.click(screen.getByRole("button", { name: "Actualizar estado" }));
 
-    expect(await screen.findByText("Pendientes: 3")).toBeInTheDocument();
-    expect(screen.getByText("Promovidos a contactos: 8")).toBeInTheDocument();
-    expect(screen.getByText("Fallidos: 1")).toBeInTheDocument();
+    expect(await screen.findByText("Pendientes")).toBeInTheDocument();
+    expect(fila("Pendientes")).toHaveTextContent("3");
+    expect(fila("Promovidos a contactos")).toHaveTextContent("8");
+    expect(fila("Fallidos")).toHaveTextContent("1");
 
     const tabla = within(screen.getByRole("table"));
     expect(tabla.getByText("email: email inválido")).toBeInTheDocument();
