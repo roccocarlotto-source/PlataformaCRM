@@ -130,10 +130,13 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // las 2 del motor de automatizaciones, 20260913120000 + quotes, deliveries
   // y payments, §39/§40/§43 + knowledge_base_entries, §59) más las 3
   // especiales (organizations solo SELECT; roles y exchange_rates lectura
-  // para autenticados). api_keys, google_calendar_connections, las tres
-  // tablas del módulo de Agentes de IA y platform_admins no tienen política —
-  // las dos primeras a propósito (deny-all, guardan secretos), las de agentes
-  // por el paralelismo con bookings que 20260912130000 documenta. (Las tres
+  // para autenticados). api_keys, google_calendar_connections y
+  // platform_admins no tienen política — a propósito (deny-all: las dos
+  // primeras guardan secretos). Las tres tablas del módulo de Agentes de IA
+  // (agents, conversations, messages) tienen la uniforme desde A-02
+  // (20261014120000); hasta ahí eran las únicas sin RLS. Y desde entonces
+  // src/repositories/rlsTodasLasTablas.test.ts falla si una tabla nueva nace
+  // sin RLS habilitada. (Las tres
   // tablas de facturación del módulo QR estaban en el mismo caso que
   // platform_admins hasta que 20261001120000 las eliminó, ítem 135.)
   //
