@@ -19,6 +19,11 @@
 // Las tablas anchas pueden deslizarse dentro de su .ds-table-wrap: eso no es
 // desborde de página y no cuenta.
 //
+// También falla si algún campo editable (input de texto, select, textarea)
+// tiene font-size computado menor a 16px: iOS hace zoom al enfocarlo y la
+// página queda ampliada y deslizable de costado aunque nada sea más ancho.
+// Las pantallas públicas (login, etc.) se miden además sin sesión.
+//
 // Necesita el stack LOCAL levantado, igual que test:integration:
 //   - Supabase local (`npm run supabase:start` en la raíz);
 //   - el backend en http://localhost:4000 y el frontend en
@@ -174,7 +179,25 @@ function medir(dispositivo) {
     if (culpables.length >= 5) break;
   }
   if (culpables.length > 0 && desbordes.length === 0) desbordes.push(["elementos", ancho]);
-  return { ancho, desbordes, culpables };
+
+  // Campos editables con menos de 16px: Safari y Chrome de iPhone hacen zoom
+  // al enfocarlos y la página queda ampliada y deslizable de costado (ver la
+  // regla de 16px en design-system.css). Se miran todos los del DOM, también
+  // los ocultos: la regla es de CSS y no depende de que estén a la vista.
+  const NO_EDITABLES = /^(checkbox|radio|range|color|file|button|submit|reset|image|hidden)$/;
+  const chicos = [];
+  for (const el of document.querySelectorAll(
+    "input, select, textarea, [contenteditable]:not([contenteditable='false'])",
+  )) {
+    if (el.tagName === "INPUT" && NO_EDITABLES.test(el.type)) continue;
+    const tamaño = parseFloat(getComputedStyle(el).fontSize);
+    if (tamaño < 16) {
+      const tipo = el.tagName === "INPUT" ? `[type=${el.type}]` : "";
+      chicos.push(`${nombre(el)}${tipo} ${tamaño}px`);
+      if (chicos.length >= 5) break;
+    }
+  }
+  return { ancho, desbordes, culpables, chicos };
 }
 
 async function medirRuta(contexto, ruta, ancho, conDatosEstirados) {
@@ -204,10 +227,27 @@ async function medirRuta(contexto, ruta, ancho, conDatosEstirados) {
   }
 }
 
+// Las rutas fuera de ProtectedRoute, que se miden también sin sesión.
+const PUBLICAS = ["/login", "/forgot-password", "/reset-password", "/invite/accept"];
+
 const status = supabaseLocal();
 const { clave, valor } = await sesion(status);
 const navegador = await webkit.launch();
 const fallas = [];
+
+function registrar(donde, { desbordes, culpables, chicos }) {
+  if (desbordes.length > 0) {
+    const detalle = desbordes
+      .map(([que, px]) => (que === "elementos" ? `elementos fuera de ${px}px` : `${que} ${px}px`))
+      .join(", ");
+    fallas.push(`${donde}: ${detalle} — ${culpables.join(", ")}`);
+  }
+  if (chicos.length > 0) {
+    fallas.push(
+      `${donde}: campos con menos de 16px (zoom de iOS al enfocar) — ${chicos.join(", ")}`,
+    );
+  }
+}
 try {
   for (const nombre of DISPOSITIVOS) {
     // Sin defaultBrowserType: es un dato del descriptor, no una opción de contexto.
@@ -240,19 +280,28 @@ try {
           fallas.push(`${nombre} · ${ruta} · ${datos}: no cargó (${err.message.split("\n")[0]})`);
           continue;
         }
-        const { desbordes, culpables } = medida;
-        if (desbordes.length > 0) {
-          const detalle = desbordes
-            .map(([que, px]) =>
-              que === "elementos" ? `elementos fuera de ${px}px` : `${que} ${px}px`,
-            )
-            .join(", ");
-          fallas.push(`${nombre} · ${ruta} · ${datos}: ${detalle} — ${culpables.join(", ")}`);
-        }
+        registrar(`${nombre} · ${ruta} · ${datos}`, medida);
       }
       process.stdout.write(".");
     }
     await contexto.close();
+
+    // Las pantallas sin sesión (el login es el primer campo que se enfoca):
+    // con sesión, /login redirige y sus campos nunca se medirían.
+    const sinSesion = await navegador.newContext({ ...dispositivo, locale: "es-AR" });
+    for (const ruta of PUBLICAS) {
+      if (FILTRO && !FILTRO.test(ruta)) continue;
+      try {
+        registrar(
+          `${nombre} · ${ruta} · sin sesión`,
+          await medirRuta(sinSesion, ruta, dispositivo.viewport.width, false),
+        );
+      } catch (err) {
+        fallas.push(`${nombre} · ${ruta} · sin sesión: no cargó (${err.message.split("\n")[0]})`);
+      }
+      process.stdout.write(".");
+    }
+    await sinSesion.close();
   }
 } finally {
   await navegador.close();
@@ -260,8 +309,8 @@ try {
 
 console.log("");
 if (fallas.length > 0) {
-  console.error(`${fallas.length} pantalla(s) más anchas que el celular:`);
+  console.error(`${fallas.length} pantalla(s) que no pasan en el celular:`);
   for (const falla of fallas) console.error(`  ${falla}`);
   process.exit(1);
 }
-console.log("Ninguna pantalla desborda a 375px ni a 390px.");
+console.log("Ninguna pantalla desborda a 375px ni a 390px, y ningún campo tiene menos de 16px.");
