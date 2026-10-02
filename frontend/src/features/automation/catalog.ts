@@ -1,4 +1,6 @@
 import type { SelectOption } from "../../design-system/Select";
+import type { WhatsappFormat } from "./types";
+import { TOKEN_LINK, TOKEN_NOMBRE } from "./whatsappPreview";
 
 // ---------------------------------------------------------------------------
 // Catálogo de triggers y acciones del motor de automatizaciones, del lado del
@@ -14,8 +16,9 @@ import type { SelectOption } from "../../design-system/Select";
 // texto libre sería invitar a un error que nadie puede resolver desde la
 // pantalla.
 //
-// HOY HAY DOS TRIGGERS Y TRES ACCIONES (ACCIONES_POR_TRIGGER): "Oportunidad
-// ganada" -> tarea de seguimiento o envío del QR por WhatsApp (ítem 159), y
+// HOY HAY DOS TRIGGERS Y CUATRO ACCIONES (ACCIONES_POR_TRIGGER): "Oportunidad
+// ganada" -> tarea de seguimiento, envío del QR por WhatsApp (ítem 159) o del
+// cupón de descuento (ítem 177), y
 // "Oportunidad sin movimiento" -> borrador de seguimiento redactado por la IA
 // (ítem 76). El otro caso previsto —recordatorio de turno por WhatsApp— sigue
 // sin construir (docs/automations-architecture.md §1-2).
@@ -62,11 +65,12 @@ export function triggerLabel(value: string): string {
 // Acciones
 // ---------------------------------------------------------------------------
 
-// Espejo de ACTION_CREATE_FOLLOW_UP, ACTION_DRAFT_FOLLOW_UP y
-// ACTION_SEND_QR_FOLLOWUP.
+// Espejo de ACTION_CREATE_FOLLOW_UP, ACTION_DRAFT_FOLLOW_UP,
+// ACTION_SEND_QR_FOLLOWUP y ACTION_SEND_DISCOUNT_VOUCHER.
 export const ACTION_CREATE_FOLLOW_UP = "activity.create_follow_up";
 export const ACTION_DRAFT_FOLLOW_UP = "agent.draft_follow_up";
 export const ACTION_SEND_QR_FOLLOWUP = "opportunity.send_qr_followup";
+export const ACTION_SEND_DISCOUNT_VOUCHER = "opportunity.send_discount_voucher";
 
 export const ACTION_OPTIONS: SelectOption<string>[] = [
   {
@@ -84,6 +88,11 @@ export const ACTION_OPTIONS: SelectOption<string>[] = [
     label: "Enviar QR por WhatsApp",
     subtitle: "Un WhatsApp al cliente con el link de un QR, unas horas después",
   },
+  {
+    value: ACTION_SEND_DISCOUNT_VOUCHER,
+    label: "Enviar cupón de descuento",
+    subtitle: "Un WhatsApp al cliente con un cupón de un solo uso, unas horas después",
+  },
 ];
 
 export function actionLabel(value: string): string {
@@ -100,7 +109,11 @@ export function actionLabel(value: string): string {
 // "Oportunidad sin movimiento" crearía la misma tarea TODOS los días, porque
 // esa acción no deja la marca que frena al barrido diario.
 export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
-  [TRIGGER_OPPORTUNITY_WON]: [ACTION_CREATE_FOLLOW_UP, ACTION_SEND_QR_FOLLOWUP],
+  [TRIGGER_OPPORTUNITY_WON]: [
+    ACTION_CREATE_FOLLOW_UP,
+    ACTION_SEND_QR_FOLLOWUP,
+    ACTION_SEND_DISCOUNT_VOUCHER,
+  ],
   [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
 };
 
@@ -213,35 +226,212 @@ const configDeSeguimiento: ConfigDeAccion = {
 export const MIN_DELAY_HOURS = 0;
 export const MAX_DELAY_HOURS = 720;
 
+// ---------------------------------------------------------------------------
+// El mensaje de WhatsApp de las reglas que mandan uno (el QR y el cupón):
+// formato y texto. La plantilla de Meta NO se configura aparte: el backend la
+// arma al guardar la regla (automationWhatsapp.service.ts). Espejo de
+// src/services/automationActions/mensajeDeWhatsapp.ts.
+// ---------------------------------------------------------------------------
+
+export const FORMATOS_DE_MENSAJE: ReadonlyArray<{
+  value: WhatsappFormat;
+  label: string;
+  subtitle: string;
+}> = [
+  { value: "LINK", label: "Solo link", subtitle: "El link va en el texto del mensaje" },
+  { value: "IMAGE", label: "Solo imagen", subtitle: "La imagen del QR arriba del texto, sin link" },
+  {
+    value: "LINK_AND_IMAGE",
+    label: "Imagen y link",
+    subtitle: "La imagen del QR arriba y el link en el texto",
+  },
+];
+
+export function formatoLlevaLink(formato: string): boolean {
+  return formato !== "IMAGE";
+}
+
+export function formatoLlevaImagen(formato: string): boolean {
+  return formato === "IMAGE" || formato === "LINK_AND_IMAGE";
+}
+
+// El texto con el que arranca una regla nueva, con y sin link. Los "con link"
+// son los que ya ofrecía la pantalla de plantillas (ítem 160).
+const TEXTO_INICIAL: Record<string, { conLink: string; sinLink: string }> = {
+  [ACTION_SEND_QR_FOLLOWUP]: {
+    conLink:
+      "Hola {nombre}, gracias por tu compra. Nos ayudaría mucho conocer tu opinión sobre la atención que recibiste. Podés dejarla en este enlace: {link} ¡Muchas gracias!",
+    sinLink:
+      "Hola {nombre}, gracias por tu compra. Nos ayudaría mucho conocer tu opinión sobre la atención que recibiste: escaneá este QR para dejarla. ¡Muchas gracias!",
+  },
+  [ACTION_SEND_DISCOUNT_VOUCHER]: {
+    conLink:
+      "Hola {nombre}, gracias por tu compra. Te regalamos un cupón de descuento para tu próxima visita. Lo encontrás en este enlace: {link} ¡Te esperamos!",
+    sinLink:
+      "Hola {nombre}, gracias por tu compra. Te regalamos un cupón de descuento para tu próxima visita: mostrá este QR en el local para usarlo. ¡Te esperamos!",
+  },
+};
+
+export function textoInicial(actionType: string, formato: string): string {
+  const textos = TEXTO_INICIAL[actionType];
+  if (!textos) return "";
+  return formatoLlevaLink(formato) ? textos.conLink : textos.sinLink;
+}
+
+// Al cambiar de formato: si el texto sigue siendo uno de los iniciales (o está
+// vacío), pasa al que corresponde, con o sin link; si el negocio lo escribió,
+// no se toca.
+export function textoParaFormato(actionType: string, texto: string, formato: string): string {
+  const textos = TEXTO_INICIAL[actionType];
+  if (textos && (texto === textos.conLink || texto === textos.sinLink || texto.trim() === "")) {
+    return textoInicial(actionType, formato);
+  }
+  return texto;
+}
+
+function contar(texto: string, token: string): number {
+  return texto.split(token).length - 1;
+}
+
+// Lo que se ve antes de mandar. El resto de las reglas de Meta (que no empiece
+// ni termine con una variable, el largo) las valida el backend con su 400.
+export function validarMensaje(draft: ConfigDraft): string | null {
+  const texto = (draft.messageText ?? "").trim();
+  const conLink = formatoLlevaLink(draft.whatsappFormat ?? "LINK");
+  if (texto === "") return "Escribí el texto del mensaje de WhatsApp.";
+  if (contar(texto, TOKEN_NOMBRE) !== 1) {
+    return `El mensaje tiene que incluir ${TOKEN_NOMBRE} una vez: ahí va el nombre del cliente.`;
+  }
+  if (conLink && contar(texto, TOKEN_LINK) !== 1) {
+    return `El mensaje tiene que incluir ${TOKEN_LINK} una vez: ahí va el link.`;
+  }
+  if (!conLink && contar(texto, TOKEN_LINK) > 0) {
+    return `Con "Solo imagen" el link no va en el texto: sacá ${TOKEN_LINK}.`;
+  }
+  if (conLink && texto.indexOf(TOKEN_NOMBRE) > texto.indexOf(TOKEN_LINK)) {
+    return `${TOKEN_NOMBRE} tiene que ir antes que ${TOKEN_LINK}.`;
+  }
+  return null;
+}
+
+function mensajeVacio(actionType: string): ConfigDraft {
+  return { whatsappFormat: "LINK", messageText: textoInicial(actionType, "LINK") };
+}
+
+// Una regla guardada antes del formato elegible no trae ninguno de los dos:
+// es "solo link", y el texto lo completa el formulario con el de su plantilla
+// aprobada (AutomationFormPage).
+function mensajeDesde(config: Record<string, unknown>): ConfigDraft {
+  return {
+    whatsappFormat: typeof config.whatsappFormat === "string" ? config.whatsappFormat : "LINK",
+    messageText: typeof config.messageText === "string" ? config.messageText : "",
+  };
+}
+
+function mensajeAPayload(draft: ConfigDraft): Record<string, unknown> {
+  return { whatsappFormat: draft.whatsappFormat, messageText: (draft.messageText ?? "").trim() };
+}
+
+// Mismo criterio que daysUntilDue: el vacío se valida antes (Number("") es 0)
+// y después se exige entero y en rango.
+function validarHoras(draft: ConfigDraft): string | null {
+  const texto = (draft.delayHours ?? "").trim();
+  if (texto === "") {
+    return "Indicá cuántas horas esperar antes de mandar el WhatsApp.";
+  }
+  const horas = Number(texto);
+  if (!Number.isInteger(horas)) {
+    return "Las horas de espera tienen que ser un número entero.";
+  }
+  if (horas < MIN_DELAY_HOURS || horas > MAX_DELAY_HOURS) {
+    return `Las horas de espera tienen que estar entre ${MIN_DELAY_HOURS} y ${MAX_DELAY_HOURS}.`;
+  }
+  return null;
+}
+
 const configDeSeguimientoQr: ConfigDeAccion = {
-  draftVacio: () => ({ qrCodeId: "", delayHours: "" }),
+  draftVacio: () => ({
+    qrCodeId: "",
+    delayHours: "",
+    ...mensajeVacio(ACTION_SEND_QR_FOLLOWUP),
+  }),
 
   draftDesde: (config) => ({
     qrCodeId: typeof config.qrCodeId === "string" ? config.qrCodeId : "",
     delayHours: typeof config.delayHours === "number" ? String(config.delayHours) : "",
+    ...mensajeDesde(config),
   }),
 
-  // Mismo criterio que daysUntilDue: el vacío se valida antes (Number("") es
-  // 0) y después se exige entero y en rango.
   validar: (draft) => {
     if ((draft.qrCodeId ?? "") === "") {
       return "Elegí el QR que se le va a mandar al cliente.";
     }
-    const texto = (draft.delayHours ?? "").trim();
-    if (texto === "") {
-      return "Indicá cuántas horas esperar antes de mandar el WhatsApp.";
-    }
-    const horas = Number(texto);
-    if (!Number.isInteger(horas)) {
-      return "Las horas de espera tienen que ser un número entero.";
-    }
-    if (horas < MIN_DELAY_HOURS || horas > MAX_DELAY_HOURS) {
-      return `Las horas de espera tienen que estar entre ${MIN_DELAY_HOURS} y ${MAX_DELAY_HOURS}.`;
-    }
-    return null;
+    return validarHoras(draft) ?? validarMensaje(draft);
   },
 
-  aPayload: (draft) => ({ qrCodeId: draft.qrCodeId, delayHours: Number(draft.delayHours) }),
+  aPayload: (draft) => ({
+    qrCodeId: draft.qrCodeId,
+    delayHours: Number(draft.delayHours),
+    ...mensajeAPayload(draft),
+  }),
+};
+
+// Los topes de configDeCuponSchema
+// (src/services/automationActions/sendDiscountVoucherFollowup.ts).
+export const MAX_VOUCHER_LABEL = 200;
+export const MIN_EXPIRES_IN_DAYS = 1;
+export const MAX_EXPIRES_IN_DAYS = 365;
+
+const configDeCupon: ConfigDeAccion = {
+  draftVacio: () => ({
+    label: "",
+    delayHours: "",
+    expiresInDays: "",
+    branchId: "",
+    ...mensajeVacio(ACTION_SEND_DISCOUNT_VOUCHER),
+  }),
+
+  draftDesde: (config) => ({
+    label: typeof config.label === "string" ? config.label : "",
+    delayHours: typeof config.delayHours === "number" ? String(config.delayHours) : "",
+    expiresInDays: typeof config.expiresInDays === "number" ? String(config.expiresInDays) : "",
+    branchId: typeof config.branchId === "string" ? config.branchId : "",
+    ...mensajeDesde(config),
+  }),
+
+  validar: (draft) => {
+    const label = (draft.label ?? "").trim();
+    if (label === "") {
+      return "Escribí qué descuento es (lo ve el cliente en su cupón).";
+    }
+    if (label.length > MAX_VOUCHER_LABEL) {
+      return `El descuento no puede superar los ${MAX_VOUCHER_LABEL} caracteres.`;
+    }
+    if ((draft.branchId ?? "") === "") {
+      return "Elegí la sucursal desde cuyo WhatsApp sale el cupón.";
+    }
+    const errorDeHoras = validarHoras(draft);
+    if (errorDeHoras) return errorDeHoras;
+    const textoDias = (draft.expiresInDays ?? "").trim();
+    const dias = Number(textoDias);
+    if (
+      textoDias === "" ||
+      !Number.isInteger(dias) ||
+      dias < MIN_EXPIRES_IN_DAYS ||
+      dias > MAX_EXPIRES_IN_DAYS
+    ) {
+      return `El cupón tiene que vencer en un número entero de días, entre ${MIN_EXPIRES_IN_DAYS} y ${MAX_EXPIRES_IN_DAYS}.`;
+    }
+    return validarMensaje(draft);
+  },
+
+  aPayload: (draft) => ({
+    label: draft.label.trim(),
+    delayHours: Number(draft.delayHours),
+    expiresInDays: Number(draft.expiresInDays),
+    branchId: draft.branchId,
+    ...mensajeAPayload(draft),
+  }),
 };
 
 // La config de las acciones y de los triggers que NO tienen ningún campo: el
@@ -262,7 +452,14 @@ export const CONFIG_DE_ACCION: Record<string, ConfigDeAccion> = {
   // días sin movimiento— es del trigger (ítem 76).
   [ACTION_DRAFT_FOLLOW_UP]: configVacia,
   [ACTION_SEND_QR_FOLLOWUP]: configDeSeguimientoQr,
+  [ACTION_SEND_DISCOUNT_VOUCHER]: configDeCupon,
 };
+
+// Las acciones que mandan un WhatsApp con plantilla: su formulario muestra el
+// formato, el texto, la vista previa y el estado de aprobación.
+export function accionConMensajeDeWhatsapp(actionType: string): boolean {
+  return actionType === ACTION_SEND_QR_FOLLOWUP || actionType === ACTION_SEND_DISCOUNT_VOUCHER;
+}
 
 // ---------------------------------------------------------------------------
 // La configuración de cada trigger (Automation.triggerConfig, ítem 76)

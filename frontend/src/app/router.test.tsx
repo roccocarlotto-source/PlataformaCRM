@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AdminRoute } from "../auth/AdminRoute";
-import { WhatsappTemplateListPage } from "../features/whatsapp/WhatsappTemplateListPage";
-import { WhatsappTemplatePage } from "../features/whatsapp/WhatsappTemplatePage";
+import { WhatsappTemplateRedirect } from "../features/automation/WhatsappTemplateRedirect";
 import { PlatformAdminRoute } from "../auth/PlatformAdminRoute";
 import { ProtectedRoute } from "../auth/ProtectedRoute";
 import { AppLayout } from "../layout/AppLayout";
@@ -270,24 +269,24 @@ describe("router.tsx — wiring real de platform admin (Fase 4a del módulo SaaS
   });
 });
 
-describe("router.tsx — plantillas de WhatsApp (ítems 160 y 181)", () => {
-  it("/whatsapp-template está bajo AdminRoute y renderiza el LISTADO por regla", () => {
+describe("router.tsx — plantillas de WhatsApp: rutas viejas que redirigen", () => {
+  it("/whatsapp-template está bajo AdminRoute y redirige a las automatizaciones", () => {
     const parent = findParentElement(router.routes, "/whatsapp-template") as
       { type: unknown } | undefined;
     const route = findRoute(router.routes, "/whatsapp-template") as
       { element: { type: unknown } } | undefined;
 
     expect(parent?.type).toBe(AdminRoute);
-    expect(route?.element.type).toBe(WhatsappTemplateListPage);
+    expect(route?.element.type).toBe(WhatsappTemplateRedirect);
   });
 
-  it("/whatsapp-template/:automationId está bajo AdminRoute y renderiza la plantilla de esa regla", () => {
+  it("/whatsapp-template/:automationId está bajo AdminRoute y redirige a esa regla", () => {
     const parent = findParentElement(router.routes, "/whatsapp-template/:automationId") as
       { type: unknown } | undefined;
     const route = findRoute(router.routes, "/whatsapp-template/:automationId") as
       { element: { type: unknown } } | undefined;
 
     expect(parent?.type).toBe(AdminRoute);
-    expect(route?.element.type).toBe(WhatsappTemplatePage);
+    expect(route?.element.type).toBe(WhatsappTemplateRedirect);
   });
 });

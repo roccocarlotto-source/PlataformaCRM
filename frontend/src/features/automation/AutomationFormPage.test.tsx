@@ -14,6 +14,8 @@ import { AdminRoute } from "../../auth/AdminRoute";
 import { ProtectedRoute } from "../../auth/ProtectedRoute";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { AutomationFormPage } from "./AutomationFormPage";
+import { textoInicial } from "./catalog";
+import type { WhatsappApproval } from "./types";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -90,13 +92,14 @@ describe("AutomationFormPage — creación", () => {
     ]);
   });
 
-  it("con Oportunidad ganada, la acción ofrece la tarea de seguimiento o el QR por WhatsApp, y el evento no pide campos", async () => {
+  it("con Oportunidad ganada, la acción ofrece la tarea de seguimiento, el QR o el cupón por WhatsApp, y el evento no pide campos", async () => {
     const user = userEvent.setup();
     renderForm("/automations/new");
 
     expect(await listSelectOptions(user, screen.getByLabelText("Acción"))).toEqual([
       "Crear actividad de seguimiento",
       "Enviar QR por WhatsApp",
+      "Enviar cupón de descuento",
     ]);
     expect(screen.queryByLabelText("Días sin movimiento")).not.toBeInTheDocument();
   });
@@ -566,7 +569,14 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
         triggerType: "opportunity.won",
         triggerConfig: {},
         actionType: "opportunity.send_qr_followup",
-        actionConfig: { qrCodeId: QR_ID, delayHours: 48 },
+        // El mensaje viaja con la regla: formato y texto (el inicial, si no se
+        // tocó). La plantilla de Meta la arma el backend.
+        actionConfig: {
+          qrCodeId: QR_ID,
+          delayHours: 48,
+          whatsappFormat: "LINK",
+          messageText: textoInicial("opportunity.send_qr_followup", "LINK"),
+        },
         isActive: true,
       },
     ]);
@@ -815,6 +825,233 @@ describe("AutomationFormPage — bajo AdminRoute", () => {
 
     expect(
       await screen.findByRole("heading", { name: "Nueva automatización" }),
+    ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// El mensaje de WhatsApp en la regla: formato, texto, vista previa y el único
+// estado de aprobación. La plantilla de Meta no se ve.
+// ---------------------------------------------------------------------------
+
+describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
+  const QR = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
+  const TEXTO_APROBADO = "Hola {nombre}, gracias. Tu opinión: {link} ¡Gracias!";
+
+  function aprobacion(extra: Partial<WhatsappApproval> = {}): WhatsappApproval {
+    return {
+      estado: "APROBADA",
+      motivo: null,
+      mandaLaAnterior: false,
+      bodyText: TEXTO_APROBADO,
+      formato: "LINK",
+      ...extra,
+    };
+  }
+
+  function servirRegla(whatsappApproval: WhatsappApproval, actionConfig = {}) {
+    server.use(
+      http.get(`${env.apiUrl}/api/qr`, () =>
+        HttpResponse.json({
+          data: [makeQrCode({ id: QR, displayNumber: 1, name: "Reseñas Google", branchId: "b1" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${env.apiUrl}/api/branches`, () =>
+        HttpResponse.json({
+          data: [makeBranch({ id: "b1", name: "Centro" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${baseUrl}/a1`, () =>
+        HttpResponse.json({
+          ...makeAutomation({
+            id: "a1",
+            actionType: "opportunity.send_qr_followup",
+            actionConfig: { qrCodeId: QR, delayHours: 24, ...actionConfig },
+          }),
+          whatsappApproval,
+        }),
+      ),
+    );
+  }
+
+  it("una regla vieja abre con el texto aprobado y 'solo link', y guardarla manda lo mismo", async () => {
+    servirRegla(aprobacion());
+    const bodies: unknown[] = [];
+    server.use(
+      http.patch(`${baseUrl}/a1`, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({
+          ...makeAutomation({ id: "a1" }),
+          whatsappApproval: aprobacion(),
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/a1/edit");
+
+    expect(await screen.findByLabelText("Texto del mensaje")).toHaveValue(TEXTO_APROBADO);
+    expect(screen.getByRole("radio", { name: "Solo link" })).toBeChecked();
+    expect(screen.getByText(/Aprobación de WhatsApp:/)).toHaveTextContent(
+      "Aprobación de WhatsApp: Aprobada",
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("QR a enviar")).toHaveValue("QR 1 · Reseñas Google"),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect((bodies[0] as { actionConfig: unknown }).actionConfig).toEqual({
+      qrCodeId: QR,
+      delayHours: 24,
+      whatsappFormat: "LINK",
+      messageText: TEXTO_APROBADO,
+    });
+  });
+
+  it("pendiente con la versión anterior en uso: lo dice, y 'Consultar estado' le pregunta a Meta", async () => {
+    servirRegla(aprobacion({ estado: "PENDIENTE", mandaLaAnterior: true, formato: "IMAGE" }));
+    let consultas = 0;
+    server.use(
+      http.post(`${baseUrl}/a1/whatsapp-approval/refresh`, () => {
+        consultas++;
+        return HttpResponse.json(aprobacion());
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/a1/edit");
+
+    expect(await screen.findByText(/Aprobación de WhatsApp:/)).toHaveTextContent("Pendiente");
+    expect(screen.getByText(/se sigue mandando el anterior/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Consultar estado" }));
+    await waitFor(() => expect(consultas).toBe(1));
+  });
+
+  it("rechazada: el motivo de Meta entre paréntesis y qué hacer", async () => {
+    servirRegla(aprobacion({ estado: "RECHAZADA", motivo: "INVALID_FORMAT" }));
+    renderForm("/automations/a1/edit");
+
+    expect(await screen.findByText(/Aprobación de WhatsApp:/)).toHaveTextContent(
+      "Aprobación de WhatsApp: Rechazada (INVALID_FORMAT)",
+    );
+    expect(screen.getByText(/Cambiá el texto y guardá/)).toBeInTheDocument();
+  });
+
+  it("regla nueva: explica que se manda a aprobar al guardar; 'solo imagen' cambia el texto inicial y la vista previa", async () => {
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+    await chooseSelectOption(user, screen.getByLabelText("Acción"), "Enviar QR por WhatsApp");
+
+    expect(screen.getByText(/se manda a WhatsApp para que lo apruebe/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Texto del mensaje")).toHaveValue(
+      textoInicial("opportunity.send_qr_followup", "LINK"),
+    );
+    expect(screen.getByRole("button", { name: "Insertar {link}" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "Solo imagen" }));
+
+    expect(screen.getByLabelText("Texto del mensaje")).toHaveValue(
+      textoInicial("opportunity.send_qr_followup", "IMAGE"),
+    );
+    expect(screen.queryByRole("button", { name: "Insertar {link}" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Vista previa del mensaje")).toHaveTextContent("Imagen del QR");
+    expect(screen.getByLabelText("Vista previa del mensaje")).toHaveTextContent("Hola Ana,");
+  });
+
+  it("cupón de descuento: sus campos y el POST con el mensaje", async () => {
+    server.use(
+      http.get(`${env.apiUrl}/api/branches`, () =>
+        HttpResponse.json({
+          data: [makeBranch({ id: QR, name: "Centro" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const bodies: unknown[] = [];
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makeAutomation(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Cupón post-venta");
+    await chooseSelectOption(user, screen.getByLabelText("Acción"), "Enviar cupón de descuento");
+    await user.type(screen.getByLabelText("Descuento"), "15% en el taller");
+    await chooseSelectOption(user, await screen.findByLabelText("Sucursal"), "Centro");
+    await user.type(screen.getByLabelText("Esperar (horas)"), "2");
+    await user.type(screen.getByLabelText("Vence a los (días)"), "30");
+    await user.click(screen.getByRole("radio", { name: "Imagen y link" }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect((bodies[0] as { actionConfig: unknown }).actionConfig).toEqual({
+      label: "15% en el taller",
+      branchId: QR,
+      delayHours: 2,
+      expiresInDays: 30,
+      whatsappFormat: "LINK_AND_IMAGE",
+      messageText: textoInicial("opportunity.send_discount_voucher", "LINK_AND_IMAGE"),
+    });
+  });
+
+  it("si el mensaje no llegó a Meta, la regla se guardó: queda en la pantalla con el motivo", async () => {
+    servirRegla(aprobacion());
+    server.use(
+      http.patch(`${baseUrl}/a1`, () =>
+        HttpResponse.json({
+          ...makeAutomation({ id: "a1" }),
+          whatsappApproval: aprobacion(),
+          whatsappSyncError: "No se pudo contactar a WhatsApp. Probá de nuevo en unos minutos.",
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/a1/edit");
+    await screen.findByLabelText("Texto del mensaje");
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    expect(
+      await screen.findByText(/La regla se guardó, pero el mensaje no se pudo mandar/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("listado")).not.toBeInTheDocument();
+  });
+
+  it("un alta cuyo mensaje no llegó a Meta pasa a la edición de la regla creada, con el motivo", async () => {
+    servirRegla(aprobacion({ estado: "SIN_PLANTILLA", bodyText: null, formato: null }));
+    server.use(
+      http.post(baseUrl, () =>
+        HttpResponse.json(
+          {
+            ...makeAutomation({ id: "a1" }),
+            whatsappApproval: aprobacion({ estado: "SIN_PLANTILLA" }),
+            whatsappSyncError: "Meta rechazó el pedido.",
+          },
+          { status: 201 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+    await user.type(screen.getByLabelText("Nombre"), "Pedir reseña");
+    await chooseSelectOption(user, screen.getByLabelText("Acción"), "Enviar QR por WhatsApp");
+    await chooseSelectOption(
+      user,
+      await screen.findByLabelText("QR a enviar"),
+      "QR 1 · Reseñas Google",
+    );
+    await user.type(screen.getByLabelText("Esperar (horas)"), "1");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    expect(await screen.findByText(/Meta rechazó el pedido/)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Editar automatización" }),
     ).toBeInTheDocument();
   });
 });

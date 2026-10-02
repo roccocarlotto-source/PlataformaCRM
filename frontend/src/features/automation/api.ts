@@ -6,6 +6,7 @@ import type {
   AutomationListResponse,
   CreateAutomationInput,
   UpdateAutomationInput,
+  WhatsappApproval,
 } from "./types";
 
 // Reutiliza request()/getAccessToken tal cual, mismo patrón que
@@ -47,6 +48,15 @@ export function updateAutomation(id: string, input: UpdateAutomationInput): Prom
   return request<Automation>(`/automations/${id}`, {
     method: "PATCH",
     body: input,
+    getAccessToken,
+  });
+}
+
+// Repregunta a Meta el estado de la plantilla de WhatsApp de la regla, por si
+// el aviso de Meta (webhook) no llegó o tarda.
+export function refreshWhatsappApproval(id: string): Promise<WhatsappApproval> {
+  return request<WhatsappApproval>(`/automations/${id}/whatsapp-approval/refresh`, {
+    method: "POST",
     getAccessToken,
   });
 }

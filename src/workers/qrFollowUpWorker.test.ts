@@ -7,12 +7,14 @@ import {
 } from "../services/whatsappGraph.service";
 import {
   ErrorPermanenteDelSeguimiento,
+  armarEnvioDeLaPlantilla,
   clasificarFallo,
   leerConfiguracion,
   motivoDeCancelacion,
   nombreParaElSaludo,
   procesarSeguimiento,
   type ConfiguracionDeEnvio,
+  type PlantillaDeSeguimiento,
 } from "./qrFollowUpWorker";
 
 // ---------------------------------------------------------------------------
@@ -60,7 +62,7 @@ function doblar(
     // G-07: si viene, la sucursal está cerrada y abre en ese momento.
     abreA?: Date;
     falla?: unknown;
-    plantilla?: typeof PLANTILLA | null;
+    plantilla?: PlantillaDeSeguimiento | null;
   } = {},
 ) {
   const enviados: SendWhatsappTemplateInput[] = [];
@@ -312,4 +314,76 @@ test("una fila que se cancela no llega a preguntar por la plantilla", async () =
   );
 
   assert.deepEqual(plantillasPedidas, []);
+});
+
+// ---------------------------------------------------------------------------
+// Formato del mensaje: lo decide la plantilla con la que sale.
+// ---------------------------------------------------------------------------
+
+const QR_ID = "5b0f7a4e-2c1d-4f3a-9e8b-1a2b3c4d5e6f";
+const API_PUBLICA = "https://plataformacrm.onrender.com";
+
+function enviarCon(
+  plantilla: PlantillaDeSeguimiento,
+  { baseDeLaApi }: { baseDeLaApi: string | undefined } = { baseDeLaApi: API_PUBLICA },
+) {
+  const { deps, enviados } = doblar({ plantilla });
+  return procesarSeguimiento(RECLAMO, CONFIG, { ...deps, baseDeLaApi: () => baseDeLaApi }, () =>
+    Promise.resolve(fila({ qrCodeId: QR_ID })),
+  ).then((resultado) => ({ resultado, enviados }));
+}
+
+test("formato solo link (las plantillas de siempre): sin encabezado, [nombre, link]", async () => {
+  const { enviados } = await enviarCon({
+    ...PLANTILLA,
+    bodyText: "Hola {nombre}, tu opinión: {link} gracias",
+    headerFormat: "NONE",
+  });
+  assert.equal(enviados[0].headerImageUrl, undefined);
+  assert.deepEqual(enviados[0].bodyParameters, ["Ana", "https://g.page/r/abc/review"]);
+});
+
+test("formato link e imagen: la imagen del QR de la sucursal de encabezado y [nombre, link]", async () => {
+  const { enviados } = await enviarCon({
+    ...PLANTILLA,
+    bodyText: "Hola {nombre}, tu opinión: {link} gracias",
+    headerFormat: "IMAGE",
+  });
+  assert.equal(enviados[0].headerImageUrl, `${API_PUBLICA}/qr-images/r/${QR_ID}.png`);
+  assert.deepEqual(enviados[0].bodyParameters, ["Ana", "https://g.page/r/abc/review"]);
+});
+
+test("formato solo imagen: la imagen de encabezado y solo [nombre]", async () => {
+  const { resultado, enviados } = await enviarCon({
+    ...PLANTILLA,
+    bodyText: "Hola {nombre}, te dejamos el QR. Gracias",
+    headerFormat: "IMAGE",
+  });
+  assert.equal(enviados[0].headerImageUrl, `${API_PUBLICA}/qr-images/r/${QR_ID}.png`);
+  assert.deepEqual(enviados[0].bodyParameters, ["Ana"]);
+  assert.equal(resultado.resultado === "ENVIADO" && resultado.envio.parametros.length, 1);
+});
+
+test("plantilla con imagen sin URL pública del backend: error permanente, no se manda", async () => {
+  await assert.rejects(
+    enviarCon(
+      { ...PLANTILLA, bodyText: "Hola {nombre}, tu QR. Gracias", headerFormat: "IMAGE" },
+      { baseDeLaApi: undefined },
+    ),
+    (err) =>
+      err instanceof ErrorPermanenteDelSeguimiento && /PUBLIC_API_BASE_URL/.test(err.message),
+  );
+});
+
+test("armarEnvioDeLaPlantilla: sin el texto de la plantilla, [nombre, link] como siempre", () => {
+  assert.deepEqual(
+    armarEnvioDeLaPlantilla(
+      PLANTILLA,
+      "Ana",
+      "https://x",
+      { tipo: "r", id: QR_ID },
+      { baseDeLaApi: API_PUBLICA },
+    ),
+    { bodyParameters: ["Ana", "https://x"] },
+  );
 });

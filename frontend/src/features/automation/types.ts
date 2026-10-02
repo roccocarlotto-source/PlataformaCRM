@@ -35,6 +35,27 @@ export interface Automation {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  // Solo en el detalle (GET /automations/:id) y en la respuesta de guardar:
+  // el estado de aprobación de Meta de la plantilla de WhatsApp de la regla.
+  // Null si la regla no manda WhatsApp; ausente en el listado.
+  whatsappApproval?: WhatsappApproval | null;
+  // Solo al guardar: por qué no se pudo mandar el mensaje a aprobación. La
+  // regla quedó guardada igual.
+  whatsappSyncError?: string | null;
+}
+
+// Espejo de los formatos del backend (utils/whatsappTemplateText.ts).
+export type WhatsappFormat = "LINK" | "IMAGE" | "LINK_AND_IMAGE";
+
+// Espejo de ResumenDeAprobacion (services/whatsappTemplate.service.ts): un
+// solo estado, el de la versión más nueva de la plantilla.
+export interface WhatsappApproval {
+  estado: "SIN_PLANTILLA" | "PENDIENTE" | "APROBADA" | "RECHAZADA";
+  motivo: string | null;
+  // Hay una versión nueva en revisión y, mientras tanto, sale la anterior.
+  mandaLaAnterior: boolean;
+  bodyText: string | null;
+  formato: WhatsappFormat | null;
 }
 
 export interface AutomationListPagination {

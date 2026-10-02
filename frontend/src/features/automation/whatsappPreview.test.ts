@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { insertarToken, previewDePlantilla } from "./preview";
+import { insertarToken, previewDePlantilla } from "./whatsappPreview";
 
 describe("previewDePlantilla", () => {
   it("reemplaza {nombre} y {link} por los mismos ejemplos que el backend manda a Meta", () => {

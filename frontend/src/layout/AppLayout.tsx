@@ -394,7 +394,6 @@ export function AppLayout() {
               "/api-keys",
               "/ingestion-events",
               "/organization",
-              "/whatsapp-template",
               "/branches",
             ]}
           >
@@ -424,12 +423,9 @@ export function AppLayout() {
                 <SidebarLink to="/organization" icon={Coins}>
                   Organización
                 </SidebarLink>
-                {/* Plantilla de WhatsApp (ítem 160): el mensaje del seguimiento
-                    post-venta. Configuración de la organización, ADMIN-only
-                    incluida la lectura, al lado de Organización. */}
-                <SidebarLink to="/whatsapp-template" icon={MessageCircle}>
-                  Plantillas de WhatsApp
-                </SidebarLink>
+                {/* Acá estaba "Plantillas de WhatsApp" (ítem 160). Se retiró:
+                    el mensaje se configura en la propia regla de
+                    automatización, y la plantilla de Meta se arma sola. */}
                 {/* Sucursales (ítem 20): la lectura de /api/branches es abierta, pero
                     la pantalla es toda escritura ADMIN-only — un USER ya ve las
                     sucursales donde las necesita, en BranchSelect (QR, Vehículo). */}

@@ -362,11 +362,14 @@ from (
     -- y volver a intentar" necesita.
     ('whatsapp_templates_name_active_unique',
      'CREATE UNIQUE INDEX whatsapp_templates_name_active_unique ON public.whatsapp_templates USING btree (name) WHERE (deleted_at IS NULL)'),
-    -- Ítem 181 (migración 20261009120000): reemplaza al "una activa por
-    -- organización" del 160. Una activa por (organización, regla): cada
-    -- automatización que manda WhatsApp tiene su propio texto.
-    ('whatsapp_templates_automation_active_unique',
-     'CREATE UNIQUE INDEX whatsapp_templates_automation_active_unique ON public.whatsapp_templates USING btree (organization_id, automation_id) WHERE (deleted_at IS NULL)'),
+    -- Migración 20261015120000: reemplazan al "una activa por regla" del
+    -- ítem 181 (20261009120000). Por regla, a lo sumo UNA aprobada (la que
+    -- usa el worker) y UNA en revisión o rechazada (la versión nueva que
+    -- espera a Meta tras cambiar el formato o el texto).
+    ('whatsapp_templates_automation_approved_unique',
+     'CREATE UNIQUE INDEX whatsapp_templates_automation_approved_unique ON public.whatsapp_templates USING btree (organization_id, automation_id) WHERE ((deleted_at IS NULL) AND (status = ''APPROVED''::"WhatsappTemplateStatus"))'),
+    ('whatsapp_templates_automation_candidate_unique',
+     'CREATE UNIQUE INDEX whatsapp_templates_automation_candidate_unique ON public.whatsapp_templates USING btree (organization_id, automation_id) WHERE ((deleted_at IS NULL) AND (status <> ''APPROVED''::"WhatsappTemplateStatus"))'),
     -- D-10 (migración 20261012120000): una página de Facebook conectada a una
     -- sola organización a la vez. El predicado es la mitad del arreglo: sin
     -- él, la página que una organización desconectó (fila REVOKED) no la

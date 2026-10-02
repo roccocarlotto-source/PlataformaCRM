@@ -19,10 +19,12 @@ import { crearDiscountVoucher, dependenciasDeCuponesEn } from "../services/disco
 import { soloDigitos } from "../lib/telefono";
 import { AppError } from "../utils/AppError";
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
+import { baseDeLaApiPublica } from "../utils/qrImage";
 import { buildVoucherPublicUrl } from "../utils/voucherPublicUrl";
 import {
   ErrorPermanenteDelSeguimiento,
   clasificarFallo as clasificarFalloDelSeguimientoQr,
+  armarEnvioDeLaPlantilla,
   depsDelSeguimientoReales,
   nombreParaElSaludo,
   type DepsDelSeguimiento,
@@ -192,6 +194,7 @@ export async function procesarCupon(
     | "sendTemplate"
     | "emitirCupon"
     | "ahora"
+    | "baseDeLaApi"
   >,
   leer: (
     id: string,
@@ -247,17 +250,23 @@ export async function procesarCupon(
     fila.discountVoucherId ??
     (await deps.emitirCupon(reclamo, fila, vencimientoDelCupon(deps.ahora(), fila.expiresInDays)));
 
-  // Posicionales, los mismos que el del QR: {{1}} el nombre, {{2}} el link.
-  const parametros = [
+  // Posicionales, los mismos que el del QR: {{1}} el nombre, {{2}} el link
+  // (si el texto lo lleva). La imagen, si la plantilla tiene encabezado, es
+  // el QR de ESTE cupón: el que el empleado escanea en "Canjear cupón".
+  const { bodyParameters: parametros, headerImageUrl } = armarEnvioDeLaPlantilla(
+    plantilla,
     nombreParaElSaludo(fila.contact.firstName),
     buildVoucherPublicUrl(discountVoucherId),
-  ];
+    { tipo: "v", id: discountVoucherId },
+    { baseDeLaApi: (deps.baseDeLaApi ?? baseDeLaApiPublica)() },
+  );
   const { wamid } = await deps.sendTemplate({
     phoneNumberId,
     to: destino,
     templateName: plantilla.name,
     languageCode: plantilla.languageCode,
     bodyParameters: parametros,
+    ...(headerImageUrl ? { headerImageUrl } : {}),
     accessToken: config.accessToken,
   });
   return {

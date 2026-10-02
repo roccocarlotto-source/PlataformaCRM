@@ -1,12 +1,14 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { deleteAutomation, listAutomations } from "../services/automation.service";
 import {
-  createAutomation,
-  deleteAutomation,
-  getAutomationById,
-  listAutomations,
-  updateAutomation,
-} from "../services/automation.service";
+  actualizarReglaConMensaje,
+  crearReglaConMensaje,
+  depsDeReglaConMensajeReales,
+  obtenerReglaConAprobacion,
+  type DepsDeReglaConMensaje,
+} from "../services/automationWhatsapp.service";
+import { refreshAprobacionDeLaRegla } from "../services/whatsappTemplate.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -94,43 +96,57 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
-export const createAutomationHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const input = parseOrThrow(createAutomationSchema, req.body);
-    const automation = await createAutomation(req.auth.organizationId, input);
-    res.status(201).json(automation);
-  },
-);
+// Factory y no handlers sueltos: las reglas que mandan WhatsApp hablan con
+// Meta al guardarse (automationWhatsapp.service.ts), y los tests de integración
+// le inyectan un doble. Producción usa las dependencias reales.
+export function createAutomationHandlers(
+  deps: DepsDeReglaConMensaje = depsDeReglaConMensajeReales,
+) {
+  return {
+    create: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const input = parseOrThrow(createAutomationSchema, req.body);
+      const automation = await crearReglaConMensaje(req.auth.organizationId, input, deps);
+      res.status(201).json(automation);
+    }),
 
-export const listAutomationsHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const query = parseOrThrow(listQuerySchema, req.query);
-    const result = await listAutomations(req.auth.organizationId, query);
-    res.status(200).json(result);
-  },
-);
+    list: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const query = parseOrThrow(listQuerySchema, req.query);
+      const result = await listAutomations(req.auth.organizationId, query);
+      res.status(200).json(result);
+    }),
 
-export const getAutomationHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const automation = await getAutomationById(req.auth.organizationId, id);
-    res.status(200).json(automation);
-  },
-);
+    // Con el estado de aprobación de WhatsApp de la regla (null si no manda).
+    get: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const id = parseOrThrow(idParamSchema, req.params.id);
+      const automation = await obtenerReglaConAprobacion(req.auth.organizationId, id);
+      res.status(200).json(automation);
+    }),
 
-export const updateAutomationHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const input = parseOrThrow(updateAutomationSchema, req.body);
-    const automation = await updateAutomation(req.auth.organizationId, id, input);
-    res.status(200).json(automation);
-  },
-);
+    update: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const id = parseOrThrow(idParamSchema, req.params.id);
+      const input = parseOrThrow(updateAutomationSchema, req.body);
+      const automation = await actualizarReglaConMensaje(req.auth.organizationId, id, input, deps);
+      res.status(200).json(automation);
+    }),
 
-export const deleteAutomationHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    await deleteAutomation(req.auth.organizationId, id);
-    res.status(204).send();
-  },
-);
+    remove: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const id = parseOrThrow(idParamSchema, req.params.id);
+      await deleteAutomation(req.auth.organizationId, id);
+      res.status(204).send();
+    }),
+
+    // Repregunta a Meta el estado de la plantilla de la regla, por si el
+    // webhook no llegó. Devuelve el resumen de aprobación. Para una regla de
+    // otra organización o inexistente, el mismo resumen vacío: no hay nada
+    // que revelar.
+    refreshWhatsappApproval: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const id = parseOrThrow(idParamSchema, req.params.id);
+      const aprobacion = await refreshAprobacionDeLaRegla(
+        req.auth.organizationId,
+        id,
+        deps.plantillas,
+      );
+      res.status(200).json(aprobacion);
+    }),
+  };
+}

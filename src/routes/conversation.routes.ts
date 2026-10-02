@@ -13,7 +13,7 @@ import type { DepsDeRespuestaHumana } from "../services/conversationReply.servic
 
 // Factory desde I-03: las respuestas desde el CRM salen por la Graph API, y el
 // test de integración monta el router con un doble del envío (mismo patrón que
-// createWhatsappTemplateRouter). Producción monta conversationRouter.
+// createAutomationRouter). Producción monta conversationRouter.
 export function createConversationRouter(deps?: DepsDeRespuestaHumana) {
   const conversationRouter = Router();
   const replyHandlers = createConversationReplyHandlers(deps);

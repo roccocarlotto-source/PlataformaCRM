@@ -367,6 +367,14 @@ enum WhatsappTemplateStatus {
   REJECTED
 }
 
+// El encabezado de una plantilla de WhatsApp: ninguno (solo texto, toda
+// plantilla anterior a la elección del formato) o una imagen — la del QR de la
+// sucursal o la del cupón, que el worker pasa por mensaje como link público.
+enum WhatsappTemplateHeaderFormat {
+  NONE
+  IMAGE
+}
+
 // Estado de un cupón de descuento de un solo uso (ítem 176). Solo DOS valores
 // guardados, a propósito:
 //
@@ -612,8 +620,8 @@ model Organization {
   // declararlas, y un default "USD" haría indistinguible "eligió USD" de
   // "nunca lo configuró". VarChar(3) replica Opportunity.currency, para que
   // el mismo dato se describa de la misma forma en las dos tablas.
-  preferredCurrency      String? @map("preferred_currency") @db.VarChar(3)
-  alternateCurrency      String? @map("alternate_currency") @db.VarChar(3)
+  preferredCurrency       String? @map("preferred_currency") @db.VarChar(3)
+  alternateCurrency       String? @map("alternate_currency") @db.VarChar(3)
   // Código de país (solo dígitos, sin "+": "598") con el que se completan los
   // teléfonos cargados en formato local, con el 0 de larga distancia —
   // F5-b de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub), ver lib/telefono.ts. Null =
@@ -632,7 +640,7 @@ model Organization {
   // 2). No es una sequence de Postgres porque nextval() no es transaccional:
   // quemaría un número aunque la transacción que lo pidió haga rollback, y
   // el código interno de una automotora tiene que ser correlativo.
-  nextVehicleStockNumber Int     @default(1) @map("next_vehicle_stock_number")
+  nextVehicleStockNumber  Int     @default(1) @map("next_vehicle_stock_number")
 
   users         User[]
   companies     Company[]
@@ -3001,28 +3009,38 @@ model DiscountVoucherFollowUp {
 // Parciales para que borrar LIBERE el nombre y el lugar.
 // ---------------------------------------------------------------------------
 model WhatsappTemplate {
-  id             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String                 @map("organization_id") @db.Uuid
+  id             String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String                       @map("organization_id") @db.Uuid
   // La regla que manda con esta plantilla (ítem 181). La FK es compuesta
   // (C-3): la regla tiene que ser de la MISMA organización.
-  automationId   String                 @map("automation_id") @db.Uuid
+  automationId   String                       @map("automation_id") @db.Uuid
   // Minúsculas, números y guion bajo (regla de Meta). 512 es el tope de Meta.
-  name           String                 @db.VarChar(512)
+  name           String                       @db.VarChar(512)
   // Código de idioma de Meta (es_AR, en_US...).
-  language       String                 @db.VarChar(20)
-  bodyText       String                 @map("body_text")
+  language       String                       @db.VarChar(20)
+  bodyText       String                       @map("body_text")
+  // NONE en toda plantilla anterior al formato de mensaje elegible: siguen
+  // mandándose igual, sin pedir una aprobación nueva.
+  headerFormat   WhatsappTemplateHeaderFormat @default(NONE) @map("header_format")
   // El id que Meta le dio. NULL solo en la ventana entre reservar la fila y
   // que Meta conteste el alta (ver whatsappTemplate.service.ts).
-  metaTemplateId String?                @map("meta_template_id") @db.VarChar(64)
-  status         WhatsappTemplateStatus @default(PENDING)
-  rejectedReason String?                @map("rejected_reason")
-  deletedAt      DateTime?              @map("deleted_at")
-  createdAt      DateTime               @default(now()) @map("created_at")
-  updatedAt      DateTime               @updatedAt @map("updated_at")
+  metaTemplateId String?                      @map("meta_template_id") @db.VarChar(64)
+  status         WhatsappTemplateStatus       @default(PENDING)
+  rejectedReason String?                      @map("rejected_reason")
+  deletedAt      DateTime?                    @map("deleted_at")
+  createdAt      DateTime                     @default(now()) @map("created_at")
+  updatedAt      DateTime                     @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   automation   Automation   @relation(fields: [organizationId, automationId], references: [organizationId, id])
 
+  // Hasta DOS filas vivas por regla, y no una: la APROBADA con la que se
+  // manda hoy y, si el negocio cambió el formato o el texto, la versión nueva
+  // que espera la revisión de Meta. Lo garantizan dos UNIQUE parciales de la
+  // migración 20261015120000 (una aprobada y una "en revisión" por regla); al
+  // aprobarse la nueva, la anterior se da de baja en la misma transacción
+  // (whatsappTemplate.repository.ts).
+  //
   // El webhook de Meta identifica la plantilla por su id: lo sirve este
   // índice. No es UNIQUE porque una fila borrada conserva el suyo como
   // historial, y un alta que Meta rechaza en el momento no llega a tener uno.

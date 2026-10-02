@@ -32,6 +32,7 @@ import { resourceRouter } from "./resource.routes";
 import { serviceTypeRouter } from "./serviceType.routes";
 import { pipelineRouter } from "./pipeline.routes";
 import { qrRouter } from "./qr.routes";
+import { qrImageRouter } from "./qrImage.routes";
 import { qrPublicRouter } from "./qrPublic.routes";
 import { quoteRouter } from "./quote.routes";
 import { sourceRouter } from "./source.routes";
@@ -40,7 +41,6 @@ import { userRouter } from "./user.routes";
 import { vehicleRouter } from "./vehicle.routes";
 import { voucherRouter } from "./voucher.routes";
 import { voucherPublicRouter } from "./voucherPublic.routes";
-import { whatsappTemplateRouter } from "./whatsappTemplate.routes";
 
 // Agrega acá cada router nuevo a medida que se implementen entidades del CRM.
 // /health queda sin prefijo (convención de health checks); las rutas de
@@ -142,11 +142,9 @@ routes.use("/api", internalAgentRouter);
 // leer, + authorize("ADMIN") para escribir. La ejecución de las reglas no pasa
 // por HTTP: la dispara el worker del outbox (server.ts).
 routes.use("/api", automationRouter);
-// La plantilla de WhatsApp con la que sale el seguimiento post-venta que
-// agenda la automatización opportunity.send_qr_followup (ítem 160). Pegada a
-// automationRouter porque es la configuración de esa acción; ADMIN-only
-// incluida la lectura (ver su router).
-routes.use("/api", whatsappTemplateRouter);
+// La plantilla de WhatsApp de las reglas que mandan uno ya no tiene rutas
+// propias: se crea al guardar la regla y su estado viaja con ella (ver
+// services/automationWhatsapp.service.ts).
 
 // Conexión OAuth con Google Calendar (paso 2 de booking-architecture.md §9).
 // Sus tres rutas administrativas comparten la forma del resto de este bloque;
@@ -189,6 +187,11 @@ routes.use("/api", ingestionEventRouter);
 // docs/qr-integration.md, "Changelog".
 routes.use(qrPublicRouter);
 routes.use("/api", qrRouter);
+
+// El PNG del QR de una sucursal o de un cupón, para el encabezado del WhatsApp
+// de seguimiento (lo baja Meta). Público y sin el secreto del Worker: es una
+// función pura del UUID de la URL, ver routes/qrImage.routes.ts.
+routes.use(qrImageRouter);
 
 // Cupón de descuento de un solo uso (ítem 176). NO es el QR de un solo uso que
 // se eliminó el 04/09: entidad separada (ver el modelo DiscountVoucher).

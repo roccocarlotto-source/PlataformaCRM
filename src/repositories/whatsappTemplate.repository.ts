@@ -1,16 +1,18 @@
-import { WhatsappTemplateStatus } from "@prisma/client";
+import { WhatsappTemplateHeaderFormat, WhatsappTemplateStatus } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
-// La plantilla de WhatsApp de cada regla de automatización (ítem 160 de
+// Las plantillas de WhatsApp de cada regla de automatización (ítem 160 de
 // docs/frontend-cambios-pendientes.md; hasta el ítem 181 era una por
 // organización). Ver el modelo WhatsappTemplate en schema.prisma y el flujo
-// de alta/baja con Meta en src/services/whatsappTemplate.service.ts.
+// con Meta en src/services/whatsappTemplate.service.ts.
 //
-// "LA plantilla" se identifica por (organizationId, automationId): las
-// funciones que la buscan sin id reciben los dos. Las que van por id no
-// necesitan la regla: el id ya es único, y el organizationId del WHERE es el
-// aislamiento de siempre.
+// HASTA DOS VIVAS POR REGLA (migración 20261015120000): la APROBADA, con la
+// que se manda, y la CANDIDATA —en revisión o rechazada—, la versión nueva que
+// nace cuando el negocio cambia el formato o el texto. La regla sigue
+// mandando con la aprobada hasta que Meta aprueba la candidata; en ese
+// momento aplicarEstadoDePlantilla da de baja la anterior y promueve la nueva
+// en una sola transacción, que es lo que dejan pasar los dos UNIQUE parciales.
 //
 // Mismo molde que el resto de los repositorios: organizationId obligatorio y
 // deletedAt: null en toda lectura, updateMany con organizationId en el WHERE
@@ -28,25 +30,36 @@ const seleccionPublica = {
   name: true,
   language: true,
   bodyText: true,
+  headerFormat: true,
   status: true,
   rejectedReason: true,
   createdAt: true,
   updatedAt: true,
 } as const;
 
-export function findActiveWhatsappTemplate(
+const seleccionConMeta = { ...seleccionPublica, metaTemplateId: true } as const;
+
+// La aprobada y la candidata de una regla (cualquiera puede faltar). Más
+// reciente primero por si el UNIQUE no estuviera aplicado: nunca devuelve dos
+// del mismo lado.
+export async function findPlantillasDeLaRegla(
   organizationId: string,
   automationId: string,
   db: Db = prisma,
 ) {
-  return db.whatsappTemplate.findFirst({
+  const vivas = await db.whatsappTemplate.findMany({
     where: { organizationId, automationId, deletedAt: null },
-    select: seleccionPublica,
+    select: seleccionConMeta,
+    orderBy: { createdAt: "desc" },
   });
+  return {
+    aprobada: vivas.find((p) => p.status === WhatsappTemplateStatus.APPROVED) ?? null,
+    candidata: vivas.find((p) => p.status !== WhatsappTemplateStatus.APPROVED) ?? null,
+  };
 }
 
-export type WhatsappTemplatePublica = NonNullable<
-  Awaited<ReturnType<typeof findActiveWhatsappTemplate>>
+export type PlantillaConMeta = NonNullable<
+  Awaited<ReturnType<typeof findPlantillasDeLaRegla>>["aprobada"]
 >;
 
 export function findPublicWhatsappTemplateById(
@@ -60,19 +73,18 @@ export function findPublicWhatsappTemplateById(
   });
 }
 
-// Con los campos de la integración: lo que el service necesita para hablar
-// con Meta (el id y el nombre con que se registró).
+export type WhatsappTemplatePublica = NonNullable<
+  Awaited<ReturnType<typeof findPublicWhatsappTemplateById>>
+>;
+
 export function findWhatsappTemplateById(organizationId: string, id: string, db: Db = prisma) {
   return db.whatsappTemplate.findFirst({
     where: { id, organizationId, deletedAt: null },
-    select: { ...seleccionPublica, metaTemplateId: true },
+    select: seleccionConMeta,
   });
 }
 
-// ¿Hay una plantilla activa con este nombre, de CUALQUIER organización? Es la
-// regla del UNIQUE whatsapp_templates_name_active_unique, preguntada antes de
-// escribir para poder dar un mensaje que la explique (el P2002 no dice cuál de
-// los dos UNIQUE saltó).
+// Global a propósito (ver el encabezado): el nombre es único en el WABA.
 export async function isWhatsappTemplateNameTaken(name: string, db: Db = prisma) {
   const fila = await db.whatsappTemplate.findFirst({
     where: { name, deletedAt: null },
@@ -87,11 +99,11 @@ export interface ReservarWhatsappTemplateData {
   name: string;
   language: string;
   bodyText: string;
+  headerFormat: WhatsappTemplateHeaderFormat;
 }
 
-// La fila nace ANTES del alta en Meta, en PENDING y sin metaTemplateId: los
-// dos UNIQUE parciales reservan el lugar de la regla y el nombre, así
-// que dos altas concurrentes no llegan las dos a Meta.
+// Nace PENDING y sin metaTemplateId: es la candidata. El UNIQUE parcial de
+// candidatas frena una segunda en paralelo.
 export function reserveWhatsappTemplate(data: ReservarWhatsappTemplateData, db: Db = prisma) {
   return db.whatsappTemplate.create({
     data: { ...data, status: WhatsappTemplateStatus.PENDING },
@@ -99,10 +111,9 @@ export function reserveWhatsappTemplate(data: ReservarWhatsappTemplateData, db: 
   });
 }
 
-// Borra FÍSICAMENTE una reserva cuyo alta en Meta falló. No es un soft delete
-// porque la plantilla no llegó a existir en ningún lado: no hay nada que
-// conservar como historial. Solo toca una reserva (metaTemplateId null): una
-// fila que Meta ya conoce se borra con softDeleteWhatsappTemplate.
+// Borrado FÍSICO de una reserva que Meta rechazó en el alta: no llegó a
+// existir. Solo si sigue sin metaTemplateId, para no borrar nunca una que Meta
+// sí conoce.
 export function discardWhatsappTemplateReservation(
   organizationId: string,
   id: string,
@@ -118,45 +129,112 @@ export interface EstadoDePlantilla {
   rejectedReason: string | null;
 }
 
-export function setWhatsappTemplateMetaId(
+// El alta en Meta respondió: se guarda su id y el estado inicial (casi siempre
+// PENDING). Pasa por aplicarEstadoDePlantilla por si Meta la aprueba en el
+// acto, que también promueve.
+export async function setWhatsappTemplateMetaId(
   organizationId: string,
   id: string,
   datos: EstadoDePlantilla & { metaTemplateId: string },
-  db: Db = prisma,
 ) {
-  return db.whatsappTemplate.updateMany({
+  const { metaTemplateId, ...estado } = datos;
+  const { count } = await prisma.whatsappTemplate.updateMany({
     where: { id, organizationId, deletedAt: null },
-    data: datos,
+    data: { metaTemplateId },
   });
+  if (count === 0) return { count, reemplazada: null };
+  return aplicarEstadoDePlantilla({ id, organizationId }, estado);
 }
 
 export function setWhatsappTemplateStatus(
   organizationId: string,
   id: string,
   estado: EstadoDePlantilla,
-  db: Db = prisma,
 ) {
-  return db.whatsappTemplate.updateMany({
-    where: { id, organizationId, deletedAt: null },
-    data: estado,
-  });
+  return aplicarEstadoDePlantilla({ id, organizationId }, estado);
 }
 
-// El webhook message_template_status_update: Meta solo dice el id de la
-// plantilla, no la organización. El id lo dio Meta y es único en su WABA, así
-// que identifica una sola fila activa; el WHERE sin organizationId es la
-// excepción documentada en el encabezado. Devuelve cuántas filas cambió (0 si
-// la plantilla no es de este CRM, o ya se borró).
+// El webhook de Meta: sin organización de contexto (ver el encabezado). Puede
+// tocar varias filas solo si el mismo id de Meta quedó en más de una viva, que
+// no pasa; se aplica a cada una por el mismo camino.
 export async function setWhatsappTemplateStatusByMetaId(
   metaTemplateId: string,
   estado: EstadoDePlantilla,
-  db: Db = prisma,
 ) {
-  const { count } = await db.whatsappTemplate.updateMany({
+  const filas = await prisma.whatsappTemplate.findMany({
     where: { metaTemplateId, deletedAt: null },
-    data: estado,
+    select: { id: true, organizationId: true },
   });
-  return count;
+  const reemplazadas: PlantillaReemplazada[] = [];
+  for (const fila of filas) {
+    const { reemplazada } = await aplicarEstadoDePlantilla(fila, estado);
+    if (reemplazada) reemplazadas.push(reemplazada);
+  }
+  return { count: filas.length, reemplazadas };
+}
+
+export interface PlantillaReemplazada {
+  id: string;
+  name: string;
+  metaTemplateId: string | null;
+}
+
+// El cambio de estado de UNA plantilla, con lo que implica para su par:
+// - una candidata que pasa a APPROVED: la aprobada anterior de la regla se da
+//   de baja y esta toma su lugar, en la misma transacción. Se devuelve la
+//   reemplazada para que el service la borre también en Meta;
+// - una aprobada que deja de estarlo (Meta la pausó o la deshabilitó) con una
+//   candidata ya en curso: ya no sirve para mandar y dos no aprobadas no
+//   entran en el UNIQUE, así que se da de baja con su estado final. Sin
+//   candidata, se queda con el estado nuevo: es lo que la pantalla muestra.
+// - cualquier otro caso: solo el estado.
+// count 0 si la plantilla no existe, está borrada o es de otra organización.
+export async function aplicarEstadoDePlantilla(
+  donde: { id: string; organizationId: string },
+  estado: EstadoDePlantilla,
+): Promise<{ count: number; reemplazada: PlantillaReemplazada | null }> {
+  return prisma.$transaction(async (tx) => {
+    const fila = await tx.whatsappTemplate.findFirst({
+      where: { id: donde.id, organizationId: donde.organizationId, deletedAt: null },
+      select: { id: true, organizationId: true, automationId: true, status: true },
+    });
+    if (!fila) return { count: 0, reemplazada: null };
+    const deLaRegla = {
+      organizationId: fila.organizationId,
+      automationId: fila.automationId,
+      deletedAt: null,
+      id: { not: fila.id },
+    };
+    const aprobada = WhatsappTemplateStatus.APPROVED;
+
+    let reemplazada: PlantillaReemplazada | null = null;
+    if (estado.status === aprobada && fila.status !== aprobada) {
+      reemplazada = await tx.whatsappTemplate.findFirst({
+        where: { ...deLaRegla, status: aprobada },
+        select: { id: true, name: true, metaTemplateId: true },
+      });
+      if (reemplazada) {
+        await tx.whatsappTemplate.update({
+          where: { id: reemplazada.id },
+          data: { deletedAt: new Date() },
+        });
+      }
+    } else if (estado.status !== aprobada && fila.status === aprobada) {
+      const candidata = await tx.whatsappTemplate.findFirst({
+        where: { ...deLaRegla, status: { not: aprobada } },
+        select: { id: true },
+      });
+      if (candidata) {
+        await tx.whatsappTemplate.update({
+          where: { id: fila.id },
+          data: { ...estado, deletedAt: new Date() },
+        });
+        return { count: 1, reemplazada: null };
+      }
+    }
+    await tx.whatsappTemplate.update({ where: { id: fila.id }, data: estado });
+    return { count: 1, reemplazada };
+  });
 }
 
 export function softDeleteWhatsappTemplate(organizationId: string, id: string, db: Db = prisma) {
@@ -166,10 +244,8 @@ export function softDeleteWhatsappTemplate(organizationId: string, id: string, d
   });
 }
 
-// Lo que los workers de las colas necesitan para mandar: nombre e idioma de la
-// plantilla APROBADA y activa de la REGLA que agendó el envío, o null si no
-// tiene. Nunca la de otra regla de la misma organización: su texto habla de
-// otra cosa (ítem 181).
+// La que usa el worker: la APROBADA y viva de la regla, con su encabezado. Si
+// hay una versión nueva en revisión, no cuenta todavía.
 export function findApprovedWhatsappTemplate(
   organizationId: string,
   automationId: string,
@@ -182,7 +258,6 @@ export function findApprovedWhatsappTemplate(
       deletedAt: null,
       status: WhatsappTemplateStatus.APPROVED,
     },
-    // bodyText: F1, para anotar en la conversación el texto que se mandó.
-    select: { name: true, language: true, bodyText: true },
+    select: { name: true, language: true, bodyText: true, headerFormat: true },
   });
 }
