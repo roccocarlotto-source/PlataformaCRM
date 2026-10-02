@@ -25,7 +25,7 @@ vi.mock("./QrCameraReader", () => ({
 
 const ID = "5b0f7a4e-2c1d-4f3a-9e8b-1a2b3c4d5e6f";
 const OTRO_ID = "00000000-0000-4000-8000-000000000001";
-const LINK = `https://nexoraqrs.com/v/${ID}`;
+const LINK = `https://qr.test.local/v/${ID}`; // VITE_QR_PUBLIC_BASE_URL de vite.config.ts
 
 function cupon(overrides: Partial<RedeemedVoucher> = {}): RedeemedVoucher {
   return {
@@ -120,7 +120,27 @@ describe("VoucherScanPage", () => {
 
     escanear("https://g.page/r/abc/review");
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Este código no es un cupón.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Esto no es un cupón.");
+    expect(apiMock.redeemVoucher).not.toHaveBeenCalled();
+  });
+
+  it("el QR de reseñas (termina en UUID) no va al canje: avisa qué QR escanear", async () => {
+    renderPage();
+
+    escanear(`https://qr.test.local/r/${ID}`);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Este es un QR de reseñas, no un cupón. Escaneá el QR que el cliente tiene en la página de su cupón.",
+    );
+    expect(apiMock.redeemVoucher).not.toHaveBeenCalled();
+  });
+
+  it("un link de otro dominio que termina en UUID no va al canje", async () => {
+    renderPage();
+
+    escanear(`https://otro-sitio.com/v/${ID}`);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Esto no es un cupón.");
     expect(apiMock.redeemVoucher).not.toHaveBeenCalled();
   });
 
@@ -139,7 +159,7 @@ describe("VoucherScanPage", () => {
     expect(screen.getByText("Cupón canjeado")).toBeInTheDocument();
 
     // El siguiente cliente, sin recargar.
-    escanear(`https://nexoraqrs.com/v/${OTRO_ID}`);
+    escanear(`https://qr.test.local/v/${OTRO_ID}`);
     expect(await screen.findByText("Lavado gratis")).toBeInTheDocument();
     expect(apiMock.redeemVoucher).toHaveBeenLastCalledWith(OTRO_ID);
     expect(apiMock.redeemVoucher).toHaveBeenCalledTimes(2);

@@ -43,5 +43,12 @@ export default tseslint.config(
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
     },
   },
+  // Scripts de Node que no son parte del bundle (check-mobile-overflow). Con
+  // los globales del navegador también: Playwright evalúa funciones del script
+  // dentro de la página.
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
   eslintConfigPrettier,
 );

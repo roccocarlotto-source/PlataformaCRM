@@ -146,6 +146,9 @@ button:disabled {
    de la accesibilidad. Primer uso: el rótulo "Buscar" de los listados, que
    repetía lo que el placeholder ya dice (docs/frontend-cambios-pendientes.md
    §4.b). */
+/* Sobre un <div>/<span>, nunca sobre una <table>: una tabla no baja de su
+   ancho de contenido y el width: 1px no la recorta (ver RevenueByMonthChart).
+   Una tabla oculta va dentro de un <div class="ds-sr-only">. */
 .ds-sr-only {
   position: absolute;
   width: 1px;
@@ -2075,8 +2078,39 @@ fieldset.ds-field {
     text-decoration: none;
   }
 
+  /* En 375–390px cada píxel del costado es contenido: 12px alcanzan para
+     separar del borde. */
   .ds-shell-body > main {
-    padding: var(--space-4) var(--space-4) var(--space-5);
+    padding: var(--space-4) var(--space-3) var(--space-5);
+  }
+
+  /* El encabezado de página en columna: las acciones (la botonera de período
+     del Dashboard, "Nuevo …") bajan debajo del título en vez de competir con
+     él por el ancho, y envuelven si no entran en una línea. */
+  .ds-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ds-page-header-actions {
+    justify-content: flex-start;
+  }
+
+  /* Menos relleno en las tarjetas: 24px por lado se comían un 12% del ancho
+     de un iPhone. .ds-shell-body adelante porque la regla base de .ds-card
+     está más abajo en el archivo y, con la misma especificidad, ganaría. La
+     tarjeta de listado no tiene padding propio: lo tienen sus filas. */
+  .ds-shell-body .ds-card {
+    padding: var(--space-4);
+  }
+
+  .ds-list-card > .ds-filters,
+  .ds-list-card > .ds-filters-title,
+  .ds-list-card > .ds-empty,
+  .ds-list-card > .ds-hint,
+  .ds-list-card .ds-pagination {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
   }
 }
 

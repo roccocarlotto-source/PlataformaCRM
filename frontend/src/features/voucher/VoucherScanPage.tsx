@@ -9,7 +9,7 @@ import { ApiError } from "../../lib/api";
 import { useRedeemVoucher } from "./mutations";
 import { QrCameraReader } from "./QrCameraReader";
 import type { RedeemedVoucher } from "./types";
-import { extractVoucherId } from "./voucherId";
+import { leerCodigoEscaneado } from "./voucherId";
 
 // Cuánto tiene que pasar SIN ver un código para volver a procesarlo. La
 // cámara lee el mismo QR varias veces por segundo mientras siga enfrente: sin
@@ -18,6 +18,12 @@ import { extractVoucherId } from "./voucherId";
 // el canje: mientras el celular del cliente siga frente a la cámara, se
 // ignora; al sacarlo, el mismo código se puede volver a escanear.
 const OLVIDO_MS = 3000;
+
+const MENSAJE_NO_CUPON = {
+  "qr-resenas":
+    "Este es un QR de reseñas, no un cupón. Escaneá el QR que el cliente tiene en la página de su cupón.",
+  "no-es-cupon": "Esto no es un cupón.",
+} as const;
 
 type Resultado = { tipo: "canjeado"; cupon: RedeemedVoucher } | { tipo: "error"; mensaje: string };
 
@@ -62,14 +68,16 @@ export function VoucherScanPage() {
 
   async function procesar(texto: string) {
     if (enCurso.current) return;
-    const id = extractVoucherId(texto);
-    if (id === null) {
-      setResultado({ tipo: "error", mensaje: "Este código no es un cupón." });
+    // Lo que no es un cupón se contesta acá, sin llamar al backend: su 404
+    // ("el cupón no existe") no le diría al empleado qué escaneó mal.
+    const codigo = leerCodigoEscaneado(texto);
+    if (codigo.tipo !== "cupon") {
+      setResultado({ tipo: "error", mensaje: MENSAJE_NO_CUPON[codigo.tipo] });
       return;
     }
     enCurso.current = true;
     try {
-      const cupon = await canjear.mutateAsync(id);
+      const cupon = await canjear.mutateAsync(codigo.id);
       setResultado({ tipo: "canjeado", cupon });
     } catch (error) {
       setResultado({ tipo: "error", mensaje: mensajeDeError(error) });

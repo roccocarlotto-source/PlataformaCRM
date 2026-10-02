@@ -2,6 +2,8 @@ import { Select } from "../../design-system/Select";
 import { BRANCHES_PARA_SELECT, useBranches } from "../branch/queries";
 import { QRS_PARA_SELECT, useQrCodes } from "./queries";
 import { InlineLoading } from "../../design-system/LoadingState";
+import { Notice } from "../../design-system/Notice";
+import { Link } from "react-router-dom";
 
 interface QrSelectProps {
   id?: string;
@@ -30,6 +32,22 @@ export function QrSelect({
   // Solo para el nombre de la sucursal en el subtítulo: si no carga, el QR se
   // puede elegir igual.
   const branchesQuery = useBranches(BRANCHES_PARA_SELECT);
+
+  // Sin ningún QR, un desplegable con solo "Elegir QR…" no le dice al usuario
+  // qué hacer: se le explica dónde se crean. Sin aria-live: está desde que
+  // carga, no irrumpe.
+  if (qrCodesQuery.isSuccess && qrCodesQuery.data.data.length === 0) {
+    return (
+      <div>
+        <label htmlFor={id}>
+          {required ? <span className="ds-required">{label}</span> : label}
+        </label>
+        <Notice tone="warning" alert={false}>
+          Todavía no hay QR. Creá uno en la <Link to="/qr">pestaña QR</Link>.
+        </Notice>
+      </div>
+    );
+  }
 
   if (qrCodesQuery.isSuccess) {
     const sucursales = new Map(

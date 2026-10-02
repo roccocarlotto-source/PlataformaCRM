@@ -510,6 +510,33 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
     expect(horas).toHaveAttribute("max", "720");
   });
 
+  it("sin ningún QR, avisa dónde crearlo en vez de un desplegable vacío", async () => {
+    server.use(
+      http.get(`${env.apiUrl}/api/qr`, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+      http.get(`${env.apiUrl}/api/branches`, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await chooseSelectOption(user, screen.getByLabelText("Acción"), "Enviar QR por WhatsApp");
+
+    expect(await screen.findByText(/Todavía no hay QR./)).toHaveTextContent(
+      "Todavía no hay QR. Creá uno en la pestaña QR.",
+    );
+    expect(screen.getByRole("link", { name: "pestaña QR" })).toHaveAttribute("href", "/qr");
+    expect(screen.queryByRole("combobox", { name: "QR a enviar" })).not.toBeInTheDocument();
+  });
+
   it("manda el POST con { qrCodeId, delayHours } y las horas como número", async () => {
     servirQrsYSucursales();
     const bodies: unknown[] = [];
