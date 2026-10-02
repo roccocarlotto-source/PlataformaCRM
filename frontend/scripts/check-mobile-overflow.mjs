@@ -10,7 +10,8 @@
 // - con isMobile, un contenido más ancho que la pantalla NO desborda: el
 //   navegador agranda el viewport de layout (innerWidth pasa de 375 a 522) y
 //   la página entera queda corrida — el "ashboard" cortado del iPhone. Por eso
-//   se mide innerWidth contra el ancho del dispositivo, además de scrollWidth;
+//   todo se mide contra el ancho real del dispositivo (ver medir), y no solo
+//   el scrollWidth del documento: también cada elemento que se pase de él;
 // - el desborde lo disparaban datos de producción (montos grandes), no los
 //   del seed: cada ruta se mide dos veces, con las respuestas del backend tal
 //   cual y "estiradas" (nombres largos, un email largo, montos x1000).
@@ -111,8 +112,24 @@ function estirar(valor, clave) {
   return valor;
 }
 
-// Corre en la página. `ancho` es el del dispositivo, no innerWidth (ver arriba).
-function medir(ancho) {
+// Corre en la página. `dispositivo` es el ancho del descriptor; el ancho real
+// es el menor entre ese, el viewport visual y el clientWidth del documento:
+// con isMobile, innerWidth (y a veces el viewport visual, alejado para que
+// entre todo) crecen con el contenido y un chequeo contra ellos da verde.
+//
+// Además de las medidas de documento, marca CUALQUIER elemento cuyo borde
+// pase el ancho real, aunque el documento no desborde: html, body y
+// .ds-shell-body recortan (overflow-x: clip), así que un contenido ancho ya
+// no agranda nada medible a nivel página — queda cortado, que es el mismo
+// defecto. Lo que vive dentro de un contenedor con scroll o recorte propio
+// (.ds-table-wrap, el calendario, el hilo de un chat) no cuenta: se mide el
+// contenedor, no lo de adentro.
+function medir(dispositivo) {
+  const ancho = Math.min(
+    dispositivo,
+    window.visualViewport?.width ?? dispositivo,
+    document.documentElement.clientWidth || dispositivo,
+  );
   const medidas = [
     ["innerWidth", window.innerWidth],
     ["documento", document.documentElement.scrollWidth],
@@ -122,19 +139,42 @@ function medir(ancho) {
     if (el) medidas.push([selector, el.scrollWidth - el.clientWidth + ancho]);
   }
   const desbordes = medidas.filter(([, valor]) => valor > ancho + 1);
-  const culpables = [];
-  if (desbordes.length > 0) {
-    for (const el of document.querySelectorAll("body *")) {
-      if (el.closest(".ds-table-wrap, .ds-sidebar")) continue;
-      const caja = el.getBoundingClientRect();
-      if (caja.width > 0 && (caja.right > ancho + 1 || caja.left < -1)) {
-        const clase = String(el.className).split(" ")[0];
-        culpables.push(`${el.tagName.toLowerCase()}${clase ? `.${clase}` : ""}`);
-        if (culpables.length >= 5) break;
-      }
+
+  // Las guardas de página: su recorte es justamente lo que esconde el
+  // desborde, no un contenedor legítimo.
+  const guardas = new Set([
+    document.documentElement,
+    document.body,
+    ...document.querySelectorAll("#root, .ds-shell, .ds-shell-body, .ds-shell-body > main"),
+  ]);
+  const contenido = (el) => {
+    for (let p = el.parentElement; p && !guardas.has(p); p = p.parentElement) {
+      if (getComputedStyle(p).overflowX !== "visible") return true;
     }
+    return false;
+  };
+  const sale = (el) => {
+    const caja = el.getBoundingClientRect();
+    return caja.width > 0 && (caja.right > ancho + 1 || caja.left < -1);
+  };
+  const nombre = (el) => {
+    const clase = String(el.className?.baseVal ?? el.className).split(" ")[0];
+    return `${el.tagName.toLowerCase()}${clase ? `.${clase}` : ""}`;
+  };
+  const culpables = [];
+  for (const el of document.querySelectorAll("body *")) {
+    if (el.closest(".ds-sidebar") || getComputedStyle(el).visibility === "hidden") continue;
+    if (!sale(el) || contenido(el)) continue;
+    // Solo el más externo de cada rama: el que sale de un padre que entra.
+    if (el.parentElement && !guardas.has(el.parentElement) && sale(el.parentElement)) continue;
+    const caja = el.getBoundingClientRect();
+    const padre =
+      el.parentElement && !guardas.has(el.parentElement) ? `${nombre(el.parentElement)} > ` : "";
+    culpables.push(`${padre}${nombre(el)} (${Math.round(caja.left)}–${Math.round(caja.right)}px)`);
+    if (culpables.length >= 5) break;
   }
-  return { desbordes, culpables };
+  if (culpables.length > 0 && desbordes.length === 0) desbordes.push(["elementos", ancho]);
+  return { ancho, desbordes, culpables };
 }
 
 async function medirRuta(contexto, ruta, ancho, conDatosEstirados) {
@@ -202,7 +242,11 @@ try {
         }
         const { desbordes, culpables } = medida;
         if (desbordes.length > 0) {
-          const detalle = desbordes.map(([que, ancho]) => `${que} ${ancho}px`).join(", ");
+          const detalle = desbordes
+            .map(([que, px]) =>
+              que === "elementos" ? `elementos fuera de ${px}px` : `${que} ${px}px`,
+            )
+            .join(", ");
           fallas.push(`${nombre} · ${ruta} · ${datos}: ${detalle} — ${culpables.join(", ")}`);
         }
       }
