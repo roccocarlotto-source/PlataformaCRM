@@ -50,6 +50,8 @@ import {
 //      guarda nada.
 //   7. El refresh repregunta a Meta y promueve; la organización B no ve ni
 //      refresca las plantillas de A.
+//   8. El listado trae el estado de aprobación de cada regla que manda
+//      WhatsApp (una sola query de plantillas para la página).
 // ---------------------------------------------------------------------------
 
 const PASSWORD = "Automation-whatsapp-test-password-123!";
@@ -299,6 +301,7 @@ test("1. regla nueva con link e imagen: la plantilla sale sola a Meta, con heade
   assert.equal(subidas[0].appId, "app-de-prueba");
   assert.equal(subidas[0].png.subarray(1, 4).toString("ascii"), "PNG");
   assert.equal(altas.length, 1);
+  assert.equal(altas[0].category, "MARKETING");
   assert.equal(altas[0].headerImageHandle, "4::handle-de-ejemplo");
   assert.equal(
     altas[0].bodyText,
@@ -505,4 +508,51 @@ test("una regla que no manda WhatsApp no trae estado de aprobación ni habla con
   const regla = await json<ReglaRespuesta>(res, 201);
   assert.equal(regla.whatsappApproval, null);
   assert.equal(altas.length, 0);
+});
+
+test("el listado trae el estado de aprobación de cada regla que manda WhatsApp (null en las demás)", async () => {
+  const { regla: aprobada } = await reglaExistenteAprobada(orgA);
+  const { regla: rechazada } = await reglaExistenteAprobada(orgA);
+  await prisma.whatsappTemplate.updateMany({
+    where: { automationId: rechazada.id },
+    data: { status: "REJECTED", rejectedReason: "INVALID_FORMAT" },
+  });
+  const sinPlantilla = await prisma.automation.create({
+    data: {
+      organizationId: orgA,
+      ...reglaQr(configQr()),
+      actionConfig: configQr() as Prisma.InputJsonValue,
+    },
+  });
+  const tarea = await prisma.automation.create({
+    data: {
+      organizationId: orgA,
+      name: `Tarea ${randomUUID().slice(0, 8)}`,
+      triggerType: "opportunity.won",
+      actionType: "activity.create_follow_up",
+      actionConfig: { subject: "Llamar", daysUntilDue: 1 },
+      isActive: false,
+    },
+  });
+
+  const { data } = await json<{ data: ReglaRespuesta[] }>(
+    await call("GET", "/api/automations?pageSize=100", adminA.accessToken),
+    200,
+  );
+  const porId = new Map(data.map((r) => [r.id, r]));
+  assert.equal(porId.get(aprobada.id)?.whatsappApproval?.estado, "APROBADA");
+  assert.equal(porId.get(rechazada.id)?.whatsappApproval?.estado, "RECHAZADA");
+  assert.equal(porId.get(rechazada.id)?.whatsappApproval?.motivo, "INVALID_FORMAT");
+  assert.equal(porId.get(sinPlantilla.id)?.whatsappApproval?.estado, "SIN_PLANTILLA");
+  assert.equal(porId.get(tarea.id)?.whatsappApproval, null);
+
+  // La organización B no ve las reglas de A en su listado.
+  const deB = await json<{ data: ReglaRespuesta[] }>(
+    await call("GET", "/api/automations?pageSize=100", adminB.accessToken),
+    200,
+  );
+  assert.equal(
+    deB.data.some((r) => r.id === aprobada.id),
+    false,
+  );
 });

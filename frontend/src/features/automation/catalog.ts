@@ -1,5 +1,6 @@
+import type { BadgeVariant } from "../../design-system/Badge";
 import type { SelectOption } from "../../design-system/Select";
-import type { WhatsappFormat } from "./types";
+import type { WhatsappApproval, WhatsappFormat } from "./types";
 import { TOKEN_LINK, TOKEN_NOMBRE } from "./whatsappPreview";
 
 // ---------------------------------------------------------------------------
@@ -587,3 +588,15 @@ export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
 // que una regla nueva arranque siempre en una combinación válida.
 export const DEFAULT_TRIGGER = TRIGGER_OPTIONS[0].value;
 export const DEFAULT_ACTION = accionesParaTrigger(DEFAULT_TRIGGER)[0].value;
+
+// El rótulo y el color de cada estado de la revisión de Meta. Los usan el
+// formulario (MensajeDeWhatsappCard) y la lista de automatizaciones.
+export const ESTADOS_DE_APROBACION: Record<
+  WhatsappApproval["estado"],
+  { label: string; variant: BadgeVariant }
+> = {
+  SIN_PLANTILLA: { label: "Sin enviar", variant: "neutral" },
+  PENDIENTE: { label: "Pendiente", variant: "info" },
+  APROBADA: { label: "Aprobada", variant: "success" },
+  RECHAZADA: { label: "Rechazada", variant: "danger" },
+};

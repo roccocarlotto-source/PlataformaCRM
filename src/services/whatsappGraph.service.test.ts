@@ -179,13 +179,14 @@ const ALTA = {
   accessToken: "token-secreto",
   name: "seguimiento_postventa",
   language: "es_AR",
+  category: "MARKETING" as const,
   bodyText: "Hola {{1}}, gracias. Tu opinión: {{2}} ¡Gracias!",
   bodyExamples: ["Ana", "https://g.page/r/ejemplo/review"],
 };
 
-test("createWhatsappTemplateReal: POST al WABA, categoría UTILITY fija, cuerpo con ejemplos; devuelve id y estado", async () => {
+test("createWhatsappTemplateReal: POST al WABA, con la categoría pedida, cuerpo con ejemplos; devuelve id y estado", async () => {
   const llamadas = doblarFetch(
-    new Response(JSON.stringify({ id: 987654321, status: "PENDING", category: "UTILITY" }), {
+    new Response(JSON.stringify({ id: 987654321, status: "PENDING", category: "MARKETING" }), {
       status: 200,
     }),
   );
@@ -200,7 +201,7 @@ test("createWhatsappTemplateReal: POST al WABA, categoría UTILITY fija, cuerpo 
   assert.deepEqual(JSON.parse(init.body as string), {
     name: "seguimiento_postventa",
     language: "es_AR",
-    category: "UTILITY",
+    category: "MARKETING",
     components: [
       {
         type: "BODY",
@@ -424,6 +425,7 @@ test("cuerpoDeAltaDePlantilla con imagen: HEADER IMAGE con el handle de ejemplo 
     cuerpoDeAltaDePlantilla({
       name: "seguimiento_qr_abc",
       language: "es_AR",
+      category: "MARKETING",
       bodyText: "Hola {{1}}, tu QR: {{2}} ¡Gracias!",
       bodyExamples: ["Ana", "https://g.page/r/ejemplo/review"],
       headerImageHandle: "4::aW1hZ2Vu",
@@ -443,12 +445,27 @@ test("cuerpoDeAltaDePlantilla sin imagen sigue siendo solo BODY (las plantillas 
   const { components } = cuerpoDeAltaDePlantilla({
     name: "x",
     language: "es_AR",
+    category: "MARKETING",
     bodyText: "Hola {{1}}, tu QR.",
     bodyExamples: ["Ana"],
   });
   assert.deepEqual(components, [
     { type: "BODY", text: "Hola {{1}}, tu QR.", example: { body_text: [["Ana"]] } },
   ]);
+});
+
+test("cuerpoDeAltaDePlantilla: la categoría es la que pide el service, sin allow_category_change", () => {
+  for (const category of ["UTILITY", "MARKETING"] as const) {
+    const cuerpo = cuerpoDeAltaDePlantilla({
+      name: "x",
+      language: "es_AR",
+      category,
+      bodyText: "Hola {{1}}.",
+      bodyExamples: ["Ana"],
+    });
+    assert.equal(cuerpo.category, category);
+    assert.equal("allow_category_change" in cuerpo, false);
+  }
 });
 
 test("uploadTemplateSampleReal: abre la sesión en /{app-id}/uploads y sube el binario con OAuth y file_offset 0", async () => {

@@ -244,11 +244,16 @@ export function buildMessageTemplatesUrl(wabaId: string): string {
   return `${WHATSAPP_GRAPH_API_BASE_URL}/${encodeURIComponent(wabaId)}/message_templates`;
 }
 
+// Las dos categorías en las que el CRM da de alta plantillas. La elige el
+// service según la acción de la regla (categoriaDeLaAccion).
+export type CategoriaDePlantilla = "UTILITY" | "MARKETING";
+
 export interface CreateWhatsappTemplateInput {
   wabaId: string;
   accessToken: string;
   name: string;
   language: string;
+  category: CategoriaDePlantilla;
   // El cuerpo YA traducido a {{1}}/{{2}} (utils/whatsappTemplateText.ts).
   bodyText: string;
   // Un valor de ejemplo por variable, en orden: Meta los exige en el alta de
@@ -273,17 +278,18 @@ export type CreateWhatsappTemplate = (
 
 // El cuerpo exacto del alta. Pura y exportada para probar el contrato sin red.
 //
-// CATEGORÍA FIJA UTILITY: el seguimiento post-venta es un mensaje
-// transaccional (la consecuencia de una compra), que es lo que Meta llama
-// UTILITY. MARKETING tiene más fricción en la revisión, más costo por
-// mensaje y el cliente puede silenciarlo; no es una decisión del negocio.
+// SIN allow_category_change: desde el 9/4/2025 Meta ya no admite esa propiedad
+// en el alta, porque lo que pedía (que recategorice una UTILITY a MARKETING
+// en vez de rechazarla) pasó a ser el comportamiento por defecto. Una
+// plantilla recategorizada sigue APPROVED y se puede mandar. Fuente:
+// developers.facebook.com/documentation/business-messaging/whatsapp/templates/template-categorization
 export function cuerpoDeAltaDePlantilla(
   input: Omit<CreateWhatsappTemplateInput, "wabaId" | "accessToken">,
 ) {
   return {
     name: input.name,
     language: input.language,
-    category: "UTILITY",
+    category: input.category,
     components: [
       ...(input.headerImageHandle
         ? [

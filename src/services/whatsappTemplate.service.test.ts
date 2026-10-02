@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ACTION_SEND_DISCOUNT_VOUCHER } from "./automationActions/sendDiscountVoucherFollowup";
+import { ACTION_SEND_QR_FOLLOWUP } from "./automationActions/sendQrFollowup";
 import { WhatsappGraphError } from "./whatsappGraph.service";
 import type { PlantillaConMeta } from "../repositories/whatsappTemplate.repository";
 import {
+  categoriaDeLaAccion,
   decidirSincronizacion,
   esAccionConPlantilla,
   esPlantillaInexistenteEnMeta,
@@ -18,6 +21,11 @@ import {
 // existe". El flujo completo (guardar la regla, alta en Meta, promoción) va
 // por HTTP en automationWhatsapp.integration-test.ts.
 // ---------------------------------------------------------------------------
+
+test("categoriaDeLaAccion: el cupón y el QR de reseñas se dan de alta como MARKETING", () => {
+  assert.equal(categoriaDeLaAccion(ACTION_SEND_DISCOUNT_VOUCHER), "MARKETING");
+  assert.equal(categoriaDeLaAccion(ACTION_SEND_QR_FOLLOWUP), "MARKETING");
+});
 
 test("estadoLocalDeMeta: solo APPROVED, REINSTATED y FLAGGED mandan", () => {
   for (const estado of ["APPROVED", "REINSTATED", "FLAGGED", "approved"]) {

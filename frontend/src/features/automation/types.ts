@@ -35,9 +35,9 @@ export interface Automation {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
-  // Solo en el detalle (GET /automations/:id) y en la respuesta de guardar:
-  // el estado de aprobación de Meta de la plantilla de WhatsApp de la regla.
-  // Null si la regla no manda WhatsApp; ausente en el listado.
+  // En el listado, el detalle (GET /automations/:id) y la respuesta de
+  // guardar: el estado de aprobación de Meta de la plantilla de WhatsApp de la
+  // regla. Null si la regla no manda WhatsApp.
   whatsappApproval?: WhatsappApproval | null;
   // Solo al guardar: por qué no se pudo mandar el mensaje a aprobación. La
   // regla quedó guardada igual.
