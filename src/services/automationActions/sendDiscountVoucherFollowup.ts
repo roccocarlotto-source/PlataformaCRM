@@ -11,13 +11,13 @@ import type { AccionRegistrada } from "../automationActions";
 import { TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
 import { MAX_LABEL_LENGTH } from "../discountVoucher.service";
 import { payloadDeOportunidadSchema } from "./createFollowUpActivity";
+import { camposDeLaDemora, demoraEnMinutos, horaDeEnvio, validarDemora } from "./demoraDelEnvio";
 import { camposDelMensajeDeWhatsapp, validarMensajeDeWhatsapp } from "./mensajeDeWhatsapp";
-import { MAX_DELAY_HOURS, horaDeEnvio } from "./sendQrFollowup";
 
 // ---------------------------------------------------------------------------
 // Acción `opportunity.send_discount_voucher` (ítem 177 de
 // docs/frontend-cambios-pendientes.md): cuando una oportunidad pasa a ganada,
-// mandarle al cliente por WhatsApp, N horas después, un cupón de descuento de
+// mandarle al cliente por WhatsApp, un rato después (delayMinutes), un cupón de descuento de
 // un solo uso (ítem 176) con su link.
 //
 // EL MISMO MOLDE QUE opportunity.send_qr_followup (sendQrFollowup.ts), y por
@@ -54,14 +54,8 @@ export const configDeCuponSchema = z
       .trim()
       .min(1, "label es requerido")
       .max(MAX_LABEL_LENGTH, `label no puede superar los ${MAX_LABEL_LENGTH} caracteres`),
-    delayHours: z
-      .number({
-        required_error: "delayHours es requerido",
-        invalid_type_error: "delayHours debe ser un número entero",
-      })
-      .int("delayHours debe ser un número entero")
-      .min(0, "delayHours no puede ser negativo")
-      .max(MAX_DELAY_HOURS, `delayHours no puede superar las ${MAX_DELAY_HOURS} horas`),
+    // delayMinutes, o delayHours en una regla vieja (demoraDelEnvio.ts).
+    ...camposDeLaDemora,
     expiresInDays: z
       .number({
         required_error: "expiresInDays es requerido",
@@ -77,7 +71,9 @@ export const configDeCuponSchema = z
     // imagen es el QR de ESE cupón: el que se escanea en "Canjear cupón".
     ...camposDelMensajeDeWhatsapp,
   })
-  .superRefine(validarMensajeDeWhatsapp);
+  .superRefine(validarMensajeDeWhatsapp)
+  .superRefine(validarDemora)
+  .transform(demoraEnMinutos);
 
 // Inyectables para el test unitario, mismo patrón que
 // DependenciasDelSeguimientoQr.
@@ -106,7 +102,7 @@ export function crearAccionCupon(
     // por tu compra" no tiene sentido en una oportunidad que no se compró.
     triggers: [TRIGGER_OPPORTUNITY_WON],
     async handler({ organizationId, automationId, config, payload }) {
-      const { label, delayHours, expiresInDays, branchId } = configDeCuponSchema.parse(config);
+      const { label, delayMinutes, expiresInDays, branchId } = configDeCuponSchema.parse(config);
       const { opportunityId } = payloadDeOportunidadSchema.parse(payload);
 
       // LA SUCURSAL PRIMERO, y su ausencia SÍ es un error: es un problema de
@@ -146,7 +142,7 @@ export function crearAccionCupon(
         return;
       }
 
-      const scheduledFor = horaDeEnvio(deps.ahora(), delayHours);
+      const scheduledFor = horaDeEnvio(deps.ahora(), delayMinutes);
       const agendado = await deps.agendar({
         organizationId,
         automationId,

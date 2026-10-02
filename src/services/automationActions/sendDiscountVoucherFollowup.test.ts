@@ -12,7 +12,7 @@ import {
   crearAccionCupon,
   type DependenciasDelCupon,
 } from "./sendDiscountVoucherFollowup";
-import { MAX_DELAY_HOURS } from "./sendQrFollowup";
+import { MAX_DELAY_HOURS, MAX_DELAY_MINUTES } from "./demoraDelEnvio";
 
 // ---------------------------------------------------------------------------
 // La acción opportunity.send_discount_voucher (ítem 177) sin base, mismo
@@ -31,7 +31,7 @@ const AHORA = new Date("2026-09-25T15:00:00.000Z");
 
 const CONFIG = {
   label: "15% de descuento en el taller",
-  delayHours: 48,
+  delayMinutes: 48 * 60,
   expiresInDays: 30,
   branchId: SUCURSAL,
 };
@@ -130,10 +130,12 @@ test("la acción se llama opportunity.send_discount_voucher y solo admite opport
   assert.equal(accionAdmiteTrigger(accion, TRIGGER_OPPORTUNITY_STALE), false);
 });
 
-test("el schema acepta los bordes: delayHours 0 y el tope del QR, expiresInDays 1 y su tope, label de 200", () => {
+test("el schema acepta los bordes: la demora en 0 y en el tope (minutos u horas legadas), expiresInDays 1 y su tope, label de 200", () => {
   for (const config of [
-    { ...CONFIG, delayHours: 0 },
-    { ...CONFIG, delayHours: MAX_DELAY_HOURS },
+    { ...CONFIG, delayMinutes: 0 },
+    { ...CONFIG, delayMinutes: MAX_DELAY_MINUTES },
+    { label: CONFIG.label, expiresInDays: 30, branchId: SUCURSAL, delayHours: 0 },
+    { label: CONFIG.label, expiresInDays: 30, branchId: SUCURSAL, delayHours: MAX_DELAY_HOURS },
     { ...CONFIG, expiresInDays: 1 },
     { ...CONFIG, expiresInDays: MAX_EXPIRES_IN_DAYS },
     { ...CONFIG, label: "x".repeat(MAX_LABEL_LENGTH) },
@@ -154,7 +156,7 @@ test("el schema no tiene defaults ocultos: cada uno de los cuatro campos es requ
     return copia;
   };
   assert.match(mensajesDe(sin("label")), /label es requerido/);
-  assert.match(mensajesDe(sin("delayHours")), /delayHours es requerido/);
+  assert.match(mensajesDe(sin("delayMinutes")), /delayMinutes es requerido/);
   assert.match(mensajesDe(sin("expiresInDays")), /expiresInDays es requerido/);
   assert.match(mensajesDe(sin("branchId")), /branchId es requerido/);
 });
@@ -164,9 +166,10 @@ test("el schema rechaza cada valor fuera de rango con un mensaje que lo nombra",
     [{ ...CONFIG, label: "   " }, /label es requerido/],
     [{ ...CONFIG, label: "x".repeat(MAX_LABEL_LENGTH + 1) }, /label no puede superar los 200/],
     [{ ...CONFIG, label: 15 }, /label debe ser un texto/],
-    [{ ...CONFIG, delayHours: -1 }, /delayHours no puede ser negativo/],
-    [{ ...CONFIG, delayHours: 1.5 }, /delayHours debe ser un número entero/],
-    [{ ...CONFIG, delayHours: MAX_DELAY_HOURS + 1 }, /delayHours no puede superar las 720/],
+    [{ ...CONFIG, delayMinutes: -1 }, /delayMinutes no puede ser negativo/],
+    [{ ...CONFIG, delayMinutes: 1.5 }, /delayMinutes debe ser un número entero/],
+    [{ ...CONFIG, delayMinutes: MAX_DELAY_MINUTES + 1 }, /delayMinutes no puede superar los 43200/],
+    [{ ...CONFIG, delayHours: 1 }, /no los dos/],
     [{ ...CONFIG, expiresInDays: 0 }, /expiresInDays tiene que ser al menos 1/],
     [{ ...CONFIG, expiresInDays: -3 }, /expiresInDays tiene que ser al menos 1/],
     [{ ...CONFIG, expiresInDays: 2.5 }, /expiresInDays debe ser un número entero/],
@@ -183,7 +186,7 @@ test("el schema rechaza cada valor fuera de rango con un mensaje que lo nombra",
 // Agendado
 // ---------------------------------------------------------------------------
 
-test("agenda UN envío con la regla, la oportunidad, su contacto, la sucursal, el cupón pedido y ahora + delayHours (horaDeEnvio del QR)", async () => {
+test("agenda UN envío con la regla, la oportunidad, su contacto, la sucursal, el cupón pedido y ahora + delayMinutes", async () => {
   const { deps, agendados } = doblar();
 
   await correr(deps);
@@ -202,10 +205,23 @@ test("agenda UN envío con la regla, la oportunidad, su contacto, la sucursal, e
   ]);
 });
 
-test("con delayHours 0 agenda para ahora mismo", async () => {
+test("con delayMinutes 0 agenda para ahora mismo; con 15, a los 15 minutos", async () => {
   const { deps, agendados } = doblar();
-  await correr(deps, { ...CONFIG, delayHours: 0 });
+  await correr(deps, { ...CONFIG, delayMinutes: 0 });
+  await correr(deps, { ...CONFIG, delayMinutes: 15 });
   assert.equal(agendados[0].scheduledFor.toISOString(), AHORA.toISOString());
+  assert.equal(agendados[1].scheduledFor.toISOString(), "2026-09-25T15:15:00.000Z");
+});
+
+test("una regla vieja con delayHours sigue agendando a ahora + esas horas", async () => {
+  const { deps, agendados } = doblar();
+  await correr(deps, {
+    label: CONFIG.label,
+    expiresInDays: 30,
+    branchId: SUCURSAL,
+    delayHours: 24,
+  });
+  assert.equal(agendados[0].scheduledFor.toISOString(), "2026-09-26T15:00:00.000Z");
 });
 
 test("si ya estaba agendado (reentrega del evento) termina bien, sin error", async () => {

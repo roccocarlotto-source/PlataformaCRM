@@ -220,11 +220,100 @@ const configDeSeguimiento: ConfigDeAccion = {
   },
 };
 
-// Los topes de configDeSeguimientoQrSchema
-// (src/services/automationActions/sendQrFollowup.ts): de 0 horas —apenas se
-// gana— a 30 días.
-export const MIN_DELAY_HOURS = 0;
-export const MAX_DELAY_HOURS = 720;
+// ---------------------------------------------------------------------------
+// La demora de las reglas del QR y del cupón. El backend la guarda en minutos
+// (delayMinutes, de 0 —apenas se gana— a 30 días; demoraDelEnvio.ts); el
+// formulario la pide como un número entero más una unidad. Las reglas
+// guardadas antes de los minutos traen delayHours: se leen en minutos igual
+// que en el backend, y al guardarlas viajan ya como delayMinutes.
+// ---------------------------------------------------------------------------
+
+export type UnidadDeDemora = "minutes" | "hours" | "days";
+
+export const MINUTOS_POR_UNIDAD: Record<UnidadDeDemora, number> = {
+  minutes: 1,
+  hours: 60,
+  days: 24 * 60,
+};
+
+export const UNIDAD_DE_DEMORA_OPTIONS: SelectOption<UnidadDeDemora>[] = [
+  { value: "minutes", label: "Minutos" },
+  { value: "hours", label: "Horas" },
+  { value: "days", label: "Días" },
+];
+
+export const MAX_DELAY_MINUTES = 30 * MINUTOS_POR_UNIDAD.days;
+
+// Cada cuánto revisan los envíos vencidos los workers del QR y del cupón: el
+// default de QR_FOLLOWUP_WORKER_POLL_MS y DISCOUNT_VOUCHER_FOLLOWUP_WORKER_POLL_MS
+// (src/config/env.ts). Un envío sale hasta ese lapso después de lo pedido, y
+// con esperas de minutos eso se nota: el texto de ayuda lo avisa.
+export const INTERVALO_DE_LOS_ENVIOS_MINUTOS = 5;
+
+// La unidad con la que arranca una regla nueva: la de siempre.
+const UNIDAD_POR_DEFECTO: UnidadDeDemora = "hours";
+
+// Los minutos que pide un actionConfig guardado, o null si no trae demora.
+export function minutosDeLaDemora(config: Record<string, unknown>): number | null {
+  if (typeof config.delayMinutes === "number") return config.delayMinutes;
+  if (typeof config.delayHours === "number") return config.delayHours * MINUTOS_POR_UNIDAD.hours;
+  return null;
+}
+
+// Los minutos expresados en la unidad más grande que los divide exacto: 1440
+// es "1 día", 90 es "90 minutos". El 0 se muestra en la unidad por defecto.
+export function demoraEnUnidad(minutos: number): { cantidad: number; unidad: UnidadDeDemora } {
+  if (minutos > 0) {
+    for (const unidad of ["days", "hours"] as const) {
+      if (minutos % MINUTOS_POR_UNIDAD[unidad] === 0) {
+        return { cantidad: minutos / MINUTOS_POR_UNIDAD[unidad], unidad };
+      }
+    }
+    return { cantidad: minutos, unidad: "minutes" };
+  }
+  return { cantidad: 0, unidad: UNIDAD_POR_DEFECTO };
+}
+
+function unidadDelDraft(draft: ConfigDraft): UnidadDeDemora {
+  const unidad = draft.delayUnit;
+  return unidad === "minutes" || unidad === "days" ? unidad : "hours";
+}
+
+function demoraVacia(): ConfigDraft {
+  return { delayAmount: "", delayUnit: UNIDAD_POR_DEFECTO };
+}
+
+function demoraDesde(config: Record<string, unknown>): ConfigDraft {
+  const minutos = minutosDeLaDemora(config);
+  if (minutos === null) return demoraVacia();
+  const { cantidad, unidad } = demoraEnUnidad(minutos);
+  return { delayAmount: String(cantidad), delayUnit: unidad };
+}
+
+function demoraAPayload(draft: ConfigDraft): { delayMinutes: number } {
+  return { delayMinutes: Number(draft.delayAmount) * MINUTOS_POR_UNIDAD[unidadDelDraft(draft)] };
+}
+
+// Mismo criterio que daysUntilDue: el vacío se valida antes (Number("") es 0)
+// y después se exige entero y en rango. El tope se mide en minutos, así que
+// vale igual en cualquier unidad.
+function validarDemoraDelDraft(draft: ConfigDraft): string | null {
+  const texto = (draft.delayAmount ?? "").trim();
+  if (texto === "") {
+    return "Indicá cuánto esperar antes de mandar el WhatsApp.";
+  }
+  const cantidad = Number(texto);
+  if (!Number.isInteger(cantidad)) {
+    return "La espera tiene que ser un número entero.";
+  }
+  if (cantidad < 0) {
+    return "La espera no puede ser negativa.";
+  }
+  if (cantidad * MINUTOS_POR_UNIDAD[unidadDelDraft(draft)] > MAX_DELAY_MINUTES) {
+    return "La espera no puede superar los 30 días.";
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // El mensaje de WhatsApp de las reglas que mandan uno (el QR y el cupón):
@@ -332,33 +421,16 @@ function mensajeAPayload(draft: ConfigDraft): Record<string, unknown> {
   return { whatsappFormat: draft.whatsappFormat, messageText: (draft.messageText ?? "").trim() };
 }
 
-// Mismo criterio que daysUntilDue: el vacío se valida antes (Number("") es 0)
-// y después se exige entero y en rango.
-function validarHoras(draft: ConfigDraft): string | null {
-  const texto = (draft.delayHours ?? "").trim();
-  if (texto === "") {
-    return "Indicá cuántas horas esperar antes de mandar el WhatsApp.";
-  }
-  const horas = Number(texto);
-  if (!Number.isInteger(horas)) {
-    return "Las horas de espera tienen que ser un número entero.";
-  }
-  if (horas < MIN_DELAY_HOURS || horas > MAX_DELAY_HOURS) {
-    return `Las horas de espera tienen que estar entre ${MIN_DELAY_HOURS} y ${MAX_DELAY_HOURS}.`;
-  }
-  return null;
-}
-
 const configDeSeguimientoQr: ConfigDeAccion = {
   draftVacio: () => ({
     qrCodeId: "",
-    delayHours: "",
+    ...demoraVacia(),
     ...mensajeVacio(ACTION_SEND_QR_FOLLOWUP),
   }),
 
   draftDesde: (config) => ({
     qrCodeId: typeof config.qrCodeId === "string" ? config.qrCodeId : "",
-    delayHours: typeof config.delayHours === "number" ? String(config.delayHours) : "",
+    ...demoraDesde(config),
     ...mensajeDesde(config),
   }),
 
@@ -366,12 +438,12 @@ const configDeSeguimientoQr: ConfigDeAccion = {
     if ((draft.qrCodeId ?? "") === "") {
       return "Elegí el QR que se le va a mandar al cliente.";
     }
-    return validarHoras(draft) ?? validarMensaje(draft);
+    return validarDemoraDelDraft(draft) ?? validarMensaje(draft);
   },
 
   aPayload: (draft) => ({
     qrCodeId: draft.qrCodeId,
-    delayHours: Number(draft.delayHours),
+    ...demoraAPayload(draft),
     ...mensajeAPayload(draft),
   }),
 };
@@ -385,7 +457,7 @@ export const MAX_EXPIRES_IN_DAYS = 365;
 const configDeCupon: ConfigDeAccion = {
   draftVacio: () => ({
     label: "",
-    delayHours: "",
+    ...demoraVacia(),
     expiresInDays: "",
     branchId: "",
     ...mensajeVacio(ACTION_SEND_DISCOUNT_VOUCHER),
@@ -393,7 +465,7 @@ const configDeCupon: ConfigDeAccion = {
 
   draftDesde: (config) => ({
     label: typeof config.label === "string" ? config.label : "",
-    delayHours: typeof config.delayHours === "number" ? String(config.delayHours) : "",
+    ...demoraDesde(config),
     expiresInDays: typeof config.expiresInDays === "number" ? String(config.expiresInDays) : "",
     branchId: typeof config.branchId === "string" ? config.branchId : "",
     ...mensajeDesde(config),
@@ -410,8 +482,8 @@ const configDeCupon: ConfigDeAccion = {
     if ((draft.branchId ?? "") === "") {
       return "Elegí la sucursal desde cuyo WhatsApp sale el cupón.";
     }
-    const errorDeHoras = validarHoras(draft);
-    if (errorDeHoras) return errorDeHoras;
+    const errorDeDemora = validarDemoraDelDraft(draft);
+    if (errorDeDemora) return errorDeDemora;
     const textoDias = (draft.expiresInDays ?? "").trim();
     const dias = Number(textoDias);
     if (
@@ -427,7 +499,7 @@ const configDeCupon: ConfigDeAccion = {
 
   aPayload: (draft) => ({
     label: draft.label.trim(),
-    delayHours: Number(draft.delayHours),
+    ...demoraAPayload(draft),
     expiresInDays: Number(draft.expiresInDays),
     branchId: draft.branchId,
     ...mensajeAPayload(draft),

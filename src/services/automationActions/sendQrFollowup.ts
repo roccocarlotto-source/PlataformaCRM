@@ -10,19 +10,20 @@ import {
 import type { AccionRegistrada } from "../automationActions";
 import { TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
 import { payloadDeOportunidadSchema } from "./createFollowUpActivity";
+import { camposDeLaDemora, demoraEnMinutos, horaDeEnvio, validarDemora } from "./demoraDelEnvio";
 import { camposDelMensajeDeWhatsapp, validarMensajeDeWhatsapp } from "./mensajeDeWhatsapp";
 
 // ---------------------------------------------------------------------------
 // Acción `opportunity.send_qr_followup` (ítem 159 de
 // docs/frontend-cambios-pendientes.md): cuando una oportunidad pasa a ganada,
-// mandarle al cliente por WhatsApp, N horas después, el link del QR de la
+// mandarle al cliente por WhatsApp, un rato después (delayMinutes), el link del QR de la
 // sucursal (reseñas, linktree, lo que el negocio haya puesto de destino).
 //
 // ESTA ACCIÓN NO MANDA NADA: AGENDA. El dispatcher la corre en el instante en
 // que se entrega el evento, sin noción de demora, y dentro del drenado
 // síncrono del outbox — una acción que esperara horas o saliera a la red
 // frenaría la cola entera. Lo único que hace es validar y dejar una fila en
-// qr_follow_ups con scheduledFor = ahora + delayHours; el envío lo hace
+// qr_follow_ups con scheduledFor = ahora + delayMinutes; el envío lo hace
 // src/workers/qrFollowUpWorker.ts cuando vence. Es el patrón para cualquier
 // acción futura con demora (docs/automations-architecture.md §5).
 //
@@ -33,15 +34,8 @@ import { camposDelMensajeDeWhatsapp, validarMensajeDeWhatsapp } from "./mensajeD
 
 export const ACTION_SEND_QR_FOLLOWUP = "opportunity.send_qr_followup";
 
-// 30 días. Un tope de cordura, igual que el de daysUntilDue: un "gracias por
-// tu compra, dejanos tu reseña" que llega más de un mes después ya no es un
-// seguimiento de esa venta.
-export const MAX_DELAY_HOURS = 720;
-
-const MS_POR_HORA = 60 * 60 * 1000;
-
 // SIN DEFAULTS OCULTOS, mismo criterio que las otras acciones: una regla sin
-// qrCodeId o sin delayHours es un 400 al crearla. El 0 es válido —"apenas se
+// qrCodeId o sin demora es un 400 al crearla (demoraDelEnvio.ts). El 0 es válido —"apenas se
 // gana"— y es lo que permite probar la regla a mano sin esperar horas.
 //
 // Que el QR EXISTA y sea de la organización no se puede validar acá (el schema
@@ -53,24 +47,15 @@ export const configDeSeguimientoQrSchema = z
     qrCodeId: z
       .string({ required_error: "qrCodeId es requerido" })
       .uuid("qrCodeId debe ser un UUID"),
-    delayHours: z
-      .number({
-        required_error: "delayHours es requerido",
-        invalid_type_error: "delayHours debe ser un número entero",
-      })
-      .int("delayHours debe ser un número entero")
-      .min(0, "delayHours no puede ser negativo")
-      .max(MAX_DELAY_HOURS, `delayHours no puede superar las ${MAX_DELAY_HOURS} horas`),
+    // delayMinutes, o delayHours en una regla vieja (demoraDelEnvio.ts).
+    ...camposDeLaDemora,
     // Formato y texto del WhatsApp (mensajeDeWhatsapp.ts): la imagen es el QR
     // elegido, el mismo que se imprime para la sucursal.
     ...camposDelMensajeDeWhatsapp,
   })
-  .superRefine(validarMensajeDeWhatsapp);
-
-// Exportada para probarla sin base.
-export function horaDeEnvio(ahora: Date, delayHours: number): Date {
-  return new Date(ahora.getTime() + delayHours * MS_POR_HORA);
-}
+  .superRefine(validarMensajeDeWhatsapp)
+  .superRefine(validarDemora)
+  .transform(demoraEnMinutos);
 
 // Inyectables para el test unitario, mismo patrón que
 // DependenciasDelBorrador en draftFollowUpMessage.ts.
@@ -102,7 +87,7 @@ export function crearAccionSeguimientoQr(
     // worker la cancelaría igual al ver que no está ganada.
     triggers: [TRIGGER_OPPORTUNITY_WON],
     async handler({ organizationId, automationId, config, payload }) {
-      const { qrCodeId, delayHours } = configDeSeguimientoQrSchema.parse(config);
+      const { qrCodeId, delayMinutes } = configDeSeguimientoQrSchema.parse(config);
       const { opportunityId } = payloadDeOportunidadSchema.parse(payload);
 
       // EL QR PRIMERO, y su ausencia SÍ es un error: es un problema de la
@@ -149,7 +134,7 @@ export function crearAccionSeguimientoQr(
         return;
       }
 
-      const scheduledFor = horaDeEnvio(deps.ahora(), delayHours);
+      const scheduledFor = horaDeEnvio(deps.ahora(), delayMinutes);
       const agendado = await deps.agendar({
         organizationId,
         automationId,

@@ -4,12 +4,11 @@ import { Prisma, type Opportunity, type QrCode } from "@prisma/client";
 import type { AgendarQrFollowUpData } from "../../repositories/qrFollowUp.repository";
 import { accionAdmiteTrigger } from "../automationActions";
 import { TRIGGER_OPPORTUNITY_STALE, TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
+import { MAX_DELAY_HOURS, MAX_DELAY_MINUTES } from "./demoraDelEnvio";
 import {
   ACTION_SEND_QR_FOLLOWUP,
-  MAX_DELAY_HOURS,
   configDeSeguimientoQrSchema,
   crearAccionSeguimientoQr,
-  horaDeEnvio,
   type DependenciasDelSeguimientoQr,
 } from "./sendQrFollowup";
 
@@ -95,11 +94,14 @@ function doblar(
   return { deps, agendados };
 }
 
-function correr(deps: DependenciasDelSeguimientoQr, delayHours = 48) {
+function correr(
+  deps: DependenciasDelSeguimientoQr,
+  demora: { delayMinutes: number } | { delayHours: number } = { delayMinutes: 48 * 60 },
+) {
   return crearAccionSeguimientoQr(deps).handler({
     organizationId: ORG,
     automationId: REGLA,
-    config: { qrCodeId: QR, delayHours },
+    config: { qrCodeId: QR, ...demora },
     payload: { opportunityId: OPP, ownerId: OWNER },
   });
 }
@@ -115,16 +117,23 @@ test("la acción se llama opportunity.send_qr_followup y solo admite opportunity
   assert.equal(accionAdmiteTrigger(accion, TRIGGER_OPPORTUNITY_STALE), false);
 });
 
-test("el schema exige qrCodeId UUID y delayHours entero entre 0 y el tope", () => {
-  assert.ok(configDeSeguimientoQrSchema.safeParse({ qrCodeId: QR, delayHours: 0 }).success);
-  assert.ok(
-    configDeSeguimientoQrSchema.safeParse({ qrCodeId: QR, delayHours: MAX_DELAY_HOURS }).success,
-  );
+test("el schema exige qrCodeId UUID y la demora en minutos (o en horas, la clave legada) entre 0 y el tope", () => {
+  for (const config of [
+    { qrCodeId: QR, delayMinutes: 0 },
+    { qrCodeId: QR, delayMinutes: MAX_DELAY_MINUTES },
+    { qrCodeId: QR, delayHours: 0 },
+    { qrCodeId: QR, delayHours: MAX_DELAY_HOURS },
+  ]) {
+    assert.ok(configDeSeguimientoQrSchema.safeParse(config).success, JSON.stringify(config));
+  }
 
   const casos: [unknown, RegExp][] = [
-    [{ delayHours: 1 }, /qrCodeId es requerido/],
-    [{ qrCodeId: "no-es-uuid", delayHours: 1 }, /qrCodeId debe ser un UUID/],
-    [{ qrCodeId: QR }, /delayHours es requerido/],
+    [{ delayMinutes: 1 }, /qrCodeId es requerido/],
+    [{ qrCodeId: "no-es-uuid", delayMinutes: 1 }, /qrCodeId debe ser un UUID/],
+    [{ qrCodeId: QR }, /delayMinutes es requerido/],
+    [{ qrCodeId: QR, delayMinutes: 1.5 }, /delayMinutes debe ser un número entero/],
+    [{ qrCodeId: QR, delayMinutes: MAX_DELAY_MINUTES + 1 }, /delayMinutes no puede superar/],
+    [{ qrCodeId: QR, delayMinutes: 30, delayHours: 1 }, /no los dos/],
     [{ qrCodeId: QR, delayHours: 1.5 }, /delayHours debe ser un número entero/],
     [{ qrCodeId: QR, delayHours: "24" }, /delayHours debe ser un número entero/],
     [{ qrCodeId: QR, delayHours: -1 }, /delayHours no puede ser negativo/],
@@ -137,19 +146,21 @@ test("el schema exige qrCodeId UUID y delayHours entero entre 0 y el tope", () =
   }
 });
 
-test("horaDeEnvio suma horas exactas", () => {
-  assert.equal(horaDeEnvio(AHORA, 0).toISOString(), "2026-09-25T15:00:00.000Z");
-  assert.equal(horaDeEnvio(AHORA, 48).toISOString(), "2026-09-27T15:00:00.000Z");
+test("lo que se guarda es la salida del schema: siempre delayMinutes, nunca delayHours", () => {
+  assert.deepEqual(configDeSeguimientoQrSchema.parse({ qrCodeId: QR, delayHours: 24 }), {
+    qrCodeId: QR,
+    delayMinutes: 1440,
+  });
 });
 
 // ---------------------------------------------------------------------------
 // Agendado
 // ---------------------------------------------------------------------------
 
-test("agenda UN envío con la regla, la oportunidad, su contacto, el QR y ahora + delayHours", async () => {
+test("agenda UN envío con la regla, la oportunidad, su contacto, el QR y ahora + delayMinutes", async () => {
   const { deps, agendados } = doblar();
 
-  await correr(deps, 48);
+  await correr(deps, { delayMinutes: 48 * 60 });
 
   assert.deepEqual(agendados, [
     {
@@ -161,6 +172,18 @@ test("agenda UN envío con la regla, la oportunidad, su contacto, el QR y ahora 
       scheduledFor: new Date("2026-09-27T15:00:00.000Z"),
     },
   ]);
+});
+
+test("menos de una hora: delayMinutes 15 agenda a los 15 minutos", async () => {
+  const { deps, agendados } = doblar();
+  await correr(deps, { delayMinutes: 15 });
+  assert.equal(agendados[0].scheduledFor.toISOString(), "2026-09-25T15:15:00.000Z");
+});
+
+test("una regla vieja con delayHours sigue agendando a ahora + esas horas", async () => {
+  const { deps, agendados } = doblar();
+  await correr(deps, { delayHours: 48 });
+  assert.equal(agendados[0].scheduledFor.toISOString(), "2026-09-27T15:00:00.000Z");
 });
 
 test("si ya estaba agendado (reentrega del evento) no es un error: la acción termina bien", async () => {

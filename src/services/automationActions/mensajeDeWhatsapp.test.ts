@@ -9,10 +9,10 @@ import { configDeSeguimientoQrSchema } from "./sendQrFollowup";
 // mandan uno. Sin base ni red.
 // ---------------------------------------------------------------------------
 
-const QR = { qrCodeId: "5b0f7a4e-2c1d-4f3a-9e8b-1a2b3c4d5e6f", delayHours: 24 };
+const QR = { qrCodeId: "5b0f7a4e-2c1d-4f3a-9e8b-1a2b3c4d5e6f", delayMinutes: 1440 };
 const CUPON = {
   label: "15% en el taller",
-  delayHours: 24,
+  delayMinutes: 1440,
   expiresInDays: 30,
   branchId: "5b0f7a4e-2c1d-4f3a-9e8b-1a2b3c4d5e6f",
 };
