@@ -492,7 +492,7 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
     );
   }
 
-  it("elegir la acción pide el QR y las horas de espera, con los topes del backend", async () => {
+  it("elegir la acción pide el QR y la espera con su unidad (horas por defecto)", async () => {
     servirQrsYSucursales();
     const user = userEvent.setup();
     renderForm("/automations/new");
@@ -507,10 +507,13 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
       "QR 1 · Reseñas Google",
       "QR 2 · Linktree",
     ]);
-    const horas = screen.getByLabelText("Esperar (horas)");
-    expect(horas).toBeRequired();
-    expect(horas).toHaveAttribute("min", "0");
-    expect(horas).toHaveAttribute("max", "720");
+    const espera = screen.getByLabelText("Esperar");
+    expect(espera).toBeRequired();
+    expect(espera).toHaveAttribute("min", "0");
+    const unidad = screen.getByLabelText("Unidad");
+    expect(unidad).toHaveValue("Horas");
+    expect(await listSelectOptions(user, unidad)).toEqual(["Minutos", "Horas", "Días"]);
+    expect(screen.getByText(/se revisan cada 5 minutos/)).toBeInTheDocument();
   });
 
   it("sin ningún QR, avisa dónde crearlo en vez de un desplegable vacío", async () => {
@@ -540,7 +543,7 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
     expect(screen.queryByRole("combobox", { name: "QR a enviar" })).not.toBeInTheDocument();
   });
 
-  it("manda el POST con { qrCodeId, delayHours } y las horas como número", async () => {
+  it("manda el POST con { qrCodeId, delayMinutes }: 15 minutos, menos de una hora", async () => {
     servirQrsYSucursales();
     const bodies: unknown[] = [];
     server.use(
@@ -559,7 +562,8 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
       await screen.findByLabelText("QR a enviar"),
       "QR 1 · Reseñas Google",
     );
-    await user.type(screen.getByLabelText("Esperar (horas)"), "48");
+    await user.type(screen.getByLabelText("Esperar"), "15");
+    await chooseSelectOption(user, screen.getByLabelText("Unidad"), "Minutos");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
@@ -573,7 +577,7 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
         // tocó). La plantilla de Meta la arma el backend.
         actionConfig: {
           qrCodeId: QR_ID,
-          delayHours: 48,
+          delayMinutes: 15,
           whatsappFormat: "LINK",
           messageText: textoInicial("opportunity.send_qr_followup", "LINK"),
         },
@@ -582,7 +586,7 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
     ]);
   });
 
-  it("edición: hidrata el QR y las horas guardados", async () => {
+  it("edición de una regla vieja: sus 24 horas se muestran como 1 día", async () => {
     servirQrsYSucursales();
     server.use(
       http.get(`${baseUrl}/a1`, () =>
@@ -597,7 +601,8 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
     );
     renderForm("/automations/a1/edit");
 
-    expect(await screen.findByLabelText("Esperar (horas)")).toHaveValue(24);
+    expect(await screen.findByLabelText("Esperar")).toHaveValue(1);
+    expect(screen.getByLabelText("Unidad")).toHaveValue("Días");
     await waitFor(() =>
       expect(screen.getByLabelText("QR a enviar")).toHaveValue("QR 1 · Reseñas Google"),
     );
@@ -905,7 +910,8 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
     expect((bodies[0] as { actionConfig: unknown }).actionConfig).toEqual({
       qrCodeId: QR,
-      delayHours: 24,
+      // La regla vieja tenía delayHours: 24; se guarda ya en minutos.
+      delayMinutes: 1440,
       whatsappFormat: "LINK",
       messageText: TEXTO_APROBADO,
     });
@@ -984,7 +990,7 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
     await chooseSelectOption(user, screen.getByLabelText("Acción"), "Enviar cupón de descuento");
     await user.type(screen.getByLabelText("Descuento"), "15% en el taller");
     await chooseSelectOption(user, await screen.findByLabelText("Sucursal"), "Centro");
-    await user.type(screen.getByLabelText("Esperar (horas)"), "2");
+    await user.type(screen.getByLabelText("Esperar"), "2");
     await user.type(screen.getByLabelText("Vence a los (días)"), "30");
     await user.click(screen.getByRole("radio", { name: "Imagen y link" }));
     await user.click(screen.getByRole("button", { name: "Guardar" }));
@@ -993,7 +999,7 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
     expect((bodies[0] as { actionConfig: unknown }).actionConfig).toEqual({
       label: "15% en el taller",
       branchId: QR,
-      delayHours: 2,
+      delayMinutes: 120,
       expiresInDays: 30,
       whatsappFormat: "LINK_AND_IMAGE",
       messageText: textoInicial("opportunity.send_discount_voucher", "LINK_AND_IMAGE"),
@@ -1046,7 +1052,7 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
       await screen.findByLabelText("QR a enviar"),
       "QR 1 · Reseñas Google",
     );
-    await user.type(screen.getByLabelText("Esperar (horas)"), "1");
+    await user.type(screen.getByLabelText("Esperar"), "1");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     expect(await screen.findByText(/Meta rechazó el pedido/)).toBeInTheDocument();

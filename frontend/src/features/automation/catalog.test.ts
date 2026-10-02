@@ -10,6 +10,7 @@ import {
   CONFIG_DE_TRIGGER,
   DEFAULT_ACTION,
   DEFAULT_TRIGGER,
+  MAX_DELAY_MINUTES,
   MAX_NOTES,
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPPORTUNITY_WON,
@@ -17,8 +18,10 @@ import {
   accionConMensajeDeWhatsapp,
   accionesParaTrigger,
   actionLabel,
+  demoraEnUnidad,
   formatoLlevaImagen,
   formatoLlevaLink,
+  minutosDeLaDemora,
   textoInicial,
   textoParaFormato,
   triggerLabel,
@@ -234,50 +237,96 @@ describe("configuración de opportunity.stale (ítem 76)", () => {
   });
 });
 
+describe("la demora de las reglas que agendan un WhatsApp: minutos, horas o días", () => {
+  it("lee delayMinutes, o convierte el delayHours de una regla vieja", () => {
+    expect(minutosDeLaDemora({ delayMinutes: 15 })).toBe(15);
+    expect(minutosDeLaDemora({ delayHours: 24 })).toBe(1440);
+    expect(minutosDeLaDemora({ delayHours: 0 })).toBe(0);
+    expect(minutosDeLaDemora({})).toBeNull();
+  });
+
+  it("muestra los minutos en la unidad más grande que los divide exacto", () => {
+    expect(demoraEnUnidad(1440)).toEqual({ cantidad: 1, unidad: "days" });
+    expect(demoraEnUnidad(MAX_DELAY_MINUTES)).toEqual({ cantidad: 30, unidad: "days" });
+    expect(demoraEnUnidad(2880 + 60)).toEqual({ cantidad: 49, unidad: "hours" });
+    expect(demoraEnUnidad(60)).toEqual({ cantidad: 1, unidad: "hours" });
+    expect(demoraEnUnidad(90)).toEqual({ cantidad: 90, unidad: "minutes" });
+    expect(demoraEnUnidad(15)).toEqual({ cantidad: 15, unidad: "minutes" });
+    expect(demoraEnUnidad(0)).toEqual({ cantidad: 0, unidad: "hours" });
+  });
+});
+
 describe("configuración de opportunity.send_qr_followup (ítem 159)", () => {
   const config = CONFIG_DE_ACCION[ACTION_SEND_QR_FOLLOWUP];
   const QR = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
   const TEXTO = textoInicial(ACTION_SEND_QR_FOLLOWUP, "LINK");
   const MENSAJE = { whatsappFormat: "LINK", messageText: TEXTO };
 
-  it("borrador vacío, lectura del guardado y payload con las horas como número y el mensaje", () => {
-    expect(config.draftVacio()).toEqual({ qrCodeId: "", delayHours: "", ...MENSAJE });
-    expect(config.draftDesde({ qrCodeId: QR, delayHours: 48, ...MENSAJE })).toEqual({
+  it("borrador vacío, lectura del guardado y payload con la demora en minutos y el mensaje", () => {
+    expect(config.draftVacio()).toEqual({
+      qrCodeId: "",
+      delayAmount: "",
+      delayUnit: "hours",
+      ...MENSAJE,
+    });
+    expect(config.draftDesde({ qrCodeId: QR, delayMinutes: 30, ...MENSAJE })).toEqual({
       qrCodeId: QR,
-      delayHours: "48",
+      delayAmount: "30",
+      delayUnit: "minutes",
       ...MENSAJE,
     });
     // Una regla vieja: solo link, y el texto lo completa el formulario.
     expect(config.draftDesde({})).toEqual({
       qrCodeId: "",
-      delayHours: "",
+      delayAmount: "",
+      delayUnit: "hours",
       whatsappFormat: "LINK",
       messageText: "",
     });
     expect(
       config.aPayload({
         qrCodeId: QR,
-        delayHours: "48",
+        delayAmount: "2",
+        delayUnit: "days",
         whatsappFormat: "IMAGE",
         messageText: " Hola {nombre}, QR. ",
       }),
     ).toEqual({
       qrCodeId: QR,
-      delayHours: 48,
+      delayMinutes: 2880,
       whatsappFormat: "IMAGE",
       messageText: "Hola {nombre}, QR.",
     });
   });
 
-  it("valida: QR elegido, horas requeridas (sin confundir vacío con 0), enteras y entre 0 y 720", () => {
-    const base = { qrCodeId: QR, ...MENSAJE };
-    expect(config.validar({ ...base, qrCodeId: "", delayHours: "24" })).toMatch(/Elegí el QR/);
-    expect(config.validar({ ...base, delayHours: "" })).toMatch(/cuántas horas/);
-    expect(config.validar({ ...base, delayHours: "1.5" })).toMatch(/número entero/);
-    expect(config.validar({ ...base, delayHours: "-1" })).toMatch(/entre 0 y 720/);
-    expect(config.validar({ ...base, delayHours: "721" })).toMatch(/entre 0 y 720/);
-    expect(config.validar({ ...base, delayHours: "0" })).toBeNull();
-    expect(config.validar({ ...base, delayHours: "720" })).toBeNull();
+  it("una regla vieja con delayHours se abre en su unidad y se guarda en minutos", () => {
+    const draft = config.draftDesde({ qrCodeId: QR, delayHours: 24, ...MENSAJE });
+    expect(draft).toMatchObject({ delayAmount: "1", delayUnit: "days" });
+    expect(config.draftDesde({ qrCodeId: QR, delayHours: 5, ...MENSAJE })).toMatchObject({
+      delayAmount: "5",
+      delayUnit: "hours",
+    });
+    const payload = config.aPayload(draft);
+    expect(payload.delayMinutes).toBe(1440);
+    expect(payload).not.toHaveProperty("delayHours");
+  });
+
+  it("valida: QR elegido, espera requerida (sin confundir vacío con 0), entera y hasta 30 días en cualquier unidad", () => {
+    const base = { qrCodeId: QR, delayUnit: "hours", ...MENSAJE };
+    expect(config.validar({ ...base, qrCodeId: "", delayAmount: "24" })).toMatch(/Elegí el QR/);
+    expect(config.validar({ ...base, delayAmount: "" })).toMatch(/cuánto esperar/);
+    expect(config.validar({ ...base, delayAmount: "1.5" })).toMatch(/número entero/);
+    expect(config.validar({ ...base, delayAmount: "-1" })).toMatch(/negativa/);
+    expect(config.validar({ ...base, delayAmount: "721" })).toMatch(/30 días/);
+    expect(config.validar({ ...base, delayAmount: "0" })).toBeNull();
+    expect(config.validar({ ...base, delayAmount: "720" })).toBeNull();
+    expect(config.validar({ ...base, delayUnit: "minutes", delayAmount: "15" })).toBeNull();
+    expect(config.validar({ ...base, delayUnit: "minutes", delayAmount: "43200" })).toBeNull();
+    expect(config.validar({ ...base, delayUnit: "minutes", delayAmount: "43201" })).toMatch(
+      /30 días/,
+    );
+    expect(config.validar({ ...base, delayUnit: "days", delayAmount: "30" })).toBeNull();
+    expect(config.validar({ ...base, delayUnit: "days", delayAmount: "31" })).toMatch(/30 días/);
   });
 });
 
@@ -287,7 +336,8 @@ describe("configuración de opportunity.send_discount_voucher (ítem 177)", () =
   const VALIDO = {
     label: "15% en el taller",
     branchId: SUCURSAL,
-    delayHours: "24",
+    delayAmount: "1",
+    delayUnit: "days",
     expiresInDays: "30",
     whatsappFormat: "LINK_AND_IMAGE",
     messageText: textoInicial(ACTION_SEND_DISCOUNT_VOUCHER, "LINK_AND_IMAGE"),
@@ -304,7 +354,7 @@ describe("configuración de opportunity.send_discount_voucher (ítem 177)", () =
     expect(config.aPayload(VALIDO)).toEqual({
       label: "15% en el taller",
       branchId: SUCURSAL,
-      delayHours: 24,
+      delayMinutes: 1440,
       expiresInDays: 30,
       whatsappFormat: "LINK_AND_IMAGE",
       messageText: VALIDO.messageText,
@@ -316,7 +366,8 @@ describe("configuración de opportunity.send_discount_voucher (ítem 177)", () =
     expect(config.validar(VALIDO)).toBeNull();
     expect(config.validar({ ...VALIDO, label: " " })).toMatch(/qué descuento/);
     expect(config.validar({ ...VALIDO, branchId: "" })).toMatch(/sucursal/);
-    expect(config.validar({ ...VALIDO, delayHours: "" })).toMatch(/cuántas horas/);
+    expect(config.validar({ ...VALIDO, delayAmount: "" })).toMatch(/cuánto esperar/);
+    expect(config.validar({ ...VALIDO, delayAmount: "31" })).toMatch(/30 días/);
     expect(config.validar({ ...VALIDO, expiresInDays: "0" })).toMatch(/entre 1 y 365/);
     expect(config.validar({ ...VALIDO, expiresInDays: "" })).toMatch(/entre 1 y 365/);
     expect(config.validar({ ...VALIDO, messageText: "" })).toMatch(/texto del mensaje/);

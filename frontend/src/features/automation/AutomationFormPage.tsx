@@ -21,23 +21,24 @@ import {
   CONFIG_DE_TRIGGER,
   DEFAULT_ACTION,
   DEFAULT_TRIGGER,
+  INTERVALO_DE_LOS_ENVIOS_MINUTOS,
   MAX_DAYS_UNTIL_DUE,
   MAX_DAYS_WITHOUT_ACTIVITY,
-  MAX_DELAY_HOURS,
   MAX_EXPIRES_IN_DAYS,
   MAX_NOTES,
   MAX_SUBJECT,
   MAX_VOUCHER_LABEL,
   MIN_DAYS_UNTIL_DUE,
   MIN_DAYS_WITHOUT_ACTIVITY,
-  MIN_DELAY_HOURS,
   MIN_EXPIRES_IN_DAYS,
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPTIONS,
+  UNIDAD_DE_DEMORA_OPTIONS,
   accionConMensajeDeWhatsapp,
   accionesParaTrigger,
   textoInicial,
   type ConfigDraft,
+  type UnidadDeDemora,
 } from "./catalog";
 import { useCreateAutomation, useUpdateAutomation } from "./mutations";
 import { useAutomation } from "./queries";
@@ -194,6 +195,52 @@ function CamposDelTrigger({
 }
 
 // ---------------------------------------------------------------------------
+// "Esperar": un número entero más su unidad (minutos, horas o días), en las
+// reglas que agendan un WhatsApp. Dos hijos sueltos de la grilla, igual que
+// CamposDeLaAccion. El tope de 30 días lo valida validar() en la unidad que
+// sea; el input solo impide negativos y decimales.
+// ---------------------------------------------------------------------------
+function CampoDeDemora({
+  id,
+  values,
+  onChange,
+  disabled,
+}: {
+  id: string;
+  values: ConfigDraft;
+  onChange: (values: ConfigDraft) => void;
+  disabled: boolean;
+}) {
+  return (
+    <>
+      <FormField label={<span className="ds-required">Esperar</span>}>
+        <input
+          type="number"
+          min={0}
+          step={1}
+          value={values.delayAmount ?? ""}
+          onChange={(event) => onChange({ ...values, delayAmount: event.target.value })}
+          disabled={disabled}
+          required
+        />
+      </FormField>
+      {/* Suelto, sin FormField: Select trae su propio <label htmlFor>. */}
+      <Select<UnidadDeDemora>
+        id={id}
+        label="Unidad"
+        value={values.delayUnit as UnidadDeDemora}
+        options={UNIDAD_DE_DEMORA_OPTIONS}
+        onChange={(delayUnit) => {
+          if (delayUnit) onChange({ ...values, delayUnit });
+        }}
+        disabled={disabled}
+        required
+      />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Los campos de configuración de la acción elegida.
 //
 // Un `switch` sobre actionType y nada más: agregar una acción con otra forma
@@ -294,23 +341,18 @@ function CamposDeLaAccion({
             disabled={disabled}
             required
           />
-          <FormField label={<span className="ds-required">Esperar (horas)</span>}>
-            <input
-              type="number"
-              min={MIN_DELAY_HOURS}
-              max={MAX_DELAY_HOURS}
-              step={1}
-              value={values.delayHours ?? ""}
-              onChange={(event) => onChange({ ...values, delayHours: event.target.value })}
-              disabled={disabled}
-              required
-            />
-          </FormField>
+          <CampoDeDemora
+            id="automation-form-qr-delay-unit"
+            values={values}
+            onChange={onChange}
+            disabled={disabled}
+          />
           <p className="ds-hint ds-field-grid--full">
             Cuando la oportunidad se gana, se agenda un WhatsApp al contacto con el QR elegido, que
-            sale pasadas esas horas (entre {MIN_DELAY_HOURS} y {MAX_DELAY_HOURS}; con{" "}
-            {MIN_DELAY_HOURS} sale apenas se gana). Se manda desde el número de WhatsApp de la
-            sucursal del QR. Si para entonces la oportunidad ya no está ganada, no se manda.
+            sale pasada esa espera (hasta 30 días; con 0 sale apenas se gana). Los envíos agendados
+            se revisan cada {INTERVALO_DE_LOS_ENVIOS_MINUTOS} minutos, así que puede salir hasta{" "}
+            {INTERVALO_DE_LOS_ENVIOS_MINUTOS} minutos después. Se manda desde el número de WhatsApp
+            de la sucursal del QR. Si para entonces la oportunidad ya no está ganada, no se manda.
           </p>
         </>
       );
@@ -339,18 +381,12 @@ function CamposDeLaAccion({
             disabled={disabled}
             required
           />
-          <FormField label={<span className="ds-required">Esperar (horas)</span>}>
-            <input
-              type="number"
-              min={MIN_DELAY_HOURS}
-              max={MAX_DELAY_HOURS}
-              step={1}
-              value={values.delayHours ?? ""}
-              onChange={(event) => onChange({ ...values, delayHours: event.target.value })}
-              disabled={disabled}
-              required
-            />
-          </FormField>
+          <CampoDeDemora
+            id="automation-form-voucher-delay-unit"
+            values={values}
+            onChange={onChange}
+            disabled={disabled}
+          />
           <FormField label={<span className="ds-required">Vence a los (días)</span>}>
             <input
               type="number"
@@ -365,9 +401,10 @@ function CamposDeLaAccion({
           </FormField>
           <p className="ds-hint ds-field-grid--full">
             Cuando la oportunidad se gana, se agenda un WhatsApp al contacto con un cupón de un solo
-            uso, que sale pasadas esas horas desde el número de WhatsApp de la sucursal. El cupón
-            nace al mandarse y vence a los días indicados. Se canjea escaneando su QR en "Canjear
-            cupón".
+            uso, que sale pasada esa espera desde el número de WhatsApp de la sucursal (puede salir
+            hasta {INTERVALO_DE_LOS_ENVIOS_MINUTOS} minutos después: los envíos agendados se revisan
+            cada {INTERVALO_DE_LOS_ENVIOS_MINUTOS} minutos). El cupón nace al mandarse y vence a los
+            días indicados. Se canjea escaneando su QR en "Canjear cupón".
           </p>
         </>
       );
