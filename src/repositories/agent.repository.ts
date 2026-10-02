@@ -141,6 +141,8 @@ export interface CreateAgentData {
   goal?: string | null;
   instructions: string;
   tone?: string | null;
+  // Ausente = el default de la base (15). null o 0 = aviso desactivado.
+  unansweredHandoffNoticeMinutes?: number | null;
   modelProvider: string;
   modelName: string;
   enabledTools: string[];
@@ -172,6 +174,7 @@ export interface UpdateAgentData {
   goal?: string | null;
   instructions?: string;
   tone?: string | null;
+  unansweredHandoffNoticeMinutes?: number | null;
   // Sin modelProvider ni modelName desde B-05
   // (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): el modelo lo
   // cambia SOLO setAgentModel, desde el endpoint de platform admin.

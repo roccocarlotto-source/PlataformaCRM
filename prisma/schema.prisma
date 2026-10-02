@@ -2283,6 +2283,14 @@ model Agent {
   // (utils/origin.ts) para que la comparación sea por igualdad exacta.
   allowedOrigins String[] @default([]) @map("allowed_origins")
 
+  // Aviso automático si nadie responde: si una conversación de este agente
+  // queda derivada (TRANSFERRED_TO_HUMAN) y ninguna persona le escribe al
+  // cliente en estos minutos, sale solo el aviso de "no hay nadie disponible"
+  // y la conversación vuelve al agente, igual que con "Devolver al agente"
+  // (workers/avisoSinRespuestaWorker.ts). NULL o 0 = desactivado. 15 por
+  // defecto, también para los agentes que ya existían.
+  unansweredHandoffNoticeMinutes Int? @default(15) @map("unanswered_handoff_notice_minutes")
+
   // El phone_number_id de WhatsApp Business Platform (Meta) que atiende este
   // agente — ítem 81. Meta lo manda en cada webhook (metadata.phone_number_id)
   // y es lo único que dice a qué agente, y por lo tanto a qué organización y
@@ -2364,6 +2372,13 @@ model Conversation {
   // futuro listado sin agregar sobre messages. Lo mantiene el loop del paso 2.
   lastMessageAt    DateTime? @map("last_message_at")
 
+  // Cuándo la derivó el agente por última vez: lo escribe SOLO el CAS de
+  // transferConversationToHuman. Es desde cuándo cuentan los minutos del aviso
+  // automático si nadie responde (Agent.unansweredHandoffNoticeMinutes).
+  // NULL en las derivadas antes de esta columna: esas no reciben el aviso
+  // automático (se pueden devolver a mano, como siempre).
+  transferredToHumanAt DateTime? @map("transferred_to_human_at")
+
   // Resumen corto de la conversación, de 2 a 4 oraciones (ítem 73 de
   // docs/frontend-cambios-pendientes.md). Lo REDACTA LA IA: se genera solo al
   // derivar a una persona (ejecutarHandoff) y a pedido desde la pantalla, en
@@ -2403,6 +2418,8 @@ model Conversation {
   @@index([contactId])
   // La bandeja: conversaciones activas / derivadas de la organización.
   @@index([organizationId, status])
+  // El worker del aviso automático busca las derivadas con su momento.
+  @@index([status, transferredToHumanAt])
   @@map("conversations")
 }
 

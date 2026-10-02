@@ -154,6 +154,8 @@ describe("AgentFormPage — creación", () => {
         goal: "Calificar el lead",
         instructions: "Contestá corto.",
         tone: "cercano",
+        // El default del formulario, el mismo que el de la base.
+        unansweredHandoffNoticeMinutes: 15,
         // Sin modelProvider ni modelName: los elige la plataforma (B-05).
         enabledTools: [],
         channels: ["WHATSAPP"],
@@ -710,6 +712,7 @@ describe("AgentFormPage — edición", () => {
         goal: "Atender consultas de la web y calificar el lead",
         instructions: "Sos el asistente de una concesionaria. Contestá corto y ofrecé un turno.",
         tone: "cercano",
+        unansweredHandoffNoticeMinutes: 15,
         enabledTools: ["create_lead"],
         channels: ["WEB"],
         // Los dos SIEMPRE juntos: el backend rechaza un PATCH con uno solo.
@@ -727,6 +730,57 @@ describe("AgentFormPage — edición", () => {
     // Omitir allowedOrigins es lo que deja intacta la configuración del widget:
     // mandarlo como [] la borraría.
     expect("allowedOrigins" in bodies[0]).toBe(false);
+  });
+
+  it("aviso si nadie responde: hidrata los minutos, y vacío viaja como null (desactivado)", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      mockBranches(),
+      mockAgentDetalle({ unansweredHandoffNoticeMinutes: 30 }),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+
+    const minutos = await screen.findByLabelText(
+      "Avisar al cliente si nadie responde en (minutos)",
+    );
+    expect(minutos).toHaveValue(30);
+    await user.clear(minutos);
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].unansweredHandoffNoticeMinutes).toBeNull();
+  });
+
+  it("aviso si nadie responde: un agente sin aviso se muestra vacío, y más de un día no se guarda", async () => {
+    let patches = 0;
+    server.use(
+      mockBranches(),
+      mockAgentDetalle({ unansweredHandoffNoticeMinutes: null }),
+      http.patch(`${baseUrl}/:id`, () => {
+        patches++;
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+
+    const minutos = await screen.findByLabelText(
+      "Avisar al cliente si nadie responde en (minutos)",
+    );
+    expect(minutos).toHaveValue(null);
+    await user.type(minutos, "2000");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    // El max del input frena el envío en el navegador, antes que validar().
+    expect(minutos).toBeInvalid();
+    expect(patches).toBe(0);
   });
 
   it("el ID de WhatsApp se muestra de solo lectura y no viaja en el PATCH (ítem 127)", async () => {

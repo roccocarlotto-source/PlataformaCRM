@@ -94,6 +94,7 @@ export interface CreateAgentInput {
   goal?: string | null;
   instructions: string;
   tone?: string | null;
+  unansweredHandoffNoticeMinutes?: number | null;
   // B-05: opcionales, y solo pasan si son el modelo de la plataforma (ver
   // modeloDeIa.service.ts). El agente nace siempre con OPENROUTER_MODEL.
   modelProvider?: string;
@@ -187,6 +188,9 @@ export async function createAgent(organizationId: string, input: CreateAgentInpu
         goal: input.goal ?? null,
         instructions: input.instructions,
         tone: input.tone ?? null,
+        ...(input.unansweredHandoffNoticeMinutes !== undefined
+          ? { unansweredHandoffNoticeMinutes: input.unansweredHandoffNoticeMinutes }
+          : {}),
         modelProvider: modelo.modelProvider,
         modelName: modelo.modelName,
         enabledTools: input.enabledTools,
@@ -219,6 +223,7 @@ export interface UpdateAgentInput {
   goal?: string | null;
   instructions?: string;
   tone?: string | null;
+  unansweredHandoffNoticeMinutes?: number | null;
   modelProvider?: string;
   modelName?: string;
   enabledTools?: string[];

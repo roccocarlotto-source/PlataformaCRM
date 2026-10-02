@@ -164,14 +164,15 @@ function findTareaDelAviso(organizationId: string, contactId: string, aviso: Dat
 }
 
 // A quién se le asigna la tarea cuando no había ninguna: quien devuelve, si es
-// ADMIN; si no, el ADMIN activo más antiguo de la organización. Siempre hay
-// uno: countActiveAdmins impide quedarse sin ADMIN.
+// ADMIN; si no (o si no hay quien devuelva: el aviso automático), el ADMIN
+// activo más antiguo de la organización. Siempre hay uno: countActiveAdmins
+// impide quedarse sin ADMIN.
 export async function findAdminParaLaTarea(
   organizationId: string,
-  actor: { userId: string; role: string },
+  actor: { userId: string; role: string } | null,
   db: Db,
 ): Promise<string | null> {
-  if (actor.role === "ADMIN") {
+  if (actor?.role === "ADMIN") {
     return actor.userId;
   }
   const admin = await db.user.findFirst({

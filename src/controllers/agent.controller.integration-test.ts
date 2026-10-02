@@ -249,6 +249,7 @@ test("POST /api/agents — ADMIN crea con el cuerpo mínimo; proveedor y modelo 
   assert.equal(agente.name, "Agente comercial");
   assert.equal(agente.goal, null);
   assert.equal(agente.tone, null);
+  assert.equal(agente.unansweredHandoffNoticeMinutes, 15, "el aviso sin respuesta, por defecto");
   assert.equal(agente.modelProvider, "openrouter");
   assert.equal(agente.modelName, env.OPENROUTER_MODEL);
   assert.deepEqual(agente.enabledTools, []);
@@ -463,6 +464,35 @@ test("PATCH /api/agents/:id — sin campos es 400, y branchId NO es editable", a
 
   const fila = await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } });
   assert.equal(fila.branchId, orgA.branchId, "no debe haber cambiado de sucursal");
+});
+
+test("PATCH /api/agents/:id — los minutos del aviso sin respuesta: un número, null para desactivar, y nada fuera de 0 a 1440", async () => {
+  // adminB: el cupo de escrituras es por usuario, y adminA ya lo usa mucho en
+  // este archivo.
+  const agente = await crearAgentePorHttp(adminB.accessToken, orgB.branchId);
+  const minutos = async () =>
+    (await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } }))
+      .unansweredHandoffNoticeMinutes;
+
+  const treinta = await call("PATCH", `/api/agents/${agente.id}`, adminB.accessToken, {
+    unansweredHandoffNoticeMinutes: 30,
+  });
+  assert.equal(treinta.status, 200);
+  assert.equal(await minutos(), 30);
+
+  const desactivado = await call("PATCH", `/api/agents/${agente.id}`, adminB.accessToken, {
+    unansweredHandoffNoticeMinutes: null,
+  });
+  assert.equal(desactivado.status, 200);
+  assert.equal(await minutos(), null);
+
+  for (const invalido of [-1, 1441, 2.5, "15"]) {
+    const res = await call("PATCH", `/api/agents/${agente.id}`, adminB.accessToken, {
+      unansweredHandoffNoticeMinutes: invalido,
+    });
+    assert.equal(res.status, 400, `con ${JSON.stringify(invalido)}`);
+  }
+  assert.equal(await minutos(), null, "ningún inválido se guardó");
 });
 
 // ---------------------------------------------------------------------------

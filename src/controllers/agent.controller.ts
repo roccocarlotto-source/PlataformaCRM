@@ -116,12 +116,24 @@ const instructionsSchema = z.string().trim().min(1, "instructions es requerido")
 
 const toneSchema = z.string().trim().max(100, "tone no puede superar los 100 caracteres");
 
+// Los minutos del aviso automático si nadie responde a una derivación
+// (workers/avisoSinRespuestaWorker.ts). null o 0 = desactivado. Hasta un día:
+// más que eso deja de ser "nadie respondió a tiempo". Mismo rango que el CHECK
+// de la base.
+const unansweredHandoffNoticeMinutesSchema = z
+  .number({ invalid_type_error: "unansweredHandoffNoticeMinutes debe ser un número" })
+  .int("unansweredHandoffNoticeMinutes debe ser un número entero de minutos")
+  .min(0, "unansweredHandoffNoticeMinutes no puede ser negativo")
+  .max(1440, "unansweredHandoffNoticeMinutes no puede superar un día (1440 minutos)");
+
 const createAgentSchema = z.object({
   branchId: z.string().uuid("branchId inválido"),
   name: nameSchema,
   goal: goalSchema.nullish(),
   instructions: instructionsSchema,
   tone: toneSchema.nullish(),
+  // Ausente = el default de la base (15).
+  unansweredHandoffNoticeMinutes: unansweredHandoffNoticeMinutesSchema.nullish(),
   // Opcionales desde B-05: el agente nace con el modelo de la plataforma
   // (OPENROUTER_MODEL) y el service rechaza con 403 cualquier otro. Ver
   // modeloDeIa.service.ts.
@@ -146,6 +158,7 @@ const updateAgentSchema = z
     goal: goalSchema.nullable(),
     instructions: instructionsSchema,
     tone: toneSchema.nullable(),
+    unansweredHandoffNoticeMinutes: unansweredHandoffNoticeMinutesSchema.nullable(),
     modelProvider: modelProviderSchema,
     modelName: modelNameSchema,
     enabledTools: enabledToolsSchema,

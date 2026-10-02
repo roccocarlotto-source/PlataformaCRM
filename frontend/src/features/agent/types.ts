@@ -24,6 +24,9 @@ export interface Agent {
   goal: string | null;
   instructions: string;
   tone: string | null;
+  // Aviso automático si nadie responde a una derivación: los minutos. null o
+  // 0 = desactivado.
+  unansweredHandoffNoticeMinutes: number | null;
   modelProvider: string;
   modelName: string;
   // snake_case, subconjunto del catálogo real de tools. El backend valida la
@@ -109,6 +112,7 @@ export interface CreateAgentInput {
   goal?: string | null;
   instructions: string;
   tone?: string | null;
+  unansweredHandoffNoticeMinutes?: number | null;
   // B-05: el modelo lo elige la plataforma. El backend acepta que se reenvíe
   // el vigente y rechaza (403) cualquier otro; este frontend ya no los manda
   // (el platform admin lo cambia por /api/admin/agents/:id/model).

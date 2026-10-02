@@ -13,6 +13,7 @@ import { iniciarWorkerDeOportunidadesEstancadas } from "./workers/opportunitySta
 import { iniciarWorkerDeOutbox } from "./workers/outboxWorker";
 import { iniciarWorkerDeSeguimientosQr } from "./workers/qrFollowUpWorker";
 import { iniciarWorkerDeCupones } from "./workers/discountVoucherFollowUpWorker";
+import { iniciarWorkerDeAvisoSinRespuesta } from "./workers/avisoSinRespuestaWorker";
 
 const server = app.listen(env.PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
@@ -104,6 +105,12 @@ const detenerWorkerDeSeguimientosQr = arrancarWorkers ? iniciarWorkerDeSeguimien
 // opportunity.send_discount_voucher agendó.
 const detenerWorkerDeCupones = arrancarWorkers ? iniciarWorkerDeCupones() : sinWorker;
 
+// El aviso automático si nadie responde a una derivación, detrás de la misma
+// guarda: cada conversación que toma es un WhatsApp a un cliente real.
+const detenerWorkerDeAvisoSinRespuesta = arrancarWorkers
+  ? iniciarWorkerDeAvisoSinRespuesta()
+  : sinWorker;
+
 // El apagado ordenado (M-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -117,7 +124,7 @@ const shutdown = crearShutdown({
       // dejan terminar solas, que es lo correcto.
       server.closeIdleConnections();
     }),
-  // Los ocho stops esperan a la pasada en curso de su worker (M-12 c): cada
+  // Los nueve stops esperan a la pasada en curso de su worker (M-12 c): cada
   // evento va en su propia transacción y ninguna queda a medias, y los que no
   // llegó a tocar siguen en PENDING para el próximo arranque. El de turnos de
   // WhatsApp espera solo el job en curso; si un turno largo supera el tope del
@@ -132,6 +139,7 @@ const shutdown = crearShutdown({
       detenerWorkerDeTurnosDeAgente(),
       detenerWorkerDeSeguimientosQr(),
       detenerWorkerDeCupones(),
+      detenerWorkerDeAvisoSinRespuesta(),
     ]);
   },
   desconectarPrisma: () => prisma.$disconnect(),
