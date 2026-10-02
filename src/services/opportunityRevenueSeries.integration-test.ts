@@ -6,6 +6,7 @@ import { getRevenueSeries, type RevenueSeries } from "./opportunity.service";
 import { createPipeline } from "./pipeline.service";
 import { createStage } from "./stage.service";
 import { desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import { periodWindowInZone } from "../utils/zonedWindow";
 
 // ---------------------------------------------------------------------------
 // Serie de ingresos por período (§33 de docs/frontend-cambios-pendientes.md)
@@ -226,7 +227,14 @@ test("aislamiento: la organización B no ve nada de A, y sin preferredCurrency s
 });
 
 test("el reloj por defecto es el real: sin `now` el último bucket es el período en curso", async () => {
-  const hoy = new Date().toISOString().slice(0, 10);
+  // "Hoy" en la zona de la organización, que es donde corta la serie (T-01).
+  // Con la fecha UTC, este test fallaba cada noche entre las 00:00 y las 03:00
+  // UTC, cuando en Buenos Aires todavía es el día anterior.
+  const organizacion = await prisma.organization.findUniqueOrThrow({
+    where: { id: a.organizationId },
+    select: { timezone: true },
+  });
+  const hoy = periodWindowInZone("day", new Date(), organizacion.timezone).label;
   const diaria = await getRevenueSeries(a.organizationId, "day");
   assert.equal(diaria.points.length, 30);
   assert.equal(diaria.points[29].label, hoy);
