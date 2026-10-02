@@ -12,6 +12,19 @@ body,
   height: 100%;
 }
 
+/* La página nunca se desliza de costado: lo que sea más ancho que la
+   pantalla se recorta en vez de ensanchar el documento (en el iPhone, un
+   contenido ancho agranda el viewport de layout y la pantalla entera queda
+   corrida). Lo que tiene que deslizarse, como las tablas, lo hace dentro de
+   su propio contenedor (.ds-table-wrap). `clip` no convierte a html/body en
+   contenedores de scroll; `hidden` es el respaldo de los navegadores que no
+   lo entienden. */
+html,
+body {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
 /* Sin color-scheme acá: lo declara tokens.css por tema (light en :root, dark
    en :root[data-theme="dark"]). Una declaración en body pisaría el valor
    heredado de <html> y los controles nativos volverían a seguir al SO en vez

@@ -1080,7 +1080,7 @@ fieldset.ds-field {
    tocan. */
 .ds-filters div:has(> label[for]) > input,
 .ds-board-toolbar div:has(> label[for]) > input {
-  min-width: 260px;
+  min-width: min(260px, 100%);
 }
 
 /* Encabezado "Filtros" de la fila (docs/frontend-cambios-pendientes.md §4.a):
@@ -1959,9 +1959,15 @@ fieldset.ds-field {
   color: var(--color-text-faint);
 }
 
+/* overflow-x: clip, mismo criterio que html/body en global.css: con solo
+   overflow-y: auto, el eje x también quedaba en auto y un contenido ancho
+   hacía deslizar de costado todo el contenido de la página. Con el eje y en
+   auto, clip se computa como hidden: sin barra ni deslizamiento táctil. */
 .ds-shell-body {
   flex: 1 1 auto;
   min-width: 0;
+  overflow-x: hidden;
+  overflow-x: clip;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1974,6 +1980,7 @@ fieldset.ds-field {
 .ds-shell-body > main {
   flex: 1 0 auto;
   width: 100%;
+  min-width: 0;
 }
 
 /* Página de alto completo — el chat del agente interno: el hilo tiene su
@@ -2408,7 +2415,7 @@ fieldset.ds-field {
 
 .ds-detail-list {
   display: grid;
-  grid-template-columns: minmax(150px, 2fr) 3fr;
+  grid-template-columns: minmax(min(150px, 40%), 2fr) minmax(0, 3fr);
   gap: var(--space-3) var(--space-4);
   margin: 0;
 }
@@ -2637,18 +2644,30 @@ fieldset.ds-field {
 
 /* Grilla de tarjetas: tantas columnas como entren de ≥260px, así 3 KPI o 2
    secciones se reparten el ancho y colapsan a una columna en pantallas
-   angostas sin media queries. */
+   angostas sin media queries. min(100%, …): si ni una columna de 260px
+   entra, la columna es el ancho disponible y no más. */
 .ds-card-grid {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   margin: 0;
 }
 
-/* Apila bloques verticales con el gap estándar entre tarjetas. */
+/* Apila bloques verticales con el gap estándar entre tarjetas. La columna
+   explícita minmax(0, 1fr): la implícita es `auto` y crece hasta el ancho
+   mínimo de su hijo más ancho, más allá de la pantalla. */
 .ds-stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
+}
+
+/* Ningún hijo de una grilla del layout la ensancha con su contenido: por
+   defecto un ítem de grid no se achica por debajo de su ancho mínimo (un
+   número largo, una palabra sin cortes). */
+.ds-card-grid > *,
+.ds-stack > * {
+  min-width: 0;
 }
 
 /* Un botón suelto dentro del stack conserva su ancho: el grid estira a sus
@@ -4457,7 +4476,7 @@ a.ds-button--secondary:hover {
    celular. */
 .ds-payment-fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
   gap: var(--space-3);
 }
 
