@@ -111,23 +111,31 @@ export function RevenueByMonthChart({ granularity }: RevenueByMonthChartProps) {
               label={`${heading}, ${period.window}, en ${currency}`}
             />
           ) : null}
-          <table className="ds-sr-only">
-            <caption>{heading}</caption>
-            <thead>
-              <tr>
-                <th scope="col">{period.column}</th>
-                <th scope="col">Ingresos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rawPoints.map((point) => (
-                <tr key={point.label}>
-                  <td>{point.label}</td>
-                  <td>{formatAmount(point.value, currency)}</td>
+          {/* El .ds-sr-only va en un <div> y no en la <table>: una tabla no
+              se achica por debajo de su contenido, así que el width: 1px no
+              la recortaba. Con montos reales medía ~500px y, aunque no se
+              ve, estiraba la página del celular hacia la derecha (el
+              "ashboard" cortado del iPhone). El div sí se recorta, con todo
+              lo que tiene adentro. */}
+          <div className="ds-sr-only">
+            <table>
+              <caption>{heading}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">{period.column}</th>
+                  <th scope="col">Ingresos</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rawPoints.map((point) => (
+                  <tr key={point.label}>
+                    <td>{point.label}</td>
+                    <td>{formatAmount(point.value, currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
     </Card>
