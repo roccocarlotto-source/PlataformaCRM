@@ -12,7 +12,7 @@ import { Pagination } from "../../design-system/Pagination";
 import { Select } from "../../design-system/Select";
 import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
-import { actionLabel, triggerLabel } from "./catalog";
+import { ESTADOS_DE_APROBACION, actionLabel, triggerLabel } from "./catalog";
 import { useDeleteAutomation } from "./mutations";
 import { useAutomations } from "./queries";
 import type { AutomationSortBy, SortOrder } from "./types";
@@ -156,7 +156,8 @@ export function AutomationListPage() {
                 <th>Nombre</th>
                 <th>Cuándo</th>
                 <th>Qué hace</th>
-                <th>Estado</th>
+                <th>Estado de la regla</th>
+                <th>Aprobación de WhatsApp</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -177,6 +178,21 @@ export function AutomationListPage() {
                     <Badge variant={automation.isActive ? "success" : "neutral"}>
                       {automation.isActive ? "Activa" : "Inactiva"}
                     </Badge>
+                  </td>
+                  <td>
+                    {/* Otra cosa que el estado de la regla: si Meta ya aprobó
+                        el mensaje. Una regla activa con el mensaje pendiente
+                        todavía no le manda nada a nadie. "—" en las reglas
+                        que no mandan WhatsApp. */}
+                    {automation.whatsappApproval ? (
+                      <Badge
+                        variant={ESTADOS_DE_APROBACION[automation.whatsappApproval.estado].variant}
+                      >
+                        {ESTADOS_DE_APROBACION[automation.whatsappApproval.estado].label}
+                      </Badge>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td>
                     <ActionsMenu

@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { QrCode } from "lucide-react";
-import { Badge, type BadgeVariant } from "../../design-system/Badge";
+import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -8,6 +8,7 @@ import { FormField } from "../../design-system/FormField";
 import { env } from "../../config/env";
 import {
   ACTION_SEND_DISCOUNT_VOUCHER,
+  ESTADOS_DE_APROBACION,
   FORMATOS_DE_MENSAJE,
   formatoLlevaImagen,
   formatoLlevaLink,
@@ -23,14 +24,6 @@ import {
   insertarToken,
   previewDePlantilla,
 } from "./whatsappPreview";
-
-// El rótulo y el color de cada estado de la revisión de Meta.
-const ESTADOS: Record<WhatsappApproval["estado"], { label: string; variant: BadgeVariant }> = {
-  SIN_PLANTILLA: { label: "Sin enviar", variant: "neutral" },
-  PENDIENTE: { label: "Pendiente", variant: "info" },
-  APROBADA: { label: "Aprobada", variant: "success" },
-  RECHAZADA: { label: "Rechazada", variant: "danger" },
-};
 
 // El estado de aprobación de WhatsApp de la regla: UNA línea, el de la versión
 // más nueva del mensaje. La plantilla de Meta no aparece por ningún lado: el
@@ -55,7 +48,7 @@ function AprobacionDeWhatsapp({
     );
   }
 
-  const estado = ESTADOS[approval.estado];
+  const estado = ESTADOS_DE_APROBACION[approval.estado];
   return (
     <div className="ds-stack">
       <p>

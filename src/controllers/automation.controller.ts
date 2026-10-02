@@ -1,10 +1,11 @@
 import type { Response } from "express";
 import { z } from "zod";
-import { deleteAutomation, listAutomations } from "../services/automation.service";
+import { deleteAutomation } from "../services/automation.service";
 import {
   actualizarReglaConMensaje,
   crearReglaConMensaje,
   depsDeReglaConMensajeReales,
+  listarReglasConAprobacion,
   obtenerReglaConAprobacion,
   type DepsDeReglaConMensaje,
 } from "../services/automationWhatsapp.service";
@@ -109,9 +110,10 @@ export function createAutomationHandlers(
       res.status(201).json(automation);
     }),
 
+    // Cada regla con su estado de aprobación de WhatsApp (null si no manda).
     list: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
       const query = parseOrThrow(listQuerySchema, req.query);
-      const result = await listAutomations(req.auth.organizationId, query);
+      const result = await listarReglasConAprobacion(req.auth.organizationId, query);
       res.status(200).json(result);
     }),
 

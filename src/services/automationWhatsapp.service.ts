@@ -5,14 +5,17 @@ import { mensajeDeLaRegla } from "./automationActions/mensajeDeWhatsapp";
 import {
   createAutomation,
   getAutomationById,
+  listAutomations,
   updateAutomation,
   type CreateAutomationInput,
+  type ListAutomationsParams,
   type UpdateAutomationInput,
 } from "./automation.service";
 import {
   depsDePlantillasReales,
   esAccionConPlantilla,
   getAprobacionDeLaRegla,
+  getAprobacionesDeLasReglas,
   sincronizarPlantillaDeLaRegla,
   type DepsDePlantillas,
   type ResumenDeAprobacion,
@@ -122,5 +125,23 @@ export async function obtenerReglaConAprobacion(
     whatsappApproval: esAccionConPlantilla(regla.actionType)
       ? await getAprobacionDeLaRegla(organizationId, regla.id)
       : null,
+  };
+}
+
+// El listado, con el estado de aprobación de las reglas que mandan WhatsApp
+// (null en las demás). Una sola query de plantillas para toda la página.
+export async function listarReglasConAprobacion(
+  organizationId: string,
+  params: ListAutomationsParams,
+) {
+  const pagina = await listAutomations(organizationId, params);
+  const conPlantilla = pagina.data.filter((r) => esAccionConPlantilla(r.actionType));
+  const aprobaciones = await getAprobacionesDeLasReglas(
+    organizationId,
+    conPlantilla.map((r) => r.id),
+  );
+  return {
+    ...pagina,
+    data: pagina.data.map((r) => ({ ...r, whatsappApproval: aprobaciones.get(r.id) ?? null })),
   };
 }

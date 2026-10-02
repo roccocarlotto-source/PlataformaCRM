@@ -42,6 +42,17 @@ const seleccionConMeta = { ...seleccionPublica, metaTemplateId: true } as const;
 // La aprobada y la candidata de una regla (cualquiera puede faltar). Más
 // reciente primero por si el UNIQUE no estuviera aplicado: nunca devuelve dos
 // del mismo lado.
+type FilaConMeta = { status: WhatsappTemplateStatus };
+
+// Las vivas de una regla, ordenadas de la más nueva a la más vieja, en el par
+// aprobada/candidata.
+function parDeLaRegla<T extends FilaConMeta>(vivas: T[]) {
+  return {
+    aprobada: vivas.find((p) => p.status === WhatsappTemplateStatus.APPROVED) ?? null,
+    candidata: vivas.find((p) => p.status !== WhatsappTemplateStatus.APPROVED) ?? null,
+  };
+}
+
 export async function findPlantillasDeLaRegla(
   organizationId: string,
   automationId: string,
@@ -52,15 +63,34 @@ export async function findPlantillasDeLaRegla(
     select: seleccionConMeta,
     orderBy: { createdAt: "desc" },
   });
-  return {
-    aprobada: vivas.find((p) => p.status === WhatsappTemplateStatus.APPROVED) ?? null,
-    candidata: vivas.find((p) => p.status !== WhatsappTemplateStatus.APPROVED) ?? null,
-  };
+  return parDeLaRegla(vivas);
 }
 
 export type PlantillaConMeta = NonNullable<
   Awaited<ReturnType<typeof findPlantillasDeLaRegla>>["aprobada"]
 >;
+export type ParDePlantillas = Awaited<ReturnType<typeof findPlantillasDeLaRegla>>;
+
+// Lo mismo para varias reglas en UNA query (el listado de automatizaciones):
+// sin N consultas por página. Cada id pedido vuelve en el Map, con el par
+// vacío si la regla no tiene plantillas vivas.
+export async function findPlantillasDeLasReglas(
+  organizationId: string,
+  automationIds: string[],
+  db: Db = prisma,
+): Promise<Map<string, ParDePlantillas>> {
+  const vivas =
+    automationIds.length === 0
+      ? []
+      : await db.whatsappTemplate.findMany({
+          where: { organizationId, automationId: { in: automationIds }, deletedAt: null },
+          select: { ...seleccionConMeta, automationId: true },
+          orderBy: { createdAt: "desc" },
+        });
+  return new Map(
+    automationIds.map((id) => [id, parDeLaRegla(vivas.filter((p) => p.automationId === id))]),
+  );
+}
 
 export function findPublicWhatsappTemplateById(
   organizationId: string,

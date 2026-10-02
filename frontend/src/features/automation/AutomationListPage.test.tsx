@@ -78,7 +78,72 @@ describe("AutomationListPage", () => {
     expect(cellByHeader(fila, "Cuándo")).not.toHaveTextContent("opportunity.won");
     expect(cellByHeader(fila, "Qué hace")).toHaveTextContent("Crear actividad de seguimiento");
     expect(cellByHeader(fila, "Qué hace")).not.toHaveTextContent("activity.create_follow_up");
-    expect(cellByHeader(fila, "Estado")?.querySelector(".ds-badge")).toHaveTextContent("Activa");
+    expect(cellByHeader(fila, "Estado de la regla")?.querySelector(".ds-badge")).toHaveTextContent(
+      "Activa",
+    );
+    // No manda WhatsApp: no hay aprobación que mostrar.
+    expect(cellByHeader(fila, "Aprobación de WhatsApp")).toHaveTextContent("—");
+  });
+
+  it("las reglas que mandan WhatsApp muestran la aprobación aparte del estado de la regla", async () => {
+    const aprobacion = (estado: "SIN_PLANTILLA" | "PENDIENTE" | "APROBADA" | "RECHAZADA") => ({
+      estado,
+      motivo: null,
+      mandaLaAnterior: false,
+      bodyText: null,
+      formato: null,
+    });
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [
+              makeAutomation({
+                id: "a1",
+                name: "QR sin enviar",
+                actionType: "opportunity.send_qr_followup",
+                whatsappApproval: aprobacion("SIN_PLANTILLA"),
+              }),
+              makeAutomation({
+                id: "a2",
+                name: "QR pendiente",
+                actionType: "opportunity.send_qr_followup",
+                whatsappApproval: aprobacion("PENDIENTE"),
+              }),
+              makeAutomation({
+                id: "a3",
+                name: "Cupón aprobado",
+                actionType: "opportunity.send_discount_voucher",
+                whatsappApproval: aprobacion("APROBADA"),
+              }),
+              makeAutomation({
+                id: "a4",
+                name: "Cupón rechazado",
+                isActive: false,
+                actionType: "opportunity.send_discount_voucher",
+                whatsappApproval: aprobacion("RECHAZADA"),
+              }),
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+
+    const esperado: Array<[string, string, string]> = [
+      ["QR sin enviar", "Activa", "Sin enviar"],
+      ["QR pendiente", "Activa", "Pendiente"],
+      ["Cupón aprobado", "Activa", "Aprobada"],
+      ["Cupón rechazado", "Inactiva", "Rechazada"],
+    ];
+    for (const [nombre, regla, whatsapp] of esperado) {
+      const fila = (await screen.findByText(nombre)).closest("tr");
+      expect(cellByHeader(fila, "Estado de la regla")).toHaveTextContent(regla);
+      expect(
+        cellByHeader(fila, "Aprobación de WhatsApp")?.querySelector(".ds-badge"),
+      ).toHaveTextContent(whatsapp);
+    }
   });
 
   it("un trigger o una acción que el catálogo del frontend todavía no conoce se muestran crudos", async () => {
@@ -118,7 +183,9 @@ describe("AutomationListPage", () => {
     renderPage();
 
     const fila = (await screen.findByText("Pausada")).closest("tr");
-    expect(cellByHeader(fila, "Estado")?.querySelector(".ds-badge")).toHaveTextContent("Inactiva");
+    expect(cellByHeader(fila, "Estado de la regla")?.querySelector(".ds-badge")).toHaveTextContent(
+      "Inactiva",
+    );
   });
 
   it("no gatea nada por rol: la pantalla entera es ADMIN-only por ruta", async () => {

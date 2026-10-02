@@ -5,6 +5,7 @@ import { logger } from "../lib/logger";
 import {
   discardWhatsappTemplateReservation,
   findPlantillasDeLaRegla,
+  findPlantillasDeLasReglas,
   findWhatsappTemplateById,
   isWhatsappTemplateNameTaken,
   reserveWhatsappTemplate,
@@ -38,6 +39,7 @@ import {
   mensajeDeMeta,
   uploadTemplateSampleReal,
   WhatsappGraphError,
+  type CategoriaDePlantilla,
   type CreateWhatsappTemplate,
   type DeleteWhatsappTemplate,
   type GetWhatsappTemplateStatus,
@@ -210,6 +212,26 @@ const QR_DE_LA_ACCION: Record<string, TipoDeQr> = {
   [ACTION_SEND_DISCOUNT_VOUCHER]: "v",
 };
 
+// La categoría con la que se da de alta la plantilla de cada acción. Las dos
+// van como MARKETING, que es la que Meta les asigna:
+// - Cupón de descuento: es una promoción. Meta recategorizó a MARKETING la
+//   que se mandó como UTILITY.
+// - QR de reseñas: es un pedido de reseña genérico ({nombre} y un link, sin
+//   número de pedido ni detalle de la compra). Meta: "Specificity of the order
+//   or interaction to which these relate is necessary. A general/generic
+//   survey or request for feedback will not be approved as utility."
+//   developers.facebook.com/documentation/business-messaging/whatsapp/templates/template-categorization
+//   (sección Utility templates > Feedback surveys).
+// Solo afecta las altas nuevas: las plantillas ya creadas no se tocan.
+const CATEGORIA_DE_LA_ACCION: Record<string, CategoriaDePlantilla> = {
+  [ACTION_SEND_QR_FOLLOWUP]: "MARKETING",
+  [ACTION_SEND_DISCOUNT_VOUCHER]: "MARKETING",
+};
+
+export function categoriaDeLaAccion(actionType: string): CategoriaDePlantilla {
+  return CATEGORIA_DE_LA_ACCION[actionType] ?? "MARKETING";
+}
+
 export const ACCIONES_CON_PLANTILLA: readonly string[] = Object.keys(QR_DE_LA_ACCION);
 
 export function esAccionConPlantilla(actionType: string): boolean {
@@ -296,6 +318,16 @@ export async function getAprobacionDeLaRegla(
   automationId: string,
 ): Promise<ResumenDeAprobacion> {
   return resumenDeAprobacion(await findPlantillasDeLaRegla(organizationId, automationId));
+}
+
+// El estado de aprobación de varias reglas con una sola query, para el
+// listado. Devuelve un resumen por cada id pedido.
+export async function getAprobacionesDeLasReglas(
+  organizationId: string,
+  automationIds: string[],
+): Promise<Map<string, ResumenDeAprobacion>> {
+  const pares = await findPlantillasDeLasReglas(organizationId, automationIds);
+  return new Map([...pares].map(([id, par]) => [id, resumenDeAprobacion(par)]));
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +515,7 @@ async function crearVersionNueva(
       accessToken: conexion.accessToken,
       name: nombre,
       language,
+      category: categoriaDeLaAccion(regla.actionType),
       bodyText: textoParaMeta(deseada.bodyText),
       bodyExamples: deseada.bodyText.includes(TOKEN_LINK)
         ? [EJEMPLO_NOMBRE, EJEMPLO_LINK]
