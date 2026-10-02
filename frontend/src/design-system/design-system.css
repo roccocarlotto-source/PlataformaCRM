@@ -4523,6 +4523,24 @@ a.ds-button--secondary:hover {
   overflow-wrap: anywhere;
 }
 
+/* La imagen del encabezado en la vista previa del mensaje de WhatsApp de una
+   regla (MensajeDeWhatsappCard): un lugar marcado arriba del texto, como lo
+   muestra WhatsApp. No es la imagen real: esa la arma el backend por envío. */
+.ds-chat-bubble-image {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  aspect-ratio: 1;
+  max-width: 12rem;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
 .ds-chat-row--contacto .ds-chat-bubble {
   background: var(--color-accent-soft);
   border-color: var(--color-accent-soft);

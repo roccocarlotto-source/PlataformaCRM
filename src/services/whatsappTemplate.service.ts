@@ -1,11 +1,10 @@
-import { Prisma, WhatsappTemplateStatus } from "@prisma/client";
+import { Prisma, WhatsappTemplateHeaderFormat, WhatsappTemplateStatus } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
-import { findAutomationById } from "../repositories/automation.repository";
 import {
   discardWhatsappTemplateReservation,
-  findActiveWhatsappTemplate,
-  findPublicWhatsappTemplateById,
+  findPlantillasDeLaRegla,
   findWhatsappTemplateById,
   isWhatsappTemplateNameTaken,
   reserveWhatsappTemplate,
@@ -13,16 +12,22 @@ import {
   setWhatsappTemplateStatus,
   setWhatsappTemplateStatusByMetaId,
   softDeleteWhatsappTemplate,
-  type EstadoDePlantilla,
-  type WhatsappTemplatePublica,
+  type PlantillaConMeta,
+  type PlantillaReemplazada,
 } from "../repositories/whatsappTemplate.repository";
 import { AppError } from "../utils/AppError";
+import { contenidoDelQr, qrPng, type TipoDeQr } from "../utils/qrImage";
 import {
   EJEMPLO_LINK,
   EJEMPLO_NOMBRE,
+  TOKEN_LINK,
+  formatoLlevaImagen,
+  formatoLlevaLink,
   textoParaMeta,
   validarTextoDePlantilla,
+  type FormatoDeMensaje,
 } from "../utils/whatsappTemplateText";
+import { mensajeDeLaRegla } from "./automationActions/mensajeDeWhatsapp";
 import { ACTION_SEND_DISCOUNT_VOUCHER } from "./automationActions/sendDiscountVoucherFollowup";
 import { ACTION_SEND_QR_FOLLOWUP } from "./automationActions/sendQrFollowup";
 import { esTransitorio } from "./llmProvider.service";
@@ -31,36 +36,40 @@ import {
   deleteWhatsappTemplateReal,
   getWhatsappTemplateStatusReal,
   mensajeDeMeta,
+  uploadTemplateSampleReal,
   WhatsappGraphError,
   type CreateWhatsappTemplate,
   type DeleteWhatsappTemplate,
   type GetWhatsappTemplateStatus,
+  type UploadTemplateSample,
 } from "./whatsappGraph.service";
 
 // ---------------------------------------------------------------------------
-// La plantilla de WhatsApp de cada regla de automatización (ítem 160 de
-// docs/frontend-cambios-pendientes.md): el negocio la arma desde el CRM y
-// esto la da de alta, la consulta y la borra en Meta, sobre el WABA
-// compartido (WHATSAPP_BUSINESS_ACCOUNT_ID).
+// Las plantillas de WhatsApp de las reglas que mandan uno (ítem 160; por
+// regla desde el 181). El negocio YA NO LAS ARMA: elige en la regla el
+// formato (solo link, solo imagen del QR, o los dos) y, si quiere, el texto, y
+// al guardar la regla esto crea la plantilla en Meta solo, con el encabezado
+// que corresponda (sincronizarPlantillaDeLaRegla). La pantalla muestra un
+// único estado: pendiente, aprobada o rechazada (resumenDeAprobacion).
 //
-// UNA POR REGLA, NO POR ORGANIZACIÓN (ítem 181). Cada automatización que
-// manda WhatsApp —el QR de reseñas, el cupón de descuento— tiene su propio
-// texto, aprobado por separado en Meta: una sola plantilla por organización
-// obligaba a que el texto del QR sirviera para el cupón y viceversa.
+// UNA PLANTILLA EN META NO SE EDITA: SE REEMPLAZA, SIN CORTAR LOS ENVÍOS. El
+// seguimiento sale horas después de la venta, fuera de la ventana de 24 h,
+// así que solo puede salir con una plantilla APROBADA. Si cambiar el formato
+// o el texto pide una nueva, se da de alta como CANDIDATA y la regla sigue
+// mandando con la aprobada anterior hasta que Meta apruebe la nueva; ahí la
+// anterior se da de baja (repositorio: aplicarEstadoDePlantilla) y se borra
+// en Meta. Editar la aprobada en el lugar (POST /{template-id}) la habría
+// dejado en revisión SIN poder mandarse, y Meta limita las ediciones.
 //
 // EL ALTA RESERVA ANTES DE HABLAR CON META. La fila se crea primero —en
-// PENDING, sin metaTemplateId— y recién después se llama a Meta. Así los dos
-// UNIQUE parciales de las migraciones (una activa por regla, nombre único en
-// la tabla) frenan un alta duplicada ANTES de que llegue a Meta: al revés,
-// dos altas concurrentes crearían dos plantillas en Meta y una quedaría
-// huérfana allá. Si Meta rechaza el alta, la reserva se descarta (borrado
-// físico: la plantilla no llegó a existir). Si el proceso muere entre que Meta
-// la aceptó y guardar su id, la fila queda PENDING sin metaTemplateId: no se
-// puede refrescar, pero sí borrar, porque el DELETE de Meta va por nombre.
+// PENDING, sin metaTemplateId— y recién después se llama a Meta. El UNIQUE
+// parcial de candidatas frena una segunda alta concurrente ANTES de que
+// llegue a Meta. Si Meta rechaza el alta, la reserva se descarta (borrado
+// físico: la plantilla no llegó a existir).
 //
-// ESTADO: EL DE META, NO EL NUESTRO. El CRM no decide si una plantilla está
-// aprobada: lo lee del webhook message_template_status_update o del refresh a
-// mano, y lo traduce a tres estados con estadoLocalDeMeta.
+// ESTADO: EL DE META, NO EL NUESTRO. Lo lee del webhook
+// message_template_status_update o del refresh a mano, y lo traduce a tres
+// estados con estadoLocalDeMeta.
 //
 // Las llamadas a Meta se inyectan (DepsDePlantillas), mismo criterio que los
 // workers: producción usa las *Real, los tests un doble.
@@ -69,17 +78,25 @@ import {
 export interface DepsDePlantillas {
   wabaId: () => string | undefined;
   accessToken: () => string | undefined;
+  // El id de la app de Meta: lo pide la Resumable Upload API para subir la
+  // imagen de ejemplo de una plantilla con encabezado IMAGE.
+  appId: () => string | undefined;
   create: CreateWhatsappTemplate;
   delete: DeleteWhatsappTemplate;
   getStatus: GetWhatsappTemplateStatus;
+  uploadSample: UploadTemplateSample;
+  // El nombre único de una plantilla nueva. Inyectable para los tests.
+  nombreNuevo?: (actionType: string, automationId: string) => string;
 }
 
 export const depsDePlantillasReales: DepsDePlantillas = {
   wabaId: () => env.WHATSAPP_BUSINESS_ACCOUNT_ID,
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
+  appId: () => env.META_APP_ID,
   create: createWhatsappTemplateReal,
   delete: deleteWhatsappTemplateReal,
   getStatus: getWhatsappTemplateStatusReal,
+  uploadSample: uploadTemplateSampleReal,
 };
 
 const MENSAJE_SIN_CONEXION =
@@ -123,7 +140,7 @@ function leerConexion(deps: Pick<DepsDePlantillas, "wabaId" | "accessToken">) {
 //
 // "NONE" es lo que Meta pone en `reason` cuando no hay motivo: cuenta como
 // ausente.
-export function estadoLocalDeMeta(estadoMeta: string, motivo?: string | null): EstadoDePlantilla {
+export function estadoLocalDeMeta(estadoMeta: string, motivo?: string | null) {
   const estado = estadoMeta.trim().toUpperCase();
   const recortado = motivo?.trim();
   const razon = recortado && recortado.toUpperCase() !== "NONE" ? recortado : null;
@@ -165,10 +182,11 @@ export function esPlantillaInexistenteEnMeta(err: unknown): boolean {
 // - 429/5xx, red, timeout: transitorio, "probá de nuevo" (502).
 // - 401/403: el token de la PLATAFORMA no sirve. No es culpa del negocio ni
 //   lo puede arreglar: el mismo 503 que la conexión sin configurar.
-// - Cualquier otro 4xx: Meta rechazó el pedido (nombre ya usado en el WABA,
-//   texto que no cumple sus reglas, idioma inexistente). Su motivo, tal cual
-//   lo redacta Meta, en un 400.
+// - Cualquier otro 4xx: Meta rechazó el pedido (texto que no cumple sus
+//   reglas, idioma inexistente). Su motivo, tal cual lo redacta Meta, en un
+//   400.
 function traducirErrorDeMeta(err: unknown, accion: string): AppError {
+  if (err instanceof AppError) return err;
   if (err instanceof WhatsappGraphError && !esTransitorio(err.status)) {
     if (err.status === 401 || err.status === 403) {
       logger.error({ err }, `Plantilla de WhatsApp: Meta rechazó el token al ${accion}`);
@@ -184,43 +202,158 @@ function traducirErrorDeMeta(err: unknown, accion: string): AppError {
   );
 }
 
-// Las acciones de automatización que mandan un WhatsApp con plantilla, y por
-// eso pueden tener una. Una acción nueva de este tipo se suma acá (y en
-// frontend/src/features/whatsapp/acciones.ts, que la lista en la pantalla).
-export const ACCIONES_CON_PLANTILLA: readonly string[] = [
-  ACTION_SEND_QR_FOLLOWUP,
-  ACTION_SEND_DISCOUNT_VOUCHER,
-];
+// Las acciones de automatización que mandan un WhatsApp con plantilla, y qué
+// QR va en su imagen: el de la sucursal (`r`) o el del cupón (`v`). Una acción
+// nueva de este tipo se suma acá (y al catálogo del frontend).
+const QR_DE_LA_ACCION: Record<string, TipoDeQr> = {
+  [ACTION_SEND_QR_FOLLOWUP]: "r",
+  [ACTION_SEND_DISCOUNT_VOUCHER]: "v",
+};
+
+export const ACCIONES_CON_PLANTILLA: readonly string[] = Object.keys(QR_DE_LA_ACCION);
 
 export function esAccionConPlantilla(actionType: string): boolean {
   return ACCIONES_CON_PLANTILLA.includes(actionType);
 }
 
-export function getCurrentWhatsappTemplate(organizationId: string, automationId: string) {
-  return findActiveWhatsappTemplate(organizationId, automationId);
+const PREFIJO_DEL_NOMBRE: Record<string, string> = {
+  [ACTION_SEND_QR_FOLLOWUP]: "seguimiento_qr",
+  [ACTION_SEND_DISCOUNT_VOUCHER]: "cupon_descuento",
+};
+
+// Minúsculas, números y guion bajo (regla de Meta), único en el WABA
+// compartido: un pedazo de la regla y uno al azar. El negocio no lo ve.
+export function nombreDePlantillaNuevo(actionType: string, automationId: string): string {
+  const prefijo = PREFIJO_DEL_NOMBRE[actionType] ?? "seguimiento";
+  const regla = automationId.replace(/-/g, "").slice(0, 8);
+  const azar = randomUUID().replace(/-/g, "").slice(0, 8);
+  return `${prefijo}_${regla}_${azar}`;
 }
 
-// La regla a la que se le quiere cargar una plantilla: tiene que existir, no
-// estar borrada, ser de ESTA organización y mandar WhatsApp. Un 400 y no un
-// 404, mismo criterio que el branchId de la acción del cupón (ítem 177): es un
-// dato del cuerpo que no sirve, no el recurso de la URL. Inactiva sí se
-// acepta: cargar y aprobar la plantilla ANTES de activar la regla es
-// justamente el orden razonable (Meta tarda en revisarla).
-async function validarRegla(organizationId: string, automationId: string) {
-  const regla = await findAutomationById(automationId, organizationId);
-  if (!regla) {
-    throw new AppError("La automatización no existe o fue eliminada", 400);
-  }
-  if (!esAccionConPlantilla(regla.actionType)) {
-    throw new AppError("Esa automatización no manda WhatsApp: no lleva plantilla", 400);
-  }
+const IDIOMA_POR_DEFECTO = "es_AR";
+
+// ---------------------------------------------------------------------------
+// Lo que la pantalla de la regla muestra
+// ---------------------------------------------------------------------------
+
+export type EstadoDeAprobacion = "SIN_PLANTILLA" | "PENDIENTE" | "APROBADA" | "RECHAZADA";
+
+export interface ResumenDeAprobacion {
+  estado: EstadoDeAprobacion;
+  // El motivo de Meta, solo en RECHAZADA.
+  motivo: string | null;
+  // true si hay una versión nueva en revisión (o rechazada) y, mientras
+  // tanto, se sigue mandando con la aprobada anterior.
+  mandaLaAnterior: boolean;
+  // El texto y el formato de la versión más nueva: con eso se completa el
+  // formulario de una regla vieja que no tiene messageText guardado.
+  bodyText: string | null;
+  formato: FormatoDeMensaje | null;
 }
 
-export interface CrearPlantillaInput {
-  automationId: string;
-  name: string;
-  language: string;
+function formatoDeLaPlantilla(
+  p: Pick<PlantillaConMeta, "bodyText" | "headerFormat">,
+): FormatoDeMensaje {
+  const conImagen = p.headerFormat === WhatsappTemplateHeaderFormat.IMAGE;
+  const conLink = p.bodyText.includes(TOKEN_LINK);
+  if (conImagen) return conLink ? "LINK_AND_IMAGE" : "IMAGE";
+  return "LINK";
+}
+
+// Pura: un solo estado para la pantalla, de la versión más nueva.
+export function resumenDeAprobacion(par: {
+  aprobada: PlantillaConMeta | null;
+  candidata: PlantillaConMeta | null;
+}): ResumenDeAprobacion {
+  const { aprobada, candidata } = par;
+  const ultima = candidata ?? aprobada;
+  if (!ultima) {
+    return {
+      estado: "SIN_PLANTILLA",
+      motivo: null,
+      mandaLaAnterior: false,
+      bodyText: null,
+      formato: null,
+    };
+  }
+  const estado: EstadoDeAprobacion =
+    ultima.status === WhatsappTemplateStatus.APPROVED
+      ? "APROBADA"
+      : ultima.status === WhatsappTemplateStatus.REJECTED
+        ? "RECHAZADA"
+        : "PENDIENTE";
+  return {
+    estado,
+    motivo: estado === "RECHAZADA" ? (ultima.rejectedReason ?? null) : null,
+    mandaLaAnterior: candidata !== null && aprobada !== null,
+    bodyText: ultima.bodyText,
+    formato: formatoDeLaPlantilla(ultima),
+  };
+}
+
+export async function getAprobacionDeLaRegla(
+  organizationId: string,
+  automationId: string,
+): Promise<ResumenDeAprobacion> {
+  return resumenDeAprobacion(await findPlantillasDeLaRegla(organizationId, automationId));
+}
+
+// ---------------------------------------------------------------------------
+// Sincronización: la plantilla que la regla pide vs. las que tiene
+// ---------------------------------------------------------------------------
+
+export interface PlantillaDeseada {
   bodyText: string;
+  headerFormat: WhatsappTemplateHeaderFormat;
+}
+
+export type DecisionDeSincronizacion =
+  | { accion: "NADA" }
+  | { accion: "DESCARTAR_CANDIDATA" }
+  | { accion: "CREAR"; descartarCandidata: boolean };
+
+function coincide(
+  p: Pick<PlantillaConMeta, "bodyText" | "headerFormat"> | null,
+  deseada: PlantillaDeseada,
+): boolean {
+  return p !== null && p.bodyText === deseada.bodyText && p.headerFormat === deseada.headerFormat;
+}
+
+// Pura, para probarla sin base ni red:
+// - lo que pide la regla ya está aprobado: nada que hacer (y si había una
+//   versión nueva en curso, el negocio volvió atrás: se descarta);
+// - ya está en revisión, o rechazado con ESE mismo texto: nada. Volver a
+//   mandar lo mismo que Meta rechazó daría el mismo rechazo — el negocio tiene
+//   que cambiar el texto;
+// - cualquier otra cosa: una versión nueva, descartando la candidata vieja.
+export function decidirSincronizacion(
+  par: { aprobada: PlantillaConMeta | null; candidata: PlantillaConMeta | null },
+  deseada: PlantillaDeseada | null,
+): DecisionDeSincronizacion {
+  if (deseada === null) return { accion: "NADA" };
+  if (coincide(par.aprobada, deseada)) {
+    return par.candidata ? { accion: "DESCARTAR_CANDIDATA" } : { accion: "NADA" };
+  }
+  if (coincide(par.candidata, deseada)) return { accion: "NADA" };
+  return { accion: "CREAR", descartarCandidata: par.candidata !== null };
+}
+
+// Pura: la plantilla que pide la regla, o null si no hay con qué armarla (una
+// regla vieja sin texto propio y sin ninguna plantilla). Sin messageText, el
+// texto es el de la versión más nueva que ya tiene.
+export function plantillaDeseada(
+  actionConfig: unknown,
+  par: { aprobada: PlantillaConMeta | null; candidata: PlantillaConMeta | null },
+): PlantillaDeseada | null {
+  const { formato, texto } = mensajeDeLaRegla(actionConfig);
+  const bodyText = texto ?? par.candidata?.bodyText ?? par.aprobada?.bodyText ?? null;
+  if (bodyText === null) return null;
+  return {
+    bodyText,
+    headerFormat: formatoLlevaImagen(formato)
+      ? WhatsappTemplateHeaderFormat.IMAGE
+      : WhatsappTemplateHeaderFormat.NONE,
+  };
 }
 
 async function borrarEnMetaYLocal(
@@ -238,64 +371,105 @@ async function borrarEnMetaYLocal(
     });
   } catch (err) {
     if (!esPlantillaInexistenteEnMeta(err)) {
-      throw traducirErrorDeMeta(err, "borrar la plantilla");
+      throw traducirErrorDeMeta(err, "borrar la versión anterior de la plantilla");
     }
   }
   await softDeleteWhatsappTemplate(organizationId, plantilla.id);
 }
 
-export async function createWhatsappTemplate(
-  organizationId: string,
-  input: CrearPlantillaInput,
-  deps: DepsDePlantillas = depsDePlantillasReales,
-): Promise<WhatsappTemplatePublica> {
-  const problema = validarTextoDePlantilla(input.bodyText);
-  if (problema) {
-    throw new AppError(problema, 400);
+// La aprobada anterior que la promoción ya dio de baja localmente: se borra
+// también en Meta para no acumular plantillas muertas en el WABA. Best effort:
+// si Meta no contesta, queda allá sin uso y se loguea.
+async function borrarReemplazadaEnMeta(reemplazada: PlantillaReemplazada, deps: DepsDePlantillas) {
+  const wabaId = deps.wabaId()?.trim();
+  const accessToken = deps.accessToken()?.trim();
+  if (!wabaId || !accessToken) return;
+  try {
+    await deps.delete({
+      wabaId,
+      accessToken,
+      name: reemplazada.name,
+      metaTemplateId: reemplazada.metaTemplateId,
+    });
+  } catch (err) {
+    if (!esPlantillaInexistenteEnMeta(err)) {
+      logger.warn(
+        { err, plantilla: reemplazada.name },
+        "No se pudo borrar en Meta la plantilla reemplazada; queda allá sin uso",
+      );
+    }
   }
-  const bodyText = input.bodyText.trim();
-  const { automationId } = input;
-  await validarRegla(organizationId, automationId);
-  const conexion = leerConexion(deps);
+}
 
-  // Una activa por regla. PENDING o APPROVED: el negocio tiene que borrarla a
-  // propósito (409). REJECTED no sirve para nada, y rehacerla es justamente lo
-  // que el negocio vino a hacer: se borra sola —en Meta también, para liberar
-  // el nombre allá— y sigue el alta. La plantilla de OTRA regla de la misma
-  // organización no cuenta: cada una tiene la suya.
-  const actual = await findActiveWhatsappTemplate(organizationId, automationId);
-  if (actual && actual.status !== WhatsappTemplateStatus.REJECTED) {
-    throw new AppError(
-      "Esta automatización ya tiene una plantilla pendiente o aprobada. Para cambiarla, borrá la actual primero.",
-      409,
+// El handle de la imagen de ejemplo para el alta de una plantilla con
+// encabezado IMAGE: un QR de muestra del mismo tipo que el real.
+async function subirImagenDeEjemplo(
+  actionType: string,
+  accessToken: string,
+  deps: DepsDePlantillas,
+): Promise<string> {
+  const appId = deps.appId()?.trim();
+  if (!appId) {
+    logger.error(
+      { faltan: ["META_APP_ID"] },
+      "Plantilla de WhatsApp con imagen: falta el id de la app de Meta",
     );
+    throw new AppError(MENSAJE_SIN_CONEXION, 503);
   }
-  if (actual) {
-    const conMeta = await findWhatsappTemplateById(organizationId, actual.id);
-    if (conMeta) {
-      await borrarEnMetaYLocal(organizationId, conMeta, conexion, deps);
+  const tipo = QR_DE_LA_ACCION[actionType] ?? "r";
+  const ejemplo =
+    contenidoDelQr(tipo, "00000000-0000-4000-8000-000000000000") ?? "https://nexoraqrs.com";
+  return deps.uploadSample({
+    appId,
+    accessToken,
+    fileName: `ejemplo_${tipo}.png`,
+    png: await qrPng(ejemplo),
+  });
+}
+
+async function crearVersionNueva(
+  organizationId: string,
+  regla: { id: string; actionType: string },
+  deseada: PlantillaDeseada,
+  language: string,
+  conexion: { wabaId: string; accessToken: string },
+  deps: DepsDePlantillas,
+) {
+  const nombre = (deps.nombreNuevo ?? nombreDePlantillaNuevo)(regla.actionType, regla.id);
+  if (await isWhatsappTemplateNameTaken(nombre)) {
+    // Con 8 caracteres al azar no pasa; si pasa, el próximo guardado lo
+    // resuelve con otro nombre.
+    throw new AppError("No se pudo reservar un nombre para la plantilla. Guardá de nuevo.", 409);
+  }
+
+  const conImagen = deseada.headerFormat === WhatsappTemplateHeaderFormat.IMAGE;
+  // La imagen de ejemplo ANTES de reservar: si falla, no queda una reserva
+  // huérfana que descartar.
+  let headerImageHandle: string | undefined;
+  if (conImagen) {
+    try {
+      headerImageHandle = await subirImagenDeEjemplo(regla.actionType, conexion.accessToken, deps);
+    } catch (err) {
+      throw traducirErrorDeMeta(err, "subir la imagen de ejemplo");
     }
   }
 
-  if (await isWhatsappTemplateNameTaken(input.name)) {
-    throw new AppError("Ese nombre de plantilla ya está en uso. Elegí otro.", 409);
-  }
-
-  let reserva: WhatsappTemplatePublica;
+  let reserva;
   try {
     reserva = await reserveWhatsappTemplate({
       organizationId,
-      automationId,
-      name: input.name,
-      language: input.language,
-      bodyText,
+      automationId: regla.id,
+      name: nombre,
+      language,
+      bodyText: deseada.bodyText,
+      headerFormat: deseada.headerFormat,
     });
   } catch (err) {
-    // Otra alta concurrente ganó el lugar o el nombre entre los chequeos de
-    // arriba y este INSERT: el UNIQUE parcial es la garantía real.
+    // Otro guardado concurrente de la misma regla ganó el lugar de candidata
+    // entre la lectura y este INSERT: el UNIQUE parcial es la garantía real.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       throw new AppError(
-        "Ya hay una plantilla con ese nombre, o esta automatización ya tiene una. Recargá y probá de nuevo.",
+        "La regla se está guardando desde otro lado al mismo tiempo. Recargá y probá de nuevo.",
         409,
       );
     }
@@ -307,88 +481,129 @@ export async function createWhatsappTemplate(
     enMeta = await deps.create({
       wabaId: conexion.wabaId,
       accessToken: conexion.accessToken,
-      name: input.name,
-      language: input.language,
-      bodyText: textoParaMeta(bodyText),
-      bodyExamples: [EJEMPLO_NOMBRE, EJEMPLO_LINK],
+      name: nombre,
+      language,
+      bodyText: textoParaMeta(deseada.bodyText),
+      bodyExamples: deseada.bodyText.includes(TOKEN_LINK)
+        ? [EJEMPLO_NOMBRE, EJEMPLO_LINK]
+        : [EJEMPLO_NOMBRE],
+      ...(headerImageHandle ? { headerImageHandle } : {}),
     });
   } catch (err) {
     await discardWhatsappTemplateReservation(organizationId, reserva.id);
-    throw traducirErrorDeMeta(err, "crear la plantilla");
+    throw traducirErrorDeMeta(err, "mandar la plantilla a aprobación");
   }
 
-  const estado = estadoLocalDeMeta(enMeta.status);
-  await setWhatsappTemplateMetaId(organizationId, reserva.id, {
-    ...estado,
+  const { reemplazada } = await setWhatsappTemplateMetaId(organizationId, reserva.id, {
+    ...estadoLocalDeMeta(enMeta.status),
     metaTemplateId: enMeta.id,
   });
-  return (
-    (await findPublicWhatsappTemplateById(organizationId, reserva.id)) ?? {
-      ...reserva,
-      ...estado,
+  if (reemplazada) await borrarReemplazadaEnMeta(reemplazada, deps);
+}
+
+export interface ResultadoDeSincronizacion {
+  aprobacion: ResumenDeAprobacion;
+  // El motivo por el que no se pudo mandar la versión nueva a Meta, para la
+  // pantalla. La regla quedó guardada igual: el próximo guardado reintenta.
+  error: string | null;
+}
+
+// Al guardar una regla que manda WhatsApp: deja en Meta la plantilla que la
+// regla pide. No lanza por un fallo de Meta ni de configuración: la regla ya
+// está guardada, y el error vuelve como dato para que la pantalla lo muestre.
+// Lo que sí lanza (la base que no responde, un bug) es un 500 de siempre.
+export async function sincronizarPlantillaDeLaRegla(
+  organizationId: string,
+  regla: { id: string; actionType: string; actionConfig: unknown },
+  deps: DepsDePlantillas = depsDePlantillasReales,
+): Promise<ResultadoDeSincronizacion> {
+  let error: string | null = null;
+  try {
+    const par = await findPlantillasDeLaRegla(organizationId, regla.id);
+    const deseada = plantillaDeseada(regla.actionConfig, par);
+    const decision = decidirSincronizacion(par, deseada);
+    if (deseada && decision.accion !== "NADA") {
+      // Una regla vieja sin messageText cuyo formato nuevo no admite su texto
+      // (pasar a "solo imagen" con un {link} heredado): se dice, no se manda.
+      const { formato } = mensajeDeLaRegla(regla.actionConfig);
+      const problema = validarTextoDePlantilla(deseada.bodyText, {
+        conLink: formatoLlevaLink(formato),
+      });
+      if (problema) throw new AppError(problema, 400);
+
+      const conexion = leerConexion(deps);
+      if (decision.accion === "DESCARTAR_CANDIDATA" || decision.descartarCandidata) {
+        await borrarEnMetaYLocal(organizationId, par.candidata!, conexion, deps);
+      }
+      if (decision.accion === "CREAR") {
+        const language = par.aprobada?.language ?? par.candidata?.language ?? IDIOMA_POR_DEFECTO;
+        await crearVersionNueva(organizationId, regla, deseada, language, conexion, deps);
+      }
     }
-  );
+  } catch (err) {
+    if (!(err instanceof AppError)) throw err;
+    error = err.message;
+  }
+  return { aprobacion: await getAprobacionDeLaRegla(organizationId, regla.id), error };
 }
 
-export async function deleteWhatsappTemplate(
-  organizationId: string,
-  id: string,
-  deps: DepsDePlantillas = depsDePlantillasReales,
-): Promise<void> {
-  const plantilla = await findWhatsappTemplateById(organizationId, id);
-  if (!plantilla) {
-    throw new AppError("Plantilla no encontrada", 404);
-  }
-  await borrarEnMetaYLocal(organizationId, plantilla, leerConexion(deps), deps);
-}
+// ---------------------------------------------------------------------------
+// Estado: refresh a mano y webhook
+// ---------------------------------------------------------------------------
 
-// Repregunta el estado a Meta: la red de seguridad por si la suscripción del
-// webhook a message_template_status_update no está puesta, o tarda.
-export async function refreshWhatsappTemplate(
+async function refrescarUna(
   organizationId: string,
-  id: string,
-  deps: DepsDePlantillas = depsDePlantillasReales,
-): Promise<WhatsappTemplatePublica> {
-  const plantilla = await findWhatsappTemplateById(organizationId, id);
-  if (!plantilla) {
-    throw new AppError("Plantilla no encontrada", 404);
-  }
-  if (!plantilla.metaTemplateId) {
-    throw new AppError(
-      "La plantilla no llegó a registrarse en Meta. Borrala y volvé a intentar.",
-      409,
-    );
-  }
-  const conexion = leerConexion(deps);
-
+  plantilla: PlantillaConMeta,
+  accessToken: string,
+  deps: DepsDePlantillas,
+) {
+  if (!plantilla.metaTemplateId) return;
   let enMeta;
   try {
-    enMeta = await deps.getStatus({
-      metaTemplateId: plantilla.metaTemplateId,
-      accessToken: conexion.accessToken,
-    });
+    enMeta = await deps.getStatus({ metaTemplateId: plantilla.metaTemplateId, accessToken });
   } catch (err) {
     throw traducirErrorDeMeta(err, "consultar el estado");
   }
+  const { reemplazada } = await setWhatsappTemplateStatus(
+    organizationId,
+    plantilla.id,
+    estadoLocalDeMeta(enMeta.status, enMeta.rejectedReason),
+  );
+  if (reemplazada) await borrarReemplazadaEnMeta(reemplazada, deps);
+}
 
-  const estado = estadoLocalDeMeta(enMeta.status, enMeta.rejectedReason);
-  await setWhatsappTemplateStatus(organizationId, id, estado);
-  // Releída y no armada a mano: vuelve con el updatedAt real y sin los campos
-  // de la integración. Null solo si la borraron en el medio.
-  const actualizada = await findPublicWhatsappTemplateById(organizationId, id);
-  if (!actualizada) {
-    throw new AppError("Plantilla no encontrada", 404);
+// Repregunta a Meta el estado de las plantillas de la regla: la red de
+// seguridad por si la suscripción del webhook a
+// message_template_status_update no está puesta, o tarda.
+export async function refreshAprobacionDeLaRegla(
+  organizationId: string,
+  automationId: string,
+  deps: DepsDePlantillas = depsDePlantillasReales,
+): Promise<ResumenDeAprobacion> {
+  const { accessToken } = leerConexion(deps);
+  const { aprobada, candidata } = await findPlantillasDeLaRegla(organizationId, automationId);
+  // La candidata primero: si Meta la aprobó, la promoción da de baja a la
+  // aprobada y no hay que preguntar por ella.
+  if (candidata) await refrescarUna(organizationId, candidata, accessToken, deps);
+  if (aprobada && (await findWhatsappTemplateById(organizationId, aprobada.id))) {
+    await refrescarUna(organizationId, aprobada, accessToken, deps);
   }
-  return actualizada;
+  return getAprobacionDeLaRegla(organizationId, automationId);
 }
 
 // El webhook message_template_status_update (whatsappWebhook.service.ts).
 // Devuelve cuántas filas actualizó: 0 si la plantilla no es de este CRM (el
 // WABA puede tener otras, dadas de alta a mano) o ya se borró.
-export function applyWhatsappTemplateStatusFromMeta(
+export async function applyWhatsappTemplateStatusFromMeta(
   metaTemplateId: string,
   estadoMeta: string,
   motivo: string | null,
-) {
-  return setWhatsappTemplateStatusByMetaId(metaTemplateId, estadoLocalDeMeta(estadoMeta, motivo));
+  deps: DepsDePlantillas = depsDePlantillasReales,
+): Promise<number> {
+  const { count, reemplazadas } = await setWhatsappTemplateStatusByMetaId(
+    metaTemplateId,
+    estadoLocalDeMeta(estadoMeta, motivo),
+  );
+  for (const reemplazada of reemplazadas) await borrarReemplazadaEnMeta(reemplazada, deps);
+  return count;
 }

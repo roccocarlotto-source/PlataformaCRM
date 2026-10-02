@@ -1,4 +1,4 @@
-import { OpportunityStatus } from "@prisma/client";
+import { OpportunityStatus, WhatsappTemplateHeaderFormat } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { findBranchWhatsappPhoneNumberId } from "../repositories/agent.repository";
@@ -27,6 +27,8 @@ import {
   type SendWhatsappTemplate,
 } from "../services/whatsappGraph.service";
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
+import { baseDeLaApiPublica, buildQrImageUrl, type TipoDeQr } from "../utils/qrImage";
+import { parametrosDelCuerpo } from "../utils/whatsappTemplateText";
 
 // ---------------------------------------------------------------------------
 // El worker de seguimientos por WhatsApp con el QR (ítem 159 de
@@ -65,6 +67,40 @@ export interface PlantillaDeSeguimiento {
   // El cuerpo con {{1}}, {{2}}… (F1: el texto que queda en la conversación).
   // Opcional: sin él se anota una línea descriptiva (textoDePlantilla).
   bodyText?: string | null;
+  // IMAGE: la plantilla lleva la imagen del QR de encabezado, y cada envío le
+  // pasa su URL pública. Ausente o NONE: solo texto (toda plantilla anterior
+  // al formato elegible).
+  headerFormat?: WhatsappTemplateHeaderFormat;
+}
+
+// Lo que va en cada envío según la plantilla CON LA QUE SALE: los parámetros
+// del cuerpo ([nombre, link], o [nombre] si su texto no lleva link) y, si
+// tiene encabezado IMAGE, la URL de la imagen del QR. Se decide por la
+// plantilla y no por el formato de la regla: mientras una versión nueva
+// espera a Meta, sale la aprobada anterior con su propia forma. Compartida
+// con el worker del cupón; exportada para probarla sin red.
+export function armarEnvioDeLaPlantilla(
+  plantilla: PlantillaDeSeguimiento,
+  nombre: string,
+  link: string,
+  qr: { tipo: TipoDeQr; id: string },
+  // Un objeto y no un parámetro suelto: "sin base" (undefined) es un caso que
+  // los tests prueban, y un default lo taparía.
+  opciones: { baseDeLaApi: string | undefined } = { baseDeLaApi: baseDeLaApiPublica() },
+): { bodyParameters: string[]; headerImageUrl?: string } {
+  const bodyParameters = plantilla.bodyText
+    ? parametrosDelCuerpo(plantilla.bodyText, nombre, link)
+    : [nombre, link];
+  if (plantilla.headerFormat !== WhatsappTemplateHeaderFormat.IMAGE) {
+    return { bodyParameters };
+  }
+  const headerImageUrl = buildQrImageUrl(qr.tipo, qr.id, opciones.baseDeLaApi);
+  if (!headerImageUrl) {
+    throw new ErrorPermanenteDelSeguimiento(
+      "La plantilla lleva la imagen del QR, pero el backend no conoce su URL pública (PUBLIC_API_BASE_URL)",
+    );
+  }
+  return { bodyParameters, headerImageUrl };
 }
 
 export interface DepsDelSeguimiento {
@@ -81,6 +117,10 @@ export interface DepsDelSeguimiento {
   // proximaAperturaDeLaSucursal (horario propio o el default 9–20 lun–sáb).
   proximaApertura: (organizationId: string, branchId: string, ahora: Date) => Promise<Date>;
   sendTemplate: SendWhatsappTemplate;
+  // El origen público del backend, para la URL de la imagen del QR de una
+  // plantilla con encabezado IMAGE (utils/qrImage.ts). Opcional para los
+  // dobles de los tests; el real es baseDeLaApiPublica.
+  baseDeLaApi?: () => string | undefined;
   // F1: anota el envío en la conversación del contacto. Opcional para los
   // dobles de los tests; el real es registrarPlantillaEnConversacion.
   registrarEnConversacion?: (envio: EnvioDePlantilla) => Promise<void>;
@@ -91,7 +131,12 @@ export const depsDelSeguimientoReales: DepsDelSeguimiento = {
   plantillaDeLaRegla: async (organizationId, automationId) => {
     const plantilla = await findApprovedWhatsappTemplate(organizationId, automationId);
     return plantilla
-      ? { name: plantilla.name, languageCode: plantilla.language, bodyText: plantilla.bodyText }
+      ? {
+          name: plantilla.name,
+          languageCode: plantilla.language,
+          bodyText: plantilla.bodyText,
+          headerFormat: plantilla.headerFormat,
+        }
       : null;
   },
   numeroDeLaSucursal: findBranchWhatsappPhoneNumberId,
@@ -189,7 +234,7 @@ export async function procesarSeguimiento(
   config: ConfiguracionDeEnvio,
   deps: Pick<
     DepsDelSeguimiento,
-    "plantillaDeLaRegla" | "numeroDeLaSucursal" | "proximaApertura" | "sendTemplate"
+    "plantillaDeLaRegla" | "numeroDeLaSucursal" | "proximaApertura" | "sendTemplate" | "baseDeLaApi"
   >,
   leer: (id: string, organizationId: string) => Promise<QrFollowUpParaEnviar | null> = (
     id,
@@ -248,13 +293,20 @@ export async function procesarSeguimiento(
   }
 
   // Posicionales: {{1}} el nombre del contacto, {{2}} el link del QR.
-  const parametros = [nombreParaElSaludo(fila.contact.firstName), fila.qrCode.destinationUrl];
+  const { bodyParameters: parametros, headerImageUrl } = armarEnvioDeLaPlantilla(
+    plantilla,
+    nombreParaElSaludo(fila.contact.firstName),
+    fila.qrCode.destinationUrl,
+    { tipo: "r", id: fila.qrCodeId },
+    { baseDeLaApi: (deps.baseDeLaApi ?? baseDeLaApiPublica)() },
+  );
   const { wamid } = await deps.sendTemplate({
     phoneNumberId,
     to: destino,
     templateName: plantilla.name,
     languageCode: plantilla.languageCode,
     bodyParameters: parametros,
+    ...(headerImageUrl ? { headerImageUrl } : {}),
     accessToken: config.accessToken,
   });
   return {

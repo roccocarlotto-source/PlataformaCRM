@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router-dom";
 import { AdminRoute } from "../auth/AdminRoute";
+import { WhatsappTemplateRedirect } from "../features/automation/WhatsappTemplateRedirect";
 import { PlatformAdminRoute } from "../auth/PlatformAdminRoute";
 import { ProtectedRoute } from "../auth/ProtectedRoute";
 import { LoginPage } from "../features/auth/LoginPage";
@@ -39,8 +40,6 @@ import { AgentModelPage } from "../features/platformAdmin/AgentModelPage";
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
-import { WhatsappTemplateListPage } from "../features/whatsapp/WhatsappTemplateListPage";
-import { WhatsappTemplatePage } from "../features/whatsapp/WhatsappTemplatePage";
 import { BranchFormPage } from "../features/branch/BranchFormPage";
 import { BranchListPage } from "../features/branch/BranchListPage";
 import { AgentEmbedPage } from "../features/agent/AgentEmbedPage";
@@ -224,13 +223,12 @@ export const router = createBrowserRouter([
               // pantalla es toda escritura (PATCH ADMIN-only), así que va acá
               // adentro como /sources.
               { path: "/organization", element: <OrganizationSettingsPage /> },
-              // Las plantillas de WhatsApp (ítem 160), una por regla de
-              // automatización desde el ítem 181: la ruta de siempre lista las
-              // reglas que mandan WhatsApp, y cada una tiene su pantalla.
-              // ADMIN-only incluida la lectura en el backend
-              // (whatsappTemplate.routes.ts).
-              { path: "/whatsapp-template", element: <WhatsappTemplateListPage /> },
-              { path: "/whatsapp-template/:automationId", element: <WhatsappTemplatePage /> },
+              // La pantalla "Plantillas de WhatsApp" (ítems 160 y 181) se
+              // retiró: la plantilla se arma sola al guardar la regla. Sus
+              // rutas redirigen a las automatizaciones (o a la regla), para
+              // links y marcadores viejos.
+              { path: "/whatsapp-template", element: <WhatsappTemplateRedirect /> },
+              { path: "/whatsapp-template/:automationId", element: <WhatsappTemplateRedirect /> },
               // Sucursales (ítem 20 de docs/frontend-cambios-pendientes.md). El
               // LISTADO va acá adentro aunque GET /api/branches sea de lectura
               // abierta (branch.routes.ts): la pantalla es toda escritura

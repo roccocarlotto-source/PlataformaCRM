@@ -10,6 +10,7 @@ import {
 import type { AccionRegistrada } from "../automationActions";
 import { TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
 import { payloadDeOportunidadSchema } from "./createFollowUpActivity";
+import { camposDelMensajeDeWhatsapp, validarMensajeDeWhatsapp } from "./mensajeDeWhatsapp";
 
 // ---------------------------------------------------------------------------
 // Acción `opportunity.send_qr_followup` (ítem 159 de
@@ -47,17 +48,24 @@ const MS_POR_HORA = 60 * 60 * 1000;
 // es síncrono y sin base): lo valida el handler al correr, y un QR inválido
 // deja la ejecución en FAILED con un mensaje que dice que hay que editar la
 // regla.
-export const configDeSeguimientoQrSchema = z.object({
-  qrCodeId: z.string({ required_error: "qrCodeId es requerido" }).uuid("qrCodeId debe ser un UUID"),
-  delayHours: z
-    .number({
-      required_error: "delayHours es requerido",
-      invalid_type_error: "delayHours debe ser un número entero",
-    })
-    .int("delayHours debe ser un número entero")
-    .min(0, "delayHours no puede ser negativo")
-    .max(MAX_DELAY_HOURS, `delayHours no puede superar las ${MAX_DELAY_HOURS} horas`),
-});
+export const configDeSeguimientoQrSchema = z
+  .object({
+    qrCodeId: z
+      .string({ required_error: "qrCodeId es requerido" })
+      .uuid("qrCodeId debe ser un UUID"),
+    delayHours: z
+      .number({
+        required_error: "delayHours es requerido",
+        invalid_type_error: "delayHours debe ser un número entero",
+      })
+      .int("delayHours debe ser un número entero")
+      .min(0, "delayHours no puede ser negativo")
+      .max(MAX_DELAY_HOURS, `delayHours no puede superar las ${MAX_DELAY_HOURS} horas`),
+    // Formato y texto del WhatsApp (mensajeDeWhatsapp.ts): la imagen es el QR
+    // elegido, el mismo que se imprime para la sucursal.
+    ...camposDelMensajeDeWhatsapp,
+  })
+  .superRefine(validarMensajeDeWhatsapp);
 
 // Exportada para probarla sin base.
 export function horaDeEnvio(ahora: Date, delayHours: number): Date {

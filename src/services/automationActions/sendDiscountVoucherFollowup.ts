@@ -11,6 +11,7 @@ import type { AccionRegistrada } from "../automationActions";
 import { TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
 import { MAX_LABEL_LENGTH } from "../discountVoucher.service";
 import { payloadDeOportunidadSchema } from "./createFollowUpActivity";
+import { camposDelMensajeDeWhatsapp, validarMensajeDeWhatsapp } from "./mensajeDeWhatsapp";
 import { MAX_DELAY_HOURS, horaDeEnvio } from "./sendQrFollowup";
 
 // ---------------------------------------------------------------------------
@@ -43,30 +44,40 @@ export const MAX_EXPIRES_IN_DAYS = 365;
 // regla del QR la pone el QR elegido (cada QR es de una sucursal); un cupón no
 // es de ninguna, así que se elige acá. Que exista y sea de la organización lo
 // valida el handler, igual que el qrCodeId allá.
-export const configDeCuponSchema = z.object({
-  label: z
-    .string({ required_error: "label es requerido", invalid_type_error: "label debe ser un texto" })
-    .trim()
-    .min(1, "label es requerido")
-    .max(MAX_LABEL_LENGTH, `label no puede superar los ${MAX_LABEL_LENGTH} caracteres`),
-  delayHours: z
-    .number({
-      required_error: "delayHours es requerido",
-      invalid_type_error: "delayHours debe ser un número entero",
-    })
-    .int("delayHours debe ser un número entero")
-    .min(0, "delayHours no puede ser negativo")
-    .max(MAX_DELAY_HOURS, `delayHours no puede superar las ${MAX_DELAY_HOURS} horas`),
-  expiresInDays: z
-    .number({
-      required_error: "expiresInDays es requerido",
-      invalid_type_error: "expiresInDays debe ser un número entero",
-    })
-    .int("expiresInDays debe ser un número entero")
-    .min(1, "expiresInDays tiene que ser al menos 1")
-    .max(MAX_EXPIRES_IN_DAYS, `expiresInDays no puede superar los ${MAX_EXPIRES_IN_DAYS} días`),
-  branchId: z.string({ required_error: "branchId es requerido" }).uuid("branchId debe ser un UUID"),
-});
+export const configDeCuponSchema = z
+  .object({
+    label: z
+      .string({
+        required_error: "label es requerido",
+        invalid_type_error: "label debe ser un texto",
+      })
+      .trim()
+      .min(1, "label es requerido")
+      .max(MAX_LABEL_LENGTH, `label no puede superar los ${MAX_LABEL_LENGTH} caracteres`),
+    delayHours: z
+      .number({
+        required_error: "delayHours es requerido",
+        invalid_type_error: "delayHours debe ser un número entero",
+      })
+      .int("delayHours debe ser un número entero")
+      .min(0, "delayHours no puede ser negativo")
+      .max(MAX_DELAY_HOURS, `delayHours no puede superar las ${MAX_DELAY_HOURS} horas`),
+    expiresInDays: z
+      .number({
+        required_error: "expiresInDays es requerido",
+        invalid_type_error: "expiresInDays debe ser un número entero",
+      })
+      .int("expiresInDays debe ser un número entero")
+      .min(1, "expiresInDays tiene que ser al menos 1")
+      .max(MAX_EXPIRES_IN_DAYS, `expiresInDays no puede superar los ${MAX_EXPIRES_IN_DAYS} días`),
+    branchId: z
+      .string({ required_error: "branchId es requerido" })
+      .uuid("branchId debe ser un UUID"),
+    // Formato y texto del WhatsApp (mensajeDeWhatsapp.ts). Para el cupón, la
+    // imagen es el QR de ESE cupón: el que se escanea en "Canjear cupón".
+    ...camposDelMensajeDeWhatsapp,
+  })
+  .superRefine(validarMensajeDeWhatsapp);
 
 // Inyectables para el test unitario, mismo patrón que
 // DependenciasDelSeguimientoQr.

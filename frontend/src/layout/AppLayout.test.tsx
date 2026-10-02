@@ -176,22 +176,10 @@ describe("AppLayout — nav de configuración de la organización (ítem 19)", (
   });
 });
 
-describe("AppLayout — nav de Plantillas de WhatsApp (ítem 160)", () => {
-  it("ADMIN ve 'Plantillas de WhatsApp' en el grupo Administración, apuntando a /whatsapp-template", async () => {
+describe("AppLayout — Plantillas de WhatsApp ya no está en el menú", () => {
+  it("ni un ADMIN la ve: el mensaje se configura en la regla de automatización", async () => {
     const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    renderLayout();
-    await openSection(user, "Administración");
-
-    expect(screen.getByRole("link", { name: "Plantillas de WhatsApp" })).toHaveAttribute(
-      "href",
-      "/whatsapp-template",
-    );
-  });
-
-  it("USER no la ve: el endpoint es ADMIN-only incluida la lectura", async () => {
-    const user = userEvent.setup();
-    useAuthMock.mockReturnValue(mockAuth("USER"));
     renderLayout();
     await openSection(user, "Administración");
 
@@ -474,7 +462,7 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     ).toEqual(["QR"]);
   });
 
-  it("un ADMIN ve los 9 links de Administración, QR primero", async () => {
+  it("un ADMIN ve los 8 links de Administración, QR primero", async () => {
     const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout("/");
@@ -495,7 +483,6 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
       "Claves de ingesta",
       "Eventos de ingesta",
       "Organización",
-      "Plantillas de WhatsApp",
       "Sucursales",
     ]);
   });

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -9,10 +9,13 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select, type SelectOption } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
+import { BranchSelect } from "../branch/BranchSelect";
 import { QrSelect } from "../qr/QrSelect";
+import { MensajeDeWhatsappCard } from "./MensajeDeWhatsappCard";
 import {
   ACTION_CREATE_FOLLOW_UP,
   ACTION_DRAFT_FOLLOW_UP,
+  ACTION_SEND_DISCOUNT_VOUCHER,
   ACTION_SEND_QR_FOLLOWUP,
   CONFIG_DE_ACCION,
   CONFIG_DE_TRIGGER,
@@ -21,14 +24,19 @@ import {
   MAX_DAYS_UNTIL_DUE,
   MAX_DAYS_WITHOUT_ACTIVITY,
   MAX_DELAY_HOURS,
+  MAX_EXPIRES_IN_DAYS,
   MAX_NOTES,
   MAX_SUBJECT,
+  MAX_VOUCHER_LABEL,
   MIN_DAYS_UNTIL_DUE,
   MIN_DAYS_WITHOUT_ACTIVITY,
   MIN_DELAY_HOURS,
+  MIN_EXPIRES_IN_DAYS,
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPTIONS,
+  accionConMensajeDeWhatsapp,
   accionesParaTrigger,
+  textoInicial,
   type ConfigDraft,
 } from "./catalog";
 import { useCreateAutomation, useUpdateAutomation } from "./mutations";
@@ -64,6 +72,26 @@ const EMPTY_FORM: AutomationFormValues = {
   isActive: true,
 };
 
+// Una regla guardada antes del formato elegible no trae messageText ni
+// whatsappFormat: el formulario arranca con el texto y el formato de la
+// plantilla que ya tiene en Meta, y si no tiene ninguna, con el inicial. Así,
+// guardarla sin tocar el mensaje manda exactamente lo aprobado y no pide otra
+// aprobación.
+function conMensajeDeLaPlantilla(automation: Automation): Record<string, unknown> {
+  const config = automation.actionConfig;
+  if (!accionConMensajeDeWhatsapp(automation.actionType)) return config;
+  const approval = automation.whatsappApproval;
+  const whatsappFormat = config.whatsappFormat ?? approval?.formato ?? "LINK";
+  return {
+    ...config,
+    whatsappFormat,
+    messageText:
+      config.messageText ??
+      approval?.bodyText ??
+      textoInicial(automation.actionType, String(whatsappFormat)),
+  };
+}
+
 function toFormValues(automation: Automation): AutomationFormValues {
   const config = CONFIG_DE_ACCION[automation.actionType];
   const configDeTrigger = CONFIG_DE_TRIGGER[automation.triggerType];
@@ -79,7 +107,7 @@ function toFormValues(automation: Automation): AutomationFormValues {
     // Una acción guardada que este catálogo todavía no conoce no tiene cómo
     // dibujar sus campos: el borrador queda vacío y validar() frena el submit
     // con un mensaje, en vez de mandar una config a medias.
-    actionConfig: config ? config.draftDesde(automation.actionConfig) : {},
+    actionConfig: config ? config.draftDesde(conMensajeDeLaPlantilla(automation)) : {},
     isActive: automation.isActive,
   };
 }
@@ -279,11 +307,67 @@ function CamposDeLaAccion({
             />
           </FormField>
           <p className="ds-hint ds-field-grid--full">
-            Cuando la oportunidad se gana, se agenda un WhatsApp al contacto con el link del QR
-            elegido, que sale pasadas esas horas (entre {MIN_DELAY_HOURS} y {MAX_DELAY_HOURS}; con{" "}
+            Cuando la oportunidad se gana, se agenda un WhatsApp al contacto con el QR elegido, que
+            sale pasadas esas horas (entre {MIN_DELAY_HOURS} y {MAX_DELAY_HOURS}; con{" "}
             {MIN_DELAY_HOURS} sale apenas se gana). Se manda desde el número de WhatsApp de la
-            sucursal del QR, con la plantilla aprobada por Meta. Si para entonces la oportunidad ya
-            no está ganada, no se manda.
+            sucursal del QR. Si para entonces la oportunidad ya no está ganada, no se manda.
+          </p>
+        </>
+      );
+    case ACTION_SEND_DISCOUNT_VOUCHER:
+      return (
+        <>
+          <div className="ds-field-grid--full">
+            <FormField label={<span className="ds-required">Descuento</span>}>
+              <input
+                type="text"
+                value={values.label ?? ""}
+                maxLength={MAX_VOUCHER_LABEL}
+                placeholder="15% de descuento en el taller"
+                onChange={(event) => onChange({ ...values, label: event.target.value })}
+                disabled={disabled}
+                required
+              />
+            </FormField>
+          </div>
+          {/* Suelto, sin FormField: BranchSelect trae su propio <label htmlFor>. */}
+          <BranchSelect
+            id="automation-form-branch"
+            label="Sucursal"
+            value={values.branchId}
+            onChange={(branchId) => onChange({ ...values, branchId })}
+            disabled={disabled}
+            required
+          />
+          <FormField label={<span className="ds-required">Esperar (horas)</span>}>
+            <input
+              type="number"
+              min={MIN_DELAY_HOURS}
+              max={MAX_DELAY_HOURS}
+              step={1}
+              value={values.delayHours ?? ""}
+              onChange={(event) => onChange({ ...values, delayHours: event.target.value })}
+              disabled={disabled}
+              required
+            />
+          </FormField>
+          <FormField label={<span className="ds-required">Vence a los (días)</span>}>
+            <input
+              type="number"
+              min={MIN_EXPIRES_IN_DAYS}
+              max={MAX_EXPIRES_IN_DAYS}
+              step={1}
+              value={values.expiresInDays ?? ""}
+              onChange={(event) => onChange({ ...values, expiresInDays: event.target.value })}
+              disabled={disabled}
+              required
+            />
+          </FormField>
+          <p className="ds-hint ds-field-grid--full">
+            Cuando la oportunidad se gana, se agenda un WhatsApp al contacto con un cupón de un solo
+            uso, que sale pasadas esas horas desde el número de WhatsApp de la sucursal. El cupón
+            nace al mandarse y vence a los días indicados. Se canjea escaneando su QR en "Canjear
+            cupón".
           </p>
         </>
       );
@@ -297,6 +381,10 @@ function CamposDeLaAccion({
         </p>
       );
   }
+}
+
+function mensajeDeSincronizacion(motivo: string): string {
+  return `La regla se guardó, pero el mensaje no se pudo mandar a aprobación de WhatsApp: ${motivo} Guardá de nuevo para reintentar.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -327,7 +415,13 @@ export function AutomationFormPage() {
     automationQuery.data?.id,
     automationQuery.data ? toFormValues(automationQuery.data) : EMPTY_FORM,
   );
-  const [error, setError] = useState<string | null>(null);
+  const location = useLocation();
+  // Un alta cuyo mensaje no llegó a Meta vuelve a esta pantalla, ya en
+  // edición, con el motivo (ver handleSubmit).
+  const errorAlCrear = (location.state as { whatsappSyncError?: string } | null)?.whatsappSyncError;
+  const [error, setError] = useState<string | null>(
+    errorAlCrear ? mensajeDeSincronizacion(errorAlCrear) : null,
+  );
 
   const isSubmitting = createAutomationMutation.isPending || updateAutomationMutation.isPending;
 
@@ -361,10 +455,25 @@ export function AutomationFormPage() {
     };
 
     try {
-      if (isEditMode) {
-        await updateAutomationMutation.mutateAsync(input satisfies UpdateAutomationInput);
-      } else {
-        await createAutomationMutation.mutateAsync(input);
+      const guardada = isEditMode
+        ? await updateAutomationMutation.mutateAsync(input satisfies UpdateAutomationInput)
+        : await createAutomationMutation.mutateAsync(input);
+      // La regla quedó guardada, pero el mensaje no llegó a WhatsApp (Meta no
+      // contestó, rechazó el texto, falta configuración): se queda acá para
+      // que se vea y se pueda guardar de nuevo. Un alta pasa a la edición de
+      // la regla ya creada, para que guardar otra vez no cree una segunda.
+      if (guardada.whatsappSyncError) {
+        // También en el alta: React Router reusa esta misma instancia al
+        // pasar de /new a /:id/edit, y el estado inicial de abajo no vuelve a
+        // correr. El state de la navegación cubre el remonte.
+        setError(mensajeDeSincronizacion(guardada.whatsappSyncError));
+        if (!isEditMode) {
+          navigate(`/automations/${guardada.id}/edit`, {
+            replace: true,
+            state: { whatsappSyncError: guardada.whatsappSyncError },
+          });
+        }
+        return;
       }
       navigate("/automations");
     } catch (err) {
@@ -508,6 +617,17 @@ export function AutomationFormPage() {
             />
           </div>
         </Card>
+
+        {accionConMensajeDeWhatsapp(values.actionType) ? (
+          <MensajeDeWhatsappCard
+            actionType={values.actionType}
+            values={values.actionConfig}
+            onChange={(actionConfig) => setValues({ ...values, actionConfig })}
+            disabled={isSubmitting}
+            approval={automationQuery.data?.whatsappApproval}
+            automationId={isEditMode ? id : undefined}
+          />
+        ) : null}
 
         {error ? <ErrorState>{error}</ErrorState> : null}
 

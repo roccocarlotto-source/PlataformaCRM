@@ -4,6 +4,9 @@ import {
   LARGO_MAXIMO_DEL_CUERPO,
   PATRON_IDIOMA_DE_PLANTILLA,
   PATRON_NOMBRE_DE_PLANTILLA,
+  formatoLlevaImagen,
+  formatoLlevaLink,
+  parametrosDelCuerpo,
   textoParaMeta,
   validarTextoDePlantilla,
 } from "./whatsappTemplateText";
@@ -94,4 +97,37 @@ test("nombre: minúsculas, números y guion bajo; idioma: código de Meta", () =
   assert.ok(PATRON_IDIOMA_DE_PLANTILLA.test("es_AR"));
   assert.ok(!PATRON_IDIOMA_DE_PLANTILLA.test("es-AR"));
   assert.ok(!PATRON_IDIOMA_DE_PLANTILLA.test("español"));
+});
+
+// ---------------------------------------------------------------------------
+// Formato del mensaje: con "solo imagen" el texto no lleva {link}.
+// ---------------------------------------------------------------------------
+
+test("formato: solo LINK no lleva imagen; IMAGE no lleva link; LINK_AND_IMAGE, las dos", () => {
+  assert.equal(formatoLlevaLink("LINK"), true);
+  assert.equal(formatoLlevaImagen("LINK"), false);
+  assert.equal(formatoLlevaLink("IMAGE"), false);
+  assert.equal(formatoLlevaImagen("IMAGE"), true);
+  assert.equal(formatoLlevaLink("LINK_AND_IMAGE"), true);
+  assert.equal(formatoLlevaImagen("LINK_AND_IMAGE"), true);
+});
+
+test("sin link (solo imagen): {nombre} sí, {link} no, y las reglas de Meta siguen", () => {
+  const conLink = false;
+  assert.equal(
+    validarTextoDePlantilla("Hola {nombre}, te dejamos el QR de tu cupón. ¡Gracias!", { conLink }),
+    null,
+  );
+  assert.match(validarTextoDePlantilla(VALIDO, { conLink }) ?? "", /sacá \{link\}/);
+  assert.match(validarTextoDePlantilla("Hola, gracias", { conLink }) ?? "", /\{nombre\}/);
+  assert.match(
+    validarTextoDePlantilla("Gracias por tu compra {nombre}", { conLink }) ?? "",
+    /empezar ni terminar con \{nombre\}/,
+  );
+  assert.equal(textoParaMeta("Hola {nombre}, acá está tu QR."), "Hola {{1}}, acá está tu QR.");
+});
+
+test("parametrosDelCuerpo: [nombre, link] si el texto de la plantilla lleva {link}, si no [nombre]", () => {
+  assert.deepEqual(parametrosDelCuerpo(VALIDO, "Ana", "https://x"), ["Ana", "https://x"]);
+  assert.deepEqual(parametrosDelCuerpo("Hola {nombre}, tu QR.", "Ana", "https://x"), ["Ana"]);
 });

@@ -7,6 +7,7 @@ import {
   buildSendMessageUrl,
   buildTemplateStatusUrl,
   createWhatsappTemplateReal,
+  cuerpoDeAltaDePlantilla,
   cuerpoDePlantilla,
   deleteWhatsappTemplateReal,
   downloadWhatsappMediaReal,
@@ -15,6 +16,7 @@ import {
   normalizarParametroDePlantilla,
   sendWhatsappTemplateReal,
   sendWhatsappTextReal,
+  uploadTemplateSampleReal,
   WhatsappGraphError,
   wamidDeLaRespuesta,
 } from "./whatsappGraph.service";
@@ -382,4 +384,121 @@ test("F1: wamidDeLaRespuesta devuelve null si la respuesta no lo trae, sin lanza
   for (const respuesta of [{}, null, undefined, { messages: [] }, { messages: [{ id: 3 }] }, "x"]) {
     assert.equal(wamidDeLaRespuesta(respuesta), null);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Encabezado IMAGE (formatos "solo imagen" y "link e imagen" de la regla).
+// ---------------------------------------------------------------------------
+
+const IMAGEN =
+  "https://plataformacrm.onrender.com/qr-images/r/5b0f7a4e-2c1d-4f3a-9e8b-1a2b3c4d5e6f.png";
+
+test("cuerpoDePlantilla con imagen: el header va primero, con la imagen por link, y el cuerpo después", () => {
+  const cuerpo = cuerpoDePlantilla({ ...PLANTILLA, headerImageUrl: IMAGEN });
+  assert.deepEqual(cuerpo.template.components, [
+    { type: "header", parameters: [{ type: "image", image: { link: IMAGEN } }] },
+    {
+      type: "body",
+      parameters: [
+        { type: "text", text: "Ana" },
+        { type: "text", text: "https://g.page/r/abc/review" },
+      ],
+    },
+  ]);
+});
+
+test("cuerpoDePlantilla solo imagen: header con la imagen y el cuerpo solo con el nombre", () => {
+  const cuerpo = cuerpoDePlantilla({
+    ...PLANTILLA,
+    bodyParameters: ["Ana"],
+    headerImageUrl: IMAGEN,
+  });
+  assert.deepEqual(cuerpo.template.components, [
+    { type: "header", parameters: [{ type: "image", image: { link: IMAGEN } }] },
+    { type: "body", parameters: [{ type: "text", text: "Ana" }] },
+  ]);
+});
+
+test("cuerpoDeAltaDePlantilla con imagen: HEADER IMAGE con el handle de ejemplo antes del BODY", () => {
+  assert.deepEqual(
+    cuerpoDeAltaDePlantilla({
+      name: "seguimiento_qr_abc",
+      language: "es_AR",
+      bodyText: "Hola {{1}}, tu QR: {{2}} ¡Gracias!",
+      bodyExamples: ["Ana", "https://g.page/r/ejemplo/review"],
+      headerImageHandle: "4::aW1hZ2Vu",
+    }).components,
+    [
+      { type: "HEADER", format: "IMAGE", example: { header_handle: ["4::aW1hZ2Vu"] } },
+      {
+        type: "BODY",
+        text: "Hola {{1}}, tu QR: {{2}} ¡Gracias!",
+        example: { body_text: [["Ana", "https://g.page/r/ejemplo/review"]] },
+      },
+    ],
+  );
+});
+
+test("cuerpoDeAltaDePlantilla sin imagen sigue siendo solo BODY (las plantillas de siempre)", () => {
+  const { components } = cuerpoDeAltaDePlantilla({
+    name: "x",
+    language: "es_AR",
+    bodyText: "Hola {{1}}, tu QR.",
+    bodyExamples: ["Ana"],
+  });
+  assert.deepEqual(components, [
+    { type: "BODY", text: "Hola {{1}}, tu QR.", example: { body_text: [["Ana"]] } },
+  ]);
+});
+
+test("uploadTemplateSampleReal: abre la sesión en /{app-id}/uploads y sube el binario con OAuth y file_offset 0", async () => {
+  const llamadas: RequestRegistrado[] = [];
+  const respuestas = [
+    new Response(JSON.stringify({ id: "upload:MTphdHRhY2htZW50" }), { status: 200 }),
+    new Response(JSON.stringify({ h: "4::aGFuZGxl" }), { status: 200 }),
+  ];
+  globalThis.fetch = ((url: string, init: RequestInit) => {
+    llamadas.push({ url, init });
+    return Promise.resolve(respuestas.shift()!);
+  }) as typeof fetch;
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+
+  const handle = await uploadTemplateSampleReal({
+    appId: "app-1",
+    accessToken: "token-secreto",
+    fileName: "ejemplo_r.png",
+    png,
+  });
+
+  assert.equal(handle, "4::aGFuZGxl");
+  assert.equal(
+    llamadas[0].url,
+    "https://graph.facebook.com/v25.0/app-1/uploads?file_name=ejemplo_r.png&file_length=4&file_type=image%2Fpng",
+  );
+  assert.equal(llamadas[0].init.method, "POST");
+  assert.equal(llamadas[1].url, "https://graph.facebook.com/v25.0/upload:MTphdHRhY2htZW50");
+  const headers = llamadas[1].init.headers as Record<string, string>;
+  assert.equal(headers.Authorization, "OAuth token-secreto");
+  assert.equal(headers.file_offset, "0");
+  assert.deepEqual(Buffer.from(llamadas[1].init.body as Uint8Array), png);
+});
+
+test("uploadTemplateSampleReal: un 4xx al subir es un WhatsappGraphError; un 2xx sin handle, un 502", async () => {
+  let respuestas = [
+    new Response(JSON.stringify({ id: "upload:1" }), { status: 200 }),
+    new Response('{"error":{"message":"bad"}}', { status: 400 }),
+  ];
+  globalThis.fetch = (() => Promise.resolve(respuestas.shift()!)) as typeof fetch;
+  const entrada = { appId: "a", accessToken: "t", fileName: "f.png", png: Buffer.from([1]) };
+  await assert.rejects(uploadTemplateSampleReal(entrada), (err) => {
+    return err instanceof WhatsappGraphError && err.status === 400;
+  });
+
+  respuestas = [
+    new Response(JSON.stringify({ id: "upload:1" }), { status: 200 }),
+    new Response("{}", { status: 200 }),
+  ];
+  await assert.rejects(uploadTemplateSampleReal(entrada), (err) => {
+    return err instanceof WhatsappGraphError && err.status === 502;
+  });
 });

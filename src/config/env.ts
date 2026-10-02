@@ -631,6 +631,23 @@ const envSchema = z.object({
     .preprocess((valor) => (valor === "" ? undefined : valor), z.string().url().optional())
     .transform((valor) => valor?.replace(/\/+$/, "")),
 
+  // PUBLIC_API_BASE_URL: el origen público de ESTE backend
+  // (https://plataformacrm.onrender.com en producción). Lo necesita la imagen
+  // del QR que va de encabezado en el WhatsApp de seguimiento: Meta la baja
+  // de GET /qr-images/:tipo/:archivo al mandar el mensaje, así que el worker
+  // le tiene que pasar una URL absoluta (utils/qrImage.ts).
+  //
+  // OPCIONAL, y con respaldo: si falta se usa RENDER_EXTERNAL_URL, que Render
+  // define solo en todo web service — en Render no hay que cargar nada. Sin
+  // ninguna de las dos, los formatos con imagen se rechazan al guardar la
+  // regla, y las reglas de solo link andan igual.
+  PUBLIC_API_BASE_URL: z
+    .preprocess((valor) => (valor === "" ? undefined : valor), z.string().url().optional())
+    .transform((valor) => valor?.replace(/\/+$/, "")),
+  RENDER_EXTERNAL_URL: z
+    .preprocess((valor) => (valor === "" ? undefined : valor), z.string().url().optional())
+    .transform((valor) => valor?.replace(/\/+$/, "")),
+
   // -------------------------------------------------------------------------
   // Proveedor de LLM — módulo de Agentes de IA (docs/ai-agent-architecture.md,
   // paso 2a de §9; decisión de proveedor en §10). Ver

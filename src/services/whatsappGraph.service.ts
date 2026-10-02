@@ -148,9 +148,10 @@ export const sendWhatsappTextReal: SendWhatsappText = async (input) => {
 // Meta lo rechaza con un 4xx. El seguimiento post-venta es exactamente eso.
 //
 // PARÁMETROS POSICIONALES ({{1}}, {{2}}...), no nombrados: el orden del array
-// es el número de la variable. Solo parámetros del CUERPO — la plantilla del
-// seguimiento no tiene encabezado ni botones variables, y agregar esas formas
-// sin un consumidor sería inventar contrato.
+// es el número de la variable. Del CUERPO, y opcionalmente la IMAGEN del
+// encabezado (formatos "solo imagen" y "link e imagen" de la regla): una
+// plantilla con header IMAGE recibe la imagen en cada mensaje, como link
+// público que Meta baja (utils/qrImage.ts). Botones variables no hay.
 // ---------------------------------------------------------------------------
 
 export interface SendWhatsappTemplateInput {
@@ -162,6 +163,10 @@ export interface SendWhatsappTemplateInput {
   languageCode: string;
   // {{1}}, {{2}}... en ese orden.
   bodyParameters: string[];
+  // Solo para una plantilla con encabezado IMAGE: la URL pública del PNG. Sin
+  // ella, una plantilla así es un 400 de Meta (#132012) — el worker no la
+  // omite nunca.
+  headerImageUrl?: string;
   accessToken: string;
 }
 
@@ -192,18 +197,22 @@ export function normalizarParametroDePlantilla(valor: string): string {
 export function cuerpoDePlantilla(
   input: Omit<SendWhatsappTemplateInput, "phoneNumberId" | "accessToken">,
 ) {
-  const components =
-    input.bodyParameters.length === 0
-      ? []
-      : [
-          {
-            type: "body",
-            parameters: input.bodyParameters.map((texto) => ({
-              type: "text",
-              text: normalizarParametroDePlantilla(texto),
-            })),
-          },
-        ];
+  const components: Record<string, unknown>[] = [];
+  if (input.headerImageUrl) {
+    components.push({
+      type: "header",
+      parameters: [{ type: "image", image: { link: input.headerImageUrl } }],
+    });
+  }
+  if (input.bodyParameters.length > 0) {
+    components.push({
+      type: "body",
+      parameters: input.bodyParameters.map((texto) => ({
+        type: "text",
+        text: normalizarParametroDePlantilla(texto),
+      })),
+    });
+  }
   return {
     to: input.to,
     type: "template",
@@ -245,6 +254,10 @@ export interface CreateWhatsappTemplateInput {
   // Un valor de ejemplo por variable, en orden: Meta los exige en el alta de
   // una plantilla con variables, y los mira quien la revisa.
   bodyExamples: string[];
+  // Encabezado IMAGE: el handle de una imagen de ejemplo subida con la
+  // Resumable Upload API (uploadTemplateSampleReal). Meta lo exige en el alta
+  // y lo mira quien revisa. Sin él, la plantilla es solo texto.
+  headerImageHandle?: string;
 }
 
 export interface PlantillaEnMeta {
@@ -272,14 +285,88 @@ export function cuerpoDeAltaDePlantilla(
     language: input.language,
     category: "UTILITY",
     components: [
+      ...(input.headerImageHandle
+        ? [
+            {
+              type: "HEADER",
+              format: "IMAGE",
+              example: { header_handle: [input.headerImageHandle] },
+            },
+          ]
+        : []),
       {
         type: "BODY",
         text: input.bodyText,
-        example: { body_text: [input.bodyExamples] },
+        // Sin variables (no pasa hoy: {nombre} es obligatorio), Meta rechaza
+        // un example vacío.
+        ...(input.bodyExamples.length > 0 ? { example: { body_text: [input.bodyExamples] } } : {}),
       },
     ],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Imagen de ejemplo de una plantilla con encabezado IMAGE: Resumable Upload
+// API de la Graph API (graph-api/guides/upload), DOS requests:
+//   1. POST /{app-id}/uploads?file_name&file_length&file_type -> { id: "upload:…" }
+//   2. POST /{upload-id} con el binario, Authorization: OAuth <token> y
+//      file_offset: 0 -> { h: "<handle>" }
+// El handle es lo que va en example.header_handle del alta. Es solo para la
+// revisión: lo que el cliente recibe es la imagen que se pasa en cada envío.
+// La documentación habla de un user access token; con el del sistema de la
+// plataforma (WHATSAPP_ACCESS_TOKEN) es lo que se usa en la práctica para
+// plantillas de WhatsApp, y si Meta lo rechaza el error llega como cualquier
+// otro WhatsappGraphError.
+// ---------------------------------------------------------------------------
+
+export interface UploadTemplateSampleInput {
+  appId: string;
+  accessToken: string;
+  fileName: string;
+  png: Buffer;
+}
+
+export type UploadTemplateSample = (input: UploadTemplateSampleInput) => Promise<string>;
+
+export function buildUploadSessionUrl(
+  input: Pick<UploadTemplateSampleInput, "appId" | "fileName" | "png">,
+): string {
+  const params = new URLSearchParams({
+    file_name: input.fileName,
+    file_length: String(input.png.length),
+    file_type: "image/png",
+  });
+  return `${WHATSAPP_GRAPH_API_BASE_URL}/${encodeURIComponent(input.appId)}/uploads?${params.toString()}`;
+}
+
+export const uploadTemplateSampleReal: UploadTemplateSample = async (input) => {
+  const sesion = (await llamarGraph(buildUploadSessionUrl(input), "POST", input.accessToken)) as {
+    id?: unknown;
+  };
+  if (typeof sesion.id !== "string" || sesion.id === "") {
+    throw new WhatsappGraphError(502, "Meta no abrió la sesión de subida de la imagen de ejemplo");
+  }
+  // El id ya trae el prefijo "upload:": va tal cual en el path.
+  const res = await fetch(`${WHATSAPP_GRAPH_API_BASE_URL}/${sesion.id}`, {
+    method: "POST",
+    headers: {
+      Authorization: `OAuth ${input.accessToken}`,
+      file_offset: "0",
+      "Content-Type": "application/octet-stream",
+    },
+    body: new Uint8Array(input.png),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const detalle = (await res.text().catch(() => "")).slice(0, 500);
+    throw new WhatsappGraphError(res.status, detalle);
+  }
+  const subida = (await res.json().catch(() => ({}))) as { h?: unknown };
+  if (typeof subida.h !== "string" || subida.h === "") {
+    throw new WhatsappGraphError(502, "Meta no devolvió el handle de la imagen de ejemplo");
+  }
+  return subida.h;
+};
 
 export const createWhatsappTemplateReal: CreateWhatsappTemplate = async (input) => {
   const respuesta = (await llamarGraph(

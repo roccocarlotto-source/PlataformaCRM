@@ -4,6 +4,7 @@ import {
   ACTION_CREATE_FOLLOW_UP,
   ACTION_DRAFT_FOLLOW_UP,
   ACTION_OPTIONS,
+  ACTION_SEND_DISCOUNT_VOUCHER,
   ACTION_SEND_QR_FOLLOWUP,
   CONFIG_DE_ACCION,
   CONFIG_DE_TRIGGER,
@@ -13,9 +14,15 @@ import {
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPPORTUNITY_WON,
   TRIGGER_OPTIONS,
+  accionConMensajeDeWhatsapp,
   accionesParaTrigger,
   actionLabel,
+  formatoLlevaImagen,
+  formatoLlevaLink,
+  textoInicial,
+  textoParaFormato,
   triggerLabel,
+  validarMensaje,
 } from "./catalog";
 
 // El catálogo del frontend es un espejo de dos listas que viven en código del
@@ -51,9 +58,13 @@ describe("catálogo de triggers y acciones", () => {
     }
   });
 
-  it("espejo de la compatibilidad del backend: ganada -> tarea o QR, sin movimiento -> borrador con IA", () => {
+  it("espejo de la compatibilidad del backend: ganada -> tarea, QR o cupón, sin movimiento -> borrador con IA", () => {
     expect(ACCIONES_POR_TRIGGER).toEqual({
-      [TRIGGER_OPPORTUNITY_WON]: [ACTION_CREATE_FOLLOW_UP, ACTION_SEND_QR_FOLLOWUP],
+      [TRIGGER_OPPORTUNITY_WON]: [
+        ACTION_CREATE_FOLLOW_UP,
+        ACTION_SEND_QR_FOLLOWUP,
+        ACTION_SEND_DISCOUNT_VOUCHER,
+      ],
       [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
     });
     // Un trigger que el espejo no conoce no restringe: decide el backend.
@@ -226,27 +237,120 @@ describe("configuración de opportunity.stale (ítem 76)", () => {
 describe("configuración de opportunity.send_qr_followup (ítem 159)", () => {
   const config = CONFIG_DE_ACCION[ACTION_SEND_QR_FOLLOWUP];
   const QR = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
+  const TEXTO = textoInicial(ACTION_SEND_QR_FOLLOWUP, "LINK");
+  const MENSAJE = { whatsappFormat: "LINK", messageText: TEXTO };
 
-  it("borrador vacío, lectura del guardado y payload con las horas como número", () => {
-    expect(config.draftVacio()).toEqual({ qrCodeId: "", delayHours: "" });
-    expect(config.draftDesde({ qrCodeId: QR, delayHours: 48 })).toEqual({
+  it("borrador vacío, lectura del guardado y payload con las horas como número y el mensaje", () => {
+    expect(config.draftVacio()).toEqual({ qrCodeId: "", delayHours: "", ...MENSAJE });
+    expect(config.draftDesde({ qrCodeId: QR, delayHours: 48, ...MENSAJE })).toEqual({
       qrCodeId: QR,
       delayHours: "48",
+      ...MENSAJE,
     });
-    expect(config.draftDesde({})).toEqual({ qrCodeId: "", delayHours: "" });
-    expect(config.aPayload({ qrCodeId: QR, delayHours: "48" })).toEqual({
+    // Una regla vieja: solo link, y el texto lo completa el formulario.
+    expect(config.draftDesde({})).toEqual({
+      qrCodeId: "",
+      delayHours: "",
+      whatsappFormat: "LINK",
+      messageText: "",
+    });
+    expect(
+      config.aPayload({
+        qrCodeId: QR,
+        delayHours: "48",
+        whatsappFormat: "IMAGE",
+        messageText: " Hola {nombre}, QR. ",
+      }),
+    ).toEqual({
       qrCodeId: QR,
       delayHours: 48,
+      whatsappFormat: "IMAGE",
+      messageText: "Hola {nombre}, QR.",
     });
   });
 
   it("valida: QR elegido, horas requeridas (sin confundir vacío con 0), enteras y entre 0 y 720", () => {
-    expect(config.validar({ qrCodeId: "", delayHours: "24" })).toMatch(/Elegí el QR/);
-    expect(config.validar({ qrCodeId: QR, delayHours: "" })).toMatch(/cuántas horas/);
-    expect(config.validar({ qrCodeId: QR, delayHours: "1.5" })).toMatch(/número entero/);
-    expect(config.validar({ qrCodeId: QR, delayHours: "-1" })).toMatch(/entre 0 y 720/);
-    expect(config.validar({ qrCodeId: QR, delayHours: "721" })).toMatch(/entre 0 y 720/);
-    expect(config.validar({ qrCodeId: QR, delayHours: "0" })).toBeNull();
-    expect(config.validar({ qrCodeId: QR, delayHours: "720" })).toBeNull();
+    const base = { qrCodeId: QR, ...MENSAJE };
+    expect(config.validar({ ...base, qrCodeId: "", delayHours: "24" })).toMatch(/Elegí el QR/);
+    expect(config.validar({ ...base, delayHours: "" })).toMatch(/cuántas horas/);
+    expect(config.validar({ ...base, delayHours: "1.5" })).toMatch(/número entero/);
+    expect(config.validar({ ...base, delayHours: "-1" })).toMatch(/entre 0 y 720/);
+    expect(config.validar({ ...base, delayHours: "721" })).toMatch(/entre 0 y 720/);
+    expect(config.validar({ ...base, delayHours: "0" })).toBeNull();
+    expect(config.validar({ ...base, delayHours: "720" })).toBeNull();
+  });
+});
+
+describe("configuración de opportunity.send_discount_voucher (ítem 177)", () => {
+  const config = CONFIG_DE_ACCION[ACTION_SEND_DISCOUNT_VOUCHER];
+  const SUCURSAL = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
+  const VALIDO = {
+    label: "15% en el taller",
+    branchId: SUCURSAL,
+    delayHours: "24",
+    expiresInDays: "30",
+    whatsappFormat: "LINK_AND_IMAGE",
+    messageText: textoInicial(ACTION_SEND_DISCOUNT_VOUCHER, "LINK_AND_IMAGE"),
+  };
+
+  it("se ofrece con Oportunidad ganada y arranca con el texto del cupón", () => {
+    expect(accionesParaTrigger(TRIGGER_OPPORTUNITY_WON).map((o) => o.value)).toContain(
+      ACTION_SEND_DISCOUNT_VOUCHER,
+    );
+    expect(config.draftVacio().messageText).toMatch(/cupón de descuento/);
+  });
+
+  it("payload con los números como número, la sucursal y el mensaje", () => {
+    expect(config.aPayload(VALIDO)).toEqual({
+      label: "15% en el taller",
+      branchId: SUCURSAL,
+      delayHours: 24,
+      expiresInDays: 30,
+      whatsappFormat: "LINK_AND_IMAGE",
+      messageText: VALIDO.messageText,
+    });
+    expect(config.draftDesde(config.aPayload(VALIDO))).toEqual(VALIDO);
+  });
+
+  it("valida descuento, sucursal, horas, vencimiento y mensaje", () => {
+    expect(config.validar(VALIDO)).toBeNull();
+    expect(config.validar({ ...VALIDO, label: " " })).toMatch(/qué descuento/);
+    expect(config.validar({ ...VALIDO, branchId: "" })).toMatch(/sucursal/);
+    expect(config.validar({ ...VALIDO, delayHours: "" })).toMatch(/cuántas horas/);
+    expect(config.validar({ ...VALIDO, expiresInDays: "0" })).toMatch(/entre 1 y 365/);
+    expect(config.validar({ ...VALIDO, expiresInDays: "" })).toMatch(/entre 1 y 365/);
+    expect(config.validar({ ...VALIDO, messageText: "" })).toMatch(/texto del mensaje/);
+  });
+});
+
+describe("el mensaje de WhatsApp (formato y texto)", () => {
+  it("con link: {nombre} y {link} una vez cada uno, en ese orden", () => {
+    const conLink = (messageText: string) =>
+      validarMensaje({ whatsappFormat: "LINK", messageText });
+    expect(conLink("Hola {nombre}, acá: {link} gracias")).toBeNull();
+    expect(conLink("Hola, acá: {link} gracias")).toMatch(/\{nombre\}/);
+    expect(conLink("Hola {nombre}, gracias")).toMatch(/\{link\} una vez/);
+    expect(conLink("Acá {link}, hola {nombre} chau")).toMatch(/antes que/);
+  });
+
+  it("solo imagen: sin {link}", () => {
+    const soloImagen = (messageText: string) =>
+      validarMensaje({ whatsappFormat: "IMAGE", messageText });
+    expect(soloImagen("Hola {nombre}, tu QR. Gracias")).toBeNull();
+    expect(soloImagen("Hola {nombre}, acá: {link} gracias")).toMatch(/sacá \{link\}/);
+  });
+
+  it("cambiar de formato cambia el texto inicial, pero nunca uno escrito por el negocio", () => {
+    const inicial = textoInicial(ACTION_SEND_QR_FOLLOWUP, "LINK");
+    expect(textoParaFormato(ACTION_SEND_QR_FOLLOWUP, inicial, "IMAGE")).toBe(
+      textoInicial(ACTION_SEND_QR_FOLLOWUP, "IMAGE"),
+    );
+    expect(textoParaFormato(ACTION_SEND_QR_FOLLOWUP, "Mi texto {nombre} {link} fin", "IMAGE")).toBe(
+      "Mi texto {nombre} {link} fin",
+    );
+    expect(formatoLlevaLink("IMAGE")).toBe(false);
+    expect(formatoLlevaImagen("LINK_AND_IMAGE")).toBe(true);
+    expect(accionConMensajeDeWhatsapp(ACTION_SEND_QR_FOLLOWUP)).toBe(true);
+    expect(accionConMensajeDeWhatsapp(ACTION_CREATE_FOLLOW_UP)).toBe(false);
   });
 });

@@ -18,7 +18,7 @@ import {
   vencimientoDelCupon,
   type ConfiguracionDelCupon,
 } from "./discountVoucherFollowUpWorker";
-import { ErrorPermanenteDelSeguimiento } from "./qrFollowUpWorker";
+import { ErrorPermanenteDelSeguimiento, type PlantillaDeSeguimiento } from "./qrFollowUpWorker";
 
 // ---------------------------------------------------------------------------
 // Las decisiones del worker de cupones de descuento (ítem 177), sin base ni
@@ -75,7 +75,7 @@ function doblar(
     // G-07: si viene, la sucursal está cerrada y abre en ese momento.
     abreA?: Date;
     falla?: unknown;
-    plantilla?: typeof PLANTILLA | null;
+    plantilla?: PlantillaDeSeguimiento | null;
   } = {},
 ) {
   const enviados: SendWhatsappTemplateInput[] = [];
@@ -307,4 +307,49 @@ test("si la fila ya no existe es un error permanente", async () => {
     procesarCupon(RECLAMO, CONFIG, deps, () => Promise.resolve(null)),
     ErrorPermanenteDelSeguimiento,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Formato del mensaje: para el cupón, la imagen es el QR de ESE cupón — el
+// que el empleado escanea en "Canjear cupón".
+// ---------------------------------------------------------------------------
+
+const API_PUBLICA = "https://plataformacrm.onrender.com";
+
+async function enviarCuponCon(plantilla: PlantillaDeSeguimiento) {
+  const { deps, enviados } = doblar({ plantilla });
+  await procesarCupon(RECLAMO, CONFIG, { ...deps, baseDeLaApi: () => API_PUBLICA }, () =>
+    Promise.resolve(fila()),
+  );
+  return enviados[0];
+}
+
+test("cupón, solo link: sin encabezado, [nombre, link del cupón]", async () => {
+  const enviado = await enviarCuponCon({
+    ...PLANTILLA,
+    bodyText: "Hola {nombre}, tu cupón: {link} te esperamos",
+    headerFormat: "NONE",
+  });
+  assert.equal(enviado.headerImageUrl, undefined);
+  assert.deepEqual(enviado.bodyParameters, ["Ana", buildVoucherPublicUrl(CUPON)]);
+});
+
+test("cupón, link e imagen: el QR del cupón emitido de encabezado y [nombre, link]", async () => {
+  const enviado = await enviarCuponCon({
+    ...PLANTILLA,
+    bodyText: "Hola {nombre}, tu cupón: {link} te esperamos",
+    headerFormat: "IMAGE",
+  });
+  assert.equal(enviado.headerImageUrl, `${API_PUBLICA}/qr-images/v/${CUPON}.png`);
+  assert.deepEqual(enviado.bodyParameters, ["Ana", buildVoucherPublicUrl(CUPON)]);
+});
+
+test("cupón, solo imagen: el QR del cupón de encabezado y solo [nombre]", async () => {
+  const enviado = await enviarCuponCon({
+    ...PLANTILLA,
+    bodyText: "Hola {nombre}, mostrá este QR en la caja. Gracias",
+    headerFormat: "IMAGE",
+  });
+  assert.equal(enviado.headerImageUrl, `${API_PUBLICA}/qr-images/v/${CUPON}.png`);
+  assert.deepEqual(enviado.bodyParameters, ["Ana"]);
 });

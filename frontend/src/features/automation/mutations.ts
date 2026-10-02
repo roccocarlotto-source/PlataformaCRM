@@ -1,5 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createAutomation, deleteAutomation, updateAutomation } from "./api";
+import {
+  createAutomation,
+  deleteAutomation,
+  refreshWhatsappApproval,
+  updateAutomation,
+} from "./api";
 import { automationKeys } from "./queries";
 import type { CreateAutomationInput, UpdateAutomationInput } from "./types";
 
@@ -23,6 +28,18 @@ export function useUpdateAutomation(id: string) {
     mutationFn: (input: UpdateAutomationInput) => updateAutomation(id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: automationKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: automationKeys.detail(id) });
+    },
+  });
+}
+
+// El estado nuevo vuelve en la respuesta; el detalle se recarga para que el
+// formulario lo muestre.
+export function useRefreshWhatsappApproval(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => refreshWhatsappApproval(id),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: automationKeys.detail(id) });
     },
   });

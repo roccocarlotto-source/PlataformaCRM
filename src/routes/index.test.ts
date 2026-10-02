@@ -480,17 +480,35 @@ test("el callback de Meta (ítem 170) está montado SIN authenticate: sin state 
   assert.ok([302, 400].includes(res.status), `status ${res.status}`);
 });
 
-test("la plantilla de WhatsApp de la organización (ítem 160) está montada bajo /api", async () => {
+test("la plantilla de WhatsApp ya no tiene rutas propias: viaja con la regla", async () => {
   const id = randomUUID();
-  const casos: [string, string][] = [
+  // Las de la pantalla "Plantilla de WhatsApp", retiradas: el notFound genérico.
+  for (const [method, path] of [
     ["GET", "/api/whatsapp-templates"],
     ["POST", "/api/whatsapp-templates"],
     ["DELETE", `/api/whatsapp-templates/${id}`],
     ["POST", `/api/whatsapp-templates/${id}/refresh`],
-  ];
-  for (const [method, path] of casos) {
+  ] as const) {
     const res = await fetch(`${baseUrl}${path}`, { method });
-    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+    assert.equal(res.status, 404, `${method} ${path} sigue montado`);
+  }
+  const refresh = await fetch(`${baseUrl}/api/automations/${id}/whatsapp-approval/refresh`, {
+    method: "POST",
+  });
+  assert.equal(refresh.status, 401, "el refresh de la aprobación no está montado");
+});
+
+test("la imagen del QR (encabezado del WhatsApp) es pública y devuelve un PNG", async () => {
+  // El del cupón existe siempre (sin QR_PUBLIC_BASE_URL codifica el id).
+  const res = await fetch(`${baseUrl}/qr-images/v/${randomUUID()}.png`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-type"), "image/png");
+  assert.match(res.headers.get("cache-control") ?? "", /immutable/);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  assert.equal(bytes.subarray(1, 4).toString("ascii"), "PNG");
+
+  for (const path of ["/qr-images/x/" + randomUUID() + ".png", "/qr-images/v/no-es-un-uuid.png"]) {
+    assert.equal((await fetch(`${baseUrl}${path}`)).status, 404, path);
   }
 });
 
