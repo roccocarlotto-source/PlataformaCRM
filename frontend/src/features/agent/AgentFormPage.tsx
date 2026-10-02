@@ -34,6 +34,8 @@ interface AgentFormValues {
   goal: string;
   instructions: string;
   tone: string;
+  // Texto y no número: el input vacío es un valor válido (desactivado).
+  avisoSinRespuestaMinutos: string;
   modelProvider: string;
   modelName: string;
   enabledTools: string[];
@@ -63,6 +65,8 @@ const EMPTY_FORM: AgentFormValues = {
   goal: "",
   instructions: "",
   tone: "",
+  // El mismo default que la base.
+  avisoSinRespuestaMinutos: "15",
   // Un solo proveedor hoy: viene elegido. Ver MODEL_PROVIDER_OPTIONS.
   modelProvider: DEFAULT_MODEL_PROVIDER,
   // Vacío = el backend usa el default de OPENROUTER_MODEL.
@@ -110,6 +114,11 @@ function toFormValues(agent: Agent): AgentFormValues {
     goal: agent.goal ?? "",
     instructions: agent.instructions,
     tone: agent.tone ?? "",
+    avisoSinRespuestaMinutos:
+      agent.unansweredHandoffNoticeMinutes === null ||
+      agent.unansweredHandoffNoticeMinutes === undefined
+        ? ""
+        : String(agent.unansweredHandoffNoticeMinutes),
     modelProvider: agent.modelProvider,
     modelName: agent.modelName,
     enabledTools: agent.enabledTools,
@@ -126,6 +135,13 @@ function toFormValues(agent: Agent): AgentFormValues {
 function textoOpcional(value: string): string | null {
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
+}
+
+// Los minutos del aviso sin respuesta: vacío = null (desactivado, igual que
+// 0). validar() ya garantizó que, si hay algo, es un entero de 0 a 1440.
+function minutosOpcionales(value: string): number | null {
+  const trimmed = value.trim();
+  return trimmed === "" ? null : Number(trimmed);
 }
 
 // El error de validación del cliente, o null si el formulario puede viajar.
@@ -151,6 +167,13 @@ function validar(
   // parcial simplemente no lo tocaría, y la pantalla habría dicho "guardado"
   // sobre un campo que se dejó en blanco a propósito. Mismo razonamiento que
   // el N° del QR en §54, y por eso el asterisco también depende del modo.
+  const minutos = values.avisoSinRespuestaMinutos.trim();
+  if (minutos !== "" && !/^\d+$/.test(minutos)) {
+    return "Los minutos del aviso si nadie responde tienen que ser un número entero, o quedar vacíos para no avisar.";
+  }
+  if (minutos !== "" && Number(minutos) > 1440) {
+    return "El aviso si nadie responde puede esperar como mucho un día (1440 minutos).";
+  }
   if (puedeElegirModelo && isEditMode && values.modelName.trim() === "") {
     return "El modelo no puede quedar vacío. Borrarlo no vuelve al modelo por defecto: escribí el que querés usar.";
   }
@@ -284,6 +307,7 @@ export function AgentFormPage() {
           goal: textoOpcional(values.goal),
           instructions: values.instructions.trim(),
           tone: textoOpcional(values.tone),
+          unansweredHandoffNoticeMinutes: minutosOpcionales(values.avisoSinRespuestaMinutos),
           enabledTools: values.enabledTools,
           channels: values.channels,
           // Los dos SIEMPRE juntos: el backend rechaza un PATCH que traiga uno
@@ -303,6 +327,7 @@ export function AgentFormPage() {
           goal: textoOpcional(values.goal),
           instructions: values.instructions.trim(),
           tone: textoOpcional(values.tone),
+          unansweredHandoffNoticeMinutes: minutosOpcionales(values.avisoSinRespuestaMinutos),
           // Sin modelo: el agente nace con el de la plataforma (B-05).
           enabledTools: values.enabledTools,
           channels: values.channels,
@@ -463,6 +488,28 @@ export function AgentFormPage() {
               El objetivo es un resumen corto para esta pantalla, no el prompt del agente: lo que el
               modelo lee son las instrucciones de abajo. El tono es informativo y se compone dentro
               de ellas.
+            </p>
+
+            <FormField label="Avisar al cliente si nadie responde en (minutos)">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={1440}
+                step={1}
+                value={values.avisoSinRespuestaMinutos}
+                placeholder="Sin aviso"
+                onChange={(event) =>
+                  setValues({ ...values, avisoSinRespuestaMinutos: event.target.value })
+                }
+              />
+            </FormField>
+
+            <p className="ds-hint ds-field-grid--full">
+              Si el agente deriva la conversación a una persona y nadie del equipo le escribe al
+              cliente en estos minutos, le llega solo un aviso de que no hay nadie disponible (con
+              el horario de la sucursal si está cerrada), la conversación vuelve al agente y queda
+              la tarea para contactarlo. Vacío o 0: no se avisa.
             </p>
 
             <div className="ds-field-grid--full">

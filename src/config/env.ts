@@ -503,6 +503,26 @@ const envSchema = z.object({
   // (src/utils/voucherPublicUrl.ts, ítem 178) con QR_PUBLIC_BASE_URL, más abajo.
 
   // -------------------------------------------------------------------------
+  // Aviso automático si nadie responde a una derivación
+  // (src/workers/avisoSinRespuestaWorker.ts). Los minutos los configura cada
+  // agente (Agent.unansweredHandoffNoticeMinutes); esto es solo la cadencia.
+  //
+  // Mismo enum explícito que INGEST_WORKER_ENABLED y por el mismo motivo.
+  AVISO_SIN_RESPUESTA_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  // 1 MINUTO: el plazo es de minutos (15 por defecto) y hay un cliente
+  // esperando; un barrido de 5 minutos podría casi duplicar la espera. Es una
+  // consulta indexada por (status, transferred_to_human_at).
+  AVISO_SIN_RESPUESTA_WORKER_POLL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 1000),
+  AVISO_SIN_RESPUESTA_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(20),
+
+  // -------------------------------------------------------------------------
   // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
   //
   // MERCADOPAGO_WEBHOOK_SECRET y MERCADOPAGO_ACCESS_TOKEN EXISTIERON acá (el

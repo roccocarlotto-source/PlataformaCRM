@@ -148,8 +148,50 @@ export function transferConversationToHuman(
 ) {
   return db.conversation.updateMany({
     where: { id, organizationId, status: "ACTIVE" },
-    data: { status: "TRANSFERRED_TO_HUMAN", assignedUserId },
+    // transferredToHumanAt: desde cuándo cuentan los minutos del aviso
+    // automático si nadie responde (workers/avisoSinRespuestaWorker.ts).
+    data: { status: "TRANSFERRED_TO_HUMAN", assignedUserId, transferredToHumanAt: new Date() },
   });
+}
+
+// Las derivaciones que esperan el aviso automático: derivadas por el agente
+// hace más de los minutos que pide SU agente (no NULL ni 0), sin ningún
+// mensaje de una persona desde la derivación. Una sola consulta para el lote;
+// la decisión final la vuelve a tomar avisarSiNadieRespondio bajo el lock de
+// la conversación, así que esto solo elige candidatas.
+//
+// Sin organización a propósito, como los reclamos de los otros workers: es el
+// barrido de todo el sistema. `organizationId` es solo para los tests.
+export async function findDerivacionesSinRespuestaVencidas(
+  limite: number,
+  opciones: { organizationId?: string } = {},
+  db: Db = prisma,
+): Promise<{ id: string; organizationId: string }[]> {
+  const filtroOrg = opciones.organizationId
+    ? Prisma.sql`AND c.organization_id = ${opciones.organizationId}::uuid`
+    : Prisma.empty;
+  const filas = await db.$queryRaw<{ id: string; organization_id: string }[]>`
+    SELECT c.id, c.organization_id
+    FROM conversations c
+    JOIN agents a ON a.id = c.agent_id AND a.organization_id = c.organization_id
+    WHERE c.status = 'TRANSFERRED_TO_HUMAN'::"ConversationStatus"
+      AND c.transferred_to_human_at IS NOT NULL
+      AND a.deleted_at IS NULL
+      AND a.unanswered_handoff_notice_minutes > 0
+      AND c.transferred_to_human_at
+        <= now() - (a.unanswered_handoff_notice_minutes * interval '1 minute')
+      AND NOT EXISTS (
+        SELECT 1 FROM messages m
+        WHERE m.conversation_id = c.id
+          AND m.organization_id = c.organization_id
+          AND m.sender_type = 'HUMAN'::"MessageSenderType"
+          AND m.created_at > c.transferred_to_human_at
+      )
+      ${filtroOrg}
+    ORDER BY c.transferred_to_human_at
+    LIMIT ${limite}
+  `;
+  return filas.map((f) => ({ id: f.id, organizationId: f.organization_id }));
 }
 
 // Una persona contesta desde el CRM (I-03 de

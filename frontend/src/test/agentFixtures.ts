@@ -13,6 +13,7 @@ export function makeAgent(overrides: Partial<Agent> = {}): Agent {
     goal: "Atender consultas de la web y calificar el lead",
     instructions: "Sos el asistente de una concesionaria. Contestá corto y ofrecé un turno.",
     tone: "cercano",
+    unansweredHandoffNoticeMinutes: 15,
     modelProvider: "openrouter",
     modelName: "openai/gpt-4o-mini",
     enabledTools: ["create_lead"],

@@ -9,6 +9,7 @@ import { iniciarWorkerDeOportunidadesEstancadas } from "./opportunityStaleWorker
 import { iniciarWorkerDeOutbox } from "./outboxWorker";
 import { iniciarWorkerDeSeguimientosQr } from "./qrFollowUpWorker";
 import { iniciarWorkerDeCupones } from "./discountVoucherFollowUpWorker";
+import { iniciarWorkerDeAvisoSinRespuesta } from "./avisoSinRespuestaWorker";
 
 // ---------------------------------------------------------------------------
 // M-12 (c) de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): el stop que devuelve cada
@@ -18,7 +19,7 @@ import { iniciarWorkerDeCupones } from "./discountVoucherFollowUpWorker";
 // worker es una promesa que el test resuelve a mano, así que el orden de los
 // eventos lo decide el test, no el scheduler.
 //
-// Los ocho workers comparten el patrón y el bug, y por eso se prueban con la
+// Los nueve workers comparten el patrón y el bug, y por eso se prueban con la
 // misma tabla: si alguno se desviara del patrón, este archivo lo vería.
 // ---------------------------------------------------------------------------
 
@@ -142,6 +143,17 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
             fueraDeHorario: 0,
             sinConfiguracion: false,
           };
+        },
+      }),
+  },
+  {
+    nombre: "aviso automático sin respuesta",
+    iniciar: ({ pollMs, pasada }) =>
+      iniciarWorkerDeAvisoSinRespuesta({
+        pollMs,
+        drenar: async () => {
+          await pasada();
+          return { avisados: 0, descartados: 0, fallidos: 0 };
         },
       }),
   },

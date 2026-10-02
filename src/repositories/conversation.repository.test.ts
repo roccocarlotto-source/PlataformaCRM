@@ -300,14 +300,16 @@ test("transferConversationToHuman es compare-and-swap SOLO desde ACTIVE: nunca r
     },
   } as unknown as Db;
 
+  const antes = Date.now();
   await transferConversationToHuman("conv-1", ORG, "vendedor-1", db);
 
-  assert.deepEqual(llamadas, [
-    {
-      where: { id: "conv-1", organizationId: ORG, status: "ACTIVE" },
-      data: { status: "TRANSFERRED_TO_HUMAN", assignedUserId: "vendedor-1" },
-    },
-  ]);
+  const [llamada] = llamadas as { where: unknown; data: Record<string, unknown> }[];
+  assert.deepEqual(llamada.where, { id: "conv-1", organizationId: ORG, status: "ACTIVE" });
+  const { transferredToHumanAt, ...resto } = llamada.data;
+  assert.deepEqual(resto, { status: "TRANSFERRED_TO_HUMAN", assignedUserId: "vendedor-1" });
+  // Desde cuándo cuentan los minutos del aviso automático si nadie responde.
+  assert.ok(transferredToHumanAt instanceof Date);
+  assert.ok(transferredToHumanAt.getTime() >= antes);
 });
 
 test("countOpenConversationsOf cuenta solo las abiertas, con organizationId, por sucursal o por contacto", async () => {

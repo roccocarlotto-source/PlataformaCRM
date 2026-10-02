@@ -339,71 +339,128 @@ export async function devolverAlAgente(
       humanoRespondio:
         vigente.status === "TRANSFERRED_TO_HUMAN" && (await humanSpokeLast(id, organizationId)),
     });
-    const entrega = entregaDelAviso(
-      vigente.channel,
-      finDeLaVentanaDeWhatsapp(await findLastInboundAt(id, organizationId)),
-    );
-    const destino = entrega.tipo === "whatsapp" ? await destinoDeWhatsapp(vigente) : null;
-    // Fuera del horario de la sucursal, el aviso dice cuándo le van a escribir.
-    const texto = textoDelAviso(
-      avisar
-        ? await atencionFueraDeHorarioDeLaSucursal(organizationId, vigente.branchId, new Date())
-        : null,
-    );
-
-    const aviso = await prisma.$transaction(async (tx) => {
-      const devuelta = await returnConversationToAgent(id, organizationId, tx);
-      if (devuelta.count !== 1 || !avisar) {
-        return null;
-      }
-
-      if (!(await findTareaAbiertaDelPedido(organizationId, vigente.contactId, tx))) {
-        await crearTareaSinRespuesta(actor, vigente, tx);
-      }
-
-      const motivoSinEnvio =
-        entrega.tipo === "no-se-envia"
-          ? entrega.motivo
-          : destino && "motivo" in destino
-            ? destino.motivo
-            : null;
-      const creado = await createMessage(
-        {
-          organizationId,
-          conversationId: id,
-          direction: "OUTBOUND",
-          senderType: "AUTOMATION",
-          content: texto,
-          ...(motivoSinEnvio !== null
-            ? { deliveryStatus: "FAILED" as const, deliveryError: motivoSinEnvio }
-            : entrega.tipo === "whatsapp"
-              ? { deliveryStatus: "PENDING" as const }
-              : {}),
-        },
-        tx,
-      );
-      await updateConversation(id, organizationId, { lastMessageAt: creado.createdAt }, tx);
-      if (motivoSinEnvio !== null) {
-        logger.warn(
-          { organizationId, conversationId: id, motivo: motivoSinEnvio },
-          "Devuelta al agente sin respuesta de una persona: el aviso al cliente no se envió",
-        );
-      }
-      return { mensaje: creado, enviar: motivoSinEnvio === null && entrega.tipo === "whatsapp" };
-    });
-
-    if (aviso?.enviar && destino && !("motivo" in destino)) {
-      await enviarPorWhatsapp(aviso.mensaje, destino, deps);
-    }
+    await devolverYAvisar(vigente, avisar, actor, deps);
   });
 
   return getConversationById(organizationId, id);
 }
 
+export type ResultadoDelAvisoAutomatico = "avisado" | "no-corresponde";
+
+// El aviso automático si nadie responde (workers/avisoSinRespuestaWorker.ts):
+// lo mismo que "Devolver al agente" sin respuesta —aviso, tarea, marca y la
+// conversación de vuelta al agente—, pero lo decide el reloj y no una persona.
+//
+// SE VUELVE A DECIDIR TODO BAJO EL LOCK de la conversación, el mismo de
+// responder, devolver y los turnos del agente. Entre que el worker la eligió y
+// ahora, una persona pudo escribir (no se avisa ni se devuelve: está
+// atendida), alguien pudo devolverla a mano o cerrarla (ya no está derivada),
+// o el agente pudo cambiar sus minutos. Solo si sigue derivada, sin respuesta
+// y vencida, se avisa; y el CAS de returnConversationToAgent hace que una
+// derivación tenga UN solo aviso aunque dos instancias o una persona lleguen a
+// la vez.
+export async function avisarSiNadieRespondio(
+  organizationId: string,
+  conversationId: string,
+  ahora: Date = new Date(),
+  deps: DepsDeRespuestaHumana = depsDeRespuestaHumanaReales,
+): Promise<ResultadoDelAvisoAutomatico> {
+  const inicial = await findConversationById(conversationId, organizationId);
+  if (!inicial) {
+    return "no-corresponde";
+  }
+  return conLockDeConversacion(claveDe(inicial), async () => {
+    const vigente = await findConversationById(conversationId, organizationId);
+    if (vigente?.status !== "TRANSFERRED_TO_HUMAN" || !vigente.transferredToHumanAt) {
+      return "no-corresponde";
+    }
+    const agente = await findAgentById(vigente.agentId, organizationId);
+    const minutos = agente?.unansweredHandoffNoticeMinutes ?? 0;
+    const vence = vigente.transferredToHumanAt.getTime() + minutos * 60_000;
+    if (minutos <= 0 || vence > ahora.getTime()) {
+      return "no-corresponde";
+    }
+    if (await humanSpokeLast(conversationId, organizationId)) {
+      return "no-corresponde";
+    }
+    await devolverYAvisar(vigente, true, null, deps);
+    return "avisado";
+  });
+}
+
+// Lo común a devolver a mano y al aviso automático, ya bajo el lock: la
+// devolución, y si `avisar`, la tarea y el aviso en la misma transacción; el
+// envío por WhatsApp después. `actor` null = lo hizo el sistema.
+async function devolverYAvisar(
+  vigente: Conversation,
+  avisar: boolean,
+  actor: Actor | null,
+  deps: DepsDeRespuestaHumana,
+) {
+  const { id, organizationId } = vigente;
+  const entrega = entregaDelAviso(
+    vigente.channel,
+    finDeLaVentanaDeWhatsapp(await findLastInboundAt(id, organizationId)),
+  );
+  const destino = entrega.tipo === "whatsapp" ? await destinoDeWhatsapp(vigente) : null;
+  // Fuera del horario de la sucursal, el aviso dice cuándo le van a escribir.
+  const texto = textoDelAviso(
+    avisar
+      ? await atencionFueraDeHorarioDeLaSucursal(organizationId, vigente.branchId, new Date())
+      : null,
+  );
+
+  const aviso = await prisma.$transaction(async (tx) => {
+    const devuelta = await returnConversationToAgent(id, organizationId, tx);
+    if (devuelta.count !== 1 || !avisar) {
+      return null;
+    }
+
+    if (!(await findTareaAbiertaDelPedido(organizationId, vigente.contactId, tx))) {
+      await crearTareaSinRespuesta(actor, vigente, tx);
+    }
+
+    const motivoSinEnvio =
+      entrega.tipo === "no-se-envia"
+        ? entrega.motivo
+        : destino && "motivo" in destino
+          ? destino.motivo
+          : null;
+    const creado = await createMessage(
+      {
+        organizationId,
+        conversationId: id,
+        direction: "OUTBOUND",
+        senderType: "AUTOMATION",
+        content: texto,
+        ...(motivoSinEnvio !== null
+          ? { deliveryStatus: "FAILED" as const, deliveryError: motivoSinEnvio }
+          : entrega.tipo === "whatsapp"
+            ? { deliveryStatus: "PENDING" as const }
+            : {}),
+      },
+      tx,
+    );
+    await updateConversation(id, organizationId, { lastMessageAt: creado.createdAt }, tx);
+    if (motivoSinEnvio !== null) {
+      logger.warn(
+        { organizationId, conversationId: id, motivo: motivoSinEnvio, automatico: actor === null },
+        "Devuelta al agente sin respuesta de una persona: el aviso al cliente no se envió",
+      );
+    }
+    return { mensaje: creado, enviar: motivoSinEnvio === null && entrega.tipo === "whatsapp" };
+  });
+
+  if (aviso?.enviar && destino && !("motivo" in destino)) {
+    await enviarPorWhatsapp(aviso.mensaje, destino, deps);
+  }
+}
+
 // La tarea cuando la derivación no dejó ninguna abierta (no había vendedor, o
 // ya la completaron sin escribirle al cliente): para un ADMIN activo, con el
-// contacto, para que alguien lo llame.
-async function crearTareaSinRespuesta(actor: Actor, conversation: Conversation, tx: Db) {
+// contacto, para que alguien lo llame. Sin actor (el aviso automático), el
+// autor es el mismo ADMIN al que se le asigna.
+async function crearTareaSinRespuesta(actor: Actor | null, conversation: Conversation, tx: Db) {
   const { organizationId, contactId } = conversation;
   const adminId = await findAdminParaLaTarea(organizationId, actor, tx);
   if (!adminId) {
@@ -418,7 +475,7 @@ async function crearTareaSinRespuesta(actor: Actor, conversation: Conversation, 
   await createActivity(
     {
       organizationId,
-      authorId: actor.userId,
+      authorId: actor?.userId ?? adminId,
       type: "TASK",
       assigneeId: adminId,
       companyId: null,
