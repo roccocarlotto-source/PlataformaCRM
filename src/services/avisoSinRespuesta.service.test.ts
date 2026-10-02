@@ -4,7 +4,9 @@ import {
   AVISO_SIN_RESPUESTA,
   MOTIVO_CANAL_SIN_ENVIO,
   MOTIVO_VENTANA_CERRADA,
+  PREFIJO_DEL_AVISO,
   asuntoDeTareaSinRespuesta,
+  textoDelAviso,
   debeAvisarAlDevolver,
   entregaDelAviso,
   marcaSinRespuesta,
@@ -22,6 +24,25 @@ test("el aviso es el texto fijo acordado, no algo que genera el modelo", () => {
     AVISO_SIN_RESPUESTA,
     "Por el momento no hay nadie del equipo disponible. Te vamos a contactar más tarde. Mientras tanto, si querés, puedo seguir ayudándote.",
   );
+});
+
+test("textoDelAviso: dentro de horario o sin horario cargado, el de siempre", () => {
+  assert.equal(textoDelAviso(null), AVISO_SIN_RESPUESTA);
+});
+
+test("textoDelAviso: fuera de horario dice cuándo atienden y cuándo le escriben, con el mismo comienzo", () => {
+  const texto = textoDelAviso({
+    horario: "de lunes a sábado de 9 a 20 h",
+    cuando: "el lunes a partir de las 9",
+    proximaApertura: new Date("2026-10-12T12:00:00.000Z"),
+  });
+  assert.equal(
+    texto,
+    "Por el momento no hay nadie del equipo disponible. Nuestro equipo atiende de lunes a sábado de 9 a 20 h. Te vamos a escribir el lunes a partir de las 9. Mientras tanto, si querés, puedo seguir ayudándote.",
+  );
+  // El comienzo es el ancla de la marca: también el del texto de siempre.
+  assert.ok(texto.startsWith(PREFIJO_DEL_AVISO));
+  assert.ok(AVISO_SIN_RESPUESTA.startsWith(PREFIJO_DEL_AVISO));
 });
 
 test("sin respuesta de una persona desde la derivación: se avisa", () => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
+import { DateTime } from "luxon";
 import { createClient } from "@supabase/supabase-js";
 import express from "express";
 import { env } from "../config/env";
@@ -13,7 +14,14 @@ import { applyDeliveryStatusByExternalId } from "../repositories/message.reposit
 import { findRoleByName } from "../repositories/role.repository";
 import { createConversationRouter } from "../routes/conversation.routes";
 import { PREFIJO_TAREA_DE_DERIVACION, runAgentTurn } from "../services/agentOrchestration.service";
-import { AVISO_SIN_RESPUESTA, MOTIVO_VENTANA_CERRADA } from "../services/avisoSinRespuesta.service";
+import {
+  AVISO_SIN_RESPUESTA,
+  MOTIVO_VENTANA_CERRADA,
+  PREFIJO_DEL_AVISO,
+  textoDelAviso,
+} from "../services/avisoSinRespuesta.service";
+import { atencionFueraDeHorario } from "../utils/fueraDeHorario";
+import type { FranjaSemanal } from "../utils/workingHours";
 import {
   MENSAJE_CANAL_NO_SOPORTADO,
   MENSAJE_CERRADA,
@@ -818,4 +826,73 @@ test("Web: el aviso se guarda en el hilo, sin envío ni estado de entrega", asyn
   const [aviso] = avisos(detalle);
   assert.equal(aviso.deliveryStatus, null);
   assert.equal(detalle.humanRequestUnanswered, true);
+});
+
+// ---------------------------------------------------------------------------
+// 7. El aviso fuera del horario de la sucursal
+// ---------------------------------------------------------------------------
+
+// Un horario que está cerrado AHORA, corra el test cuando corra: abre solo
+// pasado mañana (en la zona de la sucursal), de 9 a 20.
+function horarioCerradoAhora(zona: string): FranjaSemanal[] {
+  const DIAS = [
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+  ] as const;
+  const pasadoManana = DateTime.now().setZone(zona).plus({ days: 2 });
+  return [{ weekday: DIAS[pasadoManana.weekday - 1]!, startMinute: 9 * 60, endMinute: 20 * 60 }];
+}
+
+async function conHorario<T>(franjas: FranjaSemanal[], fn: () => Promise<T>): Promise<T> {
+  await prisma.branchBusinessHours.createMany({
+    data: franjas.map((f) => ({ organizationId: orgId, branchId, ...f })),
+  });
+  try {
+    return await fn();
+  } finally {
+    await prisma.branchBusinessHours.deleteMany({ where: { organizationId: orgId, branchId } });
+  }
+}
+
+test("fuera de horario el aviso dice cuándo atiende el equipo y cuándo le escriben; la marca funciona igual", async () => {
+  const franjas = horarioCerradoAhora("America/Montevideo");
+  const esperado = textoDelAviso(atencionFueraDeHorario(franjas, "America/Montevideo", new Date()));
+  assert.notEqual(esperado, AVISO_SIN_RESPUESTA);
+  assert.ok(esperado.startsWith(PREFIJO_DEL_AVISO));
+  assert.match(
+    esperado,
+    /Nuestro equipo atiende los \S+ de 9 a 20 h\. Te vamos a escribir el \S+ a partir de las 9\./,
+  );
+
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  await tareaDeDerivacion(conv.contactId, vendedor.userId);
+  const antes = envios.length;
+
+  const detalle = await conHorario(franjas, () => devolver(vendedor.accessToken, conv.id));
+
+  assert.equal(envios.length, antes + 1);
+  assert.equal(envios.at(-1)!.body, esperado);
+  const aviso = detalle.messages.filter((m) => m.senderType === "AUTOMATION");
+  assert.equal(aviso.length, 1);
+  assert.equal(aviso[0].content, esperado);
+  // El aviso con horario se reconoce igual: detalle y listado.
+  assert.equal(detalle.humanRequestUnanswered, true);
+  assert.equal(await marcaEnElListado(conv.contactId), true);
+});
+
+test("dentro del horario cargado el aviso es el de siempre", async () => {
+  const todoElDia: FranjaSemanal[] = (
+    ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const
+  ).map((weekday) => ({ weekday, startMinute: 0, endMinute: 24 * 60 }));
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  await tareaDeDerivacion(conv.contactId, vendedor.userId);
+
+  await conHorario(todoElDia, () => devolver(vendedor.accessToken, conv.id));
+
+  assert.equal(envios.at(-1)!.body, AVISO_SIN_RESPUESTA);
 });

@@ -32,6 +32,8 @@ import {
   claveDeLockDeConversacion,
   ordenarPendientesAlFinal,
   aHistorial,
+  MENSAJE_DE_HANDOFF,
+  mensajeDeHandoffSegunHorario,
 } from "./agentOrchestration.service";
 import { logger } from "../lib/logger";
 import { isoEnZona } from "../utils/timezone";
@@ -1232,4 +1234,42 @@ test("aHistorial: un entrante con adjunto va como partes (marcador etiquetado + 
 test("aHistorial: sin adjuntos, todos los mensajes del cliente siguen siendo un string", () => {
   const historial = aHistorial([{ id: "m1", direction: "INBOUND", content: "[audio]" }]);
   assert.deepEqual(historial, [{ role: "user", content: envolverMensajeDelCliente("[audio]") }]);
+});
+
+// ---------------------------------------------------------------------------
+// Derivación fuera del horario de la sucursal
+// ---------------------------------------------------------------------------
+
+const CERRADA = {
+  horario: "de lunes a sábado de 9 a 20 h",
+  cuando: "mañana a partir de las 9",
+  proximaApertura: new Date("2026-10-06T12:00:00.000Z"),
+};
+
+test("mensajeDeHandoffSegunHorario: dentro de horario (o sin horario) es el cierre de siempre", () => {
+  assert.equal(mensajeDeHandoffSegunHorario(null), MENSAJE_DE_HANDOFF);
+});
+
+test("mensajeDeHandoffSegunHorario: fuera de horario dice cuándo atienden y cuándo le escriben", () => {
+  assert.equal(
+    mensajeDeHandoffSegunHorario(CERRADA),
+    "No pude resolver tu consulta en este momento. Nuestro equipo atiende de lunes a sábado de 9 a 20 h. Te vamos a escribir mañana a partir de las 9.",
+  );
+});
+
+test("armarSystemPrompt: fuera de horario le da al modelo el horario y la próxima apertura para la derivación", () => {
+  const prompt = armarSystemPrompt({ ...BASE, guardrails: {} }, [], undefined, undefined, CERRADA);
+  assert.match(prompt, /la sucursal está cerrada en este momento/);
+  assert.ok(prompt.includes("El equipo atiende de lunes a sábado de 9 a 20 h"));
+  assert.ok(prompt.includes('"te vamos a escribir mañana a partir de las 9"'));
+  assert.ok(prompt.includes("a la brevedad"));
+  // Antes de la instrucción de identidad, que sigue siendo la última.
+  assert.ok(prompt.endsWith(INSTRUCCION_IDENTIDAD_INMUTABLE));
+});
+
+test("armarSystemPrompt: abierta o sin horario cargado, no se menciona el horario", () => {
+  for (const fuera of [null, undefined]) {
+    const prompt = armarSystemPrompt({ ...BASE, guardrails: {} }, [], undefined, undefined, fuera);
+    assert.doesNotMatch(prompt, /Horario de atención/);
+  }
 });

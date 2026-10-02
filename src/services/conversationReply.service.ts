@@ -25,13 +25,14 @@ import { finDeLaVentanaDeWhatsapp, ventanaDeWhatsappAbierta } from "../utils/ven
 import { conLockDeConversacion } from "./agentOrchestration.service";
 import { getConversationById } from "./conversation.service";
 import {
-  AVISO_SIN_RESPUESTA,
+  textoDelAviso,
   asuntoDeTareaSinRespuesta,
   debeAvisarAlDevolver,
   entregaDelAviso,
   findAdminParaLaTarea,
   findTareaAbiertaDelPedido,
 } from "./avisoSinRespuesta.service";
+import { atencionFueraDeHorarioDeLaSucursal } from "./branchBusinessHours.service";
 import { aplicarEstadosRetenidos } from "./estadosDeEntregaRetenidos.service";
 import {
   WhatsappGraphError,
@@ -343,6 +344,12 @@ export async function devolverAlAgente(
       finDeLaVentanaDeWhatsapp(await findLastInboundAt(id, organizationId)),
     );
     const destino = entrega.tipo === "whatsapp" ? await destinoDeWhatsapp(vigente) : null;
+    // Fuera del horario de la sucursal, el aviso dice cuándo le van a escribir.
+    const texto = textoDelAviso(
+      avisar
+        ? await atencionFueraDeHorarioDeLaSucursal(organizationId, vigente.branchId, new Date())
+        : null,
+    );
 
     const aviso = await prisma.$transaction(async (tx) => {
       const devuelta = await returnConversationToAgent(id, organizationId, tx);
@@ -366,7 +373,7 @@ export async function devolverAlAgente(
           conversationId: id,
           direction: "OUTBOUND",
           senderType: "AUTOMATION",
-          content: AVISO_SIN_RESPUESTA,
+          content: texto,
           ...(motivoSinEnvio !== null
             ? { deliveryStatus: "FAILED" as const, deliveryError: motivoSinEnvio }
             : entrega.tipo === "whatsapp"
