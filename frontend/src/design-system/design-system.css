@@ -63,6 +63,33 @@ textarea {
   border-radius: var(--radius-md);
 }
 
+/* En el celular, 16px como mínimo en todo campo editable: con menos, Safari
+   y Chrome de iPhone hacen zoom al enfocarlo y la página queda ampliada (y
+   deslizable de costado) después de, por ejemplo, el login. Cubre también los
+   campos con tamaño propio (filtros, buscador del Select): por eso
+   !important, que es la única forma de ganarle a cualquier regla de clase sin
+   repetirla acá. En escritorio no cambia nada. El zoom con los dedos sigue
+   habilitado: el viewport no lleva maximum-scale ni user-scalable=no.
+   check:mobile-overflow verifica que ningún campo quede por debajo. */
+@media (max-width: 767px) {
+  input:not(
+    [type="checkbox"],
+    [type="radio"],
+    [type="range"],
+    [type="color"],
+    [type="file"],
+    [type="button"],
+    [type="submit"],
+    [type="reset"],
+    [type="image"],
+    [type="hidden"]
+  ),
+  select,
+  textarea {
+    font-size: max(16px, 1rem) !important;
+  }
+}
+
 /* Apaga el <select> nativo del navegador y dibuja el propio chevron (mismo
    ícono que MultiSelect.tsx: ChevronDown de lucide-react, 16px, stroke-width
    1.5), en --color-text-faint porque es un indicio secundario, no el valor
@@ -947,12 +974,17 @@ fieldset.ds-field {
 /* La píldora. También los selectores compartidos usados como filtro
    (BranchSelect, CompanySelect, PipelineSelect…): su raíz es un
    div > label[for] + control, y el :has la detecta sin tocar el componente
-   ni su uso en formularios, que quedan fuera de .ds-filters. */
+   ni su uso en formularios, que quedan fuera de .ds-filters.
+   max-width: 100%: el ancho mínimo de la píldora es su rótulo más el ancho
+   intrínseco del control, y con los 16px del celular "Precio mín. (USD)"
+   pasaba el ancho de la fila; el control adentro tiene min-width: 0 y se
+   achica. */
 .ds-filters label,
 .ds-board-toolbar label,
 .ds-filters div:has(> label[for]),
 .ds-board-toolbar div:has(> label[for]) {
   display: flex;
+  max-width: 100%;
   flex-wrap: nowrap;
   white-space: nowrap;
   align-items: center;
