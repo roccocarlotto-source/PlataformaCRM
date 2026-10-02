@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { before, mock, test } from "node:test";
+import { DateTime } from "luxon";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import { AppError } from "../utils/AppError";
+import { atencionFueraDeHorario } from "../utils/fueraDeHorario";
+import type { FranjaSemanal } from "../utils/workingHours";
 import {
   envolverMensajeDelCliente,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
@@ -18,6 +21,7 @@ import {
   REQUEST_HUMAN_HANDOFF_TOOL_NAME,
   VENTANA_DE_MENSAJES,
   ejecutarHandoff,
+  mensajeDeHandoffSegunHorario,
   runAgentTurn,
 } from "./agentOrchestration.service";
 import {
@@ -299,6 +303,7 @@ async function desmontar(e: Escenario) {
   await prisma.contact.deleteMany({ where });
   // Antes que branches: la FK compuesta a branches es RESTRICT.
   await prisma.knowledgeBaseEntry.deleteMany({ where });
+  await prisma.branchBusinessHours.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.organization.delete({ where: { id: e.organizationId } });
@@ -2814,5 +2819,88 @@ test("ítem 104: los horarios le llegan al modelo en la zona de la sucursal, no 
     assert.match(datosReserva.startsAt, /T09:00:00/);
   } finally {
     await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Derivación fuera del horario de la sucursal
+// ---------------------------------------------------------------------------
+
+const DIAS_DE_LA_SEMANA = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+] as const;
+
+// Cerrada AHORA, corra el test cuando corra: abre solo pasado mañana, de 9 a 20.
+function horarioCerradoAhora(): FranjaSemanal[] {
+  const pasadoManana = DateTime.now().setZone(TZ).plus({ days: 2 });
+  return [
+    {
+      weekday: DIAS_DE_LA_SEMANA[pasadoManana.weekday - 1]!,
+      startMinute: 9 * 60,
+      endMinute: 20 * 60,
+    },
+  ];
+}
+
+// Abierta AHORA: todos los días, todo el día.
+const ABIERTA_SIEMPRE: FranjaSemanal[] = DIAS_DE_LA_SEMANA.map((weekday) => ({
+  weekday,
+  startMinute: 0,
+  endMinute: 24 * 60,
+}));
+
+async function cargarHorario(e: Escenario, franjas: FranjaSemanal[]) {
+  await prisma.branchBusinessHours.createMany({
+    data: franjas.map((f) => ({ organizationId: e.organizationId, branchId: e.branchId, ...f })),
+  });
+}
+
+test("fuera de horario: el cierre fijo de la derivación dice cuándo atienden y cuándo le escriben", async () => {
+  const e = await montar("handoff-fuera-de-horario");
+  try {
+    const franjas = horarioCerradoAhora();
+    await cargarHorario(e, franjas);
+    const esperado = mensajeDeHandoffSegunHorario(atencionFueraDeHorario(franjas, TZ, new Date()));
+    assert.notEqual(esperado, MENSAJE_DE_HANDOFF);
+    const doble = doblarProveedor([
+      pideTool("h1", REQUEST_HUMAN_HANDOFF_TOOL_NAME, { reason: "Pide una persona" }),
+    ]);
+
+    const resultado = await turno(e, "Quiero hablar con una persona", doble.proveedor);
+
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.respuesta, esperado);
+    assert.match(resultado.respuesta ?? "", /Te vamos a escribir el \S+ a partir de las 9\.$/);
+    // Y el modelo lo supo antes de redactar (ítem 111).
+    const prompt = doble.requests[0].systemPrompt;
+    assert.match(prompt, /la sucursal está cerrada en este momento/);
+    assert.ok(prompt.includes(atencionFueraDeHorario(franjas, TZ, new Date())!.cuando));
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("dentro del horario cargado, y sin horario cargado, la derivación queda como siempre", async () => {
+  for (const franjas of [ABIERTA_SIEMPRE, []]) {
+    const e = await montar("handoff-en-horario");
+    try {
+      await cargarHorario(e, franjas);
+      const doble = doblarProveedor([
+        pideTool("h1", REQUEST_HUMAN_HANDOFF_TOOL_NAME, { reason: "Pide una persona" }),
+      ]);
+
+      const resultado = await turno(e, "Quiero hablar con una persona", doble.proveedor);
+
+      assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+      assert.doesNotMatch(doble.requests[0].systemPrompt, /Horario de atención/);
+    } finally {
+      await desmontar(e);
+    }
   }
 });

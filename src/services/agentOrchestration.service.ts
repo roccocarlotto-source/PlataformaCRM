@@ -12,6 +12,7 @@ import { aplicarEstadosRetenidos } from "./estadosDeEntregaRetenidos.service";
 import { prisma, type Db } from "../lib/prisma";
 import { findAgentById } from "../repositories/agent.repository";
 import { findBranchById } from "../repositories/branch.repository";
+import { findBusinessHoursByBranch } from "../repositories/branchBusinessHours.repository";
 import { findContactById } from "../repositories/contact.repository";
 import {
   findConversationById,
@@ -27,6 +28,11 @@ import {
   type CreateMessageData,
 } from "../repositories/message.repository";
 import { AppError } from "../utils/AppError";
+import {
+  atencionFueraDeHorario,
+  fraseFueraDeHorario,
+  type AtencionFueraDeHorario,
+} from "../utils/fueraDeHorario";
 import { crearLimitadorDeTurnos, cupoDeTurnosPorDefecto } from "../utils/limitadorDeTurnos";
 import { isoEnZona } from "../utils/timezone";
 import { createActivity } from "./activity.service";
@@ -86,6 +92,15 @@ export const VENTANA_DE_MENSAJES = 20;
 // amable" sería darle otra oportunidad de inventar algo.
 export const MENSAJE_DE_HANDOFF =
   "No pude resolver tu consulta en este momento, alguien del equipo te va a contactar.";
+
+// El mismo cierre fuera del horario de la sucursal: en vez de "alguien te va a
+// contactar", cuándo atiende el equipo y cuándo le van a escribir. Dentro del
+// horario, o sin horario cargado (atencion null), es MENSAJE_DE_HANDOFF.
+export function mensajeDeHandoffSegunHorario(atencion: AtencionFueraDeHorario | null): string {
+  return atencion
+    ? `No pude resolver tu consulta en este momento. ${fraseFueraDeHorario(atencion)}`
+    : MENSAJE_DE_HANDOFF;
+}
 
 // Tope del mensaje que el modelo puede escribirle al cliente al derivar
 // (ítem 111). Es un mensaje de WhatsApp, no un documento.
@@ -171,7 +186,7 @@ export const REQUEST_HUMAN_HANDOFF_TOOL: LlmToolDefinition = {
       mensajeAlCliente: {
         type: "string",
         description:
-          "Lo que le vas a decir al contacto en este mismo turno, escrito para él. Reconocé lo que planteó con sus propias palabras y decile que una persona del equipo lo va a contactar. No prometas plazos, soluciones ni compensaciones, y no le anticipes qué va a resolver esa persona.",
+          "Lo que le vas a decir al contacto en este mismo turno, escrito para él. Reconocé lo que planteó con sus propias palabras y decile que una persona del equipo lo va a contactar. No prometas plazos (salvo el horario de atención, si el sistema te lo indica), soluciones ni compensaciones, y no le anticipes qué va a resolver esa persona.",
       },
     },
     required: ["reason", "mensajeAlCliente"],
@@ -800,6 +815,10 @@ export function armarSystemPrompt(
     email: string | null;
     phone: string | null;
   } & CalificacionEnElPrompt,
+  // Si la sucursal está cerrada ahora (y tiene horario cargado): cuándo
+  // atiende y cuándo abre, para que una derivación no prometa "a la brevedad"
+  // a las 3 de la mañana. Null o ausente: no se dice nada, como antes.
+  fueraDeHorario?: AtencionFueraDeHorario | null,
 ): string {
   const partes = [agent.instructions.trim()];
 
@@ -896,6 +915,14 @@ export function armarSystemPrompt(
       ? `Llamá a ${REQUEST_HUMAN_HANDOFF_TOOL_NAME} si la conversación coincide con alguna de estas situaciones:\n${enumerar(condiciones)}\nTambién usá ${REQUEST_HUMAN_HANDOFF_TOOL_NAME} ${disparadoresFijos}`
       : `Usá ${REQUEST_HUMAN_HANDOFF_TOOL_NAME} ${disparadoresFijos}`,
   );
+
+  // Pegado a las reglas de derivación: es lo que cambia el mensaje de una.
+  // Solo fuera de horario; dentro, el mensaje de siempre está bien.
+  if (fueraDeHorario) {
+    partes.push(
+      `Horario de atención: la sucursal está cerrada en este momento. El equipo atiende ${fueraDeHorario.horario}, y lo antes que una persona le puede escribir al contacto es ${fueraDeHorario.cuando}. Si derivás con ${REQUEST_HUMAN_HANDOFF_TOOL_NAME}, decíselo así en mensajeAlCliente (por ejemplo: "te vamos a escribir ${fueraDeHorario.cuando}"). No le digas que lo van a contactar a la brevedad, enseguida ni en un rato.`,
+    );
+  }
 
   // Ítem 93: ÚLTIMA, siempre, y después de todo lo configurable por el negocio.
   // Es la que sostiene a las demás: sin ella cualquier regla de arriba se
@@ -1619,12 +1646,14 @@ export async function responderEnLaConversacion(
   // (base de conocimiento, sucursal, últimos mensajes) no dependen entre sí y
   // van en UNA ida en paralelo en vez de cuatro en serie. Si el gate calla al
   // agente, las otras tres se leyeron de más: son lecturas, y es el caso raro.
-  const [hayHumano, entradasDeLaSucursal, sucursal, ultimosMensajes] = await Promise.all([
-    humanoAtiendeLaConversacion(conversation),
-    findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
-    findBranchById(agent.branchId, organizationId),
-    findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),
-  ]);
+  const [hayHumano, entradasDeLaSucursal, sucursal, franjasDeLaSucursal, ultimosMensajes] =
+    await Promise.all([
+      humanoAtiendeLaConversacion(conversation),
+      findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
+      findBranchById(agent.branchId, organizationId),
+      findBusinessHoursByBranch(agent.branchId, organizationId),
+      findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),
+    ]);
   if (hayHumano) {
     return {
       resultado: {
@@ -1663,11 +1692,21 @@ export async function responderEnLaConversacion(
   // base de conocimiento sale de agent.branchId. Si la sucursal no se pudiera
   // leer (caso residual, igual que en get_payment_info), el prompt va sin el
   // bloque temporal en vez de tumbar el turno.
+  const ahora = new Date();
+  // Derivación fuera de horario: si la sucursal tiene horario cargado y está
+  // cerrada, el cierre de una derivación dice cuándo le van a escribir
+  // (utils/fueraDeHorario.ts). Lo ven el modelo, en el prompt, y el cierre
+  // fijo de los casos en que el modelo no redacta.
+  const fueraDeHorario = sucursal
+    ? atencionFueraDeHorario(franjasDeLaSucursal, sucursal.timezone, ahora)
+    : null;
+  const mensajeDeHandoff = mensajeDeHandoffSegunHorario(fueraDeHorario);
   const systemPrompt = armarSystemPrompt(
     agent,
     knowledgeBaseEntries,
-    sucursal ? { ahora: new Date(), zona: sucursal.timezone } : undefined,
+    sucursal ? { ahora, zona: sucursal.timezone } : undefined,
     contact,
+    fueraDeHorario,
   );
   const mensajes = ordenarPendientesAlFinal(
     ultimosMensajes,
@@ -1758,7 +1797,7 @@ export async function responderEnLaConversacion(
           : "El proveedor del modelo falló tras los reintentos: se deriva en vez de dejar al contacto sin respuesta",
       );
       motivoDeHandoff ??= sinTiempo ? MOTIVO_TIEMPO_AGOTADO : MOTIVO_PROVEEDOR_CAIDO;
-      respuestaFinal = MENSAJE_DE_HANDOFF;
+      respuestaFinal = mensajeDeHandoff;
       break;
     }
 
@@ -1841,7 +1880,7 @@ export async function responderEnLaConversacion(
     // momento" — correcto en el ruteo y helado como respuesta a alguien que
     // acaba de denunciar una estafa.
     if (motivoDeHandoff !== null) {
-      respuestaFinal = resultado.text ?? mensajeDeHandoffDelModelo ?? MENSAJE_DE_HANDOFF;
+      respuestaFinal = resultado.text ?? mensajeDeHandoffDelModelo ?? mensajeDeHandoff;
       break;
     }
 
@@ -1863,7 +1902,7 @@ export async function responderEnLaConversacion(
   // final tras el tope de rondas, se deriva con el motivo fijo.
   if (respuestaFinal === null) {
     motivoDeHandoff = MOTIVO_TOPE_DE_RONDAS;
-    respuestaFinal = MENSAJE_DE_HANDOFF;
+    respuestaFinal = mensajeDeHandoff;
     logger.warn(
       {
         organizationId,
@@ -1922,7 +1961,7 @@ export async function responderEnLaConversacion(
       { organizationId, agentId, conversationId: conversation.id },
       "La respuesta del modelo era el mensaje del cliente devuelto: se reemplazó y se derivó",
     );
-    respuestaFinal = MENSAJE_DE_HANDOFF;
+    respuestaFinal = mensajeDeHandoff;
     motivoDeHandoff ??= MOTIVO_RESPUESTA_INUTILIZABLE;
   } else {
     // Ítem 117, y va DESPUÉS de las tres guardas de arriba a propósito: ellas

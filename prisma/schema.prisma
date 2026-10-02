@@ -2080,11 +2080,12 @@ model WorkingHours {
 // cuelgan de un Resource, y "cuándo atiende la sucursal" no es lo mismo que
 // "cuándo trabaja un vendedor o un box".
 //
-// POR AHORA LO USA UNA SOLA COSA: la ventana de envío de los mensajes que
-// INICIA el negocio (seguimiento con QR de reseña y cupón de descuento). Lo que
-// cae fuera se corre a la próxima apertura. Las respuestas del agente a un
-// mensaje entrante NO lo miran: siguen 24/7. Ni la agenda ni la disponibilidad
-// lo usan.
+// LO USAN DOS COSAS: la ventana de envío de los mensajes que INICIA el negocio
+// (seguimiento con QR de reseña y cupón de descuento; lo que cae fuera se
+// corre a la próxima apertura), y el texto que recibe el cliente cuando pide
+// una persona fuera de horario (utils/fueraDeHorario.ts: "te vamos a escribir
+// mañana a partir de las 9"). Las respuestas del agente a un mensaje entrante
+// siguen 24/7. Ni la agenda ni la disponibilidad lo usan.
 //
 // OPCIONAL: una sucursal sin filas usa el horario por defecto (lunes a sábado
 // de 9 a 20, utils/horarioDeAtencion.ts). Nadie está obligado a cargarlo.

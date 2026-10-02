@@ -1,5 +1,6 @@
 import type { Activity, ConversationChannel, ConversationStatus, Message } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
+import { fraseFueraDeHorario, type AtencionFueraDeHorario } from "../utils/fueraDeHorario";
 import { ventanaDeWhatsappAbierta } from "../utils/ventanaDeWhatsapp";
 import { PREFIJO_TAREA_DE_DERIVACION } from "./agentOrchestration.service";
 
@@ -18,8 +19,8 @@ import { PREFIJO_TAREA_DE_DERIVACION } from "./agentOrchestration.service";
 //     responder" hasta que una persona le escriba o se complete esa tarea.
 //
 // SIN COLUMNA NUEVA. Todo se deriva de lo que ya existe, igual que
-// humanoAtiendeLaConversacion: el aviso es un Message (AUTOMATION, con este
-// texto exacto) y la tarea es una Activity del contacto con uno de los dos
+// humanoAtiendeLaConversacion: el aviso es un Message (AUTOMATION, que empieza
+// con PREFIJO_DEL_AVISO) y la tarea es una Activity del contacto con uno de los dos
 // asuntos de abajo. El aviso es el ancla de la marca, y por eso se guarda en
 // el hilo aunque no se pueda entregar (queda FAILED con el motivo).
 //
@@ -30,8 +31,23 @@ import { PREFIJO_TAREA_DE_DERIVACION } from "./agentOrchestration.service";
 // entra en humanSpokeLast, que solo mira HUMAN y AGENT.
 // ---------------------------------------------------------------------------
 
-export const AVISO_SIN_RESPUESTA =
-  "Por el momento no hay nadie del equipo disponible. Te vamos a contactar más tarde. Mientras tanto, si querés, puedo seguir ayudándote.";
+// La primera frase del aviso, igual en todas sus versiones: es lo que lo
+// reconoce en el hilo (esAviso y el listado). Fuera de horario el resto del
+// texto cambia con el horario de la sucursal, así que el texto entero ya no
+// sirve de ancla; los avisos guardados antes de esto también empiezan así.
+export const PREFIJO_DEL_AVISO = "Por el momento no hay nadie del equipo disponible.";
+const CIERRE_DEL_AVISO = "Mientras tanto, si querés, puedo seguir ayudándote.";
+
+export const AVISO_SIN_RESPUESTA = `${PREFIJO_DEL_AVISO} Te vamos a contactar más tarde. ${CIERRE_DEL_AVISO}`;
+
+// El aviso según el horario de la sucursal: fuera de horario, en vez de "más
+// tarde", cuándo atiende el equipo y cuándo le van a escribir. Dentro de
+// horario o sin horario cargado (atencion null), AVISO_SIN_RESPUESTA.
+export function textoDelAviso(atencion: AtencionFueraDeHorario | null): string {
+  return atencion
+    ? `${PREFIJO_DEL_AVISO} ${fraseFueraDeHorario(atencion)} ${CIERRE_DEL_AVISO}`
+    : AVISO_SIN_RESPUESTA;
+}
 
 const PREFIJO_TAREA_SIN_RESPUESTA = "Contactar a ";
 const SUFIJO_TAREA_SIN_RESPUESTA = ": pidió hablar con una persona y nadie respondió";
@@ -105,7 +121,7 @@ export function marcaSinRespuesta(datos: {
 }
 
 function esAviso(message: Pick<Message, "senderType" | "content">): boolean {
-  return message.senderType === "AUTOMATION" && message.content === AVISO_SIN_RESPUESTA;
+  return message.senderType === "AUTOMATION" && message.content.startsWith(PREFIJO_DEL_AVISO);
 }
 
 // Las dos tareas que cuentan como "la tarea del pedido": la de la derivación
@@ -216,7 +232,7 @@ export async function conversacionesConPedidoSinResponder(
       organizationId,
       conversationId: { in: conversations.map((c) => c.id) },
       senderType: "AUTOMATION",
-      content: AVISO_SIN_RESPUESTA,
+      content: { startsWith: PREFIJO_DEL_AVISO },
     },
     orderBy: { createdAt: "desc" },
     distinct: ["conversationId"],
