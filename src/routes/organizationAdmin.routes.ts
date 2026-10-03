@@ -1,5 +1,8 @@
 import { Router } from "express";
-import { createOrganizationHandler } from "../controllers/organizationAdmin.controller";
+import {
+  createOrganizationHandler,
+  listOrganizationsHandler,
+} from "../controllers/organizationAdmin.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 import { requirePlatformAdmin } from "../middlewares/requirePlatformAdmin";
@@ -22,4 +25,14 @@ organizationAdminRouter.post(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   createOrganizationHandler,
+);
+
+// El listado, con la misma cadena: el nombre de cada cliente de la plataforma
+// es información de la plataforma, no de ningún tenant.
+organizationAdminRouter.get(
+  "/admin/organizations",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  listOrganizationsHandler,
 );

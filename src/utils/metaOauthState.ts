@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SignJWT, jwtVerify, errors as joseErrors } from "jose";
+import { SignJWT, decodeJwt, jwtVerify, errors as joseErrors } from "jose";
 import { env } from "../config/env";
 import { AppError } from "./AppError";
 import { deriveKey, parseMasterKey } from "./encryption";
@@ -53,7 +53,9 @@ export const META_STATE_TTL_SEGUNDOS = 10 * 60;
 
 export interface MetaOAuthState {
   organizationId: string;
-  // El usuario que tocó "Conectar": el único que puede terminar el flujo.
+  // El usuario que tocó "Conectar" (desde el 02/10/2026, un platform admin;
+  // organizationId es la organización que eligió): el único que puede
+  // terminar el flujo, y solo para esa organización.
   userId: string;
 }
 
@@ -189,4 +191,28 @@ export function resetStatesUsadosParaTests(): void {
 // Solo para tests, mismo motivo que resetClaveDeFirmaParaTests() de oauthState.
 export function resetClaveDeFirmaMetaParaTests(): void {
   claveDeFirma = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// LA ORGANIZACIÓN DEL STATE, SIN VERIFICAR — solo para rutear la vuelta del
+// callback (decisión del 02/10/2026: la conexión la hace un platform admin
+// para una organización elegida, y el callback tiene que volver a la pantalla
+// de plataforma con esa organización seleccionada).
+//
+// NO ES UNA VERIFICACIÓN y no autoriza nada: el callback corre sin JWT y no
+// necesita la clave (A-07: solo rebota). Lo que se lea acá termina en la URL
+// de vuelta, y quien escribe es POST .../complete, que verifica firma,
+// vencimiento, usuario, organización y un solo uso. Un state manipulado a lo
+// sumo hace que la pantalla abra otra organización, y ahí /complete lo
+// rechaza. null si no se puede leer o no trae un uuid.
+// ---------------------------------------------------------------------------
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function leerOrganizacionSinVerificar(token: string): string | null {
+  try {
+    const { organizationId } = decodeJwt(token);
+    return typeof organizationId === "string" && UUID.test(organizationId) ? organizationId : null;
+  } catch {
+    return null;
+  }
 }

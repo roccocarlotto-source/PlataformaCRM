@@ -36,7 +36,9 @@ import { getClienteMetaOAuth, MetaAuthError, type ClienteMetaOAuth } from "./met
 // claro para mandar la respuesta, y marcarTokenRechazado lleva la conexión a
 // ERROR cuando Meta lo rechaza.
 //
-// QUÉ NO ESTÁ ACÁ, y no es un olvido: la pantalla del CRM — ítem 173.
+// QUÉ NO ESTÁ ACÁ, y no es un olvido: quién puede conectar. Las rutas
+// (metaPageConnection.routes.ts) exigen platform admin desde el 02/10/2026;
+// acá la organización entra siempre por parámetro.
 // ---------------------------------------------------------------------------
 
 // La inyección existe para los tests: producción no pasa nada y usa el cliente
@@ -89,8 +91,9 @@ export async function iniciarConexion(
 // de la página de A) podía terminar el flujo en el navegador de otro. Ahora el
 // callback solo rebota el code y el state al CRM (en el fragmento de la URL), y
 // el CRM, con la sesión de quien esté logueado, llama a
-// POST /api/integrations/meta/complete. Acá se exige que ese usuario sea el
-// mismo que firmó el state.
+// POST /api/admin/organizations/:organizationId/integrations/meta/complete
+// (desde el 02/10/2026 lo hace un platform admin, no el ADMIN del tenant).
+// Acá se exige que ese usuario y esa organización sean los que firmó el state.
 //
 // Meta manda error=access_denied cuando la persona cancela; eso lo resuelve el
 // callback antes de rebotar y nunca llega acá.

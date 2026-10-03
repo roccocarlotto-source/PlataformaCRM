@@ -7822,6 +7822,10 @@ configuración de producción ni de pricing.
 
 ## 170. OAuth de la página de Facebook de cada organización (paso 2 de 5 — Instagram + Messenger)
 
+> **Nota (02/10/2026):** desde el ítem 182 conectar y desconectar la página es
+> del platform admin, sobre una organización elegida, y las rutas de escritura
+> del ADMIN del tenant que describe este ítem ya no existen.
+
 **Estado:** hecho (27/09/2026). Sin migración: todo lo que necesita en la base lo creó el ítem 169 (`schema.prisma` no se tocó). Pendiente del lado de Meta: crear la configuración de Facebook Login for Business y cargar la redirect URI (ver "Cómo se aplica").
 
 **Contexto.** A diferencia de WhatsApp (un número compartido de toda la
@@ -8029,6 +8033,10 @@ Sin migración y sin variables nuevas. Con los ítems 170 y 171 aplicados (pági
 ---
 
 ## 173. Pantalla de conexión de Facebook, canales Messenger/Instagram en el frontend y asignación de página por platform admin (paso 5 de 5 — Instagram + Messenger)
+
+> **Nota (02/10/2026):** desde el ítem 182 la sección "Facebook e Instagram" de
+> Configuración → Organización es solo informativa; conectar y desconectar se
+> hace en Plataforma → Página de Facebook.
 
 **Estado:** hecho (27/09/2026). Sin migración. **Cierra la serie de canales Instagram + Messenger (ítems 169-173, cinco de cinco).** Con esto un ADMIN conecta la página de Facebook desde el CRM, el platform admin le asigna esa página a un agente, y el tenant habilita Messenger/Instagram en los canales del agente y filtra la bandeja por esos canales.
 
@@ -8533,3 +8541,35 @@ Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo
      Si una organización tiene más de una regla del QR, revisar a cuál corresponde. Si alguna fila queda sin regla (una organización con plantilla y sin regla del QR), decidir con Rocco antes de seguir.
 2. **`npm run migrate:deploy` + `npm run verify:schema`**, con la imagen nueva del backend **junto** con la migración: la imagen vieja lee bien el esquema nuevo, pero su alta de plantilla falla (inserta sin `automation_id`).
 3. Deploy del frontend. La pantalla de Administración → Plantilla de WhatsApp pasa a ser el listado por regla.
+
+## 182. La página de Facebook la conecta el platform admin, no el ADMIN del negocio
+
+**Estado:** hecho (02/10/2026). Sin migración. Decisión de Rocco (02/10/2026): conectar la página de Facebook (y su Instagram) de una organización deja de ser algo que hace el ADMIN del negocio. Lo hace solo el platform admin (`requirePlatformAdmin`), el mismo criterio que el número de WhatsApp, el modelo de IA y la página del agente. Motivo: el diálogo de Meta le muestra al usuario los portfolios y negocios de su cuenta de Facebook, y es confuso y riesgoso para un cliente. El cliente comparte su página con el portfolio de la plataforma y la plataforma la conecta por él (`docs/meta-alta-de-cliente.md`).
+
+**Qué se hace.**
+
+1. **Rutas** (`metaPageConnection.routes.ts`). Se eliminan `POST /api/integrations/meta/connect`, `POST /api/integrations/meta/complete` y `DELETE /api/integrations/meta` (con `authorize("ADMIN")`): no queda ningún camino por el que un ADMIN de tenant conecte o desconecte. Entran, con `authenticate` + `businessWriteRateLimiter` + `requirePlatformAdmin` (la cadena de `agentAdmin.routes.ts`), `GET`, `POST …/connect`, `POST …/complete` y `DELETE` sobre `/api/admin/organizations/:organizationId/integrations/meta`. La organización sale del path (uuid validado), nunca de `req.auth`. Quedan igual el `GET /api/integrations/meta` del tenant (lectura del estado de la suya, sin token) y el callback (`GET /api/integrations/meta/callback`, la URL cargada en el panel de Meta).
+2. **El state** no cambia de forma: ya llevaba `{ organizationId, userId }` + `jti` (A-07). Ahora `organizationId` es la organización elegida y `userId` el platform admin que tocó "Conectar"; `completarConexion` exige los dos, un solo uso y vencimiento como antes. El service no se tocó más allá de comentarios.
+3. **El callback** vuelve a `/admin/agents/facebook-page?organizationId=…` con el code y el state en el fragmento, como antes. La organización la lee `leerOrganizacionSinVerificar` (`metaOauthState.ts`) decodificando el state SIN verificarlo: el callback sigue sin clave, sin base y sin Meta (A-07), y lo leído solo elige qué organización abre la pantalla — un state manipulado a lo sumo abre otra, y ahí `/complete` lo rechaza.
+4. **`GET /api/admin/organizations`** (`organizationAdmin.routes.ts`, misma cadena): las organizaciones vigentes (`id`, `name`, `slug`) para el selector. Hasta acá el platform admin no tenía listado.
+5. **Frontend.** `MetaConnectionSection` queda solo informativa para todos los roles ("Conectada" con la página y el Instagram, "Sin conectar. La conexión con Facebook e Instagram la configura el equipo de la plataforma.", o el error con "avisale al equipo de la plataforma"); `OrganizationSettingsPage` deja de leer la vuelta del callback. Se queda la tarjeta aun sin conectar: le dice al cliente a quién pedírselo. En `AgentFacebookPagePage` (Plataforma → Página de Facebook) se suma arriba un selector de organización (en `?organizationId=`) y `OrganizationMetaConnectionCard` (la lógica de conectar/completar/desconectar que tenía la sección, con la organización por parámetro y `ConfirmDialog` al desconectar); debajo, la asignación de la página al agente como antes.
+6. **Las conexiones existentes siguen funcionando sin reconectar**: la fila y su token no cambian, ni el webhook ni el envío.
+7. **Los nombres** de la página y del Instagram no se muestran: la base guarda solo los ids. Mostrarlos pediría una migración (columnas nuevas) y es una vuelta aparte.
+
+**Archivos.**
+
+| Dónde | Qué |
+|---|---|
+| `src/routes/metaPageConnection.routes.ts` | rutas de plataforma; se van las de escritura del tenant |
+| `src/controllers/metaPageConnection.controller.ts` | organización del path; `RUTA_DE_VUELTA`; la vuelta lleva `organizationId` |
+| `src/utils/metaOauthState.ts` | `leerOrganizacionSinVerificar` |
+| `src/routes/organizationAdmin.routes.ts`, `src/controllers/organizationAdmin.controller.ts`, `src/repositories/organization.repository.ts` | `GET /api/admin/organizations` |
+| tests backend | `metaPageConnection.controller.integration-test.ts` (ADMIN y USER de tenant → 403; rutas viejas → 404; el state de una organización no completa otra; un solo uso; otra sesión de platform admin), `organizationAdmin.controller.integration-test.ts` (listado), `metaPageConnection.controller.test.ts`, `metaOauthState.test.ts`, `routes/index.test.ts` |
+| `frontend/src/features/organization/` | `MetaConnectionSection.tsx` solo lectura; `api.ts`, `mutations.ts`, `types.ts` sin el flujo de conexión; `OrganizationSettingsPage.tsx` |
+| `frontend/src/features/platformAdmin/` | `OrganizationMetaConnectionCard.tsx` (nuevo), `queries.ts` (nuevo), `api.ts`, `mutations.ts`, `types.ts`, `AgentFacebookPagePage.tsx` |
+| tests frontend | `OrganizationMetaConnectionCard.test.tsx` (movido desde `MetaConnectionSection.test.tsx`), `MetaConnectionSection.test.tsx` (nuevo, sin botones), `AgentFacebookPagePage.test.tsx`, `OrganizationSettingsPage.test.tsx`, `AppLayout.test.tsx` |
+| `docs/meta-alta-de-cliente.md` | nuevo: el alta de un cliente |
+
+### Cómo se aplica
+
+Deploy normal del backend y del frontend, juntos: con el backend nuevo y el frontend viejo, el botón "Conectar" de Organización respondería 404; con el backend viejo y el frontend nuevo, la pantalla de plataforma. Nada que cambiar en el panel de Meta ni en variables de entorno.

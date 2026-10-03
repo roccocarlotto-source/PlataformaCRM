@@ -1,7 +1,8 @@
-import { request } from "../../lib/api";
+import { ApiError, request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type { Agent } from "../agent/types";
 import type { InternalAgent } from "../internalAgent/types";
+import type { MetaPageConnection } from "../organization/types";
 import type {
   AssignAgentModelInput,
   AssignFacebookPageInput,
@@ -9,6 +10,9 @@ import type {
   AssignWhatsappNumberInput,
   CreateOrganizationInput,
   CreateOrganizationResponse,
+  MetaAuthorization,
+  MetaConnectionPendiente,
+  PlatformOrganization,
 } from "./types";
 
 // Reutiliza request()/getAccessToken tal cual, como el resto de los módulos.
@@ -66,4 +70,61 @@ export function assignInternalAgentModel({
     `/admin/organizations/${encodeURIComponent(organizationId)}/internal-agent/model`,
     { method: "PUT", body, getAccessToken },
   );
+}
+
+// Las organizaciones vigentes, para el selector de las pantallas de plataforma.
+export function listOrganizations(signal?: AbortSignal): Promise<PlatformOrganization[]> {
+  return request<PlatformOrganization[]>("/admin/organizations", { getAccessToken, signal });
+}
+
+// ---------------------------------------------------------------------------
+// La página de Facebook de una organización elegida (02/10/2026: la conecta y
+// la desconecta el platform admin, no el ADMIN del negocio). Mismo contrato
+// que tenía organization/api.ts, con la organización en el path.
+// ---------------------------------------------------------------------------
+function rutaMeta(organizationId: string): string {
+  return `/admin/organizations/${encodeURIComponent(organizationId)}/integrations/meta`;
+}
+
+// null = la organización nunca se conectó (el backend responde 404).
+export async function getOrganizationMetaConnection(
+  organizationId: string,
+  signal?: AbortSignal,
+): Promise<MetaPageConnection | null> {
+  try {
+    return await request<MetaPageConnection>(rutaMeta(organizationId), { getAccessToken, signal });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+// Firma el state (para esta organización y este usuario) y devuelve la URL de
+// autorización de Meta. POST: el state firmado habilita a escribir.
+export function startOrganizationMetaConnection(
+  organizationId: string,
+): Promise<MetaAuthorization> {
+  return request<MetaAuthorization>(`${rutaMeta(organizationId)}/connect`, {
+    method: "POST",
+    getAccessToken,
+  });
+}
+
+// El segundo tramo: manda el code y el state que el callback le rebotó a la
+// pantalla. El backend exige el mismo usuario y la misma organización que
+// firmó el state; si no, o si el code venció, responde el mensaje a mostrar.
+export function completeOrganizationMetaConnection(
+  organizationId: string,
+  pendiente: MetaConnectionPendiente,
+): Promise<MetaPageConnection> {
+  return request<MetaPageConnection>(`${rutaMeta(organizationId)}/complete`, {
+    method: "POST",
+    body: pendiente,
+    getAccessToken,
+  });
+}
+
+// 204 sin body. Deja la fila en REVOKED, sin token.
+export function disconnectOrganizationMetaConnection(organizationId: string): Promise<void> {
+  return request<void>(rutaMeta(organizationId), { method: "DELETE", getAccessToken });
 }

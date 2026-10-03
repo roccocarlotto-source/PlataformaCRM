@@ -1,8 +1,6 @@
 import { ApiError, request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type {
-  MetaAuthorization,
-  MetaConnectionPendiente,
   MetaPageConnection,
   OrganizationSettings,
   UpdateOrganizationSettingsInput,
@@ -29,13 +27,14 @@ export function updateOrganizationSettings(
 }
 
 // ---------------------------------------------------------------------------
-// Página de Facebook de la organización (ítem 173). Mismo patrón que Google
-// Calendar en branch/api.ts, sin :branchId: la organización sale del JWT.
+// Página de Facebook de la organización (ítem 173). Solo lectura desde el
+// 02/10/2026: conectar y desconectar es del platform admin
+// (features/platformAdmin/api.ts). La organización sale del JWT.
 // ---------------------------------------------------------------------------
 
 // null = la organización nunca se conectó. El backend lo dice con un 404, que
 // acá es un estado normal de la pantalla y no un error: se traduce a null
-// para que la sección muestre "Conectar". Cualquier otro error sigue siendo
+// para que la sección muestre "Sin conectar". Cualquier otro error sigue siendo
 // error.
 export async function getMetaConnection(signal?: AbortSignal): Promise<MetaPageConnection | null> {
   try {
@@ -44,36 +43,4 @@ export async function getMetaConnection(signal?: AbortSignal): Promise<MetaPageC
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
   }
-}
-
-// Firma el state y devuelve la URL de autorización de Meta. POST: es una
-// escritura aunque parezca una lectura (el state firmado habilita a escribir
-// en el callback).
-export function startMetaConnection(): Promise<MetaAuthorization> {
-  return request<MetaAuthorization>("/integrations/meta/connect", {
-    method: "POST",
-    getAccessToken,
-  });
-}
-
-// El segundo tramo del flujo: manda el code y el state que el callback le
-// rebotó a esta pantalla. El backend exige que la sesión sea la del usuario
-// que tocó "Conectar"; si no, o si el code venció, responde un error con el
-// mensaje que hay que mostrar.
-export function completeMetaConnection(
-  pendiente: MetaConnectionPendiente,
-): Promise<MetaPageConnection> {
-  return request<MetaPageConnection>("/integrations/meta/complete", {
-    method: "POST",
-    body: pendiente,
-    getAccessToken,
-  });
-}
-
-// 204 sin body. Deja la fila en REVOKED, sin token.
-export function disconnectMetaConnection(): Promise<void> {
-  return request<void>("/integrations/meta", {
-    method: "DELETE",
-    getAccessToken,
-  });
 }

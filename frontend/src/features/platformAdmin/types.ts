@@ -43,3 +43,28 @@ export interface AssignInternalAgentModelInput {
   modelProvider?: string;
   modelName: string;
 }
+
+// Contrato de GET /api/admin/organizations
+// (src/controllers/organizationAdmin.controller.ts): las organizaciones
+// vigentes, para el selector de las pantallas de plataforma.
+export interface PlatformOrganization {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+// La conexión con Facebook de una organización elegida (02/10/2026: la hace
+// el platform admin, no el ADMIN del negocio). La respuesta de
+// POST /api/admin/organizations/:id/integrations/meta/connect: la URL de
+// autorización de Meta en el cuerpo, no un 302 (un redirect no lleva el
+// header Authorization).
+export interface MetaAuthorization {
+  authorizationUrl: string;
+}
+
+// Lo que el callback de Meta le rebota al CRM en el fragmento de la URL
+// (#metaCode=…&metaState=…) para que lo complete la sesión de quien empezó.
+export interface MetaConnectionPendiente {
+  code: string;
+  state: string;
+}

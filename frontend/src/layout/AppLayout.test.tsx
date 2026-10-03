@@ -531,6 +531,12 @@ describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () =>
       "href",
       "/admin/organizations/new",
     );
+    // Desde el 02/10/2026 es donde se conecta la página de Facebook de cada
+    // organización.
+    expect(screen.getByRole("link", { name: "Página de Facebook" })).toHaveAttribute(
+      "href",
+      "/admin/agents/facebook-page",
+    );
   });
 
   it("un ADMIN de organización que no es platform admin NO ve 'Nueva organización'", () => {
@@ -538,6 +544,7 @@ describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () =>
     renderLayout();
 
     expect(screen.queryByText("Nueva organización")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Página de Facebook" })).not.toBeInTheDocument();
   });
 });
 

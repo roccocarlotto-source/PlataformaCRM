@@ -10,7 +10,10 @@ import { notFound } from "../middlewares/notFound";
 import { requirePlatformAdmin } from "../middlewares/requirePlatformAdmin";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
-import { createOrganizationHandler } from "./organizationAdmin.controller";
+import {
+  createOrganizationHandler,
+  listOrganizationsHandler,
+} from "./organizationAdmin.controller";
 
 // ---------------------------------------------------------------------------
 // POST /api/admin/organizations contra Postgres y GoTrue reales (Fase 4a del
@@ -49,6 +52,12 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
     stubAuthenticate,
     requirePlatformAdmin,
     createOrganizationHandler,
+  );
+  app.get(
+    "/api/admin/organizations",
+    stubAuthenticate,
+    requirePlatformAdmin,
+    listOrganizationsHandler,
   );
   app.use(notFound);
   app.use(errorHandler);
@@ -258,4 +267,44 @@ test("platform admin: mismo nombre -> 409 por slug; mismo email -> 409 por email
       if (creado) await limpiarCreado(creado);
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/organizations — el selector de las pantallas de plataforma
+// (conexión con Facebook, 02/10/2026).
+// ---------------------------------------------------------------------------
+
+test("listado: 403 para un ADMIN común; el platform admin ve las vigentes con id, nombre y slug, sin las dadas de baja", async () => {
+  const sufijo = randomUUID().slice(0, 8);
+  const vigente = await prisma.organization.create({
+    data: { name: `Listado vigente ${sufijo}`, slug: `listado-vigente-${sufijo}` },
+  });
+  const deBaja = await prisma.organization.create({
+    data: {
+      name: `Listado de baja ${sufijo}`,
+      slug: `listado-de-baja-${sufijo}`,
+      deletedAt: new Date(),
+    },
+  });
+  try {
+    identidad = comoUsuario(randomUUID(), vigente.id, "ADMIN");
+    const prohibido = await fetch(`${baseUrl}/api/admin/organizations`);
+    assert.equal(prohibido.status, 403);
+
+    await conPlatformAdmin(async (platformAdminUserId) => {
+      identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
+      const res = await fetch(`${baseUrl}/api/admin/organizations`);
+      assert.equal(res.status, 200);
+      const lista = (await res.json()) as Record<string, unknown>[];
+      const encontrada = lista.find((o) => o.id === vigente.id);
+      assert.deepEqual(encontrada, { id: vigente.id, name: vigente.name, slug: vigente.slug });
+      assert.equal(
+        lista.some((o) => o.id === deBaja.id),
+        false,
+      );
+    });
+  } finally {
+    identidad = undefined;
+    await prisma.organization.deleteMany({ where: { id: { in: [vigente.id, deBaja.id] } } });
+  }
 });

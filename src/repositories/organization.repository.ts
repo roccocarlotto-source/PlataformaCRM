@@ -8,6 +8,17 @@ export function createOrganization(data: { name: string; slug: string }, db: Db 
   return db.organization.create({ data });
 }
 
+// El listado de la plataforma (selector de organización de las pantallas de
+// platform admin). Solo las vigentes, y solo lo que el selector muestra: el
+// row tiene campos de billing que no salen por la API.
+export function listActiveOrganizations(db: Db = prisma) {
+  return db.organization.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true, slug: true },
+    orderBy: { name: "asc" },
+  });
+}
+
 // Punto de serialización único por organización: lockea su fila con
 // SELECT ... FOR UPDATE para volver atómica cualquier operación cuya
 // decisión dependa de un conteo agregado sobre sus Users (ver
