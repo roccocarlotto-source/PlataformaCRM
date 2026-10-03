@@ -23,9 +23,8 @@ export function useOrganizationSettings() {
 }
 
 // El estado de la conexión con la página de Facebook (ítem 173). null = nunca
-// se conectó (ver getMetaConnection). A diferencia de Google Calendar no hace
-// falta refetch al volver el foco: la conexión se completa navegando esta
-// misma pestaña, que al volver carga la pantalla de cero.
+// se conectó (ver getMetaConnection). Solo lectura: la conexión la hace el
+// equipo de la plataforma.
 export function useMetaConnection() {
   return useQuery({
     queryKey: organizationKeys.metaConnection(),

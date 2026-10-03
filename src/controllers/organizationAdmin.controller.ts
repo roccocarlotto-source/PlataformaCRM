@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { listActiveOrganizations } from "../repositories/organization.repository";
 import { createOrganizationWithFoundingAdmin } from "../services/organizationAdmin.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -37,5 +38,14 @@ export const createOrganizationHandler = asyncHandler<AuthenticatedRequest>(
     const input = parseOrThrow(createOrganizationSchema, req.body);
     const result = await createOrganizationWithFoundingAdmin(input);
     res.status(201).json(result);
+  },
+);
+
+// El listado de organizaciones vigentes, para el selector de las pantallas de
+// plataforma (la conexión con Facebook, 02/10/2026). Sin paginación: es una
+// herramienta interna y la plataforma tiene decenas de clientes, no miles.
+export const listOrganizationsHandler = asyncHandler<AuthenticatedRequest>(
+  async (_req, res: Response) => {
+    res.status(200).json(await listActiveOrganizations());
   },
 );

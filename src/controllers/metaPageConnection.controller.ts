@@ -11,24 +11,34 @@ import {
 } from "../services/metaPageConnection.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
+import { leerOrganizacionSinVerificar } from "../utils/metaOauthState";
 import { parseOrThrow } from "../utils/validation";
 
 // ---------------------------------------------------------------------------
 // Conexión de la página de Facebook de la organización (ítem 170). Mismo
-// esqueleto que googleCalendarConnection.controller.ts, sin :branchId: la
-// organización sale de req.auth en los endpoints ADMIN.
+// esqueleto que googleCalendarConnection.controller.ts, sin :branchId.
+//
+// DESDE EL 02/10/2026 CONECTAR Y DESCONECTAR SON DE PLATFORM ADMIN, sobre una
+// organización elegida (:organizationId), no del ADMIN del tenant: el diálogo
+// de Meta le muestra a quien conecta los portfolios y negocios de su cuenta de
+// Facebook, y para un cliente eso es confuso y riesgoso. El cliente le da
+// acceso a su página al portfolio de la plataforma y la plataforma la conecta
+// (docs/meta-alta-de-cliente.md). Al tenant le queda solo leer el estado.
 //
 // Factory con el cliente de Meta inyectable SOLO para el test de integración
 // (mismo patrón que createWhatsappTemplateHandlers); producción no pasa nada.
 // ---------------------------------------------------------------------------
 
 // El callback vuelve al frontend con un 302 (ítem 173): al primer origen de
-// CORS_ORIGIN, a /organization (la pantalla donde vive la sección de Facebook).
+// CORS_ORIGIN, a la pantalla de plataforma donde vive la conexión
+// (RUTA_DE_VUELTA), con ?organizationId= de la organización que se estaba
+// conectando para que vuelva seleccionada.
 //
 // DESDE A-07 (docs-privados/auditoria-2026-09-30-corta.md, local) EL CALLBACK
 // NO CANJEA NADA: vuelve con el `code` y el `state` en el FRAGMENTO de la URL
 // (#metaCode=…&metaState=…), y el CRM los manda a POST
-// /integrations/meta/complete con la sesión de quien esté logueado. El
+// /admin/organizations/:organizationId/integrations/meta/complete con la
+// sesión de quien esté logueado. El
 // fragmento no viaja en ningún request, así que no queda en el log de Vercel
 // ni en el Referer. Los errores que Meta devuelve en la redirección (la
 // persona canceló) siguen yendo en ?metaError=<mensaje>.
@@ -42,7 +52,15 @@ import { parseOrThrow } from "../utils/validation";
 // cosa.
 const MAX_MENSAJE_EN_URL = 200;
 
-export type VueltaDelCallbackMeta = { error: string } | { code: string; state: string };
+// La ruta real de AgentFacebookPagePage (frontend/src/app/router.tsx).
+export const RUTA_DE_VUELTA = "/admin/agents/facebook-page";
+
+// organizationId: la organización que dice el state, SIN VERIFICAR (ver
+// leerOrganizacionSinVerificar). Solo elige qué organización abre la pantalla;
+// null si el state no se pudo leer.
+export type VueltaDelCallbackMeta = { organizationId: string | null } & (
+  { error: string } | { code: string; state: string }
+);
 
 // La URL del frontend a la que vuelve el navegador, o undefined si no hay un
 // origen utilizable (y entonces el handler responde text/plain). Pura y
@@ -62,9 +80,10 @@ export function urlDeVueltaAlFrontend(
   }
   if (origen.protocol !== "http:" && origen.protocol !== "https:") return undefined;
 
-  // /organization es la ruta real de OrganizationSettingsPage
-  // (frontend/src/app/router.tsx).
-  const destino = new URL("/organization", origen.origin);
+  const destino = new URL(RUTA_DE_VUELTA, origen.origin);
+  if (vuelta.organizationId) {
+    destino.searchParams.set("organizationId", vuelta.organizationId);
+  }
   if ("error" in vuelta) {
     destino.searchParams.set("metaError", vuelta.error.slice(0, MAX_MENSAJE_EN_URL));
   } else {
@@ -83,19 +102,23 @@ export function vueltaDelCallback(query: {
   code?: string;
   error?: string;
 }): VueltaDelCallbackMeta {
+  // Meta devuelve el state también cuando la persona cancela: así la pantalla
+  // vuelve con la misma organización seleccionada y el error a la vista.
+  const organizationId = query.state ? leerOrganizacionSinVerificar(query.state) : null;
   if (query.error) {
     // Meta manda error=access_denied (con error_reason=user_denied) cuando la
     // persona cancela en su pantalla. Es un camino normal.
     return {
+      organizationId,
       error:
         query.error === "access_denied"
           ? "Se canceló la autorización en Facebook. La página quedó sin conectar."
           : `Facebook rechazó la autorización (${query.error})`,
     };
   }
-  if (!query.state) return { error: "Falta el parámetro state" };
-  if (!query.code) return { error: "Falta el parámetro code" };
-  return { code: query.code, state: query.state };
+  if (!query.state) return { organizationId, error: "Falta el parámetro state" };
+  if (!query.code) return { organizationId, error: "Falta el parámetro code" };
+  return { organizationId, code: query.code, state: query.state };
 }
 
 const queryDeCallbackSchema = z.object({
@@ -111,25 +134,49 @@ const cuerpoDeCompletarSchema = z.object({
   state: z.string().min(1).max(4096),
 });
 
+const organizationIdParamSchema = z.string().uuid("organizationId inválido");
+
+// La organización sobre la que actúa el platform admin: la del path, NUNCA la
+// de su sesión (req.auth.organizationId es la organización propia del platform
+// admin, que no tiene nada que ver con la que está configurando).
+function organizacionDelPath(req: AuthenticatedRequest): string {
+  return parseOrThrow(organizationIdParamSchema, req.params.organizationId);
+}
+
 export function createMetaPageConnectionHandlers(cliente?: ClienteMetaOAuth) {
+  // El tenant lee el estado de SU organización (la del JWT), para el aviso de
+  // Configuración → Organización. Nunca devuelve el token.
   const obtener = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
     res.status(200).json(await obtenerConexion(req.auth.organizationId));
   });
 
+  // Los cuatro de platform admin, sobre la organización del path.
+  const obtenerDeOrganizacion = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+    res.status(200).json(await obtenerConexion(organizacionDelPath(req)));
+  });
+
+  // El state queda firmado para la organización del path y el platform admin
+  // que tocó "Conectar": solo él la termina, y solo para esa organización.
   const conectar = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-    res.status(200).json(await iniciarConexion(req.auth, cliente));
+    const organizationId = organizacionDelPath(req);
+    res
+      .status(200)
+      .json(await iniciarConexion({ organizationId, userId: req.auth.userId }, cliente));
   });
 
   // El segundo tramo del flujo (A-07): el CRM, ya logueado, manda lo que el
   // callback le rebotó. Los errores salen por errorHandler como JSON con el
   // mensaje del service, que es el que el CRM muestra.
   const completar = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+    const organizationId = organizacionDelPath(req);
     const cuerpo = parseOrThrow(cuerpoDeCompletarSchema, req.body);
-    res.status(200).json(await completarConexion(cuerpo, req.auth, cliente));
+    res
+      .status(200)
+      .json(await completarConexion(cuerpo, { organizationId, userId: req.auth.userId }, cliente));
   });
 
   const desconectarHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-    await desconectar(req.auth.organizationId, cliente);
+    await desconectar(organizacionDelPath(req), cliente);
     res.status(204).send();
   });
 
@@ -167,5 +214,12 @@ export function createMetaPageConnectionHandlers(cliente?: ClienteMetaOAuth) {
       .send("No se pudo conectar Facebook.\n\nNo hay una pantalla del CRM a la cual volver.");
   });
 
-  return { obtener, conectar, completar, desconectar: desconectarHandler, callback };
+  return {
+    obtener,
+    obtenerDeOrganizacion,
+    conectar,
+    completar,
+    desconectar: desconectarHandler,
+    callback,
+  };
 }

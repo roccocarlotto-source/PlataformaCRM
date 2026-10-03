@@ -1,5 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useState, type FormEvent } from "react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -16,16 +15,7 @@ import { formatExchangeRate } from "./format";
 import { MetaConnectionSection } from "./MetaConnectionSection";
 import { useUpdateOrganizationSettings } from "./mutations";
 import { useOrganizationSettings } from "./queries";
-import type { MetaConnectionPendiente, OrganizationSettings } from "./types";
-
-// El code y el state que el callback de Meta deja en el fragmento de la URL
-// (#metaCode=…&metaState=…). Pura: se llama desde un inicializador de useState.
-function leerConexionPendiente(hash: string): MetaConnectionPendiente | null {
-  const params = new URLSearchParams(hash.replace(/^#/, ""));
-  const code = params.get("metaCode");
-  const state = params.get("metaState");
-  return code && state ? { code, state } : null;
-}
+import type { OrganizationSettings } from "./types";
 
 // El formulario guarda "" para "sin configurar" y lo convierte a null recién
 // al enviar: el selector no puede tener value null.
@@ -100,24 +90,6 @@ export function OrganizationSettingsPage() {
   const settingsQuery = useOrganizationSettings();
   const updateMutation = useUpdateOrganizationSettings();
   const toast = useToast();
-  // La vuelta del callback de Meta (ítem 173): el backend redirige acá con
-  // ?metaError=<mensaje> o, desde A-07, con el code y el state en el
-  // fragmento para que esta sesión complete la conexión. El fragmento se lee
-  // una vez y se saca de la URL: no tiene que quedar en el historial ni
-  // volver a mandarse al recargar.
-  const [searchParams] = useSearchParams();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [pendiente] = useState(() => leerConexionPendiente(location.hash));
-  useEffect(() => {
-    if (leerConexionPendiente(location.hash)) {
-      navigate({ pathname: location.pathname, search: location.search }, { replace: true });
-    }
-  }, [location.hash, location.pathname, location.search, navigate]);
-  const resultadoDelCallback = {
-    error: searchParams.get("metaError"),
-    pendiente,
-  };
 
   const [values, setValues] = useFormDraft<OrganizationFormValues>(
     settingsQuery.data?.id,
@@ -252,7 +224,7 @@ export function OrganizationSettingsPage() {
           )}
         </Card>
 
-        <MetaConnectionSection resultadoDelCallback={resultadoDelCallback} />
+        <MetaConnectionSection />
 
         {error ? <ErrorState>{error}</ErrorState> : null}
 

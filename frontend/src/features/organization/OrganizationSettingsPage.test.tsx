@@ -19,11 +19,9 @@ vi.mock("../../auth/getAccessToken", () => ({
 const baseUrl = `${env.apiUrl}/api/organization`;
 
 // ToastProvider como en App.tsx: la página llama a useToast() y sin el
-// provider falla ruidosamente (ver design-system/useToast.ts). MemoryRouter
-// desde el ítem 173: la página lee la vuelta del callback de Meta de la query
-// string. La sección de Facebook consulta GET /integrations/meta; el default
-// es "nunca se conectó" (404). Sus estados los cubre
-// MetaConnectionSection.test.tsx.
+// provider falla ruidosamente (ver design-system/useToast.ts). La sección de
+// Facebook consulta GET /integrations/meta; el default es "nunca se conectó"
+// (404). Sus estados los cubre MetaConnectionSection.test.tsx.
 function renderPage(initialEntry = "/organization") {
   server.use(
     http.get(`${env.apiUrl}/api/integrations/meta`, () =>
@@ -245,42 +243,64 @@ describe("OrganizationSettingsPage — guardado", () => {
   });
 });
 
-describe("OrganizationSettingsPage — Facebook e Instagram (ítem 173)", () => {
-  it("A-07: con #metaCode y #metaState en la URL manda los dos a /complete una sola vez", async () => {
+// 02/10/2026: la tarjeta queda solo informativa para todos los roles; conectar
+// y desconectar es de Plataforma → Página de Facebook. Esta pantalla es de
+// ADMIN (AdminRoute): si un ADMIN no ve los botones, nadie los ve acá.
+describe("OrganizationSettingsPage — Facebook e Instagram", () => {
+  it("la tarjeta de Facebook no tiene botones de conectar ni de desconectar, conectada o no", async () => {
     mockSettings(makeOrganizationSettings());
-    const enviados: unknown[] = [];
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "Facebook e Instagram" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/la configura el equipo de la plataforma/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Conectar con Facebook/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Desconectar" })).not.toBeInTheDocument();
+  });
+
+  it("conectada: muestra el estado, sin Desconectar", async () => {
+    mockSettings(makeOrganizationSettings());
+    renderPage();
     server.use(
-      http.post(`${env.apiUrl}/api/integrations/meta/complete`, async ({ request }) => {
-        enviados.push(await request.json());
-        return HttpResponse.json(
-          { error: { message: "Este intento de conexión con Facebook ya se usó." } },
-          { status: 400 },
-        );
+      http.get(`${env.apiUrl}/api/integrations/meta`, () =>
+        HttpResponse.json({
+          id: "mc1",
+          organizationId: "org-1",
+          pageId: "104857600000001",
+          instagramBusinessAccountId: null,
+          status: "ACTIVE",
+          lastErrorAt: null,
+          lastErrorMessage: null,
+          connectedAt: "2026-09-01T00:00:00.000Z",
+          createdAt: "2026-09-01T00:00:00.000Z",
+          updatedAt: "2026-09-01T00:00:00.000Z",
+        }),
+      ),
+    );
+
+    // renderPage registra el 404 por defecto; el server.use de después gana
+    // en el primer fetch, que ocurre al montar.
+    expect(await screen.findByText("Conectada")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Desconectar" })).not.toBeInTheDocument();
+  });
+
+  it("una vuelta vieja del callback (#metaCode, #metaState) en esta URL ya no manda nada", async () => {
+    mockSettings(makeOrganizationSettings());
+    let posts = 0;
+    server.use(
+      http.post(`${env.apiUrl}/api/integrations/meta/complete`, () => {
+        posts += 1;
+        return HttpResponse.json({});
       }),
     );
     renderPage("/organization#metaCode=el-code&metaState=el-state");
 
     expect(
-      await screen.findByText(
-        "No pudimos conectar Facebook: Este intento de conexión con Facebook ya se usó.",
-      ),
-    ).toBeInTheDocument();
-    await waitFor(() => expect(enviados).toEqual([{ code: "el-code", state: "el-state" }]));
-  });
-
-  it("la sección de Facebook es una tarjeta más de la pantalla y lee la vuelta del callback de la URL", async () => {
-    mockSettings(makeOrganizationSettings());
-    renderPage("/organization?metaError=" + encodeURIComponent("Se canceló la autorización"));
-
-    expect(
       await screen.findByRole("heading", { name: "Facebook e Instagram" }),
     ).toBeInTheDocument();
-    expect(
-      await screen.findByText("No pudimos conectar Facebook: Se canceló la autorización"),
-    ).toBeInTheDocument();
-    expect(
-      await screen.findByRole("button", { name: "Conectar con Facebook" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/la configura el equipo de la plataforma/)).toBeInTheDocument();
+    expect(posts).toBe(0);
   });
 });
 

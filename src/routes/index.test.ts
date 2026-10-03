@@ -457,13 +457,15 @@ test("la asignación de la página de Facebook por platform admin (ítem 169) es
   assert.equal(res.status, 401, "PUT /api/admin/agents/:agentId/facebook-page no está montado");
 });
 
-test("la conexión de la página de Facebook (ítem 170) está montada bajo /api", async () => {
+test("la conexión de la página de Facebook (ítem 170) está montada bajo /api: la lectura del tenant y las de platform admin", async () => {
+  const admin = `/api/admin/organizations/${randomUUID()}/integrations/meta`;
   const casos: [string, string][] = [
     ["GET", "/api/integrations/meta"],
-    ["POST", "/api/integrations/meta/connect"],
+    ["GET", admin],
+    ["POST", `${admin}/connect`],
     // A-07: el segundo tramo del flujo, autenticado.
-    ["POST", "/api/integrations/meta/complete"],
-    ["DELETE", "/api/integrations/meta"],
+    ["POST", `${admin}/complete`],
+    ["DELETE", admin],
   ];
   for (const [method, path] of casos) {
     const res = await fetch(`${baseUrl}${path}`, { method });
@@ -471,8 +473,26 @@ test("la conexión de la página de Facebook (ítem 170) está montada bajo /api
   }
 });
 
+// 02/10/2026: conectar y desconectar Facebook ya no es del ADMIN del tenant.
+// Las rutas viejas de escritura no existen: el notFound genérico.
+test("la conexión de Facebook ya no tiene rutas de escritura del tenant", async () => {
+  for (const [method, path] of [
+    ["POST", "/api/integrations/meta/connect"],
+    ["POST", "/api/integrations/meta/complete"],
+    ["DELETE", "/api/integrations/meta"],
+  ] as const) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 404, `${method} ${path} sigue montado`);
+  }
+});
+
+test("el listado de organizaciones del platform admin está montado bajo /api", async () => {
+  const res = await fetch(`${baseUrl}/api/admin/organizations`);
+  assert.equal(res.status, 401, "GET /api/admin/organizations no está montado");
+});
+
 test("el callback de Meta (ítem 170) está montado SIN authenticate: sin state vuelve al frontend con el error, no 401", async () => {
-  // Desde el ítem 173 responde un 302 a /organization?metaError=… si
+  // Desde el ítem 173 responde un 302 al CRM con ?metaError=… si
   // CORS_ORIGIN es una URL utilizable, o el 400 text/plain si no. Acá solo
   // importa que está montado sin authenticate; el detalle lo fija
   // metaPageConnection.controller.test.ts.

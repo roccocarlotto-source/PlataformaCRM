@@ -6,22 +6,30 @@ import {
   assignFacebookPage,
   assignInternalAgentModel,
   assignWhatsappNumber,
+  completeOrganizationMetaConnection,
   createOrganization,
+  disconnectOrganizationMetaConnection,
+  startOrganizationMetaConnection,
 } from "./api";
+import { platformAdminKeys } from "./queries";
 import type {
   AssignAgentModelInput,
   AssignFacebookPageInput,
   AssignInternalAgentModelInput,
   AssignWhatsappNumberInput,
   CreateOrganizationInput,
+  MetaConnectionPendiente,
 } from "./types";
 
-// Sin invalidación: la organización nueva no aparece en ninguna query de
-// este frontend (el platform admin no ve listado de organizaciones — solo
-// alta, a propósito, en esta fase).
+// Invalida el listado del selector de organizaciones: la nueva tiene que
+// aparecer ahí.
 export function useCreateOrganization() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateOrganizationInput) => createOrganization(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
+    },
   });
 }
 
@@ -59,6 +67,40 @@ export function useAssignInternalAgentModel() {
     mutationFn: (input: AssignInternalAgentModelInput) => assignInternalAgentModel(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: internalAgentKeys.all });
+    },
+  });
+}
+
+// La conexión con Facebook de una organización elegida (02/10/2026). Iniciar
+// no cambia nada todavía (solo firma el state y devuelve la URL de Meta): no
+// hay nada que invalidar. El cambio real ocurre al volver, al completar.
+export function useStartOrganizationMetaConnection() {
+  return useMutation({
+    mutationFn: (organizationId: string) => startOrganizationMetaConnection(organizationId),
+  });
+}
+
+export function useCompleteOrganizationMetaConnection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { organizationId: string; pendiente: MetaConnectionPendiente }) =>
+      completeOrganizationMetaConnection(input.organizationId, input.pendiente),
+    onSuccess: (_data, { organizationId }) => {
+      void queryClient.invalidateQueries({
+        queryKey: platformAdminKeys.metaConnection(organizationId),
+      });
+    },
+  });
+}
+
+export function useDisconnectOrganizationMetaConnection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (organizationId: string) => disconnectOrganizationMetaConnection(organizationId),
+    onSuccess: (_data, organizationId) => {
+      void queryClient.invalidateQueries({
+        queryKey: platformAdminKeys.metaConnection(organizationId),
+      });
     },
   });
 }

@@ -3,7 +3,12 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { SignJWT } from "jose";
 import { AppError } from "./AppError";
-import { consumirMetaState, firmarMetaState, verificarMetaState } from "./metaOauthState";
+import {
+  consumirMetaState,
+  firmarMetaState,
+  leerOrganizacionSinVerificar,
+  verificarMetaState,
+} from "./metaOauthState";
 import { firmarState } from "./oauthState";
 
 // Unitarios, sin base, sin red y sin entorno: la clave entra por parámetro.
@@ -127,4 +132,24 @@ test("un state firmado sin organizationId se rechaza aunque la firma sea válida
 
 test("un token que no es un JWT se rechaza con 400, no con un error crudo", async () => {
   await assert.rejects(() => verificarMetaState("no-es-un-jwt", CLAVE), esState400);
+});
+
+// La lectura SIN verificar que usa el callback para elegir a qué organización
+// vuelve la pantalla (02/10/2026). No autoriza nada: lo fija /complete.
+test("leerOrganizacionSinVerificar: lee la organización de un state, aunque esté firmado con otra clave", async () => {
+  assert.equal(
+    leerOrganizacionSinVerificar(await firmarMetaState(STATE, CLAVE)),
+    STATE.organizationId,
+  );
+  assert.equal(
+    leerOrganizacionSinVerificar(await firmarMetaState(STATE, OTRA_CLAVE)),
+    STATE.organizationId,
+  );
+});
+
+test("leerOrganizacionSinVerificar: null si no es un JWT o la organización no es un uuid", async () => {
+  assert.equal(leerOrganizacionSinVerificar("no-es-un-jwt"), null);
+  assert.equal(leerOrganizacionSinVerificar(""), null);
+  const raro = await firmarMetaState({ organizationId: "../../otra-cosa", userId: "u" }, CLAVE);
+  assert.equal(leerOrganizacionSinVerificar(raro), null);
 });
