@@ -110,14 +110,15 @@ export async function getConversationById(organizationId: string, id: string) {
 // y no en el frontend para que la regla viva en un solo lugar:
 //   - agentPaused: una persona atiende y el agente no contesta (la MISMA
 //     función que usa el gate del loop, humanoAtiendeLaConversacion).
-//   - replyWindowEndsAt: hasta cuándo WhatsApp acepta texto libre (24 h desde
-//     el último mensaje del cliente). null si el cliente nunca escribió.
+//   - replyWindowEndsAt: hasta cuándo WhatsApp, Messenger o Instagram aceptan
+//     texto libre (24 h desde el último mensaje del cliente). null si el
+//     cliente nunca escribió, y siempre null en la web, que no tiene ventana.
 //   - humanRequestUnanswered: se la devolvió al agente sin que nadie le
 //     escribiera al cliente, y sigue sin respuesta (avisoSinRespuesta.service.ts).
 // El hilo ya viene entero en la conversación, así que salen de ahí sin otra
 // ida a la base.
 export async function estadoDeAtencion(
-  conversation: Pick<Conversation, "id" | "organizationId" | "status" | "contactId"> & {
+  conversation: Pick<Conversation, "id" | "organizationId" | "status" | "contactId" | "channel"> & {
     messages: Pick<Message, "direction" | "senderType" | "content" | "createdAt">[];
   },
 ) {
@@ -126,7 +127,10 @@ export async function estadoDeAtencion(
     .at(-1);
   return {
     agentPaused: await humanoAtiendeLaConversacion(conversation),
-    replyWindowEndsAt: finDeLaVentanaDeWhatsapp(ultimoEntrante?.createdAt ?? null),
+    replyWindowEndsAt:
+      conversation.channel === "WEB"
+        ? null
+        : finDeLaVentanaDeWhatsapp(ultimoEntrante?.createdAt ?? null),
     humanRequestUnanswered: await pedidoSinResponderDelHilo(conversation),
   };
 }

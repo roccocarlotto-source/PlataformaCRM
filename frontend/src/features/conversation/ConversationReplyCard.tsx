@@ -12,9 +12,10 @@ import type { ConversationDetail } from "./types";
 // ---------------------------------------------------------------------------
 // Responder desde el CRM (I-03 de
 // docs-privados/auditoria-2026-09-24-punta-a-punta.md, local). Cuando el
-// agente deriva, el vendedor contesta desde acá: el mensaje sale por WhatsApp
-// desde el número del negocio, y mientras una persona atiende el agente no
-// responde. "Devolver al agente" lo reactiva.
+// agente deriva, el vendedor contesta desde acá: el mensaje sale por el canal
+// de la conversación (WhatsApp, Messenger, Instagram o el chat de la web), y
+// mientras una persona atiende el agente no responde. "Devolver al agente" lo
+// reactiva.
 //
 // ARCHIVO PROPIO, mismo criterio que ConversationBriefCard: tiene estado (el
 // borrador) y dos mutaciones.
@@ -24,14 +25,23 @@ import type { ConversationDetail } from "./types";
 //     escribir, se abre una nueva).
 //   - Sin permiso: un aviso; responde el vendedor asignado o un ADMIN (el
 //     backend lo vuelve a decidir con un 403).
-//   - Otro canal que WhatsApp: un aviso (el chat web no recibe mensajes que no
-//     sean la respuesta al suyo).
-//   - Pasaron 24 h: el cuadro deshabilitado con la explicación de Meta.
+//   - Pasaron 24 h (WhatsApp, Messenger, Instagram): el cuadro deshabilitado
+//     con la explicación de Meta. La web no tiene ventana.
 //   - Si no: el cuadro para escribir.
 // ---------------------------------------------------------------------------
 
 export const AVISO_VENTANA_VENCIDA =
   "Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp solo permite plantillas aprobadas.";
+export const AVISO_VENTANA_VENCIDA_META =
+  "Pasaron más de 24 h desde el último mensaje del cliente: Messenger e Instagram no dejan escribirle hasta que vuelva a escribir.";
+
+// Por dónde sale la respuesta, según el canal.
+const COMO_SALE: Record<ConversationDetail["channel"], string> = {
+  WHATSAPP: "Sale por WhatsApp desde el número del negocio.",
+  MESSENGER: "Sale por Messenger desde la página de Facebook del negocio.",
+  INSTAGRAM: "Sale por Instagram desde la cuenta del negocio.",
+  WEB: "Le llega al visitante en el chat de la web. Si lo cerró, la ve cuando lo vuelva a abrir.",
+};
 
 // "Devolver al agente" sin haberle respondido al cliente: el backend le manda
 // el aviso fijo y deja la tarea pendiente (avisoSinRespuesta.service.ts), así
@@ -63,13 +73,14 @@ export function ConversationReplyCard({
   }
 
   const atiende = puedeAtender(me, conversation);
-  const esWhatsapp = conversation.channel === "WHATSAPP";
+  // La web no tiene ventana de 24 h; los canales de Meta, sí.
+  const tieneVentana = conversation.channel !== "WEB";
   const finDeVentana = conversation.replyWindowEndsAt
     ? Date.parse(conversation.replyWindowEndsAt)
     : null;
-  const ventanaAbierta = finDeVentana !== null && ahora() < finDeVentana;
+  const ventanaAbierta = !tieneVentana || (finDeVentana !== null && ahora() < finDeVentana);
   const enCurso = responder.isPending || devolver.isPending;
-  const puedeEscribir = atiende && esWhatsapp && ventanaAbierta;
+  const puedeEscribir = atiende && ventanaAbierta;
 
   function enviar() {
     const limpio = texto.trim();
@@ -102,11 +113,10 @@ export function ConversationReplyCard({
     if (!atiende) {
       return "Solo el vendedor asignado a esta conversación o un administrador pueden responderla.";
     }
-    if (!esWhatsapp) {
-      return "Por ahora solo se puede responder desde el CRM en conversaciones de WhatsApp.";
-    }
     if (!ventanaAbierta) {
-      return AVISO_VENTANA_VENCIDA;
+      return conversation.channel === "WHATSAPP"
+        ? AVISO_VENTANA_VENCIDA
+        : AVISO_VENTANA_VENCIDA_META;
     }
     return null;
   }
@@ -121,7 +131,7 @@ export function ConversationReplyCard({
           </p>
         ) : null}
 
-        {atiende && esWhatsapp ? (
+        {atiende ? (
           <label>
             <span className="ds-sr-only">Mensaje para el cliente</span>
             <textarea
@@ -141,9 +151,10 @@ export function ConversationReplyCard({
           </p>
         ) : (
           <p className="ds-hint">
-            Sale por WhatsApp desde el número del negocio. Mientras atiendas vos, el agente no
-            responde. Podés escribir texto libre hasta el{" "}
-            {formatDateTime(conversation.replyWindowEndsAt)}.
+            {COMO_SALE[conversation.channel]} Mientras atiendas vos, el agente no responde.
+            {tieneVentana
+              ? ` Podés escribir texto libre hasta el ${formatDateTime(conversation.replyWindowEndsAt)}.`
+              : null}
           </p>
         )}
 
@@ -154,16 +165,14 @@ export function ConversationReplyCard({
                 {devolver.isPending ? "Devolviendo…" : "Devolver al agente"}
               </Button>
             ) : null}
-            {esWhatsapp ? (
-              <Button
-                variant="primary"
-                onClick={enviar}
-                disabled={!puedeEscribir || enCurso || texto.trim().length === 0}
-                loading={responder.isPending}
-              >
-                {responder.isPending ? "Enviando…" : "Enviar"}
-              </Button>
-            ) : null}
+            <Button
+              variant="primary"
+              onClick={enviar}
+              disabled={!puedeEscribir || enCurso || texto.trim().length === 0}
+              loading={responder.isPending}
+            >
+              {responder.isPending ? "Enviando…" : "Enviar"}
+            </Button>
           </div>
         ) : null}
 

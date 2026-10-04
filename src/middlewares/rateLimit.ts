@@ -727,3 +727,52 @@ export function createWidgetSessionRateLimiter(overrides?: { windowMs?: number; 
 }
 
 export const widgetSessionRateLimiter = createWidgetSessionRateLimiter();
+
+// ---------------------------------------------------------------------------
+// La LECTURA del hilo del widget, POST /api/public/agents/:agentId/web/thread
+// (el polling que trae las respuestas de una persona del equipo; ver
+// publicWidgetThread.service.ts). Limiters PROPIOS, con su propio store, y no
+// los dos de arriba: el polling de un widget abierto no puede comerse el cupo
+// de mensajes del visitante ni el del sitio.
+//
+// Mucho más barato por request que un mensaje (un SELECT por índice, sin LLM),
+// pero mucho más frecuente: el widget consulta cada 5 s mientras está abierto
+// y la pestaña visible (12/min). Mismo par de cortes, en el mismo orden:
+//   - por sesión (token + sessionId): 30/min. Holgado para el polling más la
+//     carga del historial al abrir; un script que reusa una sesión se frena.
+//   - por token: 1200/min, el techo del sitio entero: ~100 visitantes con el
+//     chat abierto a la vez. Un script que rota sessionId choca acá.
+// ---------------------------------------------------------------------------
+export const WIDGET_THREAD_SESSION_RATE_LIMIT_MAX = 30;
+export const WIDGET_THREAD_RATE_LIMIT_MAX = 1200;
+
+const MENSAJE_DEMASIADAS_CONSULTAS = "Demasiadas consultas seguidas. Probá de nuevo en un momento.";
+
+export function createWidgetThreadSessionRateLimiter(overrides?: {
+  windowMs?: number;
+  max?: number;
+}) {
+  return rateLimit({
+    windowMs: overrides?.windowMs ?? WIDGET_SESSION_RATE_LIMIT_WINDOW_MS,
+    max: overrides?.max ?? WIDGET_THREAD_SESSION_RATE_LIMIT_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    skip: (req) => sessionIdDelCuerpo(req) === null,
+    keyGenerator: (req) => JSON.stringify([widgetKeyGenerator(req), sessionIdDelCuerpo(req)]),
+    handler: buildRateLimitHandler(MENSAJE_DEMASIADAS_CONSULTAS),
+  });
+}
+
+export function createWidgetThreadRateLimiter(overrides?: { windowMs?: number; max?: number }) {
+  return rateLimit({
+    windowMs: overrides?.windowMs ?? WIDGET_RATE_LIMIT_WINDOW_MS,
+    max: overrides?.max ?? WIDGET_THREAD_RATE_LIMIT_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    keyGenerator: widgetKeyGenerator,
+    handler: buildRateLimitHandler(MENSAJE_DEMASIADAS_CONSULTAS),
+  });
+}
+
+export const widgetThreadSessionRateLimiter = createWidgetThreadSessionRateLimiter();
+export const widgetThreadRateLimiter = createWidgetThreadRateLimiter();

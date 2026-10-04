@@ -1,11 +1,20 @@
 import type { WidgetConfig } from "./config";
 
 // ---------------------------------------------------------------------------
-// Cliente del endpoint público del canal Web (paso 5b):
+// Cliente de los endpoints públicos del canal Web (paso 5b):
 //
 //   POST {apiUrl}/api/public/agents/{agentId}/web/messages
 //   x-embed-token: {embedToken}
 //   { sessionId, message }  →  { conversationId, respuesta: string | null }
+//
+//   POST {apiUrl}/api/public/agents/{agentId}/web/thread
+//   x-embed-token: {embedToken}
+//   { sessionId, since? }  →  { messages: [{ id, role, text, createdAt }], cursor }
+//
+// El segundo trae lo que el negocio escribió fuera de la respuesta al
+// visitante (una persona del equipo desde el CRM, el aviso de "nadie
+// disponible"): sin `since`, el historial de la sesión; con `since`, solo lo
+// nuevo de eso. Ver publicWidgetThread.service.ts del backend.
 //
 // A PROPÓSITO NO REUSA src/lib/api.ts: ese wrapper asume sesión de usuario
 // (Bearer JWT y un unauthorizedHandler que cierra sesión ante un 401). Acá
@@ -72,6 +81,40 @@ async function readErrorMessage(res: Response): Promise<string> {
   }
 }
 
+export interface WidgetThreadMessage {
+  id: string;
+  role: "visitor" | "agent";
+  text: string;
+  createdAt: string;
+}
+
+export interface WidgetThread {
+  messages: WidgetThreadMessage[];
+  /** Lo que se manda como `since` en la próxima consulta. */
+  cursor: string;
+}
+
+function isWidgetThreadMessage(value: unknown): value is WidgetThreadMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === "string" &&
+    (v.role === "visitor" || v.role === "agent") &&
+    typeof v.text === "string" &&
+    typeof v.createdAt === "string"
+  );
+}
+
+function isWidgetThread(value: unknown): value is WidgetThread {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as { messages?: unknown; cursor?: unknown };
+  return (
+    Array.isArray(v.messages) &&
+    v.messages.every(isWidgetThreadMessage) &&
+    typeof v.cursor === "string"
+  );
+}
+
 function isSendMessageResult(value: unknown): value is SendMessageResult {
   if (typeof value !== "object" || value === null) return false;
   const v = value as { conversationId?: unknown; respuesta?: unknown };
@@ -85,20 +128,56 @@ export function buildWidgetMessagesUrl(config: WidgetConfig): string {
   return `${config.apiUrl}/api/public/agents/${encodeURIComponent(config.agentId)}/web/messages`;
 }
 
-export async function sendWidgetMessage(
+export function buildWidgetThreadUrl(config: WidgetConfig): string {
+  return `${config.apiUrl}/api/public/agents/${encodeURIComponent(config.agentId)}/web/thread`;
+}
+
+export function sendWidgetMessage(
   config: WidgetConfig,
   sessionId: string,
   message: string,
 ): Promise<SendMessageResult> {
+  return postWidget(
+    buildWidgetMessagesUrl(config),
+    config,
+    { sessionId, message },
+    isSendMessageResult,
+    "{ conversationId, respuesta }",
+  );
+}
+
+export function fetchWidgetThread(
+  config: WidgetConfig,
+  sessionId: string,
+  since?: string,
+): Promise<WidgetThread> {
+  return postWidget(
+    buildWidgetThreadUrl(config),
+    config,
+    since === undefined ? { sessionId } : { sessionId, since },
+    isWidgetThread,
+    "{ messages, cursor }",
+  );
+}
+
+// Lo común a los dos endpoints: el POST con el token, y la traducción de cada
+// fallo a una categoría.
+async function postWidget<T>(
+  url: string,
+  config: WidgetConfig,
+  body: unknown,
+  isExpected: (value: unknown) => value is T,
+  expectedShape: string,
+): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(buildWidgetMessagesUrl(config), {
+    res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-embed-token": config.embedToken,
       },
-      body: JSON.stringify({ sessionId, message }),
+      body: JSON.stringify(body),
     });
   } catch (err) {
     throw new WidgetApiError(
@@ -121,10 +200,10 @@ export async function sendWidgetMessage(
   } catch {
     throw new WidgetApiError("unknown", "la respuesta 2xx no es JSON válido", res.status);
   }
-  if (!isSendMessageResult(payload)) {
+  if (!isExpected(payload)) {
     throw new WidgetApiError(
       "unknown",
-      "la respuesta 2xx no tiene la forma { conversationId, respuesta }",
+      `la respuesta 2xx no tiene la forma ${expectedShape}`,
       res.status,
     );
   }

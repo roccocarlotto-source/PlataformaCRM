@@ -123,6 +123,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("listado-de-baja-{hex8}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("payment-http-{ts}-{hex8}", `${C}payment.controller.integration-test.ts`),
   patron("widget-test-{ts}-{hex8}", `${C}publicWidget.controller.integration-test.ts`),
+  patron("widget-thread-{ts}-{hex8}", `${C}publicWidgetThread.integration-test.ts`),
   patron("qr-pub-{etiqueta}-{ts}-{hex8}", `${C}qrPublic.controller.integration-test.ts`),
   patron("quote-http-{ts}-{hex8}", `${C}quote.controller.integration-test.ts`),
   patron("whatsapp-test-{ts}-{hex8}", `${C}whatsappWebhook.controller.integration-test.ts`),

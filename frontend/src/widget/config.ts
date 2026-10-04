@@ -28,6 +28,12 @@ export interface WidgetConfig {
 
 export const WIDGET_LOG_PREFIX = "[plataforma-crm-widget]";
 
+// Cada cuánto el widget consulta mensajes nuevos del negocio (main.ts), con el
+// panel abierto y la pestaña visible. Con el panel cerrado o la pestaña en
+// segundo plano, nada: lo que llegue mientras tanto lo trae la próxima
+// consulta (el cursor no se pierde).
+export const POLL_INTERVAL_MS = 5_000;
+
 function stripTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }

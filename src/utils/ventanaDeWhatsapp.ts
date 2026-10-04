@@ -8,6 +8,10 @@
 // CLIENTE, no desde el último del negocio: que el vendedor escriba no la
 // renueva.
 //
+// Messenger e Instagram tienen la MISMA ventana estándar de 24 h (el
+// messaging_type RESPONSE del Send API, ver metaSend.service.ts), así que
+// responder desde el CRM usa estas funciones también para esos canales.
+//
 // Puras y sin base, para probarlas con fechas fijas.
 // ---------------------------------------------------------------------------
 

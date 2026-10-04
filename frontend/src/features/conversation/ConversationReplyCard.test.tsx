@@ -9,6 +9,7 @@ import { makeConversationDetail } from "../../test/conversationFixtures";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import {
   AVISO_VENTANA_VENCIDA,
+  AVISO_VENTANA_VENCIDA_META,
   CONFIRMAR_DEVOLVER_SIN_RESPONDER,
   ConversationReplyCard,
 } from "./ConversationReplyCard";
@@ -107,13 +108,33 @@ describe("ConversationReplyCard", () => {
     expect(screen.getByText(AVISO_VENTANA_VENCIDA)).toBeInTheDocument();
   });
 
-  it("una conversación del chat web explica que solo se responde por WhatsApp", () => {
-    renderCard(makeConversationDetail({ ...ABIERTA, channel: "WEB" }));
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Enviar" })).toBeNull();
-    expect(
-      screen.getByText(/solo se puede responder desde el CRM en conversaciones de WhatsApp/),
-    ).toBeInTheDocument();
+  it("Messenger e Instagram: se responde dentro de la ventana y dice por dónde sale", () => {
+    const { unmount } = renderCard(makeConversationDetail({ ...ABIERTA, channel: "MESSENGER" }));
+    expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeEnabled();
+    expect(screen.getByText(/Sale por Messenger/)).toBeInTheDocument();
+    unmount();
+    renderCard(makeConversationDetail({ ...ABIERTA, channel: "INSTAGRAM" }));
+    expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeEnabled();
+    expect(screen.getByText(/Sale por Instagram/)).toBeInTheDocument();
+  });
+
+  it("Messenger o Instagram pasadas las 24 h: deshabilitado con la explicación de Meta", () => {
+    renderCard(
+      makeConversationDetail({
+        channel: "INSTAGRAM",
+        replyWindowEndsAt: "2026-09-30T11:00:00.000Z",
+      }),
+    );
+    expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
+    expect(screen.getByText(AVISO_VENTANA_VENCIDA_META)).toBeInTheDocument();
+  });
+
+  it("el chat web se responde sin ventana: el cuadro habilitado aunque no haya fin de ventana", () => {
+    renderCard(makeConversationDetail({ channel: "WEB", replyWindowEndsAt: null }));
+    expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeEnabled();
+    expect(screen.getByText(/Le llega al visitante en el chat de la web/)).toBeInTheDocument();
+    expect(screen.queryByText(/Podés escribir texto libre hasta/)).toBeNull();
   });
 
   it("un vendedor que no tiene asignada la conversación no puede responder", () => {

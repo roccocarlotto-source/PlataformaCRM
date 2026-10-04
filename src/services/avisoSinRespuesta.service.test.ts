@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   AVISO_SIN_RESPUESTA,
-  MOTIVO_CANAL_SIN_ENVIO,
   MOTIVO_VENTANA_CERRADA,
+  MOTIVO_VENTANA_CERRADA_META,
   PREFIJO_DEL_AVISO,
   asuntoDeTareaSinRespuesta,
   textoDelAviso,
@@ -66,7 +66,7 @@ test("idempotencia: una ya devuelta (ACTIVE) o cerrada no vuelve a avisar", () =
 
 test("WhatsApp con la ventana abierta: se manda", () => {
   const fin = new Date(AHORA.getTime() + HORA);
-  assert.deepEqual(entregaDelAviso("WHATSAPP", fin, AHORA), { tipo: "whatsapp" });
+  assert.deepEqual(entregaDelAviso("WHATSAPP", fin, AHORA), { tipo: "por-el-canal" });
 });
 
 test("WhatsApp con la ventana cerrada, o sin mensaje del cliente: no se manda", () => {
@@ -81,13 +81,22 @@ test("WhatsApp con la ventana cerrada, o sin mensaje del cliente: no se manda", 
   );
 });
 
-test("Web: se guarda en el hilo; Messenger e Instagram, como en I-03, no se mandan", () => {
-  assert.deepEqual(entregaDelAviso("WEB", null, AHORA), { tipo: "solo-hilo" });
+test("Web: sale siempre (el widget lo trae del hilo), sin ventana", () => {
+  assert.deepEqual(entregaDelAviso("WEB", null, AHORA), { tipo: "por-el-canal" });
+});
+
+test("Messenger e Instagram: con la ventana abierta se manda; cerrada, el motivo de Meta", () => {
   const abierta = new Date(AHORA.getTime() + HORA);
+  const vencida = new Date(AHORA.getTime() - HORA);
   for (const canal of ["MESSENGER", "INSTAGRAM"] as const) {
-    assert.deepEqual(entregaDelAviso(canal, abierta, AHORA), {
+    assert.deepEqual(entregaDelAviso(canal, abierta, AHORA), { tipo: "por-el-canal" });
+    assert.deepEqual(entregaDelAviso(canal, vencida, AHORA), {
       tipo: "no-se-envia",
-      motivo: MOTIVO_CANAL_SIN_ENVIO,
+      motivo: MOTIVO_VENTANA_CERRADA_META,
+    });
+    assert.deepEqual(entregaDelAviso(canal, null, AHORA), {
+      tipo: "no-se-envia",
+      motivo: MOTIVO_VENTANA_CERRADA_META,
     });
   }
 });
