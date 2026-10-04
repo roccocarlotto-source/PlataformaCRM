@@ -26,6 +26,8 @@ export const CAMPOS_PUBLICOS = {
   organizationId: true,
   pageId: true,
   instagramBusinessAccountId: true,
+  pageName: true,
+  instagramUsername: true,
   status: true,
   lastErrorAt: true,
   lastErrorMessage: true,
@@ -110,6 +112,9 @@ export interface DatosDeConexionMeta {
   // YA CIFRADO con getCifrador().encrypt — ver el encabezado.
   pageAccessToken: string;
   instagramBusinessAccountId: string | null;
+  // Solo para mostrar. null si Meta no los mandó.
+  pageName: string | null;
+  instagramUsername: string | null;
 }
 
 // "Reconectar actualiza, no duplica", con el mismo upsert que la conexión de
@@ -130,6 +135,8 @@ export function upsertMetaConnection(datos: DatosDeConexionMeta, db: Db = prisma
     pageId: datos.pageId,
     pageAccessToken: datos.pageAccessToken,
     instagramBusinessAccountId: datos.instagramBusinessAccountId,
+    pageName: datos.pageName,
+    instagramUsername: datos.instagramUsername,
     status: "ACTIVE" as ConnectionStatus,
     lastErrorAt: null,
     lastErrorMessage: null,
@@ -142,6 +149,24 @@ export function upsertMetaConnection(datos: DatosDeConexionMeta, db: Db = prisma
     update: comun,
     select: CAMPOS_PUBLICOS,
   });
+}
+
+// Completa los nombres de una conexión que no los tiene (las anteriores a las
+// columnas page_name / instagram_username). SOLO SI SIGUEN VACÍOS Y LA PÁGINA
+// ES LA MISMA: entre la lectura y esta escritura pudo haber una reconexión, que
+// ya guardó los nombres de su propia página, y estos no pueden pisarlos.
+// Devuelve cuántas filas tocó (0 o 1).
+export async function fillMetaConnectionNames(
+  organizationId: string,
+  pageId: string,
+  nombres: { pageName: string; instagramUsername: string | null },
+  db: Db = prisma,
+): Promise<number> {
+  const { count } = await db.metaPageConnection.updateMany({
+    where: { organizationId, pageId, pageName: null },
+    data: nombres,
+  });
+  return count;
 }
 
 // Desconexión deliberada. EL TOKEN SE PONE EN NULL, no se deja donde estaba:

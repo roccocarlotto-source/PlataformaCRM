@@ -84,6 +84,8 @@ let paginasEnMeta: PaginaAutorizada[] = [];
 let codesCanjeados: string[] = [];
 let paginasSuscriptas: string[] = [];
 let paginasDesuscriptas: string[] = [];
+// Las páginas cuyos nombres se le pidieron a Meta, con el token (descifrado).
+let nombresPedidos: string[] = [];
 // El code que el doble de Meta rechaza como vencido (A-07).
 const CODE_VENCIDO = "code-vencido";
 
@@ -110,6 +112,11 @@ const cliente: ClienteMetaOAuth = {
   desuscribirPaginaDeLaApp: async (pageId, pageAccessToken) => {
     paginasDesuscriptas.push(`${pageId}:${pageAccessToken}`);
   },
+  // Los nombres de una conexión anterior a page_name / instagram_username.
+  obtenerNombresDePagina: async (pageId, pageAccessToken) => {
+    nombresPedidos.push(`${pageId}:${pageAccessToken}`);
+    return { name: `Nombre de ${pageId}`, instagramUsername: "usuario.ig" };
+  },
 };
 
 // page_id es UNIQUE en toda la tabla: uno al azar por caso.
@@ -123,6 +130,7 @@ function pagina(id = pageIdAlAzar(), instagram: string | null = null): PaginaAut
     name: `Página ${id}`,
     accessToken: `page-token-${id}`,
     instagramBusinessAccountId: instagram,
+    instagramUsername: null,
   };
 }
 
@@ -262,6 +270,7 @@ beforeEach(async () => {
   codesCanjeados = [];
   paginasSuscriptas = [];
   paginasDesuscriptas = [];
+  nombresPedidos = [];
   if (orgA && orgB) {
     await prisma.metaPageConnection.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
   }
@@ -385,6 +394,32 @@ test("el platform admin lee el estado de la organización elegida, sin el token"
   assert.equal((await call("GET", rutaAdmin(orgB), plataforma.accessToken)).status, 404);
 });
 
+test("una conexión sin nombres (anterior a las columnas): la primera lectura los completa con el token guardado y los graba; la segunda no vuelve a Meta", async () => {
+  const unaPagina = pagina(pageIdAlAzar(), "17841400000000002");
+  paginasEnMeta = [unaPagina];
+  await exito(await conectar(orgA));
+  // Como quedan las conexiones que ya existían al migrar.
+  await prisma.metaPageConnection.update({
+    where: { organizationId: orgA },
+    data: { pageName: null, instagramUsername: null },
+  });
+
+  const primera = (await (
+    await call("GET", "/api/integrations/meta", userA.accessToken)
+  ).json()) as Record<string, unknown>;
+  assert.equal(primera.pageName, `Nombre de ${unaPagina.id}`);
+  assert.equal(primera.instagramUsername, "usuario.ig");
+  assert.deepEqual(nombresPedidos, [`${unaPagina.id}:${unaPagina.accessToken}`]);
+
+  const fila = await conexionDe(orgA);
+  assert.equal(fila?.pageName, `Nombre de ${unaPagina.id}`);
+  assert.equal(fila?.instagramUsername, "usuario.ig");
+
+  const segunda = await call("GET", rutaAdmin(orgA), plataforma.accessToken);
+  assert.equal(((await segunda.json()) as Record<string, unknown>).pageName, fila?.pageName);
+  assert.equal(nombresPedidos.length, 1);
+});
+
 test("un organizationId que no es un uuid → 400", async () => {
   const res = await call("POST", rutaAdmin("no-es-uuid", "/connect"), plataforma.accessToken);
   assert.equal(res.status, 400);
@@ -459,6 +494,9 @@ test("completar, con la sesión del platform admin que empezó, deja la fila ACT
   assert.equal(fila.status, "ACTIVE");
   assert.equal(fila.pageId, unaPagina.id);
   assert.equal(fila.instagramBusinessAccountId, "17841400000000001");
+  // Los nombres vienen de /me/accounts, sin otra llamada a Meta.
+  assert.equal(fila.pageName, unaPagina.name);
+  assert.deepEqual(nombresPedidos, []);
   assert.ok(fila.pageAccessToken);
   assert.notEqual(fila.pageAccessToken, unaPagina.accessToken);
   assert.equal(getCifrador().decrypt(fila.pageAccessToken), unaPagina.accessToken);

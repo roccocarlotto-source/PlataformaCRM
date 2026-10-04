@@ -147,12 +147,12 @@ export function createMetaPageConnectionHandlers(cliente?: ClienteMetaOAuth) {
   // El tenant lee el estado de SU organización (la del JWT), para el aviso de
   // Configuración → Organización. Nunca devuelve el token.
   const obtener = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-    res.status(200).json(await obtenerConexion(req.auth.organizationId));
+    res.status(200).json(await obtenerConexion(req.auth.organizationId, cliente));
   });
 
   // Los cuatro de platform admin, sobre la organización del path.
   const obtenerDeOrganizacion = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-    res.status(200).json(await obtenerConexion(organizacionDelPath(req)));
+    res.status(200).json(await obtenerConexion(organizacionDelPath(req), cliente));
   });
 
   // El state queda firmado para la organización del path y el platform admin

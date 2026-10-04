@@ -161,6 +161,8 @@ test("conexión: una sola por organización — reconectar actualiza la fila, y 
     pageId: primera,
     pageAccessToken: cifrador.encrypt("token-1"),
     instagramBusinessAccountId: null,
+    pageName: null,
+    instagramUsername: null,
   });
   assert.equal("pageAccessToken" in creada, false, "el upsert devuelve sin token");
 
@@ -172,6 +174,8 @@ test("conexión: una sola por organización — reconectar actualiza la fila, y 
     pageId: segunda,
     pageAccessToken: cifrador.encrypt("token-2"),
     instagramBusinessAccountId: ig,
+    pageName: null,
+    instagramUsername: null,
   });
   assert.equal(reconectada.id, creada.id, "reconectar no crea otra fila");
   assert.equal(reconectada.pageId, segunda);
@@ -199,6 +203,8 @@ test("conexión: una página de Facebook no puede estar conectada a dos organiza
     pageId: pagina,
     pageAccessToken: "v1.cifrado",
     instagramBusinessAccountId: null,
+    pageName: null,
+    instagramUsername: null,
   });
   // La A intenta conectar la misma página (su fila ya existe de otro test o no:
   // el choque es contra page_id igual).
@@ -208,6 +214,8 @@ test("conexión: una página de Facebook no puede estar conectada a dos organiza
       pageId: pagina,
       pageAccessToken: "v1.cifrado",
       instagramBusinessAccountId: null,
+      pageName: null,
+      instagramUsername: null,
     }),
     (err) => esViolacion(err, "P2002"),
   );
@@ -219,6 +227,8 @@ test("conexión: el CHECK impide una fila ACTIVE sin token; desconectar la deja 
     pageId: idAlAzar("1"),
     pageAccessToken: "v1.cifrado",
     instagramBusinessAccountId: null,
+    pageName: null,
+    instagramUsername: null,
   });
   await assert.rejects(
     prisma.metaPageConnection.update({

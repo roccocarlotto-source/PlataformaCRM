@@ -3,6 +3,7 @@ import { logger } from "../lib/logger";
 import { findOrganizationById } from "../repositories/organization.repository";
 import {
   findMetaConnectionByOrganization,
+  fillMetaConnectionNames,
   findMetaConnectionWithSecretByOrganization,
   markMetaConnectionError,
   markMetaConnectionRevoked,
@@ -226,6 +227,8 @@ export async function completarConexion(
     pageId: pagina.id,
     pageAccessToken: getCifrador().encrypt(pagina.accessToken),
     instagramBusinessAccountId: pagina.instagramBusinessAccountId,
+    pageName: pagina.name === "" ? null : pagina.name,
+    instagramUsername: pagina.instagramUsername,
   }).catch(traducirPaginaYaConectada);
 }
 
@@ -290,15 +293,78 @@ export async function desconectar(
 // ---------------------------------------------------------------------------
 // 4. Consultar el estado. Nunca devuelve el token: el repositorio usa un
 // `select` que no lo incluye.
+//
+// LAS CONEXIONES ANTERIORES A page_name / instagram_username no tienen los
+// nombres. La primera lectura de una ACTIVE sin nombre los pide a Meta con el
+// token guardado y los graba, así nadie tiene que reconectar. Una vez
+// guardado el nombre de la página no se vuelve a pedir (una página sin
+// Instagram deja instagramUsername en null, y eso no dispara nada).
+//
+// ES "MEJOR ESFUERZO", igual que la baja de la suscripción en desconectar():
+// si Meta falla, se loguea y se devuelve la conexión con los ids, sin error —
+// la pantalla los muestra como antes. Solo ACTIVE: una en ERROR tiene el token
+// rechazado y una REVOKED no tiene token.
 // ---------------------------------------------------------------------------
-export async function obtenerConexion(organizationId: string): Promise<ConexionMetaPublica> {
+export async function obtenerConexion(
+  organizationId: string,
+  cliente?: ClienteInyectado,
+): Promise<ConexionMetaPublica> {
   const conexion = await findMetaConnectionByOrganization(organizationId);
 
   if (!conexion) {
     throw new AppError("Esta organización no tiene una página de Facebook conectada", 404);
   }
 
-  return conexion;
+  if (conexion.status !== "ACTIVE" || conexion.pageName !== null) {
+    return conexion;
+  }
+
+  return completarNombres(conexion, cliente);
+}
+
+async function completarNombres(
+  conexion: ConexionMetaPublica,
+  cliente: ClienteInyectado,
+): Promise<ConexionMetaPublica> {
+  const { organizationId, pageId } = conexion;
+
+  try {
+    const conSecreto = await findMetaConnectionWithSecretByOrganization(organizationId);
+    // Entre las dos lecturas pudo cambiar la conexión: se sigue solo si es la
+    // misma página, todavía activa y con token.
+    if (
+      conSecreto?.pageId !== pageId ||
+      conSecreto.status !== "ACTIVE" ||
+      !conSecreto.pageAccessToken
+    ) {
+      return conexion;
+    }
+
+    const nombres = await resolverCliente(cliente).obtenerNombresDePagina(
+      pageId,
+      getCifrador().decrypt(conSecreto.pageAccessToken),
+    );
+
+    if (nombres.name === null) {
+      return conexion;
+    }
+
+    const datos = { pageName: nombres.name, instagramUsername: nombres.instagramUsername };
+    const tocadas = await fillMetaConnectionNames(organizationId, pageId, datos);
+
+    // 0 = otra lectura u otra reconexión ya los escribió: se devuelve lo que
+    // quedó en la base, no lo que se acaba de pedir.
+    if (tocadas > 0) {
+      return { ...conexion, ...datos };
+    }
+    return (await findMetaConnectionByOrganization(organizationId)) ?? conexion;
+  } catch (err) {
+    logger.warn(
+      { err, organizationId, pageId },
+      "No se pudieron completar los nombres de la página de Facebook; se muestran los ids",
+    );
+    return conexion;
+  }
 }
 
 // ---------------------------------------------------------------------------

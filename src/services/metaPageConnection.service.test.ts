@@ -17,7 +17,12 @@ import {
   resetClaveDeFirmaMetaParaTests,
   resetStatesUsadosParaTests,
 } from "../utils/metaOauthState";
-import { MetaAuthError, type ClienteMetaOAuth, type PaginaAutorizada } from "./metaOAuth.service";
+import {
+  MetaAuthError,
+  type ClienteMetaOAuth,
+  type NombresDePagina,
+  type PaginaAutorizada,
+} from "./metaOAuth.service";
 import {
   MENSAJE_CODE_VENCIDO,
   MENSAJE_CONEXION_INACTIVA,
@@ -127,6 +132,8 @@ function doblarMeta(
     falloAlCanjear?: Error;
     falloAlSuscribir?: Error;
     falloAlDesuscribir?: Error;
+    nombres?: NombresDePagina;
+    falloAlPedirNombres?: Error;
   } = {},
 ): DobleDeMeta {
   const llamadas: string[] = [];
@@ -153,6 +160,11 @@ function doblarMeta(
       llamadas.push(`desuscribir:${pageId}:${pageAccessToken}`);
       if (opciones.falloAlDesuscribir) throw opciones.falloAlDesuscribir;
     },
+    obtenerNombresDePagina: async (pageId, pageAccessToken) => {
+      llamadas.push(`nombres:${pageId}:${pageAccessToken}`);
+      if (opciones.falloAlPedirNombres) throw opciones.falloAlPedirNombres;
+      return opciones.nombres ?? { name: `Página ${pageId}`, instagramUsername: null };
+    },
   };
   return { cliente, llamadas };
 }
@@ -163,6 +175,7 @@ function pagina(id: string, instagram: string | null = null): PaginaAutorizada {
     name: `Página ${id}`,
     accessToken: `page-token-${id}`,
     instagramBusinessAccountId: instagram,
+    instagramUsername: null,
   };
 }
 
@@ -394,6 +407,35 @@ test("una página sin Instagram vinculado se guarda con instagramBusinessAccount
 
   const creado = base.upserts[0].create as Prisma.MetaPageConnectionUncheckedCreateInput;
   assert.equal(creado.instagramBusinessAccountId, null);
+  assert.equal(creado.instagramUsername, null);
+});
+
+test("al conectar se guardan el nombre de la página y el @usuario del Instagram, los mismos en create y en update", async () => {
+  const base = baseFalsa();
+  const meta = doblarMeta({
+    paginas: [
+      { ...pagina("333", "17841400000000000"), name: "Demo", instagramUsername: "demo.uy" },
+    ],
+  });
+  const state = await stateDeAuth();
+
+  await completarConexion({ state, code: "c" }, AUTH, meta.cliente);
+
+  const [upsert] = base.upserts;
+  for (const datos of [upsert.create, upsert.update] as Record<string, unknown>[]) {
+    assert.equal(datos.pageName, "Demo");
+    assert.equal(datos.instagramUsername, "demo.uy");
+  }
+});
+
+test("una página que Meta manda sin nombre se guarda con pageName null, no con un string vacío", async () => {
+  const base = baseFalsa();
+  const meta = doblarMeta({ paginas: [{ ...pagina("444"), name: "" }] });
+  const state = await stateDeAuth();
+
+  await completarConexion({ state, code: "c" }, AUTH, meta.cliente);
+
+  assert.equal((base.upserts[0].create as Record<string, unknown>).pageName, null);
 });
 
 test("CERO páginas autorizadas → 400 con el mensaje para la persona, sin escribir", async () => {
@@ -547,9 +589,72 @@ test("obtenerConexion sin conexión → 404; con conexión, la devuelve", async 
   assertAppError(await capturar(() => obtenerConexion(ORG)), 404);
 
   mock.restoreAll();
-  baseFalsa({ conexion: { organizationId: ORG, pageId: "111", status: "ACTIVE" } });
+  baseFalsa({
+    conexion: { organizationId: ORG, pageId: "111", status: "ACTIVE", pageName: "Demo" },
+  });
   const conexion = await obtenerConexion(ORG);
   assert.equal(conexion.pageId, "111");
+});
+
+// Una conexión de antes de las columnas page_name / instagram_username.
+const conexionSinNombres = (status = "ACTIVE") => ({
+  organizationId: ORG,
+  pageId: "111",
+  status,
+  pageName: null,
+  instagramUsername: null,
+  pageAccessToken: getCifrador().encrypt("page-token-111"),
+});
+
+test("obtenerConexion: una ACTIVE sin nombres los pide a Meta con el token descifrado, los graba solo si siguen vacíos y los devuelve", async () => {
+  const base = baseFalsa({ conexion: conexionSinNombres() });
+  const meta = doblarMeta({ nombres: { name: "Demo", instagramUsername: "demo.uy" } });
+
+  const conexion = await obtenerConexion(ORG, meta.cliente);
+
+  assert.deepEqual(meta.llamadas, ["nombres:111:page-token-111"]);
+  assert.deepEqual(base.revocaciones, [
+    {
+      where: { organizationId: ORG, pageId: "111", pageName: null },
+      data: { pageName: "Demo", instagramUsername: "demo.uy" },
+    },
+  ]);
+  assert.equal(conexion.pageName, "Demo");
+  assert.equal(conexion.instagramUsername, "demo.uy");
+});
+
+test("obtenerConexion: con el nombre ya guardado no habla con Meta", async () => {
+  baseFalsa({ conexion: { ...conexionSinNombres(), pageName: "Demo" } });
+  const meta = doblarMeta();
+
+  await obtenerConexion(ORG, meta.cliente);
+
+  assert.deepEqual(meta.llamadas, []);
+});
+
+test("obtenerConexion: si Meta falla al pedir los nombres, devuelve la conexión con los ids, sin error y sin escribir", async () => {
+  const base = baseFalsa({ conexion: conexionSinNombres() });
+  const meta = doblarMeta({
+    falloAlPedirNombres: new MetaAuthError("Meta rechazó la solicitud: token inválido", true),
+  });
+
+  const conexion = await obtenerConexion(ORG, meta.cliente);
+
+  assert.equal(conexion.pageId, "111");
+  assert.equal(conexion.pageName, null);
+  assert.deepEqual(base.revocaciones, []);
+});
+
+test("obtenerConexion: una conexión en ERROR o REVOKED no intenta completar los nombres", async () => {
+  for (const status of ["ERROR", "REVOKED"]) {
+    mock.restoreAll();
+    baseFalsa({ conexion: conexionSinNombres(status) });
+    const meta = doblarMeta();
+
+    await obtenerConexion(ORG, meta.cliente);
+
+    assert.deepEqual(meta.llamadas, [], status);
+  }
 });
 
 // ---------------------------------------------------------------------------

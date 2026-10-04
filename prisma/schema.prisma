@@ -2661,6 +2661,16 @@ model MetaPageConnection {
   // y no el de la página, encuentra la conexión (ítem 171).
   instagramBusinessAccountId String? @map("instagram_business_account_id") @db.VarChar(64)
 
+  // Los nombres para mostrar: el de la página y el @usuario del Instagram
+  // vinculado (sin la arroba). Solo para la pantalla —nada del flujo los usa:
+  // el webhook y el envío siguen por los ids—. Nullable: las conexiones
+  // anteriores a estas columnas no los tienen, y obtenerConexion los completa
+  // una vez con el token guardado; si Meta no responde, la pantalla muestra
+  // los ids. VarChar(255) para el nombre (Meta no documenta un tope; una
+  // página real no se acerca) y (64) para el usuario (Instagram permite 30).
+  pageName          String? @map("page_name") @db.VarChar(255)
+  instagramUsername String? @map("instagram_username") @db.VarChar(64)
+
   status ConnectionStatus @default(ACTIVE)
 
   // Por qué esta conexión dejó de funcionar. No hay ningún mecanismo de aviso

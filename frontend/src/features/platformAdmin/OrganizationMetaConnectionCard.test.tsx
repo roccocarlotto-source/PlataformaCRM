@@ -59,6 +59,8 @@ function conexion(overrides: Record<string, unknown> = {}) {
     organizationId: ORG,
     pageId: "104857600000001",
     instagramBusinessAccountId: null,
+    pageName: null,
+    instagramUsername: null,
     status: "ACTIVE",
     lastErrorAt: null,
     lastErrorMessage: null,

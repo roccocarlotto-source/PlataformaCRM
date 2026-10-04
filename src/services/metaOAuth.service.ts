@@ -39,7 +39,14 @@ import { AppError } from "../utils/AppError";
 //
 // 4. Páginas autorizadas: GET /me/accounts con ese user token largo. Cada
 //    elemento trae id, name, access_token (el Page access token) y, si se pide
-//    en `fields`, instagram_business_account { id }.
+//    en `fields`, instagram_business_account { id, username } — el username es
+//    un campo del IG User (requiere instagram_basic, que ya está en la
+//    configuración de Login).
+//
+// 4 bis. Los nombres de una página ya conectada: GET /{page-id}?fields=name,
+//    instagram_business_account{id,username} con el PAGE access token. Lo usa
+//    obtenerConexion para completar las conexiones anteriores a las columnas
+//    page_name / instagram_username, sin pedirle a nadie que reconecte.
 //
 // 5. Suscribir la página a la app (ítem 171): POST /{page-id}/subscribed_apps
 //    con el PAGE access token y subscribed_fields. La guía de webhooks de
@@ -96,6 +103,26 @@ export interface PaginaAutorizada {
   accessToken: string;
   // El Instagram profesional vinculado a la página, si tiene.
   instagramBusinessAccountId: string | null;
+  // Su @usuario, sin la arroba. null si no hay Instagram o Meta no lo mandó.
+  instagramUsername: string | null;
+}
+
+// Los nombres para mostrar de una página ya conectada (4 bis del encabezado).
+// name es null si Meta no lo mandó: un string vacío no es un nombre.
+export interface NombresDePagina {
+  name: string | null;
+  instagramUsername: string | null;
+}
+
+// instagram_business_account { id, username } tal como lo devuelve Meta, en
+// /me/accounts y en /{page-id}.
+function leerInstagram(valor: unknown): { id: string | null; username: string | null } {
+  const ig =
+    valor && typeof valor === "object" ? (valor as { id?: unknown; username?: unknown }) : {};
+  return {
+    id: typeof ig.id === "string" ? ig.id : null,
+    username: typeof ig.username === "string" && ig.username !== "" ? ig.username : null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +208,8 @@ export interface ClienteMetaOAuth {
   suscribirPaginaALaApp(pageId: string, pageAccessToken: string): Promise<void>;
   // D-11: la inversa, al desconectar. DELETE /{page-id}/subscribed_apps.
   desuscribirPaginaDeLaApp(pageId: string, pageAccessToken: string): Promise<void>;
+  // El nombre de la página y el @usuario de su Instagram, con el Page token.
+  obtenerNombresDePagina(pageId: string, pageAccessToken: string): Promise<NombresDePagina>;
 }
 
 // Los campos de la página que se suscriben (ítem 171): los mismos que se
@@ -279,7 +308,7 @@ export function crearClienteMetaOAuth(config: ConfiguracionMeta): ClienteMetaOAu
       // los dos, y así la URL —incluidas las de `paging.next` que arma Meta—
       // no lo lleva.
       let url: string | undefined = `${URL_PAGINAS}?${new URLSearchParams({
-        fields: "id,name,access_token,instagram_business_account{id}",
+        fields: "id,name,access_token,instagram_business_account{id,username}",
         limit: "100",
       }).toString()}`;
 
@@ -308,7 +337,7 @@ export function crearClienteMetaOAuth(config: ConfiguracionMeta): ClienteMetaOAu
             id?: unknown;
             name?: unknown;
             access_token?: unknown;
-            instagram_business_account?: { id?: unknown };
+            instagram_business_account?: unknown;
           };
 
           // Una página sin access_token no se puede usar para nada, y
@@ -319,13 +348,14 @@ export function crearClienteMetaOAuth(config: ConfiguracionMeta): ClienteMetaOAu
             throw new MetaAuthError("Meta devolvió una página sin id o sin access_token", false);
           }
 
-          const instagramId = pagina.instagram_business_account?.id;
+          const instagram = leerInstagram(pagina.instagram_business_account);
 
           paginas.push({
             id: pagina.id,
             name: typeof pagina.name === "string" ? pagina.name : "",
             accessToken: pagina.access_token,
-            instagramBusinessAccountId: typeof instagramId === "string" ? instagramId : null,
+            instagramBusinessAccountId: instagram.id,
+            instagramUsername: instagram.username,
           });
         }
 
@@ -377,6 +407,31 @@ export function crearClienteMetaOAuth(config: ConfiguracionMeta): ClienteMetaOAu
       if (datos?.success !== true) {
         throw new MetaAuthError("Meta no confirmó la baja de la suscripción de la página", false);
       }
+    },
+
+    // 4 bis del encabezado. Token en el header, igual que el resto.
+    async obtenerNombresDePagina(pageId, pageAccessToken) {
+      const res = await pedir(
+        `${URL_GRAPH}/${encodeURIComponent(pageId)}?${new URLSearchParams({
+          fields: "name,instagram_business_account{id,username}",
+        }).toString()}`,
+        { method: "GET", headers: { Authorization: `Bearer ${pageAccessToken}` } },
+      );
+
+      if (!res.ok) {
+        const { mensaje, tokenInvalido } = await describirFallo(res);
+        throw new MetaAuthError(mensaje, tokenInvalido);
+      }
+
+      const datos = (await res.json().catch(() => null)) as {
+        name?: unknown;
+        instagram_business_account?: unknown;
+      } | null;
+
+      return {
+        name: typeof datos?.name === "string" && datos.name !== "" ? datos.name : null,
+        instagramUsername: leerInstagram(datos?.instagram_business_account).username,
+      };
     },
   };
 }

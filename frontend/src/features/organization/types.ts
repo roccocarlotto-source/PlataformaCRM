@@ -62,6 +62,11 @@ export interface MetaPageConnection {
   pageId: string;
   // null = la página no tiene una cuenta de Instagram Business vinculada.
   instagramBusinessAccountId: string | null;
+  // Los nombres para mostrar. null si Meta no los mandó o si el backend no
+  // pudo completarlos para una conexión vieja: entonces se muestran los ids.
+  // instagramUsername va sin la arroba.
+  pageName: string | null;
+  instagramUsername: string | null;
   status: MetaPageConnectionStatus;
   lastErrorAt: string | null;
   lastErrorMessage: string | null;

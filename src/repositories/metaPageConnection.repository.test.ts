@@ -55,6 +55,8 @@ test("upsertMetaConnection: reconectar pisa página, token y connectedAt, limpia
       pageId: "111",
       pageAccessToken: "v1.cifrado",
       instagramBusinessAccountId: null,
+      pageName: null,
+      instagramUsername: null,
     },
     db,
   );

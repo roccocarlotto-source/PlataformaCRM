@@ -5,6 +5,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { useConfirm } from "../../design-system/useConfirm";
+import { MetaConnectionIdentity } from "../organization/MetaConnectionIdentity";
 import {
   useCompleteOrganizationMetaConnection,
   useDisconnectOrganizationMetaConnection,
@@ -130,16 +131,9 @@ export function OrganizationMetaConnectionCard({
       {connectionQuery.isSuccess && activa && conexion ? (
         <>
           <p>
-            <Badge variant="success">Conectada</Badge> Página: <strong>{conexion.pageId}</strong>
+            <Badge variant="success">Conectada</Badge>
           </p>
-          <p>
-            Instagram:{" "}
-            {conexion.instagramBusinessAccountId ? (
-              <strong>{conexion.instagramBusinessAccountId}</strong>
-            ) : (
-              "sin cuenta vinculada"
-            )}
-          </p>
+          <MetaConnectionIdentity conexion={conexion} />
           <div className="ds-card-actions">
             <Button
               variant="danger"
