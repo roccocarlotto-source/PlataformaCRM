@@ -44,6 +44,23 @@ export function findAgentInboundJobById(id: string, organizationId: string, db: 
   return db.agentInboundJob.findFirst({ where: { id, organizationId } });
 }
 
+// La cuenta del negocio por la que entró el último mensaje del cliente en esta
+// conversación (para Messenger e Instagram, el Page ID). Es lo que usa
+// responder desde el CRM para encontrar el token: el PSID/IGSID del hilo es
+// de ESA página, y no necesariamente de la que el agente tiene hoy.
+export async function findChannelAccountIdOfConversation(
+  conversationId: string,
+  organizationId: string,
+  db: Db = prisma,
+): Promise<string | null> {
+  const job = await db.agentInboundJob.findFirst({
+    where: { organizationId, message: { conversationId } },
+    orderBy: { createdAt: "desc" },
+    select: { channelAccountId: true },
+  });
+  return job?.channelAccountId ?? null;
+}
+
 export interface JobReclamado {
   id: string;
   organizationId: string;

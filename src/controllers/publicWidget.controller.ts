@@ -2,6 +2,7 @@ import { ConversationChannel } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
 import { runAgentTurn } from "../services/agentOrchestration.service";
+import { leerHiloDelWidget } from "../services/publicWidgetThread.service";
 import { resolveWidgetContact } from "../services/widgetContact.service";
 import type { WidgetRequest } from "../types/widgetAuth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -19,10 +20,12 @@ import { parseOrThrow } from "../utils/validation";
 
 const widgetAgentIdParamSchema = z.string().uuid("agentId inválido");
 
+// El id de sesión que el navegador genera y guarda. Se acepta tal cual
+// (hasta 200 caracteres): es un identificador opaco, no se interpreta.
+const sessionIdSchema = z.string().trim().min(1, "sessionId es requerido").max(200);
+
 const widgetMessageSchema = z.object({
-  // El id de sesión que el navegador genera y guarda. Se acepta tal cual
-  // (hasta 200 caracteres): es un identificador opaco, no se interpreta.
-  sessionId: z.string().trim().min(1, "sessionId es requerido").max(200),
+  sessionId: sessionIdSchema,
   message: z
     .string()
     .trim()
@@ -63,4 +66,29 @@ export const sendWidgetMessageHandler = asyncHandler<WidgetRequest>(async (req, 
     conversationId: resultado.conversationId,
     respuesta: resultado.respuesta,
   });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/public/agents/:agentId/web/thread — el hilo de la sesión del
+// visitante: el historial al abrir el widget, y después el polling que trae lo
+// que escribió una persona del equipo (publicWidgetThread.service.ts). POST y
+// no GET a propósito: el sessionId es lo que identifica la conversación del
+// visitante, y en una query string terminaría en los logs de acceso.
+// ---------------------------------------------------------------------------
+
+const widgetThreadSchema = z.object({
+  sessionId: sessionIdSchema,
+  // El cursor que devolvió la consulta anterior; ausente = el historial.
+  since: z.string().datetime({ offset: true, message: "since inválido" }).optional(),
+});
+
+export const widgetThreadHandler = asyncHandler<WidgetRequest>(async (req, res: Response) => {
+  parseOrThrow(widgetAgentIdParamSchema, req.params.agentId);
+  const input = parseOrThrow(widgetThreadSchema, req.body);
+  const hilo = await leerHiloDelWidget(
+    req.widgetAuth,
+    input.sessionId,
+    input.since ? new Date(input.since) : null,
+  );
+  res.status(200).json(hilo);
 });

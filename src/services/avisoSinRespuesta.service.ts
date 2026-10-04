@@ -61,8 +61,8 @@ export function asuntoDeTareaSinRespuesta(nombreDelContacto: string): string {
 
 export const MOTIVO_VENTANA_CERRADA =
   "No se envió: pasaron más de 24 h desde el último mensaje del cliente y WhatsApp solo permite plantillas aprobadas";
-export const MOTIVO_CANAL_SIN_ENVIO =
-  "No se envió: por ahora el CRM solo puede escribirle al cliente por WhatsApp";
+export const MOTIVO_VENTANA_CERRADA_META =
+  "No se envió: pasaron más de 24 h desde el último mensaje del cliente y Messenger e Instagram no dejan escribirle hasta que vuelva a escribir";
 
 // Pura: ¿hay que avisarle al cliente al devolver? Solo si la conversación
 // estaba derivada y ninguna persona le escribió desde la derivación. El
@@ -81,13 +81,11 @@ export function debeAvisarAlDevolver(estado: {
 
 // Cómo sale el aviso según el canal, con el mismo criterio que responder
 // desde el CRM (I-03):
-//   - WhatsApp: se manda si la ventana de 24 h está abierta; si no, se guarda
-//     como FAILED con el motivo.
-//   - Web: se guarda en el hilo. El widget no recibe mensajes que no sean la
-//     respuesta al suyo, pero lo ve al recargar el historial.
-//   - Messenger/Instagram: I-03 no los soporta; se guarda como FAILED.
-export type EntregaDelAviso =
-  { tipo: "whatsapp" } | { tipo: "solo-hilo" } | { tipo: "no-se-envia"; motivo: string };
+//   - WhatsApp, Messenger e Instagram: se manda por el canal si la ventana de
+//     24 h está abierta; si no, se guarda como FAILED con el motivo.
+//   - Web: no hay ventana. Queda en el hilo y el widget lo trae con su
+//     polling (o al volver a abrirse, si el visitante cerró la pestaña).
+export type EntregaDelAviso = { tipo: "por-el-canal" } | { tipo: "no-se-envia"; motivo: string };
 
 export function entregaDelAviso(
   channel: ConversationChannel,
@@ -95,15 +93,15 @@ export function entregaDelAviso(
   ahora: Date = new Date(),
 ): EntregaDelAviso {
   if (channel === "WEB") {
-    return { tipo: "solo-hilo" };
-  }
-  if (channel !== "WHATSAPP") {
-    return { tipo: "no-se-envia", motivo: MOTIVO_CANAL_SIN_ENVIO };
+    return { tipo: "por-el-canal" };
   }
   if (!ventanaDeWhatsappAbierta(finDeVentana, ahora)) {
-    return { tipo: "no-se-envia", motivo: MOTIVO_VENTANA_CERRADA };
+    return {
+      tipo: "no-se-envia",
+      motivo: channel === "WHATSAPP" ? MOTIVO_VENTANA_CERRADA : MOTIVO_VENTANA_CERRADA_META,
+    };
   }
-  return { tipo: "whatsapp" };
+  return { tipo: "por-el-canal" };
 }
 
 // Pura: la marca. Hay pedido sin responder si hubo un aviso, ninguna persona

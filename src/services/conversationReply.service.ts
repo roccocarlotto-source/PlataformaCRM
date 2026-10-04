@@ -4,6 +4,7 @@ import { logger } from "../lib/logger";
 import { prisma, type Db } from "../lib/prisma";
 import { createActivity } from "../repositories/activity.repository";
 import { findAgentById } from "../repositories/agent.repository";
+import { findChannelAccountIdOfConversation } from "../repositories/agentInboundJob.repository";
 import { findContactById } from "../repositories/contact.repository";
 import {
   findConversationById,
@@ -34,6 +35,8 @@ import {
 } from "./avisoSinRespuesta.service";
 import { atencionFueraDeHorarioDeLaSucursal } from "./branchBusinessHours.service";
 import { aplicarEstadosRetenidos } from "./estadosDeEntregaRetenidos.service";
+import { marcarTokenRechazado, obtenerTokenParaEnviar } from "./metaPageConnection.service";
+import { MetaSendError, sendMetaTextReal, type SendMetaText } from "./metaSend.service";
 import {
   WhatsappGraphError,
   mensajeDeMeta,
@@ -49,16 +52,22 @@ import {
 // vendedor no tenía por dónde contestar.
 //
 // Lo que hace responder:
-//   - El mensaje sale por WhatsApp desde el número del negocio (el del agente
-//     de la conversación) y queda como OUTBOUND / HUMAN, con su wamid: los
-//     estados de Meta (entregado, leído) lo encuentran igual que a las
-//     respuestas del agente.
+//   - El mensaje sale por el canal de la conversación y queda como OUTBOUND /
+//     HUMAN:
+//       · WhatsApp: desde el número del negocio (el del agente), con su wamid:
+//         los estados de Meta (entregado, leído) lo encuentran igual que a las
+//         respuestas del agente.
+//       · Messenger e Instagram: por el Send API con el token de la página por
+//         la que escribió el cliente (metaSend.service.ts), messaging_type
+//         RESPONSE y SIN etiqueta: mismo criterio que el agente.
+//       · Web: no hay envío. Queda en el hilo (SENT) y el widget lo trae con
+//         su polling (publicWidgetThread.service.ts), que lo pasa a DELIVERED
+//         cuando le llegó al navegador del visitante.
 //   - La conversación queda TRANSFERRED_TO_HUMAN, y con eso el agente se calla
 //     (humanoAtiendeLaConversacion) hasta que alguien la devuelva.
 //
-// Solo WhatsApp. El widget web no tiene cómo recibir un mensaje que no sea la
-// respuesta al suyo (no hace polling), y Messenger/Instagram quedan para otro
-// PR: los tres devuelven 409 con el motivo.
+// LA VENTANA DE 24 H vale para WhatsApp, Messenger e Instagram (ver
+// utils/ventanaDeWhatsapp.ts); la web no tiene.
 //
 // PERMISOS: el vendedor asignado a la conversación o cualquier ADMIN (decisión
 // de Rocco). Una conversación sin asignar solo la puede tomar un ADMIN, y al
@@ -70,23 +79,39 @@ export const LARGO_MAXIMO_DE_RESPUESTA = 4096;
 
 export const MENSAJE_SIN_PERMISO =
   "Solo el vendedor asignado a la conversación o un administrador pueden atenderla";
-export const MENSAJE_CANAL_NO_SOPORTADO =
-  "Por ahora solo se puede responder desde el CRM en conversaciones de WhatsApp";
 export const MENSAJE_CERRADA = "La conversación está cerrada";
 export const MENSAJE_VENTANA_VENCIDA =
   "Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp solo permite plantillas aprobadas";
+export const MENSAJE_VENTANA_VENCIDA_META =
+  "Pasaron más de 24 h desde el último mensaje del cliente: Messenger e Instagram no dejan escribirle hasta que vuelva a escribir";
+
+// El subcódigo del Send API para "This message is sent outside of allowed
+// window" (código 10). Ver el punto 3 de metaSend.service.ts.
+const SUBCODIGO_FUERA_DE_VENTANA = 2018278;
 
 // Lo único que esto le pide a Meta, inyectable para los tests (mismo criterio
 // que DepsDeEnvio del worker).
 export interface DepsDeRespuestaHumana {
   accessToken: () => string | undefined;
   sendText: SendWhatsappText;
+  // Messenger e Instagram: el token de la página, por organización y cifrado
+  // en la base (el mismo de DepsDeEnvio del worker).
+  pageAccessToken: (organizationId: string, pageId: string) => Promise<string>;
+  sendMetaText: SendMetaText;
 }
 
 export const depsDeRespuestaHumanaReales: DepsDeRespuestaHumana = {
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
   sendText: sendWhatsappTextReal,
+  pageAccessToken: obtenerTokenParaEnviar,
+  sendMetaText: sendMetaTextReal,
 };
+
+// Por dónde sale un mensaje de esta conversación.
+export type Destino =
+  | { canal: "WHATSAPP"; phoneNumberId: string; to: string }
+  | { canal: "META"; pageId: string; recipientId: string }
+  | { canal: "WEB" };
 
 export interface Actor {
   userId: string;
@@ -112,13 +137,26 @@ export function motivoParaNoResponder(
   if (conversation.status === "CLOSED") {
     return MENSAJE_CERRADA;
   }
-  if (conversation.channel !== "WHATSAPP") {
-    return MENSAJE_CANAL_NO_SOPORTADO;
+  if (conversation.channel === "WEB") {
+    return null;
   }
   if (!ventanaDeWhatsappAbierta(finDeVentana, ahora)) {
-    return MENSAJE_VENTANA_VENCIDA;
+    return conversation.channel === "WHATSAPP"
+      ? MENSAJE_VENTANA_VENCIDA
+      : MENSAJE_VENTANA_VENCIDA_META;
   }
   return null;
+}
+
+// El error.message del cuerpo del Send API, si vino.
+function mensajeDelSendApi(err: MetaSendError): string | null {
+  try {
+    const cuerpo = JSON.parse(err.detalle) as { error?: { message?: unknown } };
+    const mensaje = cuerpo.error?.message;
+    return typeof mensaje === "string" && mensaje.trim() !== "" ? mensaje.trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 // Pura: el motivo de un envío fallido, legible para el vendedor. Lo de Meta
@@ -126,6 +164,12 @@ export function motivoParaNoResponder(
 export function motivoDelFallo(err: unknown): string {
   if (err instanceof WhatsappGraphError) {
     return mensajeDeMeta(err) ?? `WhatsApp rechazó el mensaje (${err.status})`;
+  }
+  if (err instanceof MetaSendError) {
+    if (err.subcodigo === SUBCODIGO_FUERA_DE_VENTANA) {
+      return MENSAJE_VENTANA_VENCIDA_META;
+    }
+    return mensajeDelSendApi(err) ?? `Meta rechazó el mensaje (${err.status})`;
   }
   return describirError(err);
 }
@@ -157,40 +201,76 @@ async function validarQueSePuedeResponder(conversation: Conversation, actor: Act
   if (motivo !== null) {
     throw new AppError(motivo, 409);
   }
-  const destino = await destinoDeWhatsapp(conversation);
+  const destino = await destinoDeLaConversacion(conversation);
   if ("motivo" in destino) {
     throw new AppError(destino.motivo, 409);
   }
   return destino;
 }
 
-// Desde qué número y a qué número sale un WhatsApp de esta conversación, o por
-// qué no se puede. Sin lanzar: responder lo convierte en 409, y el aviso de
-// devolver (que no puede fallar por esto) en un FAILED con el motivo.
-async function destinoDeWhatsapp(
+// Por dónde sale un mensaje de esta conversación, o por qué no se puede. Sin
+// lanzar: responder lo convierte en 409, y el aviso de devolver (que no puede
+// fallar por esto) en un FAILED con el motivo.
+async function destinoDeLaConversacion(
   conversation: Conversation,
-): Promise<{ phoneNumberId: string; to: string } | { motivo: string }> {
-  const agente = await findAgentById(conversation.agentId, conversation.organizationId);
-  if (!agente?.whatsappPhoneNumberId) {
-    return { motivo: "El agente de esta conversación ya no tiene un número de WhatsApp" };
+): Promise<Destino | { motivo: string }> {
+  if (conversation.channel === "WEB") {
+    return { canal: "WEB" };
   }
   if (!conversation.externalThreadId) {
-    return { motivo: "La conversación no tiene el número del cliente" };
+    return { motivo: "La conversación no tiene el identificador del cliente en el canal" };
   }
-  return { phoneNumberId: agente.whatsappPhoneNumberId, to: conversation.externalThreadId };
+  if (conversation.channel === "WHATSAPP") {
+    const agente = await findAgentById(conversation.agentId, conversation.organizationId);
+    if (!agente?.whatsappPhoneNumberId) {
+      return { motivo: "El agente de esta conversación ya no tiene un número de WhatsApp" };
+    }
+    return {
+      canal: "WHATSAPP",
+      phoneNumberId: agente.whatsappPhoneNumberId,
+      to: conversation.externalThreadId,
+    };
+  }
+  // Messenger e Instagram: la página por la que entró el último mensaje del
+  // cliente (el PSID/IGSID es de esa página). Si hoy la organización tiene
+  // otra conectada, obtenerTokenParaEnviar lo rechaza con su motivo.
+  const pageId = await findChannelAccountIdOfConversation(
+    conversation.id,
+    conversation.organizationId,
+  );
+  if (!pageId) {
+    return { motivo: "No se encontró la página de Facebook por la que escribió el cliente" };
+  }
+  return { canal: "META", pageId, recipientId: conversation.externalThreadId };
 }
 
 // Manda un Message saliente ya persistido (la respuesta de una persona, o el
-// aviso de devolver al agente) y deja el resultado en la fila: SENT con
-// el wamid, o FAILED con el motivo. NUNCA lanza por un fallo de Meta: el
-// mensaje queda a la vista con "No se pudo enviar" y su botón de reintento, y
-// el request responde la conversación como quedó.
-async function enviarPorWhatsapp(
+// aviso de devolver al agente) y deja el resultado en la fila: SENT (con el
+// wamid en WhatsApp), o FAILED con el motivo. NUNCA lanza por un fallo del
+// canal: el mensaje queda a la vista con "No se pudo enviar" y su botón de
+// reintento, y el request responde la conversación como quedó.
+async function enviarPorElCanal(
   mensaje: Pick<Message, "id" | "organizationId" | "content">,
-  destino: { phoneNumberId: string; to: string },
+  destino: Destino,
   deps: DepsDeRespuestaHumana,
 ): Promise<void> {
+  const { organizationId } = mensaje;
   try {
+    if (destino.canal === "WEB") {
+      // Nada que mandar: el widget lo trae del hilo.
+      await markMessageDelivery(mensaje.id, organizationId, { status: "SENT" });
+      return;
+    }
+    if (destino.canal === "META") {
+      const pageAccessToken = await deps.pageAccessToken(organizationId, destino.pageId);
+      await deps.sendMetaText({
+        pageAccessToken,
+        recipientId: destino.recipientId,
+        text: mensaje.content,
+      });
+      await markMessageDelivery(mensaje.id, organizationId, { status: "SENT" });
+      return;
+    }
     const accessToken = deps.accessToken();
     if (!accessToken) {
       throw new Error("Falta configurar el token de WhatsApp del servidor");
@@ -201,20 +281,35 @@ async function enviarPorWhatsapp(
       body: mensaje.content,
       accessToken,
     });
-    await markMessageDelivery(mensaje.id, mensaje.organizationId, {
+    await markMessageDelivery(mensaje.id, organizationId, {
       status: "SENT",
       externalMessageId: wamid,
     });
     // D-15: un estado que Meta mandó antes de que el wamid quedara guardado.
     if (wamid) {
-      await aplicarEstadosRetenidos(mensaje.organizationId, wamid);
+      await aplicarEstadosRetenidos(organizationId, wamid);
     }
   } catch (err) {
     logger.warn(
-      { err, organizationId: mensaje.organizationId, messageId: mensaje.id },
-      "No se pudo enviar por WhatsApp un mensaje desde el CRM",
+      { err, organizationId, messageId: mensaje.id, canal: destino.canal },
+      "No se pudo enviar un mensaje desde el CRM",
     );
-    await markMessageDelivery(mensaje.id, mensaje.organizationId, {
+    if (destino.canal === "META" && err instanceof MetaSendError && err.tokenInvalido) {
+      // Mismo criterio que el worker del agente: la conexión pasa a ERROR
+      // para que el CRM pida reconectar. Si esto falla, el mensaje igual
+      // queda FAILED con su motivo.
+      await marcarTokenRechazado(
+        organizationId,
+        destino.pageId,
+        `Meta rechazó el token de la página al mandar un mensaje: ${err.detalle}`,
+      ).catch((errMarca: unknown) => {
+        logger.error(
+          { err: errMarca, organizationId },
+          "No se pudo marcar en ERROR la conexión con Facebook",
+        );
+      });
+    }
+    await markMessageDelivery(mensaje.id, organizationId, {
       status: "FAILED",
       error: motivoDelFallo(err),
     });
@@ -274,7 +369,7 @@ export async function responderDesdeElCrm(
       return creado;
     });
 
-    await enviarPorWhatsapp(mensaje, destino, deps);
+    await enviarPorElCanal(mensaje, destino, deps);
   });
 
   return getConversationById(organizationId, conversationId);
@@ -304,7 +399,7 @@ export async function reintentarRespuestaDesdeElCrm(
     const destino = await validarQueSePuedeResponder(vigente, actor);
 
     await markMessageDelivery(mensaje.id, organizationId, { status: "PENDING" });
-    await enviarPorWhatsapp(mensaje, destino, deps);
+    await enviarPorElCanal(mensaje, destino, deps);
   });
 
   return getConversationById(organizationId, conversationId);
@@ -390,7 +485,7 @@ export async function avisarSiNadieRespondio(
 
 // Lo común a devolver a mano y al aviso automático, ya bajo el lock: la
 // devolución, y si `avisar`, la tarea y el aviso en la misma transacción; el
-// envío por WhatsApp después. `actor` null = lo hizo el sistema.
+// envío por el canal después. `actor` null = lo hizo el sistema.
 async function devolverYAvisar(
   vigente: Conversation,
   avisar: boolean,
@@ -402,7 +497,7 @@ async function devolverYAvisar(
     vigente.channel,
     finDeLaVentanaDeWhatsapp(await findLastInboundAt(id, organizationId)),
   );
-  const destino = entrega.tipo === "whatsapp" ? await destinoDeWhatsapp(vigente) : null;
+  const destino = entrega.tipo === "por-el-canal" ? await destinoDeLaConversacion(vigente) : null;
   // Fuera del horario de la sucursal, el aviso dice cuándo le van a escribir.
   const texto = textoDelAviso(
     avisar
@@ -435,9 +530,7 @@ async function devolverYAvisar(
         content: texto,
         ...(motivoSinEnvio !== null
           ? { deliveryStatus: "FAILED" as const, deliveryError: motivoSinEnvio }
-          : entrega.tipo === "whatsapp"
-            ? { deliveryStatus: "PENDING" as const }
-            : {}),
+          : { deliveryStatus: "PENDING" as const }),
       },
       tx,
     );
@@ -448,11 +541,11 @@ async function devolverYAvisar(
         "Devuelta al agente sin respuesta de una persona: el aviso al cliente no se envió",
       );
     }
-    return { mensaje: creado, enviar: motivoSinEnvio === null && entrega.tipo === "whatsapp" };
+    return { mensaje: creado, enviar: motivoSinEnvio === null };
   });
 
   if (aviso?.enviar && destino && !("motivo" in destino)) {
-    await enviarPorWhatsapp(aviso.mensaje, destino, deps);
+    await enviarPorElCanal(aviso.mensaje, destino, deps);
   }
 }
 

@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  MENSAJE_CANAL_NO_SOPORTADO,
   MENSAJE_CERRADA,
   MENSAJE_VENTANA_VENCIDA,
+  MENSAJE_VENTANA_VENCIDA_META,
   motivoDelFallo,
   motivoParaNoResponder,
   puedeAtenderLaConversacion,
 } from "./conversationReply.service";
+import { MetaSendError } from "./metaSend.service";
 import { WhatsappGraphError } from "./whatsappGraph.service";
 import {
   VENTANA_DE_WHATSAPP_MS,
@@ -62,14 +63,20 @@ test("motivoParaNoResponder: cerrada, canal y ventana, en ese orden", () => {
   assert.equal(motivoParaNoResponder({ ...wa, status: "ACTIVE" }, abierta, AHORA), null);
   assert.equal(motivoParaNoResponder(wa, vencida, AHORA), MENSAJE_VENTANA_VENCIDA);
   assert.equal(motivoParaNoResponder(wa, null, AHORA), MENSAJE_VENTANA_VENCIDA);
-  assert.equal(
-    motivoParaNoResponder({ ...wa, channel: "WEB" }, abierta, AHORA),
-    MENSAJE_CANAL_NO_SOPORTADO,
-  );
-  assert.equal(
-    motivoParaNoResponder({ ...wa, channel: "MESSENGER" }, abierta, AHORA),
-    MENSAJE_CANAL_NO_SOPORTADO,
-  );
+  for (const channel of ["MESSENGER", "INSTAGRAM"] as const) {
+    assert.equal(motivoParaNoResponder({ ...wa, channel }, abierta, AHORA), null);
+    assert.equal(
+      motivoParaNoResponder({ ...wa, channel }, vencida, AHORA),
+      MENSAJE_VENTANA_VENCIDA_META,
+    );
+    assert.equal(
+      motivoParaNoResponder({ ...wa, channel }, null, AHORA),
+      MENSAJE_VENTANA_VENCIDA_META,
+    );
+  }
+  // La web no tiene ventana: se responde aunque el visitante escribió hace días.
+  assert.equal(motivoParaNoResponder({ ...wa, channel: "WEB" }, vencida, AHORA), null);
+  assert.equal(motivoParaNoResponder({ ...wa, channel: "WEB" }, null, AHORA), null);
   assert.equal(
     motivoParaNoResponder({ channel: "WEB", status: "CLOSED" }, vencida, AHORA),
     MENSAJE_CERRADA,
@@ -89,4 +96,25 @@ test("motivoDelFallo: el texto de Meta si vino, si no el error tal cual", () => 
     "WhatsApp rechazó el mensaje (500)",
   );
   assert.match(motivoDelFallo(new Error("fetch failed")), /fetch failed/);
+});
+
+test("motivoDelFallo con el Send API de Messenger/Instagram: fuera de ventana, el mensaje de Meta o el status", () => {
+  const fueraDeVentana = new MetaSendError(
+    400,
+    JSON.stringify({ error: { message: "This message is sent outside of allowed window." } }),
+    10,
+    2018278,
+  );
+  assert.equal(motivoDelFallo(fueraDeVentana), MENSAJE_VENTANA_VENCIDA_META);
+  const conMensaje = new MetaSendError(
+    400,
+    JSON.stringify({ error: { message: "No matching user found" } }),
+    100,
+    2018001,
+  );
+  assert.equal(motivoDelFallo(conMensaje), "No matching user found");
+  assert.equal(
+    motivoDelFallo(new MetaSendError(502, "<html>", null, null)),
+    "Meta rechazó el mensaje (502)",
+  );
 });

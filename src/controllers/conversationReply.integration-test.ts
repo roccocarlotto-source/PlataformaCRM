@@ -17,19 +17,23 @@ import { PREFIJO_TAREA_DE_DERIVACION, runAgentTurn } from "../services/agentOrch
 import {
   AVISO_SIN_RESPUESTA,
   MOTIVO_VENTANA_CERRADA,
+  MOTIVO_VENTANA_CERRADA_META,
   PREFIJO_DEL_AVISO,
   textoDelAviso,
 } from "../services/avisoSinRespuesta.service";
 import { atencionFueraDeHorario } from "../utils/fueraDeHorario";
 import type { FranjaSemanal } from "../utils/workingHours";
 import {
-  MENSAJE_CANAL_NO_SOPORTADO,
   MENSAJE_CERRADA,
   MENSAJE_SIN_PERMISO,
   MENSAJE_VENTANA_VENCIDA,
+  MENSAJE_VENTANA_VENCIDA_META,
   type DepsDeRespuestaHumana,
 } from "../services/conversationReply.service";
 import type { LlmProvider } from "../services/llmProvider.service";
+import { MENSAJE_PAGINA_RECONECTADA } from "../services/metaPageConnection.service";
+import { MetaSendError, type SendMetaTextInput } from "../services/metaSend.service";
+import { AppError } from "../utils/AppError";
 import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
 
 // ---------------------------------------------------------------------------
@@ -51,6 +55,10 @@ import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/what
 //      lo reactiva.
 //   6. Devolver sin haberle respondido al cliente: el aviso, la tarea y la
 //      marca (avisoSinRespuesta.service.ts).
+//   8. Messenger e Instagram: por el Send API con el token de la página por la
+//      que escribió el cliente, con las mismas reglas (permisos, ventana,
+//      FAILED con reintento, aviso al devolver).
+//   9. Web: sin ventana ni envío; queda en el hilo para el widget.
 //
 // Cada organización de este archivo es propia (los archivos de integración
 // corren en paralelo contra una base compartida).
@@ -68,6 +76,12 @@ interface FixtureUser {
 const envios: SendWhatsappTextInput[] = [];
 // Lo que devuelve el próximo envío: un wamid, o un error a lanzar.
 let proximoFallo: Error | null = null;
+// Messenger e Instagram: lo que se mandó por el Send API. Si la página no es
+// PAGINA_CONECTADA, el token se rechaza como lo hace obtenerTokenParaEnviar
+// cuando la organización reconectó otra.
+const enviosMeta: SendMetaTextInput[] = [];
+let proximoFalloMeta: Error | null = null;
+const PAGINA_CONECTADA = `pg${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
 const deps: DepsDeRespuestaHumana = {
   accessToken: () => "token-de-prueba",
@@ -80,6 +94,18 @@ const deps: DepsDeRespuestaHumana = {
     envios.push(input);
     return { wamid: `wamid.${randomUUID()}` };
   },
+  pageAccessToken: (_organizationId, pageId) =>
+    pageId === PAGINA_CONECTADA
+      ? Promise.resolve(`page-token-${pageId}`)
+      : Promise.reject(new AppError(MENSAJE_PAGINA_RECONECTADA, 409)),
+  sendMetaText: async (input) => {
+    if (proximoFalloMeta) {
+      const err = proximoFalloMeta;
+      proximoFalloMeta = null;
+      throw err;
+    }
+    enviosMeta.push(input);
+  },
 };
 
 let orgId: string;
@@ -87,6 +113,7 @@ let otraOrgId: string;
 let branchId: string;
 let agentId: string;
 let agentWebId: string;
+let agentMetaId: string;
 let phoneNumberId: string;
 let admin: FixtureUser;
 let vendedor: FixtureUser;
@@ -155,7 +182,9 @@ async function createFixtureUser(
 }
 
 interface OpcionesDeConversacion {
-  channel?: "WHATSAPP" | "WEB";
+  channel?: "WHATSAPP" | "WEB" | "MESSENGER" | "INSTAGRAM";
+  // Messenger/Instagram: la página por la que entró el mensaje del cliente.
+  pageId?: string;
   status?: "ACTIVE" | "TRANSFERRED_TO_HUMAN" | "CLOSED";
   assignedUserId?: string | null;
   // Hace cuánto escribió el cliente por última vez; null = nunca escribió.
@@ -176,7 +205,9 @@ async function crearConversacion(opciones: OpcionesDeConversacion = {}) {
     organizationId === orgId
       ? channel === "WEB"
         ? agentWebId
-        : agentId
+        : channel === "WHATSAPP"
+          ? agentId
+          : agentMetaId
       : (await prisma.agent.findFirstOrThrow({ where: { organizationId }, select: { id: true } }))
           .id;
   const sucursal =
@@ -197,7 +228,7 @@ async function crearConversacion(opciones: OpcionesDeConversacion = {}) {
   });
   const hace = opciones.ultimoEntranteHace === undefined ? HORA : opciones.ultimoEntranteHace;
   if (hace !== null) {
-    await prisma.message.create({
+    const entrante = await prisma.message.create({
       data: {
         organizationId,
         conversationId: conversation.id,
@@ -207,6 +238,19 @@ async function crearConversacion(opciones: OpcionesDeConversacion = {}) {
         createdAt: new Date(Date.now() - hace),
       },
     });
+    if (channel === "MESSENGER" || channel === "INSTAGRAM") {
+      // Lo que deja el webhook de Meta: el job con el Page ID.
+      await prisma.agentInboundJob.create({
+        data: {
+          organizationId,
+          messageId: entrante.id,
+          channel,
+          channelAccountId: opciones.pageId ?? PAGINA_CONECTADA,
+          externalUserId: waId,
+          status: "DONE",
+        },
+      });
+    }
   }
   return { id: conversation.id, contactId: contacto.id, waId };
 }
@@ -291,6 +335,16 @@ before(async () => {
   agentWebId = (
     await prisma.agent.create({ data: { ...agentBase, name: "Nilo", channels: ["WEB"] } })
   ).id;
+  agentMetaId = (
+    await prisma.agent.create({
+      data: {
+        ...agentBase,
+        name: "Mia",
+        channels: ["MESSENGER", "INSTAGRAM"],
+        facebookPageId: PAGINA_CONECTADA,
+      },
+    })
+  ).id;
 
   const otra = await prisma.organization.create({
     data: {
@@ -323,6 +377,7 @@ after(async () => {
   for (const id of [orgId, otraOrgId]) {
     if (!id) continue;
     await prisma.activity.deleteMany({ where: { organizationId: id } });
+    await prisma.agentInboundJob.deleteMany({ where: { organizationId: id } });
     await prisma.message.deleteMany({ where: { organizationId: id } });
     await prisma.conversation.deleteMany({ where: { organizationId: id } });
     await prisma.agent.deleteMany({ where: { organizationId: id } });
@@ -484,11 +539,23 @@ test("si el cliente nunca escribió, no hay ventana: 409", async () => {
   assert.equal(await mensajeDeError(res), MENSAJE_VENTANA_VENCIDA);
 });
 
-test("una conversación del chat web no se responde desde acá (409)", async () => {
-  const conv = await crearConversacion({ channel: "WEB" });
-  const res = await responder(admin.accessToken, conv.id, "Hola");
-  assert.equal(res.status, 409);
-  assert.equal(await mensajeDeError(res), MENSAJE_CANAL_NO_SOPORTADO);
+test("web: se responde sin ventana (el visitante escribió hace días) y queda en el hilo, SENT, sin envío", async () => {
+  const conv = await crearConversacion({
+    channel: "WEB",
+    assignedUserId: vendedor.userId,
+    ultimoEntranteHace: 72 * HORA,
+  });
+  const antes = envios.length + enviosMeta.length;
+
+  const res = await responder(vendedor.accessToken, conv.id, "Hola, te escribo del equipo");
+  assert.equal(res.status, 201, await res.clone().text());
+  const detalle = (await res.json()) as Detalle;
+
+  assert.equal(envios.length + enviosMeta.length, antes, "la web no manda por ningún lado");
+  const [mensaje] = humanos(detalle);
+  assert.equal(mensaje.deliveryStatus, "SENT");
+  assert.equal(detalle.replyWindowEndsAt, null, "la web no tiene ventana");
+  assert.equal(detalle.agentPaused, true);
 });
 
 test("una conversación cerrada no se responde (409)", async () => {
@@ -815,16 +882,16 @@ test("un vendedor que devuelve sin tarea abierta: la nueva tarea va a un ADMIN a
   assert.equal(tarea.authorId, vendedor.userId);
 });
 
-test("Web: el aviso se guarda en el hilo, sin envío ni estado de entrega", async () => {
+test("Web: el aviso queda en el hilo (SENT, para el widget), sin envío", async () => {
   const conv = await crearConversacion({ channel: "WEB", assignedUserId: vendedor.userId });
   await tareaDeDerivacion(conv.contactId, vendedor.userId);
-  const antes = envios.length;
+  const antes = envios.length + enviosMeta.length;
 
   const detalle = await devolver(vendedor.accessToken, conv.id);
 
-  assert.equal(envios.length, antes);
+  assert.equal(envios.length + enviosMeta.length, antes);
   const [aviso] = avisos(detalle);
-  assert.equal(aviso.deliveryStatus, null);
+  assert.equal(aviso.deliveryStatus, "SENT");
   assert.equal(detalle.humanRequestUnanswered, true);
 });
 
@@ -895,4 +962,134 @@ test("dentro del horario cargado el aviso es el de siempre", async () => {
   await conHorario(todoElDia, () => devolver(vendedor.accessToken, conv.id));
 
   assert.equal(envios.at(-1)!.body, AVISO_SIN_RESPUESTA);
+});
+
+// ---------------------------------------------------------------------------
+// 8. Messenger e Instagram
+// ---------------------------------------------------------------------------
+
+for (const canal of ["MESSENGER", "INSTAGRAM"] as const) {
+  test(`${canal}: el vendedor asignado responde por el Send API con el token de la página y queda HUMAN / SENT`, async () => {
+    const conv = await crearConversacion({ channel: canal, assignedUserId: vendedor.userId });
+    const antes = enviosMeta.length;
+
+    const res = await responder(vendedor.accessToken, conv.id, "  Hola, te escribo del equipo  ");
+    assert.equal(res.status, 201, await res.clone().text());
+    const detalle = (await res.json()) as Detalle;
+
+    assert.equal(enviosMeta.length, antes + 1);
+    assert.deepEqual(enviosMeta.at(-1), {
+      pageAccessToken: `page-token-${PAGINA_CONECTADA}`,
+      recipientId: conv.waId,
+      text: "Hola, te escribo del equipo",
+    });
+    const [mensaje] = humanos(detalle);
+    assert.equal(mensaje.senderUserId, vendedor.userId);
+    assert.equal(mensaje.deliveryStatus, "SENT");
+    assert.equal(detalle.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(detalle.agentPaused, true, "el agente queda en pausa");
+    assert.ok(detalle.replyWindowEndsAt, "el detalle dice hasta cuándo se puede responder");
+  });
+}
+
+test("Messenger: un vendedor que no es el asignado recibe 403 y no sale nada", async () => {
+  const conv = await crearConversacion({ channel: "MESSENGER", assignedUserId: vendedor.userId });
+  const antes = enviosMeta.length;
+  const res = await responder(otroVendedor.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 403);
+  assert.equal(await mensajeDeError(res), MENSAJE_SIN_PERMISO);
+  assert.equal(enviosMeta.length, antes);
+});
+
+test("Instagram con la ventana de 24 h vencida: 409 con la explicación y no sale nada", async () => {
+  const conv = await crearConversacion({
+    channel: "INSTAGRAM",
+    assignedUserId: vendedor.userId,
+    ultimoEntranteHace: 25 * HORA,
+  });
+  const antes = enviosMeta.length;
+  const res = await responder(vendedor.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 409);
+  assert.equal(await mensajeDeError(res), MENSAJE_VENTANA_VENCIDA_META);
+  assert.equal(enviosMeta.length, antes);
+  assert.equal(
+    await prisma.message.count({ where: { conversationId: conv.id, senderType: "HUMAN" } }),
+    0,
+  );
+});
+
+test("Messenger: si Meta lo rechaza queda FAILED con el motivo, y se reintenta el MISMO mensaje", async () => {
+  const conv = await crearConversacion({ channel: "MESSENGER", assignedUserId: vendedor.userId });
+  proximoFalloMeta = new MetaSendError(
+    400,
+    JSON.stringify({ error: { message: "This message is sent outside of allowed window." } }),
+    10,
+    2018278,
+  );
+
+  const res = await responder(vendedor.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 201, "un rechazo de Meta no es un fallo del request");
+  const [fallido] = humanos((await res.json()) as Detalle);
+  assert.equal(fallido.deliveryStatus, "FAILED");
+  assert.equal(fallido.deliveryError, MENSAJE_VENTANA_VENCIDA_META);
+
+  const antes = enviosMeta.length;
+  const reintento = await call(
+    "POST",
+    `/api/conversations/${conv.id}/messages/${fallido.id}/retry`,
+    vendedor.accessToken,
+  );
+  assert.equal(reintento.status, 200, await reintento.clone().text());
+  const mensajes = humanos((await reintento.json()) as Detalle);
+  assert.equal(mensajes.length, 1, "es el mismo mensaje, no uno nuevo");
+  assert.equal(mensajes[0]!.deliveryStatus, "SENT");
+  assert.equal(enviosMeta.length, antes + 1);
+});
+
+test("Messenger: si la organización reconectó otra página, queda FAILED con el motivo y no sale nada", async () => {
+  const conv = await crearConversacion({
+    channel: "MESSENGER",
+    assignedUserId: vendedor.userId,
+    pageId: "pagina-anterior",
+  });
+  const antes = enviosMeta.length;
+  const res = await responder(vendedor.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 201);
+  const [mensaje] = humanos((await res.json()) as Detalle);
+  assert.equal(mensaje.deliveryStatus, "FAILED");
+  assert.equal(mensaje.deliveryError, MENSAJE_PAGINA_RECONECTADA);
+  assert.equal(enviosMeta.length, antes);
+});
+
+test("Instagram: devolver sin responder le manda el aviso por el Send API y deja la marca", async () => {
+  const conv = await crearConversacion({ channel: "INSTAGRAM", assignedUserId: vendedor.userId });
+  await tareaDeDerivacion(conv.contactId, vendedor.userId);
+  const antes = enviosMeta.length;
+
+  const detalle = await devolver(vendedor.accessToken, conv.id);
+
+  assert.equal(detalle.status, "ACTIVE");
+  assert.equal(enviosMeta.length, antes + 1);
+  assert.equal(enviosMeta.at(-1)!.recipientId, conv.waId);
+  assert.ok(enviosMeta.at(-1)!.text.startsWith(PREFIJO_DEL_AVISO));
+  const [aviso] = avisos(detalle);
+  assert.equal(aviso.deliveryStatus, "SENT");
+  assert.equal(detalle.humanRequestUnanswered, true);
+});
+
+test("Messenger con la ventana cerrada: el aviso no sale, queda FAILED con el motivo de Meta", async () => {
+  const conv = await crearConversacion({
+    channel: "MESSENGER",
+    assignedUserId: vendedor.userId,
+    ultimoEntranteHace: 30 * HORA,
+  });
+  await tareaDeDerivacion(conv.contactId, vendedor.userId);
+  const antes = enviosMeta.length;
+
+  const detalle = await devolver(vendedor.accessToken, conv.id);
+
+  assert.equal(enviosMeta.length, antes);
+  const [aviso] = avisos(detalle);
+  assert.equal(aviso.deliveryStatus, "FAILED");
+  assert.equal(aviso.deliveryError, MOTIVO_VENTANA_CERRADA_META);
 });

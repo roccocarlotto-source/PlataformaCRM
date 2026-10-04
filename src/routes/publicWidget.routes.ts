@@ -1,7 +1,15 @@
 import { Router } from "express";
-import { sendWidgetMessageHandler } from "../controllers/publicWidget.controller";
+import {
+  sendWidgetMessageHandler,
+  widgetThreadHandler,
+} from "../controllers/publicWidget.controller";
 import { authenticateEmbedToken } from "../middlewares/authenticateEmbedToken";
-import { widgetRateLimiter, widgetSessionRateLimiter } from "../middlewares/rateLimit";
+import {
+  widgetRateLimiter,
+  widgetSessionRateLimiter,
+  widgetThreadRateLimiter,
+  widgetThreadSessionRateLimiter,
+} from "../middlewares/rateLimit";
 import { requireWidgetJsonContentType, widgetJsonParser } from "../middlewares/widgetBody";
 import { buildWidgetCorsMiddleware } from "../middlewares/widgetCors";
 
@@ -58,4 +66,27 @@ publicWidgetRouter.post(
   widgetSessionRateLimiter,
   widgetRateLimiter,
   sendWidgetMessageHandler,
+);
+
+// POST /api/public/agents/:agentId/web/thread — la lectura del hilo de la
+// sesión (historial y polling; ver publicWidgetThread.service.ts). LA MISMA
+// CADENA, en el mismo orden y por los mismos motivos que la de arriba: CORS
+// por agente, JSON acotado, el embed token con su Origin permitido, y los
+// cupos por sesión y por token — propios del polling (ver rateLimit.ts), para
+// que consultar no gaste el cupo de mensajes.
+//
+// Un path aparte y no uno debajo de /web/messages: router.use(PATH) matchea
+// por prefijo, y el CORS de arriba también correría para este.
+const WIDGET_THREAD_PATH = "/agents/:agentId/web/thread";
+
+publicWidgetRouter.use(WIDGET_THREAD_PATH, buildWidgetCorsMiddleware());
+
+publicWidgetRouter.post(
+  WIDGET_THREAD_PATH,
+  requireWidgetJsonContentType,
+  widgetJsonParser,
+  authenticateEmbedToken,
+  widgetThreadSessionRateLimiter,
+  widgetThreadRateLimiter,
+  widgetThreadHandler,
 );

@@ -16,6 +16,34 @@ export function widgetMessagesUrl(agentId: string, apiUrl = WIDGET_TEST_API_URL)
   return `${apiUrl}/api/public/agents/${agentId}/web/messages`;
 }
 
+export function widgetThreadUrl(agentId: string, apiUrl = WIDGET_TEST_API_URL): string {
+  return `${apiUrl}/api/public/agents/${agentId}/web/thread`;
+}
+
+export interface WidgetThreadMessageFixture {
+  id: string;
+  role: "visitor" | "agent";
+  text: string;
+  createdAt: string;
+}
+
+// El hilo de la sesión: `responder` decide qué devolver según el cuerpo
+// (con o sin `since`); por default, vacío. `capture` recibe cada cuerpo.
+export function widgetThreadHandler(
+  url: string | RegExp,
+  responder: (body: { sessionId: string; since?: string }) => {
+    messages: WidgetThreadMessageFixture[];
+    cursor: string;
+  } = (body) => ({ messages: [], cursor: body.since ?? "1970-01-01T00:00:00.000Z" }),
+  capture?: (body: { sessionId: string; since?: string }) => void,
+) {
+  return http.post(url, async ({ request }) => {
+    const body = (await request.json()) as { sessionId: string; since?: string };
+    capture?.(body);
+    return HttpResponse.json(responder(body));
+  });
+}
+
 export interface CapturedWidgetRequest {
   url: string;
   embedToken: string | null;

@@ -46,6 +46,8 @@ const deps: DepsDeRespuestaHumana = {
     envios.push(input);
     return Promise.resolve({ wamid: `wamid.${randomUUID()}` });
   },
+  pageAccessToken: () => Promise.reject(new Error("este archivo no manda por Meta")),
+  sendMetaText: () => Promise.reject(new Error("este archivo no manda por Meta")),
 };
 
 let orgId: string;

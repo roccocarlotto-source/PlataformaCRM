@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { http, HttpResponse } from "msw";
 import { server } from "../test/msw/server";
 import {
   widgetErrorHandler,
   widgetMessagesUrl,
   widgetSuccessHandler,
+  widgetThreadHandler,
+  widgetThreadUrl,
   type CapturedWidgetRequest,
 } from "../test/msw/widgetHandlers";
+import { POLL_INTERVAL_MS } from "./config";
 import { ERROR_MESSAGES, WIDGET_HOST_ID } from "./ui";
 
 // ---------------------------------------------------------------------------
@@ -64,9 +68,12 @@ describe("widget main (integración)", () => {
     localStorage.clear();
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Abrir el panel consulta el hilo de la sesión: por default, vacío.
+    server.use(widgetThreadHandler(/\/web\/thread$/));
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     document.getElementById(WIDGET_HOST_ID)?.remove();
     delete (window as WidgetWindow).__plataformaCrmWidgetLoaded;
     simulateCurrentScript(null);
@@ -216,5 +223,128 @@ describe("widget main (integración)", () => {
       ERROR_MESSAGES.unauthorized,
     );
     expect(shadow().textContent ?? "").not.toContain("Credencial de widget inválida");
+  });
+
+  describe("mensajes del negocio fuera de la respuesta (polling)", () => {
+    const threadUrl = widgetThreadUrl(AGENT_ID);
+
+    function messageTexts(): string[] {
+      return Array.from(shadow().querySelectorAll<HTMLElement>(".pcw-msg")).map(
+        (m) => m.textContent ?? "",
+      );
+    }
+
+    it("al abrir por primera vez trae el historial de la sesión, en orden", async () => {
+      const bodies: { sessionId: string; since?: string }[] = [];
+      server.use(
+        widgetThreadHandler(
+          threadUrl,
+          () => ({
+            messages: [
+              { id: "m1", role: "visitor", text: "Hola", createdAt: "2026-10-01T10:00:00.000Z" },
+              {
+                id: "m2",
+                role: "agent",
+                text: "Te paso con alguien",
+                createdAt: "2026-10-01T10:00:01.000Z",
+              },
+              {
+                id: "m3",
+                role: "agent",
+                text: "Soy Laura del equipo",
+                createdAt: "2026-10-01T11:00:00.000Z",
+              },
+            ],
+            cursor: "2026-10-01T11:00:00.000Z",
+          }),
+          (b) => bodies.push(b),
+        ),
+      );
+      await loadWidget();
+      openPanel();
+
+      await vi.waitFor(() => expect(messageTexts()).toHaveLength(3));
+      expect(messageTexts()).toEqual(["Hola", "Te paso con alguien", "Soy Laura del equipo"]);
+      expect(bodies[0]).toEqual({
+        sessionId: localStorage.getItem(`plataforma-crm-widget:session:${AGENT_ID}`),
+      });
+    });
+
+    it("con el panel abierto consulta cada POLL_INTERVAL_MS con el cursor y pinta lo nuevo una sola vez", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const bodies: { sessionId: string; since?: string }[] = [];
+      server.use(
+        widgetThreadHandler(
+          threadUrl,
+          (body) =>
+            body.since === undefined
+              ? { messages: [], cursor: "2026-10-01T10:00:00.000Z" }
+              : {
+                  // gte en el backend: puede repetir lo ya pintado, se descarta por id.
+                  messages: [
+                    {
+                      id: "h1",
+                      role: "agent",
+                      text: "Hola, soy Laura",
+                      createdAt: "2026-10-01T10:05:00.000Z",
+                    },
+                  ],
+                  cursor: "2026-10-01T10:05:00.000Z",
+                },
+          (b) => bodies.push(b),
+        ),
+      );
+      await loadWidget();
+      openPanel();
+      await vi.waitFor(() => expect(bodies).toHaveLength(1));
+
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      await vi.waitFor(() => expect(messageTexts()).toEqual(["Hola, soy Laura"]));
+      expect(bodies[1]?.since).toBe("2026-10-01T10:00:00.000Z");
+
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      await vi.waitFor(() => expect(bodies).toHaveLength(3));
+      expect(bodies[2]?.since).toBe("2026-10-01T10:05:00.000Z");
+      expect(messageTexts()).toEqual(["Hola, soy Laura"]);
+    });
+
+    it("con el panel cerrado no consulta", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      let consultas = 0;
+      server.use(widgetThreadHandler(threadUrl, undefined, () => (consultas += 1)));
+      await loadWidget();
+      openPanel();
+      await vi.waitFor(() => expect(consultas).toBe(1));
+      shadow().querySelector<HTMLButtonElement>(".pcw-close")!.click();
+
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3);
+      expect(consultas).toBe(1);
+    });
+
+    it("si el historial falla, el chat funciona igual y el polling sigue desde el principio", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const bodies: { sessionId: string; since?: string }[] = [];
+      let primera = true;
+      server.use(
+        http.post(threadUrl, async ({ request }) => {
+          bodies.push((await request.json()) as { sessionId: string; since?: string });
+          if (primera) {
+            primera = false;
+            return HttpResponse.json({ error: { message: "x" } }, { status: 500 });
+          }
+          return HttpResponse.json({ messages: [], cursor: "1970-01-01T00:00:00.000Z" });
+        }),
+      );
+      await loadWidget();
+      openPanel();
+      await vi.waitFor(() =>
+        expect(shadow().querySelector<HTMLTextAreaElement>(".pcw-input")?.disabled).toBe(false),
+      );
+      expect(shadow().querySelector("[data-pcw-error]")).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      await vi.waitFor(() => expect(bodies).toHaveLength(2));
+      expect(bodies[1]?.since).toBe("1970-01-01T00:00:00.000Z");
+    });
   });
 });

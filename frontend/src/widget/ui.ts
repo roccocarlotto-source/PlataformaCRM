@@ -28,6 +28,8 @@ export interface WidgetUiOptions {
   primaryColor?: string;
   /** Se invoca con el texto ya recortado y no vacío. */
   onSend: (text: string) => void;
+  /** Se invoca al abrir o cerrar el panel (main.ts consulta mensajes nuevos solo con el panel abierto). */
+  onOpenChange?: (open: boolean) => void;
 }
 
 export interface WidgetUi {
@@ -76,10 +78,16 @@ function scrollToBottom(container: HTMLElement): void {
   container.scrollTop = container.scrollHeight;
 }
 
-export function renderMessage(container: HTMLElement, message: WidgetMessage): HTMLElement {
+// `before`: insertarlo antes de ese nodo y no al final (el historial que
+// llega después de que el visitante ya escribió va arriba).
+export function renderMessage(
+  container: HTMLElement,
+  message: WidgetMessage,
+  before: Node | null = null,
+): HTMLElement {
   const bubble = el("div", `pcw-msg pcw-msg--${message.role}`);
   bubble.textContent = message.text;
-  container.appendChild(bubble);
+  container.insertBefore(bubble, before);
   scrollToBottom(container);
   return bubble;
 }
@@ -185,11 +193,13 @@ export function mountWidgetUi(options: WidgetUiOptions): WidgetUi {
     bubble.setAttribute("aria-expanded", "true");
     bubble.setAttribute("aria-label", "Cerrar chat");
     input.focus();
+    options.onOpenChange?.(true);
   }
   function close(): void {
     panel.hidden = true;
     bubble.setAttribute("aria-expanded", "false");
     bubble.setAttribute("aria-label", "Abrir chat");
+    options.onOpenChange?.(false);
   }
   function toggle(): void {
     if (isOpen()) close();

@@ -8,7 +8,14 @@ import {
   widgetSuccessHandler,
   type CapturedWidgetRequest,
 } from "../test/msw/widgetHandlers";
-import { buildWidgetMessagesUrl, sendWidgetMessage, WidgetApiError } from "./api";
+import {
+  buildWidgetMessagesUrl,
+  buildWidgetThreadUrl,
+  fetchWidgetThread,
+  sendWidgetMessage,
+  WidgetApiError,
+} from "./api";
+import { widgetThreadHandler, widgetThreadUrl } from "../test/msw/widgetHandlers";
 import type { WidgetConfig } from "./config";
 
 const config: WidgetConfig = {
@@ -93,5 +100,36 @@ describe("sendWidgetMessage", () => {
     const err = await expectWidgetApiError(sendWidgetMessage(config, "session-abc", "hola"));
 
     expect(err.category).toBe("unknown");
+  });
+});
+
+describe("fetchWidgetThread", () => {
+  const threadUrl = widgetThreadUrl(config.agentId);
+
+  it("arma la URL del hilo", () => {
+    expect(buildWidgetThreadUrl(config)).toBe(threadUrl);
+  });
+
+  it("sin since pide el historial; con since, desde ese cursor", async () => {
+    const bodies: unknown[] = [];
+    server.use(widgetThreadHandler(threadUrl, undefined, (b) => bodies.push(b)));
+    await fetchWidgetThread(config, "s-1");
+    await fetchWidgetThread(config, "s-1", "2026-10-01T10:00:00.000Z");
+    expect(bodies).toEqual([
+      { sessionId: "s-1" },
+      { sessionId: "s-1", since: "2026-10-01T10:00:00.000Z" },
+    ]);
+  });
+
+  it("una respuesta 2xx sin la forma esperada es un error, no un hilo vacío", async () => {
+    server.use(widgetMalformedSuccessHandler(threadUrl));
+    const err = await expectWidgetApiError(fetchWidgetThread(config, "s-1"));
+    expect(err.category).toBe("unknown");
+  });
+
+  it("un 429 llega como rate_limited", async () => {
+    server.use(widgetErrorHandler(threadUrl, 429, "Demasiadas consultas"));
+    const err = await expectWidgetApiError(fetchWidgetThread(config, "s-1"));
+    expect(err.category).toBe("rate_limited");
   });
 });

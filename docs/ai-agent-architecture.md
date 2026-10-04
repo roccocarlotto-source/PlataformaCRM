@@ -542,9 +542,16 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 > - **Permisos:** el vendedor asignado a la conversación o cualquier `ADMIN`
 >   (responder, reintentar, devolver). Cerrar sigue abierto a cualquier
 >   usuario (ítem 168).
-> - **Solo WhatsApp.** El widget web no tiene cómo recibir un mensaje que no
->   sea la respuesta al suyo (no hace polling), y Messenger/Instagram quedan
->   pendientes: los tres devuelven 409 con el motivo.
+> - **Los cuatro canales (octubre 2026).** Messenger e Instagram salen por el
+>   Send API con el token de la página por la que escribió el cliente (la del
+>   último `AgentInboundJob` de la conversación), `messaging_type: RESPONSE`
+>   y sin etiqueta, con la misma ventana de 24 h. El chat web no tiene
+>   ventana: la respuesta queda en el hilo (`SENT`) y el widget la trae con
+>   `POST /api/public/agents/:agentId/web/thread` — historial al abrir el
+>   panel, y polling cada 5 s mientras esté abierto y la pestaña visible —, que
+>   la pasa a `DELIVERED`. Mismo embed token, mismos orígenes permitidos y
+>   cupos propios (por sesión y por token) para no gastar el de mensajes. El
+>   aviso de "nadie disponible" sale por el mismo camino en los cuatro.
 >
 > **El gate cambió de "cualquier `HUMAN`" a `humanoAtiendeLaConversacion`:
 > `status = TRANSFERRED_TO_HUMAN` **y** el último mensaje del negocio (entre
