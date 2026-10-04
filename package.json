@@ -25,6 +25,7 @@
     "purge:outbox-events": "tsx scripts/purge-outbox-events.ts",
     "purge:unconfirmed-auth-users": "tsx scripts/purge-unconfirmed-auth-users.ts",
     "purge:widget-visitors": "tsx scripts/purge-widget-visitors.ts",
+    "purge:test-organizations": "tsx scripts/purge-test-organizations.ts",
     "listar:telefonos-duplicados": "tsx scripts/listar-telefonos-duplicados.ts",
     "audit:gate": "tsx scripts/audit-gate.ts",
     "audit:gate:frontend": "tsx scripts/audit-gate.ts frontend/npm-audit.json --workspace=frontend",
