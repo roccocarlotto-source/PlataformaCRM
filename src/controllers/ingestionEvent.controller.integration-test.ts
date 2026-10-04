@@ -13,6 +13,7 @@ import { findRoleByName } from "../repositories/role.repository";
 import { ingestionEventRouter } from "../routes/ingestionEvent.routes";
 import { sourceRouter } from "../routes/source.routes";
 import { drenarPendientes } from "../workers/ingestionWorker";
+import { yaReclamable } from "../workers/relojDeLaBase.test-helper";
 
 // Test de integración del listado y el reproceso de IngestionEvent (G-1, G-2 y
 // G-7 de docs/research-frontend-ingesta-2026-08-27.md): HTTP real contra una app
@@ -162,6 +163,8 @@ async function crearEvento(input: EventoCreado): Promise<string> {
       status: input.status,
       batchId: input.batchId ?? null,
       errorMessage: input.errorMessage ?? null,
+      // Varios tests drenan en la línea siguiente: ver relojDeLaBase.test-helper.ts.
+      createdAt: yaReclamable(),
     },
     select: { id: true },
   });

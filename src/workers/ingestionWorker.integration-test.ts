@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { drenarPendientes } from "./ingestionWorker";
+import { yaReclamable } from "./relojDeLaBase.test-helper";
 
 // B-30 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — reintentos con backoff y DEAD_LETTER
 // para la cola de ingesta, contra Postgres real.
@@ -59,6 +60,8 @@ async function crearEvento(escenario: Escenario, rawPayload: unknown): Promise<s
       sourceId: escenario.sourceId,
       externalId: `b30-${randomUUID()}`,
       rawPayload: rawPayload as never,
+      // Se drena en la línea siguiente: ver relojDeLaBase.test-helper.ts.
+      createdAt: yaReclamable(),
     },
     select: { id: true },
   });
@@ -89,11 +92,12 @@ function leer(id: string) {
 
 // Simula que pasó el tiempo del backoff, sin esperarlo — mismo helper que el
 // test del worker de outbox: lo que se prueba es la máquina de estados, no el
-// reloj.
+// reloj. Con el mismo margen que created_at (ver relojDeLaBase.test-helper.ts):
+// "hace un segundo" según Node puede no ser pasado todavía para la base.
 async function adelantarElReloj(id: string) {
   await prisma.ingestionEvent.update({
     where: { id },
-    data: { nextAttemptAt: new Date(Date.now() - 1000) },
+    data: { nextAttemptAt: yaReclamable() },
   });
 }
 
