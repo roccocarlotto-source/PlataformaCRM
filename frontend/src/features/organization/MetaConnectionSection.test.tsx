@@ -35,6 +35,8 @@ function conexion(overrides: Record<string, unknown> = {}) {
     organizationId: "org-1",
     pageId: "104857600000001",
     instagramBusinessAccountId: "17841400000000001",
+    pageName: null,
+    instagramUsername: null,
     status: "ACTIVE",
     lastErrorAt: null,
     lastErrorMessage: null,
@@ -54,6 +56,18 @@ describe("MetaConnectionSection (solo lectura)", () => {
     expect(screen.getByText("104857600000001")).toBeInTheDocument();
     expect(screen.getByText("17841400000000001")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("conectada con los nombres: la página y el @usuario del Instagram", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json(conexion({ pageName: "Demo Autos", instagramUsername: "demo.autos" })),
+      ),
+    );
+    renderSection();
+
+    expect(await screen.findByText("Demo Autos")).toBeInTheDocument();
+    expect(screen.getByText("@demo.autos")).toBeInTheDocument();
   });
 
   it("conectada sin Instagram vinculado lo dice", async () => {

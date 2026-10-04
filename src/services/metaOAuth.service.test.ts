@@ -230,7 +230,7 @@ test("listarPaginasAutorizadas pide /me/accounts con los campos necesarios y el 
           id: "111",
           name: "Mi Negocio",
           access_token: "page-token-111",
-          instagram_business_account: { id: "17841400000000000" },
+          instagram_business_account: { id: "17841400000000000", username: "mi.negocio" },
         },
       ],
     },
@@ -245,12 +245,13 @@ test("listarPaginasAutorizadas pide /me/accounts con los campos necesarios y el 
       name: "Mi Negocio",
       accessToken: "page-token-111",
       instagramBusinessAccountId: "17841400000000000",
+      instagramUsername: "mi.negocio",
     },
   ]);
   const url = new URL(llamadas[0].url);
   assert.equal(url.origin + url.pathname, "https://graph.facebook.com/v25.0/me/accounts");
   const campos = url.searchParams.get("fields") ?? "";
-  for (const campo of ["id", "name", "access_token", "instagram_business_account"]) {
+  for (const campo of ["id", "name", "access_token", "instagram_business_account{id,username}"]) {
     assert.ok(campos.includes(campo), `falta el campo ${campo}`);
   }
   assert.equal(llamadas[0].url.includes("user-largo"), false);
@@ -268,6 +269,7 @@ test("listarPaginasAutorizadas: una página sin Instagram vinculado da null", as
 
   const [pagina] = await cliente.listarPaginasAutorizadas("t");
   assert.equal(pagina.instagramBusinessAccountId, null);
+  assert.equal(pagina.instagramUsername, null);
 });
 
 test("listarPaginasAutorizadas: ninguna página autorizada → lista vacía (la decisión es del service)", async () => {
@@ -396,4 +398,49 @@ test("desuscribirPaginaDeLaApp: un 200 sin success: true no cuenta como dada de 
   const { fetch } = mockearFetch({ json: { success: false } });
   const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
   await assert.rejects(cliente.desuscribirPaginaDeLaApp("111", "t"), esMetaAuthError(false));
+});
+
+// ---------------------------------------------------------------------------
+// Nombres de una página ya conectada
+// ---------------------------------------------------------------------------
+
+test("obtenerNombresDePagina: GET /{page-id} con name e instagram_business_account{id,username}, con el PAGE token en el header", async () => {
+  const { fetch, llamadas } = mockearFetch({
+    json: {
+      name: "Mi Negocio",
+      instagram_business_account: { id: "1784", username: "mi.negocio" },
+    },
+  });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+
+  const nombres = await cliente.obtenerNombresDePagina("111", "page-token-111");
+
+  assert.deepEqual(nombres, { name: "Mi Negocio", instagramUsername: "mi.negocio" });
+  const url = new URL(llamadas[0].url);
+  assert.equal(url.origin + url.pathname, "https://graph.facebook.com/v25.0/111");
+  assert.equal(url.searchParams.get("fields"), "name,instagram_business_account{id,username}");
+  assert.equal(llamadas[0].url.includes("page-token-111"), false);
+  assert.equal(
+    (llamadas[0].init.headers as Record<string, string>).Authorization,
+    "Bearer page-token-111",
+  );
+});
+
+test("obtenerNombresDePagina: sin Instagram o con el nombre vacío da null, no un string vacío", async () => {
+  const { fetch } = mockearFetch({ json: { name: "" } });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+  assert.deepEqual(await cliente.obtenerNombresDePagina("111", "t"), {
+    name: null,
+    instagramUsername: null,
+  });
+});
+
+test("obtenerNombresDePagina: Meta rechaza el token → MetaAuthError con tokenInvalido", async () => {
+  const { fetch } = mockearFetch({
+    ok: false,
+    status: 400,
+    json: { error: { message: "Invalid token", type: "OAuthException", code: 190 } },
+  });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+  await assert.rejects(cliente.obtenerNombresDePagina("111", "t"), esMetaAuthError(true));
 });

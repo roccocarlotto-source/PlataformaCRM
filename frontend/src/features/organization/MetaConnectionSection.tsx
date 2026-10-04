@@ -2,6 +2,7 @@ import { Badge } from "../../design-system/Badge";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { MetaConnectionIdentity } from "./MetaConnectionIdentity";
 import { useMetaConnection } from "./queries";
 
 // ---------------------------------------------------------------------------
@@ -14,7 +15,8 @@ import { useMetaConnection } from "./queries";
 // Facebook (el diálogo de Meta le muestra a quien conecta los portfolios y
 // negocios de su cuenta de Facebook, y para un cliente es confuso y riesgoso).
 // Mismo criterio que el "ID del número de WhatsApp" del agente: se ve, no se
-// toca. Los ids y no los nombres: la base guarda solo los ids que manda Meta.
+// toca. Qué página y qué Instagram: MetaConnectionIdentity (nombres, o los ids
+// si no los hay).
 // ---------------------------------------------------------------------------
 export function MetaConnectionSection() {
   const connectionQuery = useMetaConnection();
@@ -37,16 +39,12 @@ export function MetaConnectionSection() {
       ) : null}
 
       {connectionQuery.isSuccess && conexion?.status === "ACTIVE" ? (
-        <p>
-          <Badge variant="success">Conectada</Badge> Página: <strong>{conexion.pageId}</strong>
-          {" / "}
-          Instagram:{" "}
-          {conexion.instagramBusinessAccountId ? (
-            <strong>{conexion.instagramBusinessAccountId}</strong>
-          ) : (
-            "sin cuenta vinculada"
-          )}
-        </p>
+        <>
+          <p>
+            <Badge variant="success">Conectada</Badge>
+          </p>
+          <MetaConnectionIdentity conexion={conexion} />
+        </>
       ) : null}
 
       {connectionQuery.isSuccess && conexion?.status === "ERROR" ? (
