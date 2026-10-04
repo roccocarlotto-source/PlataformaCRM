@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ApiError } from "../../lib/api";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { ThemeProvider } from "../../theme/ThemeContext";
@@ -38,13 +38,19 @@ function cupon(overrides: Partial<RedeemedVoucher> = {}): RedeemedVoucher {
   };
 }
 
-function renderPage() {
+// `historial`: lo que hay en el historial antes del escáner. Vacío = se entró
+// directo a /vouchers/scan (la primera entrada, key "default").
+function renderPage(historial: string[] = []) {
   const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <MemoryRouter>
-          <VoucherScanPage />
+        <MemoryRouter initialEntries={[...historial, "/vouchers/scan"]}>
+          <Routes>
+            <Route path="/" element={<p>Dashboard</p>} />
+            <Route path="/contacts" element={<p>Contactos</p>} />
+            <Route path="/vouchers/scan" element={<VoucherScanPage />} />
+          </Routes>
         </MemoryRouter>
       </ThemeProvider>
     </QueryClientProvider>,
@@ -72,8 +78,57 @@ describe("VoucherScanPage", () => {
     expect(screen.getByText("15% de descuento en el taller")).toBeInTheDocument();
     expect(apiMock.redeemVoucher).toHaveBeenCalledTimes(1);
     expect(apiMock.redeemVoucher).toHaveBeenCalledWith(ID);
-    // La cámara sigue ahí, lista para el siguiente.
+    // El resultado reemplaza a la cámara (y al campo manual), con las dos salidas.
+    expect(screen.queryByTestId("camara")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Link o código del cupón")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Escanear otro" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Listo" })).toBeInTheDocument();
+  });
+
+  it("un error también apaga la cámara y ofrece las dos salidas", async () => {
+    renderPage();
+
+    escanear("https://g.page/r/abc/review");
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByTestId("camara")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Escanear otro" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Listo" })).toBeInTheDocument();
+  });
+
+  it('"Escanear otro" limpia el resultado y vuelve a prender la cámara', async () => {
+    const user = userEvent.setup();
+    apiMock.redeemVoucher.mockResolvedValue(cupon());
+    renderPage();
+
+    escanear(LINK);
+    await user.click(await screen.findByRole("button", { name: "Escanear otro" }));
+
     expect(screen.getByTestId("camara")).toBeInTheDocument();
+    expect(screen.queryByText("Cupón canjeado")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Link o código del cupón")).toBeInTheDocument();
+  });
+
+  it('"Listo" vuelve a la pantalla anterior', async () => {
+    const user = userEvent.setup();
+    apiMock.redeemVoucher.mockResolvedValue(cupon());
+    renderPage(["/contacts"]);
+
+    escanear(LINK);
+    await user.click(await screen.findByRole("button", { name: "Listo" }));
+
+    expect(screen.getByText("Contactos")).toBeInTheDocument();
+  });
+
+  it('"Listo" lleva al Dashboard si se entró directo al escáner', async () => {
+    const user = userEvent.setup();
+    apiMock.redeemVoucher.mockResolvedValue(cupon());
+    renderPage();
+
+    escanear(LINK);
+    await user.click(await screen.findByRole("button", { name: "Listo" }));
+
+    expect(screen.getByText("Dashboard")).toBeInTheDocument();
   });
 
   it("409 ya canjeado: el mensaje del backend tal cual, con cuándo", async () => {
@@ -144,7 +199,8 @@ describe("VoucherScanPage", () => {
     expect(apiMock.redeemVoucher).not.toHaveBeenCalled();
   });
 
-  it("el mismo QR frente a la cámara se canjea una sola vez; otro QR se procesa enseguida", async () => {
+  it('tras "Escanear otro", el QR que sigue frente a la cámara se ignora; otro se procesa enseguida', async () => {
+    const user = userEvent.setup();
     apiMock.redeemVoucher
       .mockResolvedValueOnce(cupon())
       .mockResolvedValueOnce(cupon({ id: OTRO_ID, label: "Lavado gratis" }));
@@ -152,11 +208,12 @@ describe("VoucherScanPage", () => {
 
     escanear(LINK);
     expect(await screen.findByText("15% de descuento en el taller")).toBeInTheDocument();
-    // Los cuadros siguientes leen el mismo código: no pisan el éxito con un 409.
+    await user.click(screen.getByRole("button", { name: "Escanear otro" }));
+    // El cliente sigue con el celular enfrente: no se reintenta (sería un 409).
     escanear(LINK);
     escanear(LINK);
     expect(apiMock.redeemVoucher).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Cupón canjeado")).toBeInTheDocument();
+    expect(screen.getByTestId("camara")).toBeInTheDocument();
 
     // El siguiente cliente, sin recargar.
     escanear(`https://qr.test.local/v/${OTRO_ID}`);
@@ -174,6 +231,7 @@ describe("VoucherScanPage", () => {
 
     escanear(LINK);
     expect(await screen.findByText("Cupón canjeado")).toBeInTheDocument();
+    act(() => screen.getByRole("button", { name: "Escanear otro" }).click());
 
     vi.setSystemTime(Date.now() + 5000);
     escanear(LINK);
@@ -196,7 +254,11 @@ describe("VoucherScanPage", () => {
 
     expect(await screen.findByText("Cupón canjeado")).toBeInTheDocument();
     expect(apiMock.redeemVoucher).toHaveBeenCalledWith(ID);
+
+    // Mismas salidas que con la cámara; "Escanear otro" vuelve al campo, vacío.
+    await user.click(screen.getByRole("button", { name: "Escanear otro" }));
     expect(screen.getByLabelText("Link o código del cupón")).toHaveValue("");
+    expect(screen.queryByTestId("camara")).not.toBeInTheDocument();
   });
 
   it("el campo manual acepta el id pelado", async () => {

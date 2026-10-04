@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -50,12 +51,15 @@ function mensajeDeError(error: unknown): string {
 // teléfono pliega la sidebar en un menú, y el contenido va en una columna
 // angosta (.ds-voucher-scan) que en una compu tampoco se estira.
 //
-// La cámara queda prendida entre canje y canje: el resultado del último queda
-// a la vista y el siguiente QR se procesa apenas aparece, sin tocar nada.
-// Sin cámara (o sin permiso), el link o el id se pegan a mano en el campo de
-// abajo — que está siempre, por si la cámara no enfoca.
+// Con un resultado (canjeado o error) la cámara se apaga y el resultado ocupa
+// su lugar, con dos salidas: "Escanear otro" (la vuelve a prender) y "Listo"
+// (vuelve a la pantalla anterior). Igual si el código vino del campo manual.
+// Sin cámara (o sin permiso), el link o el id se pegan a mano en ese campo,
+// que está siempre mientras se escanea, por si la cámara no enfoca.
 // ---------------------------------------------------------------------------
 export function VoucherScanPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const canjear = useRedeemVoucher();
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [sinCamara, setSinCamara] = useState<string | null>(null);
@@ -106,6 +110,52 @@ export function VoucherScanPage() {
     void procesar(texto);
   }
 
+  function escanearOtro() {
+    // Si el cliente sigue con el celular frente a la cámara, al prenderla
+    // leería el mismo QR y pisaría el éxito con un 409: se lo da por visto
+    // ahora, y OLVIDO_MS corre desde acá.
+    if (ultimoLeido.current) ultimoLeido.current.vistoEn = Date.now();
+    setResultado(null);
+  }
+
+  function listo() {
+    // "default" es la key de la primera entrada del historial: se entró
+    // directo (link, recarga), no hay pantalla anterior a la que volver.
+    if (location.key === "default") navigate("/");
+    else navigate(-1);
+  }
+
+  // Mientras se canjea y mientras hay un resultado, la cámara está apagada.
+  if (canjear.isPending || resultado !== null) {
+    return (
+      <div className="ds-voucher-scan">
+        <PageHeader title="Canjear cupón" />
+        <div className="ds-voucher-scan-body">
+          {resultado === null ? (
+            <LoadingState>Canjeando…</LoadingState>
+          ) : (
+            <>
+              {resultado.tipo === "canjeado" ? (
+                <div role="status" className="ds-voucher-scan-ok">
+                  <strong>Cupón canjeado</strong>
+                  <span className="ds-voucher-scan-label">{resultado.cupon.label}</span>
+                </div>
+              ) : (
+                <ErrorState>{resultado.mensaje}</ErrorState>
+              )}
+              <div className="ds-voucher-scan-actions">
+                <Button variant="primary" onClick={escanearOtro}>
+                  Escanear otro
+                </Button>
+                <Button onClick={listo}>Listo</Button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="ds-voucher-scan">
       <PageHeader title="Canjear cupón" />
@@ -119,17 +169,6 @@ export function VoucherScanPage() {
           <p className="ds-hint">{sinCamara} Pegá o tipeá el link del cupón abajo.</p>
         )}
 
-        {canjear.isPending ? (
-          <LoadingState>Canjeando…</LoadingState>
-        ) : resultado?.tipo === "canjeado" ? (
-          <div role="status" className="ds-voucher-scan-ok">
-            <strong>Cupón canjeado</strong>
-            <span className="ds-voucher-scan-label">{resultado.cupon.label}</span>
-          </div>
-        ) : resultado?.tipo === "error" ? (
-          <ErrorState>{resultado.mensaje}</ErrorState>
-        ) : null}
-
         <form className="ds-voucher-scan-form" onSubmit={handleSubmit}>
           <FormField label="Link o código del cupón">
             <input
@@ -141,12 +180,7 @@ export function VoucherScanPage() {
               spellCheck={false}
             />
           </FormField>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={canjear.isPending || manual.trim().length === 0}
-            loading={canjear.isPending}
-          >
+          <Button type="submit" variant="primary" disabled={manual.trim().length === 0}>
             Canjear
           </Button>
         </form>
