@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  datosQueFaltanParaActuarPorWeb,
+  mensajeFaltanDatosPorWeb,
   CATALOGO_DE_TOOLS,
   MENSAJE_CIERRE_LO_HACE_UNA_PERSONA,
   MENSAJE_MOTIVO_SIN_PERDIDA,
@@ -32,6 +34,8 @@ const CONTEXTO: ContextoDeEjecucionDeTool = {
     contactId: "00000000-0000-4000-8000-000000000003",
     branchId: "00000000-0000-4000-8000-000000000004",
     agentId: "00000000-0000-4000-8000-000000000005",
+    // Un canal sin las reglas del visitante anónimo del widget.
+    channel: "WHATSAPP",
   },
 };
 
@@ -320,6 +324,8 @@ test("create_lead y update_lead exponen el mismo schema y ninguno pide contactId
     "lastName",
     "location",
     "notes",
+    // D3: el teléfono también se puede guardar desde el chat.
+    "phone",
     "score",
     "serviceOfInterest",
     "urgency",
@@ -875,4 +881,34 @@ test("precioOcultoParaElModelo: a consultar siempre; si no, según la moneda que
   assert.equal(precioOcultoParaElModelo(unidad(false, "USD_ONLY"), "UYU"), true);
   assert.equal(precioOcultoParaElModelo(unidad(false, "USD_ONLY"), "USD"), false);
   assert.equal(precioOcultoParaElModelo(unidad(false, "USD_ONLY"), null), false);
+});
+
+// ---------------------------------------------------------------------------
+// D3 (docs-privados, local): en el canal web, antes de reservar o crear una
+// oportunidad, hacen falta el nombre y un teléfono o un email.
+// ---------------------------------------------------------------------------
+
+test("D3: a un visitante anónimo le faltan el nombre y una forma de contacto", () => {
+  const anonimo = { firstName: "Visitante", lastName: "caa2c873", email: null, phone: null };
+  assert.deepEqual(datosQueFaltanParaActuarPorWeb(anonimo), [
+    "el nombre",
+    "un teléfono o un email",
+  ]);
+  assert.match(mensajeFaltanDatosPorWeb(datosQueFaltanParaActuarPorWeb(anonimo)), /update_lead/);
+});
+
+test("D3: con nombre y un teléfono O un email no falta nada", () => {
+  const base = { firstName: "Diego", lastName: "Ramírez", email: null, phone: null };
+  assert.deepEqual(datosQueFaltanParaActuarPorWeb({ ...base, phone: "+59899123456" }), []);
+  assert.deepEqual(datosQueFaltanParaActuarPorWeb({ ...base, email: "d@example.test" }), []);
+  assert.deepEqual(datosQueFaltanParaActuarPorWeb(base), ["un teléfono o un email"]);
+  assert.deepEqual(
+    datosQueFaltanParaActuarPorWeb({
+      firstName: "Visitante",
+      lastName: "caa2c873",
+      email: "d@example.test",
+      phone: "  ",
+    }),
+    ["el nombre"],
+  );
 });

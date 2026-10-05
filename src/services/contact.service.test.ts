@@ -344,3 +344,41 @@ test("F5-b: telefonoParaGuardar completa un local con el país por defecto", () 
     (err: unknown) => err instanceof AppError && err.statusCode === 400,
   );
 });
+
+// ---------------------------------------------------------------------------
+// OPUS-B-03 / FABLE-B-10 y D3 (docs-privados, local): qué de lo que la persona
+// dice en el chat se puede guardar en su contacto.
+// ---------------------------------------------------------------------------
+
+test("el nombre que dice un visitante del widget reemplaza al provisorio", () => {
+  const { aplica, ignorados } = identidadAplicable(
+    { firstName: "Visitante", lastName: "caa2c873", email: null, phone: null },
+    { firstName: "Diego", lastName: "Ramírez" },
+  );
+  assert.deepEqual(aplica, { firstName: "Diego", lastName: "Ramírez" });
+  assert.deepEqual(ignorados, []);
+});
+
+test("un nombre que cargó una persona no se pisa desde el chat", () => {
+  const { aplica, ignorados } = identidadAplicable(
+    { firstName: "Ana", lastName: "Pérez", email: null, phone: null },
+    { firstName: "Diego", lastName: "Ramírez" },
+  );
+  assert.deepEqual(aplica, {});
+  assert.deepEqual(ignorados, ["firstName", "lastName"]);
+});
+
+test("el teléfono se guarda solo si el contacto no tiene uno, igual que el mail", () => {
+  const sinTelefono = identidadAplicable(
+    { firstName: "Ana", lastName: "Pérez", email: null, phone: null },
+    { phone: " 099 123 456 " },
+  );
+  assert.deepEqual(sinTelefono.aplica, { phone: "099 123 456" });
+
+  const conTelefono = identidadAplicable(
+    { firstName: "Ana", lastName: "Pérez", email: null, phone: "+59899000000" },
+    { phone: "099 123 456" },
+  );
+  assert.deepEqual(conTelefono.aplica, {});
+  assert.deepEqual(conTelefono.ignorados, ["phone"]);
+});

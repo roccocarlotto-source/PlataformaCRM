@@ -1,6 +1,8 @@
 import {
+  ConversationChannel,
   LeadUrgency,
   OpportunityStatus,
+  type OpportunityLeadSource,
   VehicleBodyType,
   VehicleCondition,
   VehicleFuelType,
@@ -9,6 +11,7 @@ import {
 import { z } from "zod";
 import { logger } from "../lib/logger";
 import { findManyActivities } from "../repositories/activity.repository";
+import { countFutureConfirmedBookingsOfContact } from "../repositories/booking.repository";
 import { findBranchById } from "../repositories/branch.repository";
 import { findContactById, setLeadIntentIfEmpty } from "../repositories/contact.repository";
 import { findManyOpportunities, findOpportunityById } from "../repositories/opportunity.repository";
@@ -25,6 +28,7 @@ import {
 } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
 import { buscarPorMarcaYModelo, idsDelMismoModelo } from "../utils/busquedaDeVehiculo";
+import { esNombreProvisorio } from "../utils/nombreProvisorio";
 import { isoEnZona } from "../utils/timezone";
 import {
   BODY_TYPE_LABELS,
@@ -34,7 +38,7 @@ import {
 } from "../utils/vehicleLabels";
 import { currencySchema } from "../utils/validation";
 import { MAX_DIAS_DE_RANGO, obtenerDisponibilidad } from "./availability.service";
-import { createBooking } from "./booking.service";
+import { createBooking, relojDeReservas } from "./booking.service";
 import {
   asignarVehiculoDeInteresDesdeElAgente,
   getContactById,
@@ -81,8 +85,83 @@ export interface ContextoDeEjecucionDeTool {
     contactId: string;
     branchId: string;
     agentId: string;
+    // El canal por el que escribe el cliente. Lo miran las reglas que
+    // dependen de qué tan identificada está la persona (un visitante del
+    // widget es anónimo; alguien de WhatsApp ya llega con su número) y el
+    // origen de la oportunidad.
+    channel: ConversationChannel;
   };
 }
+
+// ---------------------------------------------------------------------------
+// D3 (decisión de Rocco, 05/10/2026; FABLE-B-02 y OPUS-A-06, docs-privados,
+// local): EN EL CANAL WEB, ANTES DE RESERVAR O CREAR UNA OPORTUNIDAD, HACEN
+// FALTA EL NOMBRE Y UN TELÉFONO O UN EMAIL.
+//
+// El visitante del widget es anónimo: cualquiera, con cualquier sessionId.
+// Antes podía pedir "reservame cuatro test drives para mañana" sin decir quién
+// era y el agente los reservaba: agenda bloqueada y nadie a quien llamar.
+//
+// SE VALIDA ACÁ, EN LA TOOL, y no en el prompt: una instrucción el modelo la
+// puede saltear; un resultado ok: false no. El modelo lee qué falta, se lo
+// pide al cliente, lo guarda con update_lead y vuelve a intentar.
+//
+// Solo WEB: por WhatsApp, Messenger e Instagram la persona ya llega atada a
+// una cuenta suya por la que el negocio le puede contestar.
+// ---------------------------------------------------------------------------
+export function datosQueFaltanParaActuarPorWeb(contacto: {
+  firstName: string;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+}): string[] {
+  const faltan: string[] = [];
+  if (esNombreProvisorio(contacto)) {
+    faltan.push("el nombre");
+  }
+  const tiene = (valor: string | null) => valor !== null && valor.trim().length > 0;
+  if (!tiene(contacto.email) && !tiene(contacto.phone)) {
+    faltan.push("un teléfono o un email");
+  }
+  return faltan;
+}
+
+export function mensajeFaltanDatosPorWeb(faltan: string[]): string {
+  return `Todavía no se puede: antes de reservar o registrar la oportunidad hace falta ${faltan.join(" y ")} del cliente. Pedíselo, guardalo con update_lead (firstName, lastName, phone, email) y recién después volvé a llamar a esta herramienta. No le digas que quedó reservado ni registrado: todavía no se hizo nada.`;
+}
+
+// null = se puede seguir. Lee el contacto vigente: el update_lead de la misma
+// ronda ya quedó guardado.
+async function bloqueoPorIdentidadEnWeb(
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<ResultadoDeTool | null> {
+  if (contexto.conversation.channel !== ConversationChannel.WEB) {
+    return null;
+  }
+  const contacto = await findContactById(contexto.conversation.contactId, contexto.organizationId);
+  if (!contacto) {
+    return fallo("El contacto de esta conversación ya no existe");
+  }
+  const faltan = datosQueFaltanParaActuarPorWeb(contacto);
+  return faltan.length > 0 ? fallo(mensajeFaltanDatosPorWeb(faltan)) : null;
+}
+
+// ---------------------------------------------------------------------------
+// D4 (decisión de Rocco, 05/10/2026; FABLE-B-02, docs-privados, local): como
+// máximo 2 reservas futuras activas por contacto desde el agente. Una persona
+// que quiere una tercera, o cambiar una, habla con alguien del equipo. Lo que
+// carga una persona desde el CRM no tiene este tope.
+// ---------------------------------------------------------------------------
+export const MAX_RESERVAS_FUTURAS_POR_CONTACTO = 2;
+export const MENSAJE_TOPE_DE_RESERVAS = `Este cliente ya tiene ${String(MAX_RESERVAS_FUTURAS_POR_CONTACTO)} reservas futuras activas, que es el máximo que se puede agendar desde el chat. No reservaste nada nuevo: decíselo, y si necesita otra o quiere cambiar una, derivá la conversación a una persona.`;
+
+// FABLE-I-06 / B-15 (docs-privados, local): de dónde vino la oportunidad que
+// crea el agente. Solo los canales que el enum ya tiene; Messenger e Instagram
+// quedan sin origen hasta que exista un valor para ellos.
+const ORIGEN_POR_CANAL: Partial<Record<ConversationChannel, OpportunityLeadSource>> = {
+  WEB: "WEBSITE",
+  WHATSAPP: "WHATSAPP",
+};
 
 // Serializable: va a Message.toolCalls y, como string JSON, de vuelta al
 // modelo.
@@ -553,6 +632,13 @@ const createOpportunityTool: ToolDelAgente = {
       if (!contact) {
         return fallo("El contacto de esta conversación ya no existe");
       }
+      // D3: en el canal web, primero la identidad.
+      if (contexto.conversation.channel === ConversationChannel.WEB) {
+        const faltan = datosQueFaltanParaActuarPorWeb(contact);
+        if (faltan.length > 0) {
+          return fallo(mensajeFaltanDatosPorWeb(faltan));
+        }
+      }
 
       // Ítem 84: una sola oportunidad OPEN por contacto desde el agente. Si ya
       // hay una, se devuelve esa con `reused: true` —un dato, no solo un texto,
@@ -739,6 +825,8 @@ const createOpportunityTool: ToolDelAgente = {
         ownerId,
         pipelineId: pipeline.id,
         stageId: primeraEtapa.id,
+        // FABLE-I-06: el origen, según el canal de la conversación.
+        leadSource: ORIGEN_POR_CANAL[contexto.conversation.channel],
       });
 
       return exito({
@@ -1065,6 +1153,11 @@ const reserveVehicleTool: ToolDelAgente = {
     const { vehiculo, opportunityId } = validacion.value;
 
     return conErroresDeNegocio(async () => {
+      // D3: en el canal web, primero la identidad.
+      const bloqueo = await bloqueoPorIdentidadEnWeb(contexto);
+      if (bloqueo) {
+        return bloqueo;
+      }
       const resuelta = await resolverOportunidad(opportunityId, contexto);
       if (!resuelta.ok) {
         return resuelta.resultado;
@@ -1469,6 +1562,24 @@ const createBookingTool: ToolDelAgente = {
     const input = validacion.value;
 
     return conErroresDeNegocio(async () => {
+      // D3: en el canal web, primero la identidad.
+      const bloqueo = await bloqueoPorIdentidadEnWeb(contexto);
+      if (bloqueo) {
+        return bloqueo;
+      }
+      // D4: el tope de reservas futuras del contacto. Bajo el lock de la
+      // conversación (un turno a la vez por contacto y canal), así que dos
+      // reservas de la misma ronda se cuentan una después de la otra.
+      const futuras = await countFutureConfirmedBookingsOfContact(
+        contexto.conversation.contactId,
+        contexto.organizationId,
+        // El mismo reloj con el que createBooking decide qué es pasado.
+        relojDeReservas.ahora(),
+      );
+      if (futuras >= MAX_RESERVAS_FUTURAS_POR_CONTACTO) {
+        return fallo(MENSAJE_TOPE_DE_RESERVAS);
+      }
+
       const servicio = await resolverServicio(input, contexto);
       if (!servicio.ok) {
         return servicio.resultado;
@@ -1540,6 +1651,9 @@ const leadArgs = z
     firstName: textoOpcional(100),
     lastName: textoOpcional(100),
     email: vacioComoAusente(z.string().email("email no tiene formato de correo").max(255)),
+    // D3: el teléfono que el cliente dio en el chat. La forma la valida y
+    // normaliza qualifyLead, con el país de la organización.
+    phone: textoOpcional(30),
     // Mismo rango que el CHECK contacts_lead_score_range_check: se falla acá,
     // con mensaje, y no en el UPDATE.
     score: vacioComoAusente(
@@ -1616,6 +1730,11 @@ const LEAD_PARAMETERS = {
       description:
         "Mail que el contacto te dio en esta conversación, tal cual lo escribió. No lo armes vos a partir del nombre.",
     },
+    phone: {
+      type: "string",
+      description:
+        "Teléfono que el contacto te dio en esta conversación, con el código de área, tal cual lo escribió. No lo inventes ni lo completes.",
+    },
     location: { type: "string", description: "Zona o ciudad del contacto." },
     notes: {
       type: "string",
@@ -1688,7 +1807,7 @@ function ejecutarCalificacion(
 
   return conErroresDeNegocio(async () => {
     // Solo el vehículo: no hay calificación que guardar.
-    const { contacto, identidadIgnorada } =
+    const { contacto, identidadIgnorada, motivoDelTelefono } =
       cantidadDeArgumentos(input) > 0
         ? await qualifyLead(contexto.organizationId, contexto.conversation.contactId, input)
         : {
@@ -1697,6 +1816,7 @@ function ejecutarCalificacion(
               contexto.conversation.contactId,
             ),
             identidadIgnorada: [] as string[],
+            motivoDelTelefono: undefined,
           };
     const vehiculo = vehiculoDeInteres
       ? await anotarVehiculoDeInteres(vehiculoDeInteres, contexto)
@@ -1721,6 +1841,7 @@ function ejecutarCalificacion(
       firstName: contacto.firstName,
       lastName: contacto.lastName,
       email: contacto.email,
+      phone: contacto.phone,
       ...(identidadIgnorada.length > 0
         ? {
             noSeActualizo: identidadIgnorada,
@@ -1728,6 +1849,19 @@ function ejecutarCalificacion(
               "Esos datos ya estaban cargados en el CRM y no se pisan desde el chat. No le digas al cliente que los actualizaste; si insiste en corregirlos, derivá.",
           }
         : {}),
+      // El teléfono tiene dos motivos propios para no quedar guardado, y
+      // ninguno es "ya estaba cargado".
+      ...(motivoDelTelefono === "no-valido"
+        ? {
+            telefono:
+              "El teléfono no se guardó: no tiene un formato válido. Pedíselo de nuevo, con el código de área.",
+          }
+        : motivoDelTelefono === "no-disponible"
+          ? {
+              telefono:
+                "El teléfono no se pudo guardar. No se lo menciones al cliente; pedile un email para poder seguir.",
+            }
+          : {}),
       ...vehiculo,
     });
   });
@@ -1737,7 +1871,7 @@ const createLeadTool: ToolDelAgente = {
   definition: {
     name: "create_lead",
     description:
-      "Registra en el CRM lo que sabés del contacto de esta conversación: su nombre y su mail, y su calificación como lead —puntaje, intención, servicio de interés, urgencia, presupuesto, zona y notas. Usala la PRIMERA vez que el contacto dice cualquiera de esas cosas, en ese mismo turno, sin pedirle permiso ni esperar a tener todo. Dispara con cualquiera de estas, sueltas: «soy Diego Ramírez», «mi mail es...», «busco una SUV familiar», «tengo hasta 30 mil», «necesito cerrarlo esta semana», «vivo en Pilar». Si no la llamás, el vendedor abre el CRM y ve un contacto sin nombre y sin un solo dato de lo que hablaron. Todos los campos son opcionales; mandá los que conozcas y el resto después con update_lead.",
+      "Registra en el CRM lo que sabés del contacto de esta conversación: su nombre, su mail y su teléfono, y su calificación como lead —puntaje, intención, servicio de interés, urgencia, presupuesto, zona y notas. Usala la PRIMERA vez que el contacto dice cualquiera de esas cosas, en ese mismo turno, sin pedirle permiso ni esperar a tener todo. Dispara con cualquiera de estas, sueltas: «soy Diego Ramírez», «mi mail es...», «busco una SUV familiar», «tengo hasta 30 mil», «necesito cerrarlo esta semana», «vivo en Pilar». Si no la llamás, el vendedor abre el CRM y ve un contacto sin nombre y sin un solo dato de lo que hablaron. Todos los campos son opcionales; mandá los que conozcas y el resto después con update_lead.",
     parameters: LEAD_PARAMETERS,
   },
   ejecutar: ejecutarCalificacion,

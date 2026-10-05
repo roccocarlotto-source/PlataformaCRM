@@ -1,3 +1,4 @@
+import { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME } from "../utils/nombreProvisorio";
 import {
   createContact,
   findContactById,
@@ -28,7 +29,9 @@ export const WHATSAPP_CONTACT_SOURCE = "WhatsApp";
 
 // El fallback cuando Meta no manda profile.name (la persona no configuró
 // nombre, o su privacidad lo oculta).
-export const WHATSAPP_CONTACT_FALLBACK_FIRST_NAME = "WhatsApp";
+// La constante vive en utils/nombreProvisorio.ts, junto a cómo se reconoce
+// el marcador; se reexporta para los que ya la importan de acá.
+export { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME };
 
 // firstName/lastName son VARCHAR(100).
 const MAX_NOMBRE = 100;
