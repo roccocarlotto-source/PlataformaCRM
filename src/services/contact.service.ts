@@ -9,11 +9,13 @@ import {
   createContact as createContactRepo,
   erasePersonalDataFromContact,
   existsOtherContactWithPhone,
-  findContactById,
   findContactByIdIncludingDeleted,
+  findContactWithVehicleOfInterest,
+  setVehicleOfInterestFromAgent,
   findManyContacts,
   softDeleteContact,
   updateContact as updateContactRepo,
+  type UpdateContactData,
   updateLeadQualification,
   type ContactSortBy,
   type SortOrder,
@@ -21,6 +23,7 @@ import {
 } from "../repositories/contact.repository";
 import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
 import { countOpenOpportunitiesOf } from "../repositories/opportunity.repository";
+import { findVehicleById } from "../repositories/vehicle.repository";
 import {
   findDefaultPhoneCountryCode,
   lockOrganizationForUpdate,
@@ -64,8 +67,10 @@ export async function listContacts(organizationId: string, params: ListContactsP
   };
 }
 
+// La ficha: el contacto con el resumen de su vehículo de interés (la unidad
+// aunque se haya vendido o dado de baja, con su estado).
 export async function getContactById(organizationId: string, id: string) {
-  const contact = await findContactById(id, organizationId);
+  const contact = await findContactWithVehicleOfInterest(id, organizationId);
   if (!contact) {
     throw new AppError("Contacto no encontrado", 404);
   }
@@ -292,6 +297,8 @@ export interface UpdateContactInput {
   // `null` desvincula al contacto de su empresa (M-10).
   companyId?: string | null;
   ownerId?: string;
+  // El vehículo de interés, cargado por una persona. `null` lo quita.
+  vehicleOfInterestId?: string | null;
 }
 
 export async function updateContact(
@@ -302,12 +309,17 @@ export async function updateContact(
 ) {
   // 404 si no existe, no es de esta organización, o ya está borrado. El país
   // por defecto (F5-b) se lee en paralelo, y solo si vino un teléfono.
-  const [, codigoDePais] = await Promise.all([
+  const [actual, codigoDePais] = await Promise.all([
     getContactById(organizationId, id),
     tieneTelefono(input.phone) ? findDefaultPhoneCountryCode(organizationId) : null,
   ]);
 
-  const data: UpdateContactInput = { ...input };
+  const { vehicleOfInterestId, ...resto } = input;
+  const data: UpdateContactData = { ...resto };
+  Object.assign(
+    data,
+    await vehiculoDeInteresDeUnaPersona(organizationId, actual, vehicleOfInterestId),
+  );
 
   // F5: normalizado y único (ver telefonoParaGuardar / conTelefonoUnico).
   // `"phone" in input` por lo mismo que companyId abajo: null limpia.
@@ -350,6 +362,56 @@ export async function updateContact(
   }
 
   return getContactById(organizationId, id);
+}
+
+// ---------------------------------------------------------------------------
+// Vehículo de interés (F2): la unidad del stock que le interesa al contacto,
+// separada de una oportunidad y de una reserva — anotarla no la reserva.
+//
+// LA REGLA ENTRE PERSONAS Y AGENTE:
+//   - Una persona (PATCH del contacto) puede cargarla, cambiarla o quitarla
+//     siempre. Queda marcada HUMAN. Quitarla (null) la deja libre.
+//   - El agente (create_lead/update_lead) la carga solo si está VACÍA o si la
+//     había cargado ÉL (AGENT): el interés del cliente puede moverse de una
+//     unidad a otra mientras chatea. La que cargó una persona no la pisa
+//     nunca; para cambiarla, la persona la quita o elige otra.
+//   - Guardar el contacto sin tocar el campo no cambia quién la cargó: si el
+//     valor que llega es el mismo que ya tenía, no se escribe.
+// ---------------------------------------------------------------------------
+
+export const VEHICULO_DE_INTERES_INVALIDO =
+  "El vehículo de interés no existe, no pertenece a tu organización, o está dado de baja";
+
+// Lo que hay que escribir para lo que pidió una persona, o nada.
+async function vehiculoDeInteresDeUnaPersona(
+  organizationId: string,
+  actual: { vehicleOfInterestId: string | null },
+  pedido: string | null | undefined,
+): Promise<Pick<UpdateContactData, "vehicleOfInterestId" | "vehicleOfInterestSetBy">> {
+  if (pedido === undefined || pedido === actual.vehicleOfInterestId) {
+    return {};
+  }
+  if (pedido === null) {
+    return { vehicleOfInterestId: null, vehicleOfInterestSetBy: null };
+  }
+  // Uno nuevo tiene que existir y estar en el stock (no dado de baja); el que
+  // ya estaba puede seguir aunque después se haya dado de baja.
+  if (!(await findVehicleById(pedido, organizationId))) {
+    throw new AppError(VEHICULO_DE_INTERES_INVALIDO, 400);
+  }
+  return { vehicleOfInterestId: pedido, vehicleOfInterestSetBy: "HUMAN" };
+}
+
+// El agente anota el vehículo de interés. "guardado", o "de-una-persona" si
+// ya había uno cargado por una persona (no se pisa). La unidad ya la resolvió
+// quien llama, entre las publicadas y disponibles.
+export async function asignarVehiculoDeInteresDesdeElAgente(
+  organizationId: string,
+  contactId: string,
+  vehicleId: string,
+): Promise<"guardado" | "de-una-persona"> {
+  const { count } = await setVehicleOfInterestFromAgent(contactId, organizationId, vehicleId);
+  return count === 1 ? "guardado" : "de-una-persona";
 }
 
 export const CONTACTO_CON_OPORTUNIDADES_ABIERTAS =

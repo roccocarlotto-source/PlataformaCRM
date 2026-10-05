@@ -1,3 +1,4 @@
+import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "../vehicle/labels";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Users } from "lucide-react";
@@ -354,6 +355,25 @@ export function ContactListPage() {
                     ),
                   },
                   { label: "Asignado", value: nombreDeAsignado(detalle.ownerId) },
+                  {
+                    label: "Vehículo de interés",
+                    value: detalle.vehicleOfInterest ? (
+                      <>
+                        {[
+                          detalle.vehicleOfInterest.make,
+                          detalle.vehicleOfInterest.model,
+                          String(detalle.vehicleOfInterest.year),
+                          detalle.vehicleOfInterest.trim,
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}{" "}
+                        <Badge variant={STATUS_BADGE_VARIANT[detalle.vehicleOfInterest.status]}>
+                          {STATUS_LABELS[detalle.vehicleOfInterest.status]}
+                        </Badge>
+                        {detalle.vehicleOfInterest.deletedAt ? " · dada de baja del stock" : null}
+                      </>
+                    ) : null,
+                  },
                 ],
               },
             ]}

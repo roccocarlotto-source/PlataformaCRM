@@ -323,6 +323,7 @@ test("create_lead y update_lead exponen el mismo schema y ninguno pide contactId
     "score",
     "serviceOfInterest",
     "urgency",
+    "vehiculoDeInteres",
   ]);
 });
 

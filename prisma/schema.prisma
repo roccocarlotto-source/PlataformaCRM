@@ -33,6 +33,14 @@ enum LifecycleStage {
 // acotado que cruza todos los verticales del negocio (una automotora y una
 // clínica la miden igual), mientras que la intención varía demasiado entre
 // rubros para un catálogo cerrado.
+// Quién cargó el vehículo de interés de un contacto. Decide si el agente puede
+// cambiarlo: el que cargó el agente, sí; el que cargó una persona, nunca (ver
+// Contact.vehicleOfInterestSetBy).
+enum VehicleInterestSource {
+  HUMAN
+  AGENT
+}
+
 enum LeadUrgency {
   LOW
   MEDIUM
@@ -977,6 +985,19 @@ model Contact {
   // resuelve por `phone`.
   channelIdentities        ContactChannelIdentity[]
 
+  // VEHÍCULO DE INTERÉS (F2 de la prueba en vivo del 29/09): la unidad del
+  // stock que le interesa, SEPARADA de una oportunidad y de una reserva —
+  // anotarla no la reserva ni la saca del stock. Nullable -> NO ACTION, y
+  // queda apuntando aunque la unidad se venda o se dé de baja: la ficha la
+  // sigue mostrando con su estado.
+  //
+  // vehicleOfInterestSetBy dice quién la cargó (CHECK: los dos o ninguno). El
+  // agente puede cargarla si está vacía o si la había cargado él; la de una
+  // persona no la pisa nunca (setVehicleOfInterestFromAgent).
+  vehicleOfInterestId    String?                @map("vehicle_of_interest_id") @db.Uuid
+  vehicleOfInterestSetBy VehicleInterestSource? @map("vehicle_of_interest_set_by")
+  vehicleOfInterest      Vehicle?               @relation("ContactVehicleOfInterest", fields: [organizationId, vehicleOfInterestId], references: [organizationId, id], onDelete: NoAction)
+
   @@unique([organizationId, id])
   // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
   // deleted_at IS NULL — índice único parcial; su versión actual (con
@@ -995,6 +1016,8 @@ model Contact {
   // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
   // No parcial a propósito: ver la migración 20260828120000.
   @@index([organizationId, deletedAt, createdAt])
+  // Lado referenciante de la FK al vehículo de interés.
+  @@index([organizationId, vehicleOfInterestId])
   @@map("contacts")
 }
 
@@ -3434,6 +3457,8 @@ model Vehicle {
   photos               VehiclePhoto[]
   changeLog            VehicleChangeLog[]
   opportunities        Opportunity[]        @relation("OpportunityVehicle")
+  // Los contactos que la tienen como vehículo de interés.
+  contactsInterested   Contact[]            @relation("ContactVehicleOfInterest")
   quotes               Quote[]
   deliveries           Delivery[]
   // §70 — la entrada de la base de conocimiento que esta unidad genera, si

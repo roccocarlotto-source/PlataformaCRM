@@ -166,6 +166,24 @@ test("orden: un ciclo se corta anulando su FK anulable", () => {
   assert.ok(antes(tablas, "messages", "conversations"));
 });
 
+test("orden: las FKs de un invariante (empresa o contacto de la oportunidad) no se anulan aunque estén en el ciclo", () => {
+  const conNombre = (nombre: string, base: ForeignKey): ForeignKey => ({ ...base, nombre });
+  const opContacto = conNombre(
+    "opportunities_organization_id_contact_id_fkey",
+    fk("opportunities", "contacts", ["contact_id"]),
+  );
+  const interes = fk("contacts", "vehicles", ["vehicle_of_interest_id"]);
+  const opVehiculo = fk("opportunities", "vehicles", ["vehicle_id"]);
+  const vehiculoOp = fk("vehicles", "opportunities", ["reserved_opportunity_id"]);
+  const { tablas, anular } = calcularOrdenDeBorrado(
+    ["opportunities", "contacts", "vehicles"],
+    [opContacto, interes, opVehiculo, vehiculoOp],
+  );
+  assert.ok(!anular.includes(opContacto), "la oportunidad no se queda sin contacto");
+  assert.ok(anular.includes(interes));
+  assert.ok(antes(tablas, "opportunities", "contacts"));
+});
+
 test("orden: autorreferencia anulable se anula; la no anulable no frena", () => {
   const auto = fk("activities", "activities", ["parent_id"]);
   const r = calcularOrdenDeBorrado(["activities"], [auto]);
