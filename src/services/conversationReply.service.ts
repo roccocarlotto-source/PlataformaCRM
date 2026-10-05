@@ -23,9 +23,10 @@ import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { describirError } from "../utils/backoff";
 import { finDeLaVentanaDeWhatsapp, ventanaDeWhatsappAbierta } from "../utils/ventanaDeWhatsapp";
-import { conLockDeConversacion } from "./agentOrchestration.service";
+import { agenteAtiendeElCanal, conLockDeConversacion } from "./agentOrchestration.service";
 import { getConversationById } from "./conversation.service";
 import {
+  avisoLlegaTarde,
   textoDelAviso,
   asuntoDeTareaSinRespuesta,
   debeAvisarAlDevolver,
@@ -496,13 +497,15 @@ export async function devolverAlAgente(
       humanoRespondio:
         vigente.status === "TRANSFERRED_TO_HUMAN" && (await humanSpokeLast(id, organizationId)),
     });
-    await devolverYAvisar(vigente, avisar, actor, deps);
+    await devolverYAvisar(vigente, avisar ? "con-aviso" : "sin-aviso", actor, deps);
   });
 
   return getConversationById(organizationId, id);
 }
 
-export type ResultadoDelAvisoAutomatico = "avisado" | "no-corresponde";
+// "tarde": la derivación venció hace demasiado (avisoLlegaTarde). La
+// conversación vuelve al agente y queda la tarea, sin escribirle al cliente.
+export type ResultadoDelAvisoAutomatico = "avisado" | "tarde" | "no-corresponde";
 
 // El aviso automático si nadie responde (workers/avisoSinRespuestaWorker.ts):
 // lo mismo que "Devolver al agente" sin respuesta —aviso, tarea, marca y la
@@ -532,7 +535,12 @@ export async function avisarSiNadieRespondio(
       return "no-corresponde";
     }
     const agente = await findAgentById(vigente.agentId, organizationId);
-    const minutos = agente?.unansweredHandoffNoticeMinutes ?? 0;
+    // Con el agente apagado o sin el canal no hay a quién devolvérsela: sigue
+    // esperando a una persona (mismo filtro que el barrido).
+    if (!agente || !agenteAtiendeElCanal(agente, vigente.channel)) {
+      return "no-corresponde";
+    }
+    const minutos = agente.unansweredHandoffNoticeMinutes ?? 0;
     const vence = vigente.transferredToHumanAt.getTime() + minutos * 60_000;
     if (minutos <= 0 || vence > ahora.getTime()) {
       return "no-corresponde";
@@ -540,21 +548,36 @@ export async function avisarSiNadieRespondio(
     if (await humanSpokeLast(conversationId, organizationId)) {
       return "no-corresponde";
     }
-    await devolverYAvisar(vigente, true, null, deps);
+    if (avisoLlegaTarde(vigente.transferredToHumanAt, minutos, ahora)) {
+      await devolverYAvisar(vigente, "solo-tarea", null, deps);
+      logger.warn(
+        { organizationId, conversationId, derivadaEn: vigente.transferredToHumanAt, minutos },
+        "Derivación sin respuesta vencida hace demasiado: vuelve al agente con la tarea, sin aviso al cliente",
+      );
+      return "tarde";
+    }
+    await devolverYAvisar(vigente, "con-aviso", null, deps);
     return "avisado";
   });
 }
 
 // Lo común a devolver a mano y al aviso automático, ya bajo el lock: la
-// devolución, y si `avisar`, la tarea y el aviso en la misma transacción; el
+// devolución y, según el modo, la tarea y el aviso en la misma transacción; el
 // envío por el canal después. `actor` null = lo hizo el sistema.
+//   - "sin-aviso": solo la devolución (una persona ya le había respondido).
+//   - "con-aviso": la tarea y el aviso al cliente.
+//   - "solo-tarea": la tarea, sin escribirle al cliente (el aviso automático
+//     que llega demasiado tarde, ver avisoLlegaTarde).
+type ModoDeDevolucion = "sin-aviso" | "con-aviso" | "solo-tarea";
+
 async function devolverYAvisar(
   vigente: Conversation,
-  avisar: boolean,
+  modo: ModoDeDevolucion,
   actor: Actor | null,
   deps: DepsDeRespuestaHumana,
 ) {
   const { id, organizationId } = vigente;
+  const avisar = modo === "con-aviso";
   const entrega = entregaDelAviso(
     vigente.channel,
     finDeLaVentanaDeWhatsapp(await findLastInboundAt(id, organizationId)),
@@ -571,12 +594,15 @@ async function devolverYAvisar(
 
   const aviso = await prisma.$transaction(async (tx) => {
     const devuelta = await returnConversationToAgent(id, organizationId, tx);
-    if (devuelta.count !== 1 || !avisar) {
+    if (devuelta.count !== 1 || modo === "sin-aviso") {
       return null;
     }
 
     if (!(await findTareaAbiertaDelPedido(organizationId, vigente.contactId, tx))) {
       await crearTareaSinRespuesta(actor, vigente, tx);
+    }
+    if (!avisar) {
+      return null;
     }
 
     const motivoSinEnvio =

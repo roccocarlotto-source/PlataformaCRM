@@ -7,7 +7,12 @@ import {
   applyDeliveryStatusByExternalId,
   findMessageByExternalId,
 } from "../repositories/message.repository";
-import { registrarEntrante } from "./agentOrchestration.service";
+import { esFalloReintentable } from "../utils/falloDeEntrante";
+import {
+  agenteAtiendeElCanal,
+  derivarEntranteSinAgente,
+  registrarEntrante,
+} from "./agentOrchestration.service";
 import { aplicarEstadosRetenidos, retenerEstado } from "./estadosDeEntregaRetenidos.service";
 import { resolveWhatsappContact } from "./whatsappContact.service";
 import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service";
@@ -27,11 +32,12 @@ import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service"
 // plantillas (campo message_template_status_update): Meta aprobó o rechazó la
 // plantilla de seguimiento de un negocio. Ver procesarCambioDePlantilla.
 //
-// UN MENSAJE QUE FALLA NO TUMBA EL LOTE NI LA RESPUESTA A META. Cada mensaje
-// corre en su propio try/catch: el error se loguea y se sigue con el
-// siguiente. El webhook contesta 200 igual, porque un 4xx/5xx haría que Meta
-// reintente el lote ENTERO — incluidos los mensajes que sí se procesaron (que
-// el dedup frenaría, pero sin ganar nada).
+// UN MENSAJE QUE FALLA NO TUMBA EL LOTE. Cada mensaje corre en su propio
+// try/catch: el error se loguea y se sigue con el siguiente. Lo que cambió con
+// FABLE-C-01 (docs-privados/auditoria-2026-10-05-FABLE.md, local) es la
+// respuesta a Meta: si un mensaje no se pudo GUARDAR, el webhook contesta 503
+// para que Meta reentregue el lote; los que sí se guardaron caen en el dedup.
+// Antes contestaba 200 y ese mensaje se perdía. Ver utils/falloDeEntrante.ts.
 //
 // ENCOLADO, NO SÍNCRONO (ítem 125 de docs/auditoria-2026-09-24-punta-a-punta.md,
 // D-01). Antes el turno del LLM corría acá adentro y el 200 salía al final;
@@ -286,14 +292,35 @@ const contactoDelPayloadSchema = z.object({
   profile: z.object({ name: z.string().optional() }).optional(),
 });
 
-export type ResultadoDelMensaje = "encolado" | "duplicado" | "ignorado" | "fallido";
+// "derivado": el agente del número está apagado o no atiende WhatsApp; el
+// mensaje quedó en la conversación para una persona, sin job (OPUS-I-01).
+// "fallido": no se pudo guardar y Meta tiene que reintentarlo. "descartado":
+// lo rechazó una regla de negocio, y reintentar daría lo mismo. Ver
+// utils/falloDeEntrante.ts.
+export type ResultadoDelMensaje =
+  "encolado" | "derivado" | "duplicado" | "ignorado" | "fallido" | "descartado";
 
-// Los mensajes, más cuántas plantillas cambiaron de estado (ítem 160) y
-// cuántos salientes avanzaron de estado de entrega (WA-1).
+// Los mensajes, más cuántas plantillas cambiaron de estado (ítem 160),
+// cuántos salientes avanzaron de estado de entrega (WA-1) y cuántos statuses
+// no se pudieron aplicar (cuentan para el reintento igual que un "fallido").
 export type ResumenDelLote = Record<ResultadoDelMensaje, number> & {
   plantillas: number;
   estados: number;
+  estadosFallidos: number;
 };
+
+// ¿Hay que pedirle a Meta que reintente el lote? Ver utils/falloDeEntrante.ts.
+export function hayQueReintentarElLote(resumen: ResumenDelLote): boolean {
+  return resumen.fallido + resumen.estadosFallidos > 0;
+}
+
+// Lo que el procesamiento toca afuera y un test necesita reemplazar para
+// simular que la base no respondió al guardar. Producción usa los reales.
+export interface DepsDelWebhookDeWhatsapp {
+  registrarEntrante: typeof registrarEntrante;
+}
+
+const depsDelWebhookDeWhatsappReales: DepsDelWebhookDeWhatsapp = { registrarEntrante };
 
 // ---------------------------------------------------------------------------
 // Statuses de entrega (WA-1 de los pendientes post F1–F5,
@@ -350,12 +377,16 @@ function motivoDeMeta(errores: z.infer<typeof statusDelPayloadSchema>["errors"])
   return partes.join(" ").slice(0, MOTIVO_MAX);
 }
 
-async function procesarEstados(phoneNumberId: string, statuses: unknown[]): Promise<number> {
+async function procesarEstados(
+  phoneNumberId: string,
+  statuses: unknown[],
+): Promise<{ aplicados: number; fallidos: number }> {
   const agent = await findAgentByWhatsappPhoneNumberId(phoneNumberId);
   if (!agent) {
-    return 0;
+    return { aplicados: 0, fallidos: 0 };
   }
   let aplicados = 0;
+  let fallidos = 0;
   for (const crudo of statuses) {
     const parsed = statusDelPayloadSchema.safeParse(crudo);
     if (!parsed.success) continue;
@@ -382,15 +413,17 @@ async function procesarEstados(phoneNumberId: string, statuses: unknown[]): Prom
         aplicados += await aplicarEstadosRetenidos(agent.organizationId, parsed.data.id);
       }
     } catch (err) {
-      // Mismo criterio que un mensaje: un fallo se loguea y no tumba el lote
-      // ni el 200. Meta reintenta y la escritura es idempotente.
+      // Mismo criterio que un mensaje: un fallo se loguea y no tumba el lote.
+      // Se cuenta para que el webhook le pida a Meta que reintente; la
+      // escritura es idempotente.
       logger.error(
         { err, phoneNumberId, wamid: parsed.data.id },
         "No se pudo aplicar un status de WhatsApp — se sigue con el resto del lote",
       );
+      fallidos += 1;
     }
   }
-  return aplicados;
+  return { aplicados, fallidos };
 }
 
 // El cambio de estado de una plantilla (campo message_template_status_update
@@ -416,25 +449,24 @@ interface MensajeEntrante {
   media?: { id: string; mimeType: string };
 }
 
-async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMensaje> {
+async function procesarMensaje(
+  mensaje: MensajeEntrante,
+  deps: DepsDelWebhookDeWhatsapp,
+): Promise<ResultadoDelMensaje> {
   const log = logger.child({ phoneNumberId: mensaje.phoneNumberId, wamid: mensaje.wamid });
 
-  // 1. ¿De qué agente es este número? Sin agente, el mensaje no tiene dueño:
-  //    warning y a otra cosa — no es un error del request, es configuración.
+  // 1. ¿De qué agente es este número? Sin agente, el mensaje no tiene dueño
+  //    (el número es lo único que dice de qué organización es): warning y a
+  //    otra cosa — no es un error del request, es configuración.
   const agent = await findAgentByWhatsappPhoneNumberId(mensaje.phoneNumberId);
   if (!agent) {
     log.warn("Mensaje de WhatsApp para un phone_number_id sin agente asignado");
     return "ignorado";
   }
-  // El turno rechazaría estos dos casos con un AppError; se cortan antes para
-  // no crear un Contact ni encolar un mensaje que nadie va a atender.
-  if (!agent.isActive || !agent.channels.includes(ConversationChannel.WHATSAPP)) {
-    log.warn(
-      { agentId: agent.id, isActive: agent.isActive },
-      "Mensaje de WhatsApp para un agente desactivado o sin el canal WHATSAPP",
-    );
-    return "ignorado";
-  }
+  // OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): un agente
+  // apagado o sin el canal ya no descarta el mensaje. Se guarda igual, sin
+  // job, y la conversación queda para una persona (paso 5).
+  const atiende = agenteAtiendeElCanal(agent, ConversationChannel.WHATSAPP);
   const organizationId = agent.organizationId;
 
   if (mensaje.texto.trim().length === 0) {
@@ -443,7 +475,14 @@ async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMe
 
   // 2. Dedup: Meta reintentando una entrega ya procesada. Es el atajo del
   //    caso común; la garantía real es el UNIQUE, más abajo.
-  if (await findMessageByExternalId(organizationId, mensaje.wamid)) {
+  const yaGuardado = await findMessageByExternalId(organizationId, mensaje.wamid);
+  if (yaGuardado) {
+    if (!atiende) {
+      await derivarEntranteSinAgente({
+        organizationId,
+        conversationId: yaGuardado.conversationId,
+      });
+    }
     return "duplicado";
   }
 
@@ -456,8 +495,9 @@ async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMe
   //    tiene que contestar en milisegundos. Lo que el lock protegía acá —que
   //    dos entregas en paralelo abran dos conversaciones— lo garantiza el
   //    índice conversations_open_unique (ítem 126).
+  let conversationId: string;
   try {
-    await registrarEntrante(
+    const { conversation } = await deps.registrarEntrante(
       {
         organizationId,
         agentId: agent.id,
@@ -468,26 +508,30 @@ async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMe
         externalThreadId: mensaje.waId,
         externalMessageId: mensaje.wamid,
       },
-      {
-        enLaMismaTransaccion: (tx, entrante) =>
-          createAgentInboundJob(
-            {
-              organizationId,
-              messageId: entrante.id,
-              channel: ConversationChannel.WHATSAPP,
-              channelAccountId: mensaje.phoneNumberId,
-              externalUserId: mensaje.waId,
-              // Ítem 162: solo el id. El media (audio o imagen) lo baja el worker; bajarlo acá
-              // sumaría una llamada a Meta al camino que tiene que contestar
-              // en milisegundos (ítem 125).
-              ...(mensaje.media
-                ? { mediaId: mensaje.media.id, mediaType: mensaje.media.mimeType }
-                : {}),
-            },
-            tx,
-          ),
-      },
+      // Sin job cuando el agente no atiende: no hay turno que correr.
+      atiende
+        ? {
+            enLaMismaTransaccion: (tx, entrante) =>
+              createAgentInboundJob(
+                {
+                  organizationId,
+                  messageId: entrante.id,
+                  channel: ConversationChannel.WHATSAPP,
+                  channelAccountId: mensaje.phoneNumberId,
+                  externalUserId: mensaje.waId,
+                  // Ítem 162: solo el id. El media (audio o imagen) lo baja el worker; bajarlo acá
+                  // sumaría una llamada a Meta al camino que tiene que contestar
+                  // en milisegundos (ítem 125).
+                  ...(mensaje.media
+                    ? { mediaId: mensaje.media.id, mediaType: mensaje.media.mimeType }
+                    : {}),
+                },
+                tx,
+              ),
+          }
+        : {},
     );
+    conversationId = conversation.id;
   } catch (err) {
     // Dos entregas del mismo mensaje en paralelo: las dos pasaron el atajo de
     // arriba y la segunda chocó con el UNIQUE al persistir el entrante (su
@@ -502,7 +546,19 @@ async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMe
     throw err;
   }
 
-  return "encolado";
+  if (atiende) {
+    return "encolado";
+  }
+
+  // 5. Sin agente que conteste: la conversación pasa a "atiende una persona",
+  //    con la tarea para el vendedor. Si esto falla, el mensaje ya está
+  //    guardado; el error sube, Meta reentrega y el dedup de arriba deriva.
+  log.info(
+    { agentId: agent.id, isActive: agent.isActive },
+    "Mensaje de WhatsApp para un agente apagado o sin el canal: queda para una persona",
+  );
+  await derivarEntranteSinAgente({ organizationId, conversationId });
+  return "derivado";
 }
 
 // Meta aprobó, rechazó o pausó una plantilla (ítem 160): se actualiza la fila
@@ -540,14 +596,18 @@ async function procesarCambioDePlantilla(value: Record<string, unknown>): Promis
 
 export async function procesarWebhookDeWhatsapp(
   payload: WhatsappWebhookPayload,
+  deps: DepsDelWebhookDeWhatsapp = depsDelWebhookDeWhatsappReales,
 ): Promise<ResumenDelLote> {
   const resumen: ResumenDelLote = {
     encolado: 0,
+    derivado: 0,
     duplicado: 0,
     ignorado: 0,
     fallido: 0,
+    descartado: 0,
     plantillas: 0,
     estados: 0,
+    estadosFallidos: 0,
   };
 
   // Otro producto de Meta suscripto a la misma app (Instagram, Page...): no es
@@ -573,7 +633,9 @@ export async function procesarWebhookDeWhatsapp(
       // fallido). Un change puede traer statuses, messages o los dos.
       const statuses = Array.isArray(value.statuses) ? (value.statuses as unknown[]) : [];
       if (statuses.length > 0) {
-        resumen.estados += await procesarEstados(phoneNumberId, statuses);
+        const estados = await procesarEstados(phoneNumberId, statuses);
+        resumen.estados += estados.aplicados;
+        resumen.estadosFallidos += estados.fallidos;
       }
       const mensajes = Array.isArray(value.messages) ? (value.messages as unknown[]) : [];
       if (mensajes.length === 0) continue;
@@ -592,21 +654,25 @@ export async function procesarWebhookDeWhatsapp(
           continue;
         }
         try {
-          const r = await procesarMensaje({
-            phoneNumberId,
-            wamid: m.wamid,
-            waId: m.waId,
-            profileName: nombres.get(m.waId),
-            texto: m.texto,
-            media: m.media,
-          });
+          const r = await procesarMensaje(
+            {
+              phoneNumberId,
+              wamid: m.wamid,
+              waId: m.waId,
+              profileName: nombres.get(m.waId),
+              texto: m.texto,
+              media: m.media,
+            },
+            deps,
+          );
           resumen[r] += 1;
         } catch (err) {
+          const reintentable = esFalloReintentable(err);
           logger.error(
-            { err, phoneNumberId, wamid: m.wamid },
+            { err, phoneNumberId, wamid: m.wamid, reintentable },
             "No se pudo procesar un mensaje de WhatsApp — se sigue con el resto del lote",
           );
-          resumen.fallido += 1;
+          resumen[reintentable ? "fallido" : "descartado"] += 1;
         }
       }
     }

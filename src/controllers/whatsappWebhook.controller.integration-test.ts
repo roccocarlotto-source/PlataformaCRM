@@ -22,6 +22,11 @@ import {
 } from "../services/llmProvider.service";
 import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
 import {
+  MOTIVO_AGENTE_NO_ATIENDE,
+  registrarEntrante,
+} from "../services/agentOrchestration.service";
+import {
+  procesarWebhookDeWhatsapp,
   MARCADOR_DE_AUDIO,
   MARCADOR_DE_IMAGEN,
   MARCADOR_DE_UBICACION,
@@ -110,10 +115,23 @@ let alLlamarAlLlm: (() => Promise<void>) | null = null;
 // Respuestas guionadas, en orden; agotadas, vuelve la respuesta de texto fija.
 let guionDelLlm: LlmCompletionResult[] = [];
 
+// FABLE-C-01: los wamid cuyo guardado "falla" (la base que no responde). El
+// resto del procesamiento es el real.
+let wamidsQueFallanAlGuardar = new Set<string>();
+
 const deps: WhatsappWebhookDeps = {
   verifyToken: () => VERIFY_TOKEN,
   appSecret: () => appSecretConfigurado,
   accessToken: () => ACCESS_TOKEN,
+  procesar: (payload) =>
+    procesarWebhookDeWhatsapp(payload, {
+      registrarEntrante: (input, opciones) => {
+        if (wamidsQueFallanAlGuardar.has(input.externalMessageId ?? "")) {
+          return Promise.reject(new Error("la base no respondió (doble)"));
+        }
+        return registrarEntrante(input, opciones);
+      },
+    }),
 };
 
 const depsDeEnvio: DepsDeEnvio = {
@@ -335,6 +353,7 @@ beforeEach(async () => {
   accessTokenDelWorker = ACCESS_TOKEN;
   descargados = [];
   fallarDescarga = null;
+  wamidsQueFallanAlGuardar = new Set();
 });
 
 after(async () => {
@@ -1681,17 +1700,14 @@ test("una ubicación sin nombre ni dirección -> se persisten solo las coordenad
   assert.equal(entrante.content, `${MARCADOR_DE_UBICACION} -34.901112, -56.164532`);
 });
 
-test("un phone_number_id sin agente, o de un agente sin el canal WHATSAPP -> 200 sin procesar, y el resto del lote sí", async () => {
+test("un phone_number_id sin agente -> 200 sin procesar, y el resto del lote sí", async () => {
   const waIdSinAgente = waIdAlAzar();
-  const waIdSinCanal = waIdAlAzar();
   const waIdValido = waIdAlAzar();
   const conAgente = payloadDeTexto({ waId: waIdValido });
   const lote = {
     object: "whatsapp_business_account",
     entry: [
       payloadDeTexto({ waId: waIdSinAgente, phoneNumberId: numeroAlAzar() }).entry[0],
-      payloadDeTexto({ waId: waIdSinCanal, phoneNumberId: fx.phoneNumberIdAgenteSinCanal })
-        .entry[0],
       conAgente.entry[0],
     ],
   };
@@ -1700,10 +1716,184 @@ test("un phone_number_id sin agente, o de un agente sin el canal WHATSAPP -> 200
   assert.equal(res.status, 200);
   await drenar();
   assert.equal((await contactosConTelefono(`+${waIdSinAgente}`)).length, 0);
-  assert.equal((await contactosConTelefono(`+${waIdSinCanal}`)).length, 0);
   assert.equal((await contactosConTelefono(`+${waIdValido}`)).length, 1);
   assert.equal(enviados.length, 1);
   assert.equal(enviados[0].to, waIdValido);
+});
+
+// ---------------------------------------------------------------------------
+// OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): el CRM
+// funciona sin IA también en la entrada. Antes, con el agente apagado o sin el
+// canal, el mensaje se descartaba sin crear ni el contacto.
+// ---------------------------------------------------------------------------
+
+// La conversación de WhatsApp del contacto con ese teléfono, con sus mensajes.
+async function conversacionDelNumero(waId: string) {
+  const [contacto] = await contactosConTelefono(`+${waId}`);
+  assert.ok(contacto, "el contacto se creó");
+  const conversaciones = await prisma.conversation.findMany({
+    where: { organizationId: fx.orgId, contactId: contacto.id },
+    include: { messages: { orderBy: { createdAt: "asc" } } },
+  });
+  assert.equal(conversaciones.length, 1);
+  return { contacto, conversacion: conversaciones[0] };
+}
+
+function tareasDe(contactId: string) {
+  return prisma.activity.findMany({
+    where: { organizationId: fx.orgId, contactId, type: "TASK" },
+  });
+}
+
+test("OPUS-I-01: agente sin el canal WHATSAPP -> el mensaje se guarda, la conversación queda para una persona con su tarea, y no corre ningún turno", async () => {
+  const waId = waIdAlAzar();
+
+  const res = await enviar(
+    payloadDeTexto({
+      waId,
+      phoneNumberId: fx.phoneNumberIdAgenteSinCanal,
+      body: "Hola, ¿tienen pickups usadas?",
+    }),
+  );
+  assert.equal(res.status, 200);
+  await drenar();
+
+  const { contacto, conversacion } = await conversacionDelNumero(waId);
+  assert.equal(conversacion.status, "TRANSFERRED_TO_HUMAN");
+  assert.ok(conversacion.transferredToHumanAt);
+  // Sin vendedor del contacto ni vendedor por defecto en la sucursal: al ADMIN.
+  assert.equal(conversacion.assignedUserId, fx.userId);
+  assert.deepEqual(
+    conversacion.messages.map((m) => [m.senderType, m.content]),
+    [["CONTACT", "Hola, ¿tienen pickups usadas?"]],
+  );
+  assert.equal((await jobsDe(conversacion.messages[0].id)).length, 0, "sin job: no hay turno");
+  assert.equal(llamadasAlLlm, 0, "ni el turno ni el resumen llaman al modelo");
+  assert.equal(enviados.length, 0);
+
+  const tareas = await tareasDe(contacto.id);
+  assert.equal(tareas.length, 1);
+  assert.equal(tareas[0].assigneeId, fx.userId);
+  assert.equal(tareas[0].body, MOTIVO_AGENTE_NO_ATIENDE);
+  assert.equal(tareas[0].completedAt, null);
+});
+
+test("OPUS-I-01: agente APAGADO -> lo mismo; el segundo mensaje cae en la misma conversación sin otra tarea, y al encenderlo vuelve a contestar", async () => {
+  const waId = waIdAlAzar();
+  await prisma.agent.update({ where: { id: fx.agentId }, data: { isActive: false } });
+  try {
+    assert.equal((await enviar(payloadDeTexto({ waId, body: "Hola" }))).status, 200);
+    assert.equal((await enviar(payloadDeTexto({ waId, body: "¿Hay alguien?" }))).status, 200);
+    await drenar();
+
+    const { contacto, conversacion } = await conversacionDelNumero(waId);
+    assert.equal(conversacion.status, "TRANSFERRED_TO_HUMAN");
+    assert.deepEqual(
+      conversacion.messages.map((m) => m.content),
+      ["Hola", "¿Hay alguien?"],
+    );
+    assert.equal((await tareasDe(contacto.id)).length, 1, "una sola tarea para los dos mensajes");
+    assert.equal(llamadasAlLlm, 0);
+    assert.equal(enviados.length, 0);
+  } finally {
+    await prisma.agent.update({ where: { id: fx.agentId }, data: { isActive: true } });
+  }
+
+  // Encendido de nuevo: el próximo mensaje se encola y el agente contesta
+  // (nadie de carne y hueso escribió en el hilo).
+  assert.equal((await enviar(payloadDeTexto({ waId, body: "¿Siguen ahí?" }))).status, 200);
+  await drenar();
+  assert.equal(llamadasAlLlm, 1);
+  assert.equal(enviados.length, 1);
+  assert.equal(enviados[0].to, waId);
+});
+
+test("OPUS-I-01: la reentrega del mismo wamid con el agente apagado no duplica el mensaje ni la tarea", async () => {
+  const waId = waIdAlAzar();
+  const payload = payloadDeTexto({
+    waId,
+    phoneNumberId: fx.phoneNumberIdAgenteSinCanal,
+    wamid: `wamid.${randomUUID()}`,
+  });
+
+  assert.equal((await enviar(payload)).status, 200);
+  assert.equal((await enviar(payload)).status, 200);
+
+  const { contacto, conversacion } = await conversacionDelNumero(waId);
+  assert.equal(conversacion.messages.length, 1);
+  assert.equal((await tareasDe(contacto.id)).length, 1);
+});
+
+test("OPUS-I-01: el agente se apaga con un mensaje ya encolado -> el worker no lo deja en FAILED: la conversación pasa a una persona", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  assert.equal((await enviar(payloadDeTexto({ waId, wamid }))).status, 200);
+
+  await prisma.agent.update({ where: { id: fx.agentId }, data: { isActive: false } });
+  try {
+    const resumen = await drenar();
+    assert.equal(resumen.fallidos, 0);
+  } finally {
+    await prisma.agent.update({ where: { id: fx.agentId }, data: { isActive: true } });
+  }
+
+  const { contacto, conversacion } = await conversacionDelNumero(waId);
+  assert.equal(conversacion.status, "TRANSFERRED_TO_HUMAN");
+  assert.equal((await tareasDe(contacto.id)).length, 1);
+  const [job] = await jobsDe((await entranteConWamid(wamid)).id);
+  assert.equal(job.status, "DONE");
+  assert.equal(llamadasAlLlm, 0);
+  assert.equal(enviados.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// FABLE-C-01 (docs-privados/auditoria-2026-10-05-FABLE.md, local): un entrante
+// que no se pudo guardar ya no se contesta con 200.
+// ---------------------------------------------------------------------------
+
+test("FABLE-C-01: si un mensaje del lote no se pudo guardar -> 503; la reentrega de Meta guarda el que faltaba y el dedup absorbe el que ya estaba", async () => {
+  const waIdA = waIdAlAzar();
+  const waIdB = waIdAlAzar();
+  const wamidA = `wamid.${randomUUID()}`;
+  const wamidB = `wamid.${randomUUID()}`;
+  const lote = {
+    object: "whatsapp_business_account",
+    entry: [
+      payloadDeTexto({ waId: waIdA, wamid: wamidA, body: "uno" }).entry[0],
+      payloadDeTexto({ waId: waIdB, wamid: wamidB, body: "dos" }).entry[0],
+    ],
+  };
+
+  // La base "no responde" al guardar el segundo.
+  wamidsQueFallanAlGuardar.add(wamidB);
+  const primera = await enviar(lote);
+  assert.equal(primera.status, 503, "Meta tiene que reintentar");
+  assert.ok(
+    await prisma.message.findFirst({
+      where: { organizationId: fx.orgId, externalMessageId: wamidA },
+    }),
+  );
+  assert.equal(
+    await prisma.message.count({ where: { organizationId: fx.orgId, externalMessageId: wamidB } }),
+    0,
+  );
+
+  // Meta reentrega el lote entero con la base ya respondiendo.
+  wamidsQueFallanAlGuardar.clear();
+  const segunda = await enviar(lote);
+  assert.equal(segunda.status, 200);
+  await drenar();
+
+  for (const wamid of [wamidA, wamidB]) {
+    const entrantes = await prisma.message.findMany({
+      where: { organizationId: fx.orgId, externalMessageId: wamid },
+    });
+    assert.equal(entrantes.length, 1, "cada mensaje, una sola vez");
+    assert.equal((await jobsDe(entrantes[0].id)).length, 1, "y un solo turno");
+  }
+  assert.equal((await contactosConTelefono(`+${waIdA}`)).length, 1);
+  assert.equal((await contactosConTelefono(`+${waIdB}`)).length, 1);
+  assert.deepEqual(enviados.map((e) => e.to).sort(), [waIdA, waIdB].sort());
 });
 
 // ---------------------------------------------------------------------------

@@ -153,7 +153,7 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
         pollMs,
         drenar: async () => {
           await pasada();
-          return { avisados: 0, descartados: 0, fallidos: 0 };
+          return { avisados: 0, tardios: 0, descartados: 0, fallidos: 0 };
         },
       }),
   },

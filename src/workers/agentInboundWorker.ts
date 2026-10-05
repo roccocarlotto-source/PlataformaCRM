@@ -17,6 +17,7 @@ import {
   type EntrantePendiente,
   type JobReclamado,
 } from "../repositories/agentInboundJob.repository";
+import { findAgentById } from "../repositories/agent.repository";
 import { findConversationById, updateConversation } from "../repositories/conversation.repository";
 import {
   createMessage,
@@ -24,7 +25,9 @@ import {
   markMessageDelivery,
 } from "../repositories/message.repository";
 import {
+  agenteAtiendeElCanal,
   cargarAgenteYContacto,
+  derivarEntranteSinAgente,
   conLockDeConversacion,
   humanoAtiendeLaConversacion,
   responderEnLaConversacion,
@@ -449,6 +452,17 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
 
     let salienteId = vigente.responseMessageId;
     if (salienteId === null) {
+      // OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): el
+      // agente se apagó (o perdió el canal) entre el webhook y este turno.
+      // Antes el job terminaba FAILED y el mensaje quedaba sin marcar; ahora
+      // la conversación pasa a una persona, igual que si hubiera llegado con
+      // el agente ya apagado.
+      const agenteDelJob = await findAgentById(clave.agentId, organizationId);
+      if (agenteDelJob && !agenteAtiendeElCanal(agenteDelJob, clave.channel)) {
+        await derivarEntranteSinAgente({ organizationId, conversationId: conversacion.id });
+        await markAgentInboundJobDone(job);
+        return "respondido";
+      }
       const { agent, contact } = await cargarAgenteYContacto(
         organizationId,
         clave.agentId,

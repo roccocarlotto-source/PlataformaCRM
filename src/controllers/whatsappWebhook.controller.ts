@@ -4,10 +4,14 @@ import { logger } from "../lib/logger";
 import { firmaDeMetaValida } from "../middlewares/metaWebhookBody";
 import { secretsMatch } from "../middlewares/requireInternalProxySecret";
 import {
+  hayQueReintentarElLote,
   procesarWebhookDeWhatsapp,
   whatsappWebhookPayloadSchema,
+  type ResumenDelLote,
+  type WhatsappWebhookPayload,
 } from "../services/whatsappWebhook.service";
 import { AppError } from "../utils/AppError";
+import { STATUS_PARA_QUE_META_REINTENTE } from "../utils/falloDeEntrante";
 import { asyncHandler } from "../utils/asyncHandler";
 
 // ---------------------------------------------------------------------------
@@ -33,6 +37,9 @@ export interface WhatsappWebhookDeps {
   verifyToken: () => string | undefined;
   appSecret: () => string | undefined;
   accessToken: () => string | undefined;
+  // Solo para tests: el procesamiento del lote, para simular que la base no
+  // respondió al guardar un mensaje. Producción usa procesarWebhookDeWhatsapp.
+  procesar?: (payload: WhatsappWebhookPayload) => Promise<ResumenDelLote>;
 }
 
 export const whatsappWebhookDepsReales: WhatsappWebhookDeps = {
@@ -118,12 +125,17 @@ export function createVerifyWhatsappSignature(deps: WhatsappWebhookDeps): Reques
 // whatsappWebhook.service.ts. Para recibir el segundo, el campo tiene que
 // estar suscripto en el webhook de la app de Meta.
 //
-// 200 SIEMPRE QUE LA FORMA SEA VÁLIDA, aunque un mensaje puntual falle
-// adentro (se loguea en el service): cualquier cosa que no sea 2xx hace que
-// Meta reintente el lote entero. El único 400 es un cuerpo que ni siquiera
-// tiene la forma de un webhook de Meta — firmado por Meta, así que no debería
-// pasar nunca.
-export function createWhatsappWebhookHandler(): RequestHandler {
+// 200 CUANDO TODO LO DEL LOTE QUEDÓ GUARDADO (o no había nada que guardar).
+// Si un mensaje o un status no se pudo guardar, 503: Meta reentrega el lote
+// entero y el dedup por wamid absorbe lo que ya estaba (FABLE-C-01 de
+// docs-privados/auditoria-2026-10-05-FABLE.md, local; ver
+// utils/falloDeEntrante.ts). Antes era 200 siempre y ese mensaje se perdía.
+// El único 400 es un cuerpo que ni siquiera tiene la forma de un webhook de
+// Meta — firmado por Meta, así que no debería pasar nunca.
+export function createWhatsappWebhookHandler(
+  deps: Pick<WhatsappWebhookDeps, "procesar"> = {},
+): RequestHandler {
+  const procesar = deps.procesar ?? procesarWebhookDeWhatsapp;
   return asyncHandler<Request>(async (req, res: Response) => {
     const parsed = whatsappWebhookPayloadSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -132,7 +144,17 @@ export function createWhatsappWebhookHandler(): RequestHandler {
       return;
     }
 
-    const resumen = await procesarWebhookDeWhatsapp(parsed.data);
+    const resumen = await procesar(parsed.data);
+    if (hayQueReintentarElLote(resumen)) {
+      logger.error(
+        { resumen },
+        "Webhook de WhatsApp con mensajes sin guardar: se le pide a Meta que reintente",
+      );
+      res
+        .status(STATUS_PARA_QUE_META_REINTENTE)
+        .json({ error: { message: "No se pudo guardar el lote completo" } });
+      return;
+    }
     logger.info({ resumen }, "Webhook de WhatsApp procesado");
 
     res.status(200).json({ ok: true });

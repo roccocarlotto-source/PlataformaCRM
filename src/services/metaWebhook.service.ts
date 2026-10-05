@@ -9,7 +9,13 @@ import {
   findActiveMetaConnectionByPageId,
   findPageIdByInstagramBusinessAccountId,
 } from "../repositories/metaPageConnection.repository";
-import { registrarEntrante, type RegistrarEntranteInput } from "./agentOrchestration.service";
+import { esFalloReintentable } from "../utils/falloDeEntrante";
+import {
+  agenteAtiendeElCanal,
+  derivarEntranteSinAgente,
+  registrarEntrante,
+  type RegistrarEntranteInput,
+} from "./agentOrchestration.service";
 import { resolveMetaContact, type CanalMeta } from "./metaContact.service";
 
 // ---------------------------------------------------------------------------
@@ -121,8 +127,17 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
   return { mid: message.mid, senderId: sender.id, texto: message.text.trim() };
 }
 
-export type ResultadoDelMensaje = "encolado" | "duplicado" | "ignorado" | "fallido";
+// Los mismos resultados que whatsappWebhook.service.ts: "derivado" es el
+// entrante de un agente apagado o sin el canal, que queda para una persona;
+// "fallido" es el que Meta tiene que reintentar y "descartado" el que no.
+export type ResultadoDelMensaje =
+  "encolado" | "derivado" | "duplicado" | "ignorado" | "fallido" | "descartado";
 export type ResumenDelLote = Record<ResultadoDelMensaje, number>;
+
+// ¿Hay que pedirle a Meta que reintente el lote? Ver utils/falloDeEntrante.ts.
+export function hayQueReintentarElLote(resumen: ResumenDelLote): boolean {
+  return resumen.fallido > 0;
+}
 
 // Lo que el procesamiento toca afuera, inyectable para probar la DECISIÓN sin
 // base (metaWebhook.service.test.ts). Producción usa depsDelWebhookMetaReales;
@@ -145,7 +160,7 @@ export interface DepsDelWebhookMeta {
   findMessageByExternalId: (
     organizationId: string,
     externalMessageId: string,
-  ) => Promise<{ id: string } | null>;
+  ) => Promise<{ id: string; conversationId: string } | null>;
   resolveMetaContact: (
     organizationId: string,
     channel: CanalMeta,
@@ -153,12 +168,16 @@ export interface DepsDelWebhookMeta {
   ) => Promise<string>;
   registrarEntrante: (
     input: RegistrarEntranteInput,
-    opciones: { enLaMismaTransaccion: (tx: Db, entrante: { id: string }) => Promise<unknown> },
-  ) => Promise<unknown>;
+    opciones: { enLaMismaTransaccion?: (tx: Db, entrante: { id: string }) => Promise<unknown> },
+  ) => Promise<{ conversation: { id: string } }>;
   createAgentInboundJob: (
     data: Parameters<typeof createAgentInboundJob>[0],
     db: Db,
   ) => Promise<unknown>;
+  derivarEntranteSinAgente: (entrada: {
+    organizationId: string;
+    conversationId: string;
+  }) => Promise<void>;
 }
 
 export const depsDelWebhookMetaReales: DepsDelWebhookMeta = {
@@ -169,6 +188,7 @@ export const depsDelWebhookMetaReales: DepsDelWebhookMeta = {
   resolveMetaContact,
   registrarEntrante,
   createAgentInboundJob,
+  derivarEntranteSinAgente,
 };
 
 function esDuplicadoPorIndiceUnico(err: unknown): boolean {
@@ -206,8 +226,9 @@ async function procesarMensaje(
   }
   const pageId = conexion.pageId;
 
-  // 2. ¿De qué agente es esta página? Mismo criterio que WhatsApp: sin agente,
-  //    desactivado o sin el canal, es configuración y no un error del request.
+  // 2. ¿De qué agente es esta página? Mismo criterio que WhatsApp: sin agente
+  //    es configuración y no un error del request (una conversación necesita
+  //    un agente y su sucursal: sin él no hay dónde guardar el mensaje).
   const agent = await deps.findAgentByFacebookPageId(pageId);
   if (!agent) {
     log.warn({ pageId }, "Mensaje de Meta para una página sin agente asignado");
@@ -224,18 +245,22 @@ async function procesarMensaje(
     );
     return "ignorado";
   }
-  if (!agent.isActive || !agent.channels.includes(mensaje.channel)) {
-    log.warn(
-      { agentId: agent.id, isActive: agent.isActive },
-      "Mensaje de Meta para un agente desactivado o sin el canal",
-    );
-    return "ignorado";
-  }
+  // OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): un agente
+  //    apagado o sin el canal ya no descarta el mensaje. Se guarda igual, sin
+  //    job, y la conversación queda para una persona (paso 6).
+  const atiende = agenteAtiendeElCanal(agent, mensaje.channel);
   const organizationId = agent.organizationId;
 
   // 3. Dedup: Meta reintentando una entrega ya procesada. Atajo del caso
   //    común; la garantía real es el UNIQUE, más abajo.
-  if (await deps.findMessageByExternalId(organizationId, mensaje.mid)) {
+  const yaGuardado = await deps.findMessageByExternalId(organizationId, mensaje.mid);
+  if (yaGuardado) {
+    if (!atiende) {
+      await deps.derivarEntranteSinAgente({
+        organizationId,
+        conversationId: yaGuardado.conversationId,
+      });
+    }
     return "duplicado";
   }
 
@@ -249,8 +274,9 @@ async function procesarMensaje(
   // 5. Entrante + job en la misma transacción. channelAccountId es SIEMPRE el
   //    Page ID, también para Instagram: es con lo que el envío (ítem 172) va a
   //    encontrar la MetaPageConnection y su token.
+  let conversationId: string;
   try {
-    await deps.registrarEntrante(
+    const { conversation } = await deps.registrarEntrante(
       {
         organizationId,
         agentId: agent.id,
@@ -261,20 +287,24 @@ async function procesarMensaje(
         externalThreadId: mensaje.senderId,
         externalMessageId: mensaje.mid,
       },
-      {
-        enLaMismaTransaccion: (tx, entrante) =>
-          deps.createAgentInboundJob(
-            {
-              organizationId,
-              messageId: entrante.id,
-              channel: mensaje.channel,
-              channelAccountId: pageId,
-              externalUserId: mensaje.senderId,
-            },
-            tx,
-          ),
-      },
+      // Sin job cuando el agente no atiende: no hay turno que correr.
+      atiende
+        ? {
+            enLaMismaTransaccion: (tx, entrante) =>
+              deps.createAgentInboundJob(
+                {
+                  organizationId,
+                  messageId: entrante.id,
+                  channel: mensaje.channel,
+                  channelAccountId: pageId,
+                  externalUserId: mensaje.senderId,
+                },
+                tx,
+              ),
+          }
+        : {},
     );
+    conversationId = conversation.id;
   } catch (err) {
     // Dos entregas del mismo mid en paralelo: ver el mismo catch en
     // whatsappWebhook.service.ts.
@@ -287,14 +317,32 @@ async function procesarMensaje(
     throw err;
   }
 
-  return "encolado";
+  if (atiende) {
+    return "encolado";
+  }
+
+  // 6. Sin agente que conteste: la conversación pasa a "atiende una persona",
+  //    con la tarea para el vendedor. Mismo criterio que WhatsApp.
+  log.info(
+    { agentId: agent.id, isActive: agent.isActive },
+    "Mensaje de Meta para un agente apagado o sin el canal: queda para una persona",
+  );
+  await deps.derivarEntranteSinAgente({ organizationId, conversationId });
+  return "derivado";
 }
 
 export async function procesarWebhookDeMeta(
   payload: MetaWebhookPayload,
   deps: DepsDelWebhookMeta = depsDelWebhookMetaReales,
 ): Promise<ResumenDelLote> {
-  const resumen: ResumenDelLote = { encolado: 0, duplicado: 0, ignorado: 0, fallido: 0 };
+  const resumen: ResumenDelLote = {
+    encolado: 0,
+    derivado: 0,
+    duplicado: 0,
+    ignorado: 0,
+    fallido: 0,
+    descartado: 0,
+  };
 
   // Otro objeto suscripto a la misma app (whatsapp_business_account tiene su
   // propio webhook, user, permissions...): no es de este.
@@ -317,11 +365,12 @@ export async function procesarWebhookDeMeta(
       try {
         resumen[await procesarMensaje({ ...m, channel, cuentaId }, deps)] += 1;
       } catch (err) {
+        const reintentable = esFalloReintentable(err);
         logger.error(
-          { err, channel, cuentaId, mid: m.mid },
+          { err, channel, cuentaId, mid: m.mid, reintentable },
           "No se pudo procesar un mensaje de Meta — se sigue con el resto del lote",
         );
-        resumen.fallido += 1;
+        resumen[reintentable ? "fallido" : "descartado"] += 1;
       }
     }
   }
