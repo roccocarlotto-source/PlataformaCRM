@@ -119,7 +119,7 @@ export async function getConversationById(organizationId: string, id: string) {
 // ida a la base.
 export async function estadoDeAtencion(
   conversation: Pick<Conversation, "id" | "organizationId" | "status" | "contactId" | "channel"> & {
-    messages: Pick<Message, "direction" | "senderType" | "content" | "createdAt">[];
+    messages: Pick<Message, "direction" | "senderType" | "noticeType" | "createdAt">[];
   },
 ) {
   const ultimoEntrante = conversation.messages

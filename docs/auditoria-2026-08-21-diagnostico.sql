@@ -514,6 +514,10 @@ from (
     -- AUTOMATION al ARRAY.
     ('messages_sender_user_id_consistency_check', 'messages',
      'CHECK (sender_type = ''HUMAN'' AND sender_user_id IS NOT NULL OR sender_type = ANY (ARRAY[''CONTACT'', ''AGENT'', ''AUTOMATION'']) AND sender_user_id IS NULL)'),
+    -- El aviso "nadie disponible" reconocido por un dato (migración
+    -- 20261019120000): solo un mensaje de AUTOMATION puede ser un aviso.
+    ('messages_notice_type_automation_check', 'messages',
+     'CHECK (notice_type IS NULL OR sender_type = ''AUTOMATION'')'),
     -- Cotización (§39, migración 20260916120000): el mismo CHECK que
     -- opportunities_amount_non_negative_check sobre el precio ofertado.
     ('quotes_amount_non_negative_check', 'quotes',
@@ -544,7 +548,11 @@ from (
     -- Transcripto de pg_get_constraintdef; el normalizador quita el cast al
     -- enum (::"DiscountVoucherStatus").
     ('discount_vouchers_consumed_consistency_check', 'discount_vouchers',
-     'CHECK (status = ''ACTIVE'' AND consumed_at IS NULL AND consumed_by_user_id IS NULL OR status = ''CONSUMED'' AND consumed_at IS NOT NULL AND consumed_by_user_id IS NOT NULL)')
+     'CHECK (status = ''ACTIVE'' AND consumed_at IS NULL AND consumed_by_user_id IS NULL OR status = ''CONSUMED'' AND consumed_at IS NOT NULL AND consumed_by_user_id IS NOT NULL)'),
+    -- Cupón creado a mano (migración 20261018120000): sale de una regla o de
+    -- una persona.
+    ('discount_vouchers_origin_check', 'discount_vouchers',
+     'CHECK (automation_id IS NOT NULL OR created_by_user_id IS NOT NULL)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -926,7 +934,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 77 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 79 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -950,7 +958,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 77 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 79 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1099,6 +1107,11 @@ from (
     ('discount_vouchers_organization_id_consumed_by_user_id_fkey|discount_vouchers(organization_id,consumed_by_user_id)->users(organization_id,id)'),
     ('discount_vouchers_organization_id_contact_id_fkey|discount_vouchers(organization_id,contact_id)->contacts(organization_id,id)'),
     ('discount_vouchers_organization_id_opportunity_id_fkey|discount_vouchers(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    -- Cupón creado a mano (migración 20261018120000). created_by_user_id: una
+    -- FK hacia contacts (el cliente, no quien lo creó) pasaría la fila 14
+    -- entera; branch_id: la sucursal de cuyo número sale, no la del agente.
+    ('discount_vouchers_organization_id_created_by_user_id_fkey|discount_vouchers(organization_id,created_by_user_id)->users(organization_id,id)'),
+    ('discount_vouchers_organization_id_branch_id_fkey|discount_vouchers(organization_id,branch_id)->branches(organization_id,id)'),
     -- Agente de IA interno (ítem 179, migración 20261007120000). user_id es
     -- el candidato de siempre: una FK bien formada hacia contacts (que también
     -- tiene UNIQUE (organization_id, id)) pasaría la fila 14 y dejaría el hilo

@@ -156,6 +156,7 @@ describe("AgentFormPage — creación", () => {
         tone: "cercano",
         // El default del formulario, el mismo que el de la base.
         unansweredHandoffNoticeMinutes: 15,
+        unansweredHandoffNoticeText: null,
         // Sin modelProvider ni modelName: los elige la plataforma (B-05).
         enabledTools: [],
         channels: ["WHATSAPP"],
@@ -713,6 +714,7 @@ describe("AgentFormPage — edición", () => {
         instructions: "Sos el asistente de una concesionaria. Contestá corto y ofrecé un turno.",
         tone: "cercano",
         unansweredHandoffNoticeMinutes: 15,
+        unansweredHandoffNoticeText: null,
         enabledTools: ["create_lead"],
         channels: ["WEB"],
         // Los dos SIEMPRE juntos: el backend rechaza un PATCH con uno solo.
@@ -781,6 +783,50 @@ describe("AgentFormPage — edición", () => {
     // El max del input frena el envío en el navegador, antes que validar().
     expect(minutos).toBeInvalid();
     expect(patches).toBe(0);
+  });
+
+  it("mensaje cuando no hay nadie disponible: vacío viaja como null (el de siempre)", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      mockBranches(),
+      mockAgentDetalle({ unansweredHandoffNoticeText: "Texto viejo" }),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+    await user.clear(await screen.findByLabelText("Mensaje cuando no hay nadie disponible"));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].unansweredHandoffNoticeText).toBeNull();
+  });
+
+  it("mensaje cuando no hay nadie disponible: hidrata el texto propio y lo manda", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      mockBranches(),
+      mockAgentDetalle({
+        unansweredHandoffNoticeText: "Ahora no hay nadie, te escribimos enseguida.",
+      }),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+
+    const texto = await screen.findByLabelText("Mensaje cuando no hay nadie disponible");
+    expect(texto).toHaveValue("Ahora no hay nadie, te escribimos enseguida.");
+    expect(screen.getByText(/se agrega solo cuándo atiende el equipo/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].unansweredHandoffNoticeText).toBe(
+      "Ahora no hay nadie, te escribimos enseguida.",
+    );
   });
 
   it("el ID de WhatsApp se muestra de solo lectura y no viaja en el PATCH (ítem 127)", async () => {
