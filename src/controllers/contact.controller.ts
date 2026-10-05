@@ -1,3 +1,10 @@
+import {
+  CAMPOS_DE_LA_UNION,
+  contactoDespuesDeUnir,
+  unirContactos,
+  vistaPreviaDeLaUnion,
+  type CampoDeLaUnion,
+} from "../services/contactMerge.service";
 import type { Response } from "express";
 import { z } from "zod";
 import { logAccesoADatosPersonales } from "../lib/accessLog";
@@ -184,5 +191,60 @@ export const erasePersonalDataHandler = asyncHandler<AuthenticatedRequest>(
 
     const resultado = await erasePersonalData(req.auth.organizationId, id);
     res.status(200).json(resultado);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Unir contactos duplicados (contactMerge.service.ts). ADMIN-only en la ruta.
+// :id es el contacto que QUEDA; el otro es el que se une a él.
+// ---------------------------------------------------------------------------
+
+const ladoSchema = z.enum(["kept", "absorbed"]);
+
+const mergePreviewQuerySchema = z.object({
+  with: z.string().uuid("with inválido"),
+});
+
+const mergeContactSchema = z.object({
+  absorbedId: z.string().uuid("absorbedId inválido"),
+  // Qué valor queda en cada campo. Lo que no venga, el default: el más
+  // reciente no vacío.
+  fields: z
+    .object(
+      Object.fromEntries(
+        CAMPOS_DE_LA_UNION.map((campo) => [campo, ladoSchema.optional()]),
+      ) as Record<CampoDeLaUnion, z.ZodOptional<typeof ladoSchema>>,
+    )
+    .strict()
+    .default({}),
+});
+
+// GET /api/contacts/:id/merge-preview?with=<otro> — los dos lado a lado, la
+// elección por defecto de cada campo y cuánto se mueve.
+export const mergePreviewHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(idParamSchema, req.params.id);
+    const { with: otro } = parseOrThrow(mergePreviewQuerySchema, req.query);
+    res.status(200).json(await vistaPreviaDeLaUnion(req.auth.organizationId, id, otro));
+  },
+);
+
+// POST /api/contacts/:id/merge — la unión, en una transacción. 200 con el
+// contacto que queda y lo que se movió.
+export const mergeContactHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(idParamSchema, req.params.id);
+    const input = parseOrThrow(mergeContactSchema, req.body);
+    const resultado = await unirContactos(
+      req.auth.userId,
+      req.auth.organizationId,
+      id,
+      input.absorbedId,
+      input.fields,
+    );
+    res.status(200).json({
+      ...resultado,
+      contact: await contactoDespuesDeUnir(req.auth.organizationId, id),
+    });
   },
 );

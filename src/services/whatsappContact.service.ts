@@ -1,4 +1,9 @@
-import { createContact, findContactIdByNormalizedPhone } from "../repositories/contact.repository";
+import {
+  createContact,
+  findContactById,
+  findContactIdByNormalizedPhone,
+} from "../repositories/contact.repository";
+import { findContactIdByExternalIdentity } from "../repositories/contactChannelIdentity.repository";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { prisma } from "../lib/prisma";
 import { normalizarTelefono, soloDigitos } from "../lib/telefono";
@@ -74,6 +79,17 @@ export async function resolveWhatsappContact(
     const existente = await findContactIdByNormalizedPhone(organizationId, digitos, tx);
     if (existente) {
       return existente;
+    }
+
+    // Un teléfono que ya no está en ningún contacto vivo porque se UNIÓ a otro
+    // (contactMerge.service.ts): la unión lo dejó como identidad WHATSAPP del
+    // que quedó. Solo si ese contacto sigue vivo.
+    const porUnion = await findContactIdByExternalIdentity(
+      { organizationId, channel: "WHATSAPP", externalId: digitos },
+      tx,
+    );
+    if (porUnion && (await findContactById(porUnion, organizationId, tx))) {
+      return porUnion;
     }
 
     const { firstName, lastName } = nombreDelPerfil(profileName, digitos);

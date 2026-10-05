@@ -11,6 +11,7 @@ import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { CompanySelect } from "../company/CompanySelect";
 import { UserSelect } from "../user/UserSelect";
+import { MergeContactDialog } from "./MergeContactDialog";
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "../vehicle/labels";
 import { VehicleSelect } from "../vehicle/VehicleSelect";
 import { Badge } from "../../design-system/Badge";
@@ -155,6 +156,8 @@ export function ContactFormPage() {
   );
   const [error, setError] = useState<string | null>(null);
   const [creandoCupon, setCreandoCupon] = useState(false);
+  const [uniendo, setUniendo] = useState(false);
+  const [unido, setUnido] = useState<string | null>(null);
 
   const isSubmitting = createContactMutation.isPending || updateContactMutation.isPending;
 
@@ -209,12 +212,22 @@ export function ContactFormPage() {
           title={isEditMode ? "Editar contacto" : "Nuevo contacto"}
           actions={
             isEditMode && id ? (
-              <Button type="button" onClick={() => setCreandoCupon(true)}>
-                Crear cupón
-              </Button>
+              <>
+                <Button type="button" onClick={() => setCreandoCupon(true)}>
+                  Crear cupón
+                </Button>
+                <Button type="button" onClick={() => setUniendo(true)}>
+                  Unir con otro contacto
+                </Button>
+              </>
             ) : undefined
           }
         />
+        {unido ? (
+          <p className="ds-hint" role="status">
+            {unido}
+          </p>
+        ) : null}
         <div className="ds-stack">
           <Card heading="Datos del contacto">
             <div className="ds-field-grid">
@@ -321,6 +334,21 @@ export function ContactFormPage() {
       {isEditMode && id ? <ContactVouchersSection contactId={id} /> : null}
       {creandoCupon && id ? (
         <CreateVoucherDialog contactId={id} onClose={() => setCreandoCupon(false)} />
+      ) : null}
+      {uniendo && id ? (
+        <MergeContactDialog
+          contactId={id}
+          onClose={() => setUniendo(false)}
+          onMerged={(resultado) => {
+            setUniendo(false);
+            const total = Object.values(resultado.movidos).reduce((a, b) => a + b, 0);
+            setUnido(
+              total > 0
+                ? `Contactos unidos: ${total} registros pasaron a este contacto.`
+                : "Contactos unidos. El duplicado no tenía registros asociados.",
+            );
+          }}
+        />
       ) : null}
     </>
   );

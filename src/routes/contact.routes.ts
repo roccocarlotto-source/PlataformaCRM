@@ -5,6 +5,8 @@ import {
   erasePersonalDataHandler,
   getContactHandler,
   listContactsHandler,
+  mergeContactHandler,
+  mergePreviewHandler,
   updateContactHandler,
 } from "../controllers/contact.controller";
 import { authenticate } from "../middlewares/authenticate";
@@ -55,4 +57,21 @@ contactRouter.post(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   erasePersonalDataHandler,
+);
+
+// Unir contactos duplicados (contactMerge.service.ts). ADMIN-only, también la
+// vista previa: muestra los datos de los dos y cuánto se mueve, y solo tiene
+// sentido para quien puede unir.
+contactRouter.get(
+  "/contacts/:id/merge-preview",
+  authenticate,
+  authorize("ADMIN"),
+  mergePreviewHandler,
+);
+contactRouter.post(
+  "/contacts/:id/merge",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  mergeContactHandler,
 );

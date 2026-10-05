@@ -123,6 +123,8 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("listado-de-baja-{hex8}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("payment-http-{ts}-{hex8}", `${C}payment.controller.integration-test.ts`),
   patron("widget-test-{ts}-{hex8}", `${C}publicWidget.controller.integration-test.ts`),
+  patron("merge-{ts}-{hex8}", `${C}contactMerge.integration-test.ts`),
+  patron("merge-b-{ts}-{hex8}", `${C}contactMerge.integration-test.ts`),
   patron("widget-thread-{ts}-{hex8}", `${C}publicWidgetThread.integration-test.ts`),
   patron("cupon-manual-{ts}-{hex8}", `${C}voucherManual.integration-test.ts`),
   patron("cupon-manual-b-{ts}-{hex8}", `${C}voucherManual.integration-test.ts`),
