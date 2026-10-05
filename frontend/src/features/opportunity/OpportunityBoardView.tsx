@@ -11,7 +11,8 @@ import {
 } from "@dnd-kit/core";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../../auth/AuthContext";
+import { useAuth, type MeResponse } from "../../auth/AuthContext";
+import { puedeEditarRegistro } from "../../auth/permisos";
 import { Avatar } from "../../design-system/Avatar";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -284,6 +285,7 @@ export function OpportunityBoardView() {
                 pipelineId={pipelineId ?? ""}
                 opportunities={byStage.get(stage.id) ?? []}
                 isAdmin={isAdmin}
+                me={me ?? null}
                 companyNames={companyNames.byId}
                 contactNames={contactNames.byId}
                 ownerNames={ownerNames.byId}
@@ -301,6 +303,8 @@ interface BoardColumnProps {
   pipelineId: string;
   opportunities: Opportunity[];
   isAdmin: boolean;
+  // Quién mira el tablero: decide qué tarjetas puede mover y editar (D2).
+  me: Pick<MeResponse, "id" | "role"> | null;
   companyNames: Map<string, { name: string }>;
   contactNames: Map<string, string>;
   ownerNames: Map<string, string>;
@@ -311,6 +315,7 @@ function BoardColumn({
   pipelineId,
   opportunities,
   isAdmin,
+  me,
   companyNames,
   contactNames,
   ownerNames,
@@ -346,7 +351,7 @@ function BoardColumn({
           <BoardCard
             key={opportunity.id}
             opportunity={opportunity}
-            isAdmin={isAdmin}
+            puedeEditar={puedeEditarRegistro(me, opportunity)}
             companyName={
               opportunity.companyId ? (companyNames.get(opportunity.companyId)?.name ?? "—") : null
             }
@@ -357,7 +362,8 @@ function BoardColumn({
           />
         ))}
       </div>
-      {isAdmin && !isOutcome ? (
+      {/* Crear es de cualquiera con sesión (D2). */}
+      {!isOutcome ? (
         // Preselecciona pipeline y etapa en el formulario de alta vía query
         // params (OpportunityFormPage los lee solo en modo creación).
         <Link
@@ -377,15 +383,24 @@ function BoardColumn({
 
 interface BoardCardProps {
   opportunity: Opportunity;
-  isAdmin: boolean;
+  // Quien la tiene asignada o un ADMIN: puede abrirla para editar y moverla
+  // de etapa. Los demás la ven, sin arrastre (el backend lo rechazaría).
+  puedeEditar: boolean;
   companyName: string | null;
   contactName: string | null;
   ownerName: string | null;
 }
 
-function BoardCard({ opportunity, isAdmin, companyName, contactName, ownerName }: BoardCardProps) {
+function BoardCard({
+  opportunity,
+  puedeEditar,
+  companyName,
+  contactName,
+  ownerName,
+}: BoardCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: opportunity.id,
+    disabled: !puedeEditar,
   });
 
   // Abierta → fecha estimada; cerrada (WON o LOST) → fecha real. Mismo
@@ -404,7 +419,7 @@ function BoardCard({ opportunity, isAdmin, companyName, contactName, ownerName }
       {...attributes}
     >
       <div className="ds-board-card-title">
-        {isAdmin ? (
+        {puedeEditar ? (
           <Link to={`/opportunities/${opportunity.id}/edit`}>{opportunity.title}</Link>
         ) : (
           opportunity.title

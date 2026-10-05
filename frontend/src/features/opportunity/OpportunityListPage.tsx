@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Target } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { puedeEditarRegistro } from "../../auth/permisos";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -56,8 +57,6 @@ type View = "table" | "board";
 
 export function OpportunityListPage() {
   const [view, setView] = useState<View>("table");
-  const { me } = useAuth();
-  const isAdmin = me?.role === "ADMIN";
 
   // "Nueva oportunidad" vive en el encabezado y no dentro de la vista de
   // tabla: así está en las dos vistas, a la derecha del título como en el
@@ -77,12 +76,10 @@ export function OpportunityListPage() {
                 Vista de embudo
               </Button>
             </div>
-            {isAdmin ? (
-              <Link to="/opportunities/new" className="ds-link-button">
-                <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-                Nueva oportunidad
-              </Link>
-            ) : null}
+            <Link to="/opportunities/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nueva oportunidad
+            </Link>
           </>
         }
       />
@@ -299,7 +296,7 @@ function OpportunityTableView() {
                 <th>Cierre</th>
                 {isAdmin ? <th>Asignado</th> : null}
                 <th>Estado</th>
-                {isAdmin ? <th>Acciones</th> : null}
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -359,26 +356,32 @@ function OpportunityTableView() {
                         {STATUS_LABEL[opportunity.status]}
                       </Badge>
                     </td>
-                    {isAdmin ? (
-                      <td>
-                        <ActionsMenu
-                          actions={[
-                            // Primero "Ver detalle": la acción de consulta,
-                            // antes que las de escritura (§28).
-                            {
-                              label: "Ver detalle",
-                              onClick: () => setDetalleAbierto(opportunity.id),
-                            },
-                            { label: "Editar", to: `/opportunities/${opportunity.id}/edit` },
-                            {
-                              label: "Eliminar",
-                              onClick: () => handleDelete(opportunity.id),
-                              destructive: true,
-                            },
-                          ]}
-                        />
-                      </td>
-                    ) : null}
+                    <td>
+                      <ActionsMenu
+                        actions={[
+                          // Primero "Ver detalle": la acción de consulta,
+                          // antes que las de escritura (§28).
+                          {
+                            label: "Ver detalle",
+                            onClick: () => setDetalleAbierto(opportunity.id),
+                          },
+                          // D2: editar, quien la tiene asignada o un ADMIN;
+                          // eliminar, solo un ADMIN.
+                          ...(puedeEditarRegistro(me, opportunity)
+                            ? [{ label: "Editar", to: `/opportunities/${opportunity.id}/edit` }]
+                            : []),
+                          ...(isAdmin
+                            ? [
+                                {
+                                  label: "Eliminar",
+                                  onClick: () => handleDelete(opportunity.id),
+                                  destructive: true,
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                    </td>
                   </tr>
                 );
               })}

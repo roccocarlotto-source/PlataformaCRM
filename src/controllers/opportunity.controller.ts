@@ -9,6 +9,7 @@ import {
   listOpportunities,
   updateOpportunity,
 } from "../services/opportunity.service";
+import { assertPuedeEditar, ownerAlCrear } from "../services/permisosDelVendedor";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { currencySchema, MAX_AMOUNT, parseOrThrow } from "../utils/validation";
@@ -178,7 +179,12 @@ const listQuerySchema = z.object({
 export const createOpportunityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createOpportunitySchema, req.body);
-    const opportunity = await createOpportunity(req.auth.organizationId, req.auth.userId, input);
+    // D2: un USER crea oportunidades, y quedan a su nombre
+    // (permisosDelVendedor.ts).
+    const opportunity = await createOpportunity(req.auth.organizationId, req.auth.userId, {
+      ...input,
+      ownerId: ownerAlCrear(req.auth, input.ownerId),
+    });
     res.status(201).json(opportunity);
   },
 );
@@ -224,6 +230,12 @@ export const updateOpportunityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updateOpportunitySchema, req.body);
+    // D2: un USER edita solo las oportunidades que tiene asignadas (moverla de
+    // etapa, ganarla o perderla incluido), y no las reasigna.
+    if (req.auth.role !== "ADMIN") {
+      const actual = await getOpportunityById(req.auth.organizationId, id);
+      assertPuedeEditar(req.auth, actual, input.ownerId);
+    }
     const opportunity = await updateOpportunity(
       req.auth.organizationId,
       req.auth.userId,

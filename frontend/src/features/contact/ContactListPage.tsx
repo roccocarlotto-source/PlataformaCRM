@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Users } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { puedeEditarRegistro } from "../../auth/permisos";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -127,12 +128,10 @@ export function ContactListPage() {
       <PageHeader
         title="Contactos"
         actions={
-          isAdmin ? (
-            <Link to="/contacts/new" className="ds-link-button">
-              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-              Nuevo contacto
-            </Link>
-          ) : null
+          <Link to="/contacts/new" className="ds-link-button">
+            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+            Nuevo contacto
+          </Link>
         }
       />
 
@@ -247,7 +246,7 @@ export function ContactListPage() {
                 <th>Etapa</th>
                 <th>Origen</th>
                 {isAdmin ? <th>Asignado</th> : null}
-                {isAdmin ? <th>Acciones</th> : null}
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -289,26 +288,32 @@ export function ContactListPage() {
                         )}
                       </td>
                     ) : null}
-                    {isAdmin ? (
-                      <td>
-                        <ActionsMenu
-                          actions={[
-                            // Primero "Ver detalle": la acción de consulta,
-                            // antes que las de escritura (§28).
-                            {
-                              label: "Ver detalle",
-                              onClick: () => setDetalleAbierto(contact.id),
-                            },
-                            { label: "Editar", to: `/contacts/${contact.id}/edit` },
-                            {
-                              label: "Eliminar",
-                              onClick: () => handleDelete(contact.id),
-                              destructive: true,
-                            },
-                          ]}
-                        />
-                      </td>
-                    ) : null}
+                    <td>
+                      <ActionsMenu
+                        actions={[
+                          // Primero "Ver detalle": la acción de consulta,
+                          // antes que las de escritura (§28).
+                          {
+                            label: "Ver detalle",
+                            onClick: () => setDetalleAbierto(contact.id),
+                          },
+                          // D2: editar, quien lo tiene asignado o un ADMIN;
+                          // eliminar, solo un ADMIN.
+                          ...(puedeEditarRegistro(me, contact)
+                            ? [{ label: "Editar", to: `/contacts/${contact.id}/edit` }]
+                            : []),
+                          ...(isAdmin
+                            ? [
+                                {
+                                  label: "Eliminar",
+                                  onClick: () => handleDelete(contact.id),
+                                  destructive: true,
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                    </td>
                   </tr>
                 );
               })}

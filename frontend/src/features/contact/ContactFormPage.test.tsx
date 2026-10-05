@@ -259,6 +259,61 @@ describe("ContactFormPage", () => {
     expect(screen.queryByText("Vehículo de interés")).toBeNull();
   });
 
+  // D2 (OPUS-I-03, docs-privados, local): un USER crea y edita lo suyo; no
+  // reasigna, no une, y el contacto de otro lo ve sin poder guardarlo.
+  it("USER: en creación no ve el selector Asignado (queda a su nombre) y el POST sale sin otro dueño", async () => {
+    const auth = mockAuth();
+    useAuthMock.mockReturnValue({ ...auth, me: { ...auth.me!, role: "USER" } });
+    let body: Record<string, unknown> | undefined;
+    server.use(
+      http.post(contactsUrl, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeContact({ id: "c-nuevo" }), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/contacts/new");
+
+    expect(screen.queryByLabelText("Asignado")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unir con otro contacto")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Nombre/), "Diego");
+    await user.type(screen.getByLabelText(/Apellido/), "Ramírez");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    // Su propio id, o nada: el backend lo deja a su nombre igual.
+    expect([undefined, "u1"]).toContain(body?.ownerId);
+  });
+
+  it("USER: el contacto de otro vendedor se ve, pero Guardar queda deshabilitado y lo dice", async () => {
+    const auth = mockAuth();
+    useAuthMock.mockReturnValue({ ...auth, me: { ...auth.me!, role: "USER" } });
+    server.use(
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeContact({ id: params.id as string, ownerId: "otro-vendedor" })),
+      ),
+    );
+    renderForm("/contacts/c1/edit");
+
+    expect(await screen.findByRole("button", { name: "Guardar" })).toBeDisabled();
+    expect(screen.getByText(/asignado a otra persona/)).toBeInTheDocument();
+    expect(screen.queryByText("Unir con otro contacto")).not.toBeInTheDocument();
+  });
+
+  it("USER: su propio contacto se edita con normalidad", async () => {
+    const auth = mockAuth();
+    useAuthMock.mockReturnValue({ ...auth, me: { ...auth.me!, role: "USER" } });
+    server.use(
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeContact({ id: params.id as string, ownerId: "u1" })),
+      ),
+    );
+    renderForm("/contacts/c1/edit");
+
+    expect(await screen.findByRole("button", { name: "Guardar" })).toBeEnabled();
+    expect(screen.queryByText(/asignado a otra persona/)).not.toBeInTheDocument();
+  });
+
   it("error de detail muestra error y no presenta el form como create vacío", async () => {
     server.use(
       usersHandler(),

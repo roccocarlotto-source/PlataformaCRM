@@ -410,7 +410,9 @@ describe("OpportunityBoardView", () => {
     expect(captured.opportunityRequests).toHaveLength(requestsBefore);
   });
 
-  it("USER: no ve el avatar del asignado, ni '+ Añadir', y no dispara GET /api/users", async () => {
+  // D2 (OPUS-I-03, docs-privados, local): "+ Añadir" es de cualquiera con
+  // sesión; el avatar del asignado y GET /api/users siguen siendo de ADMIN.
+  it("USER: no ve el avatar del asignado ni dispara GET /api/users, pero sí puede añadir", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     let usersRequests = 0;
     const { handlers } = boardHandlers([makeOpportunity({ stageId: "st-prospecto" })]);
@@ -431,7 +433,30 @@ describe("OpportunityBoardView", () => {
 
     expect(usersRequests).toBe(0);
     expect(screen.queryByRole("img", { name: "Ana Pérez" })).not.toBeInTheDocument();
-    expect(screen.queryByText("+ Añadir")).not.toBeInTheDocument();
+    expect(screen.getAllByText("+ Añadir").length).toBeGreaterThan(0);
+  });
+
+  it("USER: la tarjeta de otro vendedor no es un link a editar; la suya sí", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    const { handlers } = boardHandlers([
+      makeOpportunity({
+        id: "ajena",
+        title: "Renovación anual",
+        stageId: "st-prospecto",
+        ownerId: "otro",
+      }),
+      makeOpportunity({ id: "propia", title: "Mi venta", stageId: "st-prospecto", ownerId: "u1" }),
+    ]);
+    server.use(...handlers);
+
+    renderBoard();
+    await waitFor(() => expect(screen.getByText("Mi venta")).toBeInTheDocument());
+
+    expect(screen.queryByRole("link", { name: "Renovación anual" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Mi venta" })).toHaveAttribute(
+      "href",
+      "/opportunities/propia/edit",
+    );
   });
 
   it("ADMIN ve el avatar del asignado en la tarjeta", async () => {
