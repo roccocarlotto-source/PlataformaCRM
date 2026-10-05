@@ -31,6 +31,12 @@ export interface VehicleFilters {
   condition?: VehicleCondition;
   make?: string;
   model?: string;
+  // FABLE-B-09 (docs-privados, local): search_vehicles ya no usa make/model
+  // de arriba. Resuelve en memoria qué unidades corresponden a lo que nombró
+  // el cliente (utils/busquedaDeVehiculo.ts) y pasa sus ids; el resto de los
+  // filtros, el orden y el total siguen saliendo de la base. Una lista vacía
+  // es "ninguna": no se confunde con "sin este filtro".
+  ids?: string[];
   // Ítem 85: los agrega search_vehicles (agentTools.service.ts), el único
   // consumidor hoy. Igualdad exacta, mismo criterio que make/model.
   year?: number;
@@ -94,6 +100,7 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
     // (se eligen entre los valores ya cargados), y la igualdad es lo que usa
     // el índice (organization_id, make) de la Fase 1. La búsqueda tolerante
     // es `q`.
+    ...(filters.ids !== undefined ? { id: { in: filters.ids } } : {}),
     ...(filters.make ? { make: filters.make } : {}),
     ...(filters.model ? { model: filters.model } : {}),
     ...(filters.year !== undefined ? { year: filters.year } : {}),
@@ -237,6 +244,16 @@ export function findManyVehicles(
     orderBy: buildOrderBy(sort.sortBy, sort.sortOrder),
     skip: pagination.skip,
     take: pagination.take,
+  });
+}
+
+// Cómo se llama cada unidad que el agente puede mostrar (disponible y
+// publicada): lo mínimo para resolver en memoria la marca y el modelo que
+// nombra un cliente. Sin tope: son cinco columnas cortas por unidad.
+export function findNombresDeVehiculosPublicados(organizationId: string, db: Db = prisma) {
+  return db.vehicle.findMany({
+    where: { organizationId, deletedAt: null, status: "AVAILABLE", publishOnWebsite: true },
+    select: { id: true, make: true, model: true, trim: true, year: true },
   });
 }
 

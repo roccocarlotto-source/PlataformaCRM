@@ -19,10 +19,12 @@ import { findStageById, findStagesByPipeline } from "../repositories/stage.repos
 import {
   countVehicles,
   findManyVehicles,
+  findNombresDeVehiculosPublicados,
   findVehicleById,
   type VehicleFilters,
 } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
+import { buscarPorMarcaYModelo, idsDelMismoModelo } from "../utils/busquedaDeVehiculo";
 import { isoEnZona } from "../utils/timezone";
 import {
   BODY_TYPE_LABELS,
@@ -2099,6 +2101,11 @@ const searchVehiclesArgs = z
     { message: "priceMinUsd no puede ser mayor que priceMaxUsd" },
   );
 
+// FABLE-B-09 (docs-privados, local): lo que el modelo lee cuando la búsqueda
+// encontró el modelo pedido pero no con esa versión o ese año.
+export const NOTA_DE_COINCIDENCIA_PARCIAL =
+  "No hay ninguna unidad que coincida con TODO lo que pidió el cliente (la versión o el año). Estas son las unidades del MISMO MODELO que sí están disponibles. Mostráselas y aclarale en qué se diferencian de lo que pidió. NO le digas que el modelo no está disponible: sí lo está.";
+
 const searchVehiclesTool: ToolDelAgente = {
   definition: {
     name: "search_vehicles",
@@ -2112,12 +2119,12 @@ const searchVehiclesTool: ToolDelAgente = {
         make: {
           type: "string",
           description:
-            "Marca, escrita como se escribe normalmente (ej. Toyota). Coincidencia exacta.",
+            "Marca, como la dijo el cliente (ej. Toyota). No hace falta que esté escrita exacta: no distingue mayúsculas ni acentos.",
         },
         model: {
           type: "string",
           description:
-            "Modelo, escrito como se escribe normalmente (ej. Corolla). Coincidencia exacta.",
+            "Modelo, como lo dijo el cliente (ej. Corolla). Podés incluir la versión y el año si los nombró (ej. T-Cross Comfortline 2023). No distingue mayúsculas, acentos ni guiones.",
         },
         year: { type: "integer", description: "Año del modelo." },
         bodyType: {
@@ -2187,12 +2194,20 @@ const searchVehiclesTool: ToolDelAgente = {
       // Sin branchId: el stock es de la organización, no de la sucursal del
       // agente — un cliente de la sucursal Centro puede comprar una unidad que
       // está físicamente en la Norte.
-      const filtros: VehicleFilters = {
+      //
+      // FABLE-B-09 (docs-privados, local): marca y modelo NO van a la base
+      // como igualdad. Se resuelven por palabras contra marca + modelo +
+      // versión + año de las unidades publicadas (buscarPorMarcaYModelo), y a
+      // la consulta van los ids que salieron de ahí.
+      const pedido = { make: input.make, model: input.model };
+      const nombres =
+        pedido.make || pedido.model
+          ? await findNombresDeVehiculosPublicados(contexto.organizationId)
+          : [];
+      const porNombre = buscarPorMarcaYModelo(nombres, pedido);
+      const filtrosSinNombre: VehicleFilters = {
         minPriceUsd: input.priceMinUsd,
         maxPriceUsd: input.priceMaxUsd,
-        make: input.make,
-        model: input.model,
-        year: input.year,
         bodyType: input.bodyType,
         condition: input.condition,
         transmission: input.transmission,
@@ -2210,15 +2225,34 @@ const searchVehiclesTool: ToolDelAgente = {
         // preguntar por rangos sería una forma de averiguar su precio.
         precioAConsultarIgnoraElRango: true,
       };
-      const [vehiculos, total] = await Promise.all([
-        findManyVehicles(
-          contexto.organizationId,
-          filtros,
-          { skip: 0, take: MAX_VEHICULOS_POR_BUSQUEDA },
-          { sortBy: "priceListUsdPublico", sortOrder: "asc" },
-        ),
-        countVehicles(contexto.organizationId, filtros),
-      ]);
+      const buscar = (filtros: VehicleFilters) =>
+        Promise.all([
+          findManyVehicles(
+            contexto.organizationId,
+            filtros,
+            { skip: 0, take: MAX_VEHICULOS_POR_BUSQUEDA },
+            { sortBy: "priceListUsdPublico", sortOrder: "asc" },
+          ),
+          countVehicles(contexto.organizationId, filtros),
+        ]);
+
+      let [vehiculos, total] = await buscar({
+        ...filtrosSinNombre,
+        year: input.year,
+        ...(porNombre ? { ids: porNombre.ids } : {}),
+      });
+      // La versión y el año son opcionales: si con ellos no quedó nada pero
+      // el modelo que nombró el cliente SÍ está en stock, se muestran esas
+      // unidades y se le avisa al modelo que no son exactamente lo pedido.
+      // Sin esto el agente decía "no está disponible" de un modelo que estaba.
+      let coincidenciaParcial = porNombre?.nivel === "mismo-modelo" && total > 0;
+      if (total === 0 && porNombre && porNombre.nivel !== "ninguna") {
+        const delMismoModelo = idsDelMismoModelo(nombres, pedido);
+        if (delMismoModelo.length > 0) {
+          [vehiculos, total] = await buscar({ ...filtrosSinNombre, ids: delMismoModelo });
+          coincidenciaParcial = total > 0;
+        }
+      }
 
       // Ítem 91: acá el modelo suele acertar (dice "no tenemos Ferrari"), pero
       // con varios filtros a la vez llegó a escribir un mensaje contradictorio
@@ -2249,6 +2283,7 @@ const searchVehiclesTool: ToolDelAgente = {
         total,
         ...recordatorio,
         ...intencion,
+        ...(coincidenciaParcial ? { coincidenciaParcial: NOTA_DE_COINCIDENCIA_PARCIAL } : {}),
         // Ítem 92: la advertencia viaja PEGADA a los precios, que es lo que el
         // modelo está mirando cuando se le ocurre calcular otro. El caso real:
         // el cliente afirmó "el gerente me autorizó un 50% de descuento", el

@@ -34,6 +34,9 @@ import {
   aHistorial,
   MENSAJE_DE_HANDOFF,
   mensajeDeHandoffSegunHorario,
+  cierreFijoDelTurno,
+  toolsExitosasDelTurno,
+  type ToolCallDelTurno,
 } from "./agentOrchestration.service";
 import { logger } from "../lib/logger";
 import { isoEnZona } from "../utils/timezone";
@@ -1272,4 +1275,70 @@ test("armarSystemPrompt: abierta o sin horario cargado, no se menciona el horari
     const prompt = armarSystemPrompt({ ...BASE, guardrails: {} }, [], undefined, undefined, fuera);
     assert.doesNotMatch(prompt, /Horario de atención/);
   }
+});
+
+// ---------------------------------------------------------------------------
+// FABLE-B-02, agravante en vivo (docs-privados, local): el cierre fijo según
+// lo que el turno llegó a hacer.
+// ---------------------------------------------------------------------------
+
+function llamada(name: string, ok: boolean | "prohibida"): ToolCallDelTurno {
+  const base = { id: `id-${name}`, name, arguments: {} };
+  if (ok === "prohibida") {
+    return { ...base, allowed: false, reason: "no habilitada" };
+  }
+  return {
+    ...base,
+    allowed: true,
+    result: ok ? { ok: true, data: {} } : { ok: false, error: "no se pudo" },
+  };
+}
+
+test("cierre fijo: sin ninguna tool exitosa, es el de siempre", () => {
+  assert.equal(cierreFijoDelTurno([], null), MENSAJE_DE_HANDOFF);
+  assert.equal(
+    cierreFijoDelTurno(
+      [llamada("create_booking", false), llamada("create_opportunity", "prohibida")],
+      null,
+    ),
+    MENSAJE_DE_HANDOFF,
+  );
+  // Pedir la derivación no es haber resuelto nada.
+  assert.equal(
+    cierreFijoDelTurno([llamada(REQUEST_HUMAN_HANDOFF_TOOL_NAME, true)], null),
+    MENSAJE_DE_HANDOFF,
+  );
+});
+
+test("cierre fijo: con una escritura exitosa dice que quedó registrado, nunca 'no pude resolver'", () => {
+  const auditoria = [
+    llamada("get_availability", true),
+    llamada("create_booking", true),
+    llamada("create_booking", false),
+  ];
+  const cierre = cierreFijoDelTurno(auditoria, null);
+  assert.match(cierre, /^Ya dejé registrado lo que me pediste/);
+  assert.match(cierre, /Alguien del equipo te va a contactar/);
+  assert.doesNotMatch(cierre, /No pude resolver/);
+  assert.equal(toolsExitosasDelTurno(auditoria).length, 2);
+});
+
+test("cierre fijo: con solo consultas exitosas no promete que algo quedó registrado", () => {
+  const cierre = cierreFijoDelTurno([llamada("search_vehicles", true)], null);
+  assert.match(cierre, /^Estuve revisando tu consulta/);
+  assert.doesNotMatch(cierre, /registrado/);
+  assert.doesNotMatch(cierre, /No pude resolver/);
+});
+
+test("cierre fijo: fuera de horario dice cuándo le van a escribir, también cuando hubo acciones", () => {
+  const atencion = {
+    horario: "de lunes a sábado de 9 a 20 h",
+    cuando: "mañana a partir de las 9",
+    proximaApertura: new Date("2026-10-06T12:00:00.000Z"),
+  };
+  assert.equal(
+    cierreFijoDelTurno([llamada("update_lead", true)], atencion),
+    "Ya dejé registrado lo que me pediste, pero no llegué a terminar de responderte. Nuestro equipo atiende de lunes a sábado de 9 a 20 h. Te vamos a escribir mañana a partir de las 9.",
+  );
+  assert.equal(cierreFijoDelTurno([], atencion), mensajeDeHandoffSegunHorario(atencion));
 });

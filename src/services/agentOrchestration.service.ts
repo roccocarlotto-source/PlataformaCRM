@@ -56,6 +56,8 @@ import {
   type LlmToolCall,
   type LlmToolDefinition,
 } from "./llmProvider.service";
+import { revisarSaldoDeLaKey } from "./llmKeyBalance.service";
+import { registrarUsoDelTurno, sumarUso, usoVacio } from "./llmUsage.service";
 import { resolverOwnerDelContacto } from "./ownership.service";
 
 // ---------------------------------------------------------------------------
@@ -102,6 +104,75 @@ export function mensajeDeHandoffSegunHorario(atencion: AtencionFueraDeHorario | 
     ? `No pude resolver tu consulta en este momento. ${fraseFueraDeHorario(atencion)}`
     : MENSAJE_DE_HANDOFF;
 }
+
+// ---------------------------------------------------------------------------
+// EL CIERRE DE UN TURNO QUE SÍ HIZO COSAS (FABLE-B-02, agravante en vivo, de
+// docs-privados/auditoria-2026-10-05-FABLE.md, local).
+//
+// El caso real: un turno hizo tres reservas, agotó sus rondas y cerró con "No
+// pude resolver tu consulta en este momento". El cliente creyó que no tenía
+// turno y tenía tres. El cierre fijo de arriba es verdad solo cuando el turno
+// no logró nada.
+//
+// La regla: si alguna tool del turno terminó bien, el cierre fijo NO dice "no
+// pude resolver tu consulta". Dice lo que consta —que algo quedó registrado, o
+// que la consulta se estuvo revisando— y que una persona sigue. Vale para
+// todos los caminos que usan el cierre fijo: tope de rondas, proveedor caído,
+// tiempo agotado, eco y derivación sin texto.
+//
+// Y cuando el corte es por el tope de rondas, antes de caer en ese texto fijo
+// se le pide al modelo UNA redacción final, sin poder llamar más tools
+// (INSTRUCCION_DE_CIERRE_POR_TOPE): con los resultados a la vista puede decir
+// qué quedó hecho ("te reservé el martes a las 10"). Si esa llamada falla o
+// no trae texto, queda el fijo.
+// ---------------------------------------------------------------------------
+const CIERRE_CON_CAMBIOS =
+  "Ya dejé registrado lo que me pediste, pero no llegué a terminar de responderte.";
+const CIERRE_CON_CONSULTAS =
+  "Estuve revisando tu consulta, pero no llegué a terminar de responderte.";
+const CIERRE_ALGUIEN_TE_CONTACTA =
+  "Alguien del equipo te va a contactar para confirmarte los detalles.";
+
+export const INSTRUCCION_DE_CIERRE_POR_TOPE =
+  "CIERRE DEL TURNO: ya no podés usar ninguna herramienta en este turno. Escribile AHORA al cliente un mensaje breve. Contale qué quedó hecho según los resultados de las herramientas de arriba —solo lo que tiene ok: true, con sus datos concretos (día y hora de una reserva, la unidad, lo que se anotó)— y decile que alguien del equipo lo va a contactar por lo que falte. No digas que no pudiste hacer algo que sí quedó hecho, no prometas nada que no esté en esos resultados y no menciones herramientas ni pasos internos.";
+
+// Las tools que escriben: lo que el cliente pidió quedó registrado en el CRM.
+function esToolDeEscritura(nombre: string): boolean {
+  return /^(create|update|reserve)_/.test(nombre);
+}
+
+// Las tools del catálogo que este turno ejecutó con éxito. La derivación no
+// cuenta: pedirla no es haber resuelto nada.
+export function toolsExitosasDelTurno(auditoria: ToolCallDelTurno[]): ToolCallDelTurno[] {
+  return auditoria.filter(
+    (t) => t.allowed && t.result?.ok === true && t.name !== REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+  );
+}
+
+// Pura: el cierre fijo según lo que el turno llegó a hacer.
+export function cierreFijoDelTurno(
+  auditoria: ToolCallDelTurno[],
+  atencion: AtencionFueraDeHorario | null,
+): string {
+  const exitosas = toolsExitosasDelTurno(auditoria);
+  if (exitosas.length === 0) {
+    return mensajeDeHandoffSegunHorario(atencion);
+  }
+  const comienzo = exitosas.some((t) => esToolDeEscritura(t.name))
+    ? CIERRE_CON_CAMBIOS
+    : CIERRE_CON_CONSULTAS;
+  return `${comienzo} ${atencion ? fraseFueraDeHorario(atencion) : CIERRE_ALGUIEN_TE_CONTACTA}`;
+}
+
+// Tope de tools que se ejecutan en UNA ronda (FABLE-B-02, docs-privados,
+// local). El tope de rondas ya existía; lo que faltaba era que una sola ronda
+// no pudiera pedir veinte acciones ("reservame todos los turnos de la
+// semana"). Cinco cubre la ronda real más cargada —buscar, anotar el lead,
+// crear la oportunidad, consultar disponibilidad— con margen. Las que pasan
+// del tope no se ejecutan y el modelo lo lee en su resultado.
+export const MAX_TOOL_CALLS_PER_ROUND = 5;
+export const MOTIVO_TOPE_DE_TOOLS_POR_RONDA =
+  "Demasiadas acciones en un mismo paso: esta no se ejecutó. Si de verdad hace falta, pedila de nuevo en el paso siguiente.";
 
 // Tope del mensaje que el modelo puede escribirle al cliente al derivar
 // (ítem 111). Es un mensaje de WhatsApp, no un documento.
@@ -1767,7 +1838,6 @@ export async function responderEnLaConversacion(
   const fueraDeHorario = sucursal
     ? atencionFueraDeHorario(franjasDeLaSucursal, sucursal.timezone, ahora)
     : null;
-  const mensajeDeHandoff = mensajeDeHandoffSegunHorario(fueraDeHorario);
   const systemPrompt = armarSystemPrompt(
     agent,
     knowledgeBaseEntries,
@@ -1806,6 +1876,9 @@ export async function responderEnLaConversacion(
   // PRESUPUESTO_DEL_TURNO_MS.
   const presupuesto = AbortSignal.timeout(options.presupuestoMs ?? PRESUPUESTO_DEL_TURNO_MS);
   const auditoria: ToolCallDelTurno[] = [];
+  // El cierre fijo se calcula al usarlo: depende de lo que el turno ya hizo.
+  const cierreFijo = () => cierreFijoDelTurno(auditoria, fueraDeHorario);
+  const uso = usoVacio();
   let respuestaFinal: string | null = null;
   // El motivo con el que se deriva, si este turno deriva. null = no derivar.
   let motivoDeHandoff: string | null = null;
@@ -1852,6 +1925,7 @@ export async function responderEnLaConversacion(
         model: agent.modelName,
         signal: presupuesto,
       });
+      sumarUso(uso, resultado.usage);
     } catch (err) {
       if (!(err instanceof LlmProviderError)) {
         throw err;
@@ -1864,7 +1938,7 @@ export async function responderEnLaConversacion(
           : "El proveedor del modelo falló tras los reintentos: se deriva en vez de dejar al contacto sin respuesta",
       );
       motivoDeHandoff ??= sinTiempo ? MOTIVO_TIEMPO_AGOTADO : MOTIVO_PROVEEDOR_CAIDO;
-      respuestaFinal = mensajeDeHandoff;
+      respuestaFinal = cierreFijo();
       break;
     }
 
@@ -1913,13 +1987,24 @@ export async function responderEnLaConversacion(
       toolCalls: llamadas,
     });
 
-    for (const llamada of llamadas) {
-      const entrada = await resolverToolCall(llamada, {
-        agent,
-        toolsPorNombre,
-        datosDisponibles,
-        contextoDeTools,
-      });
+    for (const [indice, llamada] of llamadas.entries()) {
+      // Pasado el tope de la ronda no se ejecuta, pero SÍ se le contesta: el
+      // formato exige un resultado por cada tool call del asistente.
+      const entrada: ToolCallDelTurno =
+        indice < MAX_TOOL_CALLS_PER_ROUND
+          ? await resolverToolCall(llamada, {
+              agent,
+              toolsPorNombre,
+              datosDisponibles,
+              contextoDeTools,
+            })
+          : {
+              id: llamada.id,
+              name: llamada.name,
+              arguments: llamada.arguments,
+              allowed: false,
+              reason: MOTIVO_TOPE_DE_TOOLS_POR_RONDA,
+            };
       auditoria.push(entrada);
       historial.push({
         role: "tool",
@@ -1947,7 +2032,7 @@ export async function responderEnLaConversacion(
     // momento" — correcto en el ruteo y helado como respuesta a alguien que
     // acaba de denunciar una estafa.
     if (motivoDeHandoff !== null) {
-      respuestaFinal = resultado.text ?? mensajeDeHandoffDelModelo ?? mensajeDeHandoff;
+      respuestaFinal = resultado.text ?? mensajeDeHandoffDelModelo ?? cierreFijo();
       break;
     }
 
@@ -1969,7 +2054,34 @@ export async function responderEnLaConversacion(
   // final tras el tope de rondas, se deriva con el motivo fijo.
   if (respuestaFinal === null) {
     motivoDeHandoff = MOTIVO_TOPE_DE_RONDAS;
-    respuestaFinal = mensajeDeHandoff;
+    // Si el turno hizo cosas, el modelo redacta el cierre con los resultados a
+    // la vista y sin poder pedir más tools; si no puede, el cierre fijo (que
+    // tampoco dice "no pude" cuando algo quedó hecho). Ver cierreFijoDelTurno.
+    if (toolsExitosasDelTurno(auditoria).length > 0 && !presupuesto.aborted) {
+      try {
+        const cierre = await llm.complete({
+          systemPrompt: `${systemPrompt}\n\n${INSTRUCCION_DE_CIERRE_POR_TOPE}`,
+          messages: historial,
+          tools: definiciones,
+          toolChoice: "none",
+          model: agent.modelName,
+          signal: presupuesto,
+        });
+        sumarUso(uso, cierre.usage);
+        // Si aun así pidió una tool, el texto que la acompaña es una frase de
+        // tránsito ("dame un momento…"), no un cierre: va el fijo.
+        respuestaFinal = cierre.toolCalls.length === 0 ? cierre.text : null;
+      } catch (err) {
+        if (!(err instanceof LlmProviderError)) {
+          throw err;
+        }
+        logger.warn(
+          { err, organizationId, agentId, conversationId: conversation.id },
+          "No se pudo redactar el cierre del turno con el modelo: va el cierre fijo",
+        );
+      }
+    }
+    respuestaFinal ??= cierreFijo();
     logger.warn(
       {
         organizationId,
@@ -1982,8 +2094,9 @@ export async function responderEnLaConversacion(
   }
 
   // Ítem 94: última puerta antes de que el texto salga hacia el cliente, y
-  // deliberadamente DESPUÉS de la red de seguridad de arriba (si venimos del
-  // tope de rondas, respuestaFinal es el cierre fijo y esto no puede saltar).
+  // deliberadamente DESPUÉS de la red de seguridad de arriba: el cierre que
+  // redacta el modelo al agotar las rondas pasa por las mismas guardas que
+  // cualquier otra respuesta suya (el cierre fijo no puede hacerlas saltar).
   // Se compara contra las reglas fijas y contra lo que configuró el negocio;
   // la base de conocimiento queda afuera a propósito (ver la nota del helper).
   if (
@@ -2028,7 +2141,7 @@ export async function responderEnLaConversacion(
       { organizationId, agentId, conversationId: conversation.id },
       "La respuesta del modelo era el mensaje del cliente devuelto: se reemplazó y se derivó",
     );
-    respuestaFinal = mensajeDeHandoff;
+    respuestaFinal = cierreFijo();
     motivoDeHandoff ??= MOTIVO_RESPUESTA_INUTILIZABLE;
   } else {
     // Ítem 117, y va DESPUÉS de las tres guardas de arriba a propósito: ellas
@@ -2071,6 +2184,17 @@ export async function responderEnLaConversacion(
   });
 
   const statusFinal: ConversationStatus = handoff ? "TRANSFERRED_TO_HUMAN" : conversation.status;
+
+  // FABLE-G-04 (docs-privados, local): lo que consumió el turno, con su
+  // organización. Y de paso se refresca (sin esperar) el saldo de la key.
+  registrarUsoDelTurno({
+    organizationId,
+    agentId,
+    conversationId: conversation.id,
+    model: agent.modelName,
+    uso,
+  });
+  revisarSaldoDeLaKey();
 
   return {
     resultado: {

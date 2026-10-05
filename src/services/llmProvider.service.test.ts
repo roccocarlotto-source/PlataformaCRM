@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  leerUsage,
   LLM_PROVIDER_NAMES,
   ESPERAS_ENTRE_REINTENTOS_MS,
   LlmProviderError,
@@ -23,6 +24,7 @@ const CONFIG = {
   apiKey: "sk-or-clave-de-prueba",
   defaultModel: "proveedor/modelo-por-defecto:free",
   baseUrl: "https://openrouter.ai/api/v1",
+  maxOutputTokens: 1000,
 };
 
 interface LlamadaRegistrada {
@@ -91,6 +93,66 @@ const PEDIDO_BASICO = {
 // ---------------------------------------------------------------------------
 // Cómo se arma el request
 // ---------------------------------------------------------------------------
+
+// FABLE-B-01 / OPUS-B-06 (docs-privados, local): antes ninguna llamada llevaba
+// tope de salida.
+test("toda llamada lleva max_tokens con el tope configurado, con y sin tools", async () => {
+  for (const tools of [[], [TOOL_CREAR_OPORTUNIDAD]]) {
+    const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "ok" }) });
+    await crearProveedorOpenRouter({ ...CONFIG, maxOutputTokens: 750, fetch }).complete({
+      ...PEDIDO_BASICO,
+      tools,
+    });
+    assert.equal(cuerpoDe(llamadas[0]).max_tokens, 750);
+  }
+});
+
+test("toolChoice none: las tools viajan igual, pero el modelo solo puede contestar texto", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "ok" }) });
+  await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete({
+    ...PEDIDO_BASICO,
+    tools: [TOOL_CREAR_OPORTUNIDAD],
+    toolChoice: "none",
+  });
+  const cuerpo = cuerpoDe(llamadas[0]);
+  assert.equal(cuerpo.tool_choice, "none");
+  assert.equal((cuerpo.tools as unknown[]).length, 1);
+});
+
+// FABLE-G-04 (docs-privados, local): el consumo de cada llamada.
+test("pide el consumo a OpenRouter y lo devuelve en usage, con el costo si viene", async () => {
+  const { fetch, llamadas } = mockearFetch({
+    json: {
+      ...respuestaConMensaje({ content: "Hola" }),
+      usage: { prompt_tokens: 1200, completion_tokens: 85, total_tokens: 1285, cost: 0.00042 },
+    },
+  });
+  const resultado = await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete(PEDIDO_BASICO);
+  assert.deepEqual(cuerpoDe(llamadas[0]).usage, { include: true });
+  assert.deepEqual(resultado.usage, {
+    promptTokens: 1200,
+    completionTokens: 85,
+    costUsd: 0.00042,
+  });
+});
+
+test("leerUsage: sin costo es null; sin tokens legibles no hay usage, y nunca lanza", () => {
+  assert.deepEqual(leerUsage({ prompt_tokens: 10, completion_tokens: 2 }), {
+    promptTokens: 10,
+    completionTokens: 2,
+    costUsd: null,
+  });
+  assert.equal(leerUsage(undefined), null);
+  assert.equal(leerUsage("mucho"), null);
+  assert.equal(leerUsage({ prompt_tokens: "10", completion_tokens: 2 }), null);
+  assert.equal(leerUsage({ prompt_tokens: 10, completion_tokens: -1 }), null);
+});
+
+test("una respuesta sin usage sigue siendo válida: el resultado no trae la clave", async () => {
+  const { fetch } = mockearFetch({ json: respuestaConMensaje({ content: "Hola" }) });
+  const resultado = await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete(PEDIDO_BASICO);
+  assert.equal("usage" in resultado, false);
+});
 
 test("complete pega a POST {baseUrl}/chat/completions con la clave como Bearer", async () => {
   const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "Hola" }) });

@@ -702,6 +702,21 @@ const envSchema = z.object({
   // OPENROUTER_BASE_URL: la raíz de la API. Configurable para poder apuntar a
   //   un mock local o a un proxy compatible con OpenAI sin tocar código.
   OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
+
+  // LLM_MAX_OUTPUT_TOKENS: el tope de tokens de salida (`max_tokens`) de CADA
+  // llamada al modelo — turnos del agente, resúmenes, borradores, agente
+  // interno. FABLE-B-01 / OPUS-B-06 (docs-privados, local): antes no se mandaba
+  // ninguno. 1000 alcanza de sobra para un mensaje a un cliente o un resumen
+  // (los más largos rondan los 300) y para los argumentos de varias tools en
+  // una ronda. Si un modelo que razona antes de responder empezara a cortar
+  // respuestas, se sube acá sin tocar código.
+  LLM_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(100).max(16_000).default(1000),
+
+  // OPENROUTER_KEY_ALERT_THRESHOLD_USD: cuando a la key de OpenRouter le queda
+  // menos que esto de su límite (`limit_remaining`), se loguea un error y
+  // /health lo muestra (FABLE-G-10, docs-privados, local). Una key sin límite
+  // no alerta nunca. 0 apaga la alerta.
+  OPENROUTER_KEY_ALERT_THRESHOLD_USD: z.coerce.number().min(0).default(2),
 });
 
 function parseEnv() {

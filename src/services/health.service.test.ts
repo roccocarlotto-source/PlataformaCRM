@@ -41,7 +41,7 @@ test("B-19: si la base rechaza el SELECT 1, /health queda en error Y el error re
   const caida = new Error("connect ECONNREFUSED 127.0.0.1:5432");
   const espias = espiar(() => Promise.reject(caida));
   try {
-    const salud = await checkHealth();
+    const salud = await checkHealth(() => "ok");
 
     // El comportamiento observable de antes, sin cambios.
     assert.equal(salud.status, "error");
@@ -61,13 +61,27 @@ test("B-19: si la base rechaza el SELECT 1, /health queda en error Y el error re
 test("B-19: con la base sana, /health está ok y NO se loguea ningún error", async () => {
   const espias = espiar(() => Promise.resolve([{ "?column?": 1 }]));
   try {
-    const salud = await checkHealth();
+    const salud = await checkHealth(() => "ok");
 
     assert.equal(salud.status, "ok");
     assert.equal(salud.checks.database, "ok");
     assert.ok(salud.uptime >= 0);
     assert.ok(!Number.isNaN(Date.parse(salud.timestamp)));
     assert.equal(espias.error.mock.callCount(), 0);
+  } finally {
+    espias.restaurar();
+  }
+});
+
+// FABLE-G-10 (docs-privados, local).
+test("FABLE-G-10: el saldo bajo de la key del LLM se ve en /health sin ponerlo en error", async () => {
+  const espias = espiar(() => Promise.resolve([{ "?column?": 1 }]));
+  try {
+    const salud = await checkHealth(() => "saldo-bajo");
+
+    assert.equal(salud.checks.llmKey, "saldo-bajo");
+    assert.equal(salud.status, "ok", "sigue respondiendo 200: es un aviso, no una caída");
+    assert.equal(salud.checks.database, "ok");
   } finally {
     espias.restaurar();
   }

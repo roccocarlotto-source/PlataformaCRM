@@ -1,5 +1,6 @@
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
+import { estadoDeLaKeyDelLlm, type EstadoDeLaKey } from "./llmKeyBalance.service";
 
 export interface HealthStatus {
   status: "ok" | "error";
@@ -7,10 +8,18 @@ export interface HealthStatus {
   timestamp: string;
   checks: {
     database: "ok" | "error";
+    // FABLE-G-10 (docs-privados, local): el saldo de la key del proveedor de
+    // LLM. Informativo: "saldo-bajo" NO pone /health en error ni cambia el
+    // 200 —un 503 acá haría que la plataforma trate el servicio como caído
+    // cuando lo único que pasa es que hay que recargar—. Un monitor externo
+    // puede alertar buscando esa palabra en la respuesta.
+    llmKey: EstadoDeLaKey;
   };
 }
 
-export async function checkHealth(): Promise<HealthStatus> {
+export async function checkHealth(
+  estadoDeLaKey: () => EstadoDeLaKey = estadoDeLaKeyDelLlm,
+): Promise<HealthStatus> {
   // Sin inicializador: las dos ramas del try/catch asignan, así que el valor
   // inicial nunca llegaba a leerse. No cambiaba el comportamiento, pero sugería
   // un default que no existe — el estado de la base lo decide exactamente una
@@ -42,6 +51,6 @@ export async function checkHealth(): Promise<HealthStatus> {
     status: database === "ok" ? "ok" : "error",
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    checks: { database },
+    checks: { database, llmKey: estadoDeLaKey() },
   };
 }
