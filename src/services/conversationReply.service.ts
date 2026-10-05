@@ -194,6 +194,11 @@ async function validarQueSePuedeResponder(conversation: Conversation, actor: Act
   if (!puedeAtenderLaConversacion(actor, conversation)) {
     throw new AppError(MENSAJE_SIN_PERMISO, 403);
   }
+  return validarQueSePuedeEscribir(conversation);
+}
+
+// Estado, ventana y destino, sin el permiso de atender (lo decide quien llama).
+async function validarQueSePuedeEscribir(conversation: Conversation) {
   const fin = finDeLaVentanaDeWhatsapp(
     await findLastInboundAt(conversation.id, conversation.organizationId),
   );
@@ -373,6 +378,63 @@ export async function responderDesdeElCrm(
   });
 
   return getConversationById(organizationId, conversationId);
+}
+
+// Un mensaje de una persona del equipo que NO es atender la conversación: hoy,
+// mandarle a mano un cupón al cliente (discountVoucherManual.service.ts). Mismo
+// lock, misma ventana, mismo canal y mismos estados que responder, pero:
+//   - NO toma la conversación: no la deriva ni la asigna. Si el agente la
+//     atendía, la sigue atendiendo (un cupón no es "lo atiendo yo").
+//   - El permiso lo decide quien llama (el del cupón no es el de atender).
+// Queda en el hilo como OUTBOUND / HUMAN de esa persona, con su reintento si
+// el canal lo rechaza. Devuelve el mensaje como quedó.
+export async function enviarMensajeDelEquipo(
+  userId: string,
+  organizationId: string,
+  conversationId: string,
+  texto: string,
+  deps: DepsDeRespuestaHumana = depsDeRespuestaHumanaReales,
+): Promise<Message> {
+  const contenido = texto.trim();
+  if (contenido.length === 0) {
+    throw new AppError("El mensaje no puede estar vacío", 400);
+  }
+  const inicial = await findConversationById(conversationId, organizationId);
+  if (!inicial) {
+    throw new AppError("Conversación no encontrada", 404);
+  }
+  const mensajeId = await conLockDeConversacion(claveDe(inicial), async () => {
+    const vigente = (await findConversationById(conversationId, organizationId)) ?? inicial;
+    const destino = await validarQueSePuedeEscribir(vigente);
+    const mensaje = await prisma.$transaction(async (tx) => {
+      const creado = await createMessage(
+        {
+          organizationId,
+          conversationId,
+          direction: "OUTBOUND",
+          senderType: "HUMAN",
+          senderUserId: userId,
+          content: contenido,
+          deliveryStatus: "PENDING",
+        },
+        tx,
+      );
+      await updateConversation(
+        conversationId,
+        organizationId,
+        { lastMessageAt: creado.createdAt },
+        tx,
+      );
+      return creado;
+    });
+    await enviarPorElCanal(mensaje, destino, deps);
+    return mensaje.id;
+  });
+  const final = await findMessageById(mensajeId, organizationId);
+  if (!final) {
+    throw new AppError("Mensaje no encontrado", 404);
+  }
+  return final;
 }
 
 // Reintentar un mensaje de una persona que no salió. Es el MISMO Message, no

@@ -805,6 +805,8 @@ model User {
 
   // Los cupones de descuento que canjeó escaneándolos (ítem 176).
   consumedDiscountVouchers DiscountVoucher[] @relation("DiscountVoucherConsumedBy")
+  // Los que creó a mano desde la ficha del contacto o de la oportunidad.
+  createdDiscountVouchers  DiscountVoucher[] @relation("DiscountVoucherCreatedBy")
 
   // Su hilo con el agente interno (ítem 179): lo que escribió y las respuestas
   // que recibió — el hilo es por usuario.
@@ -1770,6 +1772,8 @@ model Branch {
   // Los cupones agendados que salen por el número de WhatsApp de esta
   // sucursal (ítem 177).
   discountVoucherFollowUps DiscountVoucherFollowUp[]
+  // Los cupones creados a mano con esta sucursal (de su número salen).
+  discountVouchers         DiscountVoucher[]
 
   // Módulo de stock de vehículos: las unidades que están en esta sucursal.
   // Es la SEGUNDA entidad fuera de Booking que cuelga de Branch (la primera
@@ -2918,12 +2922,21 @@ model QrFollowUp {
 // CONSUMED los exige los dos.
 // ---------------------------------------------------------------------------
 model DiscountVoucher {
-  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  opportunityId  String @map("opportunity_id") @db.Uuid
-  contactId      String @map("contact_id") @db.Uuid
-  // La regla que lo emitió (ítem 177). NOT NULL: en esta v1 no hay alta manual.
-  automationId   String @map("automation_id") @db.Uuid
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  // NULL en un cupón creado a mano desde la ficha del contacto, sin venta.
+  opportunityId  String? @map("opportunity_id") @db.Uuid
+  contactId      String  @map("contact_id") @db.Uuid
+  // La regla que lo emitió (ítem 177). NULL en un cupón creado a mano.
+  automationId   String? @map("automation_id") @db.Uuid
+
+  // ALTA MANUAL (botón "Crear cupón" de las fichas del contacto y de la
+  // oportunidad). Quién lo creó, y la sucursal de cuyo número de WhatsApp se
+  // le manda —en un cupón de regla, la sucursal es la de la regla—. El CHECK
+  // discount_vouchers_origin_check exige que venga de una regla o de una
+  // persona.
+  createdByUserId String? @map("created_by_user_id") @db.Uuid
+  branchId        String? @map("branch_id") @db.Uuid
 
   // "15% de descuento en el taller" — texto libre, lo decide el negocio.
   label     String                @db.VarChar(200)
@@ -2937,13 +2950,16 @@ model DiscountVoucher {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   organization Organization              @relation(fields: [organizationId], references: [id])
-  // Compuestas (C-3). Las NOT NULL -> RESTRICT (regla de 20260821140200): las
-  // tres tablas padre usan soft delete, así que no se dispara nunca.
-  opportunity  Opportunity               @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
+  // Compuestas (C-3). contact es NOT NULL -> RESTRICT (regla de
+  // 20260821140200); la tabla padre usa soft delete, así que no se dispara.
   contact      Contact                   @relation(fields: [organizationId, contactId], references: [organizationId, id])
-  automation   Automation                @relation(fields: [organizationId, automationId], references: [organizationId, id])
-  // Nullable -> NO ACTION, el mismo par que Delivery.deliveredBy.
+  // Nullable -> NO ACTION, el mismo par que Delivery.deliveredBy. opportunity
+  // y automation eran NOT NULL (RESTRICT) hasta el alta manual.
+  opportunity  Opportunity?              @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
+  automation   Automation?               @relation(fields: [organizationId, automationId], references: [organizationId, id], onDelete: NoAction)
   consumedBy   User?                     @relation("DiscountVoucherConsumedBy", fields: [organizationId, consumedByUserId], references: [organizationId, id], onDelete: NoAction)
+  createdBy    User?                     @relation("DiscountVoucherCreatedBy", fields: [organizationId, createdByUserId], references: [organizationId, id], onDelete: NoAction)
+  branch       Branch?                   @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
   // La fila agendada que lo emitió (ítem 177).
   followUps    DiscountVoucherFollowUp[]
 
@@ -2956,6 +2972,8 @@ model DiscountVoucher {
   @@index([organizationId, contactId])
   @@index([organizationId, automationId])
   @@index([organizationId, consumedByUserId])
+  @@index([organizationId, createdByUserId])
+  @@index([organizationId, branchId])
   @@map("discount_vouchers")
 }
 
