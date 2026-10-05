@@ -75,7 +75,18 @@ export function ApiKeyListPage() {
 
   // Solo los sourceId de las claves visibles en ESTA página — nunca "todas las
   // fuentes". Deduplicado dentro del hook.
-  const sourceIdsVisibles = apiKeysQuery.data?.data.map((apiKey) => apiKey.sourceId) ?? [];
+  //
+  // OPUS-F-04 / FABLE-F-07 (docs-privados, local): el nombre ya viene en cada
+  // fila, también el de una fuente eliminada. Antes se pedía cada fuente por
+  // su id, y las eliminadas (la de una clave revocada) daban 404 en cada
+  // visita. Solo se pide por red lo que no vino (un backend anterior).
+  const filas = apiKeysQuery.data?.data ?? [];
+  const fuentesDeLasFilas = new Map(
+    filas.flatMap((apiKey) => (apiKey.source ? [[apiKey.sourceId, apiKey.source] as const] : [])),
+  );
+  const sourceIdsVisibles = filas
+    .map((apiKey) => apiKey.sourceId)
+    .filter((id) => !fuentesDeLasFilas.has(id));
   const sourceResolution = useSourcesByIds(sourceIdsVisibles);
 
   const createApiKeyMutation = useCreateApiKey();
@@ -84,6 +95,10 @@ export function ApiKeyListPage() {
   // Para las FILAS DE LA TABLA: resuelve contra los nombres traídos por
   // useSourcesByIds, que son exactamente los de las claves visibles.
   function nombreDeFuente(sourceId: string): string {
+    const deLaFila = fuentesDeLasFilas.get(sourceId);
+    if (deLaFila) {
+      return deLaFila.deletedAt ? `${deLaFila.name} (eliminada)` : deLaFila.name;
+    }
     return sourceResolution.byId.get(sourceId)?.name ?? SIN_RESOLVER;
   }
 

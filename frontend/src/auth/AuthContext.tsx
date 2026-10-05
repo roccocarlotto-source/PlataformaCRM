@@ -30,6 +30,10 @@ export interface MeResponse {
   // ADMIN, User.canUseInternalAgent para un USER. Solo decide si se muestra
   // el link al chat; la autorización real es requireInternalAgentAccess.
   canUseInternalAgent: boolean;
+  // Si la organización tiene un agente interno configurado. false = las
+  // pantallas del agente interno no piden lo que no existe. Opcional: un
+  // backend anterior no lo manda, y entonces se pregunta como antes.
+  internalAgentConfigured?: boolean;
 }
 
 export type AuthStatus =

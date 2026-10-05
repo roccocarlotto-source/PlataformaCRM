@@ -52,6 +52,7 @@ import {
 } from "../services/whatsappWebhook.service";
 import { AppError } from "../utils/AppError";
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
+import { cupoDeTurnosPorDefecto, maximoPorGrupoPorDefecto } from "../utils/limitadorDeTurnos";
 
 // ---------------------------------------------------------------------------
 // El worker de la cola del webhook de WhatsApp (ítem 125 de
@@ -451,6 +452,7 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
     agentId: conversacion.agentId,
     contactId: conversacion.contactId,
     channel: conversacion.channel,
+    organizationId,
   };
   return conLockDeConversacion(clave, async () => {
     // Releído BAJO el lock: mientras este worker esperaba, el turno de otro
@@ -559,11 +561,15 @@ export interface ResumenDrenado {
 
 export interface OpcionesDrenado {
   limite?: number;
-  // Acota el drenado a una organización. Producción no lo usa; los tests de
-  // integración sí, para no depender de que el resto de la tabla esté vacía.
-  organizationId?: string;
+  // Acota el drenado a una organización (o a varias). Producción no lo usa;
+  // los tests de integración sí, para no depender de que el resto de la tabla
+  // esté vacía.
+  organizationId?: string | string[];
   deps?: DepsDeEnvio;
   leaseMs?: number;
+  // Cuántos jobs corren a la vez. Producción: AGENT_INBOUND_WORKER_CONCURRENCY
+  // o el cupo de turnos del proceso.
+  concurrencia?: number;
   // Consultado antes de cada reclamo: el stop del worker lo pone en false para
   // que la pasada en curso no tome jobs nuevos. A diferencia de la ingesta, acá
   // un job puede tardar minutos, y esperar el lote entero haría que el apagado
@@ -619,6 +625,9 @@ async function registrarFallo(job: JobReclamado, err: unknown, resumen: ResumenD
   }
 }
 
+// Cada cuánto vuelve a mirar la cola un carril libre mientras otro trabaja.
+const ESPERA_DEL_CARRIL_LIBRE_MS = 250;
+
 export async function drenarTurnosPendientes(
   opciones: OpcionesDrenado = {},
 ): Promise<ResumenDrenado> {
@@ -630,68 +639,149 @@ export async function drenarTurnosPendientes(
   // acaba de fallar si el backoff configurado fuera muy corto.
   const pospuestos: string[] = [];
 
-  for (let i = 0; i < limite; i++) {
-    if (opciones.debeSeguir && !opciones.debeSeguir()) {
-      break;
-    }
+  // -------------------------------------------------------------------------
+  // CARRILES (FABLE-G-03 de docs-privados/auditoria-2026-10-05-FABLE.md,
+  // local). Antes la pasada tomaba un job, corría su turno entero —hasta
+  // minuto y medio— y recién después miraba el siguiente: un turno lento de
+  // una organización frenaba los mensajes de todas. Ahora corren hasta
+  // `concurrencia` jobs a la vez, y una organización nunca ocupa todos los
+  // carriles: mientras tiene su tope en curso, el reclamo saltea sus jobs y
+  // toma los de otra. Con un solo carril todo queda como antes.
+  //
+  // El orden dentro de una conversación no cambia: lo da el lock por
+  // conversación, no esta pasada.
+  // -------------------------------------------------------------------------
+  const concurrencia = Math.max(
+    1,
+    opciones.concurrencia ??
+      env.AGENT_INBOUND_WORKER_CONCURRENCY ??
+      env.AGENT_TURN_MAX_CONCURRENT ??
+      cupoDeTurnosPorDefecto(env.DATABASE_URL),
+  );
+  const topePorOrganizacion = maximoPorGrupoPorDefecto(concurrencia);
+  const enCursoPorOrganizacion = new Map<string, number>();
+  let reclamados = 0;
+  let cortar = false;
+  // Los reclamos van de a uno: elegir qué organizaciones saltear y anotar la
+  // del job reclamado tiene que ser un solo paso, o dos carriles tomarían a la
+  // vez dos jobs de una organización que ya estaba en su tope.
+  let turnoDeReclamo: Promise<unknown> = Promise.resolve();
 
-    let job: JobReclamado | null;
-    try {
-      job = await claimNextAgentInboundJob(leaseMs, {
-        organizationId: opciones.organizationId,
-        excluir: pospuestos,
-      });
-    } catch (err) {
-      // No se llegó a reclamar nada (la base no responde): se corta la pasada
-      // y se reintenta en el próximo tick.
-      logger.error({ err }, "No se pudo reclamar un turno del agente de la cola");
-      break;
-    }
-    if (!job) {
-      break;
-    }
-
-    // Un job que volvió por lease vencido una y otra vez: el proceso muere
-    // cada vez que lo toma (o se cuelga más que el lease). attempts subió en
-    // cada reclamo, así que esto corta el ciclo sin haber pasado por ningún
-    // catch.
-    if (job.attempts > env.AGENT_INBOUND_MAX_ATTEMPTS) {
-      await markAgentInboundJobFailed(
-        job,
-        `Agotó sus ${String(env.AGENT_INBOUND_MAX_ATTEMPTS)} intentos sin terminar (el proceso que lo tomaba no llegó a cerrarlo)`,
-      ).catch((err: unknown) => {
-        logger.error({ err, jobId: job?.id }, "No se pudo marcar FAILED un turno del agente");
-      });
-      resumen.fallidos++;
-      continue;
-    }
-
-    const reclamado = job;
-    const latido = setInterval(
-      () => {
-        renewAgentInboundJobLease(reclamado, leaseMs).catch((err: unknown) => {
-          logger.warn({ err, jobId: reclamado.id }, "No se pudo renovar el lease del turno");
-        });
-      },
-      Math.max(1000, Math.floor(leaseMs / 4)),
-    );
-    // El latido no puede ser lo que mantiene vivo al proceso.
-    latido.unref();
-
-    try {
-      const resultado = await procesarJob(reclamado, deps);
-      if (resultado === "omitido") {
-        resumen.omitidos++;
-      } else {
-        resumen.respondidos++;
+  const reclamar = (): Promise<JobReclamado | null> => {
+    const intento = turnoDeReclamo.then(async () => {
+      if (cortar || reclamados >= limite || (opciones.debeSeguir && !opciones.debeSeguir())) {
+        return null;
       }
-    } catch (err) {
-      await registrarFallo(reclamado, err, resumen);
-      pospuestos.push(reclamado.id);
-    } finally {
-      clearInterval(latido);
+      const alTope = [...enCursoPorOrganizacion]
+        .filter(([, n]) => n >= topePorOrganizacion)
+        .map(([organizationId]) => organizationId);
+      let job: JobReclamado | null;
+      try {
+        job = await claimNextAgentInboundJob(leaseMs, {
+          organizationId: opciones.organizationId,
+          excluir: pospuestos,
+          excluirOrganizaciones: alTope,
+        });
+      } catch (err) {
+        // No se llegó a reclamar nada (la base no responde): se corta la
+        // pasada y se reintenta en el próximo tick.
+        logger.error({ err }, "No se pudo reclamar un turno del agente de la cola");
+        cortar = true;
+        return null;
+      }
+      if (job) {
+        reclamados++;
+        enCursoPorOrganizacion.set(
+          job.organizationId,
+          (enCursoPorOrganizacion.get(job.organizationId) ?? 0) + 1,
+        );
+      }
+      return job;
+    });
+    turnoDeReclamo = intento.catch(() => undefined);
+    return intento;
+  };
+
+  const liberar = (organizationId: string) => {
+    const quedan = (enCursoPorOrganizacion.get(organizationId) ?? 1) - 1;
+    if (quedan <= 0) {
+      enCursoPorOrganizacion.delete(organizationId);
+    } else {
+      enCursoPorOrganizacion.set(organizationId, quedan);
     }
-  }
+  };
+
+  // Jobs corriendo ahora mismo, entre todos los carriles.
+  let enCurso = 0;
+
+  const carril = async () => {
+    for (;;) {
+      const job = await reclamar();
+      if (!job) {
+        // Nada para tomar AHORA. Si otro carril sigue con un turno, este no se
+        // va: mientras ese turno corre puede llegar el mensaje de otra
+        // organización, y es justo lo que este carril tiene que atender. Se
+        // vuelve a mirar en un rato. Cuando nadie tiene nada, la pasada termina.
+        const puedeHaberMas =
+          enCurso > 0 &&
+          !cortar &&
+          reclamados < limite &&
+          (!opciones.debeSeguir || opciones.debeSeguir());
+        if (!puedeHaberMas) {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, ESPERA_DEL_CARRIL_LIBRE_MS));
+        continue;
+      }
+      enCurso++;
+      try {
+        // Un job que volvió por lease vencido una y otra vez: el proceso muere
+        // cada vez que lo toma (o se cuelga más que el lease). attempts subió
+        // en cada reclamo, así que esto corta el ciclo sin haber pasado por
+        // ningún catch.
+        if (job.attempts > env.AGENT_INBOUND_MAX_ATTEMPTS) {
+          await markAgentInboundJobFailed(
+            job,
+            `Agotó sus ${String(env.AGENT_INBOUND_MAX_ATTEMPTS)} intentos sin terminar (el proceso que lo tomaba no llegó a cerrarlo)`,
+          ).catch((err: unknown) => {
+            logger.error({ err, jobId: job.id }, "No se pudo marcar FAILED un turno del agente");
+          });
+          resumen.fallidos++;
+          continue;
+        }
+
+        const latido = setInterval(
+          () => {
+            renewAgentInboundJobLease(job, leaseMs).catch((err: unknown) => {
+              logger.warn({ err, jobId: job.id }, "No se pudo renovar el lease del turno");
+            });
+          },
+          Math.max(1000, Math.floor(leaseMs / 4)),
+        );
+        // El latido no puede ser lo que mantiene vivo al proceso.
+        latido.unref();
+
+        try {
+          const resultado = await procesarJob(job, deps);
+          if (resultado === "omitido") {
+            resumen.omitidos++;
+          } else {
+            resumen.respondidos++;
+          }
+        } catch (err) {
+          await registrarFallo(job, err, resumen);
+          pospuestos.push(job.id);
+        } finally {
+          clearInterval(latido);
+        }
+      } finally {
+        enCurso--;
+        liberar(job.organizationId);
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: concurrencia }, () => carril()));
 
   return resumen;
 }

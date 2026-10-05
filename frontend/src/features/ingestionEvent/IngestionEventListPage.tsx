@@ -89,8 +89,17 @@ export function IngestionEventListPage() {
   // ---------------------------------------------------------------------
   const fuentesEnMemoria = new Map(fuentes.map((source) => [source.id, source.name]));
 
-  const sourceIdsVisibles = eventsQuery.data?.data.map((evento) => evento.sourceId) ?? [];
-  const sourceIdsSinResolver = sourceIdsVisibles.filter((id) => !fuentesEnMemoria.has(id));
+  // OPUS-F-04 / FABLE-F-07 (docs-privados, local): el nombre también viene en
+  // cada evento, incluso si su fuente fue eliminada (esas no están en
+  // `fuentes`, y pedirlas por id daba 404 en cada visita).
+  const eventos = eventsQuery.data?.data ?? [];
+  const fuentesDeLasFilas = new Map(
+    eventos.flatMap((evento) => (evento.source ? [[evento.sourceId, evento.source] as const] : [])),
+  );
+  const sourceIdsVisibles = eventos.map((evento) => evento.sourceId);
+  const sourceIdsSinResolver = sourceIdsVisibles.filter(
+    (id) => !fuentesEnMemoria.has(id) && !fuentesDeLasFilas.has(id),
+  );
 
   // Con la lista cargada y todas las fuentes adentro, esto recibe [] y
   // useQueries no dispara ningún request.
@@ -98,8 +107,16 @@ export function IngestionEventListPage() {
 
   function nombreDeFuente(sourceId: string): string {
     // Memoria primero, red después. El orden es el arreglo.
+    const deLaFila = fuentesDeLasFilas.get(sourceId);
     return (
-      fuentesEnMemoria.get(sourceId) ?? sourceResolution.byId.get(sourceId)?.name ?? SIN_RESOLVER
+      fuentesEnMemoria.get(sourceId) ??
+      (deLaFila
+        ? deLaFila.deletedAt
+          ? `${deLaFila.name} (eliminada)`
+          : deLaFila.name
+        : undefined) ??
+      sourceResolution.byId.get(sourceId)?.name ??
+      SIN_RESOLVER
     );
   }
 

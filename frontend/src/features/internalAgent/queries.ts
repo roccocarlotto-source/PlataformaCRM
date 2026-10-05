@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useAuth } from "../../auth/AuthContext";
 import { getInternalAgent, listInternalAgentMessages } from "./api";
 
 // Sin namespacing por organizationId/userId: la higiene de cache entre
@@ -13,10 +14,20 @@ export const internalAgentKeys = {
 // mensajes anteriores" pide la siguiente.
 export const INTERNAL_AGENT_MESSAGES_PAGE_SIZE = 50;
 
+// ¿Hay un agente interno que pedir? /api/me ya lo dice. Con false, ninguna de
+// las dos consultas de abajo sale: antes cada visita a estas pantallas dejaba
+// un 404 en la consola solo para enterarse de que no había agente.
+export function useAgenteInternoConfigurado(): boolean {
+  const { me } = useAuth();
+  return me?.internalAgentConfigured !== false;
+}
+
 export function useInternalAgentConfig() {
+  const configurado = useAgenteInternoConfigurado();
   return useQuery({
     queryKey: internalAgentKeys.config(),
     queryFn: ({ signal }) => getInternalAgent(signal),
+    enabled: configurado,
   });
 }
 
@@ -24,7 +35,9 @@ export function useInternalAgentConfig() {
 // primera al montar, las más viejas a pedido) y las muestra juntas. Cada
 // página llega "lo más nuevo primero"; darlas vuelta es cosa de la pantalla.
 export function useInternalAgentMessages() {
+  const configurado = useAgenteInternoConfigurado();
   return useInfiniteQuery({
+    enabled: configurado,
     queryKey: internalAgentKeys.messages(),
     queryFn: ({ pageParam, signal }) =>
       listInternalAgentMessages(

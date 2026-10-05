@@ -187,6 +187,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("m3-{etiqueta}-{ts}", `${S}user.service.integration-test.ts`),
   patron("veh-{etiqueta}-{ts}-{hex8}", `${S}vehicle.test-helper.ts`),
   patron("purga-visitantes-{ts}-{hex8}", `${S}widgetVisitorsPurge.integration-test.ts`),
+  patron("worker-{etiqueta}-{ts}-{hex8}", `${W}agentInboundWorker.integration-test.ts`),
   patron("aviso-{ts}-{hex8}", `${W}avisoSinRespuestaWorker.integration-test.ts`),
   patron("ingworker-{etiqueta}-{ts}-{hex8}", `${W}ingestionWorker.integration-test.ts`),
   patron("outbox-{etiqueta}-{ts}-{hex8}", `${W}outboxWorker.integration-test.ts`),

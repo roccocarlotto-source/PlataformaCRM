@@ -29,46 +29,104 @@
 // Un turno que espera a otro del mismo contacto no ocupa un lugar del cupo.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// UN TOPE POR ORGANIZACIÓN DENTRO DEL CUPO GLOBAL (FABLE-G-03 de
+// docs-privados/auditoria-2026-10-05-FABLE.md, local).
+//
+// El cupo es de todo el proceso: lo comparten los turnos del widget, los de
+// WhatsApp/Messenger/Instagram y las respuestas de una persona desde el CRM,
+// de TODAS las organizaciones. Con solo el cupo global, una organización con
+// turnos lentos —el proveedor que tarda, o alguien abusando de su widget
+// público— podía ocupar todos los lugares, y los clientes de las demás
+// esperaban detrás.
+//
+// Ahora quien llama puede decir de qué GRUPO es el turno (la organización), y
+// un grupo nunca ocupa más de `maximoPorGrupo` lugares a la vez. Por defecto
+// es el cupo menos uno: siempre queda al menos un lugar que esa organización
+// no puede tomar. Con un cupo de 1 no hay nada que repartir y el tope no
+// aplica (es 1).
+//
+// Los que esperan siguen en orden de llegada, con una salvedad que es el
+// sentido del cambio: si el primero de la fila es de un grupo que está en su
+// tope, pasa el siguiente que sí pueda entrar. Un turno sin grupo solo mira el
+// cupo global, como antes.
+// ---------------------------------------------------------------------------
+export function maximoPorGrupoPorDefecto(maximo: number): number {
+  return Math.max(1, maximo - 1);
+}
+
 export interface LimitadorDeTurnos {
-  correr<T>(clave: string, fn: () => Promise<T>): Promise<T>;
-  // Para los tests y para el log: cuántos tienen el cupo y cuántos lo esperan.
+  correr<T>(clave: string, fn: () => Promise<T>, grupo?: string): Promise<T>;
   enCurso(): number;
   esperandoCupo(): number;
 }
 
-export function crearLimitadorDeTurnos(maximo: number): LimitadorDeTurnos {
+export function crearLimitadorDeTurnos(
+  maximo: number,
+  maximoPorGrupo: number = maximoPorGrupoPorDefecto(maximo),
+): LimitadorDeTurnos {
   if (!Number.isInteger(maximo) || maximo < 1) {
     throw new Error(`El cupo de turnos tiene que ser un entero positivo (vino ${maximo})`);
   }
-
-  // La cola de cada clave es una cadena de promesas: cada turno espera la cola
-  // que encontró y deja la suya como la nueva cola. La entrada se borra cuando
-  // el último de la cadena termina, así el Map no crece con cada contacto.
-  const colas = new Map<string, Promise<void>>();
-  let enCurso = 0;
-  const esperandoCupo: Array<() => void> = [];
-
-  async function tomarCupo(): Promise<void> {
-    if (enCurso < maximo) {
-      enCurso++;
-      return;
-    }
-    // FIFO: el que libera le pasa su lugar directo al primero de la fila, sin
-    // bajar y volver a subir el contador (nadie más se puede colar entre medio).
-    await new Promise<void>((resolve) => esperandoCupo.push(resolve));
+  if (!Number.isInteger(maximoPorGrupo) || maximoPorGrupo < 1) {
+    throw new Error(
+      `El tope de turnos por organización tiene que ser un entero positivo (vino ${maximoPorGrupo})`,
+    );
   }
 
-  function soltarCupo(): void {
-    const siguiente = esperandoCupo.shift();
-    if (siguiente) {
-      siguiente();
-    } else {
-      enCurso--;
+  const colas = new Map<string, Promise<void>>();
+  let enCurso = 0;
+  const enCursoPorGrupo = new Map<string, number>();
+  const esperandoCupo: Array<{ grupo: string | undefined; entrar: () => void }> = [];
+
+  function puedeEntrar(grupo: string | undefined): boolean {
+    if (enCurso >= maximo) {
+      return false;
+    }
+    return grupo === undefined || (enCursoPorGrupo.get(grupo) ?? 0) < maximoPorGrupo;
+  }
+
+  function ocupar(grupo: string | undefined): void {
+    enCurso++;
+    if (grupo !== undefined) {
+      enCursoPorGrupo.set(grupo, (enCursoPorGrupo.get(grupo) ?? 0) + 1);
+    }
+  }
+
+  async function tomarCupo(grupo: string | undefined): Promise<void> {
+    if (puedeEntrar(grupo)) {
+      ocupar(grupo);
+      return;
+    }
+    await new Promise<void>((resolve) => esperandoCupo.push({ grupo, entrar: resolve }));
+  }
+
+  function soltarCupo(grupo: string | undefined): void {
+    enCurso--;
+    if (grupo !== undefined) {
+      const quedan = (enCursoPorGrupo.get(grupo) ?? 1) - 1;
+      if (quedan <= 0) {
+        enCursoPorGrupo.delete(grupo);
+      } else {
+        enCursoPorGrupo.set(grupo, quedan);
+      }
+    }
+    // Entra el primero de la fila que pueda: el lugar ya queda ocupado a su
+    // nombre antes de despertarlo, para que nadie se lo saque en el medio.
+    for (let i = 0; i < esperandoCupo.length && enCurso < maximo;) {
+      const candidato = esperandoCupo[i]!;
+      if (puedeEntrar(candidato.grupo)) {
+        esperandoCupo.splice(i, 1);
+        ocupar(candidato.grupo);
+        candidato.entrar();
+      } else {
+        i++;
+      }
     }
   }
 
   return {
-    async correr<T>(clave: string, fn: () => Promise<T>): Promise<T> {
+    async correr<T>(clave: string, fn: () => Promise<T>, grupo?: string): Promise<T> {
       const anterior = colas.get(clave) ?? Promise.resolve();
       let liberarClave!: () => void;
       const propia = new Promise<void>((resolve) => {
@@ -79,11 +137,11 @@ export function crearLimitadorDeTurnos(maximo: number): LimitadorDeTurnos {
 
       try {
         await anterior;
-        await tomarCupo();
+        await tomarCupo(grupo);
         try {
           return await fn();
         } finally {
-          soltarCupo();
+          soltarCupo(grupo);
         }
       } finally {
         liberarClave();

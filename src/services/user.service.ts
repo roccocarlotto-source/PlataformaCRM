@@ -14,6 +14,7 @@ import {
 import { findRoleByName } from "../repositories/role.repository";
 import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { olvidarContextoDeAuth } from "./auth.service";
 
 export interface ListUsersParams {
   page: number;
@@ -81,6 +82,24 @@ export interface UpdateUserInput {
 // hay undelete en este bloque, así que un usuario removido ya no aparece
 // (getUserById -> 404) y PATCH no tiene forma de revivirlo.
 export async function updateUser(
+  organizationId: string,
+  actorUserId: string,
+  id: string,
+  input: UpdateUserInput,
+) {
+  try {
+    return await actualizarUsuario(organizationId, actorUserId, id, input);
+  } finally {
+    // El cambio de rol o de estado vale desde el próximo request de ese
+    // usuario, sin esperar a que venza la caché de autenticación. DESPUÉS de
+    // la escritura (un request que cayera en el medio volvería a guardar el
+    // estado viejo), y también si falló: olvidar de más solo cuesta una
+    // consulta.
+    olvidarContextoDeAuth(id);
+  }
+}
+
+async function actualizarUsuario(
   organizationId: string,
   actorUserId: string,
   id: string,
@@ -173,6 +192,15 @@ export async function updateUser(
 // Supabase (no lo tocamos), pero sin undelete de nuestro lado en este
 // bloque.
 export async function deleteUser(organizationId: string, actorUserId: string, id: string) {
+  try {
+    await removerUsuario(organizationId, actorUserId, id);
+  } finally {
+    // Mismo motivo que en updateUser.
+    olvidarContextoDeAuth(id);
+  }
+}
+
+async function removerUsuario(organizationId: string, actorUserId: string, id: string) {
   if (id === actorUserId) {
     throw new AppError("No podés eliminar tu propio usuario", 400);
   }

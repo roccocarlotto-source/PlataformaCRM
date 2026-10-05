@@ -66,6 +66,9 @@ export interface IngestionEvent {
   id: string;
   organizationId: string;
   sourceId: string;
+  // El nombre de la fuente viene con la fila, también si la fuente fue
+  // eliminada. Opcional: un backend anterior no lo manda.
+  source?: { id: string; name: string; deletedAt: string | null };
   batchId: string | null;
   externalId: string | null;
   status: IngestionStatus;

@@ -338,6 +338,7 @@ function claveDe(conversation: Conversation) {
     agentId: conversation.agentId,
     contactId: conversation.contactId,
     channel: conversation.channel,
+    organizationId: conversation.organizationId,
   };
 }
 

@@ -17,7 +17,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { ApiError } from "../../lib/api";
 import { useSendInternalAgentMessage } from "./mutations";
-import { useInternalAgentMessages } from "./queries";
+import { useAgenteInternoConfigurado, useInternalAgentMessages } from "./queries";
 import type { InternalAgentMessage } from "./types";
 
 // El tope de `content` en postMessageSchema (internalAgent.controller.ts).
@@ -80,6 +80,7 @@ function ChatPage({ title, children }: { title: string; children: ReactNode }) {
 export function InternalAgentChatPage() {
   const { me } = useAuth();
   const isAdmin = me?.role === "ADMIN";
+  const agenteConfigurado = useAgenteInternoConfigurado();
   const mensajesQuery = useInternalAgentMessages();
   const enviarMutation = useSendInternalAgentMessage();
 
@@ -159,11 +160,13 @@ export function InternalAgentChatPage() {
     );
   }
 
-  if (mensajesQuery.isError) {
+  // Sin agente configurado: lo dice /api/me (y entonces no se pidió nada), o
+  // lo dice el 404 de un backend que todavía no manda ese dato.
+  if (!agenteConfigurado || mensajesQuery.isError) {
     const error = mensajesQuery.error;
     const status = error instanceof ApiError ? error.status : undefined;
     let cuerpo: ReactNode;
-    if (status === 404) {
+    if (!agenteConfigurado || status === 404) {
       cuerpo = isAdmin ? (
         <EmptyState
           title="Todavía no hay un agente interno configurado"
@@ -185,7 +188,7 @@ export function InternalAgentChatPage() {
       // El texto del backend (MENSAJE_SIN_ACCESO_AL_AGENTE_INTERNO): pasa si
       // un ADMIN sacó el acceso con la pestaña abierta. Sin reintento — el
       // queryClient no reintenta 4xx.
-      cuerpo = <ErrorState>{error.message}</ErrorState>;
+      cuerpo = <ErrorState>{error?.message}</ErrorState>;
     } else {
       cuerpo = (
         <ErrorState>

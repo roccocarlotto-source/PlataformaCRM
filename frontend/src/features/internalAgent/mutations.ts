@@ -18,6 +18,9 @@ export function usePutInternalAgent() {
     mutationFn: (input: PutInternalAgentInput) => putInternalAgent(input),
     onSuccess: (agente: InternalAgent) => {
       queryClient.setQueryData(internalAgentKeys.config(), agente);
+      // /api/me dice si hay agente interno: recién creado, hay que releerlo
+      // para que el chat empiece a pedir sus mensajes.
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
       void queryClient.invalidateQueries({ queryKey: internalAgentKeys.messages() });
     },
   });

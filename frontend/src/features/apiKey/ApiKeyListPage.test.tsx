@@ -92,6 +92,49 @@ describe("ApiKeyListPage — listado", () => {
     await waitFor(() => expect(resoluciones).toBe(1));
   });
 
+  // OPUS-F-04 / FABLE-F-07 (docs-privados, local): la fuente de una clave
+  // revocada puede estar eliminada, y pedirla por id daba 404 en cada visita.
+  it("si la fila ya trae su fuente no se pide nada por id, y una fuente eliminada se muestra como tal", async () => {
+    let resoluciones = 0;
+    server.use(
+      sourcesHandler(),
+      http.get(keysUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [
+              makeApiKey({
+                id: "ak1",
+                sourceId: "src1",
+                source: { id: "src1", name: "Landing de precios", deletedAt: null },
+              }),
+              makeApiKey({
+                id: "ak2",
+                sourceId: "src-borrada",
+                source: {
+                  id: "src-borrada",
+                  name: "Campaña vieja",
+                  deletedAt: "2026-09-29T12:00:00.000Z",
+                },
+              }),
+            ],
+            pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+          }),
+        ),
+      ),
+      http.get(`${sourcesUrl}/:id`, () => {
+        resoluciones += 1;
+        return HttpResponse.json({ error: { message: "Fuente no encontrada" } }, { status: 404 });
+      }),
+    );
+
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    expect(await tabla.findByText("Landing de precios")).toBeInTheDocument();
+    expect(tabla.getByText("Campaña vieja (eliminada)")).toBeInTheDocument();
+    expect(resoluciones).toBe(0);
+  });
+
   it("una fuente que no resuelve muestra un guion, no rompe la fila", async () => {
     server.use(
       sourcesHandler(),
