@@ -140,7 +140,13 @@ after(async () => {
 });
 
 interface Hilo {
-  messages: { id: string; role: "visitor" | "agent"; text: string; createdAt: string }[];
+  messages: {
+    id: string;
+    role: "visitor" | "agent";
+    author?: "agent" | "person";
+    text: string;
+    createdAt: string;
+  }[];
   cursor: string;
 }
 
@@ -192,6 +198,11 @@ test("el polling trae la respuesta de una persona (no la del agente) y la deja D
     inicial.messages.map((m) => m.role),
     ["visitor", "agent"],
   );
+  // FABLE-I-06 (docs-privados, local): lo del negocio dice quién lo escribió.
+  assert.deepEqual(
+    inicial.messages.map((m) => m.author),
+    [undefined, "agent"],
+  );
 
   // Nada nuevo todavía: vacío, y el cursor no se mueve.
   const sinNovedad = await leerHilo(sessionId, inicial.cursor);
@@ -210,9 +221,11 @@ test("el polling trae la respuesta de una persona (no la del agente) y la deja D
     { id: nuevo.messages[0]!.id, role: nuevo.messages[0]!.role, text: nuevo.messages[0]!.text },
     { id: enviado.id, role: "agent", text: "Hola, soy Laura del equipo." },
   );
+  // FABLE-I-06: la respuesta de una persona se distingue de la del agente.
+  assert.equal(nuevo.messages[0]!.author, "person");
   assert.equal(
     Object.keys(nuevo.messages[0]!).sort().join(","),
-    "createdAt,id,role,text",
+    "author,createdAt,id,role,text",
     "proyección mínima: nada de senderUserId ni estados",
   );
   assert.equal(

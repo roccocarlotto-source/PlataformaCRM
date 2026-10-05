@@ -32,7 +32,8 @@ import {
   humanoAtiendeLaConversacion,
   responderEnLaConversacion,
 } from "../services/agentOrchestration.service";
-import { esTransitorio, type LlmContentPart } from "../services/llmProvider.service";
+import { enviarEnPartes } from "../services/envioEnPartes";
+import type { LlmContentPart } from "../services/llmProvider.service";
 import {
   marcarTokenRechazado,
   obtenerTokenParaEnviar,
@@ -172,7 +173,9 @@ export function clasificarFallo(err: unknown): ClaseDeFallo {
     (err instanceof ErrorDeEnvio || err instanceof ErrorDeDescarga) &&
     err.causa instanceof WhatsappGraphError
   ) {
-    return esTransitorio(err.causa.status) ? "TRANSITORIO" : "PERMANENTE";
+    // OPUS-D-01: `transitorio` mira también el código, porque Meta manda los
+    // límites de envío de WhatsApp con HTTP 400.
+    return err.causa.transitorio ? "TRANSITORIO" : "PERMANENTE";
   }
   // Ítem 172: el Send API de Messenger/Instagram. No alcanza el status: Meta
   // manda los rate limits (4, 613) con un 400, así que MetaSendError mira
@@ -227,9 +230,14 @@ export async function resolverTokenDePagina(
 //
 // Devuelve el wamid de WhatsApp (WA-1), o null: Messenger e Instagram no
 // tienen statuses que seguir por este camino.
+//
+// OPUS-B-02 / FABLE-B-05 (docs-privados, local): un texto más largo que el
+// tope del canal sale en varios mensajes seguidos (enviarEnPartes). Antes
+// salía entero, Messenger e Instagram lo rechazaban y el cliente no recibía
+// nada.
 export async function enviarPorElCanal(
   job: JobReclamado,
-  texto: string,
+  mensaje: { id: string; content: string },
   pageAccessToken: string | null,
   deps: Pick<DepsDeEnvio, "accessToken" | "sendText" | "sendMetaText">,
 ): Promise<string | null> {
@@ -239,19 +247,23 @@ export async function enviarPorElCanal(
       // canales: llegar acá es un bug, no un estado de la conexión.
       throw new Error(`Falta el token de página para mandar por ${job.channel}`);
     }
-    await deps.sendMetaText({ pageAccessToken, recipientId: job.externalUserId, text: texto });
+    await enviarEnPartes(mensaje, job.channel, (texto) =>
+      deps.sendMetaText({ pageAccessToken, recipientId: job.externalUserId, text: texto }),
+    );
     return null;
   }
   const accessToken = deps.accessToken();
   if (!accessToken) {
     throw new Error("Falta WHATSAPP_ACCESS_TOKEN en el entorno");
   }
-  const { wamid } = await deps.sendText({
-    phoneNumberId: job.channelAccountId,
-    to: job.externalUserId,
-    body: texto,
-    accessToken,
-  });
+  const { wamid } = await enviarEnPartes(mensaje, job.channel, (texto) =>
+    deps.sendText({
+      phoneNumberId: job.channelAccountId,
+      to: job.externalUserId,
+      body: texto,
+      accessToken,
+    }),
+  );
   return wamid;
 }
 
@@ -263,7 +275,7 @@ async function enviarRespuesta(
 ) {
   let wamid: string | null;
   try {
-    wamid = await enviarPorElCanal(job, saliente.content, pageAccessToken, deps);
+    wamid = await enviarPorElCanal(job, saliente, pageAccessToken, deps);
   } catch (err) {
     // B-02: el fallo queda en la fila del Message, a la vista de la bandeja,
     // y no solo en el log. Si el reintento sale bien, SENT lo limpia.

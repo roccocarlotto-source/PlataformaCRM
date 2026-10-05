@@ -1,3 +1,4 @@
+import { ConversationChannel } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
 import {
@@ -46,7 +47,10 @@ const listQuerySchema = z.object({
   agentId: z.string().uuid("agentId inválido").optional(),
   contactId: z.string().uuid("contactId inválido").optional(),
   status: z.enum(["ACTIVE", "TRANSFERRED_TO_HUMAN", "CLOSED"]).optional(),
-  channel: z.enum(["WHATSAPP", "WEB"]).optional(),
+  // Los cuatro canales (F-01 de las auditorías del 04 y 05/10/2026,
+  // docs-privados, local): con la lista escrita a mano, Messenger e Instagram
+  // quedaron afuera y filtrar por ellos daba 400. Del enum, uno nuevo entra solo.
+  channel: z.nativeEnum(ConversationChannel).optional(),
   // Por defecto, la bandeja: lo último que se movió, arriba.
   sortBy: z.enum(["lastMessageAt", "createdAt"]).default("lastMessageAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),

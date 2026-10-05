@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import express from "express";
 import { prisma } from "../lib/prisma";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { findRoleByName } from "../repositories/role.repository";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { createMetaWebhookRouter } from "../routes/metaWebhook.routes";
@@ -113,6 +115,8 @@ const depsDeEnvio: DepsDeEnvio = {
 };
 let baseUrl: string;
 let closeApp: () => Promise<void>;
+// Los usuarios de Supabase Auth que crea el caso de los ecos, para borrarlos.
+const usuariosDeAuth: string[] = [];
 
 // `tokenEnClaro`: el Page token que el worker va a descifrar (ítem 172). Sin
 // él, un valor cualquiera que solo satisface el CHECK de "ACTIVE exige token".
@@ -200,7 +204,11 @@ after(async () => {
   await prisma.agent.deleteMany({ where });
   await prisma.contact.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
+  await prisma.user.deleteMany({ where });
   await prisma.organization.deleteMany({ where: { id: { in: ids } } });
+  for (const authId of usuariosDeAuth) {
+    await getSupabaseAdmin().auth.admin.deleteUser(authId);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -743,4 +751,132 @@ test("FABLE-C-01: si el mensaje no se pudo guardar -> 503; la reentrega lo guard
   const entrantes = await mensajesCon(mid);
   assert.equal(entrantes.length, 1);
   assert.equal(await prisma.agentInboundJob.count({ where: { messageId: entrantes[0].id } }), 1);
+});
+
+// ---------------------------------------------------------------------------
+// OPUS-B-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): una persona
+// responde desde la bandeja de Meta. De punta a punta contra Postgres, con el
+// worker real.
+// ---------------------------------------------------------------------------
+
+async function crearAdmin(orgId: string): Promise<string> {
+  const rol = await findRoleByName("ADMIN");
+  if (!rol) throw new Error("No está sembrado el rol ADMIN. Abortando.");
+  const email = `eco-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+  const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
+  if (error || !data.user) {
+    throw new Error(`No se pudo crear el usuario de Supabase Auth: ${error?.message}`);
+  }
+  usuariosDeAuth.push(data.user.id);
+  await prisma.user.create({
+    data: {
+      id: data.user.id,
+      organizationId: orgId,
+      roleId: rol.id,
+      email,
+      fullName: "Laura del equipo",
+    },
+  });
+  return data.user.id;
+}
+
+test("OPUS-B-01: lo que una persona responde desde la bandeja de Meta queda como respuesta humana y calla al agente; el eco de lo que mandó el agente no", async () => {
+  reiniciarDobles();
+  const adminId = await crearAdmin(negocioC.orgId);
+  const cliente = idAlAzar("2");
+  const escribe = (text: string) =>
+    enviar(payload({ object: "page", cuentaId: negocioC.pageId, senderId: cliente, text }));
+  const eco = (text: string, mid = `m_${randomUUID()}`) =>
+    enviar(
+      payload({
+        object: "page",
+        cuentaId: negocioC.pageId,
+        senderId: cliente,
+        mid,
+        text,
+        isEcho: true,
+      }),
+    );
+
+  // 1. El cliente escribe y el agente contesta.
+  assert.equal((await escribe("Hola, ¿tienen pickups?")).status, 200);
+  await drenarC();
+  assert.equal(enviadosAMeta.length, 1);
+  const conversacion = await prisma.conversation.findFirstOrThrow({
+    where: { organizationId: negocioC.orgId, externalThreadId: cliente },
+  });
+
+  // 2. Meta manda el eco de ESA respuesta del agente: es nuestra. No se
+  //    registra, y la conversación sigue con el agente.
+  assert.equal((await eco(RESPUESTA_DEL_AGENTE)).status, 200);
+  assert.equal(
+    await prisma.message.count({ where: { conversationId: conversacion.id, senderType: "HUMAN" } }),
+    0,
+    "el eco del agente no cuenta como una persona",
+  );
+  assert.equal(
+    (await prisma.conversation.findUniqueOrThrow({ where: { id: conversacion.id } })).status,
+    "ACTIVE",
+  );
+
+  // 3. Una persona contesta desde Meta Business Suite. Meta lo reentrega: una
+  //    sola fila.
+  const midHumano = `m_${randomUUID()}`;
+  assert.equal((await eco("Hola, soy Laura. Te llamo en un rato.", midHumano)).status, 200);
+  assert.equal((await eco("Hola, soy Laura. Te llamo en un rato.", midHumano)).status, 200);
+
+  const humanos = await prisma.message.findMany({
+    where: { conversationId: conversacion.id, senderType: "HUMAN" },
+  });
+  assert.equal(humanos.length, 1);
+  assert.equal(humanos[0].direction, "OUTBOUND");
+  assert.equal(humanos[0].content, "Hola, soy Laura. Te llamo en un rato.");
+  assert.equal(humanos[0].externalMessageId, midHumano);
+  assert.equal(humanos[0].deliveryStatus, "SENT");
+  assert.equal(humanos[0].senderUserId, adminId, "sin asignación: figura el ADMIN");
+  const derivada = await prisma.conversation.findUniqueOrThrow({ where: { id: conversacion.id } });
+  assert.equal(derivada.status, "TRANSFERRED_TO_HUMAN");
+  assert.equal(derivada.assignedUserId, adminId);
+
+  // 4. El cliente vuelve a escribir: el mensaje queda en el hilo y el agente
+  //    NO le habla encima a la persona.
+  const antes = { llm: llamadasAlLlm, enviados: enviadosAMeta.length };
+  assert.equal((await escribe("Dale, gracias")).status, 200);
+  const resumen = await drenarC();
+  assert.equal(resumen.fallidos, 0);
+  assert.equal(llamadasAlLlm, antes.llm, "ningún turno del modelo");
+  assert.equal(enviadosAMeta.length, antes.enviados, "nada sale por el Send API");
+  assert.equal(
+    await prisma.message.count({
+      where: { conversationId: conversacion.id, direction: "INBOUND" },
+    }),
+    2,
+  );
+});
+
+test("OPUS-B-01: un eco hacia alguien que nunca le escribió al negocio no crea contacto ni conversación", async () => {
+  const desconocido = idAlAzar("2");
+  const res = await enviar(
+    payload({
+      object: "page",
+      cuentaId: negocioC.pageId,
+      senderId: desconocido,
+      text: "Hola, te escribo del taller",
+      isEcho: true,
+    }),
+  );
+  assert.equal(res.status, 200);
+  assert.equal(
+    await prisma.contactChannelIdentity.count({ where: { externalId: desconocido } }),
+    0,
+  );
+  assert.equal(
+    await prisma.conversation.count({
+      where: { organizationId: negocioC.orgId, externalThreadId: desconocido },
+    }),
+    0,
+  );
 });

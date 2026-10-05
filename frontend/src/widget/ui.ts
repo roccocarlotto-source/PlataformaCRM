@@ -20,8 +20,13 @@ export type MessageRole = "visitor" | "agent";
 
 export interface WidgetMessage {
   role: MessageRole;
+  /** "person": lo escribió alguien del equipo, no el asistente. */
+  author?: "agent" | "person";
   text: string;
 }
+
+/** La etiqueta que acompaña al mensaje de una persona del equipo. */
+export const PERSON_LABEL = "Una persona del equipo";
 
 export interface WidgetUiOptions {
   /** Valor de data-primary-color; se aplica como --widget-accent inline en el host. */
@@ -85,7 +90,18 @@ export function renderMessage(
   message: WidgetMessage,
   before: Node | null = null,
 ): HTMLElement {
-  const bubble = el("div", `pcw-msg pcw-msg--${message.role}`);
+  // El mensaje de una persona lleva una etiqueta arriba y su propia clase:
+  // el visitante tiene que poder distinguirla del asistente.
+  const esDeUnaPersona = message.role === "agent" && message.author === "person";
+  if (esDeUnaPersona) {
+    const label = el("div", "pcw-msg-author");
+    label.textContent = PERSON_LABEL;
+    container.insertBefore(label, before);
+  }
+  const bubble = el(
+    "div",
+    `pcw-msg pcw-msg--${message.role}${esDeUnaPersona ? " pcw-msg--person" : ""}`,
+  );
   bubble.textContent = message.text;
   container.insertBefore(bubble, before);
   scrollToBottom(container);

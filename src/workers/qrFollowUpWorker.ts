@@ -19,7 +19,6 @@ import {
   type EnvioDePlantilla,
 } from "../services/automationWhatsappConversation.service";
 import { proximaAperturaDeLaSucursal } from "../services/branchBusinessHours.service";
-import { esTransitorio } from "../services/llmProvider.service";
 import { soloDigitos } from "../lib/telefono";
 import {
   sendWhatsappTemplateReal,
@@ -173,13 +172,14 @@ export class ErrorPermanenteDelSeguimiento extends Error {
 }
 
 // Pura, para probarla sin base: qué errores vale la pena reintentar. Mismo
-// corte que la cola de turnos para la Graph API (esTransitorio: 429 o 5xx).
+// corte que la cola de turnos para la Graph API: 429, 5xx o un límite de envío
+// de los que Meta manda con 400 (WhatsappGraphError.transitorio, OPUS-D-01).
 export function clasificarFallo(err: unknown): ClaseDeFallo {
   if (err instanceof ErrorPermanenteDelSeguimiento) {
     return "PERMANENTE";
   }
   if (err instanceof WhatsappGraphError) {
-    return esTransitorio(err.status) ? "TRANSITORIO" : "PERMANENTE";
+    return err.transitorio ? "TRANSITORIO" : "PERMANENTE";
   }
   // Red, timeout, la base que no responde, un bug: se reintenta, y el tope de
   // intentos es lo que evita que uno determinístico gire para siempre.

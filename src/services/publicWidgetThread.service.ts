@@ -44,6 +44,14 @@ const CURSOR_INICIAL = new Date(0);
 export interface MensajeDelWidget {
   id: string;
   role: "visitor" | "agent";
+  // FABLE-I-06 (docs-privados/auditoria-2026-10-05-FABLE.md, local): de los
+  // mensajes del negocio, cuál lo escribió una persona. Antes todos salían
+  // iguales y el visitante no distinguía a la persona del asistente.
+  // Campo NUEVO y no un tercer valor de `role`: un widget.js viejo, todavía
+  // en la caché de un navegador, valida `role` contra los dos valores de
+  // siempre y descartaría el hilo entero; un campo que no conoce lo ignora.
+  // Solo en los mensajes del negocio.
+  author?: "agent" | "person";
   text: string;
   createdAt: string;
 }
@@ -62,6 +70,9 @@ export function aMensajeDelWidget(fila: Fila): MensajeDelWidget {
   return {
     id: fila.id,
     role: fila.direction === "INBOUND" ? "visitor" : "agent",
+    ...(fila.direction === "OUTBOUND"
+      ? { author: fila.senderType === "HUMAN" ? ("person" as const) : ("agent" as const) }
+      : {}),
     text: fila.content,
     createdAt: fila.createdAt.toISOString(),
   };

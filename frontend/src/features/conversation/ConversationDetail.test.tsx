@@ -186,6 +186,46 @@ describe("ConversationDetail", () => {
     expect(deLaPersona).toHaveClass("ds-chat-bubble--humano");
   });
 
+  // OPUS-B-01 (docs-privados, local): la respuesta que una persona escribió
+  // en la bandeja de Meta llega como eco, con el id que le dio Meta.
+  it("una respuesta hecha desde la bandeja de Meta se muestra como tal; una del CRM, no", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(
+          makeConversationDetail({ channel: "MESSENGER" }, [
+            makeMessage({
+              id: "m1",
+              direction: "OUTBOUND",
+              senderType: "HUMAN",
+              senderUserId: "u9",
+              senderUser: { id: "u9", fullName: "Sofía Rodríguez" },
+              content: "Te escribo desde Business Suite",
+              externalMessageId: "m_abc123",
+            }),
+            makeMessage({
+              id: "m2",
+              direction: "OUTBOUND",
+              senderType: "HUMAN",
+              senderUserId: "u9",
+              senderUser: { id: "u9", fullName: "Sofía Rodríguez" },
+              content: "Y esto desde el CRM",
+              externalMessageId: null,
+            }),
+          ]),
+        ),
+      ),
+    );
+
+    renderDetail();
+
+    const desdeMeta = await screen.findByText("Te escribo desde Business Suite");
+    expect(desdeMeta.closest(".ds-chat-row")).toHaveTextContent(
+      "Sofía Rodríguez · desde la bandeja de Meta",
+    );
+    const desdeElCrm = screen.getByText("Y esto desde el CRM");
+    expect(desdeElCrm.closest(".ds-chat-row")).not.toHaveTextContent("desde la bandeja de Meta");
+  });
+
   it("un mensaje HUMAN sin usuario resoluble no queda sin autor", async () => {
     server.use(
       http.get(detailUrl, () =>

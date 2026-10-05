@@ -166,6 +166,18 @@ export const WIDGET_STYLES = `
   color: var(--pcw-text);
   border-bottom-left-radius: 4px;
 }
+/* El mensaje de una persona del equipo: mismo lado que el asistente, con un
+   borde del color del negocio y la etiqueta arriba. */
+.pcw-msg--person {
+  border-left: 3px solid var(--widget-accent);
+}
+.pcw-msg-author {
+  align-self: flex-start;
+  color: var(--pcw-text-muted);
+  font-size: 11px;
+  margin-bottom: -4px;
+  padding-left: 2px;
+}
 
 .pcw-typing {
   align-self: flex-start;

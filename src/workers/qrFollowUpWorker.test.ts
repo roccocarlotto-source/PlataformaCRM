@@ -122,6 +122,14 @@ test("clasificarFallo: 429 y 5xx de Meta, la red o un bug son transitorios", () 
 
 test("clasificarFallo: un 4xx de Meta y un dato que falta son permanentes", () => {
   assert.equal(clasificarFallo(new WhatsappGraphError(400, "invalid parameter")), "PERMANENTE");
+  // OPUS-D-01 (docs-privados, local): el límite de envío llega con HTTP 400 y
+  // su código; se reintenta en vez de perder el seguimiento.
+  assert.equal(
+    clasificarFallo(
+      new WhatsappGraphError(400, JSON.stringify({ error: { message: "x", code: 130429 } })),
+    ),
+    "TRANSITORIO",
+  );
   assert.equal(clasificarFallo(new WhatsappGraphError(404, "template not found")), "PERMANENTE");
   assert.equal(clasificarFallo(new WhatsappGraphError(401, "token vencido")), "PERMANENTE");
   assert.equal(clasificarFallo(new ErrorPermanenteDelSeguimiento("sin teléfono")), "PERMANENTE");

@@ -5,6 +5,7 @@ import {
   clearTyping,
   ERROR_MESSAGES,
   mountWidgetUi,
+  PERSON_LABEL,
   renderError,
   renderMessage,
   renderTyping,
@@ -109,6 +110,40 @@ describe("renderMessage", () => {
     expect(container.querySelector("script")).toBeNull();
     expect(visitor.className).toContain("pcw-msg--visitor");
     expect(agent.className).toContain("pcw-msg--agent");
+  });
+
+  // FABLE-I-06 (docs-privados, local): antes la respuesta de una persona se
+  // veía igual que la del asistente.
+  it("el mensaje de una persona del equipo lleva su etiqueta y su clase; el del asistente no", () => {
+    const container = document.createElement("div");
+
+    const delAsistente = renderMessage(container, {
+      role: "agent",
+      author: "agent",
+      text: "¡Hola! ¿En qué te ayudo?",
+    });
+    expect(delAsistente.className).not.toContain("pcw-msg--person");
+    expect(container.querySelector(".pcw-msg-author")).toBeNull();
+
+    const deLaPersona = renderMessage(container, {
+      role: "agent",
+      author: "person",
+      text: "Hola, soy Laura del equipo.",
+    });
+    expect(deLaPersona.className).toContain("pcw-msg--agent");
+    expect(deLaPersona.className).toContain("pcw-msg--person");
+    const etiqueta = container.querySelector(".pcw-msg-author");
+    expect(etiqueta?.textContent).toBe(PERSON_LABEL);
+    // La etiqueta va justo arriba de su mensaje.
+    expect(etiqueta?.nextElementSibling).toBe(deLaPersona);
+    expect(deLaPersona.textContent).toBe("Hola, soy Laura del equipo.");
+  });
+
+  it("un mensaje sin autor (un widget hablando con un backend anterior) se ve como siempre", () => {
+    const container = document.createElement("div");
+    const bubble = renderMessage(container, { role: "agent", text: "Hola" });
+    expect(bubble.className).toBe("pcw-msg pcw-msg--agent");
+    expect(container.children).toHaveLength(1);
   });
 });
 

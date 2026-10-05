@@ -9,7 +9,14 @@ import {
   findActiveMetaConnectionByPageId,
   findPageIdByInstagramBusinessAccountId,
 } from "../repositories/metaPageConnection.repository";
+import { env } from "../config/env";
+import { findContactIdByExternalIdentity } from "../repositories/contactChannelIdentity.repository";
 import { esFalloReintentable } from "../utils/falloDeEntrante";
+import {
+  registrarRespuestaDesdeLaBandejaDeMeta,
+  type RespuestaDesdeMeta,
+  type ResultadoDeLaRespuestaDesdeMeta,
+} from "./conversationReply.service";
 import {
   agenteAtiendeElCanal,
   derivarEntranteSinAgente,
@@ -64,9 +71,13 @@ import { resolveMetaContact, type CanalMeta } from "./metaContact.service";
 // 4. Echoes: un mensaje que MANDÓ el propio negocio (Send API o a mano desde
 //    la bandeja) vuelve con message.is_echo: true, sender = la página/cuenta y
 //    recipient = el cliente. En Messenger solo llegan si se suscribe el campo
-//    aparte `message_echoes`; en Instagram llegan dentro de `messages`. En los
-//    dos casos se descartan acá, antes de cualquier otra cosa: procesado como
-//    entrante, el agente contestaría sus propias respuestas.
+//    aparte `message_echoes`; en Instagram llegan dentro de `messages`. NUNCA
+//    se procesan como entrantes: el agente contestaría sus propias respuestas.
+//    Desde OPUS-B-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local) ya
+//    no se descartan todos: el eco de lo que una persona escribió desde la
+//    bandeja de Meta se registra como respuesta humana (ver procesarEco). Los
+//    de lo que mandó este CRM se siguen descartando: traen `app_id` de esta
+//    app (Messenger lo manda siempre), y si no, se reconocen por el texto.
 //
 // 5. Adjuntos: message.attachments[] con { type, payload: { url } } y, si es
 //    solo un adjunto, SIN `text` (ni campo `type` a nivel mensaje, a
@@ -102,10 +113,14 @@ export function canalDelObjeto(object: string): CanalMeta | null {
 
 const eventoDeMensajeSchema = z.object({
   sender: z.object({ id: z.string().min(1) }),
+  // Solo se usa en un eco, donde es el cliente.
+  recipient: z.object({ id: z.string().min(1) }).optional(),
   message: z.object({
     mid: z.string().min(1),
     text: z.string().optional(),
     is_echo: z.boolean().optional(),
+    // La app que mandó el mensaje, en un eco. Meta lo manda como número.
+    app_id: z.union([z.number(), z.string()]).optional(),
   }),
 });
 
@@ -127,11 +142,36 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
   return { mid: message.mid, senderId: sender.id, texto: message.text.trim() };
 }
 
+export interface EcoLeido {
+  mid: string;
+  // El cliente al que se le escribió: PSID (Messenger) o IGSID (Instagram).
+  recipientId: string;
+  texto: string;
+  // La app que lo mandó, o null si el eco no lo dice.
+  appId: string | null;
+}
+
+// Pura. null = no es el eco de un mensaje de texto.
+export function leerEco(crudo: unknown): EcoLeido | null {
+  const parsed = eventoDeMensajeSchema.safeParse(crudo);
+  if (!parsed.success) return null;
+  const { recipient, message } = parsed.data;
+  if (message.is_echo !== true || !recipient) return null;
+  if (message.text === undefined || message.text.trim().length === 0) return null;
+  return {
+    mid: message.mid,
+    recipientId: recipient.id,
+    texto: message.text.trim(),
+    appId: message.app_id === undefined ? null : String(message.app_id),
+  };
+}
+
+// "eco": la respuesta de una persona desde la bandeja de Meta, registrada.
 // Los mismos resultados que whatsappWebhook.service.ts: "derivado" es el
 // entrante de un agente apagado o sin el canal, que queda para una persona;
 // "fallido" es el que Meta tiene que reintentar y "descartado" el que no.
 export type ResultadoDelMensaje =
-  "encolado" | "derivado" | "duplicado" | "ignorado" | "fallido" | "descartado";
+  "encolado" | "derivado" | "eco" | "duplicado" | "ignorado" | "fallido" | "descartado";
 export type ResumenDelLote = Record<ResultadoDelMensaje, number>;
 
 // ¿Hay que pedirle a Meta que reintente el lote? Ver utils/falloDeEntrante.ts.
@@ -178,6 +218,18 @@ export interface DepsDelWebhookMeta {
     organizationId: string;
     conversationId: string;
   }) => Promise<void>;
+  // OPUS-B-01: los ecos. El id de esta app en Meta (META_APP_ID), para
+  // descartar los de lo que mandó el CRM; el contacto de un cliente SIN
+  // crearlo (un eco no da de alta a nadie); y el registro de la respuesta.
+  appId: () => string | undefined;
+  findContactIdByExternalIdentity: (identidad: {
+    organizationId: string;
+    channel: CanalMeta;
+    externalId: string;
+  }) => Promise<string | null>;
+  registrarRespuestaDesdeLaBandejaDeMeta: (
+    input: RespuestaDesdeMeta,
+  ) => Promise<ResultadoDeLaRespuestaDesdeMeta>;
 }
 
 export const depsDelWebhookMetaReales: DepsDelWebhookMeta = {
@@ -189,6 +241,9 @@ export const depsDelWebhookMetaReales: DepsDelWebhookMeta = {
   registrarEntrante,
   createAgentInboundJob,
   derivarEntranteSinAgente,
+  appId: () => env.META_APP_ID,
+  findContactIdByExternalIdentity: (identidad) => findContactIdByExternalIdentity(identidad),
+  registrarRespuestaDesdeLaBandejaDeMeta: (input) => registrarRespuestaDesdeLaBandejaDeMeta(input),
 };
 
 function esDuplicadoPorIndiceUnico(err: unknown): boolean {
@@ -331,6 +386,75 @@ async function procesarMensaje(
   return "derivado";
 }
 
+// OPUS-B-01 (docs-privados, local): el eco de un mensaje que salió de la
+// página. Si lo escribió una persona desde la bandeja de Meta, queda en el
+// hilo como respuesta humana y el agente se calla; si es de algo que mandó
+// este CRM, se ignora. Ver registrarRespuestaDesdeLaBandejaDeMeta.
+async function procesarEco(
+  eco: EcoLeido & { channel: CanalMeta; cuentaId: string },
+  deps: DepsDelWebhookMeta,
+): Promise<ResultadoDelMensaje> {
+  // Lo mandó esta app (el agente, una persona desde el CRM, el aviso): nada
+  // que registrar. Es el atajo; sin app_id decide el texto, más abajo.
+  const appId = deps.appId();
+  if (appId !== undefined && eco.appId === appId) {
+    return "ignorado";
+  }
+
+  // La página y su agente, con el mismo criterio que un entrante. Que el
+  // agente esté apagado no importa: la persona respondió igual.
+  const conexion =
+    eco.channel === ConversationChannel.INSTAGRAM
+      ? await deps.findPageIdByInstagramBusinessAccountId(eco.cuentaId)
+      : await deps.findActiveMetaConnectionByPageId(eco.cuentaId);
+  if (!conexion) {
+    return "ignorado";
+  }
+  const agent = await deps.findAgentByFacebookPageId(conexion.pageId);
+  if (!agent || conexion.organizationId !== agent.organizationId) {
+    return "ignorado";
+  }
+  const organizationId = agent.organizationId;
+
+  if (await deps.findMessageByExternalId(organizationId, eco.mid)) {
+    return "duplicado";
+  }
+
+  // Solo si ese cliente ya es un contacto: un eco no crea contactos (el
+  // negocio le escribió primero a alguien que este CRM todavía no conoce).
+  const contactId = await deps.findContactIdByExternalIdentity({
+    organizationId,
+    channel: eco.channel,
+    externalId: eco.recipientId,
+  });
+  if (!contactId) {
+    return "ignorado";
+  }
+
+  try {
+    const resultado = await deps.registrarRespuestaDesdeLaBandejaDeMeta({
+      organizationId,
+      agentId: agent.id,
+      branchId: agent.branchId,
+      contactId,
+      channel: eco.channel,
+      externalThreadId: eco.recipientId,
+      externalMessageId: eco.mid,
+      texto: eco.texto,
+    });
+    return resultado === "registrada" ? "eco" : "ignorado";
+  } catch (err) {
+    // Dos entregas del mismo eco en paralelo: mismo criterio que un entrante.
+    if (
+      esDuplicadoPorIndiceUnico(err) &&
+      (await deps.findMessageByExternalId(organizationId, eco.mid))
+    ) {
+      return "duplicado";
+    }
+    throw err;
+  }
+}
+
 export async function procesarWebhookDeMeta(
   payload: MetaWebhookPayload,
   deps: DepsDelWebhookMeta = depsDelWebhookMetaReales,
@@ -338,6 +462,7 @@ export async function procesarWebhookDeMeta(
   const resumen: ResumenDelLote = {
     encolado: 0,
     derivado: 0,
+    eco: 0,
     duplicado: 0,
     ignorado: 0,
     fallido: 0,
@@ -357,17 +482,22 @@ export async function procesarWebhookDeMeta(
     if (!cuentaId || eventos.length === 0) continue;
 
     for (const crudo of eventos) {
-      const m = leerMensaje(crudo);
-      if (!m) {
+      const eco = leerEco(crudo);
+      const m = eco ? null : leerMensaje(crudo);
+      if (!eco && !m) {
         resumen.ignorado += 1;
         continue;
       }
+      const mid = eco?.mid ?? m?.mid;
       try {
-        resumen[await procesarMensaje({ ...m, channel, cuentaId }, deps)] += 1;
+        const resultado = eco
+          ? await procesarEco({ ...eco, channel, cuentaId }, deps)
+          : await procesarMensaje({ ...m!, channel, cuentaId }, deps);
+        resumen[resultado] += 1;
       } catch (err) {
         const reintentable = esFalloReintentable(err);
         logger.error(
-          { err, channel, cuentaId, mid: m.mid, reintentable },
+          { err, channel, cuentaId, mid, reintentable },
           "No se pudo procesar un mensaje de Meta — se sigue con el resto del lote",
         );
         resumen[reintentable ? "fallido" : "descartado"] += 1;

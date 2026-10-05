@@ -525,6 +525,22 @@ test("la búsqueda NO mira el contenido de los mensajes", async () => {
   assert.deepEqual(data, []);
 });
 
+// F-01 de las auditorías del 04 y 05/10/2026 (docs-privados, local): la
+// pantalla ofrece los cuatro canales y el backend aceptaba dos.
+test("F-01: el filtro por canal acepta también Messenger e Instagram", async () => {
+  for (const canal of ["MESSENGER", "INSTAGRAM"]) {
+    const res = await call("GET", `/api/conversations?channel=${canal}`, adminA.accessToken);
+    assert.equal(res.status, 200, canal);
+  }
+  // Esta organización no tiene conversaciones por esos canales: lista vacía,
+  // no un error.
+  const { data } = await listar(adminA.accessToken, "?channel=INSTAGRAM");
+  assert.deepEqual(ids(data), []);
+  // Y un canal que no existe sigue siendo 400.
+  const invalido = await call("GET", "/api/conversations?channel=TELEGRAM", adminA.accessToken);
+  assert.equal(invalido.status, 400);
+});
+
 test("un filtro con un valor fuera del enum es 400 y no una lista vacía", async () => {
   const res = await call("GET", "/api/conversations?status=PENDIENTE", adminA.accessToken);
   assert.equal(res.status, 400);
