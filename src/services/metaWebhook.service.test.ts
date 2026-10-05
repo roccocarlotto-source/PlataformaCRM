@@ -3,8 +3,10 @@ import { test } from "node:test";
 import { Prisma, type ConversationChannel } from "@prisma/client";
 import type { Db } from "../lib/prisma";
 import { AppError } from "../utils/AppError";
+import type { RespuestaDesdeMeta } from "./conversationReply.service";
 import type { RegistrarEntranteInput } from "./agentOrchestration.service";
 import {
+  leerEco,
   canalDelObjeto,
   hayQueReintentarElLote,
   leerMensaje,
@@ -24,6 +26,10 @@ import {
 const PAGE_ID = "1111";
 const IGID = "17841400000000000";
 const ORG = "org-1";
+const APP_DEL_CRM = "111222333";
+// La app de la bandeja de Meta (cualquier id que no sea el del CRM).
+const APP_DE_LA_BANDEJA = 263902037430900;
+const CLIENTE_CONOCIDO = "psid-conocido";
 
 interface Estado {
   consultasDeInstagram: string[];
@@ -33,6 +39,9 @@ interface Estado {
   jobs: Record<string, unknown>[];
   // Las conversaciones que se dejaron para una persona (OPUS-I-01).
   derivadas: string[];
+  // Las respuestas desde la bandeja de Meta que se mandaron a registrar
+  // (OPUS-B-01).
+  ecos: RespuestaDesdeMeta[];
 }
 
 type Agente = Awaited<ReturnType<DepsDelWebhookMeta["findAgentByFacebookPageId"]>>;
@@ -46,6 +55,8 @@ function dobles(
     conexionDeLaPagina?: { pageId: string; organizationId: string } | null;
     yaProcesados?: string[];
     falloAlRegistrar?: (mid: string) => unknown;
+    // El registro reconoce el texto como de un saliente del CRM.
+    ecoEsPropio?: boolean;
   } = {},
 ): { deps: DepsDelWebhookMeta; estado: Estado } {
   const estado: Estado = {
@@ -55,6 +66,7 @@ function dobles(
     entrantes: [],
     jobs: [],
     derivadas: [],
+    ecos: [],
   };
   const agente: Agente =
     "agente" in opciones
@@ -103,16 +115,43 @@ function dobles(
     derivarEntranteSinAgente: async ({ conversationId }) => {
       estado.derivadas.push(conversationId);
     },
+    appId: () => APP_DEL_CRM,
+    // Un cliente conocido: el que ya le escribió al negocio.
+    findContactIdByExternalIdentity: async ({ externalId }) =>
+      externalId === CLIENTE_CONOCIDO ? "contacto-1" : null,
+    registrarRespuestaDesdeLaBandejaDeMeta: async (input) => {
+      estado.ecos.push(input);
+      return opciones.ecoEsPropio ? "propia" : "registrada";
+    },
   };
   return { deps, estado };
 }
 
 function evento(
-  opts: { mid?: string; sender?: string; text?: string; isEcho?: boolean; adjunto?: boolean } = {},
+  opts: {
+    mid?: string;
+    sender?: string;
+    text?: string;
+    isEcho?: boolean;
+    adjunto?: boolean;
+    // En un eco: la app que mandó el mensaje y el cliente al que le llegó.
+    appId?: number | string;
+    cliente?: string;
+  } = {},
 ) {
   const message: Record<string, unknown> = { mid: opts.mid ?? "m_1" };
   if (opts.text !== undefined) message.text = opts.text;
   if (opts.isEcho) message.is_echo = true;
+  if (opts.appId !== undefined) message.app_id = opts.appId;
+  if (opts.isEcho) {
+    // En un eco los roles se invierten: escribe la página, recibe el cliente.
+    return {
+      sender: { id: PAGE_ID },
+      recipient: { id: opts.cliente ?? CLIENTE_CONOCIDO },
+      timestamp: 1700000000000,
+      message,
+    };
+  }
   if (opts.adjunto) {
     message.attachments = [{ type: "image", payload: { url: "https://ejemplo.test/x.jpg" } }];
   }
@@ -177,6 +216,7 @@ test("Messenger: el mensaje se encola con canal MESSENGER, el Page ID como cuent
   assert.deepEqual(resumen, {
     encolado: 1,
     derivado: 0,
+    eco: 0,
     duplicado: 0,
     ignorado: 0,
     fallido: 0,
@@ -236,12 +276,17 @@ test("Instagram sin página conectada para ese IGID: ignorado, sin buscar agente
 test("echo y mensaje sin texto: ignorados sin tocar agente, contacto ni cola", async () => {
   const { deps, estado } = dobles();
   const resumen = await procesarWebhookDeMeta(
-    lote("page", PAGE_ID, [evento({ text: "respuesta", isEcho: true }), evento({ adjunto: true })]),
+    lote("page", PAGE_ID, [
+      // El eco de algo que mandó este CRM: trae el app_id de esta app.
+      evento({ text: "respuesta", isEcho: true, appId: APP_DEL_CRM }),
+      evento({ adjunto: true }),
+    ]),
     deps,
   );
   assert.deepEqual(resumen, {
     encolado: 0,
     derivado: 0,
+    eco: 0,
     duplicado: 0,
     ignorado: 2,
     fallido: 0,
@@ -376,6 +421,7 @@ test("un mensaje que falla no tumba el lote: el siguiente se encola igual", asyn
   assert.deepEqual(resumen, {
     encolado: 1,
     derivado: 0,
+    eco: 0,
     duplicado: 0,
     ignorado: 0,
     fallido: 1,
@@ -444,7 +490,15 @@ test("FABLE-C-01: un rechazo de negocio (AppError 4xx) se descarta sin pedir rei
 
 test("otro objeto (whatsapp_business_account) o entry sin id / sin messaging: nada que hacer", async () => {
   const { deps, estado } = dobles();
-  const vacio = { encolado: 0, derivado: 0, duplicado: 0, ignorado: 0, fallido: 0, descartado: 0 };
+  const vacio = {
+    encolado: 0,
+    derivado: 0,
+    eco: 0,
+    duplicado: 0,
+    ignorado: 0,
+    fallido: 0,
+    descartado: 0,
+  };
   assert.deepEqual(
     await procesarWebhookDeMeta(
       lote("whatsapp_business_account", PAGE_ID, [evento({ text: "x" })]),
@@ -501,4 +555,128 @@ test("A-08: Instagram cuya conexión es de OTRA organización que la del agente 
   assert.equal(resumen.ignorado, 1);
   assert.equal(estado.contactos.length, 0);
   assert.equal(estado.jobs.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// OPUS-B-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): los ecos. Lo
+// que una persona responde desde la bandeja de Meta se registra; lo que mandó
+// este CRM, no.
+// ---------------------------------------------------------------------------
+
+test("leerEco: un eco de texto se lee con el cliente como destinatario y la app que lo mandó", () => {
+  assert.deepEqual(
+    leerEco(
+      evento({ mid: "m_e", text: " Hola, soy Laura ", isEcho: true, appId: 263902037430900 }),
+    ),
+    {
+      mid: "m_e",
+      recipientId: CLIENTE_CONOCIDO,
+      texto: "Hola, soy Laura",
+      appId: "263902037430900",
+    },
+  );
+  // Sin app_id (Instagram no siempre lo manda).
+  assert.equal(leerEco(evento({ text: "Hola", isEcho: true }))?.appId, null);
+  // Un entrante no es un eco, y un eco sin texto no se procesa.
+  assert.equal(leerEco(evento({ text: "Hola" })), null);
+  assert.equal(leerEco(evento({ isEcho: true, adjunto: true })), null);
+});
+
+test("OPUS-B-01: el eco de una respuesta escrita en la bandeja de Meta se manda a registrar como respuesta humana, sin encolar ningún turno", async () => {
+  for (const [object, cuenta, channel] of [
+    ["page", PAGE_ID, "MESSENGER"],
+    ["instagram", IGID, "INSTAGRAM"],
+  ] as const) {
+    const { deps, estado } = dobles();
+    const resumen = await procesarWebhookDeMeta(
+      lote(object, cuenta, [
+        evento({ mid: "m_eco", text: "Hola, soy Laura", isEcho: true, appId: APP_DE_LA_BANDEJA }),
+      ]),
+      deps,
+    );
+
+    assert.equal(resumen.eco, 1, channel);
+    assert.deepEqual(estado.ecos, [
+      {
+        organizationId: ORG,
+        agentId: "agente-1",
+        branchId: "sucursal-1",
+        contactId: "contacto-1",
+        channel,
+        externalThreadId: CLIENTE_CONOCIDO,
+        externalMessageId: "m_eco",
+        texto: "Hola, soy Laura",
+      },
+    ]);
+    assert.equal(estado.jobs.length, 0, "un eco nunca es un entrante");
+    assert.equal(estado.entrantes.length, 0);
+    assert.equal(estado.contactos.length, 0, "ni crea contactos");
+  }
+});
+
+test("OPUS-B-01: el eco de lo que mandó este CRM (su app_id) se ignora sin tocar nada", async () => {
+  const { deps, estado } = dobles();
+  const resumen = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [
+      evento({ text: "¡Hola! ¿En qué te ayudo?", isEcho: true, appId: Number(APP_DEL_CRM) }),
+    ]),
+    deps,
+  );
+  assert.equal(resumen.ignorado, 1);
+  assert.equal(estado.ecos.length, 0);
+  assert.equal(estado.consultasDeAgente.length, 0);
+});
+
+test("OPUS-B-01: sin app_id decide el texto — si el registro lo reconoce como propio, cuenta como ignorado", async () => {
+  const { deps, estado } = dobles({ ecoEsPropio: true });
+  const resumen = await procesarWebhookDeMeta(
+    lote("instagram", IGID, [evento({ text: "¡Hola! ¿En qué te ayudo?", isEcho: true })]),
+    deps,
+  );
+  assert.equal(resumen.ignorado, 1);
+  assert.equal(resumen.eco, 0);
+  assert.equal(estado.ecos.length, 1, "llegó a compararse");
+});
+
+test("OPUS-B-01: un eco hacia alguien que no es un contacto, repetido, o de una página sin agente no registra nada", async () => {
+  const eco = (extra: Parameters<typeof evento>[0] = {}) =>
+    evento({ mid: "m_eco", text: "Hola", isEcho: true, appId: APP_DE_LA_BANDEJA, ...extra });
+
+  const desconocido = dobles();
+  const r1 = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [eco({ cliente: "psid-desconocido" })]),
+    desconocido.deps,
+  );
+  assert.equal(r1.ignorado, 1);
+  assert.equal(desconocido.estado.ecos.length, 0);
+
+  const repetido = dobles({ yaProcesados: ["m_eco"] });
+  const r2 = await procesarWebhookDeMeta(lote("page", PAGE_ID, [eco()]), repetido.deps);
+  assert.equal(r2.duplicado, 1);
+  assert.equal(repetido.estado.ecos.length, 0);
+
+  const sinAgente = dobles({ agente: null });
+  const r3 = await procesarWebhookDeMeta(lote("page", PAGE_ID, [eco()]), sinAgente.deps);
+  assert.equal(r3.ignorado, 1);
+  assert.equal(sinAgente.estado.ecos.length, 0);
+});
+
+test("OPUS-B-01: con el agente apagado la respuesta de la persona se registra igual", async () => {
+  const { deps, estado } = dobles({
+    agente: {
+      id: "agente-1",
+      organizationId: ORG,
+      branchId: "sucursal-1",
+      isActive: false,
+      channels: ["MESSENGER"],
+    },
+  });
+  const resumen = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [
+      evento({ text: "Hola, soy Laura", isEcho: true, appId: APP_DE_LA_BANDEJA }),
+    ]),
+    deps,
+  );
+  assert.equal(resumen.eco, 1);
+  assert.equal(estado.ecos.length, 1);
 });

@@ -84,6 +84,8 @@ async function readErrorMessage(res: Response): Promise<string> {
 export interface WidgetThreadMessage {
   id: string;
   role: "visitor" | "agent";
+  /** De los mensajes del negocio: "person" si lo escribió alguien del equipo. */
+  author?: "agent" | "person";
   text: string;
   createdAt: string;
 }

@@ -1,4 +1,4 @@
-import type { Conversation, Message } from "@prisma/client";
+import type { Conversation, ConversationChannel, Message } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma, type Db } from "../lib/prisma";
@@ -8,6 +8,7 @@ import { findChannelAccountIdOfConversation } from "../repositories/agentInbound
 import { findContactById } from "../repositories/contact.repository";
 import {
   findConversationById,
+  findOrCreateOpenConversation,
   returnConversationToAgent,
   takeOverConversation,
   updateConversation,
@@ -16,15 +17,19 @@ import {
   createMessage,
   findLastInboundAt,
   findMessageById,
+  findSalientesRecientes,
   humanSpokeLast,
   markMessageDelivery,
 } from "../repositories/message.repository";
+import { findOldestActiveAdmin } from "../repositories/user.repository";
 import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { describirError } from "../utils/backoff";
+import { partirMensaje } from "../utils/partirMensaje";
 import { finDeLaVentanaDeWhatsapp, ventanaDeWhatsappAbierta } from "../utils/ventanaDeWhatsapp";
 import { agenteAtiendeElCanal, conLockDeConversacion } from "./agentOrchestration.service";
 import { getConversationById } from "./conversation.service";
+import { enviarEnPartes } from "./envioEnPartes";
 import {
   avisoLlegaTarde,
   textoDelAviso,
@@ -111,7 +116,7 @@ export const depsDeRespuestaHumanaReales: DepsDeRespuestaHumana = {
 // Por dónde sale un mensaje de esta conversación.
 export type Destino =
   | { canal: "WHATSAPP"; phoneNumberId: string; to: string }
-  | { canal: "META"; pageId: string; recipientId: string }
+  | { canal: "META"; channel: ConversationChannel; pageId: string; recipientId: string }
   | { canal: "WEB" };
 
 export interface Actor {
@@ -247,7 +252,12 @@ async function destinoDeLaConversacion(
   if (!pageId) {
     return { motivo: "No se encontró la página de Facebook por la que escribió el cliente" };
   }
-  return { canal: "META", pageId, recipientId: conversation.externalThreadId };
+  return {
+    canal: "META",
+    channel: conversation.channel,
+    pageId,
+    recipientId: conversation.externalThreadId,
+  };
 }
 
 // Manda un Message saliente ya persistido (la respuesta de una persona, o el
@@ -269,11 +279,10 @@ async function enviarPorElCanal(
     }
     if (destino.canal === "META") {
       const pageAccessToken = await deps.pageAccessToken(organizationId, destino.pageId);
-      await deps.sendMetaText({
-        pageAccessToken,
-        recipientId: destino.recipientId,
-        text: mensaje.content,
-      });
+      // OPUS-B-02 (docs-privados, local): en las partes que pida el canal.
+      await enviarEnPartes(mensaje, destino.channel, (texto) =>
+        deps.sendMetaText({ pageAccessToken, recipientId: destino.recipientId, text: texto }),
+      );
       await markMessageDelivery(mensaje.id, organizationId, { status: "SENT" });
       return;
     }
@@ -281,12 +290,14 @@ async function enviarPorElCanal(
     if (!accessToken) {
       throw new Error("Falta configurar el token de WhatsApp del servidor");
     }
-    const { wamid } = await deps.sendText({
-      phoneNumberId: destino.phoneNumberId,
-      to: destino.to,
-      body: mensaje.content,
-      accessToken,
-    });
+    const { wamid } = await enviarEnPartes(mensaje, "WHATSAPP", (texto) =>
+      deps.sendText({
+        phoneNumberId: destino.phoneNumberId,
+        to: destino.to,
+        body: texto,
+        accessToken,
+      }),
+    );
     await markMessageDelivery(mensaje.id, organizationId, {
       status: "SENT",
       externalMessageId: wamid,
@@ -505,6 +516,120 @@ export async function devolverAlAgente(
 
 // "tarde": la derivación venció hace demasiado (avisoLlegaTarde). La
 // conversación vuelve al agente y queda la tarea, sin escribirle al cliente.
+// ---------------------------------------------------------------------------
+// UNA PERSONA RESPONDIÓ DESDE LA BANDEJA DE META (OPUS-B-01 de
+// docs-privados/auditoria-2026-10-04-OPUS.md, local).
+//
+// Un vendedor que contesta desde Meta Business Suite o desde la app de
+// Instagram —algo muy común— no pasa por este CRM: Meta solo avisa con un
+// "eco" del mensaje. Antes los ecos se descartaban todos, así que el agente no
+// se enteraba de que una persona estaba atendiendo: le seguía hablando al
+// cliente por encima, y a los minutos salía además el aviso de "no hay nadie
+// disponible". Ahora ese eco se registra igual que una respuesta escrita desde
+// el CRM: un Message HUMAN en el hilo y la conversación en "atiende una
+// persona". Con eso el agente se calla (humanoAtiendeLaConversacion), el aviso
+// automático no sale, y "Devolver al agente" funciona como siempre.
+//
+// CUÁL ECO ES NUESTRO. Meta manda eco de TODO lo que sale de la página,
+// también de lo que mandó este CRM (el agente, una persona desde la bandeja
+// del CRM, el aviso). Registrar esos como "una persona respondió" callaría al
+// agente después de cada respuesta suya. Dos defensas:
+//   - el webhook descarta antes los que traen el app_id de esta app;
+//   - acá, un eco cuyo texto es el de un saliente reciente de la conversación
+//     (entero, o una de las partes en que se mandó) es nuestro y no se
+//     registra. La fila del saliente se escribe SIEMPRE antes de mandarlo, así
+//     que cuando llega el eco ya está.
+//
+// QUIÉN FIGURA COMO AUTOR. Un mensaje HUMAN exige un usuario (es un CHECK de
+// la tabla) y Meta no dice quién escribió. Figura quien tiene asignada la
+// conversación; si nadie, el vendedor del contacto; si tampoco, el ADMIN
+// activo más antiguo. El mensaje queda con el id que le dio Meta, y por eso la
+// bandeja lo puede mostrar como "desde la bandeja de Meta".
+// ---------------------------------------------------------------------------
+
+const VENTANA_DE_ECOS_PROPIOS_MS = 24 * 60 * 60 * 1000;
+const SALIENTES_A_COMPARAR = 50;
+
+export interface RespuestaDesdeMeta {
+  organizationId: string;
+  agentId: string;
+  branchId: string;
+  contactId: string;
+  channel: "MESSENGER" | "INSTAGRAM";
+  // PSID o IGSID del cliente.
+  externalThreadId: string;
+  // El mid del eco: el UNIQUE de externalMessageId absorbe la reentrega.
+  externalMessageId: string;
+  texto: string;
+}
+
+// "propia": el eco es de algo que mandó este CRM. "sin-autor": no hay ningún
+// usuario a quien atribuírsela (una organización sin ADMIN activo no debería
+// existir).
+export type ResultadoDeLaRespuestaDesdeMeta = "registrada" | "propia" | "sin-autor";
+
+export async function registrarRespuestaDesdeLaBandejaDeMeta(
+  input: RespuestaDesdeMeta,
+  ahora: Date = new Date(),
+): Promise<ResultadoDeLaRespuestaDesdeMeta> {
+  const { organizationId, contactId, channel } = input;
+  const texto = input.texto.trim();
+
+  const conversation = await findOrCreateOpenConversation({
+    organizationId,
+    branchId: input.branchId,
+    agentId: input.agentId,
+    contactId,
+    channel,
+    externalThreadId: input.externalThreadId,
+  });
+
+  const recientes = await findSalientesRecientes(
+    conversation.id,
+    organizationId,
+    new Date(ahora.getTime() - VENTANA_DE_ECOS_PROPIOS_MS),
+    SALIENTES_A_COMPARAR,
+  );
+  const esNuestro = recientes.some((saliente) =>
+    partirMensaje(saliente.content, channel).some((parte) => parte.trim() === texto),
+  );
+  if (esNuestro) {
+    return "propia";
+  }
+
+  const autorId =
+    conversation.assignedUserId ??
+    (await findContactById(contactId, organizationId))?.ownerId ??
+    (await findOldestActiveAdmin(organizationId))?.id ??
+    null;
+  if (!autorId) {
+    logger.warn(
+      { organizationId, conversationId: conversation.id },
+      "Respuesta desde la bandeja de Meta sin ningún usuario a quien atribuirla: no se registra",
+    );
+    return "sin-autor";
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const creado = await createMessage(
+      {
+        organizationId,
+        conversationId: conversation.id,
+        direction: "OUTBOUND",
+        senderType: "HUMAN",
+        senderUserId: autorId,
+        content: texto,
+        externalMessageId: input.externalMessageId,
+        // Ya salió: lo mandó Meta, no este CRM.
+        deliveryStatus: "SENT",
+      },
+      tx,
+    );
+    await takeOverConversation(conversation.id, organizationId, autorId, creado.createdAt, tx);
+  });
+  return "registrada";
+}
+
 export type ResultadoDelAvisoAutomatico = "avisado" | "tarde" | "no-corresponde";
 
 // El aviso automático si nadie responde (workers/avisoSinRespuestaWorker.ts):

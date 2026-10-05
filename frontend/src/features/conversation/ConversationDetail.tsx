@@ -118,6 +118,19 @@ function ladoDelMensaje(message: ConversationMessage): "contacto" | "agente" {
 // backend lo resolvió (senderUser); el fallback cubre el caso raro de un
 // mensaje HUMAN cuyo usuario ya no se puede resolver. AUTOMATION (WA-1) no
 // lleva el nombre del agente: el mensaje lo mandó una regla, no el agente.
+// Una respuesta escrita desde la bandeja de Meta (Business Suite, la app de
+// Instagram) y no desde este CRM: llega como eco y se guarda con el id que le
+// dio Meta. Las que salen del CRM por Messenger o Instagram no llevan ese id.
+// Meta no dice quién la escribió: el nombre es el de quien tiene asignada la
+// conversación, y la aclaración evita atribuírsela sin más.
+function respondidoDesdeMeta(message: ConversationMessage, conversation: Conversation): boolean {
+  return (
+    message.senderType === "HUMAN" &&
+    message.externalMessageId !== null &&
+    (conversation.channel === "MESSENGER" || conversation.channel === "INSTAGRAM")
+  );
+}
+
 function autorDelMensaje(message: ConversationMessage, conversation: Conversation): string {
   switch (message.senderType) {
     case "CONTACT":
@@ -127,8 +140,12 @@ function autorDelMensaje(message: ConversationMessage, conversation: Conversatio
     case "AUTOMATION":
       return "Automatización";
     case "HUMAN":
-    default:
-      return message.senderUser?.fullName ?? "Un integrante del equipo";
+    default: {
+      const nombre = message.senderUser?.fullName ?? "Un integrante del equipo";
+      return respondidoDesdeMeta(message, conversation)
+        ? `${nombre} · desde la bandeja de Meta`
+        : nombre;
+    }
   }
 }
 

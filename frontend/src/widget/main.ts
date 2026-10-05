@@ -78,7 +78,11 @@ function mount(config: WidgetConfig): void {
     for (const message of messages) {
       if (rendered.has(message.id)) continue;
       rendered.add(message.id);
-      renderMessage(ui.messages, { role: message.role, text: message.text }, before);
+      renderMessage(
+        ui.messages,
+        { role: message.role, author: message.author, text: message.text },
+        before,
+      );
     }
   }
 

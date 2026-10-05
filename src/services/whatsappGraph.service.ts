@@ -1,3 +1,4 @@
+import { esTransitorio } from "./llmProvider.service";
 // ---------------------------------------------------------------------------
 // Cliente mínimo de la Graph API de Meta para el canal WhatsApp: mandar UNA
 // respuesta de texto (ítem 81) o UNA plantilla aprobada (ítem 159, el
@@ -37,8 +38,37 @@ export type SendWhatsappText = (input: SendWhatsappTextInput) => Promise<{ wamid
 // fuera de la ventana de 24 h— no se arregla reintentando. Un corte de red o
 // un timeout NO llegan como WhatsappGraphError (no hubo respuesta) y el
 // worker los trata como transitorios.
+//
+// OPUS-D-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): el status
+// solo no alcanza. Meta manda los límites de envío de WhatsApp con HTTP 400,
+// así que clasificados por status eran "permanentes": una respuesta del
+// agente, un seguimiento o un cupón se perdían ante cualquier pico. Ahora el
+// error lleva el `error.code` del cuerpo y `transitorio` lo mira.
+//
+// Los códigos de límite, verificados contra la tabla de errores de la Cloud
+// API el 05/10/2026 (todos llegan con HTTP 400):
+//   4       demasiadas llamadas de la app
+//   80007   la cuenta de WhatsApp Business llegó a su límite
+//   130429  se alcanzó el throughput de la Cloud API
+//   131056  demasiados mensajes al mismo destinatario en poco tiempo
+export const CODIGOS_DE_LIMITE_DE_WHATSAPP: ReadonlySet<number> = new Set([
+  4, 80007, 130429, 131056,
+]);
+
+function codigoDeMeta(detalle: string): number | null {
+  try {
+    const cuerpo = JSON.parse(detalle) as { error?: { code?: unknown } };
+    return typeof cuerpo.error?.code === "number" ? cuerpo.error.code : null;
+  } catch {
+    // HTML de un intermediario, cuerpo vacío o recortado: queda solo el status.
+    return null;
+  }
+}
+
 export class WhatsappGraphError extends Error {
   readonly status: number;
+  // error.code del cuerpo de Meta, si vino y se pudo leer.
+  readonly codigo: number | null;
   // El cuerpo de error de Meta, recortado. Aparte del message para que quien
   // tenga que mostrárselo a una persona (el alta de una plantilla, ítem 160)
   // pueda sacar de ahí el motivo legible; ver mensajeDeMeta.
@@ -49,7 +79,17 @@ export class WhatsappGraphError extends Error {
     this.name = "WhatsappGraphError";
     this.status = status;
     this.detalle = detalle;
+    this.codigo = codigoDeMeta(detalle);
     Object.setPrototypeOf(this, WhatsappGraphError.prototype);
+  }
+
+  // 429/5xx, o un límite de envío de los que Meta manda con 400. Reintentar
+  // más tarde lo resuelve.
+  get transitorio(): boolean {
+    return (
+      esTransitorio(this.status) ||
+      (this.codigo !== null && CODIGOS_DE_LIMITE_DE_WHATSAPP.has(this.codigo))
+    );
   }
 }
 

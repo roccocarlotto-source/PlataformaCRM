@@ -6,6 +6,7 @@ import {
   MENSAJE_CONEXION_INACTIVA,
   MENSAJE_PAGINA_RECONECTADA,
 } from "../services/metaPageConnection.service";
+import { olvidarPartesEnviadasParaTests } from "../services/envioEnPartes";
 import { MetaSendError, type SendMetaTextInput } from "../services/metaSend.service";
 import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
 import { AppError } from "../utils/AppError";
@@ -211,7 +212,7 @@ for (const channel of ["MESSENGER", "INSTAGRAM"] as const) {
     assert.deepEqual(tokensPedidos, [["org-1", "pagina-1"]]);
 
     // WA-1: Messenger e Instagram no tienen wamid que guardar.
-    assert.equal(await enviarPorElCanal(job, "¡Hola!", token, deps), null);
+    assert.equal(await enviarPorElCanal(job, { id: "m-1", content: "¡Hola!" }, token, deps), null);
     assert.deepEqual(meta, [
       { pageAccessToken: "token-de-pagina", recipientId: job.externalUserId, text: "¡Hola!" },
     ]);
@@ -228,7 +229,10 @@ test("WHATSAPP: no pide token de página y manda exactamente como antes", async 
   assert.equal(tokensPedidos.length, 0);
 
   // WA-1: devuelve el wamid que dio Meta, para guardarlo en el Message.
-  assert.equal(await enviarPorElCanal(job, "¡Hola!", token, deps), "wamid.del-doble");
+  assert.equal(
+    await enviarPorElCanal(job, { id: "m-1", content: "¡Hola!" }, token, deps),
+    "wamid.del-doble",
+  );
   assert.deepEqual(whatsapp, [
     {
       phoneNumberId: "phone-1",
@@ -280,4 +284,97 @@ test("clasificarFallo: MetaSendError — rate limits por código (aun con 400) y
 test("ErrorDeEnvio nombra el canal por el que no salió la respuesta", () => {
   assert.match(new ErrorDeEnvio(new Error("x"), "INSTAGRAM").message, /por Instagram/);
   assert.match(new ErrorDeEnvio(new Error("x")).message, /por WhatsApp/);
+});
+
+// ---------------------------------------------------------------------------
+// OPUS-D-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): los límites de
+// envío de WhatsApp llegan con HTTP 400 y antes se trataban como permanentes.
+// ---------------------------------------------------------------------------
+
+const errorDeWhatsapp = (status: number, code: number) =>
+  new WhatsappGraphError(status, JSON.stringify({ error: { message: "x", code } }));
+
+test("OPUS-D-01: un límite de envío de WhatsApp (HTTP 400 con su código) se reintenta; un 400 cualquiera sigue siendo permanente", () => {
+  for (const codigo of [4, 80007, 130429, 131056]) {
+    assert.equal(
+      clasificarFallo(new ErrorDeEnvio(errorDeWhatsapp(400, codigo))),
+      "TRANSITORIO",
+      String(codigo),
+    );
+  }
+  // Fuera de la ventana de 24 h (131047), destinatario inválido (131026),
+  // parámetro inválido (100): reintentar no los arregla.
+  for (const codigo of [131047, 131026, 100]) {
+    assert.equal(
+      clasificarFallo(new ErrorDeEnvio(errorDeWhatsapp(400, codigo))),
+      "PERMANENTE",
+      String(codigo),
+    );
+  }
+  // Un cuerpo que no es el JSON de Meta: decide el status, como antes.
+  assert.equal(clasificarFallo(new ErrorDeEnvio(new WhatsappGraphError(400, "x"))), "PERMANENTE");
+  assert.equal(clasificarFallo(new ErrorDeEnvio(new WhatsappGraphError(503, "x"))), "TRANSITORIO");
+});
+
+// ---------------------------------------------------------------------------
+// OPUS-B-02 / FABLE-B-05 (docs-privados, local): una respuesta más larga que el
+// tope del canal sale en varios mensajes en vez de fallar para siempre.
+// ---------------------------------------------------------------------------
+
+const RESPUESTA_LARGA = Array.from(
+  { length: 10 },
+  (_, i) =>
+    `${String(i + 1)}. Volkswagen T-Cross Comfortline 2023 — 35.000 km, caja automática, nafta, gris plata. Precio de lista: USD 25.400. Acepta permuta y tiene financiación disponible.`,
+).join("\n\n");
+
+test("OPUS-B-02: por Instagram una respuesta larga sale en varios mensajes, en orden y cada uno dentro del tope", async () => {
+  olvidarPartesEnviadasParaTests();
+  const { deps, meta } = depsQueRegistran();
+  const job = jobDe("INSTAGRAM");
+  assert.ok(Buffer.byteLength(RESPUESTA_LARGA, "utf8") > 1000);
+
+  await enviarPorElCanal(job, { id: "m-largo", content: RESPUESTA_LARGA }, "token-de-pagina", deps);
+
+  assert.ok(meta.length > 1, "más de un mensaje");
+  for (const envio of meta) {
+    assert.ok(Buffer.byteLength(envio.text, "utf8") <= 950);
+    assert.equal(envio.recipientId, job.externalUserId);
+  }
+  assert.equal(meta.map((e) => e.text).join("\n\n"), RESPUESTA_LARGA);
+});
+
+test("OPUS-B-02: si una parte falla, el reintento sigue desde esa parte y no repite las que ya salieron", async () => {
+  olvidarPartesEnviadasParaTests();
+  const { deps, meta } = depsQueRegistran();
+  const job = jobDe("INSTAGRAM");
+  const mensaje = { id: "m-reintento", content: RESPUESTA_LARGA };
+  const enviar = deps.sendMetaText;
+  let fallarLaSegunda = true;
+  deps.sendMetaText = async (input) => {
+    if (fallarLaSegunda && meta.length === 1) {
+      fallarLaSegunda = false;
+      throw new MetaSendError(400, "rate limit", 613, null);
+    }
+    await enviar(input);
+  };
+
+  await assert.rejects(enviarPorElCanal(job, mensaje, "token-de-pagina", deps), MetaSendError);
+  assert.equal(meta.length, 1, "salió solo la primera");
+
+  await enviarPorElCanal(job, mensaje, "token-de-pagina", deps);
+
+  assert.equal(
+    meta.map((e) => e.text).join("\n\n"),
+    RESPUESTA_LARGA,
+    "el cliente recibe el texto completo una sola vez",
+  );
+});
+
+test("OPUS-B-02: un mensaje corto sigue siendo UN envío, igual que antes", async () => {
+  olvidarPartesEnviadasParaTests();
+  const { deps, meta, whatsapp } = depsQueRegistran();
+  await enviarPorElCanal(jobDe("MESSENGER"), { id: "m-corto", content: "¡Hola!" }, "t", deps);
+  await enviarPorElCanal(jobDe("WHATSAPP"), { id: "m-corto-wa", content: "¡Hola!" }, null, deps);
+  assert.equal(meta.length, 1);
+  assert.equal(whatsapp.length, 1);
 });

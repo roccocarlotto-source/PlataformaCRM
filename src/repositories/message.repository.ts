@@ -214,3 +214,21 @@ export function findMessagesByConversation(
     orderBy: { createdAt: "asc" },
   });
 }
+
+// Los salientes recientes de una conversación, para reconocer si un eco de
+// Messenger o Instagram es de algo que mandó este CRM (ver
+// registrarRespuestaDesdeLaBandejaDeMeta en conversationReply.service.ts).
+export function findSalientesRecientes(
+  conversationId: string,
+  organizationId: string,
+  desde: Date,
+  take: number,
+  db: Db = prisma,
+) {
+  return db.message.findMany({
+    where: { conversationId, organizationId, direction: "OUTBOUND", createdAt: { gte: desde } },
+    orderBy: { createdAt: "desc" },
+    take,
+    select: { content: true },
+  });
+}
