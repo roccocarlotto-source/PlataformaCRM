@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { priceCell, unitTitle } from "./format";
@@ -14,6 +14,12 @@ interface VehicleSelectProps {
   // null = quitar el vínculo (a diferencia de ContactSelect, que nunca limpia:
   // Opportunity.vehicleId sí admite null en update, ver opportunity/types.ts).
   onChange: (vehicleId: string | null) => void;
+  // Lo que se muestra de la unidad seleccionada si no se puede leer por id
+  // (una dada de baja: GET /vehicles/:id ya no la devuelve). Lo usa el
+  // vehículo de interés del contacto, que la sigue mostrando con su estado.
+  selectedFallback?: ReactNode;
+  // El texto del botón que limpia la selección.
+  clearLabel?: string;
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -41,7 +47,14 @@ const SEARCH_DEBOUNCE_MS = 300;
 // diferencia de ContactSelect con contactKeys.detail: el detalle de una
 // unidad es VehicleDetail (con `photos`) y una fila del listado no lo trae —
 // sembrarla dejaría la ficha con una galería inexistente.
-export function VehicleSelect({ id, label, value, onChange }: VehicleSelectProps) {
+export function VehicleSelect({
+  id,
+  label,
+  value,
+  onChange,
+  selectedFallback,
+  clearLabel = "Quitar vínculo",
+}: VehicleSelectProps) {
   const [term, setTerm] = useState("");
   const [debouncedTerm, setDebouncedTerm] = useState("");
 
@@ -79,9 +92,9 @@ export function VehicleSelect({ id, label, value, onChange }: VehicleSelectProps
               ) : selectedVehicleQuery.isLoading ? (
                 <InlineLoading />
               ) : (
-                "No pudimos cargar la unidad seleccionada."
+                (selectedFallback ?? "No pudimos cargar la unidad seleccionada.")
               ),
-              action: <Button onClick={() => onChange(null)}>Quitar vínculo</Button>,
+              action: <Button onClick={() => onChange(null)}>{clearLabel}</Button>,
             }
           : null
       }

@@ -126,6 +126,8 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("merge-{ts}-{hex8}", `${C}contactMerge.integration-test.ts`),
   patron("merge-b-{ts}-{hex8}", `${C}contactMerge.integration-test.ts`),
   patron("widget-thread-{ts}-{hex8}", `${C}publicWidgetThread.integration-test.ts`),
+  patron("cupon-manual-{ts}-{hex8}", `${C}voucherManual.integration-test.ts`),
+  patron("cupon-manual-b-{ts}-{hex8}", `${C}voucherManual.integration-test.ts`),
   patron("qr-pub-{etiqueta}-{ts}-{hex8}", `${C}qrPublic.controller.integration-test.ts`),
   patron("quote-http-{ts}-{hex8}", `${C}quote.controller.integration-test.ts`),
   patron("whatsapp-test-{ts}-{hex8}", `${C}whatsappWebhook.controller.integration-test.ts`),
@@ -240,6 +242,17 @@ export interface OrdenDeBorrado {
   anular: ForeignKey[];
 }
 
+// FKs anulables que NO se cortan aunque estén en un ciclo, porque un CHECK
+// exige que al menos una de ellas tenga valor: anularlas juntas falla con
+// 23514 antes del borrado. opportunities_company_or_contact_check: una
+// oportunidad es de una empresa o de un contacto. Desde el vehículo de interés
+// del contacto (20261020120000) contacts y opportunities quedan en el mismo
+// ciclo que vehicles, y sin esto se anulaban las dos.
+export const FKS_QUE_NO_SE_CORTAN = new Set([
+  "opportunities_organization_id_company_id_fkey",
+  "opportunities_organization_id_contact_id_fkey",
+]);
+
 export function calcularOrdenDeBorrado(
   tablasDeNegocio: string[],
   fks: ForeignKey[],
@@ -272,7 +285,9 @@ export function calcularOrdenDeBorrado(
     const componente = componenteDe(tablasDeNegocio, aristas);
     const enCiclo = aristas.filter((fk) => componente.get(fk.hija) === componente.get(fk.madre));
     if (enCiclo.length === 0) break;
-    const cortables = enCiclo.filter((fk) => fk.columnasAnulables.length > 0);
+    const cortables = enCiclo.filter(
+      (fk) => fk.columnasAnulables.length > 0 && !FKS_QUE_NO_SE_CORTAN.has(fk.nombre),
+    );
     if (cortables.length === 0) {
       throw new Error(
         `Ciclo de FKs sin columnas anulables entre ${[...new Set(enCiclo.map((fk) => fk.hija))].join(", ")}: ` +

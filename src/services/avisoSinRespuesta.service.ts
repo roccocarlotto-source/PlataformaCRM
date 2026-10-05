@@ -11,18 +11,20 @@ import { PREFIJO_TAREA_DE_DERIVACION } from "./agentOrchestration.service";
 // alguien lo iba a contactar y derivó, y el vendedor tocó "Devolver al agente"
 // sin escribirle nada. El cliente se quedó esperando a alguien que no iba a
 // aparecer. Ahora, en ese caso:
-//   - se le avisa al cliente, por el mismo canal, con un texto FIJO (no lo
-//     genera el modelo: es una promesa del negocio y no se improvisa);
+//   - se le avisa al cliente, por el mismo canal, con un texto que decide el
+//     negocio —el de siempre, o el que cargó en el agente— y nunca el modelo:
+//     es una promesa del negocio y no se improvisa;
 //   - la tarea queda pendiente (la de la derivación, o una nueva para un ADMIN
 //     si la derivación no tuvo a quién avisarle);
 //   - la conversación muestra la marca "Pidió hablar con una persona · sin
 //     responder" hasta que una persona le escriba o se complete esa tarea.
 //
-// SIN COLUMNA NUEVA. Todo se deriva de lo que ya existe, igual que
-// humanoAtiendeLaConversacion: el aviso es un Message (AUTOMATION, que empieza
-// con PREFIJO_DEL_AVISO) y la tarea es una Activity del contacto con uno de los dos
-// asuntos de abajo. El aviso es el ancla de la marca, y por eso se guarda en
-// el hilo aunque no se pueda entregar (queda FAILED con el motivo).
+// El aviso es un Message AUTOMATION con noticeType UNANSWERED_HANDOFF —un
+// DATO, no el texto: desde que el texto es configurable por agente
+// (Agent.unansweredHandoffNoticeText), su primera frase ya no lo identifica—
+// y la tarea es una Activity del contacto con uno de los dos asuntos de abajo.
+// El aviso es el ancla de la marca, y por eso se guarda en el hilo aunque no
+// se pueda entregar (queda FAILED con el motivo).
 //
 // POR QUÉ AUTOMATION Y NO AGENT: lo manda una regla, no el modelo, y es lo que
 // AUTOMATION significa en el hilo ("Automatización", no el nombre del agente).
@@ -31,19 +33,32 @@ import { PREFIJO_TAREA_DE_DERIVACION } from "./agentOrchestration.service";
 // entra en humanSpokeLast, que solo mira HUMAN y AGENT.
 // ---------------------------------------------------------------------------
 
-// La primera frase del aviso, igual en todas sus versiones: es lo que lo
-// reconoce en el hilo (esAviso y el listado). Fuera de horario el resto del
-// texto cambia con el horario de la sucursal, así que el texto entero ya no
-// sirve de ancla; los avisos guardados antes de esto también empiezan así.
+// La primera frase del aviso de siempre. Ya NO lo reconoce en el hilo (eso es
+// noticeType): la migración 20261019120000 la usó una última vez para marcar
+// los avisos guardados antes.
 export const PREFIJO_DEL_AVISO = "Por el momento no hay nadie del equipo disponible.";
 const CIERRE_DEL_AVISO = "Mientras tanto, si querés, puedo seguir ayudándote.";
 
 export const AVISO_SIN_RESPUESTA = `${PREFIJO_DEL_AVISO} Te vamos a contactar más tarde. ${CIERRE_DEL_AVISO}`;
 
-// El aviso según el horario de la sucursal: fuera de horario, en vez de "más
-// tarde", cuándo atiende el equipo y cuándo le van a escribir. Dentro de
-// horario o sin horario cargado (atencion null), AVISO_SIN_RESPUESTA.
-export function textoDelAviso(atencion: AtencionFueraDeHorario | null): string {
+// El tope de Agent.unansweredHandoffNoticeText (VARCHAR(500)).
+export const LARGO_MAXIMO_DEL_AVISO = 500;
+
+// El aviso según el horario de la sucursal y el texto del agente.
+//   - Sin texto propio (null o vacío): el de siempre. Fuera de horario, en vez
+//     de "más tarde", cuándo atiende el equipo y cuándo le van a escribir.
+//   - Con texto propio: ese texto, y fuera de horario se le AGREGA la misma
+//     frase del horario al final. El negocio no tiene que escribirla ni
+//     mantenerla cuando cambia el horario de la sucursal.
+// Dentro de horario o sin horario cargado, atencion es null.
+export function textoDelAviso(
+  atencion: AtencionFueraDeHorario | null,
+  textoDelAgente: string | null = null,
+): string {
+  const propio = textoDelAgente?.trim();
+  if (propio) {
+    return atencion ? `${propio} ${fraseFueraDeHorario(atencion)}` : propio;
+  }
   return atencion
     ? `${PREFIJO_DEL_AVISO} ${fraseFueraDeHorario(atencion)} ${CIERRE_DEL_AVISO}`
     : AVISO_SIN_RESPUESTA;
@@ -118,8 +133,8 @@ export function marcaSinRespuesta(datos: {
   return datos.tarea === null || datos.tarea.completedAt === null;
 }
 
-function esAviso(message: Pick<Message, "senderType" | "content">): boolean {
-  return message.senderType === "AUTOMATION" && message.content.startsWith(PREFIJO_DEL_AVISO);
+function esAviso(message: Pick<Message, "noticeType">): boolean {
+  return message.noticeType === "UNANSWERED_HANDOFF";
 }
 
 // Las dos tareas que cuentan como "la tarea del pedido": la de la derivación
@@ -187,7 +202,7 @@ export async function pedidoSinResponderDelHilo(
   conversation: {
     organizationId: string;
     contactId: string;
-    messages: Pick<Message, "senderType" | "content" | "createdAt">[];
+    messages: Pick<Message, "senderType" | "noticeType" | "createdAt">[];
   },
   db: Db = prisma,
 ): Promise<boolean> {
@@ -230,8 +245,7 @@ export async function conversacionesConPedidoSinResponder(
     where: {
       organizationId,
       conversationId: { in: conversations.map((c) => c.id) },
-      senderType: "AUTOMATION",
-      content: { startsWith: PREFIJO_DEL_AVISO },
+      noticeType: "UNANSWERED_HANDOFF",
     },
     orderBy: { createdAt: "desc" },
     distinct: ["conversationId"],

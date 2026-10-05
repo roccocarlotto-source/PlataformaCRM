@@ -33,6 +33,14 @@ enum LifecycleStage {
 // acotado que cruza todos los verticales del negocio (una automotora y una
 // clínica la miden igual), mientras que la intención varía demasiado entre
 // rubros para un catálogo cerrado.
+// Quién cargó el vehículo de interés de un contacto. Decide si el agente puede
+// cambiarlo: el que cargó el agente, sí; el que cargó una persona, nunca (ver
+// Contact.vehicleOfInterestSetBy).
+enum VehicleInterestSource {
+  HUMAN
+  AGENT
+}
+
 enum LeadUrgency {
   LOW
   MEDIUM
@@ -274,6 +282,17 @@ enum MessageSenderType {
 // ESTADOS_QUE_AVANZAN_A en message.repository.ts). FAILED queda antes de
 // DELIVERED a propósito: si Meta después dice que se entregó, se entregó; un
 // "failed" que llega tras un "read" es ruido y se ignora.
+// Qué aviso automático es un Message, cuando lo es. Un DATO y no el texto:
+// desde que el aviso de "nadie disponible" es configurable por agente, su
+// primera frase ya no lo identifica. Hoy tiene un solo valor; NULL en todo lo
+// demás.
+enum MessageNoticeType {
+  // "Devolver al agente" sin respuesta, a mano o automático
+  // (avisoSinRespuesta.service.ts): ancla la marca "Pidió hablar con una
+  // persona · sin responder".
+  UNANSWERED_HANDOFF
+}
+
 enum MessageDeliveryStatus {
   PENDING
   SENT
@@ -794,6 +813,8 @@ model User {
 
   // Los cupones de descuento que canjeó escaneándolos (ítem 176).
   consumedDiscountVouchers DiscountVoucher[] @relation("DiscountVoucherConsumedBy")
+  // Los que creó a mano desde la ficha del contacto o de la oportunidad.
+  createdDiscountVouchers  DiscountVoucher[] @relation("DiscountVoucherCreatedBy")
 
   // Su hilo con el agente interno (ítem 179): lo que escribió y las respuestas
   // que recibió — el hilo es por usuario.
@@ -964,6 +985,19 @@ model Contact {
   // resuelve por `phone`.
   channelIdentities        ContactChannelIdentity[]
 
+  // VEHÍCULO DE INTERÉS (F2 de la prueba en vivo del 29/09): la unidad del
+  // stock que le interesa, SEPARADA de una oportunidad y de una reserva —
+  // anotarla no la reserva ni la saca del stock. Nullable -> NO ACTION, y
+  // queda apuntando aunque la unidad se venda o se dé de baja: la ficha la
+  // sigue mostrando con su estado.
+  //
+  // vehicleOfInterestSetBy dice quién la cargó (CHECK: los dos o ninguno). El
+  // agente puede cargarla si está vacía o si la había cargado él; la de una
+  // persona no la pisa nunca (setVehicleOfInterestFromAgent).
+  vehicleOfInterestId    String?                @map("vehicle_of_interest_id") @db.Uuid
+  vehicleOfInterestSetBy VehicleInterestSource? @map("vehicle_of_interest_set_by")
+  vehicleOfInterest      Vehicle?               @relation("ContactVehicleOfInterest", fields: [organizationId, vehicleOfInterestId], references: [organizationId, id], onDelete: NoAction)
+
   // UNIR CONTACTOS DUPLICADOS (contactMerge.service.ts): el contacto que se
   // unió a otro queda con soft delete y una referencia al que lo absorbió,
   // para auditoría. No se borra. Nullable -> NO ACTION. CHECK
@@ -991,6 +1025,8 @@ model Contact {
   // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
   // No parcial a propósito: ver la migración 20260828120000.
   @@index([organizationId, deletedAt, createdAt])
+  // Lado referenciante de la FK al vehículo de interés.
+  @@index([organizationId, vehicleOfInterestId])
   // Lado referenciante de la autorreferencia de la unión.
   @@index([organizationId, mergedIntoId])
   @@map("contacts")
@@ -1770,6 +1806,8 @@ model Branch {
   // Los cupones agendados que salen por el número de WhatsApp de esta
   // sucursal (ítem 177).
   discountVoucherFollowUps DiscountVoucherFollowUp[]
+  // Los cupones creados a mano con esta sucursal (de su número salen).
+  discountVouchers         DiscountVoucher[]
 
   // Módulo de stock de vehículos: las unidades que están en esta sucursal.
   // Es la SEGUNDA entidad fuera de Booking que cuelga de Branch (la primera
@@ -2300,7 +2338,12 @@ model Agent {
   // y la conversación vuelve al agente, igual que con "Devolver al agente"
   // (workers/avisoSinRespuestaWorker.ts). NULL o 0 = desactivado. 15 por
   // defecto, también para los agentes que ya existían.
-  unansweredHandoffNoticeMinutes Int? @default(15) @map("unanswered_handoff_notice_minutes")
+  unansweredHandoffNoticeMinutes Int?    @default(15) @map("unanswered_handoff_notice_minutes")
+  // El texto de ese aviso ("Mensaje cuando no hay nadie disponible"). NULL =
+  // el texto de siempre (AVISO_SIN_RESPUESTA). Fuera del horario de la
+  // sucursal se le agrega solo cuándo atiende el equipo y cuándo le escriben
+  // (avisoSinRespuesta.service.ts → textoDelAviso).
+  unansweredHandoffNoticeText    String? @map("unanswered_handoff_notice_text") @db.VarChar(500)
 
   // El phone_number_id de WhatsApp Business Platform (Meta) que atiende este
   // agente — ítem 81. Meta lo manda en cada webhook (metadata.phone_number_id)
@@ -2481,6 +2524,10 @@ model Message {
   // Por qué falló el último envío (el cuerpo de error de Meta, recortado).
   // Se limpia cuando un reintento sale bien.
   deliveryError  String?                @map("delivery_error") @db.Text
+
+  // Si es un aviso automático, cuál (ver el enum). Solo con senderType
+  // AUTOMATION (CHECK messages_notice_type_automation_check).
+  noticeType MessageNoticeType? @map("notice_type")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -2909,12 +2956,21 @@ model QrFollowUp {
 // CONSUMED los exige los dos.
 // ---------------------------------------------------------------------------
 model DiscountVoucher {
-  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  opportunityId  String @map("opportunity_id") @db.Uuid
-  contactId      String @map("contact_id") @db.Uuid
-  // La regla que lo emitió (ítem 177). NOT NULL: en esta v1 no hay alta manual.
-  automationId   String @map("automation_id") @db.Uuid
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  // NULL en un cupón creado a mano desde la ficha del contacto, sin venta.
+  opportunityId  String? @map("opportunity_id") @db.Uuid
+  contactId      String  @map("contact_id") @db.Uuid
+  // La regla que lo emitió (ítem 177). NULL en un cupón creado a mano.
+  automationId   String? @map("automation_id") @db.Uuid
+
+  // ALTA MANUAL (botón "Crear cupón" de las fichas del contacto y de la
+  // oportunidad). Quién lo creó, y la sucursal de cuyo número de WhatsApp se
+  // le manda —en un cupón de regla, la sucursal es la de la regla—. El CHECK
+  // discount_vouchers_origin_check exige que venga de una regla o de una
+  // persona.
+  createdByUserId String? @map("created_by_user_id") @db.Uuid
+  branchId        String? @map("branch_id") @db.Uuid
 
   // "15% de descuento en el taller" — texto libre, lo decide el negocio.
   label     String                @db.VarChar(200)
@@ -2928,13 +2984,16 @@ model DiscountVoucher {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   organization Organization              @relation(fields: [organizationId], references: [id])
-  // Compuestas (C-3). Las NOT NULL -> RESTRICT (regla de 20260821140200): las
-  // tres tablas padre usan soft delete, así que no se dispara nunca.
-  opportunity  Opportunity               @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
+  // Compuestas (C-3). contact es NOT NULL -> RESTRICT (regla de
+  // 20260821140200); la tabla padre usa soft delete, así que no se dispara.
   contact      Contact                   @relation(fields: [organizationId, contactId], references: [organizationId, id])
-  automation   Automation                @relation(fields: [organizationId, automationId], references: [organizationId, id])
-  // Nullable -> NO ACTION, el mismo par que Delivery.deliveredBy.
+  // Nullable -> NO ACTION, el mismo par que Delivery.deliveredBy. opportunity
+  // y automation eran NOT NULL (RESTRICT) hasta el alta manual.
+  opportunity  Opportunity?              @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
+  automation   Automation?               @relation(fields: [organizationId, automationId], references: [organizationId, id], onDelete: NoAction)
   consumedBy   User?                     @relation("DiscountVoucherConsumedBy", fields: [organizationId, consumedByUserId], references: [organizationId, id], onDelete: NoAction)
+  createdBy    User?                     @relation("DiscountVoucherCreatedBy", fields: [organizationId, createdByUserId], references: [organizationId, id], onDelete: NoAction)
+  branch       Branch?                   @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
   // La fila agendada que lo emitió (ítem 177).
   followUps    DiscountVoucherFollowUp[]
 
@@ -2947,6 +3006,8 @@ model DiscountVoucher {
   @@index([organizationId, contactId])
   @@index([organizationId, automationId])
   @@index([organizationId, consumedByUserId])
+  @@index([organizationId, createdByUserId])
+  @@index([organizationId, branchId])
   @@map("discount_vouchers")
 }
 
@@ -3407,6 +3468,8 @@ model Vehicle {
   photos               VehiclePhoto[]
   changeLog            VehicleChangeLog[]
   opportunities        Opportunity[]        @relation("OpportunityVehicle")
+  // Los contactos que la tienen como vehículo de interés.
+  contactsInterested   Contact[]            @relation("ContactVehicleOfInterest")
   quotes               Quote[]
   deliveries           Delivery[]
   // §70 — la entrada de la base de conocimiento que esta unidad genera, si

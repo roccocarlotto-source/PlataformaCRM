@@ -1,6 +1,7 @@
 import type {
   MessageDeliveryStatus,
   MessageDirection,
+  MessageNoticeType,
   MessageSenderType,
   Prisma,
 } from "@prisma/client";
@@ -26,6 +27,8 @@ export interface CreateMessageData {
   // El aviso de "Devolver al agente" que no se pudo mandar nace FAILED con su
   // motivo (avisoSinRespuesta.service.ts).
   deliveryError?: string;
+  // Qué aviso automático es (solo AUTOMATION): lo que lo reconoce en el hilo.
+  noticeType?: MessageNoticeType;
 }
 
 export function createMessage(data: CreateMessageData, db: Db = prisma) {

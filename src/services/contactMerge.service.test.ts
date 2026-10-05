@@ -37,6 +37,8 @@ function contacto(extra: Partial<Contact>): Contact {
     leadNotes: null,
     leadAiData: null,
     mergedIntoId: null,
+    vehicleOfInterestId: null,
+    vehicleOfInterestSetBy: null,
     createdAt: AYER,
     updatedAt: AYER,
     deletedAt: null,
@@ -109,4 +111,22 @@ test("telefonosQueSePierden: los dígitos que no son los del teléfono final, si
   assert.deepEqual(telefonosQueSePierden({ phone: null }, { phone: "+59899222222" }, null), [
     "59899222222",
   ]);
+});
+
+test("el vehículo de interés: si el que queda no tiene, se conserva el del unido; si tiene, el suyo", () => {
+  const sin = contacto({ id: "k" });
+  const con = contacto({ id: "a", vehicleOfInterestId: "v-1", vehicleOfInterestSetBy: "AGENT" });
+  const datos = datosDelQueQueda(sin, con, resolverElecciones(sin, con, {}));
+  assert.equal(datos.vehicleOfInterestId, "v-1");
+  assert.equal(datos.vehicleOfInterestSetBy, "AGENT");
+  const conPropio = contacto({
+    id: "k",
+    vehicleOfInterestId: "v-2",
+    vehicleOfInterestSetBy: "HUMAN",
+  });
+  assert.equal(
+    datosDelQueQueda(conPropio, con, resolverElecciones(conPropio, con, {})).vehicleOfInterestId,
+    undefined,
+    "no se toca: queda el del que queda",
+  );
 });

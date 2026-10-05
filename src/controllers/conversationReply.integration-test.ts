@@ -952,6 +952,77 @@ test("fuera de horario el aviso dice cuándo atiende el equipo y cuándo le escr
   assert.equal(await marcaEnElListado(conv.contactId), true);
 });
 
+// ---------------------------------------------------------------------------
+// 10. El texto del aviso configurable por agente, y la marca por el dato
+// ---------------------------------------------------------------------------
+
+async function conTextoDelAgente<T>(texto: string, fn: () => Promise<T>): Promise<T> {
+  await prisma.agent.update({
+    where: { id: agentId },
+    data: { unansweredHandoffNoticeText: texto },
+  });
+  try {
+    return await fn();
+  } finally {
+    await prisma.agent.update({
+      where: { id: agentId },
+      data: { unansweredHandoffNoticeText: null },
+    });
+  }
+}
+
+const TEXTO_PROPIO = "Ahora no hay vendedores conectados: te escribimos apenas se libere uno.";
+
+test("con el texto del agente: el cliente recibe ESE texto, y la marca aparece igual (por el dato, no por el texto)", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  await tareaDeDerivacion(conv.contactId, vendedor.userId);
+
+  const detalle = await conTextoDelAgente(TEXTO_PROPIO, () =>
+    devolver(vendedor.accessToken, conv.id),
+  );
+
+  assert.equal(envios.at(-1)!.body, TEXTO_PROPIO);
+  const aviso = await prisma.message.findFirstOrThrow({
+    where: { conversationId: conv.id, senderType: "AUTOMATION" },
+  });
+  assert.equal(aviso.content, TEXTO_PROPIO);
+  assert.equal(aviso.noticeType, "UNANSWERED_HANDOFF");
+  assert.equal(detalle.humanRequestUnanswered, true, "la marca del detalle");
+  assert.equal(await marcaEnElListado(conv.contactId), true, "y la del listado");
+});
+
+test("con el texto del agente y la sucursal cerrada: el texto y, al final, cuándo atienden y cuándo le escriben", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  await tareaDeDerivacion(conv.contactId, vendedor.userId);
+  const franjas = horarioCerradoAhora("America/Montevideo");
+
+  await conHorario(franjas, () =>
+    conTextoDelAgente(TEXTO_PROPIO, () => devolver(vendedor.accessToken, conv.id)),
+  );
+
+  const esperado = textoDelAviso(
+    atencionFueraDeHorario(franjas, "America/Montevideo", new Date()),
+    TEXTO_PROPIO,
+  );
+  assert.ok(esperado.startsWith(`${TEXTO_PROPIO} Nuestro equipo atiende`));
+  assert.equal(envios.at(-1)!.body, esperado);
+});
+
+test("un AUTOMATION que solo empieza con la frase de siempre ya no es un aviso: la marca no aparece", async () => {
+  const conv = await crearConversacion({ status: "ACTIVE", assignedUserId: vendedor.userId });
+  await prisma.message.create({
+    data: {
+      organizationId: orgId,
+      conversationId: conv.id,
+      direction: "OUTBOUND",
+      senderType: "AUTOMATION",
+      content: AVISO_SIN_RESPUESTA,
+    },
+  });
+  assert.equal((await detalleDe(conv.id)).humanRequestUnanswered, false);
+  assert.equal(await marcaEnElListado(conv.contactId), false);
+});
+
 test("dentro del horario cargado el aviso es el de siempre", async () => {
   const todoElDia: FranjaSemanal[] = (
     ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const

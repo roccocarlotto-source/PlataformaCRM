@@ -120,6 +120,8 @@ type ContactoParaUnir = Pick<
   | "leadLocation"
   | "leadNotes"
   | "leadAiData"
+  | "vehicleOfInterestId"
+  | "vehicleOfInterestSetBy"
   | "updatedAt"
 >;
 
@@ -198,6 +200,13 @@ export function datosDelQueQueda(
     leadBudgetCurrency: presupuesto.leadBudgetCurrency,
     leadLocation: de("leadLocation").leadLocation,
   };
+  // El vehículo de interés no se elige: si el que queda no tiene uno y el
+  // unido sí, se conserva el del unido (con quién lo cargó, que va junto por
+  // el CHECK). Si los dos tienen, queda el del que queda.
+  if (!kept.vehicleOfInterestId && absorbed.vehicleOfInterestId) {
+    datos.vehicleOfInterestId = absorbed.vehicleOfInterestId;
+    datos.vehicleOfInterestSetBy = absorbed.vehicleOfInterestSetBy;
+  }
   if (absorbed.leadNotes?.trim()) {
     datos.leadNotes = appendLeadNotes(
       kept.leadNotes,

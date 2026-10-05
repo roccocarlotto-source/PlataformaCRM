@@ -495,6 +495,31 @@ test("PATCH /api/agents/:id — los minutos del aviso sin respuesta: un número,
   assert.equal(await minutos(), null, "ningún inválido se guardó");
 });
 
+test("PATCH /api/agents/:id — el mensaje cuando no hay nadie disponible: se guarda recortado, vacío vuelve al de siempre, y hasta 500 caracteres", async () => {
+  const agente = await crearAgentePorHttp(adminB.accessToken, orgB.branchId);
+  const texto = async () =>
+    (await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } }))
+      .unansweredHandoffNoticeText;
+  assert.equal(await texto(), null, "por defecto, el de siempre");
+
+  const propio = await call("PATCH", `/api/agents/${agente.id}`, adminB.accessToken, {
+    unansweredHandoffNoticeText: "  Ahora no hay nadie, te escribimos enseguida.  ",
+  });
+  assert.equal(propio.status, 200);
+  assert.equal(await texto(), "Ahora no hay nadie, te escribimos enseguida.");
+
+  const largo = await call("PATCH", `/api/agents/${agente.id}`, adminB.accessToken, {
+    unansweredHandoffNoticeText: "x".repeat(501),
+  });
+  assert.equal(largo.status, 400);
+
+  const vacio = await call("PATCH", `/api/agents/${agente.id}`, adminB.accessToken, {
+    unansweredHandoffNoticeText: "   ",
+  });
+  assert.equal(vacio.status, 200);
+  assert.equal(await texto(), null, "vacío = el texto de siempre");
+});
+
 // ---------------------------------------------------------------------------
 // 1. Solo ADMIN escribe
 // ---------------------------------------------------------------------------

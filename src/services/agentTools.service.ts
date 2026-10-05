@@ -33,7 +33,11 @@ import {
 import { currencySchema } from "../utils/validation";
 import { MAX_DIAS_DE_RANGO, obtenerDisponibilidad } from "./availability.service";
 import { createBooking } from "./booking.service";
-import { qualifyLead } from "./contact.service";
+import {
+  asignarVehiculoDeInteresDesdeElAgente,
+  getContactById,
+  qualifyLead,
+} from "./contact.service";
 import type { LlmToolDefinition } from "./llmProvider.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
 import { resolverOwnerDelContacto } from "./ownership.service";
@@ -442,8 +446,9 @@ const createOpportunityArgs = z.object({
 //   - la unidad queda NOMBRADA EN EL TÍTULO, siempre, para que el vendedor la
 //     vea en el pipeline aunque el modelo no la haya escrito;
 //   - el resultado le dice al modelo que es de interés y NO quedó reservada.
-// Pendiente de producto: un campo "vehículo de interés" separado de la
-// reserva (requiere migración).
+// Desde la migración 20261020120000 existe además el vehículo de interés del
+// CONTACTO, separado de la reserva: create_lead/update_lead lo anotan
+// (vehiculoDeInteres, más abajo).
 // ---------------------------------------------------------------------------
 
 export const NOTA_UNIDAD_DE_INTERES =
@@ -1553,6 +1558,10 @@ const leadArgs = z
     location: textoOpcional(200),
     notes: textoOpcional(4000),
     aiData: vacioComoAusente(z.record(z.string(), z.unknown())),
+    // Vehículo de interés (F2): por TEXTO, como `vehiculo` en
+    // create_opportunity (ítem 107), y resuelto con el mismo criterio: solo
+    // entre las unidades publicadas y disponibles, y una sola.
+    vehiculoDeInteres: textoOpcional(255),
   })
   .refine((data) => cantidadDeArgumentos(data) > 0, {
     message: "Hay que indicar al menos un dato de calificación",
@@ -1616,10 +1625,54 @@ const LEAD_PARAMETERS = {
       description:
         "Cualquier otro dato extraído de la conversación que no tenga campo propio, como objeto clave-valor. Se combina con lo ya guardado.",
     },
+    vehiculoDeInteres: {
+      type: "string",
+      description:
+        "La unidad CONCRETA del stock que le interesa, con la marca, el modelo y la versión tal cual figuran en search_vehicles (ej. «Toyota Hilux SRV 2022»). Mandala solo cuando el cliente muestra interés claro en ESA unidad —pregunta por ella, pide verla o probarla, quiere avanzar con esa—, no por un «busco una SUV» (eso va en serviceOfInterest). Queda anotada en su ficha: NO la reserva ni la saca del stock. Si una persona del equipo ya le cargó otra, no se cambia.",
+    },
   },
   required: [],
   additionalProperties: false,
 };
+
+// ---------------------------------------------------------------------------
+// El vehículo de interés desde el agente (F2). Se resuelve por texto entre
+// las unidades publicadas y disponibles (resolverVehiculo) y se anota solo si
+// el contacto no tiene uno cargado por una persona
+// (asignarVehiculoDeInteresDesdeElAgente). Lo que pase va en el resultado,
+// para que el modelo no le diga al cliente algo que no ocurrió; los demás
+// datos de la misma llamada se guardan igual.
+// ---------------------------------------------------------------------------
+
+export const NOTA_VEHICULO_DE_INTERES =
+  "Quedó anotada en la ficha como la unidad que le interesa. NO está reservada: sigue disponible para otros clientes. No le digas al cliente que se la reservaste.";
+export const NOTA_VEHICULO_DE_UNA_PERSONA =
+  "No se cambió: una persona del equipo ya le había cargado otra unidad de interés, y eso no se pisa desde el chat. No le menciones nada de esto al cliente.";
+
+async function anotarVehiculoDeInteres(
+  texto: string,
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<Record<string, unknown>> {
+  const resuelto = await resolverVehiculo(texto, contexto);
+  if (!resuelto.ok) {
+    const motivo = resuelto.resultado.ok ? null : resuelto.resultado.error;
+    return { vehiculoDeInteres: { guardado: false, motivo } };
+  }
+  const resultado = await asignarVehiculoDeInteresDesdeElAgente(
+    contexto.organizationId,
+    contexto.conversation.contactId,
+    resuelto.vehiculo.id,
+  );
+  return resultado === "guardado"
+    ? {
+        vehiculoDeInteres: {
+          guardado: true,
+          unidad: resuelto.vehiculo.etiqueta,
+          nota: NOTA_VEHICULO_DE_INTERES,
+        },
+      }
+    : { vehiculoDeInteres: { guardado: false, motivo: NOTA_VEHICULO_DE_UNA_PERSONA } };
+}
 
 function ejecutarCalificacion(
   args: Record<string, unknown>,
@@ -1629,14 +1682,23 @@ function ejecutarCalificacion(
   if (!validacion.ok) {
     return Promise.resolve(validacion.resultado);
   }
-  const input = validacion.value;
+  const { vehiculoDeInteres, ...input } = validacion.value;
 
   return conErroresDeNegocio(async () => {
-    const { contacto, identidadIgnorada } = await qualifyLead(
-      contexto.organizationId,
-      contexto.conversation.contactId,
-      input,
-    );
+    // Solo el vehículo: no hay calificación que guardar.
+    const { contacto, identidadIgnorada } =
+      cantidadDeArgumentos(input) > 0
+        ? await qualifyLead(contexto.organizationId, contexto.conversation.contactId, input)
+        : {
+            contacto: await getContactById(
+              contexto.organizationId,
+              contexto.conversation.contactId,
+            ),
+            identidadIgnorada: [] as string[],
+          };
+    const vehiculo = vehiculoDeInteres
+      ? await anotarVehiculoDeInteres(vehiculoDeInteres, contexto)
+      : {};
 
     // Confirma QUÉ se escribió (los valores ya persistidos), para que el modelo
     // pueda referirse a lo que acaba de guardar sin volver a preguntarlo.
@@ -1664,6 +1726,7 @@ function ejecutarCalificacion(
               "Esos datos ya estaban cargados en el CRM y no se pisan desde el chat. No le digas al cliente que los actualizaste; si insiste en corregirlos, derivá.",
           }
         : {}),
+      ...vehiculo,
     });
   });
 }

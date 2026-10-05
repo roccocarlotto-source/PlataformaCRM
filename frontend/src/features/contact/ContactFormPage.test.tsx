@@ -205,6 +205,60 @@ describe("ContactFormPage", () => {
     expect(patchedBody).toMatchObject({ firstName: "Editado", companyId: "co-1" });
   });
 
+  it("vehículo de interés: una unidad dada de baja se sigue mostrando con su estado, la del agente lo dice, y Quitar manda null", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () =>
+        HttpResponse.json(
+          makeContact({
+            id: "ct1",
+            vehicleOfInterestId: "v-1",
+            vehicleOfInterestSetBy: "AGENT",
+            vehicleOfInterest: {
+              id: "v-1",
+              internalCode: "STK-0001",
+              make: "Toyota",
+              model: "Hilux",
+              trim: "SRV",
+              year: 2022,
+              status: "SOLD",
+              deletedAt: "2026-10-01T00:00:00.000Z",
+            },
+          }),
+        ),
+      ),
+      // Dada de baja: el GET por id ya no la devuelve.
+      http.get(`${env.apiUrl}/api/vehicles/:id`, () =>
+        HttpResponse.json({ error: { message: "no encontrada" } }, { status: 404 }),
+      ),
+      http.patch(`${contactsUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeContact({ id: "ct1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit");
+
+    expect(await screen.findByText(/Toyota Hilux 2022 SRV/)).toBeInTheDocument();
+    expect(screen.getByText("Vendido")).toBeInTheDocument();
+    expect(screen.getByText(/dada de baja del stock/)).toBeInTheDocument();
+    expect(screen.getByText(/La anotó el agente/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Quitar" }));
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(patchedBody).toBeDefined());
+    expect(patchedBody?.vehicleOfInterestId).toBeNull();
+  });
+
+  it("vehículo de interés: en creación no se muestra", async () => {
+    server.use(usersHandler());
+    renderForm("/contacts/new");
+    await screen.findByLabelText("Nombre");
+    expect(screen.queryByText("Vehículo de interés")).toBeNull();
+  });
+
   it("error de detail muestra error y no presenta el form como create vacío", async () => {
     server.use(
       usersHandler(),

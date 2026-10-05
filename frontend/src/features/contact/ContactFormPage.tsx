@@ -12,6 +12,11 @@ import { Select } from "../../design-system/Select";
 import { CompanySelect } from "../company/CompanySelect";
 import { UserSelect } from "../user/UserSelect";
 import { MergeContactDialog } from "./MergeContactDialog";
+import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "../vehicle/labels";
+import { VehicleSelect } from "../vehicle/VehicleSelect";
+import { Badge } from "../../design-system/Badge";
+import { ContactVouchersSection } from "../voucher/ContactVouchersSection";
+import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
 import { useCreateContact, useUpdateContact } from "./mutations";
 import { useContact } from "./queries";
@@ -31,6 +36,8 @@ interface ContactFormValues {
   // arranca en el id de quien crea (ver initialValues). Nunca null — el
   // PATCH no puede limpiar ownerId (chequeo truthy en contact.service.ts).
   ownerId: string | undefined;
+  // Vehículo de interés: solo en edición. null = sin unidad.
+  vehicleOfInterestId: string | null;
 }
 
 const EMPTY_FORM: ContactFormValues = {
@@ -43,6 +50,7 @@ const EMPTY_FORM: ContactFormValues = {
   source: "",
   companyId: undefined,
   ownerId: undefined,
+  vehicleOfInterestId: null,
 };
 
 // Los campos de texto vacíos se envían como undefined (no como ""),
@@ -80,7 +88,22 @@ function toFormValues(data: Contact): ContactFormValues {
     // ?? undefined por lo mismo que companyId justo arriba: el campo es
     // nullable en la API y UserSelect espera string | undefined.
     ownerId: data.ownerId ?? undefined,
+    vehicleOfInterestId: data.vehicleOfInterestId ?? null,
   };
+}
+
+// La unidad de interés cuando ya no se puede leer por id (dada de baja): la
+// ficha la sigue mostrando, con su estado, desde el resumen del GET.
+function vehiculoDeInteresGuardado(contact: Contact | undefined) {
+  const v = contact?.vehicleOfInterest;
+  if (!v) return undefined;
+  return (
+    <>
+      {[v.make, v.model, String(v.year), v.trim].filter(Boolean).join(" ")}{" "}
+      <Badge variant={STATUS_BADGE_VARIANT[v.status]}>{STATUS_LABELS[v.status]}</Badge>
+      {v.deletedAt ? " · dada de baja del stock" : null}
+    </>
+  );
 }
 
 // Un único componente para create y edit — el modo se distingue del propio
@@ -132,6 +155,7 @@ export function ContactFormPage() {
     contactQuery.data ? toFormValues(contactQuery.data) : initialValues,
   );
   const [error, setError] = useState<string | null>(null);
+  const [creandoCupon, setCreandoCupon] = useState(false);
   const [uniendo, setUniendo] = useState(false);
   const [unido, setUnido] = useState<string | null>(null);
 
@@ -142,7 +166,10 @@ export function ContactFormPage() {
     setError(null);
     try {
       if (isEditMode) {
-        await updateContactMutation.mutateAsync(toInput(values));
+        await updateContactMutation.mutateAsync({
+          ...toInput(values),
+          vehicleOfInterestId: values.vehicleOfInterestId,
+        });
       } else {
         await createContactMutation.mutateAsync(toInput(values));
       }
@@ -176,7 +203,8 @@ export function ContactFormPage() {
   // aunque el diseño lo dibuje como desplegable: no hay opciones reales que
   // ofrecer. La segunda tarjeta "Campos personalizados" del export no existe
   // en Contact. Guardar sigue al pie, como en el resto de los módulos.
-  // "Unir con otro contacto": solo en edición. Este contacto es el que queda.
+  // "Crear cupón" (a mano) y la tarjeta de sus cupones, solo con el contacto
+  // ya creado. Afuera del <form>, como las tarjetas de la oportunidad.
   return (
     <>
       <form onSubmit={handleSubmit} className="ds-form">
@@ -184,9 +212,14 @@ export function ContactFormPage() {
           title={isEditMode ? "Editar contacto" : "Nuevo contacto"}
           actions={
             isEditMode && id ? (
-              <Button type="button" onClick={() => setUniendo(true)}>
-                Unir con otro contacto
-              </Button>
+              <>
+                <Button type="button" onClick={() => setCreandoCupon(true)}>
+                  Crear cupón
+                </Button>
+                <Button type="button" onClick={() => setUniendo(true)}>
+                  Unir con otro contacto
+                </Button>
+              </>
             ) : undefined
           }
         />
@@ -267,6 +300,26 @@ export function ContactFormPage() {
                 emptyOptionLabel="Sin asignar"
                 clearable={false}
               />
+              {isEditMode ? (
+                <div className="ds-field-grid--full">
+                  <VehicleSelect
+                    id="contact-form-vehicle-of-interest"
+                    label="Vehículo de interés"
+                    value={values.vehicleOfInterestId ?? undefined}
+                    onChange={(vehicleOfInterestId) =>
+                      setValues({ ...values, vehicleOfInterestId })
+                    }
+                    selectedFallback={vehiculoDeInteresGuardado(contactQuery.data)}
+                    clearLabel="Quitar"
+                  />
+                  <p className="ds-hint">
+                    {contactQuery.data?.vehicleOfInterestSetBy === "AGENT" &&
+                    values.vehicleOfInterestId === contactQuery.data.vehicleOfInterestId
+                      ? "La anotó el agente por lo que habló el cliente. Si la cambiás o la elegís vos, el agente ya no la toca."
+                      : "La unidad del stock que le interesa. No la reserva: sigue disponible para otros clientes."}
+                  </p>
+                </div>
+              ) : null}
             </div>
           </Card>
           {error ? <ErrorState>{error}</ErrorState> : null}
@@ -278,6 +331,10 @@ export function ContactFormPage() {
           </div>
         </div>
       </form>
+      {isEditMode && id ? <ContactVouchersSection contactId={id} /> : null}
+      {creandoCupon && id ? (
+        <CreateVoucherDialog contactId={id} onClose={() => setCreandoCupon(false)} />
+      ) : null}
       {uniendo && id ? (
         <MergeContactDialog
           contactId={id}
