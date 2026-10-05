@@ -964,6 +964,15 @@ model Contact {
   // resuelve por `phone`.
   channelIdentities        ContactChannelIdentity[]
 
+  // UNIR CONTACTOS DUPLICADOS (contactMerge.service.ts): el contacto que se
+  // unió a otro queda con soft delete y una referencia al que lo absorbió,
+  // para auditoría. No se borra. Nullable -> NO ACTION. CHECK
+  // contacts_merged_into_check: solo un contacto dado de baja puede tener
+  // mergedIntoId, y nunca apuntándose a sí mismo.
+  mergedIntoId String?   @map("merged_into_id") @db.Uuid
+  mergedInto   Contact?  @relation("ContactMergedInto", fields: [organizationId, mergedIntoId], references: [organizationId, id], onDelete: NoAction)
+  absorbed     Contact[] @relation("ContactMergedInto")
+
   @@unique([organizationId, id])
   // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
   // deleted_at IS NULL — índice único parcial; su versión actual (con
@@ -982,6 +991,8 @@ model Contact {
   // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
   // No parcial a propósito: ver la migración 20260828120000.
   @@index([organizationId, deletedAt, createdAt])
+  // Lado referenciante de la autorreferencia de la unión.
+  @@index([organizationId, mergedIntoId])
   @@map("contacts")
 }
 

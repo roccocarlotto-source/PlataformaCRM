@@ -11,6 +11,7 @@ import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { CompanySelect } from "../company/CompanySelect";
 import { UserSelect } from "../user/UserSelect";
+import { MergeContactDialog } from "./MergeContactDialog";
 import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
 import { useCreateContact, useUpdateContact } from "./mutations";
 import { useContact } from "./queries";
@@ -131,6 +132,8 @@ export function ContactFormPage() {
     contactQuery.data ? toFormValues(contactQuery.data) : initialValues,
   );
   const [error, setError] = useState<string | null>(null);
+  const [uniendo, setUniendo] = useState(false);
+  const [unido, setUnido] = useState<string | null>(null);
 
   const isSubmitting = createContactMutation.isPending || updateContactMutation.isPending;
 
@@ -173,91 +176,123 @@ export function ContactFormPage() {
   // aunque el diseño lo dibuje como desplegable: no hay opciones reales que
   // ofrecer. La segunda tarjeta "Campos personalizados" del export no existe
   // en Contact. Guardar sigue al pie, como en el resto de los módulos.
+  // "Unir con otro contacto": solo en edición. Este contacto es el que queda.
   return (
-    <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title={isEditMode ? "Editar contacto" : "Nuevo contacto"} />
-      <div className="ds-stack">
-        <Card heading="Datos del contacto">
-          <div className="ds-field-grid">
-            <FormField label={<span className="ds-required">Nombre</span>}>
-              <input
-                type="text"
-                value={values.firstName}
-                onChange={(event) => setValues({ ...values, firstName: event.target.value })}
-                required
+    <>
+      <form onSubmit={handleSubmit} className="ds-form">
+        <PageHeader
+          title={isEditMode ? "Editar contacto" : "Nuevo contacto"}
+          actions={
+            isEditMode && id ? (
+              <Button type="button" onClick={() => setUniendo(true)}>
+                Unir con otro contacto
+              </Button>
+            ) : undefined
+          }
+        />
+        {unido ? (
+          <p className="ds-hint" role="status">
+            {unido}
+          </p>
+        ) : null}
+        <div className="ds-stack">
+          <Card heading="Datos del contacto">
+            <div className="ds-field-grid">
+              <FormField label={<span className="ds-required">Nombre</span>}>
+                <input
+                  type="text"
+                  value={values.firstName}
+                  onChange={(event) => setValues({ ...values, firstName: event.target.value })}
+                  required
+                />
+              </FormField>
+              <FormField label={<span className="ds-required">Apellido</span>}>
+                <input
+                  type="text"
+                  value={values.lastName}
+                  onChange={(event) => setValues({ ...values, lastName: event.target.value })}
+                  required
+                />
+              </FormField>
+              <FormField label="Email">
+                <input
+                  type="email"
+                  value={values.email}
+                  onChange={(event) => setValues({ ...values, email: event.target.value })}
+                />
+              </FormField>
+              <FormField label="Teléfono">
+                <input
+                  type="text"
+                  value={values.phone}
+                  onChange={(event) => setValues({ ...values, phone: event.target.value })}
+                />
+              </FormField>
+              <FormField label="Puesto">
+                <input
+                  type="text"
+                  value={values.jobTitle}
+                  onChange={(event) => setValues({ ...values, jobTitle: event.target.value })}
+                />
+              </FormField>
+              <CompanySelect
+                id="contact-form-company"
+                label="Empresa"
+                value={values.companyId}
+                onChange={(companyId) => setValues({ ...values, companyId })}
               />
-            </FormField>
-            <FormField label={<span className="ds-required">Apellido</span>}>
-              <input
-                type="text"
-                value={values.lastName}
-                onChange={(event) => setValues({ ...values, lastName: event.target.value })}
-                required
+              <FormField label="Fuente">
+                <input
+                  type="text"
+                  value={values.source}
+                  onChange={(event) => setValues({ ...values, source: event.target.value })}
+                />
+              </FormField>
+              <Select
+                label="Etapa"
+                value={values.lifecycleStage}
+                options={LIFECYCLE_STAGES.map((stage) => ({
+                  value: stage,
+                  label: LIFECYCLE_STAGE_LABELS[stage],
+                }))}
+                onChange={(lifecycleStage) => {
+                  if (lifecycleStage) setValues({ ...values, lifecycleStage });
+                }}
               />
-            </FormField>
-            <FormField label="Email">
-              <input
-                type="email"
-                value={values.email}
-                onChange={(event) => setValues({ ...values, email: event.target.value })}
+              <UserSelect
+                id="contact-form-owner"
+                label="Asignado"
+                value={values.ownerId}
+                onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+                emptyOptionLabel="Sin asignar"
+                clearable={false}
               />
-            </FormField>
-            <FormField label="Teléfono">
-              <input
-                type="text"
-                value={values.phone}
-                onChange={(event) => setValues({ ...values, phone: event.target.value })}
-              />
-            </FormField>
-            <FormField label="Puesto">
-              <input
-                type="text"
-                value={values.jobTitle}
-                onChange={(event) => setValues({ ...values, jobTitle: event.target.value })}
-              />
-            </FormField>
-            <CompanySelect
-              id="contact-form-company"
-              label="Empresa"
-              value={values.companyId}
-              onChange={(companyId) => setValues({ ...values, companyId })}
-            />
-            <FormField label="Fuente">
-              <input
-                type="text"
-                value={values.source}
-                onChange={(event) => setValues({ ...values, source: event.target.value })}
-              />
-            </FormField>
-            <Select
-              label="Etapa"
-              value={values.lifecycleStage}
-              options={LIFECYCLE_STAGES.map((stage) => ({
-                value: stage,
-                label: LIFECYCLE_STAGE_LABELS[stage],
-              }))}
-              onChange={(lifecycleStage) => {
-                if (lifecycleStage) setValues({ ...values, lifecycleStage });
-              }}
-            />
-            <UserSelect
-              id="contact-form-owner"
-              label="Asignado"
-              value={values.ownerId}
-              onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
-              emptyOptionLabel="Sin asignar"
-              clearable={false}
-            />
+            </div>
+          </Card>
+          {error ? <ErrorState>{error}</ErrorState> : null}
+          <div>
+            <RequiredFieldsHint />
+            <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
+              {isSubmitting ? "Guardando…" : "Guardar"}
+            </Button>
           </div>
-        </Card>
-        {error ? <ErrorState>{error}</ErrorState> : null}
-        <div>
-          <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
-            {isSubmitting ? "Guardando…" : "Guardar"}
-          </Button>
         </div>
-      </div>
-    </form>
+      </form>
+      {uniendo && id ? (
+        <MergeContactDialog
+          contactId={id}
+          onClose={() => setUniendo(false)}
+          onMerged={(resultado) => {
+            setUniendo(false);
+            const total = Object.values(resultado.movidos).reduce((a, b) => a + b, 0);
+            setUnido(
+              total > 0
+                ? `Contactos unidos: ${total} registros pasaron a este contacto.`
+                : "Contactos unidos. El duplicado no tenía registros asociados.",
+            );
+          }}
+        />
+      ) : null}
+    </>
   );
 }
