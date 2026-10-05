@@ -108,6 +108,19 @@ export interface LlmCompletionRequest {
   // tope por intento, y cualquiera de las dos corta la llamada. Sin ella, todo
   // sigue exactamente como antes: solo el tope del adaptador.
   signal?: AbortSignal;
+  // "none": el modelo ve las tools (y las llamadas que ya hizo en el
+  // historial) pero en esta llamada solo puede contestar texto. Es el cierre
+  // de un turno que agotó sus rondas: tiene que redactar con lo que ya pasó.
+  // Sin esto, "auto".
+  toolChoice?: "auto" | "none";
+}
+
+// Lo que consumió una llamada, como lo informa el proveedor. costUsd es null
+// si el proveedor no lo manda.
+export interface LlmUsage {
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number | null;
 }
 
 export interface LlmCompletionResult {
@@ -116,6 +129,8 @@ export interface LlmCompletionResult {
   // Vacía si el modelo respondió directo. Nunca undefined: el loop itera
   // sobre esto sin chequear.
   toolCalls: LlmToolCall[];
+  // Ausente si el proveedor no informó el consumo (o es un doble de test).
+  usage?: LlmUsage;
 }
 
 export interface LlmProvider {
@@ -170,6 +185,9 @@ export interface ConfiguracionOpenRouter {
   defaultModel: string;
   // Raíz de la API, SIN barra final ("https://openrouter.ai/api/v1").
   baseUrl: string;
+  // Tope de tokens de SALIDA de cada llamada (LLM_MAX_OUTPUT_TOKENS). Ver
+  // la nota en config/env.ts.
+  maxOutputTokens: number;
   fetch?: FetchLike;
 }
 
@@ -406,6 +424,23 @@ function parsearArgumentos(nombre: string, crudo: unknown): Record<string, unkno
   return parseado as Record<string, unknown>;
 }
 
+// El consumo de la llamada, tolerante: cada proveedor detrás de OpenRouter
+// manda lo que quiere, y un `usage` raro no puede tumbar un turno que ya
+// tiene su respuesta. Sin tokens legibles, no hay usage.
+export function leerUsage(crudo: unknown): LlmUsage | null {
+  if (!crudo || typeof crudo !== "object") {
+    return null;
+  }
+  const { prompt_tokens, completion_tokens, cost } = crudo as Record<string, unknown>;
+  const entero = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+  const promptTokens = entero(prompt_tokens);
+  const completionTokens = entero(completion_tokens);
+  if (promptTokens === null || completionTokens === null) {
+    return null;
+  }
+  return { promptTokens, completionTokens, costUsd: entero(cost) };
+}
+
 // FACTORY, mismo patrón que crearClienteGoogleCalendar(): recibe su
 // configuración y su fetch en vez de leerlos de un singleton. Es lo que hace
 // que el test unitario exista.
@@ -416,10 +451,17 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
   return {
     name: OPENROUTER_PROVIDER_NAME,
 
-    async complete({ systemPrompt, messages, tools, model, signal }) {
+    async complete({ systemPrompt, messages, tools, model, signal, toolChoice }) {
       const cuerpo: Record<string, unknown> = {
         model: model ?? config.defaultModel,
         messages: aMensajesDeOpenAi(systemPrompt, messages),
+        // FABLE-B-01 / OPUS-B-06 (docs-privados, local): un techo a lo que
+        // puede generar CADA llamada. Sin él, un modelo que entra en un loop
+        // de repetición genera hasta su máximo en cada ronda del turno.
+        max_tokens: config.maxOutputTokens,
+        // Que OpenRouter informe el consumo y el costo de la llamada en
+        // `usage` (FABLE-G-04, docs-privados, local).
+        usage: { include: true },
         // Ítem 131 (E-01): lo que viaja acá son conversaciones de los clientes
         // finales de cada negocio (nombres, teléfonos, presupuestos). Con
         // "deny", OpenRouter solo enruta a proveedores que no guardan ni
@@ -455,7 +497,8 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
         }));
         // "auto": el modelo decide si responde texto o pide una tool. Forzar
         // una tool ("required") sería decisión del loop, no del adaptador.
-        cuerpo.tool_choice = "auto";
+        // "none" lo pide el loop para el cierre de un turno sin rondas.
+        cuerpo.tool_choice = toolChoice ?? "auto";
       }
 
       // Ítem 114: hasta REINTENTOS_LLM reintentos ante fallas transitorias.
@@ -517,6 +560,7 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
       let datos: {
         choices?: unknown;
         error?: unknown;
+        usage?: unknown;
       };
       try {
         datos = (await res.json()) as typeof datos;
@@ -580,7 +624,8 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
       // que el loop tenga UNA sola forma de "no dijo nada".
       const text = typeof content === "string" && content.length > 0 ? content : null;
 
-      return { text, toolCalls };
+      const usage = leerUsage(datos.usage);
+      return { text, toolCalls, ...(usage ? { usage } : {}) };
     },
   };
 }
@@ -613,6 +658,7 @@ export function getLlmProvider(): LlmProvider {
     apiKey: env.OPENROUTER_API_KEY,
     defaultModel: env.OPENROUTER_MODEL,
     baseUrl: env.OPENROUTER_BASE_URL,
+    maxOutputTokens: env.LLM_MAX_OUTPUT_TOKENS,
   });
 
   return proveedor;

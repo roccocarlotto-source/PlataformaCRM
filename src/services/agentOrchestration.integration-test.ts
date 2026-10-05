@@ -13,8 +13,12 @@ import {
   envolverMensajeDelCliente,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
   INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
+  MAX_TOOL_CALLS_PER_ROUND,
   MAX_TOOL_ROUNDS_PER_TURN,
   MENSAJE_DE_FUGA_BLOQUEADA,
+  INSTRUCCION_DE_CIERRE_POR_TOPE,
+  MOTIVO_TOPE_DE_TOOLS_POR_RONDA,
+  cierreFijoDelTurno,
   ETIQUETA_MENSAJE_CLIENTE,
   MENSAJE_DE_HANDOFF,
   MOTIVO_TOPE_DE_RONDAS,
@@ -2154,8 +2158,14 @@ test("texto + tool en TODAS las rondas: el tope de rondas sigue siendo la red de
 
     const resultado = await turno(e, "Quiero un auto", doble.proveedor);
 
-    assert.equal(doble.requests.length, MAX_TOOL_ROUNDS_PER_TURN);
-    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+    // Las rondas del tope, más UNA llamada de cierre sin tools (FABLE-B-02,
+    // docs-privados, local): el turno sí hizo algo. Este doble vuelve a pedir
+    // la tool también ahí, así que su frase de tránsito se descarta y queda el
+    // cierre fijo — que ya no es "No pude resolver tu consulta".
+    assert.equal(doble.requests.length, MAX_TOOL_ROUNDS_PER_TURN + 1);
+    assert.equal(doble.requests.at(-1)?.toolChoice, "none");
+    assert.equal(resultado.respuesta, cierreFijoDelTurno(resultado.toolCalls, null));
+    assert.notEqual(resultado.respuesta, MENSAJE_DE_HANDOFF);
     assert.equal(resultado.handoff, true);
     // Y la oportunidad se creó una sola vez: las rondas siguientes la
     // reutilizan (ítem 84).
@@ -2902,5 +2912,121 @@ test("dentro del horario cargado, y sin horario cargado, la derivación queda co
     } finally {
       await desmontar(e);
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// FABLE-B-02, agravante en vivo (docs-privados/auditoria-2026-10-05-FABLE.md,
+// local): un turno que hizo cosas no puede cerrar con "No pude resolver tu
+// consulta". El caso real: tres reservas hechas y ese cierre.
+// ---------------------------------------------------------------------------
+
+test("FABLE-B-02: al agotar las rondas con tools que salieron bien, el modelo redacta el cierre sin poder llamar más tools", async () => {
+  const e = await montar("cierre-con-acciones");
+  try {
+    const CIERRE = "Ya te dejé anotada la consulta por el auto. Alguien del equipo te escribe.";
+    const doble = doblarProveedor([
+      ...Array.from({ length: MAX_TOOL_ROUNDS_PER_TURN }, (_, i) =>
+        pideTool(`c${String(i)}`, "create_opportunity", { title: "Auto" }),
+      ),
+      texto(CIERRE),
+    ]);
+
+    const resultado = await turno(e, "Quiero un auto", doble.proveedor);
+
+    assert.equal(doble.requests.length, MAX_TOOL_ROUNDS_PER_TURN + 1);
+    const cierre = doble.requests.at(-1)!;
+    assert.equal(cierre.toolChoice, "none", "en el cierre no puede pedir tools");
+    assert.ok(cierre.systemPrompt.endsWith(INSTRUCCION_DE_CIERRE_POR_TOPE));
+    assert.ok(
+      cierre.messages.some((m) => m.role === "tool"),
+      "con los resultados de las tools a la vista",
+    );
+    assert.equal(resultado.respuesta, CIERRE);
+    // Sigue siendo una derivación: el turno no terminó solo.
+    assert.equal(resultado.handoff, true);
+    const [tarea] = await prisma.activity.findMany({ where: { organizationId: e.organizationId } });
+    assert.equal(tarea.body, MOTIVO_TOPE_DE_RONDAS);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("FABLE-B-02: si el turno no logró nada, el cierre sigue siendo el de siempre y no hay llamada extra", async () => {
+  const e = await montar("cierre-sin-acciones", {
+    guardrails: { accionesProhibidas: ["create_opportunity"] },
+  });
+  try {
+    const doble = doblarProveedor([pideTool("c", "create_opportunity", { title: "x" })]);
+
+    const resultado = await turno(e, "Dale, creala igual", doble.proveedor);
+
+    assert.equal(doble.requests.length, MAX_TOOL_ROUNDS_PER_TURN);
+    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("FABLE-B-02: el proveedor se cae DESPUÉS de una tool que salió bien -> el cierre fijo dice que quedó registrado, no que no se pudo", async () => {
+  const e = await montar("cierre-proveedor-caido");
+  try {
+    let llamadas = 0;
+    const proveedor: LlmProvider = {
+      name: "doble-que-se-cae",
+      complete() {
+        llamadas++;
+        if (llamadas === 1) {
+          return Promise.resolve(pideTool("c1", "create_opportunity", { title: "Auto" }));
+        }
+        return Promise.reject(new LlmProviderError("OpenRouter no respondió"));
+      },
+    };
+
+    const resultado = await turno(e, "Quiero un auto", proveedor);
+
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.respuesta, cierreFijoDelTurno(resultado.toolCalls, null));
+    assert.match(resultado.respuesta ?? "", /^Ya dejé registrado lo que me pediste/);
+    assert.doesNotMatch(resultado.respuesta ?? "", /No pude resolver/);
+    assert.equal(
+      await prisma.opportunity.count({ where: { organizationId: e.organizationId } }),
+      1,
+    );
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("FABLE-B-02: una ronda no ejecuta más de MAX_TOOL_CALLS_PER_ROUND tools; las demás vuelven con el motivo", async () => {
+  const e = await montar("tope-de-tools-por-ronda", { enabledTools: ["get_contact_info"] });
+  try {
+    const pedidas = MAX_TOOL_CALLS_PER_ROUND + 3;
+    const doble = doblarProveedor([
+      {
+        text: null,
+        toolCalls: Array.from({ length: pedidas }, (_, i) => ({
+          id: `c${String(i)}`,
+          name: "get_contact_info",
+          arguments: {},
+        })),
+      },
+      texto("Listo."),
+    ]);
+
+    const resultado = await turno(e, "Hola", doble.proveedor);
+
+    assert.equal(resultado.toolCalls.length, pedidas);
+    const ejecutadas = resultado.toolCalls.filter((t) => t.allowed);
+    const cortadas = resultado.toolCalls.filter((t) => !t.allowed);
+    assert.equal(ejecutadas.length, MAX_TOOL_CALLS_PER_ROUND);
+    assert.equal(cortadas.length, 3);
+    assert.ok(cortadas.every((t) => t.reason === MOTIVO_TOPE_DE_TOOLS_POR_RONDA));
+    // El modelo recibe un resultado por CADA tool call, también de las cortadas.
+    const resultados = doble.requests[1].messages.filter((m) => m.role === "tool");
+    assert.equal(resultados.length, pedidas);
+    assert.equal(resultado.respuesta, "Listo.");
+  } finally {
+    await desmontar(e);
   }
 });

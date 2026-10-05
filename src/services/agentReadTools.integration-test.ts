@@ -4,6 +4,7 @@ import { after, before, mock, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import { findManyVehicles } from "../repositories/vehicle.repository";
 import {
+  NOTA_DE_COINCIDENCIA_PARCIAL,
   AVISO_DE_INTENCION_GUARDADA,
   SUFIJO_ERROR_DE_ARGUMENTOS,
   CATALOGO_DE_TOOLS,
@@ -523,6 +524,77 @@ test("search_vehicles: filtra por precio, marca, modelo, año y carrocería", as
   assert.deepEqual(await ids({ year: 2020 }), [publicadaBarata]);
   assert.deepEqual(await ids({ bodyType: "PICKUP" }), [publicadaCara]);
   assert.deepEqual(await ids({ make: "Ford" }), []);
+});
+
+// ---------------------------------------------------------------------------
+// FABLE-B-09 (docs-privados/auditoria-2026-10-05-FABLE.md, local): marca y
+// modelo ya no son igualdad exacta. El caso real: el modelo de lenguaje mandó
+// el modelo con la versión y el año pegados, la búsqueda dio 0 y el agente le
+// dijo al cliente que la unidad que había elegido no estaba disponible.
+// ---------------------------------------------------------------------------
+
+test("FABLE-B-09: search_vehicles encuentra la unidad con el modelo escrito con versión y año, sin distinguir mayúsculas ni acentos", async () => {
+  const ctx = contextoDe(
+    stock.organizationId,
+    "00000000-0000-4000-8000-000000000003",
+    stock.branchId,
+  );
+  const ids = async (args: Record<string, unknown>) =>
+    (await datosDe<ResultadoBusqueda>("search_vehicles", args, ctx)).vehiculos.map((v) => v.id);
+
+  // Como lo mandó el modelo en producción: modelo + versión + año en un campo.
+  assert.deepEqual(await ids({ model: "Hilux SRX 2023" }), [publicadaCara]);
+  assert.deepEqual(await ids({ model: "Toyota Hilux SRX 2023" }), [publicadaCara]);
+  assert.deepEqual(await ids({ make: "TOYOTA", model: "hilux srx" }), [publicadaCara]);
+  assert.deepEqual(await ids({ model: "HILUX" }), [publicadaCara]);
+  assert.deepEqual(await ids({ model: "corólla" }), [publicadaBarata]);
+  // La marca sola: las dos publicadas y disponibles, de más barata a más cara
+  // — y nunca la no publicada ni la reservada, que también son Toyota.
+  assert.deepEqual(await ids({ make: "toyota" }), [publicadaBarata, publicadaCara]);
+  // Se sigue combinando con los demás filtros.
+  assert.deepEqual(await ids({ make: "toyota", priceMaxUsd: 30_000 }), [publicadaBarata]);
+  assert.deepEqual(await ids({ model: "Hilux", year: 2023 }), [publicadaCara]);
+});
+
+test("FABLE-B-09: una versión o un año que no hay devuelve las unidades del mismo modelo con el aviso, no un 'no hay'", async () => {
+  const ctx = contextoDe(
+    stock.organizationId,
+    "00000000-0000-4000-8000-000000000003",
+    stock.branchId,
+  );
+  type Resultado = ResultadoBusqueda & {
+    total: number;
+    coincidenciaParcial?: string;
+    sinResultados?: boolean;
+  };
+  const buscar = (args: Record<string, unknown>) =>
+    datosDe<Resultado>("search_vehicles", args, ctx);
+
+  // La versión no existe (hay SRX, no SRV) y el año tampoco.
+  const otraVersion = await buscar({ model: "Hilux SRV 2021" });
+  assert.deepEqual(
+    otraVersion.vehiculos.map((v) => v.id),
+    [publicadaCara],
+  );
+  assert.equal(otraVersion.coincidenciaParcial, NOTA_DE_COINCIDENCIA_PARCIAL);
+
+  // El año como filtro aparte que no coincide: tampoco niega el modelo.
+  const otroAnio = await buscar({ model: "Hilux", year: 2021 });
+  assert.deepEqual(
+    otroAnio.vehiculos.map((v) => v.id),
+    [publicadaCara],
+  );
+  assert.equal(otroAnio.coincidenciaParcial, NOTA_DE_COINCIDENCIA_PARCIAL);
+
+  // Cuando coincide todo, no hay aviso.
+  const exacta = await buscar({ model: "Hilux SRX 2023" });
+  assert.equal(exacta.coincidenciaParcial, undefined);
+
+  // Y lo que de verdad no hay sigue siendo un vacío explícito.
+  const noHay = await buscar({ make: "Ford", model: "Ranger XLT 2022" });
+  assert.equal(noHay.total, 0);
+  assert.equal(noHay.sinResultados, true);
+  assert.equal(noHay.coincidenciaParcial, undefined);
 });
 
 // ---------------------------------------------------------------------------
