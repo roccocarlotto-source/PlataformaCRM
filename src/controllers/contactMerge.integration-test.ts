@@ -11,7 +11,13 @@ import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { contactRouter } from "../routes/contact.routes";
+import { createAgentInboundJob } from "../repositories/agentInboundJob.repository";
+import { MARCADOR_DE_DATO_BORRADO } from "../repositories/contact.repository";
+import { findConversationByExternalThreadId } from "../repositories/conversation.repository";
+import { registrarEntrante } from "../services/agentOrchestration.service";
 import { FKS_A_CONTACTS } from "../services/contactMerge.service";
+import { leerHiloDelWidget } from "../services/publicWidgetThread.service";
+import { resolveWidgetContact } from "../services/widgetContact.service";
 import { resolveWhatsappContact } from "../services/whatsappContact.service";
 
 // ---------------------------------------------------------------------------
@@ -209,6 +215,7 @@ after(async () => {
     await prisma.activity.deleteMany({ where });
     await prisma.booking.deleteMany({ where });
     await prisma.contactChannelIdentity.deleteMany({ where });
+    await prisma.agentInboundJob.deleteMany({ where });
     await prisma.message.deleteMany({ where });
     await prisma.conversation.deleteMany({ where });
     await prisma.discountVoucherFollowUp.deleteMany({ where });
@@ -479,11 +486,12 @@ test("se mueven TODAS las relaciones; el unido queda dado de baja con mergedInto
   assert.ok(nota, "queda la nota de auditoría");
 });
 
-test("dos conversaciones abiertas con el mismo agente y canal: la del unido se cierra y se mueve; la del que queda sigue abierta", async () => {
+test("dos conversaciones abiertas con el mismo agente y canal: la más vieja se cierra, las dos pasan al que queda", async () => {
   const kept = await contacto();
   const absorbed = await contacto();
-  const delQueQueda = await conversacion(kept.id, "WHATSAPP");
+  // La del unido es la más vieja: el cliente escribió último por la otra.
   const delUnido = await conversacion(absorbed.id, "WHATSAPP");
+  const delQueQueda = await conversacion(kept.id, "WHATSAPP");
 
   const res = await call("POST", `/api/contacts/${kept.id}/merge`, admin.accessToken, {
     absorbedId: absorbed.id,
@@ -614,4 +622,278 @@ test("validación: consigo mismo es 400; un campo desconocido o un lado inválid
     404,
     "el unido ya no existe para la API",
   );
+});
+
+// ===========================================================================
+// Tanda 5 de la auditoría (docs-privados, local): unir contactos sin mezclar
+// personas.
+// ===========================================================================
+
+function unir(keptId: string, absorbedId: string, fields?: Record<string, string>) {
+  return call("POST", `/api/contacts/${keptId}/merge`, admin.accessToken, {
+    absorbedId,
+    ...(fields ? { fields } : {}),
+  });
+}
+
+// OPUS-C-01 / FABLE-A-02: el caso confirmado en vivo por las dos auditorías.
+test("OPUS-C-01 / FABLE-A-02: después de unir, la sesión del widget del unido no ve ni escribe en la conversación del que queda", async () => {
+  const kept = await contacto({ email: `real-${randomUUID().slice(0, 8)}@example.test` });
+  const absorbed = await contacto({ firstName: "Visitante", lastName: "caa2c873" });
+  const delQueQueda = await conversacion(kept.id, "WEB");
+  const delUnido = await conversacion(absorbed.id, "WEB");
+  const sesionDelUnido = delUnido.externalThreadId!;
+  const sesionDelQueQueda = delQueQueda.externalThreadId!;
+
+  // La pantalla lo advierte antes de confirmar.
+  const preview = await call(
+    "GET",
+    `/api/contacts/${kept.id}/merge-preview?with=${absorbed.id}`,
+    admin.accessToken,
+  );
+  assert.equal(preview.status, 200, await preview.clone().text());
+  assert.equal(((await preview.json()) as { chatsWebACortar: number }).chatsWebACortar, 1);
+
+  const res = await unir(kept.id, absorbed.id);
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal(((await res.json()) as { chatsWebCortados: number }).chatsWebCortados, 1);
+
+  // La conversación del unido pasó al que queda (el historial no se pierde),
+  // cerrada y sin el id de sesión.
+  const cortada = await prisma.conversation.findUniqueOrThrow({ where: { id: delUnido.id } });
+  assert.equal(cortada.contactId, kept.id);
+  assert.equal(cortada.status, "CLOSED");
+  assert.equal(cortada.externalThreadId, null);
+  assert.equal(await prisma.message.count({ where: { conversationId: delUnido.id } }), 1);
+
+  // Ese navegador ya no está atado a nadie: no ve ningún hilo...
+  assert.equal(
+    await findConversationByExternalThreadId(orgId, agentId, "WEB", sesionDelUnido),
+    null,
+  );
+  const hilo = await leerHiloDelWidget({ organizationId: orgId, agentId }, sesionDelUnido, null);
+  assert.deepEqual(hilo.messages, []);
+
+  // ...y si vuelve a escribir, es un visitante NUEVO, no el contacto que quedó.
+  const nuevo = await resolveWidgetContact(
+    orgId,
+    agentId,
+    branchId,
+    "WEB",
+    sesionDelUnido,
+    `token-${randomUUID()}`,
+  );
+  assert.notEqual(nuevo, kept.id);
+  assert.notEqual(nuevo, absorbed.id);
+  const { conversation } = await registrarEntrante({
+    organizationId: orgId,
+    agentId,
+    branchId,
+    contactId: nuevo,
+    channel: "WEB",
+    texto: "¿Qué email tienen registrado a mi nombre?",
+    externalThreadId: sesionDelUnido,
+  });
+  assert.notEqual(conversation.id, delQueQueda.id, "no escribe en la conversación del que queda");
+  assert.equal(conversation.contactId, nuevo);
+  assert.equal(await prisma.message.count({ where: { conversationId: delQueQueda.id } }), 1);
+
+  // El que queda conserva su propia sesión y su hilo.
+  const suConversacion = await prisma.conversation.findUniqueOrThrow({
+    where: { id: delQueQueda.id },
+  });
+  assert.equal(suConversacion.status, "ACTIVE");
+  assert.equal(suConversacion.externalThreadId, sesionDelQueQueda);
+  const suHilo = await leerHiloDelWidget(
+    { organizationId: orgId, agentId },
+    sesionDelQueQueda,
+    null,
+  );
+  assert.equal(suHilo.messages.length, 1);
+});
+
+// OPUS-C-01 (WhatsApp) / FABLE-C-02.
+test("OPUS-C-01 / FABLE-C-02: tras unir, la respuesta va al número por el que el cliente escribió último", async () => {
+  const numeroKept = `598${Math.floor(1e7 + Math.random() * 9e7)}`;
+  const numeroUnido = `598${Math.floor(1e7 + Math.random() * 9e7)}`;
+  const kept = await contacto({ phone: `+${numeroKept}` });
+  const absorbed = await contacto({ phone: `+${numeroUnido}` });
+  const conv = await conversacion(kept.id, "WHATSAPP");
+  await prisma.conversation.update({
+    where: { id: conv.id },
+    data: { externalThreadId: numeroKept },
+  });
+  assert.equal((await unir(kept.id, absorbed.id, { phone: "kept" })).status, 200);
+
+  // El cliente escribe desde el número del contacto unido.
+  const contactId = await resolveWhatsappContact(orgId, numeroUnido, "Ana");
+  assert.equal(contactId, kept.id);
+  const { conversation } = await registrarEntrante({
+    organizationId: orgId,
+    agentId,
+    branchId,
+    contactId,
+    channel: "WHATSAPP",
+    texto: "Hola, te escribo desde mi otro número",
+    externalThreadId: numeroUnido,
+    externalMessageId: `wamid.${randomUUID()}`,
+  });
+
+  assert.equal(conversation.id, conv.id, "cae en la conversación abierta del que queda");
+  const despues = await prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } });
+  assert.equal(despues.externalThreadId, numeroUnido, "y ahí es donde va la respuesta");
+});
+
+// FABLE-C-04.
+test("FABLE-C-04: un entrante cuyo contacto se unió mientras tanto cae en el contacto que queda, no en el dado de baja", async () => {
+  const kept = await contacto();
+  const absorbed = await contacto();
+  assert.equal((await unir(kept.id, absorbed.id)).status, 200);
+
+  // El webhook había resuelto el contacto ANTES de la unión.
+  const { conversation } = await registrarEntrante({
+    organizationId: orgId,
+    agentId,
+    branchId,
+    contactId: absorbed.id,
+    channel: "WHATSAPP",
+    texto: "Hola",
+    externalThreadId: `598${Math.floor(1e7 + Math.random() * 9e7)}`,
+    externalMessageId: `wamid.${randomUUID()}`,
+  });
+
+  assert.equal(conversation.contactId, kept.id);
+  assert.equal(
+    await prisma.conversation.count({ where: { organizationId: orgId, contactId: absorbed.id } }),
+    0,
+  );
+});
+
+// FABLE-C-05.
+test("FABLE-C-05: si la conversación viva es la del unido, se conserva esa; la que se cierra pierde sus turnos pendientes", async () => {
+  const jobDe = async (conversationId: string) => {
+    const mensaje = await prisma.message.findFirstOrThrow({ where: { conversationId } });
+    return createAgentInboundJob({
+      organizationId: orgId,
+      messageId: mensaje.id,
+      channel: "WHATSAPP",
+      channelAccountId: "numero-del-agente",
+      externalUserId: "59899000000",
+    });
+  };
+  const kept = await contacto();
+  const absorbed = await contacto();
+  const vieja = await conversacion(kept.id, "WHATSAPP");
+  const jobDeLaVieja = await jobDe(vieja.id);
+  // El cliente escribió hace segundos por el número del unido.
+  const viva = await conversacion(absorbed.id, "WHATSAPP");
+  const jobDeLaViva = await jobDe(viva.id);
+
+  const res = await unir(kept.id, absorbed.id);
+  assert.equal(res.status, 200, await res.clone().text());
+
+  const [a, b] = await Promise.all([
+    prisma.conversation.findUniqueOrThrow({ where: { id: viva.id } }),
+    prisma.conversation.findUniqueOrThrow({ where: { id: vieja.id } }),
+  ]);
+  assert.equal(a.status, "ACTIVE", "la del último mensaje sigue abierta");
+  assert.equal(a.contactId, kept.id);
+  assert.equal(b.status, "CLOSED");
+  const [pendiente, cancelado] = await Promise.all([
+    prisma.agentInboundJob.findUniqueOrThrow({ where: { id: jobDeLaViva.id } }),
+    prisma.agentInboundJob.findUniqueOrThrow({ where: { id: jobDeLaVieja.id } }),
+  ]);
+  assert.equal(pendiente.status, "PENDING", "el turno del mensaje nuevo se va a contestar");
+  assert.equal(
+    cancelado.status,
+    "FAILED",
+    "el de la conversación cerrada se cancela, como al cerrarla a mano",
+  );
+});
+
+// OPUS-C-02 / FABLE-C-03.
+test("OPUS-C-02 / FABLE-C-03: el borrado de datos personales alcanza al contacto unido, a sus teléfonos guardados y a su nombre en las notas", async () => {
+  const numeroUnido = `598${Math.floor(1e7 + Math.random() * 9e7)}`;
+  const kept = await contacto({ firstName: "Juan", lastName: "Pérez" });
+  const absorbed = await contacto({
+    firstName: "Juana",
+    lastName: "Rodríguez",
+    email: `juana-${randomUUID().slice(0, 8)}@example.test`,
+    phone: `+${numeroUnido}`,
+    jobTitle: "Gerente",
+    leadNotes: "Quiere financiación",
+  });
+  assert.equal((await unir(kept.id, absorbed.id, { phone: "kept", email: "kept" })).status, 200);
+
+  // Lo que la unión dejó del unido, antes del borrado.
+  const antes = await prisma.contact.findUniqueOrThrow({ where: { id: absorbed.id } });
+  assert.equal(antes.firstName, "Juana");
+  assert.equal(
+    await prisma.contactChannelIdentity.count({
+      where: { organizationId: orgId, contactId: kept.id, channel: "WHATSAPP" },
+    }),
+    1,
+  );
+
+  const res = await call("POST", `/api/contacts/${kept.id}/erase-personal-data`, admin.accessToken);
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal(
+    ((await res.json()) as { contactosUnidosAnonimizados: number }).contactosUnidosAnonimizados,
+    1,
+  );
+
+  const unido = await prisma.contact.findUniqueOrThrow({ where: { id: absorbed.id } });
+  assert.equal(unido.firstName, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(unido.lastName, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(unido.email, null);
+  assert.equal(unido.phone, null);
+  assert.equal(unido.jobTitle, null);
+  assert.equal(
+    await prisma.contactChannelIdentity.count({
+      where: { organizationId: orgId, contactId: kept.id, channel: "WHATSAPP" },
+    }),
+    0,
+    "el teléfono del unido ya no queda guardado como identidad",
+  );
+
+  // En ningún lado de lo que cuelga del contacto queda el nombre del unido.
+  const elQueQueda = await prisma.contact.findUniqueOrThrow({ where: { id: kept.id } });
+  const notas = await prisma.activity.findMany({
+    where: { organizationId: orgId, contactId: kept.id, type: "NOTE" },
+  });
+  const todo = JSON.stringify({ leadNotes: elQueQueda.leadNotes, notas });
+  assert.doesNotMatch(todo, /Juana|Rodríguez/);
+  assert.match(elQueQueda.leadNotes ?? "", /Quiere financiación/, "la nota en sí se conserva");
+  assert.match(notas[0]?.subject ?? "", /^Se unió el contacto \[dato borrado\]$/);
+
+  // Repetirlo no falla.
+  const otraVez = await call(
+    "POST",
+    `/api/contacts/${kept.id}/erase-personal-data`,
+    admin.accessToken,
+  );
+  assert.equal(otraVez.status, 200);
+});
+
+test("FABLE-C-06 / OPUS-A-05: la unión no degrada un cliente a lead por defecto, y su nota queda cerrada", async () => {
+  const kept = await contacto({ lifecycleStage: "CUSTOMER" });
+  // El duplicado se tocó después: con "el más reciente" ganaba LEAD.
+  const absorbed = await contacto({ lifecycleStage: "LEAD" });
+
+  const preview = await call(
+    "GET",
+    `/api/contacts/${kept.id}/merge-preview?with=${absorbed.id}`,
+    admin.accessToken,
+  );
+  const { defaults } = (await preview.json()) as { defaults: Record<string, string> };
+  assert.equal(defaults.lifecycleStage, "kept");
+
+  assert.equal((await unir(kept.id, absorbed.id)).status, 200);
+  const elQueQueda = await prisma.contact.findUniqueOrThrow({ where: { id: kept.id } });
+  assert.equal(elQueQueda.lifecycleStage, "CUSTOMER");
+
+  const [nota] = await prisma.activity.findMany({
+    where: { organizationId: orgId, contactId: kept.id, type: "NOTE" },
+  });
+  assert.ok(nota.completedAt, "es un registro, no una actividad pendiente");
 });

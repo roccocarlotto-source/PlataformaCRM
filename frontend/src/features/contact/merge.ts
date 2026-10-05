@@ -70,6 +70,9 @@ export interface VistaPreviaDeLaUnion {
   absorbed: ContactoDeLaUnion;
   defaults: Elecciones;
   aMover: Record<string, number>;
+  // Los chats del sitio web del duplicado que la unión va a cortar: ese
+  // navegador deja de estar atado a un contacto.
+  chatsWebACortar?: number;
 }
 
 export interface ResultadoDeLaUnion {
@@ -77,6 +80,36 @@ export interface ResultadoDeLaUnion {
   absorbedId: string;
   movidos: Record<string, number>;
   conversacionesCerradas: number;
+  chatsWebCortados?: number;
+}
+
+// Lo que se le advierte a la persona ANTES de confirmar la unión: qué pasa al
+// contacto que queda, con sus cantidades, y qué se corta. Pura, para probarla
+// sin montar el diálogo.
+export function advertenciaDeLaUnion(
+  nombreDelDuplicado: string,
+  vista: VistaPreviaDeLaUnion,
+): string {
+  const seMueve = Object.entries(vista.aMover)
+    .filter(([, cantidad]) => cantidad > 0)
+    .map(
+      ([clave, cantidad]) => `${String(cantidad)} ${ETIQUETA_DE_LO_QUE_SE_MUEVE[clave] ?? clave}`,
+    );
+  const partes = [
+    `Se va a unir "${nombreDelDuplicado}" a este contacto y "${nombreDelDuplicado}" se da de baja.`,
+    seMueve.length > 0
+      ? `Pasan a este contacto: ${seMueve.join(", ")}.`
+      : "El duplicado no tiene registros asociados.",
+  ];
+  if ((vista.chatsWebACortar ?? 0) > 0) {
+    partes.push(
+      "El chat del sitio web del duplicado se corta: quien escribía desde ese navegador no va a ver esta conversación, y si vuelve a escribir entra como un visitante nuevo.",
+    );
+  }
+  partes.push(
+    "Asegurate de que los dos son la misma persona. No se puede deshacer desde la pantalla.",
+  );
+  return partes.join("\n\n");
 }
 
 export const ETIQUETA_DE_LO_QUE_SE_MUEVE: Record<string, string> = {

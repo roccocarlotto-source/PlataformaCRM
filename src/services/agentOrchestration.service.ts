@@ -13,7 +13,7 @@ import { prisma, type Db } from "../lib/prisma";
 import { findAgentById } from "../repositories/agent.repository";
 import { findBranchById } from "../repositories/branch.repository";
 import { findBusinessHoursByBranch } from "../repositories/branchBusinessHours.repository";
-import { findContactById } from "../repositories/contact.repository";
+import { findContactById, findContactoAlQueSeUnio } from "../repositories/contact.repository";
 import {
   findConversationById,
   findOrCreateOpenConversation,
@@ -1666,14 +1666,42 @@ async function registrarEnConversacion(
 ): Promise<{ conversation: Conversation; mensaje: Message }> {
   const { organizationId } = datos;
 
+  // FABLE-C-04 (docs-privados/auditoria-2026-10-05-FABLE.md, local): quien
+  // llama resolvió el contacto en un paso anterior, y entre ese paso y este
+  // una persona pudo haberlo UNIDO a otro. Sin esto se abría una conversación
+  // colgada del contacto dado de baja: invisible en la bandeja, y el turno
+  // fallaba con "el contacto no existe". Se sigue el puntero al que queda.
+  // NO en el canal web: ahí el contacto sale de la sesión del navegador, y la
+  // sesión de un contacto unido se corta a propósito (contactMerge.service.ts).
+  const contactId =
+    datos.channel === "WEB"
+      ? datos.contactId
+      : ((await findContactoAlQueSeUnio(datos.contactId, organizationId)) ?? datos.contactId);
+
   const conversation = await findOrCreateOpenConversation({
     organizationId,
     branchId: datos.branchId,
     agentId: datos.agentId,
-    contactId: datos.contactId,
+    contactId,
     channel: datos.channel,
     externalThreadId: datos.externalThreadId,
   });
+
+  // OPUS-C-01 / FABLE-C-02 (docs-privados, local): LA RESPUESTA VA A DONDE EL
+  // CLIENTE ESCRIBIÓ ÚLTIMO. Una persona que responde desde el CRM le escribe
+  // al externalThreadId de la conversación. Después de unir dos contactos con
+  // números distintos, el cliente puede escribir desde el número del unido y
+  // caer en la conversación del que queda: sin esto, la respuesta salía al
+  // otro número. Cada ENTRANTE deja anotado por dónde llegó.
+  // No en web: el id de sesión es lo que ata el navegador al contacto, y no se
+  // reasigna.
+  const moverElHilo =
+    mensaje.direction === "INBOUND" &&
+    datos.channel !== "WEB" &&
+    datos.externalThreadId !== undefined &&
+    conversation.externalThreadId !== datos.externalThreadId
+      ? { externalThreadId: datos.externalThreadId }
+      : {};
 
   const creado = await prisma.$transaction(async (tx) => {
     const nuevo = await createMessage(
@@ -1683,14 +1711,14 @@ async function registrarEnConversacion(
     await updateConversation(
       conversation.id,
       organizationId,
-      { lastMessageAt: nuevo.createdAt },
+      { lastMessageAt: nuevo.createdAt, ...moverElHilo },
       tx,
     );
     await enLaMismaTransaccion?.(tx, nuevo);
     return nuevo;
   });
 
-  return { conversation, mensaje: creado };
+  return { conversation: { ...conversation, ...moverElHilo }, mensaje: creado };
 }
 
 // ---------------------------------------------------------------------------

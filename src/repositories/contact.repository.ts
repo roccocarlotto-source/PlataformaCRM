@@ -161,6 +161,21 @@ export function findContactByIdIncludingDeleted(
   });
 }
 
+// A qué contacto se unió este, si se unió (contactMerge.service.ts): solo el
+// puntero. null si el contacto sigue vivo, no existe, o se dio de baja sin
+// unirse a nadie.
+export async function findContactoAlQueSeUnio(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+): Promise<string | null> {
+  const contacto = await db.contact.findFirst({
+    where: { id, organizationId },
+    select: { deletedAt: true, mergedIntoId: true },
+  });
+  return contacto?.deletedAt ? contacto.mergedIntoId : null;
+}
+
 // El contacto de un número de WhatsApp (ítem 81): el de la organización cuyo
 // teléfono, SIN nada que no sea dígito, coincide con `digits`. Se comparan
 // dígitos en los dos lados porque Contact.phone tiene filas anteriores a F5
@@ -631,14 +646,94 @@ export const MARCADOR_DE_DATO_BORRADO = "[dato borrado]";
 export function erasePersonalDataFromContact(id: string, organizationId: string, db: Db = prisma) {
   return db.contact.updateMany({
     where: { id, organizationId },
-    data: {
-      firstName: MARCADOR_DE_DATO_BORRADO,
-      lastName: MARCADOR_DE_DATO_BORRADO,
-      email: null,
-      phone: null,
-      jobTitle: null,
-    },
+    data: DATOS_BORRADOS,
   });
+}
+
+const DATOS_BORRADOS = {
+  firstName: MARCADOR_DE_DATO_BORRADO,
+  lastName: MARCADOR_DE_DATO_BORRADO,
+  email: null,
+  phone: null,
+  jobTitle: null,
+};
+
+// ---------------------------------------------------------------------------
+// EL BORRADO ALCANZA A LOS CONTACTOS QUE SE UNIERON EN ESTE (OPUS-C-02 de
+// docs-privados/auditoria-2026-10-04-OPUS.md y FABLE-C-03 de
+// docs-privados/auditoria-2026-10-05-FABLE.md, locales).
+//
+// Unir deja la fila del contacto unido dada de baja, con su nombre, su email y
+// su teléfono intactos, y además copia datos suyos a otros lugares. Antes el
+// borrado anonimizaba solo la fila pedida: la del unido seguía con todo,
+// invisible en la pantalla. El sistema afirmaba un borrado que era parcial.
+//
+// Lo que deja una unión y se limpia acá:
+//   - las filas de los contactos unidos (merged_into_id = este);
+//   - las identidades de WhatsApp del contacto: son teléfonos (los que
+//     "perdió" la unión, para seguir encontrándolo por ese número);
+//   - el nombre del unido en las notas del lead ("(del contacto unido …)") y
+//     en la nota que deja la unión ("Se unió el contacto …").
+// Un nivel alcanza: al unir, los que ya estaban unidos al absorbido se
+// reapuntan al que queda.
+// ---------------------------------------------------------------------------
+
+// Mismos textos que escribe contactMerge.service.ts.
+const NOTA_DEL_UNIDO = /\(del contacto unido [^)]*\)/g;
+const ASUNTO_DE_LA_UNION = "Se unió el contacto ";
+const CUERPO_DE_LA_UNION = /^Contacto unido: .*? \(/;
+
+export async function erasePersonalDataDeLosUnidos(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+): Promise<{ contactosUnidos: number }> {
+  const unidos = await db.contact.updateMany({
+    where: { organizationId, mergedIntoId: id },
+    data: DATOS_BORRADOS,
+  });
+
+  await db.contactChannelIdentity.deleteMany({
+    where: { organizationId, contactId: id, channel: "WHATSAPP" },
+  });
+
+  const contacto = await db.contact.findFirst({
+    where: { id, organizationId },
+    select: { leadNotes: true },
+  });
+  const notasLimpias = contacto?.leadNotes?.replace(
+    NOTA_DEL_UNIDO,
+    `(del contacto unido ${MARCADOR_DE_DATO_BORRADO})`,
+  );
+  if (notasLimpias !== undefined && notasLimpias !== contacto?.leadNotes) {
+    await db.contact.updateMany({
+      where: { id, organizationId },
+      data: { leadNotes: notasLimpias },
+    });
+  }
+
+  const notas = await db.activity.findMany({
+    where: {
+      organizationId,
+      contactId: id,
+      type: "NOTE",
+      subject: { startsWith: ASUNTO_DE_LA_UNION },
+    },
+    select: { id: true, body: true },
+  });
+  for (const nota of notas) {
+    await db.activity.updateMany({
+      where: { id: nota.id, organizationId },
+      data: {
+        subject: `${ASUNTO_DE_LA_UNION}${MARCADOR_DE_DATO_BORRADO}`,
+        body:
+          nota.body?.replace(CUERPO_DE_LA_UNION, `Contacto unido: ${MARCADOR_DE_DATO_BORRADO} (`) ??
+          null,
+      },
+    });
+  }
+
+  return { contactosUnidos: unidos.count };
 }
 
 // Resolver un contacto por lo que escribió una PERSONA ("Juan Pérez",
