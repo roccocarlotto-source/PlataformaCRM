@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarRegistro } from "../../auth/permisos";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -438,6 +439,13 @@ export function OpportunityFormPage() {
     }
   }
 
+  // D2: un USER que abre la oportunidad de otro la ve, pero no la guarda (el
+  // backend respondería 403).
+  const soloLectura =
+    isEditMode &&
+    opportunityQuery.data !== undefined &&
+    !puedeEditarRegistro(me, opportunityQuery.data);
+
   if (isEditMode && opportunityQuery.isLoading) {
     return <LoadingState variant="lines" />;
   }
@@ -628,14 +636,17 @@ export function OpportunityFormPage() {
                 valor real, UserSelect no renderiza opción vacía — el PATCH
                 no puede limpiar ownerId (chequeo truthy en
                 opportunity.service.ts). */}
-              <UserSelect
-                id="opportunity-form-owner"
-                label="Asignado"
-                value={values.ownerId}
-                onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
-                emptyOptionLabel="Sin asignar"
-                clearable={false}
-              />
+              {/* Reasignar es de ADMIN (D2): la de un USER queda a su nombre. */}
+              {esAdmin(me) ? (
+                <UserSelect
+                  id="opportunity-form-owner"
+                  label="Asignado"
+                  value={values.ownerId}
+                  onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+                  emptyOptionLabel="Sin asignar"
+                  clearable={false}
+                />
+              ) : null}
             </div>
           </Card>
 
@@ -804,7 +815,17 @@ export function OpportunityFormPage() {
               </p>
             )}
             <RequiredFieldsHint />
-            <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
+            {soloLectura ? (
+              <p className="ds-hint" role="status">
+                {AVISO_SOLO_LECTURA}
+              </p>
+            ) : null}
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={isSubmitting || soloLectura}
+              loading={isSubmitting}
+            >
               {isSubmitting ? "Guardando…" : "Guardar"}
             </Button>
           </div>

@@ -16,6 +16,7 @@ import {
   listContacts,
   updateContact,
 } from "../services/contact.service";
+import { assertPuedeEditar, ownerAlCrear } from "../services/permisosDelVendedor";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -124,7 +125,11 @@ export const listContactsQuerySchema = z.object({
 export const createContactHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createContactSchema, req.body);
-    const contact = await createContact(req.auth.organizationId, req.auth.userId, input);
+    // D2: un USER crea contactos, y quedan a su nombre (permisosDelVendedor.ts).
+    const contact = await createContact(req.auth.organizationId, req.auth.userId, {
+      ...input,
+      ownerId: ownerAlCrear(req.auth, input.ownerId),
+    });
     res.status(201).json(contact);
   },
 );
@@ -147,6 +152,13 @@ export const updateContactHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updateContactSchema, req.body);
+    // D2: un USER edita solo los contactos que tiene asignados, y no los
+    // reasigna. La lectura extra es solo para un USER; el 404 de un contacto
+    // que no existe sale de acá igual que antes salía del service.
+    if (req.auth.role !== "ADMIN") {
+      const actual = await getContactById(req.auth.organizationId, id);
+      assertPuedeEditar(req.auth, actual, input.ownerId);
+    }
     const contact = await updateContact(req.auth.organizationId, req.auth.userId, id, input);
     res.status(200).json(contact);
   },

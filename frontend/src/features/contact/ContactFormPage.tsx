@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarRegistro } from "../../auth/permisos";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -179,6 +180,11 @@ export function ContactFormPage() {
     }
   }
 
+  // D2: un USER que abre el contacto de otro lo ve, pero no lo guarda (el
+  // backend respondería 403).
+  const soloLectura =
+    isEditMode && contactQuery.data !== undefined && !puedeEditarRegistro(me, contactQuery.data);
+
   if (isEditMode && contactQuery.isLoading) {
     return <LoadingState variant="lines" />;
   }
@@ -216,9 +222,12 @@ export function ContactFormPage() {
                 <Button type="button" onClick={() => setCreandoCupon(true)}>
                   Crear cupón
                 </Button>
-                <Button type="button" onClick={() => setUniendo(true)}>
-                  Unir con otro contacto
-                </Button>
+                {/* Unir sigue siendo de ADMIN (D2). */}
+                {esAdmin(me) ? (
+                  <Button type="button" onClick={() => setUniendo(true)}>
+                    Unir con otro contacto
+                  </Button>
+                ) : null}
               </>
             ) : undefined
           }
@@ -292,14 +301,18 @@ export function ContactFormPage() {
                   if (lifecycleStage) setValues({ ...values, lifecycleStage });
                 }}
               />
-              <UserSelect
-                id="contact-form-owner"
-                label="Asignado"
-                value={values.ownerId}
-                onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
-                emptyOptionLabel="Sin asignar"
-                clearable={false}
-              />
+              {/* Reasignar es de ADMIN (D2): lo que crea o edita un USER
+                  queda a su nombre, y el selector ni se le muestra. */}
+              {esAdmin(me) ? (
+                <UserSelect
+                  id="contact-form-owner"
+                  label="Asignado"
+                  value={values.ownerId}
+                  onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+                  emptyOptionLabel="Sin asignar"
+                  clearable={false}
+                />
+              ) : null}
               {isEditMode ? (
                 <div className="ds-field-grid--full">
                   <VehicleSelect
@@ -325,7 +338,17 @@ export function ContactFormPage() {
           {error ? <ErrorState>{error}</ErrorState> : null}
           <div>
             <RequiredFieldsHint />
-            <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
+            {soloLectura ? (
+              <p className="ds-hint" role="status">
+                {AVISO_SOLO_LECTURA}
+              </p>
+            ) : null}
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={isSubmitting || soloLectura}
+              loading={isSubmitting}
+            >
               {isSubmitting ? "Guardando…" : "Guardar"}
             </Button>
           </div>

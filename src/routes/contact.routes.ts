@@ -26,14 +26,17 @@ contactRouter.post(
   "/contacts",
   authenticate,
   businessWriteRateLimiter,
-  authorize("ADMIN"),
+  // Sin authorize("ADMIN") desde D2 (OPUS-I-03, docs-privados, local): un USER
+  // crea, y lo creado queda a su nombre. Ver services/permisosDelVendedor.ts.
   createContactHandler,
 );
 contactRouter.patch(
   "/contacts/:id",
   authenticate,
   businessWriteRateLimiter,
-  authorize("ADMIN"),
+  // Sin authorize("ADMIN") desde D2: un USER edita lo que tiene asignado; el
+  // chequeo de dueño está en el controller (permisosDelVendedor.ts). Borrar
+  // sigue siendo de ADMIN, más abajo.
   updateContactHandler,
 );
 contactRouter.delete(

@@ -107,6 +107,14 @@ export const router = createBrowserRouter([
           { path: "/", element: <DashboardPage /> },
           { path: "/companies", element: <CompanyListPage /> },
           { path: "/contacts", element: <ContactListPage /> },
+          // Crear y editar contactos y oportunidades, FUERA de AdminRoute desde
+          // D2 (OPUS-I-03, docs-privados, local): un USER crea y edita lo que
+          // tiene asignado. Qué puede hacer cada uno lo decide el backend; las
+          // pantallas muestran los botones según auth/permisos.ts.
+          { path: "/contacts/new", element: <ContactFormPage /> },
+          { path: "/contacts/:id/edit", element: <ContactFormPage /> },
+          { path: "/opportunities/new", element: <OpportunityFormPage /> },
+          { path: "/opportunities/:id/edit", element: <OpportunityFormPage /> },
           // Bandeja de conversaciones (ítem 66 de
           // docs/frontend-cambios-pendientes.md): lo que hablaron los agentes
           // de IA con los contactos. ACÁ AFUERA, y no dentro del AdminRoute
@@ -315,8 +323,6 @@ export const router = createBrowserRouter([
               { path: "/service-types/:id/edit", element: <ServiceTypeFormPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
-              { path: "/contacts/new", element: <ContactFormPage /> },
-              { path: "/contacts/:id/edit", element: <ContactFormPage /> },
               { path: "/pipelines/new", element: <PipelineFormPage /> },
               { path: "/pipelines/:id/edit", element: <PipelineFormPage /> },
               { path: "/pipelines/:pipelineId/stages/new", element: <StageFormPage /> },
@@ -324,8 +330,6 @@ export const router = createBrowserRouter([
                 path: "/pipelines/:pipelineId/stages/:stageId/edit",
                 element: <StageFormPage />,
               },
-              { path: "/opportunities/new", element: <OpportunityFormPage /> },
-              { path: "/opportunities/:id/edit", element: <OpportunityFormPage /> },
               // Listado completo de actividades de la organización (ítem 25 de
               // docs/frontend-cambios-pendientes.md): ADMIN-only. Hasta ese
               // ítem vivía afuera como lectura abierta; ahora el backend acota

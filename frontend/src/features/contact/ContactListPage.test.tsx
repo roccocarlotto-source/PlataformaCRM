@@ -242,12 +242,14 @@ describe("ContactListPage", () => {
     await waitFor(() => expect(capturedContacts.at(-1)?.searchParams.get("companyId")).toBeNull());
   });
 
-  it("USER no ve Nuevo contacto / Editar / Eliminar", async () => {
+  // D2 (OPUS-I-03, docs-privados, local): un USER crea, y edita lo que tiene
+  // asignado. Eliminar sigue siendo de ADMIN.
+  it("USER ve Nuevo contacto; en el de otro solo Ver detalle, y nunca Eliminar", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       http.get(contactsUrl, () =>
         HttpResponse.json({
-          data: [makeContact()],
+          data: [makeContact({ ownerId: "otro-vendedor" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -256,8 +258,32 @@ describe("ContactListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
-    expect(screen.queryByText("Nuevo contacto")).not.toBeInTheDocument();
+    expect(screen.getByText("Nuevo contacto")).toBeInTheDocument();
+    await openActionsMenu(userEvent.setup());
+    expect(screen.getByText("Ver detalle")).toBeInTheDocument();
     expect(screen.queryByText("Editar")).not.toBeInTheDocument();
+    expect(screen.queryByText("Eliminar")).not.toBeInTheDocument();
+  });
+
+  it("USER ve Editar en el contacto que tiene asignado, pero no Eliminar", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      http.get(contactsUrl, () =>
+        HttpResponse.json({
+          data: [makeContact({ id: "c-propio", ownerId: "u1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
+    await openActionsMenu(userEvent.setup());
+    expect(screen.getByRole("menuitem", { name: "Editar" })).toHaveAttribute(
+      "href",
+      "/contacts/c-propio/edit",
+    );
     expect(screen.queryByText("Eliminar")).not.toBeInTheDocument();
   });
 

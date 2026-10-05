@@ -355,13 +355,18 @@ describe("OpportunityListPage", () => {
     expect(within(row).getByText(/1500\.00 USD/)).toBeInTheDocument();
   });
 
-  it("acciones de escritura (Nueva/Editar/Eliminar) visibles solo para ADMIN", async () => {
+  // D2 (OPUS-I-03, docs-privados, local): un USER crea, y edita las que tiene
+  // asignadas. Eliminar sigue siendo de ADMIN.
+  it("USER ve Nueva oportunidad; en la de otro solo Ver detalle; en la suya Editar, y nunca Eliminar", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
-          data: [makeOpportunity()],
-          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+          data: [
+            makeOpportunity({ id: "ajena", title: "Renovación anual", ownerId: "otro-vendedor" }),
+            makeOpportunity({ id: "propia", title: "Mi venta", ownerId: "u1" }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
         }),
       ),
       ...relationHandlers(),
@@ -370,8 +375,23 @@ describe("OpportunityListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
-    expect(screen.queryByText("Nueva oportunidad")).not.toBeInTheDocument();
+    expect(screen.getByText("Nueva oportunidad")).toBeInTheDocument();
+
+    const menus = screen.getAllByRole("button", { name: /acciones/i });
+    expect(menus).toHaveLength(2);
+    const user = userEvent.setup();
+
+    await user.click(menus[0]);
+    expect(screen.getByText("Ver detalle")).toBeInTheDocument();
     expect(screen.queryByText("Editar")).not.toBeInTheDocument();
+    expect(screen.queryByText("Eliminar")).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.click(menus[1]);
+    expect(screen.getByRole("menuitem", { name: "Editar" })).toHaveAttribute(
+      "href",
+      "/opportunities/propia/edit",
+    );
     expect(screen.queryByText("Eliminar")).not.toBeInTheDocument();
   });
 
