@@ -33,6 +33,11 @@ import {
 // Si la conversación se vuelve a derivar, transferredToHumanAt se renueva y
 // cuenta como una derivación nueva.
 //
+// SI EL PROCESO DESPIERTA TARDE (dormido, caído, o el negocio acaba de activar
+// el aviso), las derivaciones que vencieron hace demasiado no reciben el texto
+// de golpe: vuelven al agente y queda la tarea para el vendedor. El tope y su
+// motivo están en avisoLlegaTarde (avisoSinRespuesta.service.ts).
+//
 // WhatsApp: el aviso sale solo con la ventana de 24 h abierta; cerrada, queda
 // FAILED con el motivo, igual que en #381. Web y otros canales: el mismo
 // criterio que #381 (entregaDelAviso).
@@ -40,6 +45,9 @@ import {
 
 export interface ResumenDelAviso {
   avisados: number;
+  // Vencidas hace demasiado: volvieron al agente con la tarea, sin aviso al
+  // cliente (avisoLlegaTarde en avisoSinRespuesta.service.ts).
+  tardios: number;
   descartados: number;
   fallidos: number;
 }
@@ -63,7 +71,7 @@ export interface OpcionesDelDrenado {
 export async function drenarAvisosSinRespuesta(
   opciones: OpcionesDelDrenado = {},
 ): Promise<ResumenDelAviso> {
-  const resumen: ResumenDelAviso = { avisados: 0, descartados: 0, fallidos: 0 };
+  const resumen: ResumenDelAviso = { avisados: 0, tardios: 0, descartados: 0, fallidos: 0 };
   const avisar = opciones.avisar ?? avisarSiNadieRespondio;
   const candidatas = await findDerivacionesSinRespuestaVencidas(
     opciones.limite ?? env.AVISO_SIN_RESPUESTA_WORKER_BATCH_SIZE,
@@ -78,6 +86,8 @@ export async function drenarAvisosSinRespuesta(
       );
       if (resultado === "avisado") {
         resumen.avisados++;
+      } else if (resultado === "tarde") {
+        resumen.tardios++;
       } else {
         resumen.descartados++;
       }
@@ -123,7 +133,7 @@ export function iniciarWorkerDeAvisoSinRespuesta(
     tickEnCurso = (async () => {
       try {
         const resumen = await drenar();
-        if (resumen.avisados + resumen.fallidos > 0) {
+        if (resumen.avisados + resumen.tardios + resumen.fallidos > 0) {
           logger.info(resumen, "Avisos automáticos de derivaciones sin respuesta");
         }
       } catch (err) {

@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Prisma, type ConversationChannel } from "@prisma/client";
 import type { Db } from "../lib/prisma";
+import { AppError } from "../utils/AppError";
 import type { RegistrarEntranteInput } from "./agentOrchestration.service";
 import {
   canalDelObjeto,
+  hayQueReintentarElLote,
   leerMensaje,
   procesarWebhookDeMeta,
   type DepsDelWebhookMeta,
@@ -29,6 +31,8 @@ interface Estado {
   contactos: { organizationId: string; channel: string; externalId: string }[];
   entrantes: RegistrarEntranteInput[];
   jobs: Record<string, unknown>[];
+  // Las conversaciones que se dejaron para una persona (OPUS-I-01).
+  derivadas: string[];
 }
 
 type Agente = Awaited<ReturnType<DepsDelWebhookMeta["findAgentByFacebookPageId"]>>;
@@ -50,6 +54,7 @@ function dobles(
     contactos: [],
     entrantes: [],
     jobs: [],
+    derivadas: [],
   };
   const agente: Agente =
     "agente" in opciones
@@ -78,7 +83,8 @@ function dobles(
       estado.consultasDeAgente.push(pageId);
       return pageId === PAGE_ID ? agente : null;
     },
-    findMessageByExternalId: async (_org, mid) => (procesados.has(mid) ? { id: "m" } : null),
+    findMessageByExternalId: async (_org, mid) =>
+      procesados.has(mid) ? { id: "m", conversationId: `conv-${mid}` } : null,
     resolveMetaContact: async (organizationId, channel, externalId) => {
       estado.contactos.push({ organizationId, channel, externalId });
       return "contacto-1";
@@ -87,12 +93,15 @@ function dobles(
       const fallo = opciones.falloAlRegistrar?.(input.externalMessageId ?? "");
       if (fallo) throw fallo;
       estado.entrantes.push(input);
-      await enLaMismaTransaccion({} as Db, { id: `entrante-${input.externalMessageId}` });
-      return {};
+      await enLaMismaTransaccion?.({} as Db, { id: `entrante-${input.externalMessageId}` });
+      return { conversation: { id: `conv-${input.externalMessageId}` } };
     },
     createAgentInboundJob: async (data) => {
       estado.jobs.push({ ...data });
       return {};
+    },
+    derivarEntranteSinAgente: async ({ conversationId }) => {
+      estado.derivadas.push(conversationId);
     },
   };
   return { deps, estado };
@@ -165,7 +174,14 @@ test("Messenger: el mensaje se encola con canal MESSENGER, el Page ID como cuent
     deps,
   );
 
-  assert.deepEqual(resumen, { encolado: 1, duplicado: 0, ignorado: 0, fallido: 0 });
+  assert.deepEqual(resumen, {
+    encolado: 1,
+    derivado: 0,
+    duplicado: 0,
+    ignorado: 0,
+    fallido: 0,
+    descartado: 0,
+  });
   assert.deepEqual(estado.consultasDeInstagram, [], "Messenger no pasa por la conexión");
   assert.deepEqual(estado.consultasDeAgente, [PAGE_ID]);
   assert.deepEqual(estado.contactos, [
@@ -223,7 +239,14 @@ test("echo y mensaje sin texto: ignorados sin tocar agente, contacto ni cola", a
     lote("page", PAGE_ID, [evento({ text: "respuesta", isEcho: true }), evento({ adjunto: true })]),
     deps,
   );
-  assert.deepEqual(resumen, { encolado: 0, duplicado: 0, ignorado: 2, fallido: 0 });
+  assert.deepEqual(resumen, {
+    encolado: 0,
+    derivado: 0,
+    duplicado: 0,
+    ignorado: 2,
+    fallido: 0,
+    descartado: 0,
+  });
   assert.deepEqual(estado.consultasDeAgente, []);
   assert.equal(estado.contactos.length, 0);
   assert.equal(estado.jobs.length, 0);
@@ -251,7 +274,8 @@ test("dedup: dos entregas en paralelo — el P2002 al registrar, confirmado rele
       });
     },
   });
-  deps.findMessageByExternalId = async () => (yaEsta ? { id: "m" } : null);
+  deps.findMessageByExternalId = async () =>
+    yaEsta ? { id: "m", conversationId: "conv-m" } : null;
   const resumen = await procesarWebhookDeMeta(
     lote("page", PAGE_ID, [evento({ text: "Hola" })]),
     deps,
@@ -259,7 +283,20 @@ test("dedup: dos entregas en paralelo — el P2002 al registrar, confirmado rele
   assert.equal(resumen.duplicado, 1);
 });
 
-test("agente inexistente, inactivo o sin el canal: ignorado sin crear contacto", async () => {
+test("página sin agente: ignorado sin crear contacto (no hay conversación donde guardarlo)", async () => {
+  const { deps, estado } = dobles({ agente: null });
+  const resumen = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [evento({ text: "Hola" })]),
+    deps,
+  );
+  assert.equal(resumen.ignorado, 1);
+  assert.equal(estado.contactos.length, 0);
+  assert.equal(estado.entrantes.length, 0);
+});
+
+// OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): antes estos
+// tres casos descartaban el mensaje sin crear ni el contacto.
+test("OPUS-I-01: agente apagado o sin el canal -> el entrante se guarda SIN job y la conversación queda para una persona", async () => {
   const base = {
     id: "agente-1",
     organizationId: ORG,
@@ -268,7 +305,6 @@ test("agente inexistente, inactivo o sin el canal: ignorado sin crear contacto",
     channels: ["MESSENGER"] as ConversationChannel[],
   };
   const casos: { nombre: string; agente: Agente; object: string; cuenta: string }[] = [
-    { nombre: "sin agente", agente: null, object: "page", cuenta: PAGE_ID },
     {
       nombre: "inactivo",
       agente: { ...base, isActive: false },
@@ -281,19 +317,49 @@ test("agente inexistente, inactivo o sin el canal: ignorado sin crear contacto",
       object: "page",
       cuenta: PAGE_ID,
     },
-    // Tiene Messenger pero no Instagram: el mensaje de Instagram se ignora.
+    // Tiene Messenger pero no Instagram: el de Instagram queda para una persona.
     { nombre: "sin INSTAGRAM", agente: base, object: "instagram", cuenta: IGID },
   ];
   for (const caso of casos) {
     const { deps, estado } = dobles({ agente: caso.agente });
     const resumen = await procesarWebhookDeMeta(
-      lote(caso.object, caso.cuenta, [evento({ text: "Hola" })]),
+      lote(caso.object, caso.cuenta, [evento({ mid: "m_1", text: "Hola" })]),
       deps,
     );
-    assert.equal(resumen.ignorado, 1, caso.nombre);
-    assert.equal(estado.contactos.length, 0, caso.nombre);
+    assert.equal(resumen.derivado, 1, caso.nombre);
+    assert.equal(resumen.ignorado, 0, caso.nombre);
+    assert.equal(estado.contactos.length, 1, caso.nombre);
+    assert.equal(estado.entrantes.length, 1, caso.nombre);
+    assert.equal(estado.entrantes[0]?.texto, "Hola", caso.nombre);
     assert.equal(estado.jobs.length, 0, caso.nombre);
+    assert.deepEqual(estado.derivadas, ["conv-m_1"], caso.nombre);
   }
+});
+
+test("OPUS-I-01: la reentrega de un entrante de un agente apagado es duplicado y vuelve a pedir la derivación (por si la primera se cortó antes)", async () => {
+  const { deps, estado } = dobles({
+    agente: {
+      id: "agente-1",
+      organizationId: ORG,
+      branchId: "sucursal-1",
+      isActive: false,
+      channels: ["MESSENGER"],
+    },
+    yaProcesados: ["m_1"],
+  });
+  const resumen = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [evento({ mid: "m_1", text: "Hola" })]),
+    deps,
+  );
+  assert.equal(resumen.duplicado, 1);
+  assert.equal(estado.entrantes.length, 0);
+  assert.deepEqual(estado.derivadas, ["conv-m_1"]);
+});
+
+test("con el agente atendiendo, un duplicado no deriva nada", async () => {
+  const { deps, estado } = dobles({ yaProcesados: ["m_1"] });
+  await procesarWebhookDeMeta(lote("page", PAGE_ID, [evento({ mid: "m_1", text: "Hola" })]), deps);
+  assert.deepEqual(estado.derivadas, []);
 });
 
 test("un mensaje que falla no tumba el lote: el siguiente se encola igual", async () => {
@@ -307,16 +373,78 @@ test("un mensaje que falla no tumba el lote: el siguiente se encola igual", asyn
     ]),
     deps,
   );
-  assert.deepEqual(resumen, { encolado: 1, duplicado: 0, ignorado: 0, fallido: 1 });
+  assert.deepEqual(resumen, {
+    encolado: 1,
+    derivado: 0,
+    duplicado: 0,
+    ignorado: 0,
+    fallido: 1,
+    descartado: 0,
+  });
   assert.deepEqual(
     estado.jobs.map((j) => j.messageId),
     ["entrante-m_bueno"],
   );
+  // FABLE-C-01 (docs-privados/auditoria-2026-10-05-FABLE.md, local): ese
+  // "fallido" es lo que hace que el webhook le pida a Meta que reintente.
+  assert.equal(hayQueReintentarElLote(resumen), true);
+});
+
+test("FABLE-C-01: la reentrega del lote después de un fallo guarda el que faltaba y no repite el que ya estaba", async () => {
+  let baseCaida = true;
+  const guardados = new Set<string>();
+  const { deps, estado } = dobles({
+    falloAlRegistrar: (mid) =>
+      baseCaida && mid === "m_2" ? new Error("se cayó la base") : undefined,
+  });
+  const registrar = deps.registrarEntrante;
+  deps.registrarEntrante = async (input, opciones) => {
+    const r = await registrar(input, opciones);
+    guardados.add(input.externalMessageId ?? "");
+    return r;
+  };
+  deps.findMessageByExternalId = async (_org, mid) =>
+    guardados.has(mid) ? { id: mid, conversationId: `conv-${mid}` } : null;
+  const elLote = lote("page", PAGE_ID, [
+    evento({ mid: "m_1", text: "uno" }),
+    evento({ mid: "m_2", text: "dos" }),
+  ]);
+
+  const primera = await procesarWebhookDeMeta(elLote, deps);
+  assert.equal(primera.encolado, 1);
+  assert.equal(primera.fallido, 1);
+  assert.equal(hayQueReintentarElLote(primera), true);
+
+  baseCaida = false;
+  const segunda = await procesarWebhookDeMeta(elLote, deps);
+  assert.equal(segunda.duplicado, 1);
+  assert.equal(segunda.encolado, 1);
+  assert.equal(hayQueReintentarElLote(segunda), false);
+  assert.deepEqual(
+    estado.jobs.map((j) => j.messageId),
+    ["entrante-m_1", "entrante-m_2"],
+  );
+});
+
+test("FABLE-C-01: un rechazo de negocio (AppError 4xx) se descarta sin pedir reintento; un 5xx sí lo pide", async () => {
+  const con = async (fallo: unknown) => {
+    const { deps } = dobles({ falloAlRegistrar: () => fallo });
+    return procesarWebhookDeMeta(lote("page", PAGE_ID, [evento({ text: "Hola" })]), deps);
+  };
+
+  const rechazo = await con(new AppError("El contacto no existe", 400));
+  assert.equal(rechazo.descartado, 1);
+  assert.equal(rechazo.fallido, 0);
+  assert.equal(hayQueReintentarElLote(rechazo), false);
+
+  const caida = await con(new AppError("La base no respondió", 503));
+  assert.equal(caida.fallido, 1);
+  assert.equal(hayQueReintentarElLote(caida), true);
 });
 
 test("otro objeto (whatsapp_business_account) o entry sin id / sin messaging: nada que hacer", async () => {
   const { deps, estado } = dobles();
-  const vacio = { encolado: 0, duplicado: 0, ignorado: 0, fallido: 0 };
+  const vacio = { encolado: 0, derivado: 0, duplicado: 0, ignorado: 0, fallido: 0, descartado: 0 };
   assert.deepEqual(
     await procesarWebhookDeMeta(
       lote("whatsapp_business_account", PAGE_ID, [evento({ text: "x" })]),

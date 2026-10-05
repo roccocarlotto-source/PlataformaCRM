@@ -9,6 +9,7 @@ import { notFound } from "../middlewares/notFound";
 import { createMetaWebhookRouter } from "../routes/metaWebhook.routes";
 import { resetLlmProviderParaTests, setLlmProviderForTests } from "../services/llmProvider.service";
 import { obtenerTokenParaEnviar } from "../services/metaPageConnection.service";
+import { depsDelWebhookMetaReales, procesarWebhookDeMeta } from "../services/metaWebhook.service";
 import { MetaSendError, type SendMetaTextInput } from "../services/metaSend.service";
 import { getCifrador } from "../utils/encryption";
 import { hmacSha256Hex } from "../utils/hmac";
@@ -49,9 +50,23 @@ const APP_SECRET = "test_meta_app_secret";
 let verifyTokenConfigurado: string | undefined = VERIFY_TOKEN;
 let appSecretConfigurado: string | undefined = APP_SECRET;
 
+// FABLE-C-01: los mid cuyo guardado "falla" (la base que no responde). El
+// resto del procesamiento es el real.
+const midsQueFallanAlGuardar = new Set<string>();
+
 const deps: MetaWebhookDeps = {
   verifyToken: () => verifyTokenConfigurado,
   appSecret: () => appSecretConfigurado,
+  procesar: (lote) =>
+    procesarWebhookDeMeta(lote, {
+      ...depsDelWebhookMetaReales,
+      registrarEntrante: (input, opciones) => {
+        if (midsQueFallanAlGuardar.has(input.externalMessageId ?? "")) {
+          return Promise.reject(new Error("la base no respondió (doble)"));
+        }
+        return depsDelWebhookMetaReales.registrarEntrante(input, opciones);
+      },
+    }),
 };
 
 // Dígitos al azar: facebook_page_id y page_id son UNIQUE GLOBAL, y un id fijo
@@ -682,4 +697,50 @@ test("la organización reconectó OTRA página después de que llegó el mensaje
   } finally {
     await restaurarConexionC();
   }
+});
+
+// OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): con el agente
+// apagado el mensaje ya no se descarta.
+test("OPUS-I-01: Messenger con el agente apagado -> el mensaje queda en la conversación, que pasa a una persona, sin job", async () => {
+  const psid = idAlAzar("4");
+  const mid = `m_${randomUUID()}`;
+  await prisma.agent.update({ where: { id: negocioA.agentId }, data: { isActive: false } });
+  try {
+    const res = await enviar(
+      payload({ object: "page", cuentaId: negocioA.pageId, senderId: psid, mid }),
+    );
+    assert.equal(res.status, 200);
+  } finally {
+    await prisma.agent.update({ where: { id: negocioA.agentId }, data: { isActive: true } });
+  }
+
+  const [entrante] = await mensajesCon(mid);
+  assert.ok(entrante, "el entrante se guardó");
+  assert.equal(await prisma.agentInboundJob.count({ where: { messageId: entrante.id } }), 0);
+  const conversacion = await prisma.conversation.findUniqueOrThrow({
+    where: { id: entrante.conversationId },
+  });
+  assert.equal(conversacion.channel, "MESSENGER");
+  assert.equal(conversacion.status, "TRANSFERRED_TO_HUMAN");
+});
+
+// FABLE-C-01 (docs-privados/auditoria-2026-10-05-FABLE.md, local).
+test("FABLE-C-01: si el mensaje no se pudo guardar -> 503; la reentrega lo guarda una sola vez", async () => {
+  const psid = idAlAzar("4");
+  const mid = `m_${randomUUID()}`;
+  const cuerpo = payload({ object: "page", cuentaId: negocioA.pageId, senderId: psid, mid });
+
+  midsQueFallanAlGuardar.add(mid);
+  try {
+    assert.equal((await enviar(cuerpo)).status, 503, "Meta tiene que reintentar");
+    assert.equal((await mensajesCon(mid)).length, 0);
+  } finally {
+    midsQueFallanAlGuardar.clear();
+  }
+
+  assert.equal((await enviar(cuerpo)).status, 200);
+  assert.equal((await enviar(cuerpo)).status, 200, "una tercera entrega es duplicado");
+  const entrantes = await mensajesCon(mid);
+  assert.equal(entrantes.length, 1);
+  assert.equal(await prisma.agentInboundJob.count({ where: { messageId: entrantes[0].id } }), 1);
 });

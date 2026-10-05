@@ -27,6 +27,7 @@ import {
   humanSpokeLast,
   type CreateMessageData,
 } from "../repositories/message.repository";
+import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
 import {
   atencionFueraDeHorario,
@@ -143,10 +144,23 @@ export const PRESUPUESTO_DEL_TURNO_MS = 90_000;
 export const MOTIVO_TIEMPO_AGOTADO =
   "El agente tardó demasiado en responder: el contacto quedó esperando y hay que contestarle";
 
+// El motivo de OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local):
+// el cliente escribió por un canal cuyo agente está apagado o no lo atiende.
+// El mensaje no pasa por el modelo; queda en la conversación para una persona.
+export const MOTIVO_AGENTE_NO_ATIENDE =
+  "El agente está apagado o no atiende este canal: el mensaje del cliente quedó en la conversación y lo tiene que responder una persona";
+
 // Los motivos en los que el proveedor del modelo es justamente lo que falló:
 // generar el brief sería volver a golpearlo (con sus propios reintentos) en el
 // peor momento. El brief se puede pedir a mano desde la bandeja después.
-const MOTIVOS_SIN_BRIEF = new Set([MOTIVO_PROVEEDOR_CAIDO, MOTIVO_TIEMPO_AGOTADO]);
+//
+// MOTIVO_AGENTE_NO_ATIENDE entra por otro motivo: esa derivación existe para
+// que el CRM funcione sin IA, y no puede depender de una llamada al modelo.
+const MOTIVOS_SIN_BRIEF = new Set([
+  MOTIVO_PROVEEDOR_CAIDO,
+  MOTIVO_TIEMPO_AGOTADO,
+  MOTIVO_AGENTE_NO_ATIENDE,
+]);
 
 // El tercer disparador fijo de derivación (ítem 110), junto a los dos que ya
 // había. Exportado para poder medirlo solo: la sonda de prompt lo saca del
@@ -1199,6 +1213,59 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
   }
 
   return { activityId };
+}
+
+// ¿El agente contesta por este canal? Encendido y con el canal entre los
+// suyos: las dos cosas que cargarAgenteYContacto exige antes de un turno.
+export function agenteAtiendeElCanal(
+  agent: { isActive: boolean; channels: ConversationChannel[] },
+  channel: ConversationChannel,
+): boolean {
+  return agent.isActive && agent.channels.includes(channel);
+}
+
+// OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): el CRM
+// funciona sin IA también en la entrada. Un entrante por un canal cuyo agente
+// no atiende ya quedó guardado en su conversación; esto la deja en "atiende
+// una persona", con la tarea para el vendedor, sin ninguna llamada al modelo.
+//
+// Idempotente, porque ejecutarHandoff lo es: el segundo mensaje del mismo
+// cliente (o la reentrega del primero) no crea otra tarea. Los webhooks la
+// llaman también ante un duplicado: si la primera entrega guardó el mensaje y
+// se cortó antes de derivar, la reentrega de Meta termina el trabajo.
+export async function derivarEntranteSinAgente(entrada: {
+  organizationId: string;
+  conversationId: string;
+}): Promise<void> {
+  const { organizationId, conversationId } = entrada;
+  const conversation = await findConversationById(conversationId, organizationId);
+  if (!conversation || conversation.status !== "ACTIVE") {
+    return;
+  }
+  const [agent, contact] = await Promise.all([
+    findAgentById(conversation.agentId, organizationId),
+    findContactById(conversation.contactId, organizationId),
+  ]);
+  if (!agent || !contact) {
+    return;
+  }
+  // A diferencia de una derivación del agente, acá no puede haber derivación
+  // silenciosa: no hay agente que siga atendiendo mientras tanto. Sin vendedor
+  // del contacto ni vendedor por defecto en la sucursal, la tarea y la
+  // conversación van al ADMIN activo más antiguo. El contacto no cambia de
+  // dueño: el ADMIN solo recibe el aviso.
+  const ownerId =
+    (await resolverOwnerDelContacto(organizationId, conversation.branchId, contact)) ??
+    (await findOldestActiveAdmin(organizationId))?.id ??
+    null;
+  await ejecutarHandoff({
+    organizationId,
+    conversationId,
+    branchId: conversation.branchId,
+    contact: { ...contact, ownerId },
+    agentName: agent.name,
+    motivo: MOTIVO_AGENTE_NO_ATIENDE,
+  });
 }
 
 // El comienzo del asunto de la Activity de aviso. Exportado porque la marca

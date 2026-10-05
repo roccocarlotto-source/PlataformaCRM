@@ -58,7 +58,7 @@ export function createWhatsappWebhookRouter(deps: WhatsappWebhookDeps): Router {
     requireJsonBody,
     whatsappJsonParser,
     createVerifyWhatsappSignature(deps),
-    createWhatsappWebhookHandler(),
+    createWhatsappWebhookHandler(deps),
   );
 
   return router;

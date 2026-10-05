@@ -185,6 +185,18 @@ export function countActiveAdmins(organizationId: string, excludeId?: string, db
   });
 }
 
+// El ADMIN activo más antiguo de la organización: a quién se le asigna lo que
+// no tiene vendedor (la tarea de un pedido sin responder, el mensaje de un
+// cliente que nadie atiende). Siempre hay uno: countActiveAdmins impide
+// quedarse sin ADMIN.
+export function findOldestActiveAdmin(organizationId: string, db: Db = prisma) {
+  return db.user.findFirst({
+    where: { organizationId, isActive: true, deletedAt: null, role: { name: "ADMIN" } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+}
+
 export interface UpdateUserData {
   isActive?: boolean;
   roleId?: string;

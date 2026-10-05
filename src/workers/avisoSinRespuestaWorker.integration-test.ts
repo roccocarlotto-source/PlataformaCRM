@@ -34,6 +34,9 @@ import { drenarAvisosSinRespuesta } from "./avisoSinRespuestaWorker";
 //      motivo), igual que en "Devolver al agente".
 //   7. Las derivadas antes de la columna (transferredToHumanAt NULL): no.
 //   8. La derivación del agente escribe transferredToHumanAt.
+//   9. Vencida hace demasiado (el proceso durmió): vuelve al agente y queda la
+//      tarea, pero al cliente no se le escribe.
+//  10. Con el agente apagado o sin el canal: sigue esperando a una persona.
 // ---------------------------------------------------------------------------
 
 const MINUTO = 60 * 1000;
@@ -277,7 +280,9 @@ test("5. agente con el aviso desactivado (vacío o 0): no pasa nada", async () =
 });
 
 test("6. ventana de 24 h cerrada: el aviso no sale (FAILED con el motivo), igual que #381", async () => {
-  const agente = await crearAgente(15);
+  // 10 horas de plazo: una derivación de hace 25 h sigue dentro del tope de
+  // antigüedad (30 h) y la ventana de WhatsApp ya está cerrada.
+  const agente = await crearAgente(600);
   const conv = await crearDerivada({
     agentId: agente.id,
     derivadaHace: 25 * HORA,
@@ -317,4 +322,63 @@ test("8. la derivación del agente anota desde cuándo cuentan los minutos", asy
   assert.equal(fila.status, "TRANSFERRED_TO_HUMAN");
   assert.ok(fila.transferredToHumanAt);
   assert.ok(fila.transferredToHumanAt.getTime() >= antes - 1000);
+});
+
+// FABLE-G-02 / OPUS-D-02 (docs-privados, local): el proceso despierta horas
+// después. Antes, cada derivación vieja recibía el aviso de golpe.
+test("9. vencida hace demasiado: vuelve al agente y queda la tarea, sin escribirle al cliente", async () => {
+  const agente = await crearAgente(15);
+  // 15 minutos de plazo: el aviso vale hasta los 45. Esta venció hace 5 horas.
+  const tarde = await crearDerivada({ agentId: agente.id, derivadaHace: 5 * HORA });
+  // Y una que todavía está a tiempo, en la misma pasada: esa sí recibe el aviso.
+  const aTiempo = await crearDerivada({ agentId: agente.id, derivadaHace: 40 * MINUTO });
+
+  const resumen = await drenar();
+
+  assert.equal(resumen.tardios, 1);
+  assert.equal(resumen.avisados, 1);
+  assert.equal(envios.length, 1, "un solo WhatsApp: el de la que estaba a tiempo");
+  assert.equal((await avisosDe(tarde.id)).length, 0, "ningún aviso en el hilo de la vieja");
+  assert.equal((await avisosDe(aTiempo.id)).length, 1);
+  assert.equal(await estadoDe(tarde.id), "ACTIVE", "igual vuelve al agente");
+
+  const tareas = await prisma.activity.findMany({
+    where: { organizationId: orgId, contactId: tarde.contactId, type: "TASK" },
+  });
+  assert.equal(tareas.length, 1, "la tarea para el vendedor queda");
+  assert.equal(tareas[0].assigneeId, adminId);
+  assert.equal(tareas[0].completedAt, null);
+
+  // Otra pasada no la vuelve a elegir ni crea otra tarea.
+  const segunda = await drenar();
+  assert.equal(segunda.tardios, 0);
+  assert.equal(
+    await prisma.activity.count({ where: { organizationId: orgId, contactId: tarde.contactId } }),
+    1,
+  );
+});
+
+// OPUS-I-01 (docs-privados, local): la conversación de un agente apagado
+// espera a una persona. El aviso la devolvería a un agente que no contesta.
+test("10. agente apagado o sin el canal: no hay aviso y la conversación sigue esperando a una persona", async () => {
+  const apagado = await crearAgente(15);
+  await prisma.agent.update({ where: { id: apagado.id }, data: { isActive: false } });
+  const sinCanal = await crearAgente(15);
+  await prisma.agent.update({ where: { id: sinCanal.id }, data: { channels: ["WEB"] } });
+
+  for (const agente of [apagado, sinCanal]) {
+    const conv = await crearDerivada({ agentId: agente.id });
+
+    const resumen = await drenar();
+
+    assert.equal(resumen.avisados + resumen.tardios, 0);
+    assert.equal(envios.length, 0);
+    assert.equal((await avisosDe(conv.id)).length, 0);
+    assert.equal(await estadoDe(conv.id), "TRANSFERRED_TO_HUMAN");
+    assert.equal(
+      await avisarSiNadieRespondio(orgId, conv.id, new Date(), deps),
+      "no-corresponde",
+      "la decisión bajo el lock también lo respeta",
+    );
+  }
 });

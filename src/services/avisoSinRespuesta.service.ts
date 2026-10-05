@@ -1,5 +1,6 @@
 import type { Activity, ConversationChannel, ConversationStatus, Message } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
+import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { fraseFueraDeHorario, type AtencionFueraDeHorario } from "../utils/fueraDeHorario";
 import { ventanaDeWhatsappAbierta } from "../utils/ventanaDeWhatsapp";
 import { PREFIJO_TAREA_DE_DERIVACION } from "./agentOrchestration.service";
@@ -78,6 +79,40 @@ export const MOTIVO_VENTANA_CERRADA =
   "No se envió: pasaron más de 24 h desde el último mensaje del cliente y WhatsApp solo permite plantillas aprobadas";
 export const MOTIVO_VENTANA_CERRADA_META =
   "No se envió: pasaron más de 24 h desde el último mensaje del cliente y Messenger e Instagram no dejan escribirle hasta que vuelva a escribir";
+
+// ---------------------------------------------------------------------------
+// TOPE DE ANTIGÜEDAD DEL AVISO AUTOMÁTICO (FABLE-G-02 de
+// docs-privados/auditoria-2026-10-05-FABLE.md y OPUS-D-02 de
+// docs-privados/auditoria-2026-10-04-OPUS.md, locales).
+//
+// El aviso promete algo sobre AHORA ("por el momento no hay nadie
+// disponible"). Si el proceso estuvo dormido o caído, o si el negocio acaba de
+// activar el aviso, el barrido encuentra derivaciones vencidas hace horas o
+// días: mandarles ese texto de golpe —quizá de madrugada, quizá a un cliente
+// al que ya atendieron por teléfono— es peor que no mandarlo. Pasado el tope,
+// la conversación vuelve al agente y queda la tarea para el vendedor, pero al
+// cliente no se le escribe.
+//
+// El tope: 3 veces los minutos configurados, y nunca menos de 10 minutos de
+// tolerancia sobre el plazo. El piso existe por los plazos cortos: con 2
+// minutos, "3 veces" son 4 de tolerancia, menos que un deploy o un arranque en
+// frío, y un reinicio normal se comería avisos que sí correspondían.
+//   2 min -> hasta los 12;  15 min -> hasta los 45;  60 min -> hasta los 180.
+// ---------------------------------------------------------------------------
+export const FACTOR_DE_ANTIGUEDAD_DEL_AVISO = 3;
+export const TOLERANCIA_MINIMA_DEL_AVISO_MIN = 10;
+
+export function topeDeAntiguedadDelAvisoMs(minutos: number): number {
+  return (
+    Math.max(minutos * FACTOR_DE_ANTIGUEDAD_DEL_AVISO, minutos + TOLERANCIA_MINIMA_DEL_AVISO_MIN) *
+    60_000
+  );
+}
+
+// Pura: ¿la derivación venció hace tanto que ya no se le escribe al cliente?
+export function avisoLlegaTarde(derivadaEn: Date, minutos: number, ahora: Date): boolean {
+  return ahora.getTime() - derivadaEn.getTime() > topeDeAntiguedadDelAvisoMs(minutos);
+}
 
 // Pura: ¿hay que avisarle al cliente al devolver? Solo si la conversación
 // estaba derivada y ninguna persona le escribió desde la derivación. El
@@ -188,11 +223,7 @@ export async function findAdminParaLaTarea(
   if (actor?.role === "ADMIN") {
     return actor.userId;
   }
-  const admin = await db.user.findFirst({
-    where: { organizationId, isActive: true, deletedAt: null, role: { name: "ADMIN" } },
-    orderBy: { createdAt: "asc" },
-    select: { id: true },
-  });
+  const admin = await findOldestActiveAdmin(organizationId, db);
   return admin?.id ?? null;
 }
 

@@ -160,6 +160,16 @@ export function transferConversationToHuman(
 // la decisión final la vuelve a tomar avisarSiNadieRespondio bajo el lock de
 // la conversación, así que esto solo elige candidatas.
 //
+// Solo con el agente encendido y operando en el canal de la conversación: el
+// aviso devuelve la conversación al agente y le dice al cliente que el agente
+// puede seguir ayudándolo. Con el agente apagado (OPUS-I-01 de
+// docs-privados/auditoria-2026-10-04-OPUS.md, local) eso sería falso, y la
+// conversación tiene que seguir esperando a una persona.
+//
+// Sin tope de antigüedad a propósito: una derivación demasiado vieja también
+// se elige, y es avisarSiNadieRespondio quien decide que ya no se le escribe
+// al cliente (solo queda la tarea). Ver avisoLlegaTarde.
+//
 // Sin organización a propósito, como los reclamos de los otros workers: es el
 // barrido de todo el sistema. `organizationId` es solo para los tests.
 export async function findDerivacionesSinRespuestaVencidas(
@@ -177,6 +187,8 @@ export async function findDerivacionesSinRespuestaVencidas(
     WHERE c.status = 'TRANSFERRED_TO_HUMAN'::"ConversationStatus"
       AND c.transferred_to_human_at IS NOT NULL
       AND a.deleted_at IS NULL
+      AND a.is_active
+      AND c.channel = ANY(a.channels)
       AND a.unanswered_handoff_notice_minutes > 0
       AND c.transferred_to_human_at
         <= now() - (a.unanswered_handoff_notice_minutes * interval '1 minute')

@@ -3,8 +3,15 @@ import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { firmaDeMetaValida } from "../middlewares/metaWebhookBody";
 import { secretsMatch } from "../middlewares/requireInternalProxySecret";
-import { metaWebhookPayloadSchema, procesarWebhookDeMeta } from "../services/metaWebhook.service";
+import {
+  hayQueReintentarElLote,
+  metaWebhookPayloadSchema,
+  procesarWebhookDeMeta,
+  type MetaWebhookPayload,
+  type ResumenDelLote,
+} from "../services/metaWebhook.service";
 import { AppError } from "../utils/AppError";
+import { STATUS_PARA_QUE_META_REINTENTE } from "../utils/falloDeEntrante";
 import { asyncHandler } from "../utils/asyncHandler";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +34,9 @@ import { asyncHandler } from "../utils/asyncHandler";
 export interface MetaWebhookDeps {
   verifyToken: () => string | undefined;
   appSecret: () => string | undefined;
+  // Solo para tests: el procesamiento del lote, para simular que la base no
+  // respondió al guardar un mensaje. Producción usa procesarWebhookDeMeta.
+  procesar?: (payload: MetaWebhookPayload) => Promise<ResumenDelLote>;
 }
 
 // META_APP_SECRET y no una variable propia: es el mismo App Secret con el que
@@ -91,9 +101,13 @@ export function createVerifyMetaSignature(deps: MetaWebhookDeps): RequestHandler
   };
 }
 
-// POST, paso 3: 200 siempre que la forma sea válida, aunque un mensaje puntual
-// falle adentro — mismo criterio que WhatsApp.
-export function createMetaWebhookHandler(): RequestHandler {
+// POST, paso 3: 200 cuando todo lo del lote quedó guardado; 503 si un mensaje
+// no se pudo guardar, para que Meta lo reentregue — mismo criterio que
+// WhatsApp (ver createWhatsappWebhookHandler y utils/falloDeEntrante.ts).
+export function createMetaWebhookHandler(
+  deps: Pick<MetaWebhookDeps, "procesar"> = {},
+): RequestHandler {
+  const procesar = deps.procesar ?? procesarWebhookDeMeta;
   return asyncHandler<Request>(async (req, res: Response) => {
     const parsed = metaWebhookPayloadSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -102,7 +116,17 @@ export function createMetaWebhookHandler(): RequestHandler {
       return;
     }
 
-    const resumen = await procesarWebhookDeMeta(parsed.data);
+    const resumen = await procesar(parsed.data);
+    if (hayQueReintentarElLote(resumen)) {
+      logger.error(
+        { object: parsed.data.object, resumen },
+        "Webhook de Meta con mensajes sin guardar: se le pide a Meta que reintente",
+      );
+      res
+        .status(STATUS_PARA_QUE_META_REINTENTE)
+        .json({ error: { message: "No se pudo guardar el lote completo" } });
+      return;
+    }
     logger.info({ object: parsed.data.object, resumen }, "Webhook de Meta procesado");
 
     res.status(200).json({ ok: true });

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  avisoLlegaTarde,
+  topeDeAntiguedadDelAvisoMs,
   AVISO_SIN_RESPUESTA,
   MOTIVO_VENTANA_CERRADA,
   MOTIVO_VENTANA_CERRADA_META,
@@ -172,4 +174,31 @@ test("marca: sin aviso no hay marca", () => {
     marcaSinRespuesta({ hayAviso: false, humanoEscribioDespues: false, tarea: null }),
     false,
   );
+});
+
+// --- Tope de antigüedad del aviso automático (FABLE-G-02 / OPUS-D-02,
+// docs-privados, local) -------------------------------------------------------
+
+test("tope de antigüedad: 3 veces los minutos, y nunca menos de 10 minutos de tolerancia", () => {
+  const MIN = 60 * 1000;
+  assert.equal(topeDeAntiguedadDelAvisoMs(1), 11 * MIN);
+  assert.equal(topeDeAntiguedadDelAvisoMs(2), 12 * MIN);
+  assert.equal(topeDeAntiguedadDelAvisoMs(5), 15 * MIN);
+  assert.equal(topeDeAntiguedadDelAvisoMs(15), 45 * MIN);
+  assert.equal(topeDeAntiguedadDelAvisoMs(60), 180 * MIN);
+});
+
+test("avisoLlegaTarde: dentro del tope se avisa; pasado el tope ya no se le escribe al cliente", () => {
+  const MIN = 60 * 1000;
+  const hace = (minutos: number) => new Date(AHORA.getTime() - minutos * MIN);
+  // 15 minutos configurados: el aviso vale hasta los 45.
+  assert.equal(avisoLlegaTarde(hace(16), 15, AHORA), false);
+  assert.equal(avisoLlegaTarde(hace(45), 15, AHORA), false);
+  assert.equal(avisoLlegaTarde(hace(46), 15, AHORA), true);
+  // El caso de la auditoría: el proceso durmió cinco horas.
+  assert.equal(avisoLlegaTarde(hace(5 * 60), 15, AHORA), true);
+  // 2 minutos (el valor de un negocio real): un reinicio de 8 minutos no se
+  // come el aviso; media hora sí.
+  assert.equal(avisoLlegaTarde(hace(10), 2, AHORA), false);
+  assert.equal(avisoLlegaTarde(hace(30), 2, AHORA), true);
 });

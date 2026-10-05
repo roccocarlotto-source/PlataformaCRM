@@ -47,7 +47,7 @@ export function findMessageByExternalId(
 ) {
   return db.message.findFirst({
     where: { organizationId, externalMessageId },
-    select: { id: true },
+    select: { id: true, conversationId: true },
   });
 }
 

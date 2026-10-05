@@ -38,7 +38,7 @@ export function createMetaWebhookRouter(deps: MetaWebhookDeps): Router {
     requireJsonBody,
     crearParserConRawBody(META_MAX_BODY_BYTES),
     createVerifyMetaSignature(deps),
-    createMetaWebhookHandler(),
+    createMetaWebhookHandler(deps),
   );
 
   return router;
