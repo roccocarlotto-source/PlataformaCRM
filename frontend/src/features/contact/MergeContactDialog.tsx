@@ -5,6 +5,7 @@ import { Modal } from "../../design-system/Modal";
 import { useConfirm } from "../../design-system/useConfirm";
 import { ContactSelect } from "../opportunity/ContactSelect";
 import {
+  advertenciaDeLaUnion,
   CAMPOS_DE_LA_UNION,
   ETIQUETA_DEL_CAMPO,
   ETIQUETA_DE_LO_QUE_SE_MUEVE,
@@ -55,10 +56,12 @@ export function MergeContactDialog({ contactId, onClose, onMerged }: MergeContac
   async function handleUnir() {
     if (!vista || !elecciones || !otroId) return;
     const nombre = `${vista.absorbed.firstName} ${vista.absorbed.lastName}`.trim();
-    const ok = await confirm(
-      `Se va a unir "${nombre}" a este contacto: todo lo suyo pasa acá y "${nombre}" se da de baja. No se puede deshacer desde la pantalla.`,
-      { confirmLabel: "Unir", danger: true },
-    );
+    // La advertencia dice QUÉ se mueve (conversaciones, cupones, tareas,
+    // oportunidades…) y qué se corta, no solo que "todo pasa acá".
+    const ok = await confirm(advertenciaDeLaUnion(nombre, vista), {
+      confirmLabel: "Unir",
+      danger: true,
+    });
     if (!ok) return;
     unir.mutate({ absorbedId: otroId, fields: elecciones }, { onSuccess: onMerged });
   }

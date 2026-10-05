@@ -7,7 +7,12 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeContact } from "../../test/contactFixtures";
 import { MergeContactDialog } from "./MergeContactDialog";
-import { CAMPOS_DE_LA_UNION, type Elecciones, type VistaPreviaDeLaUnion } from "./merge";
+import {
+  advertenciaDeLaUnion,
+  CAMPOS_DE_LA_UNION,
+  type Elecciones,
+  type VistaPreviaDeLaUnion,
+} from "./merge";
 
 // "Unir con otro contacto": buscar el duplicado, la vista previa lado a lado
 // con los defaults del backend, elegir un campo y confirmar.
@@ -118,6 +123,12 @@ describe("MergeContactDialog", () => {
     expect(confirmSpy).toHaveBeenCalledWith(
       expect.stringMatching(/No se puede deshacer desde la pantalla/),
     );
+    // Antes de confirmar se advierte QUÉ se mueve, con sus cantidades
+    // (tanda 5 de la auditoría, docs-privados, local).
+    const advertencia = confirmSpy.mock.calls[0]?.[0] ?? "";
+    expect(advertencia).toMatch(/Pasan a este contacto: 2 conversaciones/);
+    expect(advertencia).toMatch(/1 oportunidades/);
+    expect(advertencia).toMatch(/misma persona/);
     await waitFor(() => expect(body).toBeDefined());
     expect(body?.absorbedId).toBe("d");
     expect(body?.fields.firstName).toBe("absorbed");
@@ -140,5 +151,36 @@ describe("MergeContactDialog", () => {
   it("sin duplicado elegido, Unir está deshabilitado", () => {
     setup();
     expect(screen.getByRole("button", { name: "Unir" })).toBeDisabled();
+  });
+});
+
+describe("advertenciaDeLaUnion", () => {
+  const vista = (extra: Partial<VistaPreviaDeLaUnion>): VistaPreviaDeLaUnion =>
+    ({
+      aMover: { conversaciones: 1, cupones: 2, actividades: 3, oportunidades: 1, reservas: 0 },
+      ...extra,
+    }) as VistaPreviaDeLaUnion;
+
+  it("dice qué pasa al contacto que queda, con cantidades, y omite lo que no tiene", () => {
+    const texto = advertenciaDeLaUnion("Visitante caa2c873", vista({}));
+    expect(texto).toContain("1 conversaciones (con sus mensajes)");
+    expect(texto).toContain("2 cupones");
+    expect(texto).toContain("3 actividades y tareas");
+    expect(texto).toContain("1 oportunidades");
+    expect(texto).not.toContain("reservas");
+    expect(texto).not.toContain("chat del sitio web");
+  });
+
+  it("si el duplicado tiene un chat web, avisa que se corta", () => {
+    const texto = advertenciaDeLaUnion("Visitante caa2c873", vista({ chatsWebACortar: 1 }));
+    expect(texto).toMatch(/El chat del sitio web del duplicado se corta/);
+    expect(texto).toMatch(/visitante nuevo/);
+  });
+
+  it("sin nada asociado lo dice, y siempre pide confirmar que son la misma persona", () => {
+    const texto = advertenciaDeLaUnion("Ana Duplicada", vista({ aMover: {} }));
+    expect(texto).toContain("El duplicado no tiene registros asociados.");
+    expect(texto).toMatch(/misma persona/);
+    expect(texto).toMatch(/No se puede deshacer desde la pantalla/);
   });
 });

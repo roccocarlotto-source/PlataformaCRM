@@ -7,6 +7,7 @@ import { countOpenConversationsOf } from "../repositories/conversation.repositor
 import {
   countContacts,
   createContact as createContactRepo,
+  erasePersonalDataDeLosUnidos,
   erasePersonalDataFromContact,
   existsOtherContactWithPhone,
   findContactByIdIncludingDeleted,
@@ -477,6 +478,9 @@ export interface ResultadoDeBorrado {
   // estándar pide que el borrado sea verificable, y porque quien lo pide tiene
   // que poder decir cuánto se borró sin ir a mirar la base.
   ingestionEventsAnonimizados: number;
+  // Cuántos contactos que se habían unido en este quedaron anonimizados
+  // también (OPUS-C-02 / FABLE-C-03, docs-privados, local).
+  contactosUnidosAnonimizados: number;
 }
 
 export async function erasePersonalData(
@@ -506,8 +510,16 @@ export async function erasePersonalData(
     }
 
     const eventos = await anonymizeIngestionEventsOfContact(id, organizationId, tx);
+    // Lo que dejó una unión: las filas de los unidos, los teléfonos guardados
+    // como identidad y su nombre en las notas. Sus eventos de ingesta ya
+    // pasaron a este contacto al unir, así que los cubre la línea de arriba.
+    const unidos = await erasePersonalDataDeLosUnidos(id, organizationId, tx);
 
-    return { contactId: id, ingestionEventsAnonimizados: eventos.count };
+    return {
+      contactId: id,
+      ingestionEventsAnonimizados: eventos.count,
+      contactosUnidosAnonimizados: unidos.contactosUnidos,
+    };
   });
 }
 

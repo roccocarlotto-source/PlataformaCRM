@@ -109,6 +109,8 @@ export interface UpdateConversationData {
   status?: ConversationStatus;
   lastMessageAt?: Date;
   assignedUserId?: string | null;
+  // Por dónde escribió el cliente la última vez (ver registrarEnConversacion).
+  externalThreadId?: string;
   // Ítem 73. Los dos SIEMPRE juntos en cada escritura, y es la invariante de
   // la feature: `briefEditedByUserId` describe quién escribió el texto que
   // quedó en `brief`, así que dejar uno sin el otro los desincroniza — un
