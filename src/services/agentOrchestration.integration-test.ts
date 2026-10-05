@@ -10,6 +10,7 @@ import { AppError } from "../utils/AppError";
 import { atencionFueraDeHorario } from "../utils/fueraDeHorario";
 import type { FranjaSemanal } from "../utils/workingHours";
 import {
+  MOTIVO_PROVEEDOR_CAIDO,
   envolverMensajeDelCliente,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
   INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
@@ -29,6 +30,8 @@ import {
   runAgentTurn,
 } from "./agentOrchestration.service";
 import {
+  MAX_RESERVAS_FUTURAS_POR_CONTACTO,
+  MENSAJE_TOPE_DE_RESERVAS,
   MENSAJE_CONTACTO_SIN_VENDEDOR,
   MENSAJE_RECURSO_DE_OTRA_SUCURSAL,
   MENSAJE_SIN_PIPELINE_POR_DEFECTO,
@@ -214,6 +217,9 @@ async function montar(etiqueta: string, opciones: OpcionesDeEscenario = {}): Pro
       organizationId: org.id,
       firstName: "Ana",
       lastName: "Pérez",
+      // Con un email: el escenario corre por el canal web, y ahí reservar o
+      // crear una oportunidad exige nombre y un teléfono o un email (D3).
+      email: "ana.perez@example.test",
       ownerId: opciones.conVendedor === false ? null : owner.id,
     },
   });
@@ -292,6 +298,7 @@ async function desmontar(e: Escenario) {
   await prisma.message.deleteMany({ where });
   await prisma.conversation.deleteMany({ where });
   await prisma.activity.deleteMany({ where });
+  await prisma.discountVoucher.deleteMany({ where });
   await prisma.booking.deleteMany({ where });
   await prisma.workingHours.deleteMany({ where });
   await prisma.serviceType.deleteMany({ where });
@@ -3026,6 +3033,278 @@ test("FABLE-B-02: una ronda no ejecuta más de MAX_TOOL_CALLS_PER_ROUND tools; l
     const resultados = doble.requests[1].messages.filter((m) => m.role === "tool");
     assert.equal(resultados.length, pedidas);
     assert.equal(resultado.respuesta, "Listo.");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ===========================================================================
+// Tanda 3 de la auditoría: el agente sabe con quién habla y qué tiene.
+// ===========================================================================
+
+// El contacto del escenario, convertido en un visitante anónimo del widget:
+// el nombre provisorio que pone el canal y ningún dato de contacto.
+async function volverAnonimo(e: Escenario) {
+  await prisma.contact.update({
+    where: { id: e.contactId },
+    data: { firstName: "Visitante", lastName: "caa2c873", email: null, phone: null },
+  });
+}
+
+function errorDe(tc: { result?: { ok: boolean; error?: string } }): string {
+  return tc.result && !tc.result.ok ? (tc.result.error ?? "") : "";
+}
+
+// D3 (docs-privados, local) + OPUS-B-03 / FABLE-B-10: el caso de la auditoría,
+// "reservame un test drive" sin haber dicho quién es.
+test("D3: por el widget, un visitante anónimo no puede reservar hasta dar nombre y teléfono o email; al darlos se guardan y la reserva sale", async () => {
+  const e = await montar("d3-reserva", { enabledTools: ["create_booking", "update_lead"] });
+  try {
+    await volverAnonimo(e);
+    const serviceType = await agendaDeLunes(e);
+    const reservar = { serviceTypeId: serviceType.id, startsAt: LUNES_9_LOCAL };
+
+    // Turno 1: pide el turno sin identificarse. La tool lo frena.
+    const primero = doblarProveedor([
+      pideTool("c1", "create_booking", reservar),
+      texto("Para reservarte necesito tu nombre y un teléfono o un email."),
+    ]);
+    const r1 = await turno(e, "Reservame un test drive para el lunes", primero.proveedor);
+
+    assert.equal(r1.toolCalls[0].result?.ok, false);
+    assert.match(errorDe(r1.toolCalls[0]), /el nombre y un teléfono o un email/);
+    assert.equal(await prisma.booking.count({ where: { organizationId: e.organizationId } }), 0);
+    // El modelo no recibe "Visitante caa2c873" como si fuera el nombre.
+    assert.doesNotMatch(primero.requests[0].systemPrompt, /Visitante/);
+    assert.match(primero.requests[0].systemPrompt, /todavía no tiene ningún dato cargado/);
+
+    // Turno 2: se identifica. update_lead guarda nombre y teléfono, y ahora sí.
+    const segundo = doblarProveedor([
+      pideTool("c2", "update_lead", {
+        firstName: "Diego",
+        lastName: "Ramírez",
+        phone: "+598 99 123 456",
+      }),
+      pideTool("c3", "create_booking", reservar),
+      texto("Listo Diego, te espero el lunes a las 9."),
+    ]);
+    const r2 = await turno(e, "Soy Diego Ramírez, mi cel es +598 99 123 456", segundo.proveedor);
+
+    assert.equal(r2.toolCalls[0].result?.ok, true, JSON.stringify(r2.toolCalls[0]));
+    assert.equal(r2.toolCalls[1].result?.ok, true, JSON.stringify(r2.toolCalls[1]));
+    const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contacto.firstName, "Diego", "el nombre provisorio del widget se reemplaza");
+    assert.equal(contacto.lastName, "Ramírez");
+    assert.equal(contacto.phone, "+59899123456", "normalizado como cualquier otro teléfono");
+    assert.equal(await prisma.booking.count({ where: { organizationId: e.organizationId } }), 1);
+
+    // Turno 3: el agente ya sabe cómo se llama.
+    const tercero = doblarProveedor([texto("¡De nada, Diego!")]);
+    await turno(e, "Gracias", tercero.proveedor);
+    assert.match(tercero.requests[0].systemPrompt, /nombre: Diego Ramírez/);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("D3: por el widget, create_opportunity de un visitante anónimo no crea nada; con nombre y email sí, con origen WEBSITE", async () => {
+  const e = await montar("d3-oportunidad");
+  try {
+    await volverAnonimo(e);
+    const anonimo = doblarProveedor([
+      pideTool("c1", "create_opportunity", { title: "Interés en un Civic" }),
+      texto("¿Me decís tu nombre y un teléfono o email?"),
+    ]);
+    const r1 = await turno(e, "Me interesa el Civic", anonimo.proveedor);
+
+    assert.equal(r1.toolCalls[0].result?.ok, false);
+    assert.match(errorDe(r1.toolCalls[0]), /el nombre y un teléfono o un email/);
+    assert.equal(
+      await prisma.opportunity.count({ where: { organizationId: e.organizationId } }),
+      0,
+    );
+
+    await prisma.contact.update({
+      where: { id: e.contactId },
+      data: { firstName: "Diego", lastName: "Ramírez", email: "diego@example.test" },
+    });
+    const identificado = doblarProveedor([
+      pideTool("c2", "create_opportunity", { title: "Interés en un Civic" }),
+      texto("Listo, quedó registrado."),
+    ]);
+    const r2 = await turno(e, "Soy Diego, diego@example.test", identificado.proveedor);
+
+    assert.equal(r2.toolCalls[0].result?.ok, true, JSON.stringify(r2.toolCalls[0]));
+    const [opp] = await prisma.opportunity.findMany({
+      where: { organizationId: e.organizationId },
+    });
+    // FABLE-I-06 (docs-privados, local): el origen sale del canal.
+    assert.equal(opp.leadSource, "WEBSITE");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// D4 (docs-privados, local).
+test("D4: el agente no le agenda a un contacto más de 2 reservas futuras activas; las pasadas y las canceladas no cuentan", async () => {
+  const e = await montar("d4-tope", { enabledTools: ["create_booking"] });
+  try {
+    const serviceType = await agendaDeLunes(e);
+    const fila = (startsAt: string, status: "CONFIRMED" | "CANCELLED") => ({
+      organizationId: e.organizationId,
+      branchId: e.branchId,
+      serviceTypeId: serviceType.id,
+      resourceId: serviceType.resourceId,
+      contactId: e.contactId,
+      startsAt: new Date(startsAt),
+      endsAt: new Date(new Date(startsAt).getTime() + 60 * 60_000),
+      status,
+    });
+    // El reloj de las reservas está fijo en el domingo 06/09/2026 12:00Z.
+    await prisma.booking.createMany({
+      data: [
+        fila("2026-08-31T12:00:00Z", "CONFIRMED"), // el lunes pasado: ya pasó
+        fila("2026-09-07T15:00:00Z", "CANCELLED"), // futura pero cancelada
+        fila("2026-09-07T13:00:00Z", "CONFIRMED"), // la única futura activa
+      ],
+    });
+
+    const doble = doblarProveedor([
+      pideTool("c1", "create_booking", { serviceTypeId: serviceType.id, startsAt: LUNES_9_LOCAL }),
+      pideTool("c2", "create_booking", {
+        serviceTypeId: serviceType.id,
+        startsAt: "2026-09-07T14:00:00Z",
+      }),
+      texto("Te reservé el de las 9. Para otro más te contacta alguien del equipo."),
+    ]);
+    const resultado = await turno(e, "Reservame dos turnos más el lunes", doble.proveedor);
+
+    assert.equal(
+      resultado.toolCalls[0].result?.ok,
+      true,
+      "con una sola futura activa, la segunda entra",
+    );
+    assert.equal(resultado.toolCalls[1].result?.ok, false);
+    assert.equal(errorDe(resultado.toolCalls[1]), MENSAJE_TOPE_DE_RESERVAS);
+    const futurasActivas = await prisma.booking.count({
+      where: {
+        organizationId: e.organizationId,
+        contactId: e.contactId,
+        status: "CONFIRMED",
+        startsAt: { gt: new Date("2026-09-06T12:00:00Z") },
+      },
+    });
+    assert.equal(futurasActivas, MAX_RESERVAS_FUTURAS_POR_CONTACTO);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// FABLE-I-05 (docs-privados, local): antes, cada derivación dejaba otra tarea.
+test("FABLE-I-05: una nueva derivación reutiliza la tarea abierta del contacto; completada esa, la siguiente crea una nueva", async () => {
+  const e = await montar("i05-tarea");
+  try {
+    const { conversationId } = await turno(
+      e,
+      "Hola",
+      doblarProveedor([texto("¡Buenas! ¿En qué te ayudo?")]).proveedor,
+    );
+    const contact = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    const derivar = () =>
+      ejecutarHandoff({
+        organizationId: e.organizationId,
+        conversationId,
+        branchId: e.branchId,
+        contact,
+        agentName: "Agente",
+        // Un motivo sin resumen: este test no necesita llamar al modelo.
+        motivo: MOTIVO_PROVEEDOR_CAIDO,
+      });
+    const devolver = () =>
+      prisma.conversation.update({ where: { id: conversationId }, data: { status: "ACTIVE" } });
+
+    const primera = await derivar();
+    assert.ok(primera.activityId);
+    await devolver();
+    const segunda = await derivar();
+    await devolver();
+    const tercera = await derivar();
+
+    assert.equal(segunda.activityId, primera.activityId, "la misma tarea, no otra");
+    assert.equal(tercera.activityId, primera.activityId);
+    assert.equal((await activitiesDe(e)).length, 1);
+
+    // El vendedor la completó: el próximo pedido es una tarea nueva.
+    await prisma.activity.update({
+      where: { id: primera.activityId! },
+      data: { completedAt: new Date() },
+    });
+    await devolver();
+    const cuarta = await derivar();
+    assert.ok(cuarta.activityId);
+    assert.notEqual(cuarta.activityId, primera.activityId);
+    assert.equal((await activitiesDe(e)).length, 2);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// Pedido de Rocco; FABLE §5.1 fila 12c (docs-privados, local): "¿cómo uso el
+// cupón?" y el agente no sabía que el cupón existía.
+test("cupones: el agente recibe en cada turno los cupones del contacto, y solo los suyos", async () => {
+  const e = await montar("cupones-en-el-contexto");
+  try {
+    const otro = await prisma.contact.create({
+      data: { organizationId: e.organizationId, firstName: "Otro", lastName: "Cliente" },
+    });
+    const enUnMes = new Date(Date.now() + 30 * 24 * 60 * 60_000);
+    const haceUnMes = new Date(Date.now() - 30 * 24 * 60 * 60_000);
+    await prisma.discountVoucher.createMany({
+      data: [
+        {
+          organizationId: e.organizationId,
+          contactId: e.contactId,
+          label: "10% en el próximo service",
+          expiresAt: enUnMes,
+          createdByUserId: e.ownerId,
+        },
+        {
+          organizationId: e.organizationId,
+          contactId: e.contactId,
+          label: "Lavado de cortesía",
+          expiresAt: enUnMes,
+          createdByUserId: e.ownerId,
+          status: "CONSUMED",
+          consumedAt: new Date(),
+          consumedByUserId: e.ownerId,
+        },
+        {
+          organizationId: e.organizationId,
+          contactId: e.contactId,
+          label: "Descuento de invierno",
+          expiresAt: haceUnMes,
+          createdByUserId: e.ownerId,
+        },
+        {
+          organizationId: e.organizationId,
+          contactId: otro.id,
+          label: "Cupón de otra persona",
+          expiresAt: enUnMes,
+          createdByUserId: e.ownerId,
+        },
+      ],
+    });
+
+    const doble = doblarProveedor([texto("Lo mostrás en el local antes de que venza.")]);
+    await turno(e, "¿Cómo uso el cupón?", doble.proveedor);
+
+    const prompt = doble.requests[0].systemPrompt;
+    assert.match(prompt, /- 10% en el próximo service: activo, vence el \d{2}\/\d{2}\/\d{4}/);
+    assert.match(prompt, /- Lavado de cortesía: ya usado/);
+    assert.match(prompt, /- Descuento de invierno: vencido/);
+    assert.doesNotMatch(prompt, /Cupón de otra persona/);
+    // El agente sigue sin ninguna tool de cupones: es solo contexto.
+    assert.ok(doble.requests[0].tools.every((t) => !/voucher|cupon/i.test(t.name)));
   } finally {
     await desmontar(e);
   }

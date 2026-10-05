@@ -8,6 +8,7 @@ import {
 } from "../repositories/conversation.repository";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
+import { WIDGET_CONTACT_FIRST_NAME } from "../utils/nombreProvisorio";
 
 // ---------------------------------------------------------------------------
 // El Contact de un visitante anónimo del widget (paso 5b; nota del canal Web
@@ -44,7 +45,9 @@ import { AppError } from "../utils/AppError";
 // datos sobre ESTE placeholder, no lo reemplazan.
 // ---------------------------------------------------------------------------
 
-export const WIDGET_CONTACT_FIRST_NAME = "Visitante";
+// La constante vive en utils/nombreProvisorio.ts, junto a cómo se reconoce
+// el marcador; se reexporta para los que ya la importan de acá.
+export { WIDGET_CONTACT_FIRST_NAME };
 export const WIDGET_CONTACT_SOURCE = "Widget web";
 
 // Un identificador corto y estable derivado del sessionId, para que dos

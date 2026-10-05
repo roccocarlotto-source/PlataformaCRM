@@ -272,6 +272,7 @@ async function loQueVeElAgente(e: Escenario, args: Record<string, unknown> = {})
       contactId: randomUUID(),
       branchId: e.branchId,
       agentId: randomUUID(),
+      channel: "WHATSAPP",
     },
   });
   if (!r.ok) return { total: -1, vehiculos: [] as Array<Record<string, unknown>> };

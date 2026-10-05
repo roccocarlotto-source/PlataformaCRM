@@ -336,6 +336,8 @@ export interface UpdateLeadQualificationData {
   firstName?: string;
   lastName?: string;
   email?: string;
+  // Ya normalizado por el service.
+  phone?: string;
   leadScore?: number;
   leadIntent?: string;
   leadServiceOfInterest?: string;

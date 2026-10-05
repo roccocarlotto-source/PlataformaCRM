@@ -3,7 +3,15 @@ import { prisma, type Db } from "../lib/prisma";
 import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { fraseFueraDeHorario, type AtencionFueraDeHorario } from "../utils/fueraDeHorario";
 import { ventanaDeWhatsappAbierta } from "../utils/ventanaDeWhatsapp";
-import { PREFIJO_TAREA_DE_DERIVACION } from "./agentOrchestration.service";
+import {
+  PREFIJO_TAREA_SIN_RESPUESTA,
+  SUFIJO_TAREA_SIN_RESPUESTA,
+  findTareaAbiertaDelPedido,
+  whereTareaDelPedido,
+} from "./tareaDelPedido";
+
+// Para los que ya la importan de acá (conversationReply.service.ts).
+export { findTareaAbiertaDelPedido };
 
 // ---------------------------------------------------------------------------
 // "Devolver al agente" sin haberle respondido al cliente.
@@ -64,9 +72,6 @@ export function textoDelAviso(
     ? `${PREFIJO_DEL_AVISO} ${fraseFueraDeHorario(atencion)} ${CIERRE_DEL_AVISO}`
     : AVISO_SIN_RESPUESTA;
 }
-
-const PREFIJO_TAREA_SIN_RESPUESTA = "Contactar a ";
-const SUFIJO_TAREA_SIN_RESPUESTA = ": pidió hablar con una persona y nadie respondió";
 
 export function asuntoDeTareaSinRespuesta(nombreDelContacto: string): string {
   return `${PREFIJO_TAREA_SIN_RESPUESTA}${nombreDelContacto}${SUFIJO_TAREA_SIN_RESPUESTA}`.slice(
@@ -172,34 +177,8 @@ function esAviso(message: Pick<Message, "noticeType">): boolean {
   return message.noticeType === "UNANSWERED_HANDOFF";
 }
 
-// Las dos tareas que cuentan como "la tarea del pedido": la de la derivación
-// (crearActivityDeAviso) y la que crea devolver cuando no había ninguna.
-function whereTareaDelPedido(organizationId: string, contactId: string) {
-  return {
-    organizationId,
-    contactId,
-    type: "TASK" as const,
-    deletedAt: null,
-    OR: [
-      { subject: { startsWith: PREFIJO_TAREA_DE_DERIVACION } },
-      {
-        subject: {
-          startsWith: PREFIJO_TAREA_SIN_RESPUESTA,
-          endsWith: SUFIJO_TAREA_SIN_RESPUESTA,
-        },
-      },
-    ],
-  };
-}
-
-// ¿Hay una tarea del pedido todavía abierta para este contacto? Al devolver:
-// si la hay, no se toca ni se crea otra.
-export function findTareaAbiertaDelPedido(organizationId: string, contactId: string, db: Db) {
-  return db.activity.findFirst({
-    where: { ...whereTareaDelPedido(organizationId, contactId), completedAt: null },
-    select: { id: true },
-  });
-}
+// Las dos tareas que cuentan como "la tarea del pedido" y la consulta de la
+// que sigue abierta viven en tareaDelPedido.ts: las comparte la derivación.
 
 // La tarea de un aviso: la más reciente creada hasta ese momento (la nueva se
 // crea antes que el mensaje, en la misma transacción).

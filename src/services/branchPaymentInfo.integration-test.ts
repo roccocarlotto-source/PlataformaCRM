@@ -53,6 +53,8 @@ function contextoDe(organizationId: string, branchId: string): ContextoDeEjecuci
       contactId: "00000000-0000-4000-8000-000000000003",
       branchId,
       agentId: "00000000-0000-4000-8000-000000000005",
+      // Un canal sin las reglas del visitante anónimo del widget.
+      channel: "WHATSAPP",
     },
   };
 }

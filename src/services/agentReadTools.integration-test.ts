@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, mock, test } from "node:test";
+import type { ConversationChannel } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { findManyVehicles } from "../repositories/vehicle.repository";
 import {
@@ -118,6 +119,9 @@ function contextoDe(
   organizationId: string,
   contactId: string,
   branchId: string,
+  // WHATSAPP por defecto: un canal sin las reglas del visitante anónimo del
+  // widget (D3). Los tests de esas reglas piden WEB.
+  channel: ConversationChannel = "WHATSAPP",
 ): ContextoDeEjecucionDeTool {
   return {
     organizationId,
@@ -126,6 +130,7 @@ function contextoDe(
       contactId,
       branchId,
       agentId: "00000000-0000-4000-8000-000000000005",
+      channel,
     },
   };
 }
@@ -2492,4 +2497,64 @@ test("reserve_vehicle nunca vincula a una oportunidad cerrada: sobre una ganada 
   assert.equal(unidadDespues.status, "AVAILABLE");
   const fila = await prisma.opportunity.findUniqueOrThrow({ where: { id: ganada.id } });
   assert.equal(fila.vehicleId, null);
+});
+
+// ---------------------------------------------------------------------------
+// Tanda 3 de la auditoría (docs-privados, local): el teléfono que da el
+// cliente en el chat (D3) y el origen de la oportunidad (FABLE-I-06).
+// ---------------------------------------------------------------------------
+
+test("D3: update_lead guarda el teléfono si el contacto no tenía; uno inválido o el de otro contacto no se guarda y el modelo se entera", async () => {
+  const numero = `+5989${String(Date.now()).slice(-7)}`;
+  const duenio = await nuevoContacto(a, { phone: numero });
+  const visitante = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, visitante.id, a.branchId, "WEB");
+  type Lead = { phone: string | null; noSeActualizo?: string[]; telefono?: string };
+
+  // El de otro contacto: no se guarda, y el resultado no dice de quién es.
+  const enUso = await datosDe<Lead>("update_lead", { phone: numero }, ctx);
+  assert.equal(enUso.phone, null);
+  assert.deepEqual(enUso.noSeActualizo, ["phone"]);
+  assert.match(enUso.telefono ?? "", /pedile un email/);
+  assert.doesNotMatch(JSON.stringify(enUso), new RegExp(duenio.id));
+
+  // Uno que no es un teléfono.
+  const invalido = await datosDe<Lead>("update_lead", { phone: "no tengo" }, ctx);
+  assert.equal(invalido.phone, null);
+  assert.match(invalido.telefono ?? "", /formato válido/);
+
+  // Uno bueno: queda normalizado.
+  const propio = `+5989${String(Date.now() + 1).slice(-7)}`;
+  const guardado = await datosDe<Lead>(
+    "update_lead",
+    { phone: `${propio.slice(0, 4)} ${propio.slice(4, 6)} ${propio.slice(6)}` },
+    ctx,
+  );
+  assert.equal(guardado.phone, propio);
+  assert.equal(guardado.noSeActualizo, undefined);
+
+  // Y ya cargado, el chat no lo pisa.
+  const pisar = await datosDe<Lead>("update_lead", { phone: "+59899000001" }, ctx);
+  assert.equal(pisar.phone, propio);
+  assert.deepEqual(pisar.noSeActualizo, ["phone"]);
+});
+
+test("FABLE-I-06: la oportunidad que crea el agente lleva el origen del canal (WhatsApp o web); Messenger e Instagram quedan sin origen", async () => {
+  const origenPor = async (channel: ConversationChannel) => {
+    const contacto = await nuevoContacto(a, {
+      email: `origen-${randomUUID().slice(0, 8)}@example.test`,
+    });
+    const data = await datosDe<{ opportunityId: string }>(
+      "create_opportunity",
+      { title: `Interés por ${channel}` },
+      contextoDe(a.organizationId, contacto.id, a.branchId, channel),
+    );
+    const fila = await prisma.opportunity.findUniqueOrThrow({ where: { id: data.opportunityId } });
+    return fila.leadSource;
+  };
+
+  assert.equal(await origenPor("WHATSAPP"), "WHATSAPP");
+  assert.equal(await origenPor("WEB"), "WEBSITE");
+  assert.equal(await origenPor("MESSENGER"), null);
+  assert.equal(await origenPor("INSTAGRAM"), null);
 });

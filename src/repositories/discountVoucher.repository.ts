@@ -66,3 +66,21 @@ export async function consumirDiscountVoucher(
   }
   return db.discountVoucher.findFirst({ where: { id, organizationId } });
 }
+
+// Los cupones de un contacto que el agente de IA recibe como contexto en cada
+// turno (bloqueDeCupones en agentOrchestration.service.ts): los más nuevos
+// primero, con tope, y solo lo que el bloque muestra. Sin el id ni el link: el
+// agente no tiene nada que hacer con ellos.
+export function findVouchersDelContacto(
+  organizationId: string,
+  contactId: string,
+  take: number,
+  db: Db = prisma,
+) {
+  return db.discountVoucher.findMany({
+    where: { organizationId, contactId },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take,
+    select: { label: true, status: true, expiresAt: true },
+  });
+}

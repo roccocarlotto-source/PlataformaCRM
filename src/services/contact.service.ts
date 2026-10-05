@@ -30,7 +30,7 @@ import {
 } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
 import { resolveOwnerId } from "./ownership.service";
-import { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME } from "./whatsappContact.service";
+import { esNombreProvisorio } from "../utils/nombreProvisorio";
 
 export interface ListContactsParams {
   page: number;
@@ -545,6 +545,10 @@ export interface QualifyLeadInput {
   firstName?: string;
   lastName?: string;
   email?: string;
+  // El teléfono que la persona dio en el chat (D3: en el canal web hace falta
+  // un teléfono o un email antes de reservar). Se guarda solo si el contacto
+  // no tiene uno, normalizado como cualquier otra escritura de Contact.phone.
+  phone?: string;
   // 0..100 — el CHECK contacts_lead_score_range_check es el respaldo; el borde
   // (la tool) valida antes para fallar con un mensaje y no con un error de
   // Postgres.
@@ -599,13 +603,24 @@ export function mergeLeadAiData(
 // dónde el negocio le escribe al cliente, y pisarlo con uno mal transcripto
 // rompe el contacto sin que nadie se entere.
 export function nombreEsUnMarcador(contacto: { firstName: string; lastName: string | null }) {
-  const nombre = contacto.firstName.trim();
-  return nombre.length === 0 || nombre === WHATSAPP_CONTACT_FALLBACK_FIRST_NAME;
+  // Vacío, el de WhatsApp sin perfil o el del visitante del widget
+  // (OPUS-B-03 / FABLE-B-10, docs-privados, local): ver nombreProvisorio.ts.
+  return esNombreProvisorio(contacto);
 }
 
+//
+// EL TELÉFONO, igual que el mail: solo si está vacío. Es por donde el negocio
+// llama o le escribe por WhatsApp; uno ya cargado no se pisa desde el chat. La
+// normalización y el choque con el teléfono de otro contacto los resuelve
+// qualifyLead, que es quien tiene el país de la organización.
 export function identidadAplicable(
-  contacto: { firstName: string; lastName: string | null; email: string | null },
-  input: Pick<QualifyLeadInput, "firstName" | "lastName" | "email">,
+  contacto: {
+    firstName: string;
+    lastName: string | null;
+    email: string | null;
+    phone?: string | null;
+  },
+  input: Pick<QualifyLeadInput, "firstName" | "lastName" | "email" | "phone">,
 ): { aplica: UpdateLeadQualificationData; ignorados: string[] } {
   const aplica: UpdateLeadQualificationData = {};
   const ignorados: string[] = [];
@@ -624,7 +639,21 @@ export function identidadAplicable(
     else ignorados.push("email");
   }
 
+  const phone = input.phone?.trim();
+  if (phone !== undefined && phone.length > 0) {
+    if (!contacto.phone || contacto.phone.trim().length === 0) aplica.phone = phone;
+    else ignorados.push("phone");
+  }
+
   return { aplica, ignorados };
+}
+
+// Por qué no quedó guardado el teléfono que dio el cliente, para que la tool
+// se lo pueda decir al modelo sin revelarle nada de otro contacto.
+export type MotivoDelTelefono = "no-valido" | "no-disponible";
+
+function esTelefonoDuplicado(err: unknown): boolean {
+  return err instanceof AppError && err.statusCode === 409 && err.message === TELEFONO_DUPLICADO;
 }
 
 export async function qualifyLead(
@@ -636,6 +665,23 @@ export async function qualifyLead(
   const contacto = await getContactById(organizationId, contactId);
 
   const { aplica: identidad, ignorados: identidadIgnorada } = identidadAplicable(contacto, input);
+  let motivoDelTelefono: MotivoDelTelefono | undefined;
+  if (identidad.phone !== undefined) {
+    // Misma forma normalizada que el resto de las escrituras de Contact.phone.
+    // Uno que no se puede normalizar no tumba la calificación: se ignora y el
+    // modelo se entera para volver a pedirlo.
+    const normalizado = normalizarTelefono(
+      identidad.phone,
+      await findDefaultPhoneCountryCode(organizationId),
+    );
+    if (normalizado === null) {
+      delete identidad.phone;
+      identidadIgnorada.push("phone");
+      motivoDelTelefono = "no-valido";
+    } else {
+      identidad.phone = normalizado;
+    }
+  }
 
   const data: UpdateLeadQualificationData = {
     ...identidad,
@@ -661,7 +707,7 @@ export async function qualifyLead(
   if (Object.keys(data).length === 0) {
     // Nada que escribir. No es un error: la tool ya exige al menos un campo,
     // y llegar acá con todo undefined solo pasa desde código.
-    return { contacto, identidadIgnorada };
+    return { contacto, identidadIgnorada, motivoDelTelefono };
   }
 
   // Ítem 116: el mail es único por organización (contacts_org_email_unique,
@@ -674,20 +720,33 @@ export async function qualifyLead(
   // Se reintenta sin el mail y se lo suma a identidadIgnorada: la calificación
   // —que es el dato que vale— se guarda igual, y el modelo se entera de que el
   // mail no quedó para no decirle al cliente que sí.
+  //
+  // El teléfono, lo mismo: si ya es el de OTRO contacto (el 409 de
+  // conTelefonoUnico, bajo el lock de la organización), se reintenta sin él.
+  // Como mucho dos reintentos: uno por el mail y uno por el teléfono.
+  const pendiente = { ...data };
   let result;
-  try {
-    result = await updateLeadQualification(contactId, organizationId, data);
-  } catch (err) {
-    if (!esConflictoDeEmail(err) || data.email === undefined) {
-      throw err;
+  for (;;) {
+    try {
+      result = await conTelefonoUnico(organizationId, pendiente.phone, contactId, (db) =>
+        updateLeadQualification(contactId, organizationId, pendiente, db),
+      );
+      break;
+    } catch (err) {
+      if (esConflictoDeEmail(err) && pendiente.email !== undefined) {
+        delete pendiente.email;
+        identidadIgnorada.push("email");
+      } else if (esTelefonoDuplicado(err) && pendiente.phone !== undefined) {
+        delete pendiente.phone;
+        identidadIgnorada.push("phone");
+        motivoDelTelefono = "no-disponible";
+      } else {
+        throw err;
+      }
+      if (Object.keys(pendiente).length === 0) {
+        return { contacto, identidadIgnorada, motivoDelTelefono };
+      }
     }
-    const sinEmail = { ...data };
-    delete sinEmail.email;
-    identidadIgnorada.push("email");
-    if (Object.keys(sinEmail).length === 0) {
-      return { contacto, identidadIgnorada };
-    }
-    result = await updateLeadQualification(contactId, organizationId, sinEmail);
   }
   if (result.count === 0) {
     // Se borró entre el pre-chequeo y la escritura. Mismo 404.
@@ -697,5 +756,9 @@ export async function qualifyLead(
   // `identidadIgnorada` sube hasta la tool para que el modelo sepa qué NO se
   // guardó: sin eso le diría al cliente "ya anoté tu mail" habiendo guardado
   // solo la calificación (ítem 100).
-  return { contacto: await getContactById(organizationId, contactId), identidadIgnorada };
+  return {
+    contacto: await getContactById(organizationId, contactId),
+    identidadIgnorada,
+    motivoDelTelefono,
+  };
 }

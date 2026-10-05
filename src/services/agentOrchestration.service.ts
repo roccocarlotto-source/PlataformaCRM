@@ -27,6 +27,7 @@ import {
   humanSpokeLast,
   type CreateMessageData,
 } from "../repositories/message.repository";
+import { findVouchersDelContacto } from "../repositories/discountVoucher.repository";
 import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
 import {
@@ -35,10 +36,13 @@ import {
   type AtencionFueraDeHorario,
 } from "../utils/fueraDeHorario";
 import { crearLimitadorDeTurnos, cupoDeTurnosPorDefecto } from "../utils/limitadorDeTurnos";
+import { esNombreProvisorio } from "../utils/nombreProvisorio";
 import { isoEnZona } from "../utils/timezone";
 import { createActivity } from "./activity.service";
 import { puedeEjecutarTool, type DatosDisponibles } from "./agentPermissions.service";
 import { generarBriefDeConversacion } from "./conversationBrief.service";
+import { estaVencido } from "./discountVoucher.service";
+import { PREFIJO_TAREA_DE_DERIVACION, findTareaAbiertaDelPedido } from "./tareaDelPedido";
 import {
   canonizarNombreDeTool,
   toolsHabilitadas,
@@ -691,6 +695,13 @@ export function nombreUsableDelContacto(contact: {
   firstName: string;
   lastName: string | null;
 }): string | null {
+  // OPUS-B-03 / FABLE-B-10 (docs-privados, local): el nombre que pone el canal
+  // cuando no sabe cómo se llama la persona ("Visitante a3f9c210", "WhatsApp
+  // +598…") no es un nombre. Si llegara al prompt, el agente saludaría con un
+  // identificador interno.
+  if (esNombreProvisorio(contact)) {
+    return null;
+  }
   const partes = [contact.firstName, contact.lastName].filter((p): p is string =>
     tieneContenidoReal(p ?? null),
   );
@@ -801,6 +812,65 @@ export function bloqueDeContacto(
   return `Datos que el CRM YA tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(datos.join(", "))}\nNo se los vuelvas a pedir: usalos. ${nombre === null ? "Su nombre no está cargado: si lo necesitás, ahí sí preguntáselo." : "Llamala por su nombre cuando sea natural hacerlo."}`;
 }
 
+// ---------------------------------------------------------------------------
+// LOS CUPONES DEL CONTACTO (pedido de Rocco; FABLE §5.1 fila 12c de
+// docs-privados/auditoria-2026-10-05-FABLE.md, local)
+// ---------------------------------------------------------------------------
+// El caso real: el cliente recibió un cupón por WhatsApp, preguntó "¿cómo uso
+// el cupón?" y el agente le preguntó de qué servicio hablaba: no sabía que el
+// cupón existía. Ahora los cupones del contacto viajan en cada turno, igual
+// que su nombre y su calificación.
+//
+// SOLO LECTURA: es contexto para responder. El agente no tiene ninguna tool de
+// cupones y este bloque se lo dice.
+//
+// MISMA ENVOLTURA que el resto de los datos del CRM: la descripción la escribe
+// una persona del negocio (o sale de una regla), no el sistema, y entra al
+// prompt como dato, nunca como instrucción.
+//
+// Los más nuevos primero y con tope: un cliente con años de cupones no puede
+// llenar el prompt de historia.
+export const MAX_CUPONES_EN_EL_PROMPT = 5;
+
+export interface CuponEnElPrompt {
+  label: string;
+  status: "ACTIVE" | "CONSUMED";
+  expiresAt: Date;
+}
+
+function fechaDelCupon(fecha: Date, zona: string): string {
+  return new Intl.DateTimeFormat("es-UY", {
+    timeZone: zona,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(fecha);
+}
+
+// Pura: null si el contacto no tiene cupones (el bloque no aparece).
+export function bloqueDeCupones(
+  cupones: CuponEnElPrompt[],
+  ahora: Date,
+  zona: string,
+): string | null {
+  if (cupones.length === 0) {
+    return null;
+  }
+  const lineas = cupones.slice(0, MAX_CUPONES_EN_EL_PROMPT).map((cupon) => {
+    const vence = fechaDelCupon(cupon.expiresAt, zona);
+    // "Vencido" no se guarda: es un cupón activo cuya fecha ya pasó, con el
+    // mismo criterio que el resto del sistema (estaVencido).
+    const estado =
+      cupon.status === "CONSUMED"
+        ? "ya usado"
+        : estaVencido(cupon, ahora)
+          ? `vencido (venció el ${vence})`
+          : `activo, vence el ${vence}`;
+    return `- ${cupon.label}: ${estado}`;
+  });
+  return `Cupones de descuento que el CRM tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(lineas.join("\n"))}\nSon para que puedas responderle sobre ellos: qué cupón tiene, hasta cuándo vale y si ya lo usó. Un cupón activo se usa mostrando en el local el cupón que recibió por mensaje (trae un código QR): alguien del equipo lo canjea, una sola vez y antes de que venza. Vos no podés crear, cambiar, extender ni canjear cupones, y no inventes condiciones que no estén en su descripción; si pide algo de eso, derivá.`;
+}
+
 // Una entrada de la base de conocimiento, tal como llega al prompt. Es
 // exactamente el `select` de findActiveKnowledgeBaseEntriesByBranch: esta
 // función no necesita saber nada más de la fila, y declararlo así la mantiene
@@ -904,6 +974,9 @@ export function armarSystemPrompt(
   // atiende y cuándo abre, para que una derivación no prometa "a la brevedad"
   // a las 3 de la mañana. Null o ausente: no se dice nada, como antes.
   fueraDeHorario?: AtencionFueraDeHorario | null,
+  // Los cupones del contacto, ya leídos (ver bloqueDeCupones). Vacío o
+  // ausente: el bloque no aparece.
+  cupones: CuponEnElPrompt[] = [],
 ): string {
   const partes = [agent.instructions.trim()];
 
@@ -921,6 +994,16 @@ export function armarSystemPrompt(
   // que el backend ya tiene y el modelo no tiene por qué ir a buscar.
   if (contacto) {
     partes.push(bloqueDeContacto(contacto));
+  }
+
+  // Pegado a los datos del contacto: son de la misma persona.
+  const cuponesDelContacto = bloqueDeCupones(
+    cupones,
+    contextoTemporal?.ahora ?? new Date(),
+    contextoTemporal?.zona ?? "UTC",
+  );
+  if (cuponesDelContacto !== null) {
+    partes.push(cuponesDelContacto);
   }
 
   // DESPUÉS de instructions y ANTES de los guardrails: es contexto
@@ -1339,11 +1422,10 @@ export async function derivarEntranteSinAgente(entrada: {
   });
 }
 
-// El comienzo del asunto de la Activity de aviso. Exportado porque la marca
-// "pidió hablar con una persona · sin responder" (avisoSinRespuesta.service.ts)
-// encuentra esta tarea por el asunto: Activity no guarda a qué conversación
-// pertenece, solo contactId.
-export const PREFIJO_TAREA_DE_DERIVACION = "Conversación derivada por el agente ";
+// El comienzo del asunto de la Activity de aviso vive en tareaDelPedido.ts
+// (lo comparte la marca "pidió hablar con una persona · sin responder"); se
+// reexporta para los que ya lo importan de acá.
+export { PREFIJO_TAREA_DE_DERIVACION };
 
 // La Activity de aviso, extraída de ejecutarHandoff con el ítem 73 y sin un
 // solo cambio de comportamiento: los dos caminos que antes hacían `return`
@@ -1355,6 +1437,25 @@ async function crearActivityDeAviso(
   ownerId: string | null,
 ): Promise<string | null> {
   const { organizationId, conversationId, branchId, contact, motivo } = input;
+
+  // FABLE-I-05 (docs-privados/auditoria-2026-10-05-FABLE.md, local): si el
+  // contacto ya tiene una tarea del pedido ABIERTA, la derivación la reutiliza.
+  // Antes cada ciclo derivación → aviso → derivación dejaba otra tarea: una
+  // sola conversación llegó a generar cuatro, todas abiertas y diciendo lo
+  // mismo. La tarea abierta ya le dice al vendedor que ese cliente espera.
+  // Best-effort como el resto de esta función: si la consulta falla, se sigue
+  // y se crea la tarea como siempre.
+  try {
+    const abierta = await findTareaAbiertaDelPedido(organizationId, contact.id, prisma);
+    if (abierta) {
+      return abierta.id;
+    }
+  } catch (err) {
+    logger.warn(
+      { err, organizationId, conversationId, contactId: contact.id },
+      "No se pudo buscar una tarea abierta del contacto antes de derivar: se crea una nueva",
+    );
+  }
 
   if (!ownerId) {
     logger.warn(
@@ -1784,14 +1885,22 @@ export async function responderEnLaConversacion(
   // (base de conocimiento, sucursal, últimos mensajes) no dependen entre sí y
   // van en UNA ida en paralelo en vez de cuatro en serie. Si el gate calla al
   // agente, las otras tres se leyeron de más: son lecturas, y es el caso raro.
-  const [hayHumano, entradasDeLaSucursal, sucursal, franjasDeLaSucursal, ultimosMensajes] =
-    await Promise.all([
-      humanoAtiendeLaConversacion(conversation),
-      findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
-      findBranchById(agent.branchId, organizationId),
-      findBusinessHoursByBranch(agent.branchId, organizationId),
-      findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),
-    ]);
+  // Los cupones del contacto van en la misma ida (ver bloqueDeCupones).
+  const [
+    hayHumano,
+    entradasDeLaSucursal,
+    sucursal,
+    franjasDeLaSucursal,
+    ultimosMensajes,
+    cuponesDelContacto,
+  ] = await Promise.all([
+    humanoAtiendeLaConversacion(conversation),
+    findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
+    findBranchById(agent.branchId, organizationId),
+    findBusinessHoursByBranch(agent.branchId, organizationId),
+    findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),
+    findVouchersDelContacto(organizationId, contact.id, MAX_CUPONES_EN_EL_PROMPT),
+  ]);
   if (hayHumano) {
     return {
       resultado: {
@@ -1844,6 +1953,7 @@ export async function responderEnLaConversacion(
     sucursal ? { ahora, zona: sucursal.timezone } : undefined,
     contact,
     fueraDeHorario,
+    cuponesDelContacto,
   );
   const mensajes = ordenarPendientesAlFinal(
     ultimosMensajes,
@@ -1868,6 +1978,7 @@ export async function responderEnLaConversacion(
       contactId: conversation.contactId,
       branchId: conversation.branchId,
       agentId: conversation.agentId,
+      channel: conversation.channel,
     },
   };
 
