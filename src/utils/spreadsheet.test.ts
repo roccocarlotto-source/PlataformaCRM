@@ -8,6 +8,7 @@ import {
   filasParaStaging,
   formatoDesdeNombre,
   parsearArchivo,
+  neutralizarCeldaParaExportar,
 } from "./spreadsheet";
 
 const csv = (texto: string) => Buffer.from(texto, "utf8");
@@ -430,4 +431,29 @@ test("B-28: lo mismo por CSV — el camino de armarFila es común a los dos form
   assert.ok(Object.hasOwn(fila, "__proto__"));
   assert.equal(fila["__proto__"], "dato-en-proto");
   assert.equal(Object.getPrototypeOf(fila), Object.prototype);
+});
+
+// FABLE-I-06 (docs-privados, local): hoy no hay exportación; esto fija la
+// función que la primera exportación tiene que usar.
+test("neutralizarCeldaParaExportar: lo que una planilla evaluaría como fórmula queda como texto", () => {
+  for (const peligrosa of [
+    '=HYPERLINK("http://ejemplo.test","clic")',
+    "+598 99 123 456",
+    "-2+3",
+    "@SUM(A1:A9)",
+    "\t=1+1",
+    "\r=1+1",
+  ]) {
+    assert.equal(neutralizarCeldaParaExportar(peligrosa), `'${peligrosa}`);
+  }
+});
+
+test("neutralizarCeldaParaExportar: el texto común, los números y los vacíos no se tocan", () => {
+  assert.equal(neutralizarCeldaParaExportar("Ana Pérez"), "Ana Pérez");
+  assert.equal(neutralizarCeldaParaExportar("a=b"), "a=b");
+  assert.equal(neutralizarCeldaParaExportar("ana@example.test"), "ana@example.test");
+  assert.equal(neutralizarCeldaParaExportar(""), "");
+  assert.equal(neutralizarCeldaParaExportar(-5), -5);
+  assert.equal(neutralizarCeldaParaExportar(null), null);
+  assert.equal(neutralizarCeldaParaExportar(true), true);
 });

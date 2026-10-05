@@ -1,3 +1,4 @@
+import { findInternalAgentByOrganization } from "../repositories/internalAgent.repository";
 import type { Response } from "express";
 import { findPlatformAdminByUserId } from "../repositories/platformAdmin.repository";
 import { findUserById } from "../repositories/user.repository";
@@ -19,11 +20,17 @@ import { asyncHandler } from "../utils/asyncHandler";
 // siendo esos middlewares en cada llamada, nunca estos booleanos.
 export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const { userId, email, fullName, organizationId, role } = req.auth;
-  const [platformAdmin, canUseInternalAgent] = await Promise.all([
+  // internalAgentConfigured (OPUS-F-04 / FABLE-F-07, docs-privados, local): si
+  // la organización TIENE un agente interno. Sin este dato la pantalla del
+  // agente interno pedía su configuración y sus mensajes para enterarse de que
+  // no existía, y cada visita dejaba dos 404 en la consola. En la misma ida
+  // que las otras dos lecturas.
+  const [platformAdmin, canUseInternalAgent, agenteInterno] = await Promise.all([
     findPlatformAdminByUserId(userId),
     role === "ADMIN"
       ? Promise.resolve(true)
       : findUserById(userId, organizationId).then((user) => user?.canUseInternalAgent === true),
+    findInternalAgentByOrganization(organizationId),
   ]);
   res.status(200).json({
     id: userId,
@@ -33,5 +40,6 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     role,
     isPlatformAdmin: platformAdmin !== null,
     canUseInternalAgent,
+    internalAgentConfigured: agenteInterno !== null,
   });
 });

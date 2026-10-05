@@ -394,3 +394,35 @@ export function filasParaStaging(filas: FilaCruda[]): FilaParaStaging[] {
     rawPayload: fila,
   }));
 }
+
+// ---------------------------------------------------------------------------
+// CELDAS QUE EMPIEZAN CON =, +, - O @ (inyección de fórmulas; FABLE-I-06 de
+// docs-privados/auditoria-2026-10-05-FABLE.md, local).
+//
+// ESTADO AL 05/10/2026: ESTE BACKEND NO EXPORTA NADA A CSV NI A EXCEL. Este
+// archivo solo LEE planillas (la importación), y el frontend no arma
+// descargas. Por eso lo que se importa se guarda tal cual: una celda
+// `=HYPERLINK(...)` queda como ese texto en el campo del contacto, y como
+// texto es inofensiva — la pantalla la muestra, no la evalúa. Cambiar el dato
+// al importarlo sería corromper lo que la persona cargó (un teléfono
+// "+598 99…" o un cargo "-Gerente" son legítimos).
+//
+// EL RIESGO APARECE EL DÍA QUE HAYA UNA EXPORTACIÓN: Excel, LibreOffice y
+// Google Sheets evalúan como fórmula cualquier celda que empiece con uno de
+// esos caracteres, así que un valor que entró por una importación, un webhook
+// o el chat se ejecutaría en la máquina de quien abra el archivo.
+//
+// QUIEN ESCRIBA ESA EXPORTACIÓN TIENE QUE PASAR CADA CELDA DE TEXTO POR ESTA
+// FUNCIÓN. Antepone un apóstrofo, que las planillas leen como "esto es texto"
+// y no muestran. También cubre el tab y el retorno de carro iniciales, que
+// algunas planillas saltean antes de mirar el primer carácter. Los números y
+// los valores vacíos no se tocan.
+// ---------------------------------------------------------------------------
+const EMPIEZA_COMO_FORMULA = /^[=+\-@\t\r]/;
+
+export function neutralizarCeldaParaExportar<T>(valor: T): T | string {
+  if (typeof valor !== "string" || !EMPIEZA_COMO_FORMULA.test(valor)) {
+    return valor;
+  }
+  return `'${valor}`;
+}

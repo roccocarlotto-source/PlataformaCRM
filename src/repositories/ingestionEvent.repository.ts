@@ -696,6 +696,10 @@ export async function getResumenDeLote(
 // `errorMessage` SÍ va: es el dato que hace diagnosticable una fila fallida sin
 // traer el crudo, y es exactamente lo que faltaba para el webhook.
 const INGESTION_EVENT_PUBLIC_SELECT = {
+  // El nombre de la fuente, aunque esté borrada (OPUS-F-04 / FABLE-F-07,
+  // docs-privados, local): la pantalla lo necesita para cada fila, y pedirlo
+  // aparte por id daba 404 con las fuentes dadas de baja.
+  source: { select: { id: true, name: true, deletedAt: true } },
   id: true,
   organizationId: true,
   sourceId: true,

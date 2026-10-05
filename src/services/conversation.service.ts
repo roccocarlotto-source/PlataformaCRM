@@ -12,7 +12,6 @@ import {
   type SortOrder,
 } from "../repositories/conversation.repository";
 import { AppError } from "../utils/AppError";
-import { humanoAtiendeLaConversacion } from "./agentOrchestration.service";
 import {
   conversacionesConPedidoSinResponder,
   pedidoSinResponderDelHilo,
@@ -125,8 +124,16 @@ export async function estadoDeAtencion(
   const ultimoEntrante = conversation.messages
     .filter((m) => m.direction === "INBOUND" && m.senderType === "CONTACT")
     .at(-1);
+  // F6 / FABLE-I-03 (docs-privados, local): humanoAtiendeLaConversacion iba a
+  // la base por el último mensaje del negocio, que acá ya está: el hilo viene
+  // entero. Esta pantalla se vuelve a pedir cada 5 segundos. La regla es la
+  // misma (derivada, y el último entre HUMAN y AGENT fue una persona).
+  const ultimoDelNegocio = conversation.messages
+    .filter((m) => m.senderType === "HUMAN" || m.senderType === "AGENT")
+    .at(-1);
   return {
-    agentPaused: await humanoAtiendeLaConversacion(conversation),
+    agentPaused:
+      conversation.status === "TRANSFERRED_TO_HUMAN" && ultimoDelNegocio?.senderType === "HUMAN",
     replyWindowEndsAt:
       conversation.channel === "WEB"
         ? null

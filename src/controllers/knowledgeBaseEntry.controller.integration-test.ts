@@ -244,7 +244,7 @@ test("POST /api/knowledge-base — validación de los tres campos de texto", asy
     [{ branchId: "no-es-uuid" }, /branchId inválido/],
     // isActive es z.boolean() pelado, igual que en Agent: el mensaje es el
     // genérico de Zod, sin nombre de campo.
-    [{ isActive: "sí" }, /Expected boolean/],
+    [{ isActive: "sí" }, /"isActive" tiene que ser verdadero o falso/],
   ];
 
   for (const [extra, esperado] of casos) {

@@ -207,6 +207,29 @@ describe("InternalAgentChatPage", () => {
     ).not.toBeInTheDocument();
   });
 
+  // OPUS-F-04 / FABLE-F-07 (docs-privados, local): /api/me ya dice que no hay
+  // agente interno, así que no se piden los mensajes (que darían 404).
+  it("si /api/me dice que no hay agente interno, muestra el estado vacío SIN pedir los mensajes", async () => {
+    const auth = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...auth, me: { ...auth.me!, internalAgentConfigured: false } });
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: "Configurar agente interno" })).toHaveAttribute(
+      "href",
+      "/internal-agent/settings",
+    );
+    expect(apiMock.listInternalAgentMessages).not.toHaveBeenCalled();
+  });
+
+  it("con el agente interno configurado según /api/me, pide los mensajes como siempre", async () => {
+    const auth = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...auth, me: { ...auth.me!, internalAgentConfigured: true } });
+    apiMock.listInternalAgentMessages.mockRejectedValue(new ApiError(404, "no configurado"));
+    renderPage();
+
+    await waitFor(() => expect(apiMock.listInternalAgentMessages).toHaveBeenCalled());
+  });
+
   it("sin agente configurado (404), a un ADMIN le ofrece configurarlo", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     apiMock.listInternalAgentMessages.mockRejectedValue(new ApiError(404, "no configurado"));

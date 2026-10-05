@@ -176,6 +176,9 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
         "email",
         "fullName",
         "id",
+        // Si la organización tiene un agente interno (OPUS-F-04 / FABLE-F-07,
+        // docs-privados, local).
+        "internalAgentConfigured",
         "isPlatformAdmin",
         "organizationId",
         "role",

@@ -213,6 +213,9 @@ test("POST /api/api-keys — 201 con la clave en claro exactamente una vez, y si
       "lastUsedAt",
       "organizationId",
       "revokedAt",
+      // El nombre de la fuente viaja con la clave (OPUS-F-04 / FABLE-F-07,
+      // docs-privados, local): la pantalla no la pide aparte.
+      "source",
       "sourceId",
       "updatedAt",
     ],
@@ -287,6 +290,9 @@ test("GET /api/api-keys — el listado expone solo la proyección pública", asy
       "lastUsedAt",
       "organizationId",
       "revokedAt",
+      // El nombre de la fuente viaja con la clave (OPUS-F-04 / FABLE-F-07,
+      // docs-privados, local): la pantalla no la pide aparte.
+      "source",
       "sourceId",
       "updatedAt",
     ]);

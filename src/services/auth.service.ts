@@ -1,11 +1,32 @@
+import { env } from "../config/env";
 import { findUserForAuth } from "../repositories/user.repository";
+import { crearAuthContextCache } from "./authContextCache";
 import { AppError } from "../utils/AppError";
 import { isRoleName, type AuthContext, type JwtPayload } from "../types/auth";
 
 // Aplica las reglas de la sección 4 de docs/authentication-architecture.md:
 // el JWT solo prueba identidad, todo lo demás (organización, rol, isActive)
 // se resuelve siempre contra Postgres, nunca contra el propio token.
+// La caché del proceso. Ver authContextCache.ts.
+const cache = crearAuthContextCache(env.AUTH_CONTEXT_CACHE_TTL_MS);
+
+// Para quien cambia un usuario (lo desactiva, le cambia el rol, lo remueve):
+// el cambio vale desde el próximo request, sin esperar el TTL.
+export function olvidarContextoDeAuth(userId: string): void {
+  cache.olvidar(userId);
+}
+
 export async function resolveAuthContext(payload: JwtPayload): Promise<AuthContext> {
+  const enCache = cache.leer(payload.sub);
+  if (enCache) {
+    return enCache;
+  }
+  const contexto = await resolverDesdeLaBase(payload);
+  cache.guardar(contexto);
+  return contexto;
+}
+
+async function resolverDesdeLaBase(payload: JwtPayload): Promise<AuthContext> {
   const user = await findUserForAuth(payload.sub);
 
   if (!user) {

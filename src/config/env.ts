@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import { z } from "zod";
-import { assertBaseLocalEnTest } from "../utils/baseLocal";
+import { readFileSync } from "node:fs";
+import { assertBaseLocalEnTest, correBajoTests, forzarConexionesDeTest } from "../utils/baseLocal";
 
 // Qué .env cargar. Por defecto ".env" (mismo comportamiento de siempre, el que
 // tenía "dotenv/config"), salvo que el propio proceso ya traiga NODE_ENV=test
@@ -33,6 +34,20 @@ dotenv.config({ path: process.env.NODE_ENV === "test" ? ".env.test" : ".env" });
 // Freno temprano: con NODE_ENV=test, una base que no es local aborta acá. El
 // definitivo está en lib/prisma.ts, justo antes de construir el cliente. Ver
 // assertBaseLocalEnTest en utils/baseLocal.ts.
+// FABLE-H-01 (docs-privados, local): corriendo tests —por el script, con un
+// archivo suelto o desde el IDE—, la base y Supabase son SIEMPRE los de
+// `.env.test`, aunque el `.env` de esta carpeta apunte a otro lado. Ver
+// correBajoTests y forzarConexionesDeTest en utils/baseLocal.ts.
+if (correBajoTests()) {
+  let deEnvTest: Record<string, string> | null = null;
+  try {
+    deEnvTest = dotenv.parse(readFileSync(".env.test"));
+  } catch {
+    // Sin .env.test (el CI): las variables vienen del entorno.
+  }
+  forzarConexionesDeTest(process.env, deEnvTest);
+}
+
 assertBaseLocalEnTest(process.env);
 
 // DATABASE_URL, DIRECT_URL y las variables SUPABASE_* quedaron opcionales acá
@@ -422,6 +437,23 @@ const envSchema = z.object({
   // DATABASE_URL (la mitad) o, si no está, es 2 (cupoDeTurnosPorDefecto).
   AGENT_TURN_MAX_CONCURRENT: z.coerce.number().int().positive().optional(),
 
+  // AUTH_CONTEXT_CACHE_TTL_MS: cuántos milisegundos se recuerda el usuario,
+  // la organización y el rol que resuelve el middleware de autenticación
+  // (services/authContextCache.ts). 5 segundos: alcanza para todas las
+  // requests de una pantalla y es lo máximo que tarda en verse un cambio hecho
+  // por fuera del backend. 0 la apaga; es lo que usa la suite de integración,
+  // que cambia usuarios directo en la base y espera verlo en el acto.
+  AUTH_CONTEXT_CACHE_TTL_MS: z.coerce.number().int().min(0).max(60_000).optional(),
+
+  // AGENT_INBOUND_WORKER_CONCURRENCY: cuántos turnos de la cola (WhatsApp,
+  // Messenger, Instagram) corre el worker A LA VEZ. FABLE-G-03 (docs-privados,
+  // local): antes iban de a uno, así que un turno lento frenaba a todas las
+  // organizaciones. Sin definir, es el mismo cupo de turnos del proceso
+  // (AGENT_TURN_MAX_CONCURRENT, o el que sale de connection_limit): más que
+  // eso no sirve, porque los turnos igual esperan ese cupo. Una organización
+  // nunca ocupa todos los carriles (ver drenarTurnosPendientes).
+  AGENT_INBOUND_WORKER_CONCURRENCY: z.coerce.number().int().positive().optional(),
+
   // -------------------------------------------------------------------------
   // Seguimientos por WhatsApp con el QR al ganar una oportunidad (ítem 159 de
   // docs/frontend-cambios-pendientes.md; src/workers/qrFollowUpWorker.ts).
@@ -737,6 +769,9 @@ const parsed = parseEnv();
 export const env = {
   ...parsed,
   LOG_LEVEL: parsed.LOG_LEVEL ?? (parsed.NODE_ENV === "production" ? "info" : "debug"),
+  // Sin definir: 5 segundos, y apagada corriendo tests (ver el comentario de
+  // la variable).
+  AUTH_CONTEXT_CACHE_TTL_MS: parsed.AUTH_CONTEXT_CACHE_TTL_MS ?? (correBajoTests() ? 0 : 5000),
   isProduction: parsed.NODE_ENV === "production",
   isDevelopment: parsed.NODE_ENV === "development",
 };

@@ -101,15 +101,30 @@ interface FilaReclamada {
 // `excluir` y `organizationId` cumplen el mismo rol que en las otras colas.
 export async function claimNextAgentInboundJob(
   leaseMs: number,
-  opciones: { organizationId?: string; excluir?: string[] } = {},
+  opciones: {
+    // Una organización, o varias: acota el reclamo. Producción no lo usa.
+    organizationId?: string | string[];
+    excluir?: string[];
+    // Organizaciones que ya tienen su tope de turnos en curso en este proceso
+    // (FABLE-G-03, docs-privados, local): sus jobs esperan a la próxima vuelta
+    // y el reclamo toma el de otra organización.
+    excluirOrganizaciones?: string[];
+  } = {},
   db: Db = prisma,
 ): Promise<JobReclamado | null> {
-  const filtroOrg = opciones.organizationId
-    ? Prisma.sql`AND c.organization_id = ${opciones.organizationId}::uuid`
-    : Prisma.empty;
+  const organizaciones =
+    opciones.organizationId === undefined ? [] : [opciones.organizationId].flat();
+  const filtroOrg =
+    organizaciones.length > 0
+      ? Prisma.sql`AND c.organization_id = ANY(${organizaciones}::uuid[])`
+      : Prisma.empty;
   const filtroExcluidos =
     opciones.excluir && opciones.excluir.length > 0
       ? Prisma.sql`AND c.id <> ALL(${opciones.excluir}::uuid[])`
+      : Prisma.empty;
+  const filtroOrganizacionesExcluidas =
+    opciones.excluirOrganizaciones && opciones.excluirOrganizaciones.length > 0
+      ? Prisma.sql`AND c.organization_id <> ALL(${opciones.excluirOrganizaciones}::uuid[])`
       : Prisma.empty;
 
   const filas = await db.$queryRaw<FilaReclamada[]>`
@@ -135,6 +150,7 @@ export async function claimNextAgentInboundJob(
         )
       ${filtroOrg}
       ${filtroExcluidos}
+      ${filtroOrganizacionesExcluidas}
       ORDER BY coalesce(c.next_attempt_at, c.created_at)
       FOR UPDATE SKIP LOCKED
       LIMIT 1

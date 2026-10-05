@@ -14,6 +14,9 @@ export interface ApiKey {
   id: string;
   organizationId: string;
   sourceId: string;
+  // El nombre de la fuente viene con la fila, también si la fuente fue
+  // eliminada. Opcional: un backend anterior no lo manda.
+  source?: { id: string; name: string; deletedAt: string | null };
   // Los primeros 12 caracteres de la clave, en claro y a propósito: es lo único
   // que permite identificar cuál de varias claves se está por revocar.
   keyPrefix: string;

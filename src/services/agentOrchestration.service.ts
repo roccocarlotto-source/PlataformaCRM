@@ -1528,6 +1528,11 @@ export interface ClaveDeConversacion {
   agentId: string;
   contactId: string;
   channel: ConversationChannel;
+  // NO forma parte de la clave del lock (claveDeLockDeConversacion no la
+  // mira): es el grupo para el tope por organización del limitador de turnos
+  // (FABLE-G-03, docs-privados, local). Sin ella, el turno solo cuenta contra
+  // el cupo global.
+  organizationId?: string;
 }
 
 export function claveDeLockDeConversacion(clave: ClaveDeConversacion): string {
@@ -1554,14 +1559,17 @@ export async function conLockDeConversacion<T>(
   clave: ClaveDeConversacion,
   fn: () => Promise<T>,
 ): Promise<T> {
-  return limitadorDeTurnos.correr(claveDeLockDeConversacion(clave), () =>
-    prisma.$transaction(
-      async (tx) => {
-        await tomarLockDeConversacion(tx, clave);
-        return fn();
-      },
-      { maxWait: 10_000, timeout: env.AGENT_TURN_LOCK_TIMEOUT_MS },
-    ),
+  return limitadorDeTurnos.correr(
+    claveDeLockDeConversacion(clave),
+    () =>
+      prisma.$transaction(
+        async (tx) => {
+          await tomarLockDeConversacion(tx, clave);
+          return fn();
+        },
+        { maxWait: 10_000, timeout: env.AGENT_TURN_LOCK_TIMEOUT_MS },
+      ),
+    clave.organizationId,
   );
 }
 
@@ -1800,7 +1808,7 @@ export async function runAgentTurn(
     channel,
   );
 
-  return conLockDeConversacion({ agentId, contactId, channel }, async () => {
+  return conLockDeConversacion({ agentId, contactId, channel, organizationId }, async () => {
     const { conversation } = await registrarEntrante({
       organizationId,
       agentId,
