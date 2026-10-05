@@ -38,6 +38,8 @@ function cupon(extra: Partial<DiscountVoucher> = {}): DiscountVoucher {
     expiresAt: MANANA,
     consumedAt: null,
     consumedByUserId: null,
+    createdByUserId: null,
+    branchId: null,
     createdAt: AYER,
     updatedAt: AYER,
     ...extra,

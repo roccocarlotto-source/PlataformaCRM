@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
@@ -272,6 +273,7 @@ export function OpportunityFormPage() {
     opportunityQuery.data ? toFormValues(opportunityQuery.data) : initialValues,
   );
   const [error, setError] = useState<string | null>(null);
+  const [creandoCupon, setCreandoCupon] = useState(false);
 
   // "Fecha desconocida" (ítem 18.C): afordancia de UI sobre el mismo campo
   // opcional, sin cambio de modelo — "desconocida" y vacío son lo mismo para
@@ -491,7 +493,18 @@ export function OpportunityFormPage() {
   return (
     <>
       <form onSubmit={handleSubmit} className="ds-form">
-        <PageHeader title={isEditMode ? "Editar oportunidad" : "Nueva oportunidad"} />
+        <PageHeader
+          title={isEditMode ? "Editar oportunidad" : "Nueva oportunidad"}
+          actions={
+            // "Crear cupón" a mano: el cupón es del contacto de la venta, así
+            // que solo con uno cargado.
+            isEditMode && opportunityQuery.data?.contactId ? (
+              <Button type="button" onClick={() => setCreandoCupon(true)}>
+                Crear cupón
+              </Button>
+            ) : undefined
+          }
+        />
         {isEditMode || isClosed(values.status) ? null : (
           <p className="ds-hint">Se crea abierta en la etapa elegida del embudo.</p>
         )}
@@ -804,6 +817,12 @@ export function OpportunityFormPage() {
           <TradeInSection opportunity={opportunityQuery.data} />
           <PaymentSection opportunity={opportunityQuery.data} />
         </>
+      ) : null}
+      {creandoCupon && opportunityQuery.data ? (
+        <CreateVoucherDialog
+          opportunityId={opportunityQuery.data.id}
+          onClose={() => setCreandoCupon(false)}
+        />
       ) : null}
     </>
   );
