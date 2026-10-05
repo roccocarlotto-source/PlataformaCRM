@@ -1,4 +1,4 @@
-import type { LeadUrgency, LifecycleStage, Prisma } from "@prisma/client";
+import type { LeadUrgency, LifecycleStage, Prisma, VehicleInterestSource } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 export interface ContactFilters {
@@ -65,6 +65,21 @@ function buildOrderBy(
   }
 }
 
+// Lo que la ficha muestra del vehículo de interés: la unidad aunque se haya
+// vendido o dado de baja (sin filtro de deletedAt), con su estado.
+export const vehicleOfInterestSelect = {
+  id: true,
+  internalCode: true,
+  make: true,
+  model: true,
+  trim: true,
+  year: true,
+  status: true,
+  deletedAt: true,
+} as const;
+
+// El listado trae el resumen del vehículo de interés: lo muestra el detalle
+// del contacto (ContactListPage), que es lo que ve un USER.
 export function findManyContacts(
   organizationId: string,
   filters: ContactFilters,
@@ -77,6 +92,7 @@ export function findManyContacts(
     orderBy: buildOrderBy(sort.sortBy, sort.sortOrder),
     skip: pagination.skip,
     take: pagination.take,
+    include: { vehicleOfInterest: { select: vehicleOfInterestSelect } },
   });
 }
 
@@ -87,6 +103,39 @@ export function countContacts(organizationId: string, filters: ContactFilters, d
 export function findContactById(id: string, organizationId: string, db: Db = prisma) {
   return db.contact.findFirst({
     where: { id, organizationId, deletedAt: null },
+  });
+}
+
+// findContactById más el resumen del vehículo de interés: el GET de la ficha.
+export function findContactWithVehicleOfInterest(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.contact.findFirst({
+    where: { id, organizationId, deletedAt: null },
+    include: { vehicleOfInterest: { select: vehicleOfInterestSelect } },
+  });
+}
+
+// El agente carga el vehículo de interés SOLO si está vacío o si lo había
+// cargado él: la condición va en el WHERE, así que una persona que lo carga
+// a la vez gana sin carrera. count 0 = lo tiene cargado una persona (o el
+// contacto no existe: quien llama ya lo leyó).
+export function setVehicleOfInterestFromAgent(
+  id: string,
+  organizationId: string,
+  vehicleId: string,
+  db: Db = prisma,
+) {
+  return db.contact.updateMany({
+    where: {
+      id,
+      organizationId,
+      deletedAt: null,
+      OR: [{ vehicleOfInterestSetBy: null }, { vehicleOfInterestSetBy: "AGENT" }],
+    },
+    data: { vehicleOfInterestId: vehicleId, vehicleOfInterestSetBy: "AGENT" },
   });
 }
 
@@ -226,6 +275,9 @@ export function createContact(data: CreateContactData, db: Db = prisma) {
 }
 
 export interface UpdateContactData {
+  // Vehículo de interés: los dos juntos (CHECK). Ver setVehicleOfInterestFromAgent.
+  vehicleOfInterestId?: string | null;
+  vehicleOfInterestSetBy?: VehicleInterestSource | null;
   companyId?: string | null;
   ownerId?: string;
   firstName?: string;

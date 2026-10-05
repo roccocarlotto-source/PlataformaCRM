@@ -497,6 +497,10 @@ from (
      'CHECK (lead_score >= 0 AND lead_score <= 100)'),
     ('contacts_lead_budget_amount_non_negative_check', 'contacts',
      'CHECK (lead_budget_amount >= 0)'),
+    -- Vehículo de interés (migración 20261020120000): la unidad y quién la
+    -- cargó van juntas.
+    ('contacts_vehicle_of_interest_set_by_check', 'contacts',
+     'CHECK ((vehicle_of_interest_id IS NULL) = (vehicle_of_interest_set_by IS NULL))'),
     -- Módulo de Agentes de IA (migración 20260912130000): el único CHECK del
     -- módulo. sender_type y sender_user_id van juntos — HUMAN exige usuario,
     -- CONTACT/AGENT lo prohíben. Transcripto de pg_get_constraintdef: el `IN
@@ -922,7 +926,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 76 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 77 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -946,7 +950,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 76 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 77 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -965,6 +969,10 @@ from (
     ('companies_organization_id_owner_id_fkey|companies(organization_id,owner_id)->users(organization_id,id)'),
     ('contacts_organization_id_company_id_fkey|contacts(organization_id,company_id)->companies(organization_id,id)'),
     ('contacts_organization_id_owner_id_fkey|contacts(organization_id,owner_id)->users(organization_id,id)'),
+    -- Vehículo de interés (migración 20261020120000): una FK bien formada
+    -- hacia opportunities (que también tiene su UNIQUE por organización)
+    -- pasaría la fila 14 entera; el padre es la UNIDAD del stock.
+    ('contacts_organization_id_vehicle_of_interest_id_fkey|contacts(organization_id,vehicle_of_interest_id)->vehicles(organization_id,id)'),
     ('google_calendar_connections_organization_id_branch_id_fkey|google_calendar_connections(organization_id,branch_id)->branches(organization_id,id)'),
     ('ingestion_events_organization_id_promoted_contact_id_fkey|ingestion_events(organization_id,promoted_contact_id)->contacts(organization_id,id)'),
     ('ingestion_events_organization_id_source_id_fkey|ingestion_events(organization_id,source_id)->sources(organization_id,id)'),

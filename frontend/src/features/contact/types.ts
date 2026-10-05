@@ -1,3 +1,4 @@
+import type { VehicleStatus } from "../vehicle/types";
 // Reconstruido desde el contrato real del backend (src/controllers/contact.controller.ts,
 // src/services/contact.service.ts, prisma/schema.prisma modelo Contact). No se
 // agrega ningún campo que el backend no devuelva o no acepte.
@@ -16,8 +17,26 @@ export interface Contact {
   jobTitle: string | null;
   lifecycleStage: LifecycleStage;
   source: string | null;
+  // Vehículo de interés (F2): la unidad del stock que le interesa, separada de
+  // una oportunidad. Quién la cargó decide si el agente la puede cambiar.
+  vehicleOfInterestId?: string | null;
+  vehicleOfInterestSetBy?: "HUMAN" | "AGENT" | null;
+  // Solo en el GET de la ficha: el resumen de la unidad, aunque se haya
+  // vendido o dado de baja.
+  vehicleOfInterest?: VehicleOfInterestSummary | null;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface VehicleOfInterestSummary {
+  id: string;
+  internalCode: string;
+  make: string;
+  model: string;
+  trim: string | null;
+  year: number;
+  status: VehicleStatus;
   deletedAt: string | null;
 }
 
@@ -77,4 +96,7 @@ export interface CreateContactInput {
   ownerId?: string;
 }
 
-export type UpdateContactInput = Partial<CreateContactInput>;
+// El vehículo de interés solo se edita desde la ficha (PATCH): null lo quita.
+export type UpdateContactInput = Partial<CreateContactInput> & {
+  vehicleOfInterestId?: string | null;
+};
