@@ -1,3 +1,4 @@
+import { LARGO_MAXIMO_DEL_AVISO } from "../services/avisoSinRespuesta.service";
 import { ConversationChannel } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
@@ -126,6 +127,18 @@ const unansweredHandoffNoticeMinutesSchema = z
   .min(0, "unansweredHandoffNoticeMinutes no puede ser negativo")
   .max(1440, "unansweredHandoffNoticeMinutes no puede superar un día (1440 minutos)");
 
+// "Mensaje cuando no hay nadie disponible": el texto del aviso. Vacío = el de
+// siempre (null). Hasta 500 caracteres, el tope de la columna. La frase del
+// horario NO va acá: se agrega sola fuera de horario (textoDelAviso).
+const unansweredHandoffNoticeTextSchema = z
+  .string({ invalid_type_error: "unansweredHandoffNoticeText debe ser un texto" })
+  .trim()
+  .max(
+    LARGO_MAXIMO_DEL_AVISO,
+    `El mensaje cuando no hay nadie disponible no puede superar los ${LARGO_MAXIMO_DEL_AVISO} caracteres`,
+  )
+  .transform((texto) => (texto === "" ? null : texto));
+
 const createAgentSchema = z.object({
   branchId: z.string().uuid("branchId inválido"),
   name: nameSchema,
@@ -134,6 +147,7 @@ const createAgentSchema = z.object({
   tone: toneSchema.nullish(),
   // Ausente = el default de la base (15).
   unansweredHandoffNoticeMinutes: unansweredHandoffNoticeMinutesSchema.nullish(),
+  unansweredHandoffNoticeText: unansweredHandoffNoticeTextSchema.nullish(),
   // Opcionales desde B-05: el agente nace con el modelo de la plataforma
   // (OPENROUTER_MODEL) y el service rechaza con 403 cualquier otro. Ver
   // modeloDeIa.service.ts.
@@ -159,6 +173,7 @@ const updateAgentSchema = z
     instructions: instructionsSchema,
     tone: toneSchema.nullable(),
     unansweredHandoffNoticeMinutes: unansweredHandoffNoticeMinutesSchema.nullable(),
+    unansweredHandoffNoticeText: unansweredHandoffNoticeTextSchema.nullable(),
     modelProvider: modelProviderSchema,
     modelName: modelNameSchema,
     enabledTools: enabledToolsSchema,

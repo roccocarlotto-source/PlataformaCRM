@@ -274,6 +274,17 @@ enum MessageSenderType {
 // ESTADOS_QUE_AVANZAN_A en message.repository.ts). FAILED queda antes de
 // DELIVERED a propósito: si Meta después dice que se entregó, se entregó; un
 // "failed" que llega tras un "read" es ruido y se ignora.
+// Qué aviso automático es un Message, cuando lo es. Un DATO y no el texto:
+// desde que el aviso de "nadie disponible" es configurable por agente, su
+// primera frase ya no lo identifica. Hoy tiene un solo valor; NULL en todo lo
+// demás.
+enum MessageNoticeType {
+  // "Devolver al agente" sin respuesta, a mano o automático
+  // (avisoSinRespuesta.service.ts): ancla la marca "Pidió hablar con una
+  // persona · sin responder".
+  UNANSWERED_HANDOFF
+}
+
 enum MessageDeliveryStatus {
   PENDING
   SENT
@@ -2293,7 +2304,12 @@ model Agent {
   // y la conversación vuelve al agente, igual que con "Devolver al agente"
   // (workers/avisoSinRespuestaWorker.ts). NULL o 0 = desactivado. 15 por
   // defecto, también para los agentes que ya existían.
-  unansweredHandoffNoticeMinutes Int? @default(15) @map("unanswered_handoff_notice_minutes")
+  unansweredHandoffNoticeMinutes Int?    @default(15) @map("unanswered_handoff_notice_minutes")
+  // El texto de ese aviso ("Mensaje cuando no hay nadie disponible"). NULL =
+  // el texto de siempre (AVISO_SIN_RESPUESTA). Fuera del horario de la
+  // sucursal se le agrega solo cuándo atiende el equipo y cuándo le escriben
+  // (avisoSinRespuesta.service.ts → textoDelAviso).
+  unansweredHandoffNoticeText    String? @map("unanswered_handoff_notice_text") @db.VarChar(500)
 
   // El phone_number_id de WhatsApp Business Platform (Meta) que atiende este
   // agente — ítem 81. Meta lo manda en cada webhook (metadata.phone_number_id)
@@ -2474,6 +2490,10 @@ model Message {
   // Por qué falló el último envío (el cuerpo de error de Meta, recortado).
   // Se limpia cuando un reintento sale bien.
   deliveryError  String?                @map("delivery_error") @db.Text
+
+  // Si es un aviso automático, cuál (ver el enum). Solo con senderType
+  // AUTOMATION (CHECK messages_notice_type_automation_check).
+  noticeType MessageNoticeType? @map("notice_type")
 
   createdAt DateTime @default(now()) @map("created_at")
 

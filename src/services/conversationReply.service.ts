@@ -560,12 +560,14 @@ async function devolverYAvisar(
     finDeLaVentanaDeWhatsapp(await findLastInboundAt(id, organizationId)),
   );
   const destino = entrega.tipo === "por-el-canal" ? await destinoDeLaConversacion(vigente) : null;
-  // Fuera del horario de la sucursal, el aviso dice cuándo le van a escribir.
-  const texto = textoDelAviso(
-    avisar
-      ? await atencionFueraDeHorarioDeLaSucursal(organizationId, vigente.branchId, new Date())
-      : null,
-  );
+  // El texto del agente, si cargó uno; fuera del horario de la sucursal se le
+  // agrega cuándo le van a escribir.
+  const texto = avisar
+    ? textoDelAviso(
+        await atencionFueraDeHorarioDeLaSucursal(organizationId, vigente.branchId, new Date()),
+        (await findAgentById(vigente.agentId, organizationId))?.unansweredHandoffNoticeText ?? null,
+      )
+    : "";
 
   const aviso = await prisma.$transaction(async (tx) => {
     const devuelta = await returnConversationToAgent(id, organizationId, tx);
@@ -589,6 +591,7 @@ async function devolverYAvisar(
         conversationId: id,
         direction: "OUTBOUND",
         senderType: "AUTOMATION",
+        noticeType: "UNANSWERED_HANDOFF",
         content: texto,
         ...(motivoSinEnvio !== null
           ? { deliveryStatus: "FAILED" as const, deliveryError: motivoSinEnvio }

@@ -25,6 +25,7 @@ function mensaje(
     externalMessageId: null,
     deliveryStatus: null,
     deliveryError: null,
+    noticeType: null,
     createdAt: new Date(),
   };
 }

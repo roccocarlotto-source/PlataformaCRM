@@ -510,6 +510,10 @@ from (
     -- AUTOMATION al ARRAY.
     ('messages_sender_user_id_consistency_check', 'messages',
      'CHECK (sender_type = ''HUMAN'' AND sender_user_id IS NOT NULL OR sender_type = ANY (ARRAY[''CONTACT'', ''AGENT'', ''AUTOMATION'']) AND sender_user_id IS NULL)'),
+    -- El aviso "nadie disponible" reconocido por un dato (migración
+    -- 20261019120000): solo un mensaje de AUTOMATION puede ser un aviso.
+    ('messages_notice_type_automation_check', 'messages',
+     'CHECK (notice_type IS NULL OR sender_type = ''AUTOMATION'')'),
     -- Cotización (§39, migración 20260916120000): el mismo CHECK que
     -- opportunities_amount_non_negative_check sobre el precio ofertado.
     ('quotes_amount_non_negative_check', 'quotes',

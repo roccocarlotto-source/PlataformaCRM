@@ -40,9 +40,30 @@ test("textoDelAviso: fuera de horario dice cuándo atienden y cuándo le escribe
     texto,
     "Por el momento no hay nadie del equipo disponible. Nuestro equipo atiende de lunes a sábado de 9 a 20 h. Te vamos a escribir el lunes a partir de las 9. Mientras tanto, si querés, puedo seguir ayudándote.",
   );
-  // El comienzo es el ancla de la marca: también el del texto de siempre.
   assert.ok(texto.startsWith(PREFIJO_DEL_AVISO));
   assert.ok(AVISO_SIN_RESPUESTA.startsWith(PREFIJO_DEL_AVISO));
+});
+
+test("textoDelAviso con el texto del agente: ese texto; fuera de horario, con la frase del horario al final", () => {
+  const propio = "Ahora no hay vendedores conectados, te escribimos apenas se libere uno.";
+  assert.equal(textoDelAviso(null, `  ${propio}  `), propio);
+  assert.equal(
+    textoDelAviso(
+      {
+        horario: "de lunes a sábado de 9 a 20 h",
+        cuando: "mañana a partir de las 9",
+        proximaApertura: new Date("2026-10-12T12:00:00.000Z"),
+      },
+      propio,
+    ),
+    `${propio} Nuestro equipo atiende de lunes a sábado de 9 a 20 h. Te vamos a escribir mañana a partir de las 9.`,
+  );
+});
+
+test("textoDelAviso: un texto del agente vacío o en blanco es el de siempre", () => {
+  assert.equal(textoDelAviso(null, ""), AVISO_SIN_RESPUESTA);
+  assert.equal(textoDelAviso(null, "   "), AVISO_SIN_RESPUESTA);
+  assert.equal(textoDelAviso(null, null), AVISO_SIN_RESPUESTA);
 });
 
 test("sin respuesta de una persona desde la derivación: se avisa", () => {

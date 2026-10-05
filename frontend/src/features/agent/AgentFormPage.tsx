@@ -28,6 +28,13 @@ import type {
   UpdateAgentInput,
 } from "./types";
 
+// El aviso "nadie disponible": el tope de la columna y el texto de siempre
+// (AVISO_SIN_RESPUESTA en avisoSinRespuesta.service.ts del backend), que se
+// muestra de ejemplo en el campo vacío.
+const MAX_AVISO_SIN_RESPUESTA = 500;
+const AVISO_SIN_RESPUESTA_DE_SIEMPRE =
+  "Por el momento no hay nadie del equipo disponible. Te vamos a contactar más tarde. Mientras tanto, si querés, puedo seguir ayudándote.";
+
 interface AgentFormValues {
   branchId: string | undefined;
   name: string;
@@ -36,6 +43,8 @@ interface AgentFormValues {
   tone: string;
   // Texto y no número: el input vacío es un valor válido (desactivado).
   avisoSinRespuestaMinutos: string;
+  // Vacío = el texto de siempre.
+  avisoSinRespuestaTexto: string;
   modelProvider: string;
   modelName: string;
   enabledTools: string[];
@@ -67,6 +76,7 @@ const EMPTY_FORM: AgentFormValues = {
   tone: "",
   // El mismo default que la base.
   avisoSinRespuestaMinutos: "15",
+  avisoSinRespuestaTexto: "",
   // Un solo proveedor hoy: viene elegido. Ver MODEL_PROVIDER_OPTIONS.
   modelProvider: DEFAULT_MODEL_PROVIDER,
   // Vacío = el backend usa el default de OPENROUTER_MODEL.
@@ -119,6 +129,7 @@ function toFormValues(agent: Agent): AgentFormValues {
       agent.unansweredHandoffNoticeMinutes === undefined
         ? ""
         : String(agent.unansweredHandoffNoticeMinutes),
+    avisoSinRespuestaTexto: agent.unansweredHandoffNoticeText ?? "",
     modelProvider: agent.modelProvider,
     modelName: agent.modelName,
     enabledTools: agent.enabledTools,
@@ -308,6 +319,7 @@ export function AgentFormPage() {
           instructions: values.instructions.trim(),
           tone: textoOpcional(values.tone),
           unansweredHandoffNoticeMinutes: minutosOpcionales(values.avisoSinRespuestaMinutos),
+          unansweredHandoffNoticeText: textoOpcional(values.avisoSinRespuestaTexto),
           enabledTools: values.enabledTools,
           channels: values.channels,
           // Los dos SIEMPRE juntos: el backend rechaza un PATCH que traiga uno
@@ -328,6 +340,7 @@ export function AgentFormPage() {
           instructions: values.instructions.trim(),
           tone: textoOpcional(values.tone),
           unansweredHandoffNoticeMinutes: minutosOpcionales(values.avisoSinRespuestaMinutos),
+          unansweredHandoffNoticeText: textoOpcional(values.avisoSinRespuestaTexto),
           // Sin modelo: el agente nace con el de la plataforma (B-05).
           enabledTools: values.enabledTools,
           channels: values.channels,
@@ -510,6 +523,28 @@ export function AgentFormPage() {
               cliente en estos minutos, le llega solo un aviso de que no hay nadie disponible (con
               el horario de la sucursal si está cerrada), la conversación vuelve al agente y queda
               la tarea para contactarlo. Vacío o 0: no se avisa.
+            </p>
+
+            <div className="ds-field-grid--full">
+              <FormField label="Mensaje cuando no hay nadie disponible">
+                <textarea
+                  rows={3}
+                  maxLength={MAX_AVISO_SIN_RESPUESTA}
+                  value={values.avisoSinRespuestaTexto}
+                  placeholder={AVISO_SIN_RESPUESTA_DE_SIEMPRE}
+                  onChange={(event) =>
+                    setValues({ ...values, avisoSinRespuestaTexto: event.target.value })
+                  }
+                />
+              </FormField>
+            </div>
+
+            <p className="ds-hint ds-field-grid--full">
+              Es lo que le llega al cliente con ese aviso, y también al tocar "Devolver al agente"
+              sin haberle respondido. Vacío: el texto de siempre (el de ejemplo). No escribas el
+              horario: si la sucursal está cerrada, al final se agrega solo cuándo atiende el equipo
+              y cuándo le van a escribir (por ejemplo, "Te vamos a escribir mañana a partir de las
+              9").
             </p>
 
             <div className="ds-field-grid--full">
