@@ -717,6 +717,8 @@ model Organization {
   // El agente de IA de uso interno (ítem 179) — a lo sumo uno — y su historial.
   internalAgents           InternalAgent[]
   internalAgentMessages    InternalAgentMessage[]
+  // El consumo del modelo por turno del agente (B4, migración 20261023120000).
+  llmTurnUsages            LlmTurnUsage[]
   // La plantilla de WhatsApp con la que salen sus seguimientos (ítem 160).
   // Una activa a la vez; las borradas quedan como historial.
   whatsappTemplates        WhatsappTemplate[]
@@ -2934,6 +2936,49 @@ model QrFollowUp {
   @@index([organizationId, contactId])
   @@index([organizationId, qrCodeId])
   @@map("qr_follow_ups")
+}
+
+// ---------------------------------------------------------------------------
+// LlmTurnUsage — el consumo del modelo por turno del agente (B4, 06/10/2026;
+// migración 20261023120000). Hasta acá era solo una línea de log
+// (llmUsage.service.ts, FABLE-G-04); una fila por turno permite el gasto por
+// organización y, cuando se decida, el tope diario.
+//
+// UNA FILA POR TURNO, no por llamada: un turno hace hasta 5 llamadas al
+// modelo (más el cierre), y lo que se quiere medir es lo que costó atender un
+// mensaje. agent_id y conversation_id son referencias informativas SIN FK: la
+// fila tiene que sobrevivir a que se borre la conversación o el agente (el
+// gasto ya ocurrió), y un RESTRICT trabaría esos borrados. La única FK es la
+// de la organización, que es la que acota el aislamiento y la purga.
+//
+// cost_usd es lo que informó OpenRouter en `usage.cost`; null cuando ninguna
+// llamada del turno lo trajo (otro proveedor, o la respuesta sin usage).
+// ---------------------------------------------------------------------------
+model LlmTurnUsage {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  agentId        String @map("agent_id") @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+
+  channel          ConversationChannel
+  model            String              @db.VarChar(200)
+  // Llamadas al modelo del turno, hayan informado consumo o no.
+  calls            Int
+  promptTokens     Int                 @map("prompt_tokens")
+  completionTokens Int                 @map("completion_tokens")
+  costUsd          Decimal?            @map("cost_usd") @db.Decimal(12, 6)
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  // CASCADE y no RESTRICT, a diferencia de las tablas de negocio: es un
+  // registro de consumo, no un dato que alguien edite, y el gasto de una
+  // organización borrada no le importa a nadie. Con RESTRICT, cada borrado de
+  // una organización (la purga de las de prueba, los tests de integración)
+  // tendría que acordarse de vaciar esto antes.
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // El gasto por organización en una ventana de tiempo, y la purga por fecha.
+  @@index([organizationId, createdAt])
+  @@map("llm_turn_usages")
 }
 
 // ---------------------------------------------------------------------------

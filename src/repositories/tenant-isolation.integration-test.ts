@@ -113,6 +113,7 @@ import {
   writeSyncedKnowledgeBaseEntry,
 } from "./knowledgeBaseEntry.repository";
 import { setInternalAgentModel } from "./internalAgent.repository";
+import { purgeLlmTurnUsages, sumarUsoPorOrganizacion } from "./llmTurnUsage.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -1415,6 +1416,7 @@ interface FixtureNuevos {
   metaConnectionY: string;
   qrCodeY: string;
   qrFollowUpY: string;
+  llmTurnUsageY: string;
   voucherY: string;
   voucherFollowUpY: string;
   templateY: string;
@@ -1610,6 +1612,21 @@ before(async () => {
       attempts: 1,
     },
   });
+  // B4: el uso del modelo de un turno de Y (solo se inserta y se purga).
+  const llmTurnUsageY = await prisma.llmTurnUsage.create({
+    data: {
+      organizationId: org,
+      agentId: agentY.id,
+      conversationId: conversationY.id,
+      channel: "WHATSAPP",
+      model: "doble/modelo",
+      calls: 1,
+      promptTokens: 10,
+      completionTokens: 5,
+      costUsd: 0.001,
+      createdAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000),
+    },
+  });
   const voucherY = await prisma.discountVoucher.create({
     data: {
       organizationId: org,
@@ -1709,6 +1726,7 @@ before(async () => {
     metaConnectionY: metaConnectionY.id,
     qrCodeY: qrCodeY.id,
     qrFollowUpY: qrFollowUpY.id,
+    llmTurnUsageY: llmTurnUsageY.id,
     voucherY: voucherY.id,
     voucherFollowUpY: voucherFollowUpY.id,
     templateY: templateY.id,
@@ -1734,6 +1752,7 @@ after(async () => {
   await prisma.discountVoucherFollowUp.deleteMany(w);
   await prisma.discountVoucher.deleteMany(w);
   await prisma.qrFollowUp.deleteMany(w);
+  await prisma.llmTurnUsage.deleteMany(w);
   await prisma.qrCode.deleteMany(w);
   await prisma.metaPageConnection.deleteMany(w);
   await prisma.contactChannelIdentity.deleteMany(w);
@@ -2212,6 +2231,29 @@ test("H-01 InternalAgent e InternalAgentMessage: cambiar el modelo desde X no to
 // entere: todo modelo con organizationId del schema tiene que aparecer en
 // este archivo (como prisma.<modelo>.). Si agregás un modelo, agregale su
 // prueba acá.
+// B4: llm_turn_usages solo se inserta (registrarUsoDelTurno), se suma por
+// organización y se purga por fecha. Las dos escrituras/lecturas con
+// organización: la purga acotada a X no toca la fila de Y, y la suma por
+// organización atribuye el gasto de Y a Y y no a X.
+test("H-01 LlmTurnUsage: la purga acotada a X no borra la fila (vencida) de Y, y la suma por organización no la mezcla", async () => {
+  const corte = new Date(Date.now() + 60_000);
+  const { count } = await purgeLlmTurnUsages(corte, { organizationId: nx.orgX });
+  assert.equal(count, 0, "X no tiene filas: la purga acotada a X no borra nada");
+  assert.ok(
+    await prisma.llmTurnUsage.findUnique({ where: { id: nx.llmTurnUsageY } }),
+    "la fila de Y sigue",
+  );
+  const sumas = await sumarUsoPorOrganizacion(new Date(0));
+  const deY = sumas.find((s) => s.organizationId === nx.orgY);
+  assert.equal(deY?.turnos, 1);
+  assert.equal(deY?.promptTokens, 10);
+  assert.equal(
+    sumas.find((s) => s.organizationId === nx.orgX),
+    undefined,
+    "X no tiene gasto: no aparece",
+  );
+});
+
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {
   const schema = await readFile(join(process.cwd(), "prisma", "schema.prisma"), "utf8");
   const esteArchivo = await readFile(

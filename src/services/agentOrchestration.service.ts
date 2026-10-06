@@ -1976,6 +1976,12 @@ export async function responderEnLaConversacion(
     };
   }
 
+  // EL TOPE DIARIO DE GASTO (B4) IRÍA ACÁ, después del gate y antes de armar
+  // el contexto y llamar al modelo: topeDiarioAlcanzado(organizationId) en
+  // llmUsage.service.ts, que hoy devuelve siempre false por decisión de Rocco
+  // (06/10/2026). Cuando se implemente, un tope superado deriva con un motivo
+  // propio (nunca silencio), igual que MOTIVO_PROVEEDOR_CAIDO.
+
   // Paso 2 de §4: el contexto.
   //
   // La base de conocimiento de la sucursal DEL AGENTE (ítem 59), leída en cada
@@ -2359,10 +2365,11 @@ export async function responderEnLaConversacion(
       },
       "Una persona contestó mientras el agente redactaba: su respuesta se descarta y no se manda",
     );
-    registrarUsoDelTurno({
+    await registrarUsoDelTurno({
       organizationId,
       agentId,
       conversationId: conversation.id,
+      channel: conversation.channel,
       model: agent.modelName,
       uso,
     });
@@ -2412,11 +2419,14 @@ export async function responderEnLaConversacion(
   const statusFinal: ConversationStatus = handoff ? "TRANSFERRED_TO_HUMAN" : conversation.status;
 
   // FABLE-G-04 (docs-privados, local): lo que consumió el turno, con su
-  // organización. Y de paso se refresca (sin esperar) el saldo de la key.
-  registrarUsoDelTurno({
+  // organización: una línea de log y, desde B4, una fila de llm_turn_usages
+  // (nunca tumba el turno, ver registrarUsoDelTurno). Y de paso se refresca
+  // (sin esperar) el saldo de la key.
+  await registrarUsoDelTurno({
     organizationId,
     agentId,
     conversationId: conversation.id,
+    channel: conversation.channel,
     model: agent.modelName,
     uso,
   });

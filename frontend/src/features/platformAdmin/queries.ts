@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getOrganizationMetaConnection, listOrganizations } from "./api";
+import { getLlmUsage, getOrganizationMetaConnection, listOrganizations } from "./api";
 
 // Las lecturas de las pantallas de plataforma. Con namespace propio: los datos
 // son de OTRAS organizaciones y no se mezclan con las claves de la propia.
@@ -8,7 +8,16 @@ export const platformAdminKeys = {
   organizations: () => [...platformAdminKeys.all, "organizations"] as const,
   metaConnection: (organizationId: string) =>
     [...platformAdminKeys.all, "meta-connection", organizationId] as const,
+  llmUsage: () => [...platformAdminKeys.all, "llm-usage"] as const,
 };
+
+// B4: el gasto en el modelo por organización de los últimos 30 días.
+export function useLlmUsage() {
+  return useQuery({
+    queryKey: platformAdminKeys.llmUsage(),
+    queryFn: ({ signal }) => getLlmUsage(signal),
+  });
+}
 
 export function usePlatformOrganizations() {
   return useQuery({

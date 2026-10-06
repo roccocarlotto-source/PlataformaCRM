@@ -53,6 +53,23 @@ export interface PlatformOrganization {
   slug: string;
 }
 
+// Contrato de GET /api/admin/llm-usage (B4): el gasto en el modelo por
+// organización de los últimos `dias` días. costUsd es null si ningún turno
+// de la ventana trajo costo (el proveedor no lo informó).
+export interface LlmUsageDeOrganizacion {
+  organizationId: string;
+  organizationName: string;
+  turnos: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number | null;
+}
+
+export interface LlmUsageSummary {
+  dias: number;
+  organizaciones: LlmUsageDeOrganizacion[];
+}
+
 // La conexión con Facebook de una organización elegida (02/10/2026: la hace
 // el platform admin, no el ADMIN del negocio). La respuesta de
 // POST /api/admin/organizations/:id/integrations/meta/connect: la URL de
