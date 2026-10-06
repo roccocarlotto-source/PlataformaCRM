@@ -4,10 +4,11 @@ Diseño del asistente con el que el platform admin carga, durante el alta de un
 cliente, la información que ese cliente ya tiene en otro sistema: contactos,
 empresas, historial y stock de vehículos.
 
-**Estado: Fase 0, diseño para aprobar. No hay código.** Rige la regla de §0 de
-`docs/ingestion-architecture.md`: lo que este documento no decide se pregunta,
-no se resuelve por defecto. Las preguntas abiertas están en §13 y se responden
-antes de escribir el primer PR.
+**Estado: diseño aprobado por Rocco el 06/10/2026, con las decisiones de §13.**
+Rige la regla de §0 de `docs/ingestion-architecture.md`: lo que este
+documento no decide se pregunta, no se resuelve por defecto. Las dos
+excepciones a ese documento que este diseño introduce (idempotencia por
+registro y "pisar") están anotadas también allá, en §4 y en §9.14.
 
 Decisiones de producto que este documento toma como dadas (Rocco,
 06/10/2026):
@@ -37,7 +38,7 @@ Todos los ejemplos usan valores ficticios.
 | Parseo | `src/utils/spreadsheet.ts` (`csv-parse` 7, `exceljs` 4) | Mismo parser para la vista previa y la importación (§9.11). Se amplía, no se duplica. |
 | Promoción de contacto | `promotion.service.ts` + `promoteContact` (upsert por `lower(email)`, §9.5) y dedup por teléfono bajo el lock de la organización | Base del promotor de contactos. Se amplía con los campos nuevos. |
 | Mapeo | `fieldMapping.schema.ts` (5 campos) y la sugerencia por sinónimos de `frontend/src/features/source/fieldMapping.ts` (§9.12) | Mismo criterio: tabla fija de sinónimos, sin fuzzy matching, todo editable. |
-| Campos personalizados | `utils/camposPersonalizados.ts` (`validarValorDeCampo`) | Validación del valor por tipo. `MULTI_SELECT` llega con la rama `feat/campos-seleccion-multiple`, todavía sin mergear. |
+| Campos personalizados | `utils/camposPersonalizados.ts` (`validarValorDeCampo`) | Validación del valor por tipo. Incluye `MULTI_SELECT` (#426). |
 | Vehículo de interés | `Contact.vehicleOfInterestId` + `vehicleOfInterestSetBy` (#410) | La importación lo carga con `HUMAN`: el agente no lo pisa. |
 | Unir contactos | `contactMerge.service.ts` (#411) | Es la salida para los duplicados que la importación no puede resolver sola (contactos sin email ni teléfono). |
 | Stock | `vehicle.service.ts` (código interno, unicidad de patente y VIN, sincronización con la base de conocimiento), `vehiclePhoto.service.ts` (bucket `vehicle-photos`, 5 MB, JPEG/PNG por magic bytes) | La promoción de vehículos y de fotos pasa por estos services, no los esquiva. |
@@ -137,7 +138,8 @@ de negocio no tienen por qué saber de dónde vino cada fila.
 ### 2.3 Cómo convive con §4 y §9.5
 
 Esto **no contradice §4, pero sí cambia dónde vive la idempotencia para el
-asistente**. Lo marco explícitamente porque §0 lo pide (duda 1):
+asistente**. Es una excepción aprobada (§13, decisión 1) y está anotada en §4
+y §9.14 de `docs/ingestion-architecture.md`:
 
 - En el asistente, cada fila de cada lote entra como evento propio:
   `externalId = sha256(batchId, número de fila)`. Así cada lote tiene sus
@@ -171,6 +173,37 @@ changes              JSONB: [{ campo, antes, después }] de lo que se actualizó
 
 `promoted_contact_id` se mantiene, con su FK, y se sigue llenando para
 contactos: lo usan el borrado a pedido y unir contactos (`FKS_A_CONTACTS`).
+
+### 2.5 Columnas nuevas en tablas de negocio
+
+```
+contacts.customer_since   DATE, nullable. "Cliente desde": la fecha de alta en
+                          el sistema de origen. Visible en la ficha. created_at
+                          sigue siendo la fecha en que el contacto entró a este
+                          CRM, o sea la de la importación.
+contacts.imported_at      TIMESTAMPTZ, nullable. Cuándo lo creó una
+                          importación. Toda métrica de "contactos nuevos"
+                          filtra imported_at IS NULL (decisión 6). Hoy no
+                          existe ninguna métrica así: los tableros son de
+                          oportunidades. La columna deja la regla escrita
+                          para la primera que se haga.
+VehicleStatus             + UNAVAILABLE (§7, decisión 16).
+```
+
+Un contacto que ya existía y que una importación solo actualiza no recibe
+`imported_at`: no es nuevo por haberse importado.
+
+### 2.6 Una sola migración
+
+Todos los cambios de esquema de la Fase 1 van en **una sola migración**, en el
+primer PR (decisión 20): las cuatro tablas nuevas (`import_batches`,
+`external_record_links`, `vehicle_photo_imports` e `import_syncs`), las columnas nuevas de `ingestion_events` y `contacts`, y los dos
+valores de enum (`IngestionStatus.STAGED`, `VehicleStatus.UNAVAILABLE`). Un
+`ALTER TYPE … ADD VALUE` no se puede usar en la misma transacción que lo
+agrega. La migración no los usa, así que no hay problema, pero conviene
+saberlo si alguien quisiera sembrar datos ahí mismo. Lo que ninguna tabla usa
+todavía queda vacío hasta su PR, y el diagnóstico y el test de aislamiento las
+cubren desde el principio.
 
 `claimNextPendingEvent` no cambia: reclama `PENDING`, y una fila `STAGED` no lo
 es. Confirmar el lote es un `UPDATE … SET status = 'PENDING' WHERE batch_id = ?
@@ -211,9 +244,8 @@ antes de confirmar.
 
 `Vehicle.internalCode` lo asigna el sistema (`STK-000123`, contador por
 organización) y no se carga a mano. El código del sistema anterior se guarda
-como clave externa del vínculo y, si se quiere ver en la ficha, en una línea de
-`internalNotes`. No se usa como `internalCode` porque chocaría con el contador
-(duda 9).
+como clave externa del vínculo y queda visible en una línea de `internalNotes`
+("Código anterior: …"). Nuestro `STK-…` sigue siendo el principal (decisión 9).
 
 ---
 
@@ -228,8 +260,8 @@ como clave externa del vínculo y, si se quiere ver en la ficha, en una línea d
 | XLS (Excel 97-2003) | No | `exceljs` no lo lee. La única librería madura es SheetJS, cuya versión de npm quedó congelada con vulnerabilidades conocidas (prototype pollution y ReDoS) y la mantenida se distribuye fuera de npm. Sumar eso al camino que lee archivos del cliente es riesgo, no capacidad. |
 | ODS | No | Tampoco lo lee `exceljs`; mismo problema. |
 
-Para XLS y ODS el asistente responde con un mensaje que dice qué hacer:
-"Abrilo y guardalo como .xlsx o .csv" (duda 2).
+XLS y ODS no se soportan (decisión 2). El asistente responde: **"Guardalo
+como .xlsx o .csv y volvé a subirlo"**.
 
 **Separador del CSV.** `csv-parse` no lo detecta solo. Se mira la primera línea
 no vacía fuera de comillas y se cuentan `,` `;` `\t` y `|`; gana el más
@@ -248,6 +280,11 @@ en los nombres es la señal de que se eligió mal.
 deja elegir una por lote.
 
 ### 4.2 Google Sheets por link
+
+**Solo para stock** (decisión 3). El stock no tiene datos personales: marca,
+modelo y precio son información que la agencia publica. Los contactos y el
+historial entran solo por archivo, y el asistente no ofrece el link para esos
+tipos. El backend también lo rechaza, no solo la pantalla.
 
 El admin pega el link de una planilla compartida como "cualquier persona con el
 enlace puede ver". El backend:
@@ -290,10 +327,9 @@ patrón de `oauthState`. Antes hay que resolver un costo: `spreadsheets.readonly
 y `drive.readonly` son scopes **sensibles o restringidos** para Google, y
 exigen verificar la app (con revisión de seguridad en el caso restringido)
 para salir de modo prueba. `drive.file` con el selector de archivos de Google
-(Picker) no es sensible y alcanza para "elegí esta planilla". **Propuesta:**
-Fase 1 solo con link y con una advertencia en el asistente cuando el tipo es
-contactos o historial. OAuth con `drive.file` y Picker queda diseñado como
-mejora, a construir cuando un cliente lo pida (duda 3).
+(Picker) no es sensible y alcanza para "elegí esta planilla". **Decidido:** en
+la Fase 1 solo hay link y solo para stock. OAuth con `drive.file` y el Picker
+queda diseñado y se construye cuando un cliente lo pida.
 
 ---
 
@@ -316,15 +352,24 @@ que solo se advierte.
 
 | Destino | Columna | Notas |
 |---|---|---|
-| `firstName`, `lastName`, `email`, `phone`, `jobTitle` | como hoy | Mismo `ingestContactSchema` y misma normalización de teléfono con el país de la organización. Si viene una sola columna "Nombre completo", el asistente ofrece partirla en el primer espacio (duda 11). |
+| `firstName`, `lastName`, `email`, `phone`, `jobTitle` | como hoy | Mismo `ingestContactSchema` y misma normalización de teléfono con el país de la organización. Para una sola columna "Nombre completo", ver abajo. |
 | `leadNotes` | notas | Se agrega con `appendLeadNotes`, no se reemplaza. |
 | `lifecycleStage` | etapa | Se mapean los valores del origen a `LEAD`/`MQL`/`SQL`/`CUSTOMER`/`CHURNED` en el paso de ajustes ("Cliente" → `CUSTOMER`). Nunca degrada una etapa existente (§4), ni con "pisar". |
 | `source` | origen | Texto libre, 100 caracteres. Sin columna, el nombre de la fuente. |
 | `ownerId` | email del vendedor | Usuario de la organización, no borrado. Si no existe, se advierte y queda sin asignar. |
 | `vehicleOfInterestId` | código de stock del origen o patente | Se busca en los vínculos de vehículos y después por patente. Con `vehicleOfInterestSetBy = HUMAN`. Si no se encuentra, se advierte. |
-| `companyId` | nombre de la empresa | Se busca por la clave de empresa. Si no existe, según el ajuste del lote: dejar vacío y advertir (por defecto) o crearla (duda 10). |
-| `createdAt` | fecha de alta original | Se escribe la fecha del origen (duda 6). |
+| `companyId` | nombre de la empresa | Se busca por la clave de empresa. Si no existe, **se crea** (decisión 10). La vista previa dice "Se crearán N empresas" y tiene la opción de no crearlas: en ese caso la referencia queda vacía y advertida. |
+| `customerSince` | fecha de alta original | "Cliente desde", visible en la ficha (decisión 6). `createdAt` es la fecha de la importación, y `importedAt` marca al contacto como importado (§2.5). |
 | `customFields.<key>` | una columna por campo | Se interpreta según el tipo (abajo) y se valida con `validarValorDeCampo`. |
+
+**Nombre completo en una columna** (decisión 11). Se parte en el primer
+espacio: la primera palabra es el nombre y el resto el apellido ("Ana María
+Pérez" → "Ana" / "María Pérez"). Si hay una sola palabra, el apellido queda
+"-", porque la base lo exige, y la fila lleva una advertencia. Aparte, sin
+hacerlo ahora, se propone **hacer opcional el apellido**: `lastName` NOT NULL
+obliga a inventar un valor cada vez que un canal trae solo un nombre (WhatsApp,
+el widget, esta importación). Hacerlo opcional es una migración y un repaso de
+los lugares que arman el nombre para mostrar.
 
 **Campos personalizados por tipo:**
 
@@ -336,7 +381,7 @@ que solo se advierte.
 - `SELECT`: compara contra las opciones sin distinguir mayúsculas, tildes ni
   espacios de más, con el mismo criterio que ya usa la definición para decidir
   si dos opciones están repetidas, y guarda el texto exacto de la opción.
-- `MULTI_SELECT` (cuando se mergee): se parte por `;` o `,` (ajustable) y se
+- `MULTI_SELECT` (#426, ya en master): se parte por `;` o `,` (ajustable) y se
   compara cada parte como en `SELECT`.
 
 Una opción que no existe **falla la fila**. No se crean opciones nuevas desde la
@@ -353,9 +398,15 @@ pago") para que se resuelva agregando la opción una vez y reanalizando.
 | `contactId` | email, teléfono o id del contacto en el origen | Se busca primero por el vínculo (si se mapea el id del origen), después por email y por teléfono normalizado. Sin contacto, la fila falla: una actividad suelta no tiene dónde mostrarse. |
 | `subject` | asunto | Obligatorio en el modelo (255). Si no hay columna, se arma con el tipo y la fecha ("Llamada del 14/03/2025"). |
 | `body` | texto | Sin tope propio. Se aplica el tope de celda (§9). |
-| fecha | fecha original | Nota y llamada: `createdAt`. Tarea: `dueDate`, y `completedAt` si una columna o el ajuste dice que estaba hecha (duda 7). |
-| `authorId` | email del autor | Obligatorio en el modelo. Si no hay columna o el email no es de un usuario de la organización, se usa el **autor por defecto** que se elige en el asistente (duda 5). |
-| `assigneeId` | email del responsable (tareas) | Si no existe, queda sin asignar y se advierte. |
+| fecha | fecha original | Tarea: `dueDate`, y `completedAt` con la fecha original si una columna o el ajuste dice que estaba hecha (decisión 7). Nota y llamada: ver la pregunta pendiente P1 al final de §13. |
+| `authorId` | — | El usuario de la organización que se elige en el asistente; por defecto, el ADMIN más antiguo (decisión 5). Si el origen trae autor, su nombre va al final del texto: "Autor original: …". |
+| `assigneeId` | email del responsable (tareas) | Si no existe, queda asignada al autor elegido. |
+
+**Tareas pasadas** (decisión 7):
+
+- las que vienen hechas quedan completadas con su fecha original;
+- las no hechas con fecha vencida quedan abiertas y vencidas, asignadas al
+  autor elegido.
 
 ### 5.4 Stock de vehículos
 
@@ -369,7 +420,7 @@ solo en dólares. El mapeo se adapta así:
 | versión | `trim` | |
 | km | `mileage` | Entero ≥ 0, con el separador de miles del ajuste. |
 | precio + moneda | `priceListUsd` o `priceListLocal` | Según la columna de moneda o, sin ella, la moneda por defecto del ajuste. También se pueden mapear dos columnas de precio, una por moneda. |
-| costo, precio mínimo | `acquisitionCostUsd`, `minAcceptablePriceUsd` | Solo USD. Si el origen los tiene en moneda local, ver duda 8. |
+| costo, precio mínimo | `acquisitionCostUsd`, `minAcceptablePriceUsd` | Solo USD. En otra moneda, se convierten a USD con la cotización vigente de la organización, y la vista previa muestra cuál se usó. Sin cotización cargada, la fila falla con un motivo claro (decisión 8). |
 | estado | `status` | Ver abajo. |
 | color | `exteriorColor` | Texto libre, 50. |
 | combustible, transmisión | `fuelType`, `transmission` | Mapeo de valores en los ajustes ("Nafta" → `GASOLINE`, "Automática" → `AUTOMATIC`). |
@@ -385,11 +436,21 @@ Dos datos que el modelo exige y el pedido no menciona:
   organización tiene una sola, se elige sola. Opcionalmente, una columna
   "sucursal" por nombre.
 
-**Estado.** La importación solo escribe `AVAILABLE`, `IN_PREPARATION` e
-`IN_TRANSIT`. `RESERVED`, `SOLD` y `DELIVERED` los maneja el CRM a partir de las
-oportunidades (`vehicleStatusForOpportunityStatus`) y las entregas, y las
-oportunidades no se importan (duda 12). Una fila con "Vendido" se informa y,
-por defecto, se omite.
+**Estado.** La importación escribe `AVAILABLE`, `IN_PREPARATION`,
+`IN_TRANSIT` y `UNAVAILABLE`. `RESERVED` y `DELIVERED` los maneja el CRM a
+partir de las oportunidades (`vehicleStatusForOpportunityStatus`) y las
+entregas, y las oportunidades no se importan. **Las unidades vendidas en el
+origen se omiten por defecto.** Una casilla del lote, "Importar también las
+vendidas (historial)", las crea como `SOLD`, sin oportunidad (decisión 12).
+
+**`UNAVAILABLE` ("No disponible").** Se agrega al enum porque no hay un flag
+que haga lo que pide la decisión 16. `visibleInListing` saca la unidad solo
+del listado diario del stock, y eso como filtro opcional: los selectores la
+siguen mostrando y el agente no lo mira. El agente ofrece únicamente
+unidades `AVAILABLE` (la búsqueda de stock y la base de conocimiento filtran
+por ese estado), así que una `UNAVAILABLE` queda afuera sin tocar el agente.
+Un test lo fija. En el CRM se muestra con su etiqueta y no se puede vincular a
+una oportunidad, igual que una vendida.
 
 Los vehículos se crean y actualizan con las funciones de `vehicle.service.ts`
 (código interno, unicidad, registro de cambios y sincronización con la base de
@@ -442,20 +503,23 @@ vehicle_photo_imports
 El único hace que reimportar no vuelva a bajar la misma foto. La foto que se
 sacó de la planilla no se borra del vehículo: la importación nunca borra.
 
-**Topes** (duda 13 para los números):
+**Topes** (decisión 13; el tope por lote lo propone este documento):
 
-| Tope | Valor propuesto | Por qué |
+| Tope | Valor | Por qué |
 |---|---|---|
 | Fotos por vehículo | 20 | Hoy no hay tope. Las que sobran se informan y no se bajan. |
 | Tamaño por foto | 5 MB | El mismo `VEHICLE_PHOTO_MAX_BYTES` de la subida a mano. Se corta la descarga al pasarlo, no se baja entera. |
 | Tiempo por foto | 15 s en total, 5 s para conectar | |
+| Fotos por lote | 3.000 | Unos 150 vehículos con 20 fotos. A unos 2 s por foto con 3 en paralelo son unos 35 minutos de worker, el máximo razonable para un alta. Un stock más grande se parte en varios lotes. Las que pasan el tope se informan antes de confirmar. |
+| Bytes por lote | 1,5 GB | El peor caso de 3.000 fotos de 5 MB es 15 GB. Este tope protege la cuota del Storage de un lote con fotos enormes. Al llegar, las fotos que faltan quedan `SKIPPED` con el motivo. |
 | Redirecciones | 3, cada una validada de nuevo | |
 | Concurrencia | 3 descargas a la vez en todo el proceso | El worker es in-process y comparte la máquina con la API. |
 | Reintentos | 3, con el backoff de `utils/backoff` | Un 404 o un tipo inválido no se reintenta. |
 
-**Tipo.** JPEG o PNG, por magic bytes (`detectImageType`), como la subida a
-mano. Muchos sitios sirven WebP: hoy no se acepta en ningún camino. Sumarlo es
-una decisión aparte (duda 14).
+**Tipo.** JPEG, PNG o WebP, por magic bytes (`detectImageType`), lo mismo que
+la subida a mano. WebP se suma **antes** de la importación, en un PR aparte y
+para todos los caminos de subida de fotos (decisión 14), así una foto
+importada nunca es de un tipo que no se pueda subir a mano.
 
 **Links de Google Drive.** Es común que la planilla tenga
 `drive.google.com/file/d/<id>/view`, que devuelve una página HTML y no la
@@ -483,7 +547,7 @@ import_syncs
   config               JSONB: el mismo mapeo y ajustes del lote que la creó
   interval_hours       >= 1
   mark_missing_unavailable  boolean, apagado por defecto
-  next_run_at, last_run_at, last_batch_id
+  next_run_at, locked_until, last_run_at, last_batch_id
   last_status          OK | FAILED, last_error
   consecutive_failures, paused_at, paused_reason (MANUAL | AUTO_FAILURES)
   deleted_at, created_at, updated_at
@@ -495,14 +559,16 @@ mano, con el mismo detalle por fila.
 
 **Reglas:**
 
-- **Solo crea y actualiza los campos mapeados. Nunca borra.** La política no es
-  "completar lo vacío": la planilla es la fuente de verdad de esos campos y los
-  pisa, porque sincronizar sin actualizar el precio no sirve (duda 15). Lo que
-  no está mapeado no se toca.
+- **Solo crea y actualiza los campos mapeados. Nunca borra.** La planilla
+  manda sobre los campos mapeados y los pisa: para eso es sincronizar
+  (decisión 15). Lo que no está mapeado no se toca. La pantalla lo avisa al
+  activar la casilla: **"Los campos mapeados se actualizan desde la planilla
+  en cada sincronización"**.
 - **Las unidades que desaparecen de la planilla se informan** en el resumen de
-  la corrida. Marcarlas como no disponibles es la opción aparte
-  `mark_missing_unavailable`. El modelo no tiene un estado "No disponible":
-  ver duda 16.
+  la corrida. Pasarlas a `UNAVAILABLE` es la opción aparte
+  `mark_missing_unavailable`, apagada por defecto. Si la unidad vuelve a
+  aparecer, la próxima corrida no la devuelve sola a `AVAILABLE`, salvo que la
+  columna de estado esté mapeada.
 - **Nunca pisa el estado que maneja el CRM.** Si la unidad está `RESERVED`,
   `SOLD` o `DELIVERED`, o tiene una oportunidad abierta vinculada, la columna de
   estado se ignora para esa unidad y se anota en la corrida. Lo mismo vale para
@@ -519,18 +585,32 @@ mano, con el mismo detalle por fila.
 
 **Worker.** `importSyncWorker`, el mismo esquema que los demás (bucle
 `setTimeout`, `IMPORT_SYNC_WORKER_ENABLED`, `IMPORT_SYNC_WORKER_POLL_MS`, por
-defecto cada 5 minutos). Reclama las sincronizaciones vencidas con
-`FOR UPDATE SKIP LOCKED` y corre `next_run_at` **antes** de bajar la planilla,
-en la misma transacción. Bajar y escribir el staging pasa después, fuera de esa
-transacción. Las filas las promueve el worker de ingesta de siempre.
+defecto cada 5 minutos). Reclama las sincronizaciones vencidas con el lock en
+la base que se describe abajo, y corre `next_run_at` **antes** de bajar la
+planilla, en la misma sentencia. Bajar y escribir el staging pasa después,
+fuera de esa transacción. Las filas las promueve el worker de ingesta de
+siempre.
 
 **El supuesto de una sola instancia.** `docs/deployment.md` dice que el backend
-corre como un solo proceso y que escalar exige revisar cada worker. Los ids
-G-09 y OPUS-G-04 que cita el pedido no están en el repo, así que este
-documento no los puede citar; se apoya en `deployment.md`. Este worker no
-depende de ese supuesto: con el reclamo por fila, dos instancias no corren la
-misma sincronización dos veces. Lo que sí depende de él es el tope de 3
-descargas de fotos a la vez, que es por proceso.
+corre como un solo proceso: los workers viven dentro del proceso HTTP y los
+rate limiters en memoria. Las auditorías locales lo registran como G-04 y G-09
+(`docs-privados/auditoria-2026-10-04-OPUS.md` y
+`docs-privados/auditoria-2026-10-05-FABLE.md`, solo en la máquina de Rocco).
+Con dos réplicas, cada worker correría dos veces. La sincronización no
+depende de ese supuesto, por diseño:
+
+- **el lock está en la base, no en memoria.** El reclamo es un `UPDATE …
+  SET next_run_at = now() + interval, locked_until = now() + 15 min WHERE id
+  = (SELECT … WHERE next_run_at <= now() AND (locked_until IS NULL OR
+  locked_until < now()) … FOR UPDATE SKIP LOCKED LIMIT 1)`. Dos procesos no
+  pueden tomar la misma sincronización, y un proceso que muere a mitad de la
+  corrida la libera cuando vence `locked_until`;
+- **no guarda estado en memoria entre corridas.** Cuándo toca, cuántas veces
+  falló y si está pausada viven en `import_syncs`, así que reiniciar el proceso
+  (el despertar de Render de G-09) no resetea nada.
+
+Lo que sí depende del proceso único es el tope de 3 descargas de fotos a la
+vez: con dos réplicas serían 6. Es un tope de carga, no de corrección.
 
 **Si Render está dormido.** Hoy el servicio se mantiene despierto porque
 UptimeRobot le pega cada pocos minutos. Si dejara de hacerlo y el servicio se
@@ -554,7 +634,7 @@ En **Plataforma → Importar datos**, solo para platform admin (mismo
 1. **Organización, tipo y origen.** La organización se elige de la lista de
    organizaciones. Después el tipo de dato y el sistema de origen (§3.1), con la
    sucursal si es stock.
-2. **Archivo o link.** Subir un `.csv`/`.xlsx`, o pegar un link de Sheets. Se
+2. **Archivo o link.** Subir un `.csv`/`.xlsx`, o, solo para stock, pegar un link de Sheets. Se
    parsea y se escribe el staging (`STAGED`). La respuesta trae los
    encabezados, las primeras filas y el mapeo sugerido.
 3. **Mapeo de columnas.** Una fila por columna del archivo, con el destino
@@ -604,16 +684,28 @@ duplicados apila "en el CRM" y "en el archivo", y se verifica con
 | Pisar | se llena | se reemplaza, y queda en `changes` con el antes y el después |
 | Omitir | no se toca nada | no se toca nada |
 
-En las tres: una celda vacía nunca borra, la etapa nunca baja, el email de un
-contacto existente no se cambia (es su identidad en el índice) y los valores de
-campos personalizados se fusionan por clave.
+En las tres: una celda vacía nunca borra y los valores de campos
+personalizados se fusionan por clave.
 
-**"Pisar" se aparta de §4**, que dice "si ambos tienen valor y difieren, se
-conserva el del CRM". Lo marco, no lo resuelvo (duda 4). El argumento para
-permitirlo es que §4 protege del flujo **automático**: un formulario que llega
-solo no puede pisar lo que cargó una persona. Acá pisar es una elección
-explícita de una persona en la vista previa, sobre filas que ve, y deja
-registro del antes y el después. No es una sobrescritura en silencio.
+**"Pisar" es una excepción aprobada a §4** (decisión 4, anotada en §4 de
+`docs/ingestion-architecture.md`). §4 dice "si ambos tienen valor y
+difieren, se conserva el del CRM". Esa regla protege del flujo
+**automático**: un formulario que llega solo no puede pisar lo que cargó una
+persona. Acá pisar es una elección explícita del platform admin en la vista
+previa, sobre filas que ve, y se guarda el antes y el después por fila en
+`changes`. No es una sobrescritura en silencio.
+
+**Dos cosas no se pisan nunca, ni con "Pisar":**
+
+- **el email y el teléfono que ya identifican al contacto.** Si el contacto se
+  encontró por email, su email no cambia. Si se encontró por teléfono, su
+  teléfono no cambia. El otro dato sí se puede completar o pisar, con la
+  regla de unicidad de siempre: un email o un teléfono que ya tiene otro
+  contacto es un choque, no un cambio;
+- **la etapa, que solo avanza.** Un `LEAD` pasa a `CUSTOMER` si el archivo lo
+  dice. Un `CUSTOMER` no vuelve a `LEAD`. El orden es el del enum: `LEAD` <
+  `MQL` < `SQL` < `CUSTOMER` < `CHURNED`. Cómo tratar `CHURNED` es la
+  pregunta pendiente P2 de §13.
 
 **La vista previa es un pronóstico, no un contrato.** Entre el análisis y la
 promoción alguien puede editar un contacto o puede entrar un WhatsApp. La
@@ -630,13 +722,14 @@ elegida y lo anota en la fila.
   importar crea de nuevo.
 - **Lo actualizado no se revierte.** El informe y el CSV de cambios dicen qué
   campos cambió cada fila, con el antes y el después, para corregir a mano.
-- **Lo que ya tiene vida propia no se borra.** Un contacto creado por el lote
-  que después recibió una conversación, una oportunidad o una actividad que no
-  vino del lote, o que fue unido a otro, se deja como está y se lista en el
-  resultado de deshacer. Borrarlo se llevaría trabajo hecho en el CRM. Un
-  vehículo con oportunidad, cotización o entrega, ídem. Ver duda 17.
-- **Plazo:** se puede deshacer mientras existan las filas de staging del lote
-  (§9.4).
+- **Lo que ya tuvo uso propio no se borra: se omite y se informa**
+  (decisión 17). Pasa con un contacto creado por el lote que después recibió
+  una conversación, una oportunidad o una actividad que no vino del lote, o
+  que ya está unido a otro. Borrarlo se llevaría trabajo hecho en el CRM. Lo
+  mismo con un vehículo con oportunidad, cotización o entrega, y con una
+  empresa con contactos u oportunidades que no vinieron del lote.
+- **Plazo:** no hay otro que la purga de 90 días. Se puede deshacer mientras
+  existan las filas de staging del lote (§9.4).
 
 **¿Guardar el antes y el después por fila?** Sí, pero solo de los campos que
 cambiaron, en `ingestion_events.changes`. Es chico (casi siempre vacío con
@@ -713,14 +806,14 @@ local verifica que `localhost` y `127.0.0.1` se rechazan.
 FABLE-I-06). Todo lo que se exporta pasa por `neutralizarCeldaParaExportar`:
 el CSV de fallidas, el de cambios y el de fotos fallidas. Se neutraliza cada
 celda, incluido el "Motivo" que agregamos nosotros, porque puede citar un valor
-del archivo. Los CSV salen con BOM UTF-8 y `;` como separador, para que Excel
-en español los abra bien (duda 18).
+del archivo. Los CSV salen con separador `;` y en UTF-8 con BOM, para que
+abran bien en Excel en español (decisión 18).
 
-**Archivo original: no se guarda.** El staging tiene cada fila con sus
-encabezados originales, y eso alcanza para reanalizar, reprocesar y armar el CSV
-de fallidas. Guardar además el archivo sería una copia más de datos personales
-sin un uso que el staging no cubra. Del archivo queda el nombre, el tamaño y el
-SHA-256 en `import_batches` (duda 19).
+**Archivo original: no se guarda** (decisión 19). El staging tiene cada fila
+con sus encabezados originales, y eso alcanza para reanalizar, reprocesar y
+armar el CSV de fallidas. Guardar además el archivo sería una copia más de
+datos personales sin un uso que el staging no cubra. Del archivo quedan el
+nombre, el tamaño y el SHA-256 en `import_batches`.
 
 **Staging.** Las filas `PROCESSED` se purgan a los 90 días con
 `purge:ingestion-events`, como hoy (`docs/data-classification.md` §5.1). Con
@@ -797,106 +890,88 @@ según corresponda, y un archivo de ejemplo inventado por tipo en
 `tests/fixtures/` (personas `@example.com`, teléfonos de rango ficticio,
 patentes inventadas).
 
+**Una sola migración, en el PR 1** (decisión 20). Ese PR queda abierto hasta que
+Rocco autorice migrar desde la rama. Los PR que usan el esquema nuevo (3 en
+adelante) se construyen encima de su rama y esperan a que se mergee. Los que no
+lo usan (0 y 2) siguen su camino.
+
 | # | PR | Migración | Qué prueba |
 |---|---|---|---|
-| 1 | **Esquema base.** `import_batches`, `external_record_links`, columnas nuevas y estado `STAGED` en `ingestion_events`. RLS, diagnóstico, slugs, aislamiento. | **Sí** | Aislamiento por organización de las tablas nuevas. `STAGED` no lo reclama el worker. El borrado a pedido redacta `changes`. Los lotes viejos de `POST /api/imports` siguen funcionando. |
-| 2 | **Parseo ampliado.** Separador y codificación del CSV, elección de hoja, topes de celda, columnas y fila, defensa contra zip bomb, intérpretes de fecha, número, sí/no y valores de lista. | No | Unitarios con fixtures hostiles: CSV en Windows-1252 con `;`, BOM, XLSX con directorio central inflado, celda gigante. La vista previa vieja sigue devolviendo lo mismo que la importación (§9.11). |
-| 3 | **Asistente backend para empresas y contactos.** Rutas de platform admin, staging `STAGED`, análisis en segundo plano, vista previa, decisiones por fila, confirmar, promotores de empresa y contacto ampliado (campos nuevos, vínculos, políticas), informe y los dos CSV. | No | Re-subida sin duplicar (con id, con email, con teléfono). Las tres políticas. La etapa no se degrada. Campos personalizados por tipo. Vendedor, empresa y vehículo inexistentes advierten. Un lote de otra organización da 404. No se emiten eventos al outbox. CSV neutralizado. |
-| 4 | **Asistente frontend** (Plataforma → Importar datos) para empresas y contactos, móvil incluido. | No | Vitest de los pasos y del mapeo sugerido. Chequeo de desborde móvil. |
-| 5 | **Deshacer un lote.** | No | Deshace lo creado y no lo actualizado. Respeta lo que tiene vida propia (unido, con conversación, con actividad ajena). Reimportar después de deshacer crea de nuevo. |
-| 6 | **Historial.** Promotor de actividades, autor por defecto, fechas originales, bloqueo de orden con un lote de contactos corriendo. | No | Ligado por id de origen, por email y por teléfono. Sin contacto falla. Re-subida sin duplicar por hash. |
-| 7 | **Stock sin fotos.** Promotor de vehículos vía `vehicle.service.ts`, sucursal y condición del lote, precio por moneda, estados permitidos. Vehículo de interés por código del origen o patente. | No | Choque de patente y VIN. No escribe `RESERVED`/`SOLD`/`DELIVERED`. Sincroniza la base de conocimiento. |
-| 8 | **Fotos.** `fetchPublico` (SSRF), tabla `vehicle_photo_imports`, worker de fotos, links de Drive. | **Sí** | Rangos privados, rebinding, tope de bytes y de tiempo, tipo inválido. Una foto rota no tumba el vehículo. No se baja dos veces la misma URL. |
-| 9 | **Google Sheets por link** (lectura única): lector de origen, validación del link, detección de no compartida. | No | Con un servidor local que imita la exportación: link inválido, HTML en vez de CSV, redirección a host no permitido. |
-| 10 | **Sincronización.** `import_syncs`, `importSyncWorker`, pantalla de sincronizaciones, pausa manual y automática, unidades faltantes. | **Sí** | No pisa estados del CRM. No borra. Pausa a las 3 fallas. Una corrida tardía corre una vez. Dos workers no corren la misma sincronización. |
+| 0 | **WebP en las fotos** de todos los caminos de subida (decisión 14). | No | Magic bytes de WebP. La subida a mano lo acepta. Un archivo que dice ser WebP y no lo es se rechaza. |
+| 1 | **Esquema de toda la Fase 1** (§2.6): `import_batches`, `external_record_links`, `vehicle_photo_imports`, `import_syncs`, columnas nuevas de `ingestion_events` y `contacts`, `STAGED` y `UNAVAILABLE`. RLS, diagnóstico, slugs y aislamiento. | **Sí** | Aislamiento por organización de las tablas nuevas. `STAGED` no lo reclama el worker. Los lotes viejos de `POST /api/imports` siguen funcionando. |
+| 2 | **Parseo ampliado.** Separador y codificación del CSV, elección de hoja, rechazo de XLS y ODS con su mensaje, topes de celda, columnas y fila, defensa contra zip bomb, e intérpretes de fecha, número, sí/no y valores de lista. | No | Unitarios con fixtures hostiles: CSV en Windows-1252 con `;`, BOM, XLSX con directorio central inflado, celda gigante. La vista previa vieja sigue devolviendo lo mismo que la importación (§9.11). |
+| 3 | **Asistente backend para empresas y contactos.** Rutas de platform admin, staging `STAGED`, análisis en segundo plano, vista previa, decisiones por fila, confirmar, promotores de empresa y de contacto ampliado (campos nuevos, vínculos, políticas, `customerSince`, `importedAt`), informe y los dos CSV. | No | Re-subida sin duplicar (con id, con email, con teléfono). Las tres políticas. "Pisar" no toca el email ni el teléfono que identifican, y la etapa solo avanza. Campos personalizados por tipo, `MULTI_SELECT` incluido. Empresas que se crean o no. Vendedor y vehículo inexistentes advierten. Un lote de otra organización da 404. No se emiten eventos al outbox. CSV neutralizado, con `;` y BOM. El borrado a pedido redacta `changes`. |
+| 4 | **Asistente frontend** (Plataforma → Importar datos) para empresas y contactos, celular incluido. | No | Vitest de los pasos y del mapeo sugerido. Chequeo de desborde móvil. |
+| 5 | **Deshacer un lote.** | No | Deshace lo creado y no lo actualizado. Omite e informa lo que tuvo uso propio (unido, con conversación, con oportunidad, con actividad ajena). Reimportar después de deshacer crea de nuevo. |
+| 6 | **Historial.** Promotor de actividades, autor elegido (por defecto el ADMIN más antiguo), "Autor original: …", fechas originales, tareas hechas y vencidas, bloqueo de orden con un lote de contactos corriendo. | No | Ligado por id de origen, por email y por teléfono. Sin contacto, falla. Re-subida sin duplicar por hash. |
+| 7 | **Stock sin fotos.** Promotor de vehículos vía `vehicle.service.ts`, sucursal y condición del lote, precio por moneda, conversión a USD con la cotización vigente, estados permitidos, casilla de vendidas, `UNAVAILABLE` en el CRM y fuera del agente. Vehículo de interés por código del origen o patente. | No | Choque de patente y VIN. Sin cotización, falla. No escribe `RESERVED` ni `DELIVERED`. El agente no ofrece una `UNAVAILABLE`. Sincroniza la base de conocimiento. |
+| 8 | **Fotos.** `fetchPublico` (SSRF), worker de fotos, topes por vehículo y por lote, links de Drive. | No | Rangos privados, rebinding, tope de bytes y de tiempo, tipo inválido. Una foto rota no tumba el vehículo. No se baja dos veces la misma URL. |
+| 9 | **Google Sheets por link**, solo para stock y de lectura única: lector de origen, validación del link, detección de planilla no compartida. | No | Con un servidor local que imita la exportación: link inválido, HTML en vez de CSV, redirección a host no permitido, link para contactos rechazado. |
+| 10 | **Sincronización.** `importSyncWorker` con lock en la base, pantalla de sincronizaciones, pausa manual y automática, unidades faltantes. | No | No pisa estados del CRM. No borra. Pausa a las 3 fallas. Una corrida tardía corre una vez. Dos workers no toman la misma sincronización. Un lock vencido se libera. |
 | 11 | **Guía de alta** en `docs/`: cómo preparar el archivo, en qué orden importar y cómo leer el informe. Actualiza `data-classification.md` §5.1 si no lo hizo un PR anterior. | No | — |
-
-Los PR 1, 8 y 10 llevan migración y quedan abiertos hasta que Rocco autorice
-migrar desde la rama. Los que dependen de ellos esperan ese merge. Juntar las
-tres migraciones en el PR 1 deja una sola autorización y un esquema que
-durante semanas tiene tablas sin usar; separarlas da tres esperas (duda 20).
 
 ---
 
 ## 12. Lo que queda afuera
 
 - Oportunidades (decisión del 06/10/2026).
-- XLS y ODS (§4.1, duda 2).
-- OAuth de Google para Sheets (§4.2, duda 3).
+- XLS y ODS (decisión 2).
+- OAuth de Google para Sheets, y Sheets para contactos e historial (decisión 3).
 - Crear opciones de campos personalizados desde la importación (§5.2).
 - Reintento masivo de filas fallidas: se corrige y se vuelve a subir el CSV de
   fallidas, que es el camino que el informe ofrece.
 - Sincronizar algo que no sea stock desde Sheets.
+- Hacer opcional el apellido: propuesto en §5.2, no se hace ahora.
 
 ---
 
-## 13. Dudas abiertas
+## 13. Decisiones de la Fase 0
 
-Las mismas que se listan en el PR. Hasta que se respondan no se escribe código.
+Respondidas por Rocco el 06/10/2026, sobre el PR #428.
 
-1. **Idempotencia por registro (§2.3).** En el asistente, cada lote trae sus
-   propias filas y la garantía de no duplicar pasa a `external_record_links`,
-   en vez del único `(source_id, external_id)` sobre filas idénticas. El camino
-   viejo no cambia. ¿Aprobado?
-2. **XLS y ODS (§4.1).** ¿Alcanza con pedir "guardalo como .xlsx" en la Fase 1,
-   o hay un cliente concreto con XLS que justifique evaluar SheetJS?
-3. **Sheets (§4.2).** ¿Solo link en la Fase 1, con advertencia para contactos,
-   y OAuth con `drive.file` cuando un cliente lo pida? ¿O el link se permite
-   solo para stock?
-4. **"Pisar" frente a §4 (§8.2).** ¿Se acepta que una elección explícita del
-   admin en la vista previa pise valores del CRM, con registro del antes y el
-   después? ¿La etapa del ciclo de vida queda excluida también de "pisar"?
-5. **Autor del historial (§5.3).** `authorId` es obligatorio y el platform admin
-   no es miembro de la organización. ¿Elegir un "autor por defecto" de la
-   organización en el asistente, por ejemplo su primer ADMIN?
-6. **Fecha de alta original (§5.2).** Escribirla en `createdAt` hace que los
-   contactos importados aparezcan en los meses del origen y no en el mes del
-   alta. Eso afecta los tableros de "leads del mes" y cualquier métrica por
-   fecha de creación. ¿`createdAt` o una columna aparte (`originalCreatedAt`)
-   que solo se muestre? Lo mismo para la fecha de las notas.
-7. **Tareas pasadas (§5.3).** ¿Una tarea importada como hecha queda también
-   confirmada (`confirmedAt`), para no llenar la cola de "pendiente de
-   confirmar" del ADMIN con tareas de hace un año? ¿Y las tareas sin
-   indicación de hecha, con vencimiento pasado: pendientes o hechas?
-8. **Costo y precio mínimo en moneda local (§5.4).** El modelo solo los guarda
-   en USD. Si el origen los trae en pesos: ¿se rechaza la columna, se convierte
-   con la cotización del día (`ExchangeRate`) o se ignora con advertencia?
-9. **Código de stock del origen (§3.3).** ¿Basta con guardarlo como clave
-   externa (y en `internalNotes`), conservando nuestro `STK-…`? ¿O el cliente
-   necesita ver su código viejo como el principal?
-10. **Empresas inexistentes al importar contactos (§5.2).** ¿Por defecto dejar
-    vacío y advertir, con la opción de crearlas? ¿O crearlas por defecto?
-11. **Nombre completo en una columna (§5.2).** `firstName` y `lastName` son
-    obligatorios. ¿Se ofrece partir "Nombre completo" en el primer espacio, y
-    si hay una sola palabra qué va en el apellido?
-12. **Unidades vendidas (§5.4).** Un auto que figura como vendido en el origen:
-    ¿se omite (propuesta), o se importa como `SOLD` para tener el histórico
-    aunque no tenga oportunidad?
-13. **Topes de fotos (§6).** ¿20 por vehículo, 5 MB por foto, 15 s por foto y 3
-    descargas a la vez?
-14. **WebP (§6).** ¿Se acepta WebP en las fotos importadas? Abrirlo solo acá
-    dejaría fotos que no se pueden subir a mano, así que la propuesta sería
-    sumarlo a los dos caminos, en un PR aparte.
-15. **La planilla pisa en la sincronización (§7).** Si alguien cambia el precio
-    en el CRM, la próxima corrida lo vuelve al de la planilla. ¿La planilla
-    manda sobre los campos mapeados (propuesta), o la sincronización también
-    completa solo lo vacío?
-16. **"No disponible" (§7).** No existe ese estado. Opciones: usar
-    `visibleInListing = false` (la unidad sale del listado sin cambiar de
-    estado; no hay migración), o agregar un estado `UNAVAILABLE` al enum (con
-    migración, y hay que revisar cada lugar que usa `VehicleStatus`). ¿Cuál?
-17. **Deshacer con vida propia (§8.3).** ¿Se deja sin borrar lo que el CRM ya
-    usó (conversación, oportunidad, actividad ajena, unido), o deshacer borra
-    todo lo creado igual? ¿Hay un plazo máximo para deshacer además de la
-    purga de 90 días?
-18. **CSV de salida (§9.4).** ¿`;` con BOM, pensando en Excel en español, o `,`?
-19. **Archivo original (§9.4).** ¿Aprobado no guardarlo, quedándose con nombre,
-    tamaño y hash?
-20. **Migraciones (§11).** ¿Tres PRs con migración (1, 8 y 10) o una sola al
-    principio?
-21. **Selección múltiple.** El soporte de `MULTI_SELECT` en la importación
-    depende de que se mergee `feat/campos-seleccion-multiple`. ¿El PR 3 la
-    espera, o sale sin ese tipo y se agrega después?
-22. **G-09 y OPUS-G-04.** No están en el repo (deben estar en `docs-privados/`).
-    Si dicen algo sobre workers distinto de `docs/deployment.md`, ¿me lo
-    pegás?
+| # | Tema | Decisión |
+|---|---|---|
+| 1 | Idempotencia | Por `external_record_links`. La importación actual queda igual. Excepción anotada en §4 y §9.14 de `ingestion-architecture.md`. |
+| 2 | XLS y ODS | No se soportan: "Guardalo como .xlsx o .csv y volvé a subirlo". |
+| 3 | Google Sheets | Por link, solo para stock. Contactos e historial, solo por archivo. OAuth con `drive.file` y el Picker, cuando un cliente lo pida. |
+| 4 | "Pisar" | Elección explícita del platform admin, con el antes y el después por fila. Nunca se pisan el email y el teléfono que identifican al contacto, y la etapa solo avanza. Excepción anotada en §4. |
+| 5 | Autor del historial | Se elige en el asistente; por defecto, el ADMIN más antiguo. El autor del origen va en el texto: "Autor original: …". |
+| 6 | Fecha de alta original | Columna aparte, "Cliente desde" (`customerSince`), visible en la ficha. `createdAt` es la fecha de importación. Las métricas de contactos nuevos excluyen los importados (`importedAt`). |
+| 7 | Tareas pasadas | Las hechas quedan completadas con su fecha original. Las no hechas y vencidas quedan abiertas y vencidas, asignadas al autor elegido. |
+| 8 | Costo y precio mínimo en otra moneda | Se convierten a USD con la cotización vigente de la organización, que la vista previa muestra. Sin cotización, la fila falla con un motivo claro. |
+| 9 | Código de stock del origen | Clave externa, visible en las notas internas. Seguimos con `STK-…`. |
+| 10 | Empresas inexistentes | Se crean. La vista previa dice "Se crearán N empresas" y permite no crearlas. |
+| 11 | Nombre completo | Se parte en el primer espacio. Con una sola palabra, el apellido es "-" y la fila lleva una advertencia. Hacer opcional el apellido queda propuesto, no se hace ahora. |
+| 12 | Vendidas en el origen | Se omiten por defecto, con una casilla para importarlas como `SOLD`. |
+| 13 | Topes de fotos | 20 por vehículo, 5 MB y 15 s por foto. Por lote, la propuesta de §6: 3.000 fotos y 1,5 GB. |
+| 14 | WebP | Sí, en un PR aparte antes de la importación, para todos los caminos de subida. |
+| 15 | Sincronización | La planilla manda sobre los campos mapeados. Lo que maneja el CRM nunca se pisa, y la pantalla lo avisa. |
+| 16 | "No disponible" | `visibleInListing` no saca la unidad de las búsquedas del agente, así que se agrega `UNAVAILABLE` al enum. El agente solo ofrece `AVAILABLE`. |
+| 17 | Deshacer | No se borra lo que ya tuvo uso propio: se omite y se informa. Sin otro plazo que la purga de 90 días. |
+| 18 | CSV de salida | `;` y UTF-8 con BOM. |
+| 19 | Archivo original | No se guarda; solo nombre, tamaño y hash. |
+| 20 | Migraciones | Una sola, en el primer PR. |
+| 21 | Selección múltiple | Incluida; #426 ya está en master. |
+| 22 | Una sola instancia | Ver §7: lock de la sincronización en la base y sin estado en memoria. |
+
+### Preguntas pendientes
+
+No frenan los PR 0 a 5. Se responden antes del PR que las necesita.
+
+- **P1 (PR 6). Fecha de las notas y llamadas.** `Activity` no tiene una fecha
+  propia del hecho, solo `createdAt`. Si `createdAt` es la fecha de
+  importación, como en los contactos, toda la historia importada aparece en la
+  ficha el día del alta, en un solo bloque y sin su orden real. Propuesta:
+  para el historial, `createdAt` = la fecha original. El argumento de la
+  decisión 6 era no inflar "contactos nuevos", y una nota no entra en esa
+  métrica. La alternativa es una columna `occurredAt` en `activities`, que
+  igual entraría en la migración del PR 1.
+- **P2 (PR 3). `CHURNED`.** El enum lo pone después de `CUSTOMER`, así que con
+  "solo avanza" un `LEAD` podría pasar a `CHURNED`, y un `CHURNED` reactivado
+  en el origen nunca volvería a `CUSTOMER`. ¿Se sigue el orden del enum tal
+  cual, o `CHURNED` solo se escribe sobre `CUSTOMER` y `CHURNED → CUSTOMER` se
+  permite?
+- **P3 (PR 6). Tareas hechas: ¿confirmadas?** Una tarea completada que hizo un
+  vendedor queda "pendiente de confirmar" para el ADMIN (§29). ¿Las importadas
+  como hechas quedan también confirmadas, con el autor elegido como quien
+  confirma, para no llenar esa cola con tareas de años anteriores?
