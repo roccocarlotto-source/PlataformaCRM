@@ -433,6 +433,20 @@ async function atarRespuestaAlJob(job: JobReclamado, salienteId: string) {
 export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise<ResultadoDelJob> {
   const { organizationId } = job;
 
+  // DÓNDE SE VA EL TIEMPO de una respuesta (05/10/2026: "el agente tarda más
+  // de un minuto por Messenger"). Se mide cada tramo y se loguea al terminar,
+  // para que el desglose se lea en los logs de producción sin instrumentar
+  // nada más: la espera en la cola (desde que el webhook encoló hasta este
+  // reclamo: el sondeo del worker y los carriles ocupados), la espera por el
+  // lock de la conversación, el turno (casi todo es el modelo) y el envío.
+  const reclamadoEn = Date.now();
+  const tiempos = {
+    esperaEnColaMs: reclamadoEn - job.createdAt.getTime(),
+    esperaDelLockMs: 0,
+    turnoMs: 0,
+    envioMs: 0,
+  };
+
   // Ítem 172 (reemplaza la guarda transitoria del 171): ver resolverTokenDePagina.
   const pageAccessToken = await resolverTokenDePagina(job, deps);
 
@@ -455,6 +469,7 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
     organizationId,
   };
   return conLockDeConversacion(clave, async () => {
+    tiempos.esperaDelLockMs = Date.now() - reclamadoEn;
     // Releído BAJO el lock: mientras este worker esperaba, el turno de otro
     // entrante de la ráfaga pudo haber respondido este también y cerrado el
     // job (markAgentInboundJobsCovered), u otro worker pudo haberlo retomado
@@ -504,6 +519,7 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
         }
         salienteId = await registrarRespuestaFija(conversacionActual, job);
       } else {
+        const inicioDelTurno = Date.now();
         salienteId = await correrElTurno(
           job,
           entrante.content,
@@ -512,10 +528,17 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
           contact,
           deps,
         );
+        tiempos.turnoMs = Date.now() - inicioDelTurno;
         if (salienteId === null) {
-          // Una persona ya escribió en el hilo (ítem 83): el entrante quedó
-          // registrado y el agente se calla. No hay nada que mandar.
+          // Una persona ya escribió en el hilo (ítem 83), antes del turno o
+          // mientras el modelo pensaba (la carrera, ver
+          // responderEnLaConversacion): el entrante quedó registrado y el
+          // agente se calla. No hay nada que mandar.
           await markAgentInboundJobDone(job);
+          logger.info(
+            { jobId: job.id, channel: job.channel, ...tiempos },
+            "Turno del agente sin respuesta: atiende una persona",
+          );
           return "respondido";
         }
       }
@@ -540,10 +563,23 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
         await markAgentInboundJobDone(job);
         return "respondido";
       }
+      const inicioDelEnvio = Date.now();
       await enviarRespuesta(saliente, job, pageAccessToken, deps);
+      tiempos.envioMs = Date.now() - inicioDelEnvio;
     }
 
     await markAgentInboundJobDone(job);
+    logger.info(
+      {
+        jobId: job.id,
+        channel: job.channel,
+        organizationId,
+        conversationId: conversacion.id,
+        ...tiempos,
+        totalMs: Date.now() - job.createdAt.getTime(),
+      },
+      "Turno del agente respondido: desglose de tiempos",
+    );
     return "respondido";
   });
 }

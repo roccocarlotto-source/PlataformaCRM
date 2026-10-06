@@ -135,6 +135,21 @@ export function OrganizationMetaConnectionCard({
           </p>
           <MetaConnectionIdentity conexion={conexion} />
           <div className="ds-card-actions">
+            {/* Repite el flujo de conectar sobre la misma página: vuelve a
+                suscribirla al webhook con la lista de campos vigente
+                (message_echoes, 05/10/2026) sin pasar por Desconectar, que
+                daría de baja la suscripción y dejaría un hueco sin mensajes.
+                No toca el agente asignado ni los canales. */}
+            <Button
+              variant="secondary"
+              onClick={() => void handleConectar()}
+              disabled={isBusy}
+              loading={startMutation.isPending || startMutation.isSuccess}
+            >
+              {startMutation.isPending || startMutation.isSuccess
+                ? "Abriendo Facebook…"
+                : "Volver a conectar"}
+            </Button>
             <Button
               variant="danger"
               onClick={handleDesconectar}

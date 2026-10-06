@@ -216,9 +216,20 @@ export interface ClienteMetaOAuth {
 // tildan en el panel de la app. `messages` trae los mensajes de Messenger y de
 // Instagram; `messaging_postbacks` los botones (hoy se ignoran, pero quedan
 // suscriptos para no tener que reconectar cada página el día que se usen).
-// Sin message_echoes: el webhook descarta los echoes igual, no hace falta
-// recibirlos.
-export const CAMPOS_SUSCRIPTOS_DE_LA_PAGINA = ["messages", "messaging_postbacks"];
+//
+// `message_echoes` ES NECESARIO desde OPUS-B-01: lo que una persona contesta
+// desde la bandeja de Meta (Meta Business Suite) llega al CRM SOLO como un
+// eco, y en Messenger los ecos son un campo aparte — sin suscribirlo, la
+// página nunca los manda, el CRM no se entera de que una persona está
+// atendiendo y el agente le sigue contestando al cliente por encima (visto en
+// producción el 05/10/2026). En Instagram los ecos vienen dentro de
+// `messages`, por eso ahí ya llegaban.
+//
+// UNA PÁGINA CONECTADA ANTES DE ESTE CAMBIO SIGUE SUSCRIPTA A LA LISTA VIEJA:
+// la suscripción se manda al conectar (completarConexion) y Meta no la
+// actualiza sola. Hay que reconectarla ("Volver a conectar" en Plataforma →
+// Página de Facebook), que repite este POST con la lista nueva.
+export const CAMPOS_SUSCRIPTOS_DE_LA_PAGINA = ["messages", "messaging_postbacks", "message_echoes"];
 
 // FACTORY, mismo patrón que crearClienteGoogleCalendar: la configuración y el
 // fetch entran por parámetro para que el test unitario exista.

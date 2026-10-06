@@ -25,11 +25,13 @@ import {
   createMessage,
   findLastMessages,
   humanSpokeLast,
+  humanoEscribioDesde,
   type CreateMessageData,
 } from "../repositories/message.repository";
 import { findVouchersDelContacto } from "../repositories/discountVoucher.repository";
 import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
+import { formatearParaElCanal } from "../utils/formatoPorCanal";
 import {
   atencionFueraDeHorario,
   fraseFueraDeHorario,
@@ -1878,6 +1880,9 @@ export async function responderEnLaConversacion(
   const { agent, contact, conversation, texto } = entrada;
   const organizationId = conversation.organizationId;
   const agentId = agent.id;
+  // Desde cuándo cuenta "una persona escribió mientras el agente pensaba":
+  // ver la guarda de la carrera, antes de guardar la respuesta.
+  const inicioDelTurno = new Date();
 
   // EL GATE DEL LOOP (ítem 83): lo que calla al agente es que una PERSONA de
   // la organización haya entrado al hilo, no que la conversación esté
@@ -2304,6 +2309,60 @@ export async function responderEnLaConversacion(
       respuestaFinal = limpia;
     }
   }
+
+  // LA CARRERA CON UNA PERSONA (visto en producción el 05/10/2026 por
+  // Messenger). El gate de arriba mira quién habló último AL EMPEZAR el turno;
+  // pero el turno dura segundos (una o varias llamadas al modelo), y en ese
+  // rato una persona pudo contestarle al cliente — desde la bandeja de Meta,
+  // cuyo eco se registra sin pasar por el lock de esta conversación
+  // (registrarRespuestaDesdeLaBandejaDeMeta). Si acá se guardara igual la
+  // respuesta del agente, quedaría DESPUÉS de la de la persona: saldría por
+  // encima de la suya, y además humanSpokeLast diría que el último fue el
+  // agente, así que seguiría contestando todo lo que viene.
+  //
+  // Por eso, bajo el mismo lock del turno y antes de derivar o guardar nada:
+  // si hay un HUMAN creado desde que empezó el turno, la respuesta NO SE
+  // GUARDA NI SE MANDA (el mismo criterio de I-03 para un reenvío que llega
+  // después de que un vendedor tomó el hilo: nunca la respuesta vieja del
+  // agente encima de la de una persona). Las tools que ya corrieron no se
+  // deshacen —son hechos—; lo que se descarta es el texto. Lo consumido se
+  // registra igual, que se gastó. Vale para todos los canales: la lectura es
+  // la misma para WhatsApp, Messenger, Instagram y el widget.
+  if (await humanoEscribioDesde(conversation.id, organizationId, inicioDelTurno)) {
+    logger.warn(
+      {
+        organizationId,
+        agentId,
+        conversationId: conversation.id,
+        tools: auditoria.length,
+        largo: respuestaFinal.length,
+      },
+      "Una persona contestó mientras el agente redactaba: su respuesta se descarta y no se manda",
+    );
+    registrarUsoDelTurno({
+      organizationId,
+      agentId,
+      conversationId: conversation.id,
+      model: agent.modelName,
+      uso,
+    });
+    return {
+      resultado: {
+        conversationId: conversation.id,
+        status: conversation.status,
+        respuesta: null,
+        toolCalls: auditoria,
+        handoff: false,
+        handoffActivityId: null,
+      },
+      salienteId: null,
+      mensajesVistos: [],
+    };
+  }
+
+  // En el formato del canal (utils/formatoPorCanal.ts): lo que se guarda es lo
+  // que el cliente ve. Va antes de partir por largo, que ocurre al mandar.
+  respuestaFinal = formatearParaElCanal(respuestaFinal, conversation.channel);
 
   const handoff = motivoDeHandoff !== null;
   let handoffActivityId: string | null = null;

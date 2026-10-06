@@ -177,6 +177,7 @@ function jobDe(channel: ConversationChannel): JobReclamado {
     externalUserId: channel === "WHATSAPP" ? "5491155550000" : `${channel.toLowerCase()}-sid-1`,
     attempts: 1,
     responseMessageId: null,
+    createdAt: new Date(),
   };
 }
 

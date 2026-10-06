@@ -71,6 +71,9 @@ export interface JobReclamado {
   // El valor DESPUÉS del reclamo: es el token que exigen las transiciones.
   attempts: number;
   responseMessageId: string | null;
+  // Cuándo se encoló: el worker mide con esto cuánto esperó el job en la cola
+  // (el desglose de tiempos del turno, ver procesarJob).
+  createdAt: Date;
 }
 
 interface FilaReclamada {
@@ -82,6 +85,7 @@ interface FilaReclamada {
   external_user_id: string;
   attempts: number;
   response_message_id: string | null;
+  created_at: Date;
 }
 
 // Reclama UN job y lo deja en PROCESSING con el lease puesto. Devuelve null si
@@ -156,7 +160,7 @@ export async function claimNextAgentInboundJob(
       LIMIT 1
     )
     RETURNING j.id, j.organization_id, j.message_id, j.channel, j.channel_account_id,
-              j.external_user_id, j.attempts, j.response_message_id
+              j.external_user_id, j.attempts, j.response_message_id, j.created_at
   `;
 
   if (filas.length === 0) {
@@ -167,6 +171,7 @@ export async function claimNextAgentInboundJob(
     id: fila.id,
     organizationId: fila.organization_id,
     messageId: fila.message_id,
+    createdAt: fila.created_at,
     channel: fila.channel,
     channelAccountId: fila.channel_account_id,
     externalUserId: fila.external_user_id,
