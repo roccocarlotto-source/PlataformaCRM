@@ -8,6 +8,7 @@ import {
   MENSAJE_OPCION_MUY_LARGA,
   aplicarCambiosDeCampos,
   claveDeOpcion,
+  mapeoDeCambiosDeOpciones,
   describirValor,
   keyDesdeEtiqueta,
   limpiarOpcionesDeLista,
@@ -29,6 +30,13 @@ const DEFS: DefinicionDeCampo[] = [
     label: "Combustible",
     type: "SELECT",
     options: ["Nafta", "Diésel", "GNC"],
+    agentEditable: true,
+  },
+  {
+    key: "intereses",
+    label: "Intereses",
+    type: "MULTI_SELECT",
+    options: ["0 km", "Usados", "Financiación"],
     agentEditable: true,
   },
 ];
@@ -251,5 +259,119 @@ test("validarRenombresDeOpciones: rechaza un origen que no estaba guardado, un d
       { from: "Contado", to: "Financiado" },
     ]).ok,
     false,
+  );
+});
+
+test("MULTI_SELECT: un arreglo de opciones vigentes, sin repetidas; vacío borra; otra cosa es error con el nombre", () => {
+  const intereses = def("intereses");
+  assert.deepEqual(validarValorDeCampo(intereses, ["Usados", " Financiación ", "Usados"]), {
+    ok: true,
+    valor: ["Usados", "Financiación"],
+  });
+  assert.deepEqual(validarValorDeCampo(intereses, []), { ok: true, valor: null });
+  assert.deepEqual(validarValorDeCampo(intereses, ["", "  "]), { ok: true, valor: null });
+  const ajena = validarValorDeCampo(intereses, ["Usados", "Motos"]);
+  assert.equal(ajena.ok, false);
+  assert.match((ajena as { error: string }).error, /Intereses.*0 km, Usados, Financiación/);
+  assert.equal(validarValorDeCampo(intereses, "Usados").ok, false, "un string no es un arreglo");
+  assert.equal(validarValorDeCampo(intereses, [1]).ok, false);
+  // En un SELECT, un arreglo no vale.
+  assert.equal(validarValorDeCampo(def("combustible"), ["Nafta"]).ok, false);
+  assert.equal(describirValor(intereses, ["Usados", "Financiación"]), "Usados, Financiación");
+  assert.equal(describirValor(intereses, []), null);
+});
+
+test("MULTI_SELECT: el arreglo entero reemplaza al guardado; igual al guardado no se vuelve a validar", () => {
+  const guardados = { intereses: ["Usados", "Vieja"] };
+  // La ficha manda lo mismo que había (con la opción eliminada "Vieja"): no se valida.
+  assert.deepEqual(soloLosQueCambian(guardados, { intereses: ["Usados", "Vieja"] }), {});
+  // Agregar una: llega el arreglo completo y se valida entero.
+  assert.deepEqual(soloLosQueCambian(guardados, { intereses: ["Usados", "0 km"] }), {
+    intereses: ["Usados", "0 km"],
+  });
+  assert.deepEqual(aplicarCambiosDeCampos(DEFS, guardados, { intereses: ["Usados", "0 km"] }), {
+    intereses: ["Usados", "0 km"],
+  });
+  assert.deepEqual(aplicarCambiosDeCampos(DEFS, guardados, { intereses: null }), {});
+});
+
+test("mapeoDeCambiosDeOpciones: renombres y decisiones sobre eliminadas, como un mapeo { vieja: [nuevas] }", () => {
+  const guardadas = ["Contado, financiado, permuta", "Leasing", "Cheque"];
+  const nuevas = ["Contado", "financiado", "permuta", "Leasing", "Cheque diferido"];
+  const resultado = mapeoDeCambiosDeOpciones(
+    "MULTI_SELECT",
+    guardadas,
+    nuevas,
+    [{ from: "Cheque", to: "Cheque diferido" }],
+    [
+      {
+        from: "Contado, financiado, permuta",
+        action: "move",
+        to: ["Contado", "financiado", "permuta", "permuta"],
+      },
+    ],
+  );
+  assert.deepEqual(resultado, {
+    ok: true,
+    mapeo: {
+      Cheque: ["Cheque diferido"],
+      "Contado, financiado, permuta": ["Contado", "financiado", "permuta"],
+    },
+  });
+  // clear saca; keep no entra al mapeo.
+  assert.deepEqual(
+    mapeoDeCambiosDeOpciones(
+      "SELECT",
+      ["A", "B", "C"],
+      ["C"],
+      [],
+      [
+        { from: "A", action: "clear" },
+        { from: "B", action: "keep" },
+      ],
+    ),
+    { ok: true, mapeo: { A: [] } },
+  );
+});
+
+test("mapeoDeCambiosDeOpciones: rechaza lo que no cierra", () => {
+  const guardadas = ["A", "B"];
+  const nuevas = ["B", "C"];
+  const casos: [string, Parameters<typeof mapeoDeCambiosDeOpciones>][] = [
+    [
+      "eliminada que no estaba",
+      ["SELECT", guardadas, nuevas, [], [{ from: "Z", action: "clear" }]],
+    ],
+    ["eliminada que sigue", ["SELECT", guardadas, nuevas, [], [{ from: "B", action: "clear" }]]],
+    [
+      "move sin destino",
+      ["SELECT", guardadas, nuevas, [], [{ from: "A", action: "move", to: [] }]],
+    ],
+    [
+      "destino que no es nuevo",
+      ["SELECT", guardadas, nuevas, [], [{ from: "A", action: "move", to: ["Z"] }]],
+    ],
+    [
+      "varios destinos en un SELECT",
+      ["SELECT", guardadas, nuevas, [], [{ from: "A", action: "move", to: ["B", "C"] }]],
+    ],
+    [
+      "renombrada y eliminada a la vez",
+      ["SELECT", guardadas, nuevas, [{ from: "A", to: "C" }], [{ from: "A", action: "clear" }]],
+    ],
+  ];
+  for (const [nombre, args] of casos) {
+    assert.equal(mapeoDeCambiosDeOpciones(...args).ok, false, nombre);
+  }
+  // Varios destinos sí valen en un MULTI_SELECT.
+  assert.equal(
+    mapeoDeCambiosDeOpciones(
+      "MULTI_SELECT",
+      guardadas,
+      nuevas,
+      [],
+      [{ from: "A", action: "move", to: ["B", "C"] }],
+    ).ok,
+    true,
   );
 });

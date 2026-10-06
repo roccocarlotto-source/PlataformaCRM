@@ -6,9 +6,10 @@ import {
   cambiosDeOpciones,
   claveDeOpcion,
   filasDesdeOpciones,
-  mensajeDeConfirmacion,
+  cambiosEnUso,
   mensajeDeOpcionRepetida,
   nuevaFila,
+  opcionesAgregadas,
   partirTextoPegado,
   tieneSeparadores,
   validarFilas,
@@ -137,7 +138,7 @@ describe("opciones de un campo de lista", () => {
     });
   });
 
-  it("mensajeDeConfirmacion: solo habla de las opciones que algún contacto usa, en singular o plural", () => {
+  it("cambiosEnUso: solo los cambios que algún contacto tiene, con cuántos", () => {
     const cambios = {
       renombradas: [
         { from: "Contado", to: "Efectivo" },
@@ -145,13 +146,41 @@ describe("opciones de un campo de lista", () => {
       ],
       eliminadas: ["Permuta", "Leasing"],
     };
-    expect(mensajeDeConfirmacion(cambios, {})).toBeNull();
-    expect(mensajeDeConfirmacion(cambios, { Financiado: 9 })).toBeNull();
+    expect(cambiosEnUso(cambios, {})).toEqual({ renombradas: [], eliminadas: [] });
+    expect(cambiosEnUso(cambios, { Contado: 1, Permuta: 3, Financiado: 9 })).toEqual({
+      renombradas: [{ from: "Contado", to: "Efectivo", contactos: 1 }],
+      eliminadas: [{ opcion: "Permuta", contactos: 3 }],
+    });
+  });
 
-    expect(mensajeDeConfirmacion(cambios, { Contado: 1, Permuta: 3 })).toBe(
-      "¿Guardar los cambios en las opciones? " +
-        "«Contado» pasa a llamarse «Efectivo»: se actualiza en el contacto que la tiene elegida. " +
-        "«Permuta» se elimina de la lista: los 3 contactos que la tienen elegida conservan ese valor, marcado como opción eliminada.",
-    );
+  it("partir no es renombrar: la fila guardada desaparece y las partes son nuevas; opcionesAgregadas las lista", () => {
+    const guardadas = ["Contado, financiado, permuta", "Leasing"];
+    const [, leasing] = filasDesdeOpciones(guardadas);
+    // Lo que deja el editor al pegar con comas: tres filas nuevas en lugar de la guardada.
+    const filas = [nuevaFila("Contado"), nuevaFila("financiado"), nuevaFila("permuta"), leasing];
+    expect(cambiosDeOpciones(guardadas, filas)).toEqual({
+      renombradas: [],
+      eliminadas: ["Contado, financiado, permuta"],
+    });
+    expect(opcionesAgregadas(filas)).toEqual(["Contado", "financiado", "permuta"]);
+    expect(opcionesAgregadas([...filasDesdeOpciones(guardadas), nuevaFila(" ")])).toEqual([]);
+  });
+
+  it("la identidad no depende de la posición: reordenar y editar es un renombre; borrar y agregar en el mismo lugar no", () => {
+    const guardadas = ["Contado", "Financiado", "Permuta"];
+    const [contado, financiado, permuta] = filasDesdeOpciones(guardadas);
+    // Contado bajó al segundo lugar y ahí se editó.
+    expect(
+      cambiosDeOpciones(guardadas, [
+        financiado,
+        { ...contado, texto: "Contado efectivo" },
+        permuta,
+      ]),
+    ).toEqual({ renombradas: [{ from: "Contado", to: "Contado efectivo" }], eliminadas: [] });
+    // Se borró Financiado y se escribió "Cheque" en su lugar: no es un renombre.
+    expect(cambiosDeOpciones(guardadas, [contado, nuevaFila("Cheque"), permuta])).toEqual({
+      renombradas: [],
+      eliminadas: ["Financiado"],
+    });
   });
 });

@@ -5,12 +5,15 @@
 // Las definiciones viven en contact_custom_field_definitions (una tabla por
 // organización, hasta MAX_CAMPOS_POR_ORGANIZACION, las define un ADMIN); los
 // valores, en la columna Contact.customFields que ya existía: un objeto
-// { [key]: valor } con la `key` de cada definición. Cinco tipos:
-//   TEXT     string de hasta MAX_LARGO_DE_TEXTO
-//   NUMBER   número finito
-//   DATE     "YYYY-MM-DD" (una fecha de calendario, sin hora ni zona)
-//   BOOLEAN  true / false
-//   SELECT   una de las opciones de la definición (texto exacto)
+// { [key]: valor } con la `key` de cada definición. Seis tipos:
+//   TEXT         string de hasta MAX_LARGO_DE_TEXTO
+//   NUMBER       número finito
+//   DATE         "YYYY-MM-DD" (una fecha de calendario, sin hora ni zona)
+//   BOOLEAN      true / false
+//   SELECT       una de las opciones de la definición (texto exacto)
+//   MULTI_SELECT un arreglo de opciones de la definición, sin repetidas; el
+//                arreglo entero reemplaza al guardado (para agregar o quitar
+//                una, se manda el arreglo completo); [] borra, como null
 // `null` borra el valor. Una key que no es de ninguna definición, o un valor
 // del tipo equivocado, es un error con el nombre del campo: lo lee tanto el
 // 400 del endpoint como el modelo de la tool del agente.
@@ -22,20 +25,32 @@ export const MAX_OPCIONES = 50;
 export const MAX_LARGO_DE_OPCION = 100;
 export const MAX_LARGO_DE_ETIQUETA = 100;
 
-export const TIPOS_DE_CAMPO = ["TEXT", "NUMBER", "DATE", "BOOLEAN", "SELECT"] as const;
+export const TIPOS_DE_CAMPO = [
+  "TEXT",
+  "NUMBER",
+  "DATE",
+  "BOOLEAN",
+  "SELECT",
+  "MULTI_SELECT",
+] as const;
 export type TipoDeCampo = (typeof TIPOS_DE_CAMPO)[number];
+
+// Los tipos que llevan opciones.
+export function tieneOpciones(type: TipoDeCampo): boolean {
+  return type === "SELECT" || type === "MULTI_SELECT";
+}
 
 export interface DefinicionDeCampo {
   key: string;
   label: string;
   type: TipoDeCampo;
-  // Solo para SELECT; vacío en los demás.
+  // Solo para SELECT y MULTI_SELECT; vacío en los demás.
   options: string[];
   // Si el agente de IA puede escribirlo (leerlos puede todos).
   agentEditable: boolean;
 }
 
-export type ValorDeCampo = string | number | boolean | null;
+export type ValorDeCampo = string | number | boolean | string[] | null;
 
 export type ResultadoDeValidacion =
   { ok: true; valor: ValorDeCampo } | { ok: false; error: string };
@@ -103,6 +118,28 @@ export function validarValorDeCampo(def: DefinicionDeCampo, valor: unknown): Res
         };
       }
       return { ok: true, valor: texto };
+    }
+    case "MULTI_SELECT": {
+      if (!Array.isArray(valor) || valor.some((v) => typeof v !== "string")) {
+        return {
+          ok: false,
+          error: `«${def.label}» tiene que ser una lista de sus opciones (un arreglo de textos)`,
+        };
+      }
+      const elegidas: string[] = [];
+      for (const v of valor as string[]) {
+        const texto = v.trim();
+        if (texto.length === 0 || elegidas.includes(texto)) continue;
+        if (!def.options.includes(texto)) {
+          return {
+            ok: false,
+            error: `«${def.label}» solo admite estas opciones: ${def.options.join(", ")}`,
+          };
+        }
+        elegidas.push(texto);
+      }
+      // Sin ninguna elegida es "sin cargar", igual que el texto vacío.
+      return { ok: true, valor: elegidas.length === 0 ? null : elegidas };
     }
   }
 }
@@ -189,8 +226,17 @@ export function soloLosQueCambian(
       ? (actuales as Record<string, unknown>)
       : {};
   return Object.fromEntries(
-    Object.entries(cambios).filter(([key, valor]) => guardados[key] !== valor),
+    Object.entries(cambios).filter(([key, valor]) => !mismoValor(guardados[key], valor)),
   );
+}
+
+// Igualdad de un valor guardado con uno que llega: por elemento en un
+// arreglo (MULTI_SELECT), estricta en los demás.
+function mismoValor(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((x, i) => x === b[i]);
+  }
+  return a === b;
 }
 
 // Cómo se compara una opción con otra para decidir si están repetidas: sin
@@ -299,5 +345,86 @@ export function keyDesdeEtiqueta(label: string): string {
 export function describirValor(def: DefinicionDeCampo, valor: unknown): string | null {
   if (valor === null || valor === undefined || valor === "") return null;
   if (def.type === "BOOLEAN") return valor === true ? "sí" : "no";
+  if (Array.isArray(valor)) {
+    return valor.length === 0 ? null : valor.map(String).join(", ");
+  }
   return String(valor);
+}
+
+// ---------------------------------------------------------------------------
+// Qué les pasa a los VALORES de los contactos cuando un ADMIN cambia las
+// opciones de un campo (ver contactCustomFieldDefinition.service.ts):
+//   - renombrar una opción: los contactos pasan al texto nuevo;
+//   - eliminar una opción que algún contacto tiene: lo decide el ADMIN por
+//     opción —dejar sin cargar, pasar a otra(s), o conservar el texto viejo
+//     como "opción eliminada"—.
+// Todo eso se expresa como un MAPEO { opciónVieja: [opcionesNuevas] }: []
+// la saca del contacto, una la reemplaza, varias (solo MULTI_SELECT) la
+// reemplazan por todas. Lo que no está en el mapeo no se toca. El repositorio
+// lo aplica en un solo UPDATE por campo (contact.repository.ts).
+// ---------------------------------------------------------------------------
+
+export type MapeoDeOpciones = Record<string, string[]>;
+
+export type AccionSobreOpcionEliminada = "clear" | "move" | "keep";
+
+export interface OpcionEliminada {
+  from: string;
+  action: AccionSobreOpcionEliminada;
+  // Solo con "move": a qué opción(es) nuevas pasan los contactos. En SELECT,
+  // exactamente una.
+  to?: string[];
+}
+
+export type ResultadoDeMapeo = { ok: true; mapeo: MapeoDeOpciones } | { ok: false; error: string };
+
+// El mapeo que sale de los renombres pedidos y de las decisiones sobre las
+// opciones eliminadas, validado contra lo guardado y lo nuevo.
+export function mapeoDeCambiosDeOpciones(
+  type: TipoDeCampo,
+  guardadas: readonly string[],
+  nuevas: readonly string[],
+  renombres: readonly RenombreDeOpcion[],
+  eliminadas: readonly OpcionEliminada[],
+): ResultadoDeMapeo {
+  const mapeo: MapeoDeOpciones = {};
+  const validos = validarRenombresDeOpciones(guardadas, nuevas, renombres);
+  if (!validos.ok) return validos;
+  for (const { from, to } of validos.renombres) {
+    mapeo[from] = [to];
+  }
+  for (const eliminada of eliminadas) {
+    const from = eliminada.from.trim();
+    if (!guardadas.includes(from)) {
+      return { ok: false, error: `«${from}» no es una opción guardada de este campo` };
+    }
+    if (nuevas.includes(from)) {
+      return { ok: false, error: `«${from}» sigue siendo una opción del campo: no se eliminó` };
+    }
+    if (from in mapeo) {
+      return { ok: false, error: `La opción «${from}» no se puede renombrar y eliminar a la vez` };
+    }
+    if (eliminada.action === "keep") continue;
+    if (eliminada.action === "clear") {
+      mapeo[from] = [];
+      continue;
+    }
+    const destinos = [...new Set((eliminada.to ?? []).map((t) => t.trim()))];
+    if (destinos.length === 0) {
+      return { ok: false, error: `Falta a qué opción pasan los contactos que tenían «${from}»` };
+    }
+    if (type === "SELECT" && destinos.length > 1) {
+      return {
+        ok: false,
+        error: `En una lista de una sola opción, «${from}» solo puede pasar a UNA opción`,
+      };
+    }
+    for (const destino of destinos) {
+      if (!nuevas.includes(destino)) {
+        return { ok: false, error: `«${destino}» no está entre las opciones nuevas del campo` };
+      }
+    }
+    mapeo[from] = destinos;
+  }
+  return { ok: true, mapeo };
 }

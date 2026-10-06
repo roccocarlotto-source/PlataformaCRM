@@ -324,49 +324,148 @@ export function updateContactCustomFields(
   });
 }
 
-// Cuántos contactos vigentes tienen cada valor en el campo personalizado
-// `key` (una lista de opciones): { valor: cantidad }. Lo usa la pantalla de
-// administración para avisar, antes de borrar o renombrar una opción, a
-// cuántos contactos toca. Recorre los contactos de UNA organización sin
-// índice, como findContactIdByNormalizedPhone: es una consulta de un ADMIN al
-// guardar un campo, no un camino caliente.
+// ---------------------------------------------------------------------------
+// Las OPCIONES de un campo personalizado de lista en los contactos. El valor
+// de un SELECT es un string y el de un MULTI_SELECT un arreglo de strings
+// (utils/camposPersonalizados.ts); las cuatro funciones de abajo tratan los
+// dos. Recorren los contactos de UNA organización sin índice, como
+// findContactIdByNormalizedPhone: son operaciones de un ADMIN al guardar un
+// campo, no un camino caliente. Ninguna toca updated_at a propósito: cambiar
+// el catálogo no es una edición del contacto, y reordenaría los listados.
+// ---------------------------------------------------------------------------
+
+// Cuántos contactos vigentes tienen cada opción: { opción: cantidad }. En un
+// MULTI_SELECT, un contacto cuenta para cada opción que tiene elegida.
 export async function countContactsByCustomFieldValue(
   organizationId: string,
   key: string,
   db: Db = prisma,
 ): Promise<Record<string, number>> {
   const filas = await db.$queryRaw<{ valor: string; total: number }[]>`
-    SELECT custom_fields->>${key}::text AS valor, count(*)::int AS total
-    FROM contacts
-    WHERE organization_id = ${organizationId}::uuid
-      AND deleted_at IS NULL
-      AND jsonb_typeof(custom_fields->${key}::text) = 'string'
-    GROUP BY 1
+    SELECT v.valor, count(DISTINCT c.id)::int AS total
+    FROM contacts c
+    CROSS JOIN LATERAL (
+      SELECT c.custom_fields->>${key}::text AS valor
+      WHERE jsonb_typeof(c.custom_fields->${key}::text) = 'string'
+      UNION ALL
+      SELECT e.valor
+      FROM jsonb_array_elements_text(
+        CASE WHEN jsonb_typeof(c.custom_fields->${key}::text) = 'array'
+             THEN c.custom_fields->${key}::text ELSE '[]'::jsonb END
+      ) AS e(valor)
+    ) v
+    WHERE c.organization_id = ${organizationId}::uuid
+      AND c.deleted_at IS NULL
+    GROUP BY v.valor
   `;
   return Object.fromEntries(filas.map((fila) => [fila.valor, fila.total]));
 }
 
-// Renombra el valor de una opción en los contactos que la tienen elegida:
-// cada { from, to } pasa de un texto al otro. UN solo UPDATE, para que un
-// intercambio (A → B y B → A a la vez) no se pise a sí mismo. Incluye los
-// contactos dados de baja: si alguno se restaura, tiene que volver con una
-// opción que exista. No toca updated_at a propósito: renombrar una opción del
-// catálogo no es una edición del contacto, y reordenaría los listados.
-export function renameCustomFieldOptionInContacts(
+// Aplica un MAPEO { opciónVieja: [opcionesNuevas] } a los valores de los
+// contactos (renombres y decisiones sobre opciones eliminadas, ver
+// mapeoDeCambiosDeOpciones): [] saca la opción (en un SELECT, borra el
+// valor), una la reemplaza, varias (MULTI_SELECT) la reemplazan por todas.
+// UN solo UPDATE por tipo de valor, para que un intercambio (A → B y B → A a
+// la vez) no se pise a sí mismo. Incluye los contactos dados de baja: si
+// alguno se restaura, tiene que volver con opciones que existan. Lo que no
+// está en el mapeo no se toca; en un arreglo, las repetidas que pudiera
+// producir el reemplazo se funden.
+export async function applyCustomFieldOptionMapping(
   organizationId: string,
   key: string,
-  renombres: { from: string; to: string }[],
+  mapeo: Record<string, string[]>,
   db: Db,
-) {
-  const desde = renombres.map((r) => r.from);
-  const hacia = renombres.map((r) => r.to);
-  return db.$executeRaw`
+): Promise<void> {
+  if (Object.keys(mapeo).length === 0) return;
+  const mapa = JSON.stringify(mapeo);
+
+  // Valores string (SELECT): el destino es el único elemento, o nada.
+  await db.$executeRaw`
     UPDATE contacts c
-    SET custom_fields = jsonb_set(c.custom_fields, ARRAY[${key}::text], to_jsonb(m.hacia))
-    FROM unnest(${desde}::text[], ${hacia}::text[]) AS m(desde, hacia)
+    SET custom_fields = CASE
+      WHEN jsonb_array_length(m.hacia) = 0 THEN c.custom_fields - ${key}::text
+      ELSE jsonb_set(c.custom_fields, ARRAY[${key}::text], m.hacia -> 0)
+    END
+    FROM jsonb_each(${mapa}::jsonb) AS m(desde, hacia)
     WHERE c.organization_id = ${organizationId}::uuid
       AND jsonb_typeof(c.custom_fields->${key}::text) = 'string'
       AND c.custom_fields->>${key}::text = m.desde
+  `;
+
+  // Valores arreglo (MULTI_SELECT): cada elemento mapeado se reemplaza por
+  // sus destinos (ninguno = se saca); el resto queda. Sin elementos, se borra
+  // el valor entero.
+  await db.$executeRaw`
+    UPDATE contacts c
+    SET custom_fields = CASE
+      WHEN n.nuevo = '[]'::jsonb THEN c.custom_fields - ${key}::text
+      ELSE jsonb_set(c.custom_fields, ARRAY[${key}::text], n.nuevo)
+    END
+    FROM (
+      SELECT c2.id,
+        COALESCE((
+          SELECT jsonb_agg(DISTINCT s.v ORDER BY s.v)
+          FROM (
+            SELECT CASE WHEN m.hacia IS NULL THEN e.valor ELSE t.destino END AS v
+            FROM jsonb_array_elements_text(c2.custom_fields->${key}::text) AS e(valor)
+            LEFT JOIN LATERAL (SELECT ${mapa}::jsonb -> e.valor AS hacia) m ON true
+            LEFT JOIN LATERAL jsonb_array_elements_text(m.hacia) AS t(destino)
+              ON m.hacia IS NOT NULL
+          ) s
+          WHERE s.v IS NOT NULL
+        ), '[]'::jsonb) AS nuevo
+      FROM contacts c2
+      WHERE c2.organization_id = ${organizationId}::uuid
+        AND jsonb_typeof(c2.custom_fields->${key}::text) = 'array'
+        AND c2.custom_fields->${key}::text ?| ARRAY(SELECT jsonb_object_keys(${mapa}::jsonb))
+    ) n
+    WHERE c.id = n.id AND c.organization_id = ${organizationId}::uuid
+  `;
+}
+
+// SELECT → MULTI_SELECT: cada valor string pasa a un arreglo de uno.
+export function convertCustomFieldValuesToArray(organizationId: string, key: string, db: Db) {
+  return db.$executeRaw`
+    UPDATE contacts
+    SET custom_fields = jsonb_set(
+      custom_fields, ARRAY[${key}::text], jsonb_build_array(custom_fields->${key}::text)
+    )
+    WHERE organization_id = ${organizationId}::uuid
+      AND jsonb_typeof(custom_fields->${key}::text) = 'string'
+  `;
+}
+
+// Cuántos contactos vigentes tienen MÁS de una opción elegida en un
+// MULTI_SELECT: los que impiden volver a SELECT.
+export async function countContactsWithSeveralOptions(
+  organizationId: string,
+  key: string,
+  db: Db,
+): Promise<number> {
+  const filas = await db.$queryRaw<{ total: number }[]>`
+    SELECT count(*)::int AS total
+    FROM contacts
+    WHERE organization_id = ${organizationId}::uuid
+      AND deleted_at IS NULL
+      AND jsonb_typeof(custom_fields->${key}::text) = 'array'
+      AND jsonb_array_length(custom_fields->${key}::text) > 1
+  `;
+  return filas[0]?.total ?? 0;
+}
+
+// MULTI_SELECT → SELECT: un arreglo de uno pasa a ese valor; uno vacío se
+// borra. Solo se llama con ningún contacto vigente con más de una (ver
+// countContactsWithSeveralOptions); uno dado de baja que tuviera varias se
+// queda con la primera.
+export function convertCustomFieldValuesToScalar(organizationId: string, key: string, db: Db) {
+  return db.$executeRaw`
+    UPDATE contacts
+    SET custom_fields = CASE
+      WHEN jsonb_array_length(custom_fields->${key}::text) = 0 THEN custom_fields - ${key}::text
+      ELSE jsonb_set(custom_fields, ARRAY[${key}::text], custom_fields->${key}::text -> 0)
+    END
+    WHERE organization_id = ${organizationId}::uuid
+      AND jsonb_typeof(custom_fields->${key}::text) = 'array'
   `;
 }
 

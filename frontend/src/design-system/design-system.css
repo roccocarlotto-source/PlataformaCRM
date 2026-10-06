@@ -2383,6 +2383,37 @@ fieldset.ds-field {
 }
 
 /* ---------------------------------------------------------------------------
+   Lista de casillas de un campo de selección múltiple en la ficha del
+   contacto (features/contactCustomField/ContactCustomFieldsCard.tsx). Un
+   <fieldset> con el rótulo del campo como <legend> y un <label> por opción.
+   No lleva .ds-field a propósito: ".ds-field:has(input[type=checkbox])" pone
+   el campo entero en fila, que es lo que quiere UNA casilla, no una lista.
+   Cada fila mide --control-height (40px) y la casilla 20px: se toca con el
+   dedo igual que un input. */
+.ds-check-list {
+  border: 0;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.ds-check-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  margin: 0;
+  cursor: pointer;
+}
+
+.ds-check-option input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------------------
    Lista de chips con alta de a uno — hoy con un único consumidor,
    features/vehicle/EquipmentField.tsx (docs/frontend-cambios-pendientes.md
    §21). Vive acá por el mismo motivo que .ds-mapping-rows. El chip en sí es

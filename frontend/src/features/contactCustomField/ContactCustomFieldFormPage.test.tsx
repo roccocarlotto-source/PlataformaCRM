@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
-import { chooseSelectOption } from "../../test/chooseSelectOption";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 import { makeDefinicion } from "../../test/contactCustomFieldFixtures";
 import { ContactCustomFieldFormPage } from "./ContactCustomFieldFormPage";
+import type { ContactCustomFieldDefinition } from "./types";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -111,7 +112,8 @@ describe("ContactCustomFieldFormPage (B6)", () => {
     const alta = capturarAlta();
     await nuevaLista(user);
 
-    await user.click(screen.getByLabelText("Opción 1"));
+    // Se selecciona el texto de la fila guardada y se pega encima, partido.
+    await user.tripleClick(screen.getByLabelText("Opción 1"));
     await user.paste("Contado, financiado, permuta");
     expect(opcionesEnPantalla()).toEqual(["Contado", "financiado", "permuta"]);
     // El foco queda en la última que entró, para seguir escribiendo.
@@ -271,7 +273,8 @@ describe("ContactCustomFieldFormPage (B6)", () => {
 });
 
 // Editar las opciones de una lista que ya usan contactos: antes de guardar se
-// avisa cuántos contactos toca cada cambio y se pide confirmación.
+// consulta cuántos contactos tiene cada opción tocada y se abre el diálogo
+// (OptionChangesDialog) con lo que va a pasar y qué hacer con las eliminadas.
 describe("ContactCustomFieldFormPage: opciones que ya usan contactos", () => {
   const id = "22222222-2222-4222-8222-222222222222";
   const lista = makeDefinicion({
@@ -282,128 +285,199 @@ describe("ContactCustomFieldFormPage: opciones que ya usan contactos", () => {
     options: ["Contado", "Financiado", "Permuta"],
   });
 
-  // Monta la edición de `lista`. `uso` es lo que responde option-usage (o un
+  // Monta la edición de `campo`. `uso` es lo que responde option-usage (o un
   // status de error); devuelve lo que se pidió y lo que se mandó.
-  function editarLista(uso: Record<string, number> | number) {
+  function editar(campo: ContactCustomFieldDefinition, uso: Record<string, number> | number) {
     const captura: { body: unknown; patches: number; consultasDeUso: number } = {
       body: null,
       patches: 0,
       consultasDeUso: 0,
     };
     server.use(
-      http.get(`${baseUrl}/${id}`, () => HttpResponse.json(lista)),
-      http.get(`${baseUrl}/${id}/option-usage`, () => {
+      http.get(`${baseUrl}/${campo.id}`, () => HttpResponse.json(campo)),
+      http.get(`${baseUrl}/${campo.id}/option-usage`, () => {
         captura.consultasDeUso += 1;
         return typeof uso === "number"
           ? HttpResponse.json({ error: { message: "falló" } }, { status: uso })
           : HttpResponse.json({ contactsByOption: uso });
       }),
-      http.patch(`${baseUrl}/${id}`, async ({ request }) => {
+      http.patch(`${baseUrl}/${campo.id}`, async ({ request }) => {
         captura.patches += 1;
         captura.body = await request.json();
-        return HttpResponse.json(lista);
+        return HttpResponse.json(campo);
       }),
     );
-    renderForm(`/contact-custom-fields/${id}/edit`);
+    renderForm(`/contact-custom-fields/${campo.id}/edit`);
     return captura;
   }
 
-  async function esperarOpciones() {
-    await waitFor(() => expect(opcionesEnPantalla()).toEqual(["Contado", "Financiado", "Permuta"]));
+  async function esperarOpciones(esperadas: string[]) {
+    await waitFor(() => expect(opcionesEnPantalla()).toEqual(esperadas));
   }
 
-  it("renombrar y eliminar opciones en uso: muestra cuántos contactos las tienen, pide confirmación y manda los renombres", async () => {
+  it("el caso de Rocco en una lista: partir «Contado, financiado, permuta» NO la renombra — queda eliminada, con sus contactos, y las tres son nuevas", async () => {
     const user = userEvent.setup();
-    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const captura = editarLista({ Contado: 12, Permuta: 1 });
-    await esperarOpciones();
+    const captura = editar(
+      makeDefinicion({ ...lista, options: ["Contado, financiado, permuta", "Leasing"] }),
+      { "Contado, financiado, permuta": 4 },
+    );
+    await esperarOpciones(["Contado, financiado, permuta", "Leasing"]);
 
-    await user.clear(screen.getByLabelText("Opción 1"));
-    await user.type(screen.getByLabelText("Opción 1"), "Contado efectivo");
-    await user.click(screen.getByRole("button", { name: "Borrar la opción 3" }));
+    // Se selecciona el texto de la fila guardada y se pega encima, partido.
+    await user.tripleClick(screen.getByLabelText("Opción 1"));
+    await user.paste("Contado, financiado, permuta");
+    expect(opcionesEnPantalla()).toEqual(["Contado", "financiado", "permuta", "Leasing"]);
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
+    const d = await screen.findByRole("dialog", { name: "Opciones que ya usan contactos" });
+    expect(d).toHaveTextContent(
+      "«Contado, financiado, permuta» se elimina de la lista y 4 contactos la tienen elegida.",
+    );
+    expect(d).not.toHaveTextContent("pasa a llamarse");
+    // Por defecto, dejar sin cargar; una lista simple no ofrece "todas las nuevas".
+    const selector = within(d).getByLabelText("Qué hacer con «Contado, financiado, permuta»");
+    expect(selector).toHaveValue("Dejar sin cargar");
+    const ofrecidas = await listSelectOptions(user, selector);
+    expect(ofrecidas).toEqual([
+      "Dejar sin cargar",
+      "Pasar a: Contado",
+      "Pasar a: financiado",
+      "Pasar a: permuta",
+      "Pasar a: Leasing",
+      "Conservar como opción eliminada",
+    ]);
+    await user.click(within(d).getByRole("option", { name: "Pasar a: Contado" }));
+    await user.click(within(d).getByRole("button", { name: "Guardar" }));
+
     await waitFor(() => expect(captura.patches).toBe(1));
-    expect(captura.consultasDeUso).toBe(1);
-    expect(confirmar).toHaveBeenCalledTimes(1);
-    const pregunta = confirmar.mock.calls[0][0] as string;
-    expect(pregunta).toContain("¿Guardar los cambios en las opciones?");
-    expect(pregunta).toContain(
-      "«Contado» pasa a llamarse «Contado efectivo»: se actualiza en los 12 contactos que la tienen elegida.",
-    );
-    expect(pregunta).toContain(
-      "«Permuta» se elimina de la lista: el contacto que la tiene elegida conserva ese valor, marcado como opción eliminada.",
-    );
     expect(captura.body).toEqual({
       label: "Forma de pago",
       agentEditable: true,
-      options: ["Contado efectivo", "Financiado"],
-      renamedOptions: [{ from: "Contado", to: "Contado efectivo" }],
+      options: ["Contado", "financiado", "permuta", "Leasing"],
+      removedOptions: [{ from: "Contado, financiado, permuta", action: "move", to: ["Contado"] }],
     });
     expect(await screen.findByText("listado")).toBeInTheDocument();
   });
 
-  it("si la persona no confirma, no se guarda nada y el formulario queda como estaba", async () => {
+  it("el caso de Rocco en una selección múltiple: «Pasar a todas las nuevas» manda las tres", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-    const captura = editarLista({ Financiado: 4 });
-    await esperarOpciones();
+    const captura = editar(
+      makeDefinicion({
+        ...lista,
+        type: "MULTI_SELECT",
+        options: ["Contado, financiado, permuta", "Leasing"],
+      }),
+      { "Contado, financiado, permuta": 2, Leasing: 5 },
+    );
+    await esperarOpciones(["Contado, financiado, permuta", "Leasing"]);
+
+    // Se selecciona el texto de la fila guardada y se pega encima, partido.
+    await user.tripleClick(screen.getByLabelText("Opción 1"));
+    await user.paste("Contado, financiado, permuta");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    const d = await screen.findByRole("dialog", { name: "Opciones que ya usan contactos" });
+    const selector = within(d).getByLabelText("Qué hacer con «Contado, financiado, permuta»");
+    await user.click(selector);
+    await user.click(
+      within(d).getByRole("option", {
+        name: "Pasar a todas las nuevas (Contado, financiado, permuta)",
+      }),
+    );
+    await user.click(within(d).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(captura.patches).toBe(1));
+    expect(captura.body).toEqual({
+      label: "Forma de pago",
+      agentEditable: true,
+      options: ["Contado", "financiado", "permuta", "Leasing"],
+      removedOptions: [
+        {
+          from: "Contado, financiado, permuta",
+          action: "move",
+          to: ["Contado", "financiado", "permuta"],
+        },
+      ],
+    });
+  });
+
+  it("renombrar es editar el texto de la misma fila, aunque se la mueva de lugar; se informa y manda renamedOptions", async () => {
+    const user = userEvent.setup();
+    const captura = editar(lista, { Contado: 12, Permuta: 1 });
+    await esperarOpciones(["Contado", "Financiado", "Permuta"]);
+
+    // Reordenar y DESPUÉS editar: la identidad es de la fila, no del lugar.
+    await user.click(screen.getByRole("button", { name: "Bajar la opción 1" }));
+    expect(opcionesEnPantalla()).toEqual(["Financiado", "Contado", "Permuta"]);
+    await user.clear(screen.getByLabelText("Opción 2"));
+    await user.type(screen.getByLabelText("Opción 2"), "Contado efectivo");
+    // Borrar Permuta y agregar otra: eliminada + nueva, no un renombre.
+    await user.click(screen.getByRole("button", { name: "Borrar la opción 3" }));
+    await user.click(screen.getByRole("button", { name: "Agregar opción" }));
+    await user.keyboard("Cheque");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    const d = await screen.findByRole("dialog", { name: "Opciones que ya usan contactos" });
+    expect(d).toHaveTextContent(
+      "«Contado» pasa a llamarse «Contado efectivo»: se actualiza en 12 contactos la tienen elegida.",
+    );
+    expect(d).toHaveTextContent("«Permuta» se elimina de la lista y un contacto la tiene elegida.");
+    const selector = within(d).getByLabelText("Qué hacer con «Permuta»");
+    await user.click(selector);
+    await user.click(within(d).getByRole("option", { name: "Conservar como opción eliminada" }));
+    await user.click(within(d).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(captura.patches).toBe(1));
+    expect(captura.body).toEqual({
+      label: "Forma de pago",
+      agentEditable: true,
+      options: ["Financiado", "Contado efectivo", "Cheque"],
+      renamedOptions: [{ from: "Contado", to: "Contado efectivo" }],
+      removedOptions: [{ from: "Permuta", action: "keep" }],
+    });
+  });
+
+  it("Cancelar en el diálogo no guarda nada y el formulario queda como estaba", async () => {
+    const user = userEvent.setup();
+    const captura = editar(lista, { Financiado: 4 });
+    await esperarOpciones(["Contado", "Financiado", "Permuta"]);
 
     await user.click(screen.getByRole("button", { name: "Borrar la opción 2" }));
     await user.click(screen.getByRole("button", { name: "Guardar" }));
+    const d = await screen.findByRole("dialog", { name: "Opciones que ya usan contactos" });
+    await user.click(within(d).getByRole("button", { name: "Cancelar" }));
 
-    await waitFor(() => expect(captura.consultasDeUso).toBe(1));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Guardar" })).toBeEnabled());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(captura.consultasDeUso).toBe(1);
     expect(captura.patches).toBe(0);
     expect(opcionesEnPantalla()).toEqual(["Contado", "Permuta"]);
     expect(screen.queryByText("listado")).not.toBeInTheDocument();
   });
 
-  it("borrar una opción que ningún contacto usa se guarda sin preguntar", async () => {
+  it("borrar una opción que ningún contacto usa se guarda sin diálogo; agregar y reordenar ni consultan el uso", async () => {
     const user = userEvent.setup();
-    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    // Se consulta el uso, pero no hay nada que confirmar.
-    const borrado = editarLista({ Contado: 3 });
-    await esperarOpciones();
+    const borrado = editar(lista, { Contado: 3 });
+    await esperarOpciones(["Contado", "Financiado", "Permuta"]);
     await user.click(screen.getByRole("button", { name: "Borrar la opción 3" }));
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
-    await waitFor(() => expect(borrado.patches).toBe(1));
-    expect(borrado.consultasDeUso).toBe(1);
-    expect(confirmar).not.toHaveBeenCalled();
-    expect(borrado.body).toEqual({
-      label: "Forma de pago",
-      agentEditable: true,
-      options: ["Contado", "Financiado"],
-    });
-  });
-
-  it("agregar y reordenar no renombra ni elimina nada: no consulta el uso ni pide confirmación", async () => {
-    const user = userEvent.setup();
-    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const captura = editarLista({ Contado: 3 });
-    await esperarOpciones();
-
     await user.click(screen.getByRole("button", { name: "Bajar la opción 1" }));
     await user.click(screen.getByRole("button", { name: "Agregar opción" }));
     await user.keyboard("Leasing");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
-    await waitFor(() => expect(captura.patches).toBe(1));
-    expect(captura.consultasDeUso).toBe(0);
-    expect(confirmar).not.toHaveBeenCalled();
-    expect(captura.body).toEqual({
+    await waitFor(() => expect(borrado.patches).toBe(1));
+    expect(borrado.consultasDeUso).toBe(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(borrado.body).toEqual({
       label: "Forma de pago",
       agentEditable: true,
-      options: ["Financiado", "Contado", "Permuta", "Leasing"],
+      options: ["Financiado", "Contado", "Leasing"],
     });
   });
 
   it("si no se puede verificar el uso, no se guarda a ciegas: avisa y deja reintentar", async () => {
     const user = userEvent.setup();
-    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const captura = editarLista(500);
-    await esperarOpciones();
+    const captura = editar(lista, 500);
+    await esperarOpciones(["Contado", "Financiado", "Permuta"]);
 
     await user.click(screen.getByRole("button", { name: "Borrar la opción 1" }));
     await user.click(screen.getByRole("button", { name: "Guardar" }));
@@ -412,7 +486,58 @@ describe("ContactCustomFieldFormPage: opciones que ya usan contactos", () => {
       "No pudimos verificar cuántos contactos usan las opciones que cambiaste",
     );
     expect(captura.patches).toBe(0);
-    expect(confirmar).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Guardar" })).toBeEnabled();
+  });
+
+  it("cambio de tipo: de lista a selección múltiple y vuelta, el PATCH manda `type`; en un campo de texto el tipo sigue bloqueado", async () => {
+    const user = userEvent.setup();
+    const captura = editar(lista, {});
+    await esperarOpciones(["Contado", "Financiado", "Permuta"]);
+
+    const tipo = screen.getByLabelText("Tipo");
+    expect(tipo).toBeEnabled();
+    expect(await listSelectOptions(user, tipo)).toEqual([
+      "Lista de opciones",
+      "Selección múltiple",
+    ]);
+    await user.click(screen.getByRole("option", { name: "Selección múltiple" }));
+    expect(screen.getByText(/solo se puede cambiar entre/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(captura.patches).toBe(1));
+    expect(captura.body).toEqual({
+      label: "Forma de pago",
+      type: "MULTI_SELECT",
+      agentEditable: true,
+      options: ["Contado", "Financiado", "Permuta"],
+    });
+  });
+
+  it("volver de selección múltiple a lista: el 409 del backend se muestra tal cual", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${baseUrl}/${id}`, () => HttpResponse.json({ ...lista, type: "MULTI_SELECT" })),
+      http.patch(`${baseUrl}/${id}`, () =>
+        HttpResponse.json(
+          {
+            error: {
+              message:
+                "No se puede pasar «Forma de pago» a lista de una sola opción: 3 contactos tienen más de una opción elegida.",
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    renderForm(`/contact-custom-fields/${id}/edit`);
+    await esperarOpciones(["Contado", "Financiado", "Permuta"]);
+
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Lista de opciones");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "3 contactos tienen más de una opción elegida",
+    );
+    expect(screen.queryByText("listado")).not.toBeInTheDocument();
   });
 });

@@ -3,7 +3,14 @@
 // Las definiciones las crea un ADMIN; los valores van en Contact.customFields
 // como { [key]: valor } y los valida el backend contra estas definiciones.
 
-export type ContactCustomFieldType = "TEXT" | "NUMBER" | "DATE" | "BOOLEAN" | "SELECT";
+export type ContactCustomFieldType =
+  "TEXT" | "NUMBER" | "DATE" | "BOOLEAN" | "SELECT" | "MULTI_SELECT";
+
+// Los tipos que llevan opciones; entre ellos se puede cambiar el tipo de un
+// campo ya creado (el backend convierte los valores guardados).
+export function tieneOpciones(type: ContactCustomFieldType): boolean {
+  return type === "SELECT" || type === "MULTI_SELECT";
+}
 
 export interface ContactCustomFieldDefinition {
   id: string;
@@ -12,7 +19,7 @@ export interface ContactCustomFieldDefinition {
   key: string;
   label: string;
   type: ContactCustomFieldType;
-  // Solo para SELECT; [] en los demás.
+  // Solo para SELECT y MULTI_SELECT; [] en los demás.
   options: string[];
   agentEditable: boolean;
   position: number;
@@ -28,13 +35,22 @@ export interface CreateContactCustomFieldInput {
   agentEditable?: boolean;
 }
 
-// El tipo no se cambia después de crear (el backend lo rechaza).
+// Qué hacer con los contactos que tenían una opción que se eliminó de la
+// lista: sacarla, pasarla a otra(s) opción(es) o dejarla como está.
+export type DecisionSobreEliminada =
+  { action: "clear" } | { action: "keep" } | { action: "move"; to: string[] };
+
+// El tipo solo se cambia entre SELECT y MULTI_SELECT (el backend rechaza
+// cualquier otro cambio).
 export interface UpdateContactCustomFieldInput {
   label?: string;
+  type?: ContactCustomFieldType;
   options?: string[];
-  // Solo junto con `options`: las opciones que cambiaron de texto. Los
-  // contactos que las tenían elegidas pasan al texto nuevo.
+  // Solo junto con `options`: las opciones que cambiaron de texto (los
+  // contactos que las tenían pasan al texto nuevo) y qué hacer con las que
+  // ya no están.
   renamedOptions?: { from: string; to: string }[];
+  removedOptions?: ({ from: string } & DecisionSobreEliminada)[];
   agentEditable?: boolean;
 }
 
@@ -44,5 +60,6 @@ export interface ContactCustomFieldOptionUsage {
   contactsByOption: Record<string, number>;
 }
 
-// Un valor guardado en Contact.customFields. null borra.
-export type ContactCustomFieldValue = string | number | boolean | null;
+// Un valor guardado en Contact.customFields. null borra. El arreglo es el
+// de una selección múltiple (todas las opciones elegidas).
+export type ContactCustomFieldValue = string | number | boolean | string[] | null;

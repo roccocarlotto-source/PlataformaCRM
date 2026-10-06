@@ -1,8 +1,11 @@
 import type { ContactCustomFieldDefinition } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import {
+  applyCustomFieldOptionMapping,
+  convertCustomFieldValuesToArray,
+  convertCustomFieldValuesToScalar,
   countContactsByCustomFieldValue,
-  renameCustomFieldOptionInContacts,
+  countContactsWithSeveralOptions,
 } from "../repositories/contact.repository";
 import {
   countActiveContactCustomFieldDefinitions,
@@ -20,8 +23,11 @@ import {
   MAX_LARGO_DE_ETIQUETA,
   keyDesdeEtiqueta,
   limpiarOpcionesDeLista,
-  validarRenombresDeOpciones,
+  mapeoDeCambiosDeOpciones,
+  tieneOpciones,
   type DefinicionDeCampo,
+  type MapeoDeOpciones,
+  type OpcionEliminada,
   type RenombreDeOpcion,
   type TipoDeCampo,
 } from "../utils/camposPersonalizados";
@@ -40,27 +46,38 @@ import {
 //   - crear con la key de un campo borrado lo RESTAURA con los datos nuevos:
 //     los contactos que conservaban ese valor lo vuelven a mostrar;
 //   - el tipo no se cambia después de crear: los valores guardados ya tienen
-//     ese tipo. Se borra y se crea otro;
-//   - SELECT exige entre 1 y MAX_OPCIONES opciones distintas (sin distinguir
-//     mayúsculas ni acentos); los otros tipos no llevan;
-//   - al cambiar las opciones de un SELECT que ya usan contactos:
+//     ese tipo. Se borra y se crea otro. ÚNICA EXCEPCIÓN, SELECT ↔
+//     MULTI_SELECT: de lista a selección múltiple siempre (cada valor pasa a
+//     un arreglo de uno); de múltiple a lista solo si ningún contacto vigente
+//     tiene más de una opción elegida (409 que dice cuántos la tienen);
+//   - SELECT y MULTI_SELECT exigen entre 1 y MAX_OPCIONES opciones distintas
+//     (sin distinguir mayúsculas ni acentos); los otros tipos no llevan;
+//   - al cambiar las opciones de una lista que ya usan contactos, en la misma
+//     transacción y solo en esta organización (ver mapeoDeCambiosDeOpciones):
 //       · RENOMBRAR una opción (renamedOptions) mueve el valor de los
-//         contactos que la tenían, en la misma transacción;
-//       · ELIMINAR una opción NO toca a los contactos: conservan el texto
-//         viejo, la ficha lo muestra como "opción eliminada" y se puede
-//         guardar el contacto sin tocarlo (ver soloLosQueCambian). Volver a
-//         agregar la opción los deja válidos otra vez. No se borra nada.
-//     usoDeOpciones le dice a la pantalla cuántos contactos toca cada caso,
-//     para pedir confirmación antes de guardar.
+//         contactos que la tenían;
+//       · ELIMINAR una opción (removedOptions) lo decide el ADMIN por opción:
+//         "clear" la saca del contacto, "move" la pasa a otra(s) opción(es)
+//         nuevas, "keep" la deja como está (el texto viejo, que la ficha
+//         muestra como "opción eliminada" y no traba el guardado, ver
+//         soloLosQueCambian). Una eliminada que no viene en removedOptions se
+//         conserva: por defecto no se borra nada.
+//     usoDeOpciones le dice a la pantalla cuántos contactos toca cada caso.
 // ---------------------------------------------------------------------------
 
 export const MENSAJE_TOPE_DE_CAMPOS = `Esta organización ya tiene ${String(MAX_CAMPOS_POR_ORGANIZACION)} campos personalizados, que es el máximo`;
 export const MENSAJE_CAMPO_DUPLICADO = "Ya existe un campo personalizado con ese nombre";
 export const MENSAJE_CAMPO_NO_ENCONTRADO = "Campo personalizado no encontrado";
 export const MENSAJE_TIPO_INMUTABLE =
-  "El tipo de un campo no se puede cambiar: borralo y creá otro";
+  "El tipo de un campo no se puede cambiar (salvo entre lista y selección múltiple): borralo y creá otro";
 export const MENSAJE_RENOMBRES_SIN_OPCIONES =
-  "renamedOptions solo se puede mandar junto con options, en un campo de lista";
+  "renamedOptions y removedOptions solo se pueden mandar junto con options, en un campo de lista";
+
+export function mensajeDeVariasOpciones(label: string, contactos: number): string {
+  return contactos === 1
+    ? `No se puede pasar «${label}» a lista de una sola opción: un contacto tiene más de una opción elegida. Dejale una sola o conservá la selección múltiple.`
+    : `No se puede pasar «${label}» a lista de una sola opción: ${String(contactos)} contactos tienen más de una opción elegida. Dejales una sola o conservá la selección múltiple.`;
+}
 
 export interface CrearDefinicionInput {
   label: string;
@@ -71,9 +88,13 @@ export interface CrearDefinicionInput {
 
 export interface ActualizarDefinicionInput {
   label?: string;
+  // Solo SELECT ↔ MULTI_SELECT; cualquier otro cambio es 400.
+  type?: TipoDeCampo;
   options?: string[];
-  // Solo junto con `options`: las opciones que cambiaron de texto.
+  // Solo junto con `options`: las opciones que cambiaron de texto, y qué
+  // hacer con los contactos que tenían una opción que ya no está.
   renamedOptions?: RenombreDeOpcion[];
+  removedOptions?: OpcionEliminada[];
   agentEditable?: boolean;
 }
 
@@ -91,10 +112,10 @@ function limpiarEtiqueta(label: string): string {
   return texto;
 }
 
-// Las opciones de un SELECT (ver limpiarOpcionesDeLista). Para los otros
-// tipos, siempre [].
+// Las opciones de un SELECT o MULTI_SELECT (ver limpiarOpcionesDeLista).
+// Para los otros tipos, siempre [].
 function limpiarOpciones(type: TipoDeCampo, options: string[] | undefined): string[] {
-  if (type !== "SELECT") {
+  if (!tieneOpciones(type)) {
     return [];
   }
   const resultado = limpiarOpcionesDeLista(options ?? []);
@@ -188,50 +209,72 @@ export async function crearDefinicion(
 export async function actualizarDefinicion(
   organizationId: string,
   id: string,
-  input: ActualizarDefinicionInput & { type?: TipoDeCampo },
+  input: ActualizarDefinicionInput,
 ): Promise<ContactCustomFieldDefinition> {
   const vigente = await obtenerDefinicion(organizationId, id);
-  if (input.type !== undefined && input.type !== vigente.type) {
+  const type = input.type ?? vigente.type;
+  const cambiaDeTipo = type !== vigente.type;
+  if (cambiaDeTipo && !(tieneOpciones(type) && tieneOpciones(vigente.type))) {
     throw new AppError(MENSAJE_TIPO_INMUTABLE, 400);
   }
-  const options =
-    input.options !== undefined ? limpiarOpciones(vigente.type, input.options) : undefined;
-  const renombres = renombresPedidos(vigente, options, input.renamedOptions);
+  const options = input.options !== undefined ? limpiarOpciones(type, input.options) : undefined;
+  const mapeo = mapeoPedido(type, vigente, options, input.renamedOptions, input.removedOptions);
   const cambios = {
     ...(input.label !== undefined ? { label: limpiarEtiqueta(input.label) } : {}),
+    ...(cambiaDeTipo ? { type } : {}),
     ...(options !== undefined ? { options } : {}),
     ...(input.agentEditable !== undefined ? { agentEditable: input.agentEditable } : {}),
   };
-  // En una transacción: las opciones nuevas y los contactos que seguían a una
-  // renombrada cambian juntos, o no cambia nada.
+  // En una transacción: la definición y los valores de sus contactos (el
+  // cambio de tipo, los renombres, las eliminadas) cambian juntos, o nada.
   await prisma.$transaction(async (tx) => {
+    if (cambiaDeTipo && type === "SELECT") {
+      const varios = await countContactsWithSeveralOptions(organizationId, vigente.key, tx);
+      if (varios > 0) {
+        throw new AppError(mensajeDeVariasOpciones(vigente.label, varios), 409);
+      }
+    }
     const { count } = await updateContactCustomFieldDefinition(id, organizationId, cambios, tx);
     if (count === 0) {
       throw new AppError(MENSAJE_CAMPO_NO_ENCONTRADO, 404);
     }
-    if (renombres.length > 0) {
-      await renameCustomFieldOptionInContacts(organizationId, vigente.key, renombres, tx);
+    if (cambiaDeTipo) {
+      await (type === "MULTI_SELECT"
+        ? convertCustomFieldValuesToArray(organizationId, vigente.key, tx)
+        : convertCustomFieldValuesToScalar(organizationId, vigente.key, tx));
     }
+    await applyCustomFieldOptionMapping(organizationId, vigente.key, mapeo, tx);
   });
   return obtenerDefinicion(organizationId, id);
 }
 
-function renombresPedidos(
+// El mapeo de valores que piden los renombres y las decisiones sobre las
+// opciones eliminadas (ver mapeoDeCambiosDeOpciones), validado. Vacío si no
+// se pidió nada.
+function mapeoPedido(
+  type: TipoDeCampo,
   vigente: ContactCustomFieldDefinition,
   opcionesNuevas: string[] | undefined,
-  pedidos: RenombreDeOpcion[] | undefined,
-): RenombreDeOpcion[] {
-  if (pedidos === undefined || pedidos.length === 0) {
-    return [];
+  renombres: RenombreDeOpcion[] | undefined,
+  eliminadas: OpcionEliminada[] | undefined,
+): MapeoDeOpciones {
+  if ((renombres === undefined || renombres.length === 0) && (eliminadas ?? []).length === 0) {
+    return {};
   }
-  if (vigente.type !== "SELECT" || opcionesNuevas === undefined) {
+  if (!tieneOpciones(type) || opcionesNuevas === undefined) {
     throw new AppError(MENSAJE_RENOMBRES_SIN_OPCIONES, 400);
   }
-  const resultado = validarRenombresDeOpciones(opcionesDe(vigente), opcionesNuevas, pedidos);
+  const resultado = mapeoDeCambiosDeOpciones(
+    type,
+    opcionesDe(vigente),
+    opcionesNuevas,
+    renombres ?? [],
+    eliminadas ?? [],
+  );
   if (!resultado.ok) {
     throw new AppError(resultado.error, 400);
   }
-  return resultado.renombres;
+  return resultado.mapeo;
 }
 
 // Cuántos contactos vigentes tienen elegida cada opción de un campo de lista:
@@ -242,7 +285,7 @@ export async function usoDeOpciones(
   id: string,
 ): Promise<Record<string, number>> {
   const definicion = await obtenerDefinicion(organizationId, id);
-  if (definicion.type !== "SELECT") {
+  if (!tieneOpciones(definicion.type)) {
     return {};
   }
   return countContactsByCustomFieldValue(organizationId, definicion.key);

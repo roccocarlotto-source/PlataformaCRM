@@ -1524,13 +1524,28 @@ const CAMPOS_B6: DefinicionDeCampo[] = [
     options: ["Nafta", "Diésel"],
     agentEditable: true,
   },
+  {
+    key: "intereses",
+    label: "Intereses",
+    type: "MULTI_SELECT",
+    options: ["0 km", "Usados", "Financiación"],
+    agentEditable: true,
+  },
 ];
 
 test("B6: bloqueDeCamposPersonalizados lista cada campo con su valor o '(sin cargar)', dentro de datos_del_crm, y dice cuáles puede escribir el agente", () => {
   const bloque = bloqueDeCamposPersonalizados(CAMPOS_B6, {
     patente: "AB123CD",
     tiene_usado: true,
+    intereses: ["Usados", "Financiación"],
   })!;
+  // Selección múltiple: el valor se lee como lista, y la instrucción explica
+  // que se manda el arreglo COMPLETO para agregar o quitar una opción.
+  assert.match(bloque, /Intereses: Usados, Financiación/);
+  assert.match(
+    bloque,
+    /intereses \(Intereses: un arreglo con TODAS las que quedan elegidas, entre: 0 km \| Usados \| Financiación\. Para agregar o quitar una, mandá las que ya tiene/,
+  );
   assert.match(bloque, /<datos_del_crm>.*Patente: AB123CD.*<\/datos_del_crm>/s);
   assert.match(bloque, /Tiene usado: sí/);
   assert.match(bloque, /Combustible: \(sin cargar\)/);

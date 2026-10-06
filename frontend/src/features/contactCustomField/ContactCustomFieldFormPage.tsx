@@ -8,24 +8,28 @@ import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
-import { useConfirm } from "../../design-system/useConfirm";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { getContactCustomFieldOptionUsage } from "./api";
 import { TIPO_DE_CAMPO_LABEL, TIPOS_DE_CAMPO } from "./labels";
 import { useCreateContactCustomField, useUpdateContactCustomField } from "./mutations";
 import {
   cambiosDeOpciones,
+  cambiosEnUso,
   filasDesdeOpciones,
-  mensajeDeConfirmacion,
+  opcionesAgregadas,
   validarFilas,
   type FilaDeOpcion,
 } from "./opciones";
+import { OptionChangesDialog } from "./OptionChangesDialog";
 import { OptionListEditor } from "./OptionListEditor";
 import { useContactCustomField } from "./queries";
-import type {
-  ContactCustomFieldDefinition,
-  ContactCustomFieldType,
-  CreateContactCustomFieldInput,
+import {
+  tieneOpciones,
+  type ContactCustomFieldDefinition,
+  type ContactCustomFieldType,
+  type CreateContactCustomFieldInput,
+  type DecisionSobreEliminada,
+  type UpdateContactCustomFieldInput,
 } from "./types";
 
 // El mismo tope que el backend (utils/camposPersonalizados.ts).
@@ -64,13 +68,25 @@ function toFormValues(campo: ContactCustomFieldDefinition): FormValues {
 //
 // LAS OPCIONES DE UNA LISTA QUE YA USAN CONTACTOS. Antes de guardar un cambio
 // que renombra o elimina opciones guardadas, se le pregunta al backend cuántos
-// contactos las tienen elegidas (option-usage) y, si es alguno, se pide
-// confirmación diciendo qué va a pasar:
+// contactos las tienen elegidas (option-usage) y, si es alguno, se abre
+// OptionChangesDialog:
 //   - renombrar: esos contactos pasan al texto nuevo (renamedOptions);
-//   - eliminar: conservan el texto viejo, marcado como "opción eliminada" en
-//     su ficha. No se borra nada, y volver a agregar la opción los deja como
-//     estaban.
+//   - eliminar: por cada opción, el ADMIN elige qué hacer con sus contactos
+//     (removedOptions): sacarla, pasarla a otra(s) o conservarla como
+//     "opción eliminada".
+// El backend lo aplica en la misma transacción, solo en esta organización.
+//
+// EL TIPO se puede cambiar solo entre "Lista de opciones" y "Selección
+// múltiple": el backend convierte los valores de los contactos (y rechaza
+// volver a lista si alguno tiene más de una opción elegida).
 // ---------------------------------------------------------------------------
+
+// Lo que el diálogo necesita saber, mientras está abierto.
+interface CambiosPendientes {
+  cambios: ReturnType<typeof cambiosDeOpciones>;
+  enUso: ReturnType<typeof cambiosEnUso>;
+  options: string[];
+}
 export function ContactCustomFieldFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -88,33 +104,46 @@ export function ContactCustomFieldFormPage() {
   // Las filas de opciones que la última validación marcó para corregir.
   const [filasConError, setFilasConError] = useState<string[]>([]);
   const [verificando, setVerificando] = useState(false);
-  const confirm = useConfirm();
+  const [pendientes, setPendientes] = useState<CambiosPendientes | null>(null);
 
   const isSubmitting = verificando || createMutation.isPending || updateMutation.isPending;
 
-  // Lo que hay que avisar antes de guardar las opciones de un campo que ya
-  // existe. false = la persona no confirmó (o no se pudo verificar).
-  async function confirmarCambiosDeOpciones(
+  // El tipo guardado, en edición; solo entre los que llevan opciones se
+  // puede cambiar.
+  const tipoGuardado = isEditMode ? campoQuery.data?.type : undefined;
+  const puedeCambiarDeTipo = tipoGuardado !== undefined && tieneOpciones(tipoGuardado);
+  const tiposOfrecidos: ContactCustomFieldType[] = !isEditMode
+    ? TIPOS_DE_CAMPO
+    : puedeCambiarDeTipo
+      ? ["SELECT", "MULTI_SELECT"]
+      : [values.type];
+
+  // El PATCH de una edición, con las decisiones del diálogo si las hubo.
+  async function guardarEdicion(
     campo: ContactCustomFieldDefinition,
+    options: string[] | undefined,
     cambios: ReturnType<typeof cambiosDeOpciones>,
-  ): Promise<boolean> {
-    if (cambios.renombradas.length === 0 && cambios.eliminadas.length === 0) {
-      return true;
-    }
-    let uso: Record<string, number>;
-    setVerificando(true);
+    decisiones: Record<string, DecisionSobreEliminada> = {},
+  ) {
+    const removedOptions = Object.entries(decisiones).map(([from, decision]) => ({
+      from,
+      ...decision,
+    }));
+    const input: UpdateContactCustomFieldInput = {
+      label: values.label.trim(),
+      agentEditable: values.agentEditable,
+      ...(values.type !== campo.type ? { type: values.type } : {}),
+      ...(options !== undefined ? { options } : {}),
+      ...(cambios.renombradas.length > 0 ? { renamedOptions: cambios.renombradas } : {}),
+      ...(removedOptions.length > 0 ? { removedOptions } : {}),
+    };
     try {
-      uso = (await getContactCustomFieldOptionUsage(campo.id)).contactsByOption;
-    } catch {
-      setError(
-        "No pudimos verificar cuántos contactos usan las opciones que cambiaste. Probá guardar de nuevo.",
-      );
-      return false;
-    } finally {
-      setVerificando(false);
+      await updateMutation.mutateAsync(input);
+      navigate("/contact-custom-fields");
+    } catch (err) {
+      setPendientes(null);
+      setError(err instanceof Error ? err.message : "No pudimos guardar el campo");
     }
-    const pregunta = mensajeDeConfirmacion(cambios, uso);
-    return pregunta === null || confirm(pregunta, { confirmLabel: "Guardar" });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -123,7 +152,7 @@ export function ContactCustomFieldFormPage() {
     setFilasConError([]);
 
     let options: string[] | undefined;
-    if (values.type === "SELECT") {
+    if (tieneOpciones(values.type)) {
       const validacion = validarFilas(values.opciones);
       if (!validacion.ok) {
         setError(validacion.mensaje);
@@ -133,23 +162,42 @@ export function ContactCustomFieldFormPage() {
       options = validacion.opciones;
     }
 
+    if (isEditMode) {
+      const campo = campoQuery.data;
+      if (!campo) return;
+      const cambios =
+        options !== undefined
+          ? cambiosDeOpciones(campo.options, values.opciones)
+          : { renombradas: [], eliminadas: [] };
+      if (cambios.renombradas.length === 0 && cambios.eliminadas.length === 0) {
+        await guardarEdicion(campo, options, cambios);
+        return;
+      }
+      // Hay opciones renombradas o eliminadas: cuántos contactos las tienen,
+      // con el número de ESTE momento.
+      let uso: Record<string, number>;
+      setVerificando(true);
+      try {
+        uso = (await getContactCustomFieldOptionUsage(campo.id)).contactsByOption;
+      } catch {
+        setError(
+          "No pudimos verificar cuántos contactos usan las opciones que cambiaste. Probá guardar de nuevo.",
+        );
+        return;
+      } finally {
+        setVerificando(false);
+      }
+      const enUso = cambiosEnUso(cambios, uso);
+      if (enUso.renombradas.length === 0 && enUso.eliminadas.length === 0) {
+        await guardarEdicion(campo, options, cambios);
+        return;
+      }
+      setPendientes({ cambios, enUso, options: options ?? [] });
+      return;
+    }
+
     try {
-      if (isEditMode) {
-        const campo = campoQuery.data;
-        const cambios =
-          campo && options !== undefined
-            ? cambiosDeOpciones(campo.options, values.opciones)
-            : { renombradas: [], eliminadas: [] };
-        if (campo && !(await confirmarCambiosDeOpciones(campo, cambios))) {
-          return;
-        }
-        await updateMutation.mutateAsync({
-          label: values.label.trim(),
-          agentEditable: values.agentEditable,
-          ...(options !== undefined ? { options } : {}),
-          ...(cambios.renombradas.length > 0 ? { renamedOptions: cambios.renombradas } : {}),
-        });
-      } else {
+      {
         const input: CreateContactCustomFieldInput = {
           label: values.label.trim(),
           type: values.type,
@@ -179,6 +227,25 @@ export function ContactCustomFieldFormPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
+      {pendientes && campoQuery.data ? (
+        <OptionChangesDialog
+          type={values.type}
+          renombradas={pendientes.enUso.renombradas}
+          eliminadas={pendientes.enUso.eliminadas}
+          opcionesFinales={pendientes.options}
+          opcionesAgregadas={opcionesAgregadas(values.opciones)}
+          guardando={updateMutation.isPending}
+          onConfirm={(decisiones) =>
+            void guardarEdicion(
+              campoQuery.data!,
+              pendientes.options,
+              pendientes.cambios,
+              decisiones,
+            )
+          }
+          onClose={() => setPendientes(null)}
+        />
+      ) : null}
       <PageHeader title={isEditMode ? "Editar campo de contacto" : "Nuevo campo de contacto"} />
       <div className="ds-stack">
         <Card heading="Datos del campo">
@@ -199,18 +266,18 @@ export function ContactCustomFieldFormPage() {
               id="contact-custom-field-type"
               label="Tipo"
               value={values.type}
-              options={TIPOS_DE_CAMPO.map((type) => ({
+              options={tiposOfrecidos.map((type) => ({
                 value: type,
                 label: TIPO_DE_CAMPO_LABEL[type],
               }))}
               onChange={(type) => {
                 if (type) setValues({ ...values, type });
               }}
-              disabled={isEditMode}
+              disabled={isEditMode && !puedeCambiarDeTipo}
               required
             />
 
-            {values.type === "SELECT" ? (
+            {tieneOpciones(values.type) ? (
               <div className="ds-field-grid--full">
                 <OptionListEditor
                   filas={values.opciones}
@@ -232,7 +299,13 @@ export function ContactCustomFieldFormPage() {
               />
             </FormField>
           </div>
-          {isEditMode ? (
+          {isEditMode && puedeCambiarDeTipo ? (
+            <p className="ds-hint">
+              El tipo solo se puede cambiar entre «Lista de opciones» y «Selección múltiple». A
+              selección múltiple, cada contacto conserva su opción; a lista, solo si ningún contacto
+              tiene más de una opción elegida.
+            </p>
+          ) : isEditMode ? (
             <p className="ds-hint">
               El tipo no se puede cambiar: los contactos ya tienen valores de ese tipo. Para
               cambiarlo, eliminá el campo y creá otro.

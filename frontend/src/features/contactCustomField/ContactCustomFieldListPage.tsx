@@ -9,6 +9,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Table } from "../../design-system/Table";
 import { MAX_CAMPOS_POR_ORGANIZACION, TIPO_DE_CAMPO_LABEL } from "./labels";
+import { tieneOpciones } from "./types";
 import { useDeleteContactCustomField } from "./mutations";
 import { useContactCustomFields } from "./queries";
 
@@ -97,7 +98,7 @@ export function ContactCustomFieldListPage() {
                     <code>{campo.key}</code>
                   </td>
                   <td>{TIPO_DE_CAMPO_LABEL[campo.type]}</td>
-                  <td>{campo.type === "SELECT" ? campo.options.join(", ") : "—"}</td>
+                  <td>{tieneOpciones(campo.type) ? campo.options.join(", ") : "—"}</td>
                   <td>
                     {campo.agentEditable ? (
                       <Badge variant="success">Puede editar</Badge>

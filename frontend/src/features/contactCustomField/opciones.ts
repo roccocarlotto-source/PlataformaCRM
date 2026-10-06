@@ -27,8 +27,10 @@ export interface FilaDeOpcion {
   id: string;
   texto: string;
   // El texto con el que esta opción está GUARDADA, si la fila viene de una
-  // opción que ya existía. Es lo que distingue renombrar una opción (la fila
-  // sigue, el texto cambia) de borrarla y agregar otra.
+  // opción que ya existía. Es lo que distingue renombrar una opción (se edita
+  // el texto de ESA fila) de borrarla y agregar otra. Una fila conserva su
+  // identidad solo así: partirla al pegar la convierte en filas nuevas, y
+  // moverla de lugar no la cambia. Nunca depende de la posición.
   original?: string;
 }
 
@@ -122,7 +124,19 @@ export interface CambiosDeOpciones {
   eliminadas: string[];
 }
 
-// Qué les pasa a las opciones GUARDADAS con lo que quedó en las filas.
+// Las opciones que se agregaron en esta edición: filas sin opción guardada
+// detrás (escritas, o salidas de partir un pegado). Son el destino de "Pasar
+// a todas las nuevas".
+export function opcionesAgregadas(filas: FilaDeOpcion[]): string[] {
+  return filas
+    .filter((fila) => fila.original === undefined && fila.texto.trim().length > 0)
+    .map((fila) => fila.texto.trim());
+}
+
+// Qué les pasa a las opciones GUARDADAS con lo que quedó en las filas. Por
+// identidad de fila (`original`), nunca por posición: reordenar no cambia
+// nada; editar el texto de una fila guardada es un renombre; borrar una fila
+// guardada y escribir otra es una eliminada y una nueva.
 export function cambiosDeOpciones(guardadas: string[], filas: FilaDeOpcion[]): CambiosDeOpciones {
   const vivas = filas
     .map((fila) => ({ ...fila, texto: fila.texto.trim() }))
@@ -149,30 +163,16 @@ export function cambiosDeOpciones(guardadas: string[], filas: FilaDeOpcion[]): C
   return { renombradas, eliminadas };
 }
 
-// La pregunta antes de guardar un cambio que toca opciones que ya usan
-// contactos, o null si no toca a ninguno. `uso` es { opción: contactos }.
-export function mensajeDeConfirmacion(
-  cambios: CambiosDeOpciones,
-  uso: Record<string, number>,
-): string | null {
-  const lineas: string[] = [];
-  for (const { from, to } of cambios.renombradas) {
-    const cantidad = uso[from] ?? 0;
-    if (cantidad === 0) continue;
-    lineas.push(
-      cantidad === 1
-        ? `«${from}» pasa a llamarse «${to}»: se actualiza en el contacto que la tiene elegida.`
-        : `«${from}» pasa a llamarse «${to}»: se actualiza en los ${cantidad} contactos que la tienen elegida.`,
-    );
-  }
-  for (const opcion of cambios.eliminadas) {
-    const cantidad = uso[opcion] ?? 0;
-    if (cantidad === 0) continue;
-    lineas.push(
-      cantidad === 1
-        ? `«${opcion}» se elimina de la lista: el contacto que la tiene elegida conserva ese valor, marcado como opción eliminada.`
-        : `«${opcion}» se elimina de la lista: los ${cantidad} contactos que la tienen elegida conservan ese valor, marcado como opción eliminada.`,
-    );
-  }
-  return lineas.length > 0 ? `¿Guardar los cambios en las opciones? ${lineas.join(" ")}` : null;
+// Los cambios que tocan a algún contacto, con cuántos: lo que muestra el
+// diálogo antes de guardar (OptionChangesDialog). `uso` es
+// { opción: contactos }. Sin ninguno, no hay nada que preguntar.
+export function cambiosEnUso(cambios: CambiosDeOpciones, uso: Record<string, number>) {
+  return {
+    renombradas: cambios.renombradas
+      .filter(({ from }) => (uso[from] ?? 0) > 0)
+      .map(({ from, to }) => ({ from, to, contactos: uso[from] })),
+    eliminadas: cambios.eliminadas
+      .filter((opcion) => (uso[opcion] ?? 0) > 0)
+      .map((opcion) => ({ opcion, contactos: uso[opcion] })),
+  };
 }

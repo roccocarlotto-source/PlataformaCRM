@@ -11,6 +11,7 @@ export const TIPO_DE_CAMPO_LABEL: Record<ContactCustomFieldType, string> = {
   DATE: "Fecha",
   BOOLEAN: "Sí / No",
   SELECT: "Lista de opciones",
+  MULTI_SELECT: "Selección múltiple",
 };
 
 export const TIPOS_DE_CAMPO = Object.keys(TIPO_DE_CAMPO_LABEL) as ContactCustomFieldType[];
