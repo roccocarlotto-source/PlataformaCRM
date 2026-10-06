@@ -238,7 +238,9 @@ describe("ContactListPage", () => {
       expect(capturedContacts.at(-1)?.searchParams.get("companyId")).toBe("co-1"),
     );
 
-    await user.click(screen.getByText("Quitar filtro de empresa"));
+    // La empresa elegida queda en la píldora, en una sola línea, con su ✕.
+    expect(screen.getByRole("group", { name: "Empresa" })).toHaveTextContent("Acme Corp");
+    await user.click(screen.getByRole("button", { name: "Quitar filtro de empresa" }));
     await waitFor(() => expect(capturedContacts.at(-1)?.searchParams.get("companyId")).toBeNull());
   });
 

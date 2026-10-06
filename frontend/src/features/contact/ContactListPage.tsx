@@ -9,7 +9,6 @@ import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
-import { Button } from "../../design-system/Button";
 import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -169,30 +168,23 @@ export function ContactListPage() {
               setPage(1);
             }}
           />
-          <div>
-            <CompanySelect
-              id="contact-filter-company"
-              label="Empresa"
-              value={companyId}
-              onChange={(id) => {
-                setCompanyId(id);
-                setPage(1);
-              }}
-            />
-            {/* Limpiar el filtro es seguro acá: es estado local del listado,
-              sin ninguna implicancia de "limpiar a null" contra el backend
-              (a diferencia de ContactFormPage). */}
-            {companyId ? (
-              <Button
-                onClick={() => {
-                  setCompanyId(undefined);
-                  setPage(1);
-                }}
-              >
-                Quitar filtro de empresa
-              </Button>
-            ) : null}
-          </div>
+          <CompanySelect
+            id="contact-filter-company"
+            label="Empresa"
+            value={companyId}
+            onChange={(id) => {
+              setCompanyId(id);
+              setPage(1);
+            }}
+            // Limpiar el filtro es seguro acá: es estado local del listado,
+            // sin ninguna implicancia de "limpiar a null" contra el backend
+            // (a diferencia de ContactFormPage).
+            onClear={() => {
+              setCompanyId(undefined);
+              setPage(1);
+            }}
+            clearLabel="Quitar filtro de empresa"
+          />
           <Select
             label="Ordenar por"
             value={sortBy}

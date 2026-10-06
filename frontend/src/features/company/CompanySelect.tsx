@@ -9,6 +9,10 @@ interface CompanySelectProps {
   label: string;
   value: string | undefined;
   onChange: (companyId: string) => void;
+  /** Solo en una barra de filtros: la empresa elegida se muestra en la
+   *  píldora con una ✕ que llama a esto (ver SearchSelect.onClear). */
+  onClear?: () => void;
+  clearLabel?: string;
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -24,7 +28,14 @@ const SEARCH_DEBOUNCE_MS = 300;
 // el filtro, que sí puede limpiarse libremente porque es estado local, y
 // ContactFormPage, que NO ofrece esa opción porque el backend no soporta
 // limpiar companyId a null vía PATCH — ver docs/project-overview.md).
-export function CompanySelect({ id, label, value, onChange }: CompanySelectProps) {
+export function CompanySelect({
+  id,
+  label,
+  value,
+  onChange,
+  onClear,
+  clearLabel,
+}: CompanySelectProps) {
   const queryClient = useQueryClient();
   const [term, setTerm] = useState("");
   const [debouncedTerm, setDebouncedTerm] = useState("");
@@ -96,6 +107,8 @@ export function CompanySelect({ id, label, value, onChange }: CompanySelectProps
         onChange(company.id);
         setTerm("");
       }}
+      onClear={onClear}
+      clearLabel={clearLabel}
     />
   );
 }

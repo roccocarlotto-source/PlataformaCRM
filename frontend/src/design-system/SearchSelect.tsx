@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
+import { X } from "lucide-react";
 import { InlineLoading } from "./LoadingState";
 
 export interface SearchSelectSelected {
@@ -30,6 +31,13 @@ export interface SearchSelectProps<T> {
   getKey: (item: T) => string;
   renderItem: (item: T) => ReactNode;
   onSelect: (item: T) => void;
+  /** Presentación de filtro: con valor elegido, la selección se muestra en
+   *  la misma línea que el rótulo, con una ✕ para quitarla, en vez del
+   *  "Seleccionada: …" arriba del input. Sin esto (formularios) no cambia
+   *  nada. */
+  onClear?: () => void;
+  /** Nombre accesible de la ✕ ("Quitar filtro de empresa"). */
+  clearLabel?: string;
 }
 
 // Selector con búsqueda del lado del servidor — la parte VISUAL que
@@ -62,7 +70,55 @@ export function SearchSelect<T>({
   getKey,
   renderItem,
   onSelect,
+  onClear,
+  clearLabel,
 }: SearchSelectProps<T>) {
+  const labelId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Al quitar con la ✕, el botón desaparece: el foco pasa al input que lo
+  // reemplaza, listo para buscar otro valor, en vez de caer en <body>.
+  const focusInputRef = useRef(false);
+  useEffect(() => {
+    if (focusInputRef.current && !selected) {
+      focusInputRef.current = false;
+      inputRef.current?.focus();
+    }
+  });
+
+  // En la barra de filtros cada control es una píldora de UNA línea (rótulo +
+  // valor). El "Seleccionada: …" encima del input la volvía de dos o tres
+  // líneas, con el botón de quitar debajo. Acá el valor ocupa el lugar del
+  // input y la ✕ lo vacía; para cambiar de valor se quita y se busca otro.
+  // Sin input no hay label[for]: el rótulo nombra al grupo.
+  if (onClear && selected) {
+    return (
+      <div
+        className="ds-search-select ds-search-select--value"
+        role="group"
+        aria-labelledby={labelId}
+      >
+        <span id={labelId} className="ds-search-select-label">
+          {label}
+        </span>
+        <span className="ds-search-select-value">
+          <span className="ds-sr-only">{selected.prefix}: </span>
+          {selected.content}
+        </span>
+        <button
+          type="button"
+          className="ds-search-select-clear"
+          aria-label={clearLabel ?? `Quitar ${label.toLowerCase()}`}
+          onClick={() => {
+            focusInputRef.current = true;
+            onClear();
+          }}
+        >
+          <X size={16} strokeWidth={1.5} aria-hidden="true" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="ds-search-select">
       <label htmlFor={id}>{label}</label>
@@ -73,6 +129,7 @@ export function SearchSelect<T>({
         </p>
       ) : null}
       <input
+        ref={inputRef}
         id={id}
         type="text"
         value={term}

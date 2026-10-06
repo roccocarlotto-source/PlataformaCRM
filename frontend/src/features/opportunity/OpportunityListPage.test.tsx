@@ -200,6 +200,34 @@ describe("OpportunityListPage", () => {
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("page")).toBe("2"));
   });
 
+  it("el filtro de proceso de venta se quita eligiendo Todos, sin botón aparte", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const captured: URL[] = [];
+    server.use(
+      http.get(opportunitiesUrl, ({ request }) => {
+        captured.push(new URL(request.url));
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+        });
+      }),
+      usersHandler(),
+      ...relationHandlers(),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    const pipeline = await screen.findByRole("combobox", { name: "Proceso de venta" });
+    await chooseSelectOption(user, pipeline, "Ventas");
+    await waitFor(() => expect(captured.at(-1)?.searchParams.get("pipelineId")).toBe("pl1"));
+
+    expect(
+      screen.queryByRole("button", { name: "Quitar filtro de proceso de venta" }),
+    ).not.toBeInTheDocument();
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Todos");
+    await waitFor(() => expect(captured.at(-1)?.searchParams.get("pipelineId")).toBeNull());
+  });
+
   it("resuelve Company/Contact/Pipeline/Stage a nombre humano, nunca UUID crudo", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(

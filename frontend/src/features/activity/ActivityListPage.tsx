@@ -7,7 +7,6 @@ import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
-import { Button } from "../../design-system/Button";
 import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -211,27 +210,20 @@ export function ActivityListPage() {
               setPage(1);
             }}
           />
-          <div>
-            <CompanySelect
-              id="activity-filter-company"
-              label="Empresa"
-              value={companyId}
-              onChange={(id) => {
-                setCompanyId(id);
-                setPage(1);
-              }}
-            />
-            {companyId ? (
-              <Button
-                onClick={() => {
-                  setCompanyId(undefined);
-                  setPage(1);
-                }}
-              >
-                Quitar filtro de empresa
-              </Button>
-            ) : null}
-          </div>
+          <CompanySelect
+            id="activity-filter-company"
+            label="Empresa"
+            value={companyId}
+            onChange={(id) => {
+              setCompanyId(id);
+              setPage(1);
+            }}
+            onClear={() => {
+              setCompanyId(undefined);
+              setPage(1);
+            }}
+            clearLabel="Quitar filtro de empresa"
+          />
           <Select
             label="Ordenar por"
             value={sortBy}

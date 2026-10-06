@@ -218,7 +218,9 @@ export function OpportunityBoardView() {
             onChange={setSelectedPipelineId}
           />
           <label>
-            Buscar
+            {/* Rótulo solo para lectores de pantalla, como en el buscador de
+                todos los listados: el placeholder ya dice "Buscar…". */}
+            <span className="ds-sr-only">Buscar</span>
             <input
               type="search"
               placeholder="Buscar oportunidad…"
