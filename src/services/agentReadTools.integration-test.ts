@@ -2631,7 +2631,7 @@ test("B3: get_contact_info y update_lead por WEB no devuelven el email ni el tel
   assert.equal(porWhatsapp.email, email);
 });
 
-test("FABLE-I-06: la oportunidad que crea el agente lleva el origen del canal (WhatsApp o web); Messenger e Instagram quedan sin origen", async () => {
+test("FABLE-I-06 / B2: la oportunidad que crea el agente lleva el origen de su canal, también por Messenger e Instagram", async () => {
   const origenPor = async (channel: ConversationChannel) => {
     const contacto = await nuevoContacto(a, {
       email: `origen-${randomUUID().slice(0, 8)}@example.test`,
@@ -2647,6 +2647,7 @@ test("FABLE-I-06: la oportunidad que crea el agente lleva el origen del canal (W
 
   assert.equal(await origenPor("WHATSAPP"), "WHATSAPP");
   assert.equal(await origenPor("WEB"), "WEBSITE");
-  assert.equal(await origenPor("MESSENGER"), null);
-  assert.equal(await origenPor("INSTAGRAM"), null);
+  // B2 (migración 20261022120000): antes quedaban en null.
+  assert.equal(await origenPor("MESSENGER"), "MESSENGER");
+  assert.equal(await origenPor("INSTAGRAM"), "INSTAGRAM");
 });

@@ -48,4 +48,6 @@ export const LEAD_SOURCE_LABELS: Record<OpportunityLeadSource, string> = {
   SHOWROOM: "Showroom",
   REFERRAL: "Referido",
   WHATSAPP: "WhatsApp",
+  MESSENGER: "Messenger",
+  INSTAGRAM: "Instagram",
 };
