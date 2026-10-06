@@ -59,7 +59,7 @@ export const createContactCustomFieldDefinitionSchema = z.object({
 export const updateContactCustomFieldDefinitionSchema = z
   .object({
     label: etiqueta,
-    // Se acepta solo para rechazarlo con el mensaje del service si cambia.
+    // Solo SELECT ↔ MULTI_SELECT; otro cambio lo rechaza el service.
     type: z.enum(TIPOS_DE_CAMPO),
     options: opciones,
     // Las opciones que cambiaron de texto: los contactos que las tenían
@@ -67,6 +67,18 @@ export const updateContactCustomFieldDefinitionSchema = z
     renamedOptions: z
       .array(z.object({ from: opcion, to: opcion }))
       .max(MAX_OPCIONES, `renamedOptions no puede tener más de ${String(MAX_OPCIONES)} elementos`),
+    // Qué hacer con los contactos que tenían una opción que ya no está:
+    // sacarla ("clear"), pasarla a otra(s) ("move", con `to`) o dejarla
+    // ("keep"). Solo junto con `options` (service).
+    removedOptions: z
+      .array(
+        z.object({
+          from: opcion,
+          action: z.enum(["clear", "move", "keep"]),
+          to: z.array(opcion).max(MAX_OPCIONES).optional(),
+        }),
+      )
+      .max(MAX_OPCIONES, `removedOptions no puede tener más de ${String(MAX_OPCIONES)} elementos`),
     agentEditable: z.boolean(),
   })
   .partial()

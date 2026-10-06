@@ -132,8 +132,11 @@ export function OptionListEditor({
   }
 
   // Pegar "Contado, financiado, permuta" (o tres renglones) son tres
-  // opciones: la primera queda en esta fila y las demás en filas nuevas,
-  // justo debajo. Un texto sin comas ni saltos se pega como siempre.
+  // opciones NUEVAS que reemplazan a esta fila, en su lugar. Ninguna hereda la
+  // identidad de la fila: partir una opción guardada no es renombrarla, es
+  // eliminarla y crear otras (el diálogo pregunta qué hacer con sus
+  // contactos). Un texto sin comas ni saltos se pega como siempre, y esa sí
+  // es una edición de la fila.
   function alPegar(event: ClipboardEvent<HTMLInputElement>, index: number) {
     const pegado = event.clipboardData.getData("text");
     if (!tieneSeparadores(pegado)) return;
@@ -147,15 +150,9 @@ export function OptionListEditor({
     );
     if (partes.length === 0) return;
 
-    const [primera, ...resto] = partes;
-    const nuevas = resto.map((texto) => nuevaFila(texto));
-    enfocar(nuevas.at(-1)?.id ?? filas[index].id);
-    onChange([
-      ...filas.slice(0, index),
-      { ...filas[index], texto: primera },
-      ...nuevas,
-      ...filas.slice(index + 1),
-    ]);
+    const nuevas = partes.map((texto) => nuevaFila(texto));
+    enfocar(nuevas[nuevas.length - 1].id);
+    onChange([...filas.slice(0, index), ...nuevas, ...filas.slice(index + 1)]);
   }
 
   const alcanzoElTope = filas.length >= MAX_OPCIONES;

@@ -2960,6 +2960,11 @@ model QrFollowUp {
 //
 // Soft delete (deletedAt), como el resto de los catálogos: un campo borrado
 // deja de verse y de validarse, y sus valores quedan en el JSON sin mostrarse.
+//
+// MULTI_SELECT (migración 20261025120000): varias opciones a la vez; el
+// valor es un arreglo ["Contado", "Permuta"]. Es el único cambio de tipo que
+// se permite después de crear un campo, y solo con SELECT (ida y vuelta): el
+// service convierte los valores guardados al pasar de uno al otro.
 // ---------------------------------------------------------------------------
 enum ContactCustomFieldType {
   TEXT
@@ -2967,6 +2972,7 @@ enum ContactCustomFieldType {
   DATE
   BOOLEAN
   SELECT
+  MULTI_SELECT
 }
 
 model ContactCustomFieldDefinition {

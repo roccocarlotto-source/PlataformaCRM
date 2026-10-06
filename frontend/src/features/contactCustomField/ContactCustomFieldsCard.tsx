@@ -15,7 +15,8 @@ interface ContactCustomFieldsCardProps {
 
 // ---------------------------------------------------------------------------
 // La tarjeta "Campos personalizados" de la ficha del contacto (B6): un input
-// por definición de la organización, según su tipo. Sin definiciones no se
+// por definición de la organización, según su tipo (casillas en una
+// selección múltiple: el valor es el arreglo de las marcadas). Sin definiciones no se
 // muestra nada. La validación real la hace el backend contra las mismas
 // definiciones; acá los inputs solo acotan lo que se puede tipear.
 //
@@ -123,6 +124,37 @@ export function ContactCustomFieldsCard({
             disabled={disabled}
             onChange={(opcion) => set(def.key, opcion === "" ? null : opcion)}
           />
+        );
+      }
+      case "MULTI_SELECT": {
+        // Una casilla por opción, en el orden de la definición; las que el
+        // contacto tiene elegidas y ya no están en la lista, al final y
+        // marcadas (mismo criterio que la opción eliminada de un SELECT).
+        const elegidas = Array.isArray(valor) ? valor : [];
+        const eliminadas = elegidas.filter((v) => !def.options.includes(v));
+        const cambiar = (opcion: string, marcada: boolean) => {
+          const nuevas = marcada
+            ? [...def.options.filter((o) => elegidas.includes(o) || o === opcion), ...eliminadas]
+            : elegidas.filter((v) => v !== opcion);
+          set(def.key, nuevas.length === 0 ? null : nuevas);
+        };
+        return (
+          <fieldset className="ds-check-list">
+            <legend className="ds-field-label">{def.label}</legend>
+            {[...def.options, ...eliminadas].map((opcion) => (
+              <label key={opcion} className="ds-check-option">
+                <input
+                  type="checkbox"
+                  checked={elegidas.includes(opcion)}
+                  disabled={disabled}
+                  onChange={(event) => cambiar(opcion, event.target.checked)}
+                />
+                <span>
+                  {def.options.includes(opcion) ? opcion : `${opcion} (opción eliminada)`}
+                </span>
+              </label>
+            ))}
+          </fieldset>
         );
       }
     }

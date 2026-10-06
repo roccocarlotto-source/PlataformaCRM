@@ -1963,7 +1963,8 @@ const customFieldsArgs = z
   .object({
     campos: z.record(
       z.string().min(1).max(60),
-      z.union([z.string(), z.number(), z.boolean(), z.null()]),
+      // El arreglo es el valor COMPLETO de una selección múltiple.
+      z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()]),
     ),
   })
   .strict()
@@ -1982,7 +1983,7 @@ const updateContactCustomFieldsTool: ToolDelAgente = {
         campos: {
           type: "object",
           description:
-            'Los campos a guardar, por clave: { "clave": valor }. Texto como string, número como number, fecha como "AAAA-MM-DD", sí/no como true/false, lista con una de sus opciones exactas, null para borrar.',
+            'Los campos a guardar, por clave: { "clave": valor }. Texto como string, número como number, fecha como "AAAA-MM-DD", sí/no como true/false, lista con una de sus opciones exactas, selección múltiple con el ARREGLO COMPLETO de opciones que quedan elegidas (para agregar o quitar una, mandá las que ya tenía más o menos esa), null para borrar.',
           additionalProperties: true,
         },
       },
