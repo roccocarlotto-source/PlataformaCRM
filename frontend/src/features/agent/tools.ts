@@ -69,6 +69,14 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
       "Actualiza la calificación del contacto de esta conversación cuando aparece información nueva o cambia algo (subió el presupuesto, cambió la urgencia, surgió una duda). Las notas se agregan a las anteriores. Todos los campos son opcionales; mandá solo lo que cambió.",
   },
   {
+    // B6: los campos personalizados de contactos. El agente lee todos; con
+    // esta tool escribe solo los marcados "editable por el agente".
+    value: "update_contact_custom_fields",
+    label: "Guardar campos personalizados",
+    subtitle:
+      "Guarda en la ficha del contacto de esta conversación los campos personalizados que el negocio definió y que vos podés modificar (están listados en tus instrucciones, con su clave y el formato del valor). Usala en el turno en que el contacto te da ese dato. Mandá solo los campos que cambian, por su clave; null borra el valor. Un campo que no está en tu lista, o un valor que no respeta el formato, se rechaza entero: corregí y volvé a llamar.",
+  },
+  {
     value: "get_payment_info",
     label: "Compartir datos de cobro",
     subtitle:

@@ -462,7 +462,7 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     ).toEqual(["QR"]);
   });
 
-  it("un ADMIN ve los 8 links de Administración, QR primero", async () => {
+  it("un ADMIN ve los 9 links de Administración, QR primero", async () => {
     const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout("/");
@@ -484,6 +484,7 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
       "Eventos de ingesta",
       "Organización",
       "Sucursales",
+      "Campos de contacto",
     ]);
   });
 

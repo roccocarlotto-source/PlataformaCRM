@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import {
   bloqueDeCupones,
+  bloqueDeCamposPersonalizados,
   MAX_CUPONES_EN_EL_PROMPT,
   type CuponEnElPrompt,
   ENCABEZADO_KNOWLEDGE_BASE,
@@ -42,6 +43,7 @@ import {
   type ToolCallDelTurno,
 } from "./agentOrchestration.service";
 import { logger } from "../lib/logger";
+import type { DefinicionDeCampo } from "../utils/camposPersonalizados";
 import { isoEnZona } from "../utils/timezone";
 import { CATALOGO_DE_TOOLS, type ToolDelAgente } from "./agentTools.service";
 
@@ -1506,4 +1508,61 @@ test("cupones: el bloque entra al system prompt pegado a los datos del contacto"
   );
   assert.match(prompt, /Cupones de descuento que el CRM tiene/);
   assert.ok(prompt.indexOf("nombre: Ana Pérez") < prompt.indexOf("10% en el próximo service"));
+});
+
+// ---------------------------------------------------------------------------
+// B6: los campos personalizados del contacto en el prompt.
+// ---------------------------------------------------------------------------
+
+const CAMPOS_B6: DefinicionDeCampo[] = [
+  { key: "patente", label: "Patente", type: "TEXT", options: [], agentEditable: true },
+  { key: "tiene_usado", label: "Tiene usado", type: "BOOLEAN", options: [], agentEditable: false },
+  {
+    key: "combustible",
+    label: "Combustible",
+    type: "SELECT",
+    options: ["Nafta", "Diésel"],
+    agentEditable: true,
+  },
+];
+
+test("B6: bloqueDeCamposPersonalizados lista cada campo con su valor o '(sin cargar)', dentro de datos_del_crm, y dice cuáles puede escribir el agente", () => {
+  const bloque = bloqueDeCamposPersonalizados(CAMPOS_B6, {
+    patente: "AB123CD",
+    tiene_usado: true,
+  })!;
+  assert.match(bloque, /<datos_del_crm>.*Patente: AB123CD.*<\/datos_del_crm>/s);
+  assert.match(bloque, /Tiene usado: sí/);
+  assert.match(bloque, /Combustible: \(sin cargar\)/);
+  assert.match(bloque, /update_contact_custom_fields/);
+  assert.match(bloque, /patente \(Patente: texto\)/);
+  assert.match(bloque, /combustible \(Combustible: una de: Nafta \| Diésel\)/);
+  assert.doesNotMatch(bloque, /tiene_usado \(/, "el no editable no está en la lista de escritura");
+});
+
+test("B6: sin definiciones no hay bloque; sin editables el bloque dice que no puede guardar ninguno", () => {
+  assert.equal(bloqueDeCamposPersonalizados([], { patente: "x" }), null);
+  const soloLectura = bloqueDeCamposPersonalizados(
+    CAMPOS_B6.map((c) => ({ ...c, agentEditable: false })),
+    null,
+  )!;
+  assert.match(soloLectura, /Ninguno de estos campos lo podés modificar/);
+  assert.doesNotMatch(soloLectura, /update_contact_custom_fields/);
+});
+
+test("B6: el bloque de campos entra al system prompt después de los datos del contacto", () => {
+  const prompt = armarSystemPrompt(
+    { instructions: "Sos el agente.", tone: null, guardrails: {} },
+    [],
+    undefined,
+    { firstName: "Ana", lastName: "Pérez", email: null, phone: null },
+    null,
+    [],
+    "WHATSAPP",
+    CAMPOS_B6,
+    { combustible: "Nafta" },
+  );
+  assert.match(prompt, /Campos personalizados que el CRM tiene/);
+  assert.match(prompt, /Combustible: Nafta/);
+  assert.ok(prompt.indexOf("nombre: Ana Pérez") < prompt.indexOf("Combustible: Nafta"));
 });

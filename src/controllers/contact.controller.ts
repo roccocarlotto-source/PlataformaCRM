@@ -41,6 +41,10 @@ const contactFields = {
     .max(100, "lastName no puede superar los 100 caracteres"),
   lifecycleStage: lifecycleStageSchema.optional(),
   ownerId: z.string().uuid("ownerId inválido").optional(),
+  // B6: { key: valor }. La forma de cada valor la valida el service contra
+  // las definiciones de la organización (utils/camposPersonalizados.ts); acá
+  // solo que sea un objeto.
+  customFields: z.record(z.string(), z.unknown()).optional(),
 };
 
 // Exportados para testear la frontera del schema sin base ni HTTP

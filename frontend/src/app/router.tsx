@@ -60,6 +60,8 @@ import { ResourceFormPage } from "../features/resource/ResourceFormPage";
 import { ResourceListPage } from "../features/resource/ResourceListPage";
 import { ServiceTypeFormPage } from "../features/serviceType/ServiceTypeFormPage";
 import { ServiceTypeListPage } from "../features/serviceType/ServiceTypeListPage";
+import { ContactCustomFieldFormPage } from "../features/contactCustomField/ContactCustomFieldFormPage";
+import { ContactCustomFieldListPage } from "../features/contactCustomField/ContactCustomFieldListPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -322,6 +324,13 @@ export const router = createBrowserRouter([
               { path: "/service-types", element: <ServiceTypeListPage /> },
               { path: "/service-types/new", element: <ServiceTypeFormPage /> },
               { path: "/service-types/:id/edit", element: <ServiceTypeFormPage /> },
+              // B6: campos personalizados de contactos, ADMIN-only entera.
+              { path: "/contact-custom-fields", element: <ContactCustomFieldListPage /> },
+              { path: "/contact-custom-fields/new", element: <ContactCustomFieldFormPage /> },
+              {
+                path: "/contact-custom-fields/:id/edit",
+                element: <ContactCustomFieldFormPage />,
+              },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/pipelines/new", element: <PipelineFormPage /> },

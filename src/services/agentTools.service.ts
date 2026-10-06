@@ -13,7 +13,11 @@ import { logger } from "../lib/logger";
 import { findManyActivities } from "../repositories/activity.repository";
 import { countFutureConfirmedBookingsOfContact } from "../repositories/booking.repository";
 import { findBranchById } from "../repositories/branch.repository";
-import { findContactById, setLeadIntentIfEmpty } from "../repositories/contact.repository";
+import {
+  findContactById,
+  setLeadIntentIfEmpty,
+  updateContactCustomFields,
+} from "../repositories/contact.repository";
 import { findManyOpportunities, findOpportunityById } from "../repositories/opportunity.repository";
 import { findDefaultPipeline } from "../repositories/pipeline.repository";
 import { findResourceById } from "../repositories/resource.repository";
@@ -41,6 +45,7 @@ import { MAX_DIAS_DE_RANGO, obtenerDisponibilidad } from "./availability.service
 import { createBooking, relojDeReservas } from "./booking.service";
 import {
   asignarVehiculoDeInteresDesdeElAgente,
+  camposPersonalizadosParaGuardar,
   getContactById,
   qualifyLead,
 } from "./contact.service";
@@ -1940,6 +1945,85 @@ const updateLeadTool: ToolDelAgente = {
 };
 
 // ---------------------------------------------------------------------------
+// update_contact_custom_fields (B6, 06/10/2026)
+//
+// Los campos personalizados que la organización definió para sus contactos
+// (Administración → Campos de contacto). El agente los LEE todos en el prompt
+// (bloqueDeCamposPersonalizados) y ESCRIBE solo los marcados "editable por el
+// agente". La validación es la misma que la de una persona en la ficha
+// (utils/camposPersonalizados.ts): tipo, opciones de una lista, key con
+// definición; lo que no valida vuelve al modelo con el nombre del campo, y el
+// resto de la llamada no se guarda (todo o nada: el modelo corrige y vuelve).
+// Una puerta propia (updateContactCustomFields), separada de qualifyLead, para
+// que esta tool no pueda tocar nada más del contacto.
+// ---------------------------------------------------------------------------
+export const CUSTOM_FIELDS_TOOL_NAME = "update_contact_custom_fields";
+
+const customFieldsArgs = z
+  .object({
+    campos: z.record(
+      z.string().min(1).max(60),
+      z.union([z.string(), z.number(), z.boolean(), z.null()]),
+    ),
+  })
+  .strict()
+  .refine((data) => Object.keys(data.campos).length > 0, {
+    message: "campos tiene que traer al menos un campo",
+  });
+
+const updateContactCustomFieldsTool: ToolDelAgente = {
+  definition: {
+    name: CUSTOM_FIELDS_TOOL_NAME,
+    description:
+      "Guarda en la ficha del contacto de esta conversación los campos personalizados que el negocio definió y que vos podés modificar (están listados en tus instrucciones, con su clave y el formato del valor). Usala en el turno en que el contacto te da ese dato. Mandá solo los campos que cambian, por su clave; null borra el valor. Un campo que no está en tu lista, o un valor que no respeta el formato, se rechaza entero: corregí y volvé a llamar.",
+    parameters: {
+      type: "object",
+      properties: {
+        campos: {
+          type: "object",
+          description:
+            'Los campos a guardar, por clave: { "clave": valor }. Texto como string, número como number, fecha como "AAAA-MM-DD", sí/no como true/false, lista con una de sus opciones exactas, null para borrar.',
+          additionalProperties: true,
+        },
+      },
+      required: ["campos"],
+      additionalProperties: false,
+    },
+  },
+
+  ejecutar(args, contexto) {
+    const validacion = validarArgs(customFieldsArgs, args);
+    if (!validacion.ok) {
+      return Promise.resolve(validacion.resultado);
+    }
+    const { campos } = validacion.value;
+    return conErroresDeNegocio(async () => {
+      const contacto = await findContactById(
+        contexto.conversation.contactId,
+        contexto.organizationId,
+      );
+      if (!contacto) {
+        return fallo("El contacto de esta conversación ya no existe");
+      }
+      // 400 con el nombre del campo si algo no valida (conErroresDeNegocio lo
+      // convierte en el error que lee el modelo).
+      const valores = await camposPersonalizadosParaGuardar(
+        contexto.organizationId,
+        contacto.customFields,
+        campos,
+        { soloEditablesPorElAgente: true },
+      );
+      await updateContactCustomFields(contacto.id, contexto.organizationId, valores);
+      return exito({
+        contactId: contacto.id,
+        guardados: Object.keys(campos),
+        camposPersonalizados: valores,
+      });
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
 // get_payment_info (ítem 74)
 //
 // NO ES UNA PASARELA: no genera ningún cobro ni se entera de si alguien pagó.
@@ -2643,6 +2727,7 @@ export const CATALOGO_DE_TOOLS: ReadonlyMap<string, ToolDelAgente> = new Map(
     createBookingTool,
     createLeadTool,
     updateLeadTool,
+    updateContactCustomFieldsTool,
     getPaymentInfoTool,
     getContactInfoTool,
     searchVehiclesTool,

@@ -30,6 +30,8 @@ import {
   lockOrganizationForUpdate,
 } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
+import { aplicarCambiosDeCampos, validarValoresDeCampos } from "../utils/camposPersonalizados";
+import { definicionesParaValidar } from "./contactCustomFieldDefinition.service";
 import { resolveOwnerId } from "./ownership.service";
 import { esNombreProvisorio } from "../utils/nombreProvisorio";
 
@@ -247,6 +249,8 @@ export interface CreateContactInput {
   source?: string;
   companyId?: string;
   ownerId?: string;
+  // B6: { key: valor }, validados contra las definiciones de la organización.
+  customFields?: Record<string, unknown>;
 }
 
 export async function createContact(
@@ -263,6 +267,11 @@ export async function createContact(
   ]);
   // Un teléfono que ni con el país se normaliza es un 400, antes de escribir.
   const phone = telefonoParaGuardar(input.phone, codigoDePais) ?? null;
+  // B6: los campos personalizados, validados contra las definiciones.
+  const customFields =
+    input.customFields === undefined
+      ? undefined
+      : await camposPersonalizadosParaGuardar(organizationId, null, input.customFields);
 
   try {
     return await conTelefonoUnico(organizationId, phone, null, (db) =>
@@ -278,6 +287,7 @@ export async function createContact(
           jobTitle: input.jobTitle ?? null,
           lifecycleStage: input.lifecycleStage,
           source: input.source ?? null,
+          ...(customFields === undefined ? {} : { customFields }),
         },
         db,
       ),
@@ -300,6 +310,28 @@ export interface UpdateContactInput {
   ownerId?: string;
   // El vehículo de interés, cargado por una persona. `null` lo quita.
   vehicleOfInterestId?: string | null;
+  // B6: los campos personalizados que cambian, { key: valor }; null borra uno.
+  // Se validan contra las definiciones de la organización y se MEZCLAN con
+  // los que el contacto ya tiene (los que no vienen quedan como están).
+  customFields?: Record<string, unknown>;
+}
+
+// B6: los valores de los campos personalizados que quedan después de aplicar
+// `cambios` sobre los `actuales` del contacto, validados contra las
+// definiciones vigentes. Un valor inválido o una key sin definición es 400
+// con el nombre del campo. Lo usan crear, editar y la tool del agente.
+export async function camposPersonalizadosParaGuardar(
+  organizationId: string,
+  actuales: unknown,
+  cambios: Record<string, unknown>,
+  opciones: { soloEditablesPorElAgente?: boolean } = {},
+): Promise<Prisma.InputJsonValue> {
+  const definiciones = await definicionesParaValidar(organizationId);
+  const validacion = validarValoresDeCampos(definiciones, cambios, opciones);
+  if (!validacion.ok) {
+    throw new AppError(validacion.errores.join(". "), 400);
+  }
+  return aplicarCambiosDeCampos(definiciones, actuales, validacion.valores);
 }
 
 export async function updateContact(
@@ -315,12 +347,19 @@ export async function updateContact(
     tieneTelefono(input.phone) ? findDefaultPhoneCountryCode(organizationId) : null,
   ]);
 
-  const { vehicleOfInterestId, ...resto } = input;
+  const { vehicleOfInterestId, customFields, ...resto } = input;
   const data: UpdateContactData = { ...resto };
   Object.assign(
     data,
     await vehiculoDeInteresDeUnaPersona(organizationId, actual, vehicleOfInterestId),
   );
+  if (customFields !== undefined) {
+    data.customFields = await camposPersonalizadosParaGuardar(
+      organizationId,
+      actual.customFields,
+      customFields,
+    );
+  }
 
   // F5: normalizado y único (ver telefonoParaGuardar / conTelefonoUnico).
   // `"phone" in input` por lo mismo que companyId abajo: null limpia.

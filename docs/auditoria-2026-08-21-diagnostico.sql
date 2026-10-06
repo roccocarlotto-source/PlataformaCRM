@@ -249,7 +249,10 @@ from (
       ('discount_voucher_follow_ups'),
       -- Uso del modelo por turno del agente (B4, migración 20261023120000):
       -- organization_id propio y la política uniforme.
-      ('llm_turn_usages')
+      ('llm_turn_usages'),
+      -- Campos personalizados de contactos (B6, migración 20261024120000):
+      -- organization_id propio y la política uniforme.
+      ('contact_custom_field_definitions')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'

@@ -384,10 +384,14 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    `CAMPOS_IGNORADOS` en `ingestContact.schema.ts`) — es un campo que este
 >    proyecto trata como de decisión humana, no de escritura automatizada.
 >    `create_lead`/`update_lead` siguen el mismo precedente.
-> 3. **`customFields` queda afuera del alcance de estas tools.** Son campos
->    configurables por vertical sin una definición de tipo formal todavía
->    (deferred desde PR #207) — el agente no tiene cómo saber qué campos
->    existen ni qué forma tienen. Se revisa cuando exista ese catálogo.
+> 3. **`customFields` queda afuera del alcance de estas tools.** Desde B6
+>    (06/10/2026) existe el catálogo de definiciones
+>    (`contact_custom_field_definitions`, Administración → Campos de
+>    contacto): el agente lee todos los campos en el prompt
+>    (`bloqueDeCamposPersonalizados`) y escribe SOLO los marcados "editable
+>    por el agente" con la tool propia `update_contact_custom_fields`, que
+>    valida tipo y opciones en el backend. `create_lead`/`update_lead` siguen
+>    sin tocarlos.
 > 4. **`leadAiData` se mergea superficialmente, no se sobreescribe** — mismo
 >    espíritu que `leadNotes`: es "cualquier dato sin columna propia" que se va
 >    acumulando en distintas conversaciones. Claves nuevas pisan claves viejas

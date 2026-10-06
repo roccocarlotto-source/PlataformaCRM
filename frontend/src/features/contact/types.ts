@@ -24,6 +24,9 @@ export interface Contact {
   // Solo en el GET de la ficha: el resumen de la unidad, aunque se haya
   // vendido o dado de baja.
   vehicleOfInterest?: VehicleOfInterestSummary | null;
+  // B6: los campos personalizados, { key: valor }, validados por el backend
+  // contra las definiciones de la organización. null/ausente = ninguno.
+  customFields?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -94,6 +97,9 @@ export interface CreateContactInput {
   source?: string;
   companyId?: string;
   ownerId?: string;
+  // B6: { key: valor }; null borra el valor. Solo claves de definiciones de
+  // la organización; el backend rechaza el resto con 400.
+  customFields?: Record<string, string | number | boolean | null>;
 }
 
 // El vehículo de interés solo se edita desde la ficha (PATCH): null lo quita.

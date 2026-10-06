@@ -30,6 +30,7 @@ import { paymentRouter } from "./payment.routes";
 import { resourceRouter } from "./resource.routes";
 
 import { serviceTypeRouter } from "./serviceType.routes";
+import { contactCustomFieldDefinitionRouter } from "./contactCustomFieldDefinition.routes";
 import { pipelineRouter } from "./pipeline.routes";
 import { qrRouter } from "./qr.routes";
 import { qrImageRouter } from "./qrImage.routes";
@@ -100,6 +101,8 @@ routes.use("/api", importRouter);
 routes.use("/api", branchRouter);
 routes.use("/api", resourceRouter);
 routes.use("/api", serviceTypeRouter);
+// B6: las definiciones de campos personalizados de contactos.
+routes.use("/api", contactCustomFieldDefinitionRouter);
 
 // Módulo de Agentes de IA (docs/ai-agent-architecture.md §5, paso 2a de §9):
 // CRUD administrativo del Agent de una sucursal. Va acá, pegado a

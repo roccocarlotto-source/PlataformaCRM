@@ -18,6 +18,8 @@ import { VehicleSelect } from "../vehicle/VehicleSelect";
 import { Badge } from "../../design-system/Badge";
 import { ContactVouchersSection } from "../voucher/ContactVouchersSection";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
+import { ContactCustomFieldsCard } from "../contactCustomField/ContactCustomFieldsCard";
+import type { ContactCustomFieldValue } from "../contactCustomField/types";
 import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
 import { useCreateContact, useUpdateContact } from "./mutations";
 import { useContact } from "./queries";
@@ -39,6 +41,9 @@ interface ContactFormValues {
   ownerId: string | undefined;
   // Vehículo de interés: solo en edición. null = sin unidad.
   vehicleOfInterestId: string | null;
+  // B6: los campos personalizados, { key: valor }. Lo que no está cargado no
+  // tiene key; al guardar, un valor vaciado viaja como null (borra).
+  customFields: Record<string, ContactCustomFieldValue>;
 }
 
 const EMPTY_FORM: ContactFormValues = {
@@ -52,6 +57,7 @@ const EMPTY_FORM: ContactFormValues = {
   companyId: undefined,
   ownerId: undefined,
   vehicleOfInterestId: null,
+  customFields: {},
 };
 
 // Los campos de texto vacíos se envían como undefined (no como ""),
@@ -69,6 +75,9 @@ function toInput(values: ContactFormValues): CreateContactInput {
     source: values.source || undefined,
     companyId: values.companyId,
     ownerId: values.ownerId || undefined,
+    // B6: solo si hay algo que mandar (una organización sin campos no manda
+    // la clave). Un valor vaciado va como null para borrarlo.
+    ...(Object.keys(values.customFields).length > 0 ? { customFields: values.customFields } : {}),
   };
 }
 
@@ -90,7 +99,21 @@ function toFormValues(data: Contact): ContactFormValues {
     // nullable en la API y UserSelect espera string | undefined.
     ownerId: data.ownerId ?? undefined,
     vehicleOfInterestId: data.vehicleOfInterestId ?? null,
+    customFields: valoresGuardados(data.customFields),
   };
+}
+
+// Lo que el contacto tiene guardado, como { key: valor }; un JSON raro (o
+// ausente) es "nada cargado".
+function valoresGuardados(json: unknown): Record<string, ContactCustomFieldValue> {
+  if (!json || typeof json !== "object" || Array.isArray(json)) return {};
+  const valores: Record<string, ContactCustomFieldValue> = {};
+  for (const [key, valor] of Object.entries(json as Record<string, unknown>)) {
+    if (typeof valor === "string" || typeof valor === "number" || typeof valor === "boolean") {
+      valores[key] = valor;
+    }
+  }
+  return valores;
 }
 
 // La unidad de interés cuando ya no se puede leer por id (dada de baja): la
@@ -335,6 +358,12 @@ export function ContactFormPage() {
               ) : null}
             </div>
           </Card>
+          {/* B6: los campos personalizados de la organización, si definió alguno. */}
+          <ContactCustomFieldsCard
+            values={values.customFields}
+            onChange={(customFields) => setValues({ ...values, customFields })}
+            disabled={soloLectura}
+          />
           {error ? <ErrorState>{error}</ErrorState> : null}
           <div>
             <RequiredFieldsHint />
