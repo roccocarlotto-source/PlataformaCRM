@@ -597,6 +597,11 @@ enum OpportunityLeadSource {
   SHOWROOM
   REFERRAL
   WHATSAPP
+  // B2 (06/10/2026, migración 20261022120000): los dos canales de Meta, para
+  // que la oportunidad que crea el agente por Messenger o Instagram tenga
+  // origen (hasta acá quedaba sin él).
+  MESSENGER
+  INSTAGRAM
 }
 
 // ---------------------------------------------------------------------------

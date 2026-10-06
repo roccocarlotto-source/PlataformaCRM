@@ -95,6 +95,13 @@ test("2c: vehicleId tiene que ser un uuid; financingType/leadSource, valores del
   assert.equal(ok.success, true);
   assert.equal(ok.success && ok.data.financingType, "INSTALLMENT_24M");
   assert.equal(ok.success && ok.data.leadSource, "SHOWROOM");
+
+  // B2 (migración 20261022120000): los canales de Meta son origen válido.
+  for (const leadSource of ["MESSENGER", "INSTAGRAM"]) {
+    const meta = createOpportunitySchema.safeParse({ ...BASE_CREATE, leadSource });
+    assert.equal(meta.success, true, leadSource);
+    assert.equal(updateOpportunitySchema.safeParse({ leadSource }).success, true, leadSource);
+  }
 });
 
 test("2c: financingType/leadSource: null limpian en PATCH", () => {

@@ -37,6 +37,9 @@ const leadSourceSchema = z.enum([
   "SHOWROOM",
   "REFERRAL",
   "WHATSAPP",
+  // B2: los canales de Meta (migración 20261022120000).
+  "MESSENGER",
+  "INSTAGRAM",
 ]);
 
 // Detalle de financiación (§42). Los dos importes van en la moneda de la
