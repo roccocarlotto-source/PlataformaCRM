@@ -1001,6 +1001,52 @@ test("bloqueDeContacto sin ningún dato lo dice explícito", () => {
   assert.match(bloque, /podés preguntárselo/);
 });
 
+// FABLE-A-02 (B3): por WEB el email y el teléfono guardados no van al prompt.
+test("bloqueDeContacto por WEB da el nombre y la calificación, pero nunca el email ni el teléfono guardados", () => {
+  const bloque = bloqueDeContacto(
+    {
+      firstName: "Martín",
+      lastName: "Suárez",
+      email: "martin@example.test",
+      phone: "+59899123456",
+      leadServiceOfInterest: "una pickup",
+    },
+    "WEB",
+  );
+  assert.match(bloque, /nombre: Martín Suárez/);
+  assert.match(bloque, /busca: una pickup/);
+  assert.doesNotMatch(bloque, /martin@example\.test/);
+  assert.doesNotMatch(bloque, /99123456/);
+  assert.doesNotMatch(bloque, /email:/);
+  assert.doesNotMatch(bloque, /teléfono:/);
+  assert.match(bloque, /NO se te muestran el email ni el teléfono/);
+});
+
+test("bloqueDeContacto por WEB con solo email y teléfono guardados: pide el nombre y avisa que lo demás está reservado", () => {
+  const bloque = bloqueDeContacto(
+    { firstName: ".", lastName: "", email: "martin@example.test", phone: "+59899123456" },
+    "WEB",
+  );
+  assert.doesNotMatch(bloque, /martin@example\.test|99123456/);
+  assert.match(bloque, /no tiene el nombre cargado/);
+  assert.match(bloque, /NO se te muestran el email ni el teléfono/);
+});
+
+test("armarSystemPrompt por WEB no lleva el email ni el teléfono guardados; por WhatsApp sí", () => {
+  const contacto = {
+    firstName: "Martín",
+    lastName: "Suárez",
+    email: "martin@example.test",
+    phone: "+59899123456",
+  };
+  const agente = { ...BASE, guardrails: {} };
+  const web = armarSystemPrompt(agente, [], undefined, contacto, null, [], "WEB");
+  assert.doesNotMatch(web, /martin@example\.test|99123456/);
+  const whatsapp = armarSystemPrompt(agente, [], undefined, contacto, null, [], "WHATSAPP");
+  assert.match(whatsapp, /martin@example\.test/);
+  assert.match(whatsapp, /99123456/);
+});
+
 test("el prompt lleva el bloque del contacto solo cuando se lo pasan", () => {
   const con = armarSystemPrompt({ ...BASE, guardrails: {} }, [], undefined, {
     firstName: "Martín",

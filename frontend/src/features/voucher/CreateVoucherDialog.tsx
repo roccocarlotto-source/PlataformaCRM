@@ -32,18 +32,22 @@ export interface CreateVoucherDialogProps {
   // (el contacto es el de la oportunidad).
   contactId?: string;
   opportunityId?: string;
+  // La sucursal ya elegida al abrir (B5: desde la conversación, la suya). Se
+  // puede cambiar igual.
+  branchIdInicial?: string;
   onClose: () => void;
 }
 
 export function CreateVoucherDialog({
   contactId,
   opportunityId,
+  branchIdInicial,
   onClose,
 }: CreateVoucherDialogProps) {
   const crear = useCreateVoucher();
   const [label, setLabel] = useState("");
   const [dias, setDias] = useState("30");
-  const [branchId, setBranchId] = useState<string | undefined>(undefined);
+  const [branchId, setBranchId] = useState<string | undefined>(branchIdInicial);
 
   if (crear.data) {
     return <VoucherResult voucher={crear.data} onClose={onClose} />;

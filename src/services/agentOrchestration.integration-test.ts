@@ -3076,7 +3076,10 @@ test("D3: por el widget, un visitante anónimo no puede reservar hasta dar nombr
     assert.equal(await prisma.booking.count({ where: { organizationId: e.organizationId } }), 0);
     // El modelo no recibe "Visitante caa2c873" como si fuera el nombre.
     assert.doesNotMatch(primero.requests[0].systemPrompt, /Visitante/);
-    assert.match(primero.requests[0].systemPrompt, /todavía no tiene ningún dato cargado/);
+    // Por WEB (B3) el bloque dice que falta el nombre y que el email y el
+    // teléfono guardados no se muestran.
+    assert.match(primero.requests[0].systemPrompt, /todavía no tiene el nombre cargado/);
+    assert.match(primero.requests[0].systemPrompt, /NO se te muestran el email ni el teléfono/);
 
     // Turno 2: se identifica. update_lead guarda nombre y teléfono, y ahora sí.
     const segundo = doblarProveedor([
