@@ -3,6 +3,7 @@ import {
   createContactCustomFieldDefinitionHandler,
   deleteContactCustomFieldDefinitionHandler,
   getContactCustomFieldDefinitionHandler,
+  getContactCustomFieldOptionUsageHandler,
   listContactCustomFieldDefinitionsHandler,
   updateContactCustomFieldDefinitionHandler,
 } from "../controllers/contactCustomFieldDefinition.controller";
@@ -29,6 +30,14 @@ contactCustomFieldDefinitionRouter.get(
   "/contact-custom-fields/:id",
   authenticate,
   getContactCustomFieldDefinitionHandler,
+);
+// Cuántos contactos usan cada opción: lo consulta el formulario antes de
+// guardar un cambio de opciones. ADMIN, como las escrituras a las que sirve.
+contactCustomFieldDefinitionRouter.get(
+  "/contact-custom-fields/:id/option-usage",
+  authenticate,
+  authorize("ADMIN"),
+  getContactCustomFieldOptionUsageHandler,
 );
 contactCustomFieldDefinitionRouter.post(
   "/contact-custom-fields",

@@ -267,6 +267,60 @@ describe("ContactFormPage", () => {
     });
   });
 
+  // Una opción que el contacto tenía elegida y después se eliminó de la
+  // lista: la ficha la sigue mostrando, marcada, y no la ofrece como "Sin cargar".
+  it("B6: una opción eliminada de la lista se muestra marcada y se conserva al guardar otro campo", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeContact({
+            id: params.id as string,
+            firstName: "Ana",
+            customFields: { forma_de_pago: "Permuta" },
+          }),
+        ),
+      ),
+      http.patch(`${contactsUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeContact({ id: "ct1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit", [
+      makeDefinicion({
+        id: "d1",
+        key: "forma_de_pago",
+        label: "Forma de pago",
+        type: "SELECT",
+        options: ["Contado", "Financiado"],
+      }),
+    ]);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Forma de pago")).toHaveValue("Permuta (opción eliminada)"),
+    );
+    expect(await listSelectOptions(user, screen.getByLabelText("Forma de pago"))).toEqual([
+      "Sin cargar",
+      "Contado",
+      "Financiado",
+      "Permuta (opción eliminada)",
+    ]);
+    await user.keyboard("{Escape}");
+
+    // Se guarda otra cosa: el valor viejo viaja tal cual (el backend no lo
+    // vuelve a validar porque no cambió).
+    await user.clear(screen.getByLabelText("Nombre"));
+    await user.type(screen.getByLabelText("Nombre"), "Ana María");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
+    expect(patchedBody?.firstName).toBe("Ana María");
+    expect(patchedBody?.customFields).toEqual({ forma_de_pago: "Permuta" });
+  });
+
   it("vehículo de interés: una unidad dada de baja se sigue mostrando con su estado, la del agente lo dice, y Quitar manda null", async () => {
     let patchedBody: Record<string, unknown> | undefined;
     server.use(

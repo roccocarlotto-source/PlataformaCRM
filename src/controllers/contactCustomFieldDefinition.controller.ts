@@ -6,6 +6,7 @@ import {
   crearDefinicion,
   listarDefiniciones,
   obtenerDefinicion,
+  usoDeOpciones,
 } from "../services/contactCustomFieldDefinition.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -36,15 +37,15 @@ const etiqueta = z
     `label no puede superar los ${String(MAX_LARGO_DE_ETIQUETA)} caracteres`,
   );
 
+const opcion = z
+  .string()
+  .max(
+    MAX_LARGO_DE_OPCION,
+    `una opción no puede superar los ${String(MAX_LARGO_DE_OPCION)} caracteres`,
+  );
+
 const opciones = z
-  .array(
-    z
-      .string()
-      .max(
-        MAX_LARGO_DE_OPCION,
-        `una opción no puede superar los ${String(MAX_LARGO_DE_OPCION)} caracteres`,
-      ),
-  )
+  .array(opcion)
   .max(MAX_OPCIONES, `options no puede tener más de ${String(MAX_OPCIONES)} elementos`);
 
 // Exportados para testear la frontera del schema sin base ni HTTP.
@@ -61,6 +62,11 @@ export const updateContactCustomFieldDefinitionSchema = z
     // Se acepta solo para rechazarlo con el mensaje del service si cambia.
     type: z.enum(TIPOS_DE_CAMPO),
     options: opciones,
+    // Las opciones que cambiaron de texto: los contactos que las tenían
+    // elegidas pasan al texto nuevo. Solo junto con `options` (service).
+    renamedOptions: z
+      .array(z.object({ from: opcion, to: opcion }))
+      .max(MAX_OPCIONES, `renamedOptions no puede tener más de ${String(MAX_OPCIONES)} elementos`),
     agentEditable: z.boolean(),
   })
   .partial()
@@ -78,6 +84,15 @@ export const getContactCustomFieldDefinitionHandler = asyncHandler<Authenticated
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     res.status(200).json(await obtenerDefinicion(req.auth.organizationId, id));
+  },
+);
+
+// Cuántos contactos usan cada opción de un campo de lista. Solo ADMIN
+// (routes): es para la pantalla que las edita.
+export const getContactCustomFieldOptionUsageHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(idParamSchema, req.params.id);
+    res.status(200).json({ contactsByOption: await usoDeOpciones(req.auth.organizationId, id) });
   },
 );
 

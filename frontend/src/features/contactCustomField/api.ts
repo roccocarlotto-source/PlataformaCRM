@@ -2,6 +2,7 @@ import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type {
   ContactCustomFieldDefinition,
+  ContactCustomFieldOptionUsage,
   CreateContactCustomFieldInput,
   UpdateContactCustomFieldInput,
 } from "./types";
@@ -25,6 +26,17 @@ export function getContactCustomField(
   return request<ContactCustomFieldDefinition>(`/contact-custom-fields/${id}`, {
     getAccessToken,
     signal,
+  });
+}
+
+// Cuántos contactos tienen elegida cada opción de un campo de lista. Sin
+// caché (no es una query): se pide justo antes de guardar, para que la
+// confirmación muestre la cantidad de ese momento.
+export function getContactCustomFieldOptionUsage(
+  id: string,
+): Promise<ContactCustomFieldOptionUsage> {
+  return request<ContactCustomFieldOptionUsage>(`/contact-custom-fields/${id}/option-usage`, {
+    getAccessToken,
   });
 }
 

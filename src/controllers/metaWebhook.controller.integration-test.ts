@@ -10,7 +10,9 @@ import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { createMetaWebhookRouter } from "../routes/metaWebhook.routes";
 import { resetLlmProviderParaTests, setLlmProviderForTests } from "../services/llmProvider.service";
+import { completarNombreDesdeElPerfil } from "../services/metaContact.service";
 import { obtenerTokenParaEnviar } from "../services/metaPageConnection.service";
+import type { NombreDelPerfil, ObtenerPerfilDeMetaInput } from "../services/metaProfile.service";
 import { depsDelWebhookMetaReales, procesarWebhookDeMeta } from "../services/metaWebhook.service";
 import { MetaSendError, type SendMetaTextInput } from "../services/metaSend.service";
 import { getCifrador } from "../utils/encryption";
@@ -44,6 +46,10 @@ import type { MetaWebhookDeps } from "./metaWebhook.controller";
 //     con 400 -> reintento que reenvía sin otro turno; token rechazado (190)
 //     -> FAILED y la conexión en ERROR, y el siguiente falla sin turno;
 //     página reconectada -> FAILED sin turno ni envío.
+//   - el nombre del perfil: con la Graph API simulada, el contacto nuevo
+//     queda con su nombre real (pedido con el token DESCIFRADO de la página);
+//     un nombre que alguien cargó mientras Meta contestaba no se pisa; y si
+//     Meta falla, el mensaje se guarda igual con el nombre genérico.
 // ---------------------------------------------------------------------------
 
 const VERIFY_TOKEN = "test_meta_verify_token";
@@ -56,12 +62,38 @@ let appSecretConfigurado: string | undefined = APP_SECRET;
 // resto del procesamiento es el real.
 const midsQueFallanAlGuardar = new Set<string>();
 
+// La Graph API de perfiles, simulada: lo que Meta contesta por cada PSID/IGSID
+// (un nombre, o un error). Sin entrada, "sin perfil": el contacto queda con el
+// nombre genérico, que es lo que afirman los casos de más abajo. NUNCA se
+// habla con Meta. `puertaDelPerfil`, si está puesta, deja a Meta "pensando".
+const perfilesDeMeta = new Map<string, NombreDelPerfil | Error>();
+let perfilesPedidos: ObtenerPerfilDeMetaInput[] = [];
+let puertaDelPerfil: Promise<void> | null = null;
+// El webhook no espera el nombre: los tests sí, juntando acá lo que disparó.
+let nombresEnCurso: Promise<unknown>[] = [];
+
 const deps: MetaWebhookDeps = {
   verifyToken: () => verifyTokenConfigurado,
   appSecret: () => appSecretConfigurado,
   procesar: (lote) =>
     procesarWebhookDeMeta(lote, {
       ...depsDelWebhookMetaReales,
+      completarNombreDelContacto: (entrada) => {
+        // La función REAL (token de la conexión, update condicional en
+        // Postgres); solo la llamada a Meta es un doble.
+        const enCurso = completarNombreDesdeElPerfil(entrada, {
+          pageAccessToken: obtenerTokenParaEnviar,
+          obtenerPerfil: async (input) => {
+            perfilesPedidos.push(input);
+            if (puertaDelPerfil) await puertaDelPerfil;
+            const perfil = perfilesDeMeta.get(input.userId) ?? null;
+            if (perfil instanceof Error) throw perfil;
+            return perfil;
+          },
+        });
+        nombresEnCurso.push(enCurso);
+        return enCurso;
+      },
       registrarEntrante: (input, opciones) => {
         if (midsQueFallanAlGuardar.has(input.externalMessageId ?? "")) {
           return Promise.reject(new Error("la base no respondió (doble)"));
@@ -1022,4 +1054,119 @@ test("formato por canal: la negrita y las viñetas del modelo salen como texto p
       `${canal}: el eco de la respuesta formateada no se registra como una persona`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// El nombre del perfil del contacto nuevo (Graph API simulada)
+// ---------------------------------------------------------------------------
+
+async function contactoDe(canal: "MESSENGER" | "INSTAGRAM", externalId: string) {
+  const identidad = await prisma.contactChannelIdentity.findUniqueOrThrow({
+    where: {
+      organizationId_channel_externalId: {
+        organizationId: negocioC.orgId,
+        channel: canal,
+        externalId,
+      },
+    },
+  });
+  return prisma.contact.findUniqueOrThrow({ where: { id: identidad.contactId } });
+}
+
+test("nombre del perfil: el contacto nuevo de Messenger y de Instagram queda con su nombre real, pedido con el token descifrado de la página", async () => {
+  perfilesPedidos = [];
+  nombresEnCurso = [];
+  const psid = idAlAzar("7");
+  const igsid = idAlAzar("8");
+  perfilesDeMeta.set(psid, { firstName: "Ana", lastName: "Pérez" });
+  perfilesDeMeta.set(igsid, { firstName: "Juan", lastName: "Gómez Ruiz" });
+
+  assert.equal(
+    (await enviar(payload({ object: "page", cuentaId: negocioC.pageId, senderId: psid }))).status,
+    200,
+  );
+  assert.equal(
+    (await enviar(payload({ object: "instagram", cuentaId: negocioC.igId, senderId: igsid })))
+      .status,
+    200,
+  );
+  await Promise.all(nombresEnCurso);
+
+  const deMessenger = await contactoDe("MESSENGER", psid);
+  assert.equal(deMessenger.firstName, "Ana");
+  assert.equal(deMessenger.lastName, "Pérez");
+  assert.equal(deMessenger.source, "Messenger", "el origen no cambia");
+  const deInstagram = await contactoDe("INSTAGRAM", igsid);
+  assert.equal(deInstagram.firstName, "Juan");
+  assert.equal(deInstagram.lastName, "Gómez Ruiz");
+
+  // A Meta se le pidió con el token EN CLARO de la página, también por Instagram.
+  assert.deepEqual(perfilesPedidos, [
+    { pageAccessToken: TOKEN_DE_PAGINA, channel: "MESSENGER", userId: psid },
+    { pageAccessToken: TOKEN_DE_PAGINA, channel: "INSTAGRAM", userId: igsid },
+  ]);
+
+  // El segundo mensaje de la misma persona no vuelve a preguntar.
+  await enviar(payload({ object: "page", cuentaId: negocioC.pageId, senderId: psid }));
+  await Promise.all(nombresEnCurso);
+  assert.equal(perfilesPedidos.length, 2);
+});
+
+test("nombre del perfil: si alguien cargó un nombre mientras Meta contestaba, no se pisa", async () => {
+  perfilesPedidos = [];
+  nombresEnCurso = [];
+  const psid = idAlAzar("7");
+  perfilesDeMeta.set(psid, { firstName: "Nombre", lastName: "De Meta" });
+  let abrir!: () => void;
+  puertaDelPerfil = new Promise<void>((resolve) => {
+    abrir = resolve;
+  });
+  try {
+    // El webhook contesta 200 aunque Meta todavía no devolvió el perfil.
+    const res = await enviar(
+      payload({ object: "page", cuentaId: negocioC.pageId, senderId: psid }),
+    );
+    assert.equal(res.status, 200);
+    const recienCreado = await contactoDe("MESSENGER", psid);
+    assert.equal(recienCreado.firstName, "Messenger", "mientras tanto, el nombre genérico");
+
+    // Una persona (o el agente) le pone el nombre antes de que Meta conteste.
+    await prisma.contact.update({
+      where: { id: recienCreado.id },
+      data: { firstName: "Carla", lastName: "Suárez" },
+    });
+  } finally {
+    abrir();
+    puertaDelPerfil = null;
+  }
+  await Promise.all(nombresEnCurso);
+
+  const final = await contactoDe("MESSENGER", psid);
+  assert.equal(final.firstName, "Carla");
+  assert.equal(final.lastName, "Suárez");
+});
+
+test("nombre del perfil: si Meta lo niega (falta el permiso), el mensaje se guarda y se encola igual, con el nombre genérico", async () => {
+  perfilesPedidos = [];
+  nombresEnCurso = [];
+  const psid = idAlAzar("7");
+  const mid = `m_${randomUUID()}`;
+  perfilesDeMeta.set(psid, new Error("(#100) falta Business Asset User Profile Access"));
+
+  const res = await enviar(
+    payload({ object: "page", cuentaId: negocioC.pageId, senderId: psid, mid }),
+  );
+  assert.equal(res.status, 200);
+  await Promise.all(nombresEnCurso);
+
+  assert.equal(perfilesPedidos.length, 1);
+  const contacto = await contactoDe("MESSENGER", psid);
+  assert.equal(contacto.firstName, "Messenger");
+  assert.equal(contacto.lastName, `…${psid.slice(-8)}`);
+  const { entrante, job } = await jobDe(mid);
+  const conversacion = await prisma.conversation.findUniqueOrThrow({
+    where: { id: entrante.conversationId },
+  });
+  assert.equal(conversacion.contactId, contacto.id, "el mensaje quedó en su conversación");
+  assert.ok(job, "el turno quedó encolado");
 });

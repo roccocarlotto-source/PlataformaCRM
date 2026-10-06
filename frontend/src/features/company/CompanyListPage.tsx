@@ -194,7 +194,23 @@ export function CompanyListPage() {
                 const ownerName = nombreDeAsignado(company.ownerId);
                 return (
                   <tr key={company.id}>
-                    <td className="ds-cell-primary">{company.name}</td>
+                    {/* El nombre abre la ficha. La de una empresa es de ADMIN
+                        (la ruta /companies/:id/edit lo exige), así que a un
+                        USER le abre el detalle en solo lectura, con los datos
+                        que el listado ya trae. */}
+                    <td className="ds-cell-primary">
+                      {isAdmin ? (
+                        <Link to={`/companies/${company.id}/edit`}>{company.name}</Link>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ds-linklike"
+                          onClick={() => setDetalleAbierto(company.id)}
+                        >
+                          {company.name}
+                        </button>
+                      )}
+                    </td>
                     <td className="ds-cell-muted">{company.industry ?? ""}</td>
                     <td
                       className="ds-cell-muted ds-cell-truncate"

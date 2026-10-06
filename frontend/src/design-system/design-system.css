@@ -2212,6 +2212,58 @@ fieldset.ds-field {
 }
 
 /* ---------------------------------------------------------------------------
+   Opciones de un campo de lista, una por fila — único consumidor,
+   features/contactCustomField/OptionListEditor.tsx. Vive acá por el mismo
+   motivo que .ds-mapping-rows. Cada fila es el input de la opción y, a su
+   derecha, Subir / Bajar / Borrar (los .ds-row-actions de siempre).
+   La fila NO envuelve: en un celular el input se encoge (min-width: 0) y los
+   tres botones quedan a la derecha, siempre en el mismo lugar. Los botones
+   son cuadrados de --control-height (40px) y no los 32px de una tabla: acá se
+   tocan con el dedo.
+   --------------------------------------------------------------------------- */
+.ds-option-rows {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ds-option-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ds-option-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.ds-option-row input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.ds-option-row .ds-row-actions {
+  flex-shrink: 0;
+  gap: var(--space-1);
+}
+
+.ds-option-row .ds-row-actions .ds-button {
+  width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+}
+
+/* El .ds-hint de fábrica sube 4px para pegarse al control de arriba; acá lo
+   de arriba es el botón "Agregar opción" y necesita aire. */
+.ds-option-hint {
+  margin: var(--space-2) 0 0;
+}
+
+/* ---------------------------------------------------------------------------
    Lista de chips con alta de a uno — hoy con un único consumidor,
    features/vehicle/EquipmentField.tsx (docs/frontend-cambios-pendientes.md
    §21). Vive acá por el mismo motivo que .ds-mapping-rows. El chip en sí es

@@ -265,6 +265,33 @@ describe("ContactListPage", () => {
     expect(screen.queryByText("Eliminar")).not.toBeInTheDocument();
   });
 
+  it("el nombre abre la ficha del contacto, también para un USER que no lo tiene asignado (la ve en solo lectura)", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      http.get(contactsUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeContact({ id: "c-ajeno", ownerId: "otro-vendedor" }),
+            makeContact({ id: "c-propio", firstName: "Luis", lastName: "Gómez", ownerId: "u1" }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    // Un link de verdad (se tabula, se abre en otra pestaña), no un click en la fila.
+    expect(await screen.findByRole("link", { name: "Juana Pérez" })).toHaveAttribute(
+      "href",
+      "/contacts/c-ajeno/edit",
+    );
+    expect(screen.getByRole("link", { name: "Luis Gómez" })).toHaveAttribute(
+      "href",
+      "/contacts/c-propio/edit",
+    );
+  });
+
   it("USER ve Editar en el contacto que tiene asignado, pero no Eliminar", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(

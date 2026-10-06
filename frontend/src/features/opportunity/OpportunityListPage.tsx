@@ -317,7 +317,12 @@ function OpportunityTableView() {
 
                 return (
                   <tr key={opportunity.id}>
-                    <td>{opportunity.title}</td>
+                    {/* El título abre la ficha, para todos los roles: quien
+                        no puede editarla (D2) la ve en solo lectura, que es
+                        lo que ya hace OpportunityFormPage. */}
+                    <td>
+                      <Link to={`/opportunities/${opportunity.id}/edit`}>{opportunity.title}</Link>
+                    </td>
                     {/* Empresa y/o Contacto, con el criterio de
                       OpportunityAssociation (compartido con el embudo). */}
                     <td>
