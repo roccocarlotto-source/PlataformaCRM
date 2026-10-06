@@ -16,6 +16,7 @@ import {
   MENSAJE_RENOMBRES_SIN_OPCIONES,
   MENSAJE_TIPO_INMUTABLE,
   MENSAJE_TOPE_DE_CAMPOS,
+  mensajeDeVariasOpciones,
   actualizarDefinicion,
   borrarDefinicion,
   crearDefinicion,
@@ -36,6 +37,11 @@ import {
 //      renombrar mueve el valor de esos contactos (solo los de la
 //      organización), eliminar los deja con el valor viejo, y ese valor viejo
 //      no impide guardar el contacto.
+//   6. Selección múltiple: valores arreglo validados; el agente agrega una
+//      opción mandando el arreglo completo; el caso de partir «Contado,
+//      financiado, permuta» con cada decisión del diálogo (sin cargar, pasar a
+//      una, pasar a todas las nuevas, conservar); intercambio A↔B; el cambio
+//      de tipo en las dos direcciones; otra organización no se toca.
 // ---------------------------------------------------------------------------
 
 interface Escenario {
@@ -84,14 +90,17 @@ async function montar(etiqueta: string): Promise<Escenario> {
 
 let a: Escenario;
 let b: Escenario;
+// Selección múltiple y decisiones sobre opciones eliminadas (ver abajo).
+let c: Escenario;
 
 before(async () => {
   a = await montar("a");
   b = await montar("b");
+  c = await montar("c");
 });
 
 after(async () => {
-  const escenarios = [a, b].filter(Boolean);
+  const escenarios = [a, b, c].filter(Boolean);
   const ids = escenarios.map((e) => e.organizationId);
   const where = { organizationId: { in: ids } };
   await prisma.contact.deleteMany({ where });
@@ -443,4 +452,297 @@ test("opciones en uso: se cuentan, renombrar mueve a los contactos de ESA organi
     (await listarDefiniciones(b.organizationId)).find((d) => d.id === formaDePago.id)?.options,
     ["Financiado", "Efectivo"],
   );
+});
+
+// --- 6. Selección múltiple ---------------------------------------------------
+
+const OPCION_PARTIDA = "Contado, financiado, permuta";
+
+// El valor de `key` que tiene guardado un contacto.
+async function valorGuardado(id: string, key: string): Promise<unknown> {
+  const contacto = await prisma.contact.findUniqueOrThrow({ where: { id } });
+  return (contacto.customFields as Record<string, unknown> | null)?.[key];
+}
+
+test("múltiple: el valor es un arreglo de opciones vigentes sin repetidas; el agente agrega una mandando el arreglo completo", async () => {
+  const intereses = await crearDefinicion(a.organizationId, {
+    label: "Intereses",
+    type: "MULTI_SELECT",
+    options: ["0 km", "Usados", "Financiación"],
+    agentEditable: true,
+  });
+  assert.equal(intereses.type, "MULTI_SELECT");
+  assert.deepEqual(intereses.options, ["0 km", "Usados", "Financiación"]);
+
+  const contacto = await createContact(a.organizationId, a.userId, {
+    firstName: "Mica",
+    lastName: "Rossi",
+    customFields: { intereses: ["Usados", "Usados", " 0 km "] },
+  });
+  assert.deepEqual(contacto.customFields, { intereses: ["Usados", "0 km"] });
+
+  // Una opción que no existe, o un string suelto, es 400 con el nombre.
+  const ajena = await capturar(() =>
+    updateContact(a.organizationId, a.userId, contacto.id, {
+      customFields: { intereses: ["Usados", "Motos"] },
+    }),
+  );
+  assert.equal(ajena.statusCode, 400);
+  assert.match(ajena.message, /Intereses/);
+  assert.equal(
+    (
+      await capturar(() =>
+        updateContact(a.organizationId, a.userId, contacto.id, {
+          customFields: { intereses: "Usados" },
+        }),
+      )
+    ).statusCode,
+    400,
+  );
+
+  // El agente AGREGA Financiación sin borrar las otras: manda las que ya
+  // tiene más la nueva (es lo que le dicen sus instrucciones).
+  const tool = CATALOGO_DE_TOOLS.get("update_contact_custom_fields")!;
+  const agregada = await tool.ejecutar(
+    { campos: { intereses: ["Usados", "0 km", "Financiación"] } },
+    contextoDe(contacto.id),
+  );
+  assert.equal(agregada.ok, true, JSON.stringify(agregada));
+  assert.deepEqual(await valorGuardado(contacto.id, "intereses"), [
+    "Usados",
+    "0 km",
+    "Financiación",
+  ]);
+  // Y QUITA una de la misma forma.
+  const quitada = await tool.ejecutar(
+    { campos: { intereses: ["Financiación"] } },
+    contextoDe(contacto.id),
+  );
+  assert.equal(quitada.ok, true);
+  assert.deepEqual(await valorGuardado(contacto.id, "intereses"), ["Financiación"]);
+  // El arreglo vacío borra el valor, como null.
+  assert.equal(
+    (await tool.ejecutar({ campos: { intereses: [] } }, contextoDe(contacto.id))).ok,
+    true,
+  );
+  assert.equal(await valorGuardado(contacto.id, "intereses"), undefined);
+});
+
+test("múltiple y lista: el caso de partir «Contado, financiado, permuta», con cada decisión del diálogo, y otra organización intacta", async () => {
+  // Una lista simple y una múltiple con la misma opción "partida", en C.
+  const lista = await crearDefinicion(c.organizationId, {
+    label: "Forma de pago",
+    type: "SELECT",
+    options: [OPCION_PARTIDA, "Leasing"],
+  });
+  const multiple = await crearDefinicion(c.organizationId, {
+    label: "Formas aceptadas",
+    type: "MULTI_SELECT",
+    options: [OPCION_PARTIDA, "Leasing"],
+  });
+  const alta = (firstName: string, customFields: Record<string, unknown>) =>
+    createContact(c.organizationId, c.userId, { firstName, lastName: "C", customFields });
+  const sinCargar = await alta("Sin cargar", { forma_de_pago: OPCION_PARTIDA });
+  const aUna = await alta("A una", {
+    forma_de_pago: "Leasing",
+    formas_aceptadas: [OPCION_PARTIDA],
+  });
+  const aTodas = await alta("A todas", { formas_aceptadas: [OPCION_PARTIDA, "Leasing"] });
+  // En B, un contacto con las mismas keys y el mismo valor: no se toca.
+  const ajeno = await prisma.contact.create({
+    data: {
+      organizationId: b.organizationId,
+      firstName: "Ajeno",
+      lastName: "B",
+      customFields: { forma_de_pago: OPCION_PARTIDA, formas_aceptadas: [OPCION_PARTIDA] },
+    },
+  });
+
+  // Cuántos la tienen: en la múltiple, un contacto cuenta por cada opción.
+  assert.deepEqual(await usoDeOpciones(c.organizationId, lista.id), {
+    [OPCION_PARTIDA]: 1,
+    Leasing: 1,
+  });
+  assert.deepEqual(await usoDeOpciones(c.organizationId, multiple.id), {
+    [OPCION_PARTIDA]: 2,
+    Leasing: 1,
+  });
+
+  // LISTA: partir y "Dejar sin cargar".
+  const partidas = ["Contado", "financiado", "permuta", "Leasing"];
+  const listaPartida = await actualizarDefinicion(c.organizationId, lista.id, {
+    options: partidas,
+    removedOptions: [{ from: OPCION_PARTIDA, action: "clear" }],
+  });
+  assert.deepEqual(listaPartida.options, partidas);
+  assert.equal(await valorGuardado(sinCargar.id, "forma_de_pago"), undefined, "sin cargar");
+  assert.equal(await valorGuardado(aUna.id, "forma_de_pago"), "Leasing", "los demás no se tocan");
+
+  // MÚLTIPLE: partir y "Pasar a todas las nuevas" — el caso de Rocco.
+  await actualizarDefinicion(c.organizationId, multiple.id, {
+    options: partidas,
+    removedOptions: [
+      { from: OPCION_PARTIDA, action: "move", to: ["Contado", "financiado", "permuta"] },
+    ],
+  });
+  assert.deepEqual([...((await valorGuardado(aUna.id, "formas_aceptadas")) as string[])].sort(), [
+    "Contado",
+    "financiado",
+    "permuta",
+  ]);
+  assert.deepEqual(
+    [...((await valorGuardado(aTodas.id, "formas_aceptadas")) as string[])].sort(),
+    ["Contado", "Leasing", "financiado", "permuta"],
+    "conserva lo que ya tenía y suma las tres",
+  );
+
+  // "Pasar a: una" y "Conservar" en la múltiple, en el mismo guardado:
+  // permuta → Leasing (sin repetir Leasing en quien ya lo tenía), financiado
+  // se conserva como opción eliminada.
+  await actualizarDefinicion(c.organizationId, multiple.id, {
+    options: ["Contado", "Leasing"],
+    removedOptions: [
+      { from: "permuta", action: "move", to: ["Leasing"] },
+      { from: "financiado", action: "keep" },
+    ],
+  });
+  assert.deepEqual([...((await valorGuardado(aTodas.id, "formas_aceptadas")) as string[])].sort(), [
+    "Contado",
+    "Leasing",
+    "financiado",
+  ]);
+  assert.deepEqual([...((await valorGuardado(aUna.id, "formas_aceptadas")) as string[])].sort(), [
+    "Contado",
+    "Leasing",
+    "financiado",
+  ]);
+  // La conservada cuenta en el uso aunque ya no sea opción; la ficha la
+  // sigue aceptando porque no cambia (soloLosQueCambian).
+  assert.equal((await usoDeOpciones(c.organizationId, multiple.id)).financiado, 2);
+  const guardado = await updateContact(c.organizationId, c.userId, aUna.id, {
+    firstName: "A una (editado)",
+    customFields: { formas_aceptadas: await valorGuardado(aUna.id, "formas_aceptadas") },
+  });
+  assert.equal(guardado.firstName, "A una (editado)");
+
+  // "Dejar sin cargar" en la múltiple: si era la única, el valor se borra.
+  const soloContado = await alta("Solo contado", { formas_aceptadas: ["Contado"] });
+  await actualizarDefinicion(c.organizationId, multiple.id, {
+    options: ["Leasing"],
+    removedOptions: [{ from: "Contado", action: "clear" }],
+  });
+  assert.equal(await valorGuardado(soloContado.id, "formas_aceptadas"), undefined);
+  assert.deepEqual([...((await valorGuardado(aTodas.id, "formas_aceptadas")) as string[])].sort(), [
+    "Leasing",
+    "financiado",
+  ]);
+
+  // Otra organización: nada de esto la tocó.
+  const deB = await prisma.contact.findUniqueOrThrow({ where: { id: ajeno.id } });
+  assert.deepEqual(deB.customFields, {
+    forma_de_pago: OPCION_PARTIDA,
+    formas_aceptadas: [OPCION_PARTIDA],
+  });
+  // Y una decisión inválida (destino que no es opción nueva) es 400 sin tocar nada.
+  const invalida = await capturar(() =>
+    actualizarDefinicion(c.organizationId, multiple.id, {
+      options: ["Leasing", "Cheque"],
+      removedOptions: [{ from: "Leasing", action: "move", to: ["Otra"] }],
+    }),
+  );
+  assert.equal(invalida.statusCode, 400);
+});
+
+test("múltiple: renombrar e intercambiar A↔B mueve los elementos del arreglo sin pisarse", async () => {
+  const colores = await crearDefinicion(c.organizationId, {
+    label: "Colores",
+    type: "MULTI_SELECT",
+    options: ["Rojo", "Azul", "Verde"],
+  });
+  const uno = await createContact(c.organizationId, c.userId, {
+    firstName: "Uno",
+    lastName: "C",
+    customFields: { colores: ["Rojo", "Verde"] },
+  });
+  const dos = await createContact(c.organizationId, c.userId, {
+    firstName: "Dos",
+    lastName: "C",
+    customFields: { colores: ["Azul"] },
+  });
+
+  await actualizarDefinicion(c.organizationId, colores.id, {
+    options: ["Azul", "Rojo", "Verde oscuro"],
+    renamedOptions: [
+      { from: "Rojo", to: "Azul" },
+      { from: "Azul", to: "Rojo" },
+      { from: "Verde", to: "Verde oscuro" },
+    ],
+  });
+  assert.deepEqual([...((await valorGuardado(uno.id, "colores")) as string[])].sort(), [
+    "Azul",
+    "Verde oscuro",
+  ]);
+  assert.deepEqual(await valorGuardado(dos.id, "colores"), ["Rojo"]);
+});
+
+test("cambio de tipo: lista → múltiple envuelve cada valor; múltiple → lista solo si nadie tiene más de una (409 que lo explica)", async () => {
+  const combustible = await crearDefinicion(c.organizationId, {
+    label: "Combustibles",
+    type: "SELECT",
+    options: ["Nafta", "Diésel", "GNC"],
+  });
+  const nafta = await createContact(c.organizationId, c.userId, {
+    firstName: "Nafta",
+    lastName: "C",
+    customFields: { combustibles: "Nafta" },
+  });
+  const sinValor = await createContact(c.organizationId, c.userId, {
+    firstName: "Sin valor",
+    lastName: "C",
+  });
+
+  // A otro tipo que no sea múltiple, no.
+  const aTexto = await capturar(() =>
+    actualizarDefinicion(c.organizationId, combustible.id, { type: "TEXT" }),
+  );
+  assert.equal(aTexto.statusCode, 400);
+  assert.equal(aTexto.message, MENSAJE_TIPO_INMUTABLE);
+
+  const multiple = await actualizarDefinicion(c.organizationId, combustible.id, {
+    type: "MULTI_SELECT",
+  });
+  assert.equal(multiple.type, "MULTI_SELECT");
+  assert.deepEqual(multiple.options, ["Nafta", "Diésel", "GNC"], "las opciones no cambian");
+  assert.deepEqual(await valorGuardado(nafta.id, "combustibles"), ["Nafta"]);
+  assert.equal(await valorGuardado(sinValor.id, "combustibles"), undefined);
+  // Ahora acepta varias.
+  await updateContact(c.organizationId, c.userId, nafta.id, {
+    customFields: { combustibles: ["Nafta", "GNC"] },
+  });
+
+  // Volver a lista con alguien que tiene dos: 409 que dice cuántos, y nada cambia.
+  const bloqueado = await capturar(() =>
+    actualizarDefinicion(c.organizationId, combustible.id, { type: "SELECT" }),
+  );
+  assert.equal(bloqueado.statusCode, 409);
+  assert.equal(bloqueado.message, mensajeDeVariasOpciones("Combustibles", 1));
+  assert.equal(
+    (await listarDefiniciones(c.organizationId)).find((d) => d.id === combustible.id)?.type,
+    "MULTI_SELECT",
+  );
+  assert.deepEqual(await valorGuardado(nafta.id, "combustibles"), ["Nafta", "GNC"]);
+
+  // Con una sola por contacto, vuelve: el arreglo de uno pasa a ese valor.
+  await updateContact(c.organizationId, c.userId, nafta.id, {
+    customFields: { combustibles: ["GNC"] },
+  });
+  const lista = await actualizarDefinicion(c.organizationId, combustible.id, { type: "SELECT" });
+  assert.equal(lista.type, "SELECT");
+  assert.equal(await valorGuardado(nafta.id, "combustibles"), "GNC");
+  const unaSola = await capturar(() =>
+    updateContact(c.organizationId, c.userId, nafta.id, {
+      customFields: { combustibles: ["Nafta", "GNC"] },
+    }),
+  );
+  assert.equal(unaSola.statusCode, 400, "ya es una lista de una");
 });

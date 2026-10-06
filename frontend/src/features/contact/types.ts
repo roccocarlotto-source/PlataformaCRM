@@ -99,7 +99,7 @@ export interface CreateContactInput {
   ownerId?: string;
   // B6: { key: valor }; null borra el valor. Solo claves de definiciones de
   // la organización; el backend rechaza el resto con 400.
-  customFields?: Record<string, string | number | boolean | null>;
+  customFields?: Record<string, string | number | boolean | string[] | null>;
 }
 
 // El vehículo de interés solo se edita desde la ficha (PATCH): null lo quita.

@@ -867,6 +867,8 @@ export function bloqueDeCamposPersonalizados(
         return "true o false";
       case "SELECT":
         return `una de: ${def.options.join(" | ")}`;
+      case "MULTI_SELECT":
+        return `un arreglo con TODAS las que quedan elegidas, entre: ${def.options.join(" | ")}. Para agregar o quitar una, mandá las que ya tiene (están arriba) más o menos esa: el arreglo reemplaza al guardado`;
     }
   };
   const escritura =

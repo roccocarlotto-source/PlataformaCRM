@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -319,6 +319,60 @@ describe("ContactFormPage", () => {
     await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
     expect(patchedBody?.firstName).toBe("Ana María");
     expect(patchedBody?.customFields).toEqual({ forma_de_pago: "Permuta" });
+  });
+
+  // Selección múltiple: casillas en el orden de la definición; el valor es el
+  // arreglo de las marcadas, y una opción eliminada que el contacto tenía se
+  // muestra marcada al final.
+  it("B6: una selección múltiple se edita con casillas y el PATCH manda el arreglo completo (null al desmarcar todas)", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeContact({
+            id: params.id as string,
+            firstName: "Ana",
+            customFields: { intereses: ["Usados", "Vieja"] },
+          }),
+        ),
+      ),
+      http.patch(`${contactsUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeContact({ id: "ct1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit", [
+      makeDefinicion({
+        id: "d1",
+        key: "intereses",
+        label: "Intereses",
+        type: "MULTI_SELECT",
+        options: ["0 km", "Usados", "Financiación"],
+      }),
+    ]);
+
+    const grupo = await screen.findByRole("group", { name: "Intereses" });
+    const casillas = within(grupo).getAllByRole("checkbox");
+    expect(casillas.map((c) => c.closest("label")?.textContent)).toEqual([
+      "0 km",
+      "Usados",
+      "Financiación",
+      "Vieja (opción eliminada)",
+    ]);
+    expect(within(grupo).getByLabelText("0 km")).not.toBeChecked();
+    expect(within(grupo).getByLabelText("Usados")).toBeChecked();
+    expect(within(grupo).getByLabelText("Vieja (opción eliminada)")).toBeChecked();
+
+    // Marcar una, desmarcar la eliminada: viaja el arreglo entero, en el
+    // orden de la definición.
+    await user.click(within(grupo).getByLabelText("Financiación"));
+    await user.click(within(grupo).getByLabelText("Vieja (opción eliminada)"));
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
+    expect(patchedBody?.customFields).toEqual({ intereses: ["Usados", "Financiación"] });
   });
 
   it("vehículo de interés: una unidad dada de baja se sigue mostrando con su estado, la del agente lo dice, y Quitar manda null", async () => {

@@ -111,6 +111,9 @@ function valoresGuardados(json: unknown): Record<string, ContactCustomFieldValue
   for (const [key, valor] of Object.entries(json as Record<string, unknown>)) {
     if (typeof valor === "string" || typeof valor === "number" || typeof valor === "boolean") {
       valores[key] = valor;
+    } else if (Array.isArray(valor) && valor.every((v) => typeof v === "string")) {
+      // Una selección múltiple.
+      valores[key] = valor as string[];
     }
   }
   return valores;
