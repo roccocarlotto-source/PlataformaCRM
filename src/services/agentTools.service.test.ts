@@ -9,6 +9,7 @@ import {
   MENSAJE_PERDIDA_SIN_MOTIVO,
   MENSAJE_SERVICIO_SIN_IDENTIFICAR,
   NOMBRE_TOOL_PAGO,
+  ORIGEN_POR_CANAL,
   SUFIJO_ERROR_DE_ARGUMENTOS,
   canonizarNombreDeTool,
   resumenDeBusqueda,
@@ -17,6 +18,18 @@ import {
   tituloConUnidad,
   precioOcultoParaElModelo,
 } from "./agentTools.service";
+
+// B2 (migración 20261022120000): todo canal tiene su origen de oportunidad.
+// Antes Messenger e Instagram no estaban en el mapa y la oportunidad que el
+// agente creaba por esos canales quedaba sin origen.
+test("B2: ORIGEN_POR_CANAL cubre los cuatro canales, con Messenger e Instagram", () => {
+  assert.deepEqual(ORIGEN_POR_CANAL, {
+    WEB: "WEBSITE",
+    WHATSAPP: "WHATSAPP",
+    MESSENGER: "MESSENGER",
+    INSTAGRAM: "INSTAGRAM",
+  });
+});
 
 // Unitarios, SIN BASE: lo que se prueba acá es la forma del catálogo y la
 // validación de argumentos de cada wrapper, que ocurre ANTES de tocar Postgres.
