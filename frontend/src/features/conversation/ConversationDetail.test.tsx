@@ -892,6 +892,59 @@ describe("ConversationDetail", () => {
     confirm.mockRestore();
   });
 
+  // B5: "Crear cupón" desde la conversación, el mismo diálogo que en la ficha
+  // del contacto, para ADMIN y USER, con la sucursal de la conversación ya
+  // elegida y el POST al contacto del hilo.
+  it("B5: un USER puede abrir «Crear cupón» desde la conversación; el diálogo trae la sucursal de la conversación y crea el cupón para el contacto del hilo", async () => {
+    const user = userEvent.setup();
+    let cuerpo: unknown = null;
+    server.use(
+      http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))),
+      http.get(`${env.apiUrl}/api/branches`, () =>
+        HttpResponse.json({
+          data: [
+            { id: "branch-1", name: "Centro", timezone: "America/Montevideo" },
+            { id: "branch-2", name: "Norte", timezone: "America/Montevideo" },
+          ],
+          meta: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
+        }),
+      ),
+      http.post(`${env.apiUrl}/api/vouchers`, async ({ request }) => {
+        cuerpo = await request.json();
+        return HttpResponse.json(
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            contactId: "contact-1",
+            branchId: "branch-1",
+            label: "10% en service",
+            publicUrl: "https://example.test/c/abc",
+            status: "ACTIVE",
+            expiresAt: "2026-12-31T00:00:00.000Z",
+          },
+          { status: 201 },
+        );
+      }),
+      http.get(`${env.apiUrl}/api/vouchers/11111111-1111-4111-8111-111111111111/whatsapp`, () =>
+        HttpResponse.json({ disponible: false, motivo: "sin número", conversationId: null }),
+      ),
+    );
+
+    renderDetail("USER");
+
+    await user.click(await screen.findByRole("button", { name: "Crear cupón" }));
+    const dialogo = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialogo).getByRole("combobox", { name: "Sucursal" })).toHaveValue("Centro"),
+    );
+
+    await user.type(within(dialogo).getByLabelText("Descuento"), "10% en service");
+    await user.click(within(dialogo).getByRole("button", { name: "Crear cupón" }));
+
+    await waitFor(() => expect(cuerpo).not.toBeNull());
+    expect(cuerpo).toMatchObject({ contactId: "contact-1", branchId: "branch-1" });
+    expect(await screen.findByText("Cupón creado")).toBeInTheDocument();
+  });
+
   it("una derivada a un humano también se puede cerrar, y un USER ve el botón", async () => {
     server.use(
       http.get(detailUrl, () =>

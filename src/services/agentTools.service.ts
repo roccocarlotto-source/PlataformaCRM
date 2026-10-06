@@ -130,6 +130,15 @@ export function mensajeFaltanDatosPorWeb(faltan: string[]): string {
   return `Todavía no se puede: antes de reservar o registrar la oportunidad hace falta ${faltan.join(" y ")} del cliente. Pedíselo, guardalo con update_lead (firstName, lastName, phone, email) y recién después volvé a llamar a esta herramienta. No le digas que quedó reservado ni registrado: todavía no se hizo nada.`;
 }
 
+// FABLE-A-02 (B3, 05/10/2026): por WEB las tools no devuelven el email ni el
+// teléfono guardados del contacto. El visitante del widget es anónimo (una
+// cookie de sesión), y detrás puede haber un contacto unido, importado o de
+// otra persona que usó el mismo navegador: afirmarle "tu mail es tal" es
+// filtrar un dato personal. Lo que el visitante escribe en esta conversación
+// sí se usa (y se guarda con update_lead).
+export const NOTA_DATOS_RESERVADOS_EN_WEB =
+  "Por el canal web no se devuelven el email ni el teléfono guardados. No afirmes que los tenés: si los necesitás, pedíselos al cliente y usá solo los que te dé en esta conversación.";
+
 // null = se puede seguir. Lee el contacto vigente: el update_lead de la misma
 // ronda ya quedó guardado.
 async function bloqueoPorIdentidadEnWeb(
@@ -599,7 +608,7 @@ const createOpportunityTool: ToolDelAgente = {
         vehiculo: {
           type: "string",
           description:
-            'Marca y modelo del vehículo que le interesa al cliente, como figura en el stock (por ejemplo "Hilux SRV"). Mandalo siempre que la conversación sea por una unidad concreta.',
+            'Marca y modelo del vehículo que le interesa al cliente, como figura en el stock (por ejemplo "Hilux SRV"). Mandalo siempre que la conversación sea por una unidad concreta. La unidad queda anotada en la ficha del contacto como su vehículo de interés; NO la reserva.',
         },
         amount: {
           type: "number",
@@ -706,12 +715,15 @@ const createOpportunityTool: ToolDelAgente = {
                 }),
           });
         }
+        let interesDelReuso: Record<string, unknown> = {};
         if (input.vehiculo !== undefined) {
           const resuelto = await resolverVehiculo(input.vehiculo, contexto);
           if (!resuelto.ok) {
             return resuelto.resultado;
           }
           unidadDelReuso = resuelto.vehiculo.etiqueta;
+          // B1: también como vehículo de interés en la ficha.
+          interesDelReuso = await anotarInteresEnLaUnidad(resuelto.vehiculo, contexto);
           // F2: la unidad siempre nombrada en el título, sin duplicarla.
           cambios.title = tituloConUnidad(input.title, unidadDelReuso);
           if (input.amount === undefined && resuelto.vehiculo.priceListUsd !== null) {
@@ -747,6 +759,7 @@ const createOpportunityTool: ToolDelAgente = {
           ...(unidadDelReuso !== null
             ? { unidad: unidadDelReuso, unidadReservada: false, nota: NOTA_UNIDAD_DE_INTERES }
             : {}),
+          ...interesDelReuso,
         });
       }
 
@@ -804,6 +817,9 @@ const createOpportunityTool: ToolDelAgente = {
       let amount = input.amount;
       let currency = input.currency;
       let title = input.title;
+      // B1: la unidad elegida queda además como vehículo de interés en la
+      // ficha del contacto (ver anotarInteresEnLaUnidad).
+      let interes: Record<string, unknown> = {};
       if (input.vehiculo !== undefined) {
         const resuelto = await resolverVehiculo(input.vehiculo, contexto);
         if (!resuelto.ok) {
@@ -815,6 +831,7 @@ const createOpportunityTool: ToolDelAgente = {
           amount = resuelto.vehiculo.priceListUsd;
           currency = currency ?? "USD";
         }
+        interes = await anotarInteresEnLaUnidad(resuelto.vehiculo, contexto);
       }
 
       const opportunity = await createOpportunity(contexto.organizationId, ownerId, {
@@ -837,6 +854,7 @@ const createOpportunityTool: ToolDelAgente = {
         ...(unidad === undefined
           ? {}
           : { unidad, unidadReservada: false, nota: NOTA_UNIDAD_DE_INTERES }),
+        ...interes,
         stage: primeraEtapa.name,
         reused: false,
       });
@@ -1011,7 +1029,7 @@ const updateOpportunityTool: ToolDelAgente = {
         vehiculo: {
           type: "string",
           description:
-            "Marca y modelo del vehículo que le interesa al cliente, como figura en el stock. Usalo cuando el cliente cambia de unidad: el monto se reajusta al precio de lista de la nueva.",
+            "Marca y modelo del vehículo que le interesa al cliente, como figura en el stock. Usalo cuando el cliente cambia de unidad: el monto se reajusta al precio de lista de la nueva, y la nueva queda anotada en la ficha del contacto como su vehículo de interés (NO la reserva).",
         },
       },
       required: [],
@@ -1050,6 +1068,8 @@ const updateOpportunityTool: ToolDelAgente = {
       // igual que al crear, y el monto se reajusta al precio de la unidad
       // nueva salvo que el modelo mande uno explícito.
       const cambiosConVehiculo = { ...cambios };
+      // B1: la unidad nueva queda además como vehículo de interés en la ficha.
+      let interes: Record<string, unknown> = {};
       if (vehiculo !== undefined) {
         const resuelto = await resolverVehiculo(vehiculo, contexto);
         if (!resuelto.ok) {
@@ -1059,6 +1079,7 @@ const updateOpportunityTool: ToolDelAgente = {
           cambiosConVehiculo.amount = resuelto.vehiculo.priceListUsd;
           cambiosConVehiculo.currency = cambiosConVehiculo.currency ?? "USD";
         }
+        interes = await anotarInteresEnLaUnidad(resuelto.vehiculo, contexto);
       }
 
       // actorUserId = el ownerId que la oportunidad ya tiene. Es inerte en este
@@ -1077,6 +1098,7 @@ const updateOpportunityTool: ToolDelAgente = {
         ...(await montoParaElModelo(actualizada, contexto)),
         status: actualizada.status,
         lostReason: actualizada.lostReason,
+        ...interes,
       });
     });
   },
@@ -1779,16 +1801,30 @@ async function anotarVehiculoDeInteres(
     const motivo = resuelto.resultado.ok ? null : resuelto.resultado.error;
     return { vehiculoDeInteres: { guardado: false, motivo } };
   }
+  return anotarInteresEnLaUnidad(resuelto.vehiculo, contexto);
+}
+
+// B1 (05/10/2026): la unidad que el cliente eligió queda como vehículo de
+// interés del contacto TAMBIÉN cuando llega por `vehiculo` de
+// create_opportunity / update_opportunity, no solo por `vehiculoDeInteres` de
+// create_lead / update_lead. Es la misma anotación en la ficha (F2): no
+// reserva nada ni toca Opportunity.vehicleId, que sigue siendo cosa de un
+// vendedor (o de reserve_vehicle, si un ADMIN la habilitó). Con la misma
+// regla de no pisar lo que cargó una persona.
+async function anotarInteresEnLaUnidad(
+  vehiculo: { id: string; etiqueta: string },
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<Record<string, unknown>> {
   const resultado = await asignarVehiculoDeInteresDesdeElAgente(
     contexto.organizationId,
     contexto.conversation.contactId,
-    resuelto.vehiculo.id,
+    vehiculo.id,
   );
   return resultado === "guardado"
     ? {
         vehiculoDeInteres: {
           guardado: true,
-          unidad: resuelto.vehiculo.etiqueta,
+          unidad: vehiculo.etiqueta,
           nota: NOTA_VEHICULO_DE_INTERES,
         },
       }
@@ -1840,8 +1876,22 @@ function ejecutarCalificacion(
       // la calificación (ítem 100).
       firstName: contacto.firstName,
       lastName: contacto.lastName,
-      email: contacto.email,
-      phone: contacto.phone,
+      // FABLE-A-02 (B3): por WEB, solo lo que el visitante dio en esta llamada.
+      // Si ya había otro guardado (identidadIgnorada), el modelo se entera de
+      // que no se actualizó, pero nunca del valor guardado.
+      ...(contexto.conversation.channel === ConversationChannel.WEB
+        ? {
+            email:
+              input.email !== undefined && !identidadIgnorada.includes("email")
+                ? contacto.email
+                : null,
+            phone:
+              input.phone !== undefined && !identidadIgnorada.includes("phone")
+                ? contacto.phone
+                : null,
+            datosReservados: NOTA_DATOS_RESERVADOS_EN_WEB,
+          }
+        : { email: contacto.email, phone: contacto.phone }),
       ...(identidadIgnorada.length > 0
         ? {
             noSeActualizo: identidadIgnorada,
@@ -2169,7 +2219,7 @@ const getContactInfoTool: ToolDelAgente = {
   definition: {
     name: "get_contact_info",
     description:
-      "Devuelve los datos que el CRM tiene cargados del contacto de esta conversación (nombre, apellido, email, teléfono). Usala para saber si ya tenés el nombre de la persona antes de preguntárselo de nuevo, o antes de derivar, para que la persona que retome tenga contexto.",
+      "Devuelve los datos que el CRM tiene cargados del contacto de esta conversación (nombre, apellido, email, teléfono). Usala para saber si ya tenés el nombre de la persona antes de preguntárselo de nuevo, o antes de derivar, para que la persona que retome tenga contexto. Por el canal web el email y el teléfono guardados no se devuelven.",
     parameters: sinParametros,
   },
 
@@ -2177,6 +2227,18 @@ const getContactInfoTool: ToolDelAgente = {
     const contact = await findContactById(contexto.conversation.contactId, contexto.organizationId);
     if (!contact) {
       return fallo("El contacto de esta conversación ya no existe");
+    }
+    // FABLE-A-02 (B3): por WEB, nunca el email ni el teléfono guardados. Ver
+    // AVISO_DE_DATOS_RESERVADOS_EN_WEB en agentOrchestration.service.ts.
+    if (contexto.conversation.channel === ConversationChannel.WEB) {
+      return exito({
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        email: null,
+        phone: null,
+        companyId: contact.companyId,
+        datosReservados: NOTA_DATOS_RESERVADOS_EN_WEB,
+      });
     }
     return exito({
       firstName: contact.firstName,

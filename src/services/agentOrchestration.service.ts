@@ -784,6 +784,17 @@ export function envolverDatosDelCrm(contenido: string): string {
   return envolverEnEtiqueta(contenido, ETIQUETA_DATOS_DEL_CRM);
 }
 
+// FABLE-A-02 (docs-privados/auditoria-2026-10-05-FABLE.md, local): por el
+// canal WEB el email y el teléfono guardados NO van al prompt, y las tools que
+// devuelven datos del contacto tampoco los dan (ver agentTools.service.ts).
+// El visitante del widget es anónimo: la sesión la identifica una cookie, y
+// el contacto detrás puede venir de una unión, de una importación o de otra
+// persona que usó el mismo navegador. Decirle "tu mail es tal" a quien no lo
+// dijo es filtrar un dato personal. El agente usa solo lo que esa persona
+// escribe en esta conversación.
+export const AVISO_DE_DATOS_RESERVADOS_EN_WEB =
+  "Por este canal NO se te muestran el email ni el teléfono que el CRM pueda tener guardados, y no debés afirmar ni insinuar que los tenés. Si los necesitás, pedíselos a la persona y usá solo los que te dé en esta conversación.";
+
 export function bloqueDeContacto(
   contact: {
     firstName: string;
@@ -791,16 +802,18 @@ export function bloqueDeContacto(
     email: string | null;
     phone: string | null;
   } & CalificacionEnElPrompt,
+  canal?: ConversationChannel,
 ): string {
+  const reservados = canal === "WEB";
   const nombre = nombreUsableDelContacto(contact);
   const datos: string[] = [];
   if (nombre !== null) {
     datos.push(`nombre: ${nombre}`);
   }
-  if (tieneContenidoReal(contact.email)) {
+  if (!reservados && tieneContenidoReal(contact.email)) {
     datos.push(`email: ${contact.email}`);
   }
-  if (tieneContenidoReal(contact.phone)) {
+  if (!reservados && tieneContenidoReal(contact.phone)) {
     datos.push(`teléfono: ${contact.phone}`);
   }
   datos.push(...datosDeCalificacion(contact));
@@ -808,10 +821,12 @@ export function bloqueDeContacto(
   if (datos.length === 0) {
     // Sin ningún dato real, decirlo explícito es mejor que callar: el modelo
     // sabe que puede preguntar el nombre sin estar repitiendo una pregunta.
-    return "De la persona con la que estás hablando el CRM todavía no tiene ningún dato cargado (ni nombre, ni email, ni teléfono). Si lo necesitás para avanzar, podés preguntárselo.";
+    return reservados
+      ? `De la persona con la que estás hablando el CRM todavía no tiene el nombre cargado. Si lo necesitás para avanzar, podés preguntárselo. ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}`
+      : "De la persona con la que estás hablando el CRM todavía no tiene ningún dato cargado (ni nombre, ni email, ni teléfono). Si lo necesitás para avanzar, podés preguntárselo.";
   }
 
-  return `Datos que el CRM YA tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(datos.join(", "))}\nNo se los vuelvas a pedir: usalos. ${nombre === null ? "Su nombre no está cargado: si lo necesitás, ahí sí preguntáselo." : "Llamala por su nombre cuando sea natural hacerlo."}`;
+  return `Datos que el CRM YA tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(datos.join(", "))}\nNo se los vuelvas a pedir: usalos. ${nombre === null ? "Su nombre no está cargado: si lo necesitás, ahí sí preguntáselo." : "Llamala por su nombre cuando sea natural hacerlo."}${reservados ? ` ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}` : ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -979,6 +994,10 @@ export function armarSystemPrompt(
   // Los cupones del contacto, ya leídos (ver bloqueDeCupones). Vacío o
   // ausente: el bloque no aparece.
   cupones: CuponEnElPrompt[] = [],
+  // El canal de la conversación: por WEB el bloque del contacto no lleva el
+  // email ni el teléfono guardados (ver bloqueDeContacto). Opcional para los
+  // tests que arman el prompt sin conversación.
+  canal?: ConversationChannel,
 ): string {
   const partes = [agent.instructions.trim()];
 
@@ -995,7 +1014,7 @@ export function armarSystemPrompt(
   // Ítem 105: con la fecha, porque es de la misma clase — contexto del turno
   // que el backend ya tiene y el modelo no tiene por qué ir a buscar.
   if (contacto) {
-    partes.push(bloqueDeContacto(contacto));
+    partes.push(bloqueDeContacto(contacto, canal));
   }
 
   // Pegado a los datos del contacto: son de la misma persona.
@@ -1995,6 +2014,7 @@ export async function responderEnLaConversacion(
     contact,
     fueraDeHorario,
     cuponesDelContacto,
+    conversation.channel,
   );
   const mensajes = ordenarPendientesAlFinal(
     ultimosMensajes,

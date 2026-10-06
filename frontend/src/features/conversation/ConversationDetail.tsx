@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { useConfirm } from "../../design-system/useConfirm";
@@ -13,6 +14,7 @@ import { formatDateTime } from "../../design-system/detailFormat";
 import { CHANNEL_LABEL } from "../agent/labels";
 import { ConversationBriefCard } from "./ConversationBriefCard";
 import { ConversationReplyCard } from "./ConversationReplyCard";
+import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import {
   DELIVERY_STATUS_LABEL,
   MARCA_SIN_RESPUESTA,
@@ -186,6 +188,10 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
   const reintentar = useRetryConversationMessage(id ?? "");
   const { me } = useAuth();
   const isAdmin = me?.role === "ADMIN";
+  // B5: "Crear cupón" desde la conversación, el mismo diálogo y las mismas
+  // reglas que en la ficha del contacto (#408). Para ADMIN y USER; el backend
+  // decide (403 si el vendedor no es el dueño del contacto).
+  const [creandoCupon, setCreandoCupon] = useState(false);
   // El pop up ya tiene su propio encabezado (el título del Modal) y su propio
   // cierre: repetir adentro un <h1> "Conversación" y un "Volver a
   // Conversaciones" que vuelve a donde ya se está sería ruido.
@@ -271,13 +277,25 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
       <div className="ds-stack">
         <Card heading="Datos de la conversación">
           <DetailList sections={sections} />
-          {/* Solo mientras está abierta: una CLOSED no tiene nada que cerrar. */}
-          {conversation.status !== "CLOSED" ? (
-            <div className="ds-card-actions">
+          <div className="ds-card-actions">
+            {/* B5: el mismo diálogo que en la ficha del contacto, con la
+                sucursal de la conversación ya elegida. */}
+            <Button type="button" onClick={() => setCreandoCupon(true)}>
+              Crear cupón
+            </Button>
+            {/* Solo mientras está abierta: una CLOSED no tiene nada que cerrar. */}
+            {conversation.status !== "CLOSED" ? (
               <Button onClick={handleCerrar} disabled={cerrar.isPending} loading={cerrar.isPending}>
                 {cerrar.isPending ? "Cerrando…" : "Cerrar conversación"}
               </Button>
-            </div>
+            ) : null}
+          </div>
+          {creandoCupon ? (
+            <CreateVoucherDialog
+              contactId={conversation.contactId}
+              branchIdInicial={conversation.branchId}
+              onClose={() => setCreandoCupon(false)}
+            />
           ) : null}
           {cerrar.error ? (
             <ErrorState>

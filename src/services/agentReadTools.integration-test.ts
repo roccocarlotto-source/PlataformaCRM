@@ -1295,6 +1295,61 @@ test("create_opportunity con `vehiculo` vincula la unidad y completa el monto", 
   // Pero el modelo sí se entera de qué unidad se entendió, para poder
   // mencionarla en su respuesta.
   assert.match(data.unidad ?? "", /Hilux/);
+
+  // B1 (05/10/2026): la unidad elegida queda como vehículo de interés en la
+  // ficha del contacto (lo mismo que hace update_lead con vehiculoDeInteres),
+  // cargada por el AGENTE. Sigue sin reservar nada.
+  const ficha = await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } });
+  assert.equal(ficha.vehicleOfInterestId, hiluxSrv, "queda como vehículo de interés");
+  assert.equal(ficha.vehicleOfInterestSetBy, "AGENT");
+  assert.equal(
+    (data as { vehiculoDeInteres?: { guardado: boolean } }).vehiculoDeInteres?.guardado,
+    true,
+  );
+});
+
+test("B1: update_opportunity con `vehiculo` también anota la unidad como vehículo de interés, sin pisar la que cargó una persona", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const { opportunityId } = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Consulta" },
+    ctx,
+  );
+  assert.equal(
+    (await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } })).vehicleOfInterestId,
+    null,
+    "sin `vehiculo` no se anota nada",
+  );
+
+  const data = await datosDe<{ vehiculoDeInteres?: { guardado: boolean } }>(
+    "update_opportunity",
+    { opportunityId, vehiculo: "Hilux SRV" },
+    ctx,
+  );
+  assert.equal(data.vehiculoDeInteres?.guardado, true);
+  const ficha = await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } });
+  assert.equal(ficha.vehicleOfInterestId, hiluxSrv);
+  assert.equal(ficha.vehicleOfInterestSetBy, "AGENT");
+  const guardada = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
+  assert.equal(guardada.vehicleId, null, "anotar el interés no vincula ni reserva");
+
+  // Una persona lo cargó: el agente no lo pisa, y la oportunidad se actualiza igual.
+  await prisma.contact.update({
+    where: { id: contacto.id },
+    data: { vehicleOfInterestId: hiluxSrv, vehicleOfInterestSetBy: "HUMAN" },
+  });
+  const otra = await datosDe<{ title: string; vehiculoDeInteres?: { guardado: boolean } }>(
+    "update_opportunity",
+    { opportunityId, vehiculo: "Hilux SRV", title: "Cambió de idea" },
+    ctx,
+  );
+  assert.equal(otra.vehiculoDeInteres?.guardado, false);
+  assert.equal(otra.title, "Cambió de idea");
+  assert.equal(
+    (await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } })).vehicleOfInterestSetBy,
+    "HUMAN",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -2533,10 +2588,47 @@ test("D3: update_lead guarda el teléfono si el contacto no tenía; uno inválid
   assert.equal(guardado.phone, propio);
   assert.equal(guardado.noSeActualizo, undefined);
 
-  // Y ya cargado, el chat no lo pisa.
+  // Y ya cargado, el chat no lo pisa. Por WEB (FABLE-A-02 / B3) el modelo se
+  // entera de que no se actualizó, pero NUNCA del teléfono guardado.
   const pisar = await datosDe<Lead>("update_lead", { phone: "+59899000001" }, ctx);
-  assert.equal(pisar.phone, propio);
+  assert.equal(pisar.phone, null);
+  assert.doesNotMatch(JSON.stringify(pisar), new RegExp(propio.slice(1)));
   assert.deepEqual(pisar.noSeActualizo, ["phone"]);
+});
+
+// FABLE-A-02 (B3): por WEB las tools no devuelven el email ni el teléfono
+// guardados; por otro canal, sí (ver "get_contact_info: devuelve los datos").
+test("B3: get_contact_info y update_lead por WEB no devuelven el email ni el teléfono guardados", async () => {
+  const email = `b3-${String(Date.now())}@example.test`;
+  const telefono = `+5989${String(Date.now()).slice(-7)}`;
+  const contacto = await nuevoContacto(a, { email, phone: telefono });
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId, "WEB");
+  const guardados = new RegExp(`${email.replace(".", "\\.")}|${telefono.slice(1)}`);
+
+  const info = await datosDe<Record<string, unknown>>("get_contact_info", {}, ctx);
+  assert.equal(info.firstName, "Ana");
+  assert.equal(info.email, null);
+  assert.equal(info.phone, null);
+  assert.match(String(info.datosReservados), /canal web/);
+  assert.doesNotMatch(JSON.stringify(info), guardados);
+
+  // Una calificación sin identidad: tampoco la devuelve.
+  const lead = await datosDe<Record<string, unknown>>(
+    "update_lead",
+    { intent: "Busca una pickup" },
+    ctx,
+  );
+  assert.equal(lead.email, null);
+  assert.equal(lead.phone, null);
+  assert.doesNotMatch(JSON.stringify(lead), guardados);
+
+  // Por WhatsApp el mismo contacto sí se devuelve entero.
+  const porWhatsapp = await datosDe<Record<string, unknown>>(
+    "get_contact_info",
+    {},
+    contextoDe(a.organizationId, contacto.id, a.branchId),
+  );
+  assert.equal(porWhatsapp.email, email);
 });
 
 test("FABLE-I-06: la oportunidad que crea el agente lleva el origen del canal (WhatsApp o web); Messenger e Instagram quedan sin origen", async () => {
