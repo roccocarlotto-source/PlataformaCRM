@@ -24,3 +24,16 @@ test("un nombre que cargó una persona no es provisorio, aunque se parezca", () 
   assert.equal(esNombreProvisorio({ firstName: "Visitante", lastName: "caa2c87" }), false);
   assert.equal(esNombreProvisorio({ firstName: "Visitante", lastName: "CAA2C873" }), false);
 });
+
+test("el genérico de Messenger e Instagram y el @usuario de Instagram son provisorios", () => {
+  assert.equal(esNombreProvisorio({ firstName: "Messenger", lastName: "…08366039" }), true);
+  assert.equal(esNombreProvisorio({ firstName: "Instagram", lastName: "…a1b2c3d4" }), true);
+  assert.equal(esNombreProvisorio({ firstName: "@autos.del.sur", lastName: "" }), true);
+  assert.equal(esNombreProvisorio({ firstName: "@autos.del.sur", lastName: null }), true);
+});
+
+test("'Instagram' o un @ con un apellido de verdad los escribió alguien: no son provisorios", () => {
+  assert.equal(esNombreProvisorio({ firstName: "Instagram", lastName: "Gómez" }), false);
+  assert.equal(esNombreProvisorio({ firstName: "Messenger", lastName: "" }), false);
+  assert.equal(esNombreProvisorio({ firstName: "@ana", lastName: "Pérez" }), false);
+});

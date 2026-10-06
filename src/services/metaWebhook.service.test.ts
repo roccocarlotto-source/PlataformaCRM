@@ -5,6 +5,7 @@ import type { Db } from "../lib/prisma";
 import { AppError } from "../utils/AppError";
 import type { RespuestaDesdeMeta } from "./conversationReply.service";
 import type { RegistrarEntranteInput } from "./agentOrchestration.service";
+import type { CompletarNombreInput } from "./metaContact.service";
 import {
   leerEco,
   canalDelObjeto,
@@ -42,6 +43,8 @@ interface Estado {
   // Las respuestas desde la bandeja de Meta que se mandaron a registrar
   // (OPUS-B-01).
   ecos: RespuestaDesdeMeta[];
+  // Los contactos para los que se pidió el nombre del perfil a Meta.
+  nombresPedidos: CompletarNombreInput[];
 }
 
 type Agente = Awaited<ReturnType<DepsDelWebhookMeta["findAgentByFacebookPageId"]>>;
@@ -57,6 +60,10 @@ function dobles(
     falloAlRegistrar?: (mid: string) => unknown;
     // El registro reconoce el texto como de un saliente del CRM.
     ecoEsPropio?: boolean;
+    // El contacto ya existía (por defecto, se crea con este mensaje).
+    contactoYaExistia?: boolean;
+    // Lo que hace el pedido del nombre del perfil. Por defecto, resuelve.
+    completarNombre?: () => Promise<unknown>;
   } = {},
 ): { deps: DepsDelWebhookMeta; estado: Estado } {
   const estado: Estado = {
@@ -67,6 +74,7 @@ function dobles(
     jobs: [],
     derivadas: [],
     ecos: [],
+    nombresPedidos: [],
   };
   const agente: Agente =
     "agente" in opciones
@@ -99,7 +107,11 @@ function dobles(
       procesados.has(mid) ? { id: "m", conversationId: `conv-${mid}` } : null,
     resolveMetaContact: async (organizationId, channel, externalId) => {
       estado.contactos.push({ organizationId, channel, externalId });
-      return "contacto-1";
+      return { contactId: "contacto-1", creado: !opciones.contactoYaExistia };
+    },
+    completarNombreDelContacto: (entrada) => {
+      estado.nombresPedidos.push(entrada);
+      return opciones.completarNombre ? opciones.completarNombre() : Promise.resolve("completado");
     },
     registrarEntrante: async (input, { enLaMismaTransaccion }) => {
       const fallo = opciones.falloAlRegistrar?.(input.externalMessageId ?? "");
@@ -679,4 +691,88 @@ test("OPUS-B-01: con el agente apagado la respuesta de la persona se registra ig
   );
   assert.equal(resumen.eco, 1);
   assert.equal(estado.ecos.length, 1);
+});
+
+// --- El nombre del perfil del contacto nuevo ---------------------------------
+
+test("contacto nuevo: se pide el nombre del perfil con el PAGE ID de la conexión (también en Instagram)", async () => {
+  const messenger = dobles();
+  await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [evento({ mid: "m_1", sender: "psid-1", text: "Hola" })]),
+    messenger.deps,
+  );
+  assert.deepEqual(messenger.estado.nombresPedidos, [
+    {
+      organizationId: ORG,
+      channel: "MESSENGER",
+      pageId: PAGE_ID,
+      externalId: "psid-1",
+      contactId: "contacto-1",
+    },
+  ]);
+
+  const instagram = dobles();
+  await procesarWebhookDeMeta(
+    lote("instagram", IGID, [evento({ mid: "m_2", sender: "igsid-1", text: "Hola" })]),
+    instagram.deps,
+  );
+  assert.deepEqual(instagram.estado.nombresPedidos, [
+    {
+      organizationId: ORG,
+      channel: "INSTAGRAM",
+      pageId: PAGE_ID,
+      externalId: "igsid-1",
+      contactId: "contacto-1",
+    },
+  ]);
+});
+
+test("contacto que ya existía: no se le vuelve a pedir el nombre a Meta", async () => {
+  const { deps, estado } = dobles({ contactoYaExistia: true });
+  const resumen = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [evento({ mid: "m_1", sender: "psid-1", text: "Hola de nuevo" })]),
+    deps,
+  );
+  assert.equal(resumen.encolado, 1);
+  assert.deepEqual(estado.nombresPedidos, []);
+});
+
+test("el nombre del perfil NUNCA frena el mensaje: si Meta falla o no contesta, se encola igual", async () => {
+  // Falla: el mensaje se guarda y se encola como si nada.
+  const falla = dobles({ completarNombre: () => Promise.reject(new Error("Meta no responde")) });
+  const resumenConFallo = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [evento({ mid: "m_1", sender: "psid-1", text: "Hola" })]),
+    falla.deps,
+  );
+  assert.equal(resumenConFallo.encolado, 1);
+  assert.equal(resumenConFallo.fallido, 0);
+  assert.equal(falla.estado.entrantes.length, 1);
+  assert.equal(falla.estado.jobs.length, 1);
+
+  // No contesta nunca: el webhook no lo espera.
+  const cuelga = dobles({ completarNombre: () => new Promise(() => undefined) });
+  const resumenSinRespuesta = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [evento({ mid: "m_2", sender: "psid-2", text: "Hola" })]),
+    cuelga.deps,
+  );
+  assert.equal(resumenSinRespuesta.encolado, 1);
+  assert.equal(cuelga.estado.nombresPedidos.length, 1);
+});
+
+test("con el agente apagado el contacto nuevo también pide su nombre (lo va a atender una persona)", async () => {
+  const { deps, estado } = dobles({
+    agente: {
+      id: "agente-1",
+      organizationId: ORG,
+      branchId: "sucursal-1",
+      isActive: false,
+      channels: ["MESSENGER", "INSTAGRAM"],
+    },
+  });
+  const resumen = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [evento({ mid: "m_1", sender: "psid-1", text: "Hola" })]),
+    deps,
+  );
+  assert.equal(resumen.derivado, 1);
+  assert.equal(estado.nombresPedidos.length, 1);
 });

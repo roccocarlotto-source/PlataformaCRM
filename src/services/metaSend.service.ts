@@ -124,17 +124,27 @@ function numeroONull(valor: unknown): number | null {
   return typeof valor === "number" ? valor : null;
 }
 
-async function errorDeLaRespuesta(res: Response): Promise<MetaSendError> {
-  const crudo = await res.text().catch(() => "");
-  let codigo: number | null = null;
-  let subcodigo: number | null = null;
+// error.code / error.error_subcode del cuerpo de error de la Graph API.
+// Exportada: la lee también metaProfile.service.ts, que habla con la misma API.
+export function codigosDelErrorDeGraph(crudo: string): {
+  codigo: number | null;
+  subcodigo: number | null;
+} {
   try {
     const cuerpo = JSON.parse(crudo) as { error?: { code?: unknown; error_subcode?: unknown } };
-    codigo = numeroONull(cuerpo.error?.code);
-    subcodigo = numeroONull(cuerpo.error?.error_subcode);
+    return {
+      codigo: numeroONull(cuerpo.error?.code),
+      subcodigo: numeroONull(cuerpo.error?.error_subcode),
+    };
   } catch {
     // HTML de un intermediario o cuerpo vacío: queda solo el status.
+    return { codigo: null, subcodigo: null };
   }
+}
+
+async function errorDeLaRespuesta(res: Response): Promise<MetaSendError> {
+  const crudo = await res.text().catch(() => "");
+  const { codigo, subcodigo } = codigosDelErrorDeGraph(crudo);
   return new MetaSendError(res.status, crudo.slice(0, 500), codigo, subcodigo);
 }
 

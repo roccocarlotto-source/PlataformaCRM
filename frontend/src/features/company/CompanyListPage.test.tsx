@@ -106,6 +106,48 @@ describe("CompanyListPage", () => {
     expect(screen.getByText("Eliminar")).toBeInTheDocument();
   });
 
+  it("ADMIN: el nombre de la empresa es un link a su ficha", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      usersHandler(),
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makeCompany({ id: "co-1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: "Acme" })).toHaveAttribute(
+      "href",
+      "/companies/co-1/edit",
+    );
+  });
+
+  it("USER: el nombre abre el detalle en solo lectura (la ficha editable es de ADMIN), sin link a editar", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makeCompany({ industry: "Tecnología", city: "Montevideo" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Acme" }));
+    const dialog = await screen.findByRole("dialog", { name: "Detalle de la empresa" });
+    expect(dialog).toHaveTextContent("Tecnología");
+    expect(dialog).toHaveTextContent("Montevideo");
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+    expect(screen.queryByRole("link", { name: "Acme" })).not.toBeInTheDocument();
+  });
+
   it("C.12 error de listado se muestra como estado de error real", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(

@@ -1,3 +1,4 @@
+import { partirNombreDePerfil } from "../utils/nombreDePerfil";
 import { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME } from "../utils/nombreProvisorio";
 import {
   createContact,
@@ -33,27 +34,19 @@ export const WHATSAPP_CONTACT_SOURCE = "WhatsApp";
 // el marcador; se reexporta para los que ya la importan de acá.
 export { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME };
 
-// firstName/lastName son VARCHAR(100).
-const MAX_NOMBRE = 100;
-
-// "Juan Pérez García" -> Juan / Pérez García: la primera palabra es el nombre
-// y el resto el apellido, que es lo menos malo que se puede hacer con un
-// nombre de perfil en texto libre. Una sola palabra deja el apellido vacío —
-// no se inventa uno. Sin nombre, "WhatsApp +<número>", para que el contacto
-// sea reconocible en el listado.
+// El nombre de perfil partido en nombre y apellido (partirNombreDePerfil).
+// Sin nombre, "WhatsApp +<número>", para que el contacto sea reconocible en
+// el listado.
 export function nombreDelPerfil(
   profileName: string | undefined,
   digitos: string,
 ): { firstName: string; lastName: string } {
-  const palabras = (profileName ?? "").trim().split(/\s+/).filter(Boolean);
-  if (palabras.length === 0) {
-    return { firstName: WHATSAPP_CONTACT_FALLBACK_FIRST_NAME, lastName: `+${digitos}` };
-  }
-  const [primera, ...resto] = palabras;
-  return {
-    firstName: primera.slice(0, MAX_NOMBRE),
-    lastName: resto.join(" ").slice(0, MAX_NOMBRE),
-  };
+  return (
+    partirNombreDePerfil(profileName) ?? {
+      firstName: WHATSAPP_CONTACT_FALLBACK_FIRST_NAME,
+      lastName: `+${digitos}`,
+    }
+  );
 }
 
 export async function resolveWhatsappContact(

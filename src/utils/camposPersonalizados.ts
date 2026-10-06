@@ -174,6 +174,114 @@ export function aplicarCambiosDeCampos(
   return resultado;
 }
 
+// Los valores de `cambios` que de verdad cambian respecto de lo guardado. La
+// ficha del contacto manda TODOS sus campos al guardar, también los que nadie
+// tocó, y uno de esos puede haber dejado de validar sin que el contacto tenga
+// la culpa: la opción de una lista que un ADMIN eliminó, o un campo que se
+// borró. Antes ese valor viejo daba 400 y no dejaba guardar NADA del contacto.
+// Lo que no cambia no se vuelve a validar: queda como estaba.
+export function soloLosQueCambian(
+  actuales: unknown,
+  cambios: Record<string, unknown>,
+): Record<string, unknown> {
+  const guardados =
+    actuales && typeof actuales === "object" && !Array.isArray(actuales)
+      ? (actuales as Record<string, unknown>)
+      : {};
+  return Object.fromEntries(
+    Object.entries(cambios).filter(([key, valor]) => guardados[key] !== valor),
+  );
+}
+
+// Cómo se compara una opción con otra para decidir si están repetidas: sin
+// distinguir mayúsculas, acentos ni espacios de más. «Contado» y «contado»
+// son la misma opción para quien elige de la lista. El frontend aplica la
+// misma regla (features/contactCustomField/opciones.ts).
+export function claveDeOpcion(opcion: string): string {
+  return opcion.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+// Los mensajes de las opciones de una lista. El formulario del frontend valida
+// lo mismo antes de mandar y muestra estos mismos textos (opciones.ts).
+export const MENSAJE_LISTA_SIN_OPCIONES = "Un campo de lista necesita al menos una opción";
+export const MENSAJE_DEMASIADAS_OPCIONES = `Una lista no puede tener más de ${String(MAX_OPCIONES)} opciones`;
+export const MENSAJE_OPCION_MUY_LARGA = `Una opción no puede superar los ${String(MAX_LARGO_DE_OPCION)} caracteres`;
+
+export function mensajeDeOpcionRepetida(opcion: string): string {
+  return `La opción «${opcion}» está repetida (no se distinguen mayúsculas ni acentos)`;
+}
+
+export type ResultadoDeOpciones = { ok: true; opciones: string[] } | { ok: false; error: string };
+
+// Las opciones de un SELECT listas para guardar: recortadas, sin vacías, entre
+// 1 y MAX_OPCIONES, y ninguna repetida según claveDeOpcion. Una repetida es un
+// error y no se descarta en silencio: «Contado» y «contado» juntas son casi
+// siempre un error de tipeo que quien las carga quiere ver.
+export function limpiarOpcionesDeLista(options: readonly string[]): ResultadoDeOpciones {
+  const vistas = new Set<string>();
+  const opciones: string[] = [];
+  for (const opcion of options) {
+    const texto = opcion.trim();
+    if (texto.length === 0) continue;
+    if (texto.length > MAX_LARGO_DE_OPCION) {
+      return { ok: false, error: MENSAJE_OPCION_MUY_LARGA };
+    }
+    const clave = claveDeOpcion(texto);
+    if (vistas.has(clave)) {
+      return { ok: false, error: mensajeDeOpcionRepetida(texto) };
+    }
+    vistas.add(clave);
+    opciones.push(texto);
+  }
+  if (opciones.length === 0) {
+    return { ok: false, error: MENSAJE_LISTA_SIN_OPCIONES };
+  }
+  if (opciones.length > MAX_OPCIONES) {
+    return { ok: false, error: MENSAJE_DEMASIADAS_OPCIONES };
+  }
+  return { ok: true, opciones };
+}
+
+export interface RenombreDeOpcion {
+  from: string;
+  to: string;
+}
+
+export type ResultadoDeRenombres =
+  { ok: true; renombres: RenombreDeOpcion[] } | { ok: false; error: string };
+
+// Los renombres de opciones que acompañan a un cambio de `options`, validados:
+// cada `from` es una opción GUARDADA (y no se repite) y cada `to` una de las
+// NUEVAS. Los que no cambian nada (from === to) se descartan. Con esto el
+// service sabe qué valores mover en los contactos; sin esto, un renombre es
+// indistinguible de borrar una opción y agregar otra.
+export function validarRenombresDeOpciones(
+  guardadas: readonly string[],
+  nuevas: readonly string[],
+  pedidos: readonly RenombreDeOpcion[],
+): ResultadoDeRenombres {
+  const renombres: RenombreDeOpcion[] = [];
+  const yaRenombradas = new Set<string>();
+  for (const pedido of pedidos) {
+    const from = pedido.from.trim();
+    const to = pedido.to.trim();
+    if (!guardadas.includes(from)) {
+      return { ok: false, error: `«${from}» no es una opción guardada de este campo` };
+    }
+    if (!nuevas.includes(to)) {
+      return { ok: false, error: `«${to}» no está entre las opciones nuevas del campo` };
+    }
+    if (yaRenombradas.has(from)) {
+      return { ok: false, error: `La opción «${from}» no se puede renombrar a dos textos` };
+    }
+    yaRenombradas.add(from);
+    if (from !== to) {
+      renombres.push({ from, to });
+    }
+  }
+  return { ok: true, renombres };
+}
+
 // La `key` de una definición a partir de su etiqueta: minúsculas, sin
 // acentos, guiones bajos. Es lo que el agente y el frontend usan para nombrar
 // el campo; una vez creada no cambia aunque se renombre la etiqueta.

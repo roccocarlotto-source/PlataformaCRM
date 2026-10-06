@@ -8,10 +8,19 @@ import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
+import { useConfirm } from "../../design-system/useConfirm";
 import { useFormDraft } from "../../lib/useFormDraft";
+import { getContactCustomFieldOptionUsage } from "./api";
 import { TIPO_DE_CAMPO_LABEL, TIPOS_DE_CAMPO } from "./labels";
 import { useCreateContactCustomField, useUpdateContactCustomField } from "./mutations";
-import { opcionesDesdeTexto } from "./opciones";
+import {
+  cambiosDeOpciones,
+  filasDesdeOpciones,
+  mensajeDeConfirmacion,
+  validarFilas,
+  type FilaDeOpcion,
+} from "./opciones";
+import { OptionListEditor } from "./OptionListEditor";
 import { useContactCustomField } from "./queries";
 import type {
   ContactCustomFieldDefinition,
@@ -19,25 +28,30 @@ import type {
   CreateContactCustomFieldInput,
 } from "./types";
 
-// Los mismos topes que el backend (utils/camposPersonalizados.ts).
+// El mismo tope que el backend (utils/camposPersonalizados.ts).
 const MAX_LABEL = 100;
-const MAX_OPCIONES = 50;
 
 interface FormValues {
   label: string;
   type: ContactCustomFieldType;
-  // Una opción por renglón: es lo más simple para escribir y leer una lista.
-  opciones: string;
+  // Las opciones de una lista, una por fila (OptionListEditor).
+  opciones: FilaDeOpcion[];
   agentEditable: boolean;
 }
 
-const EMPTY_FORM: FormValues = { label: "", type: "TEXT", opciones: "", agentEditable: false };
+// Una lista nueva arranca con una fila vacía lista para escribir.
+const EMPTY_FORM: FormValues = {
+  label: "",
+  type: "TEXT",
+  opciones: [{ id: "inicial", texto: "" }],
+  agentEditable: false,
+};
 
 function toFormValues(campo: ContactCustomFieldDefinition): FormValues {
   return {
     label: campo.label,
     type: campo.type,
-    opciones: campo.options.join("\n"),
+    opciones: filasDesdeOpciones(campo.options),
     agentEditable: campo.agentEditable,
   };
 }
@@ -47,6 +61,15 @@ function toFormValues(campo: ContactCustomFieldDefinition): FormValues {
 // que ServiceTypeFormPage. El TIPO solo se elige al crear: los valores que
 // los contactos ya tienen son de ese tipo, y el backend rechaza cambiarlo.
 // La clave la asigna el backend desde la etiqueta y no cambia después.
+//
+// LAS OPCIONES DE UNA LISTA QUE YA USAN CONTACTOS. Antes de guardar un cambio
+// que renombra o elimina opciones guardadas, se le pregunta al backend cuántos
+// contactos las tienen elegidas (option-usage) y, si es alguno, se pide
+// confirmación diciendo qué va a pasar:
+//   - renombrar: esos contactos pasan al texto nuevo (renamedOptions);
+//   - eliminar: conservan el texto viejo, marcado como "opción eliminada" en
+//     su ficha. No se borra nada, y volver a agregar la opción los deja como
+//     estaban.
 // ---------------------------------------------------------------------------
 export function ContactCustomFieldFormPage() {
   const { id } = useParams<{ id?: string }>();
@@ -62,29 +85,69 @@ export function ContactCustomFieldFormPage() {
     campoQuery.data ? toFormValues(campoQuery.data) : EMPTY_FORM,
   );
   const [error, setError] = useState<string | null>(null);
+  // Las filas de opciones que la última validación marcó para corregir.
+  const [filasConError, setFilasConError] = useState<string[]>([]);
+  const [verificando, setVerificando] = useState(false);
+  const confirm = useConfirm();
 
-  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+  const isSubmitting = verificando || createMutation.isPending || updateMutation.isPending;
+
+  // Lo que hay que avisar antes de guardar las opciones de un campo que ya
+  // existe. false = la persona no confirmó (o no se pudo verificar).
+  async function confirmarCambiosDeOpciones(
+    campo: ContactCustomFieldDefinition,
+    cambios: ReturnType<typeof cambiosDeOpciones>,
+  ): Promise<boolean> {
+    if (cambios.renombradas.length === 0 && cambios.eliminadas.length === 0) {
+      return true;
+    }
+    let uso: Record<string, number>;
+    setVerificando(true);
+    try {
+      uso = (await getContactCustomFieldOptionUsage(campo.id)).contactsByOption;
+    } catch {
+      setError(
+        "No pudimos verificar cuántos contactos usan las opciones que cambiaste. Probá guardar de nuevo.",
+      );
+      return false;
+    } finally {
+      setVerificando(false);
+    }
+    const pregunta = mensajeDeConfirmacion(cambios, uso);
+    return pregunta === null || confirm(pregunta, { confirmLabel: "Guardar" });
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setFilasConError([]);
 
-    const options = values.type === "SELECT" ? opcionesDesdeTexto(values.opciones) : undefined;
-    if (values.type === "SELECT" && (options === undefined || options.length === 0)) {
-      setError("Una lista necesita al menos una opción: escribí una por renglón.");
-      return;
-    }
-    if (options !== undefined && options.length > MAX_OPCIONES) {
-      setError(`Una lista no puede tener más de ${MAX_OPCIONES} opciones.`);
-      return;
+    let options: string[] | undefined;
+    if (values.type === "SELECT") {
+      const validacion = validarFilas(values.opciones);
+      if (!validacion.ok) {
+        setError(validacion.mensaje);
+        setFilasConError(validacion.filas);
+        return;
+      }
+      options = validacion.opciones;
     }
 
     try {
       if (isEditMode) {
+        const campo = campoQuery.data;
+        const cambios =
+          campo && options !== undefined
+            ? cambiosDeOpciones(campo.options, values.opciones)
+            : { renombradas: [], eliminadas: [] };
+        if (campo && !(await confirmarCambiosDeOpciones(campo, cambios))) {
+          return;
+        }
         await updateMutation.mutateAsync({
           label: values.label.trim(),
           agentEditable: values.agentEditable,
           ...(options !== undefined ? { options } : {}),
+          ...(cambios.renombradas.length > 0 ? { renamedOptions: cambios.renombradas } : {}),
         });
       } else {
         const input: CreateContactCustomFieldInput = {
@@ -149,14 +212,15 @@ export function ContactCustomFieldFormPage() {
 
             {values.type === "SELECT" ? (
               <div className="ds-field-grid--full">
-                <FormField label={<span className="ds-required">Opciones (una por renglón)</span>}>
-                  <textarea
-                    value={values.opciones}
-                    rows={5}
-                    placeholder={"Nafta\nDiésel\nGNC"}
-                    onChange={(event) => setValues({ ...values, opciones: event.target.value })}
-                  />
-                </FormField>
+                <OptionListEditor
+                  filas={values.opciones}
+                  filasConError={filasConError}
+                  disabled={isSubmitting}
+                  onChange={(opciones) => {
+                    setFilasConError([]);
+                    setValues({ ...values, opciones });
+                  }}
+                />
               </div>
             ) : null}
 

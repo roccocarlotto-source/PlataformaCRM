@@ -30,7 +30,11 @@ import {
   lockOrganizationForUpdate,
 } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
-import { aplicarCambiosDeCampos, validarValoresDeCampos } from "../utils/camposPersonalizados";
+import {
+  aplicarCambiosDeCampos,
+  soloLosQueCambian,
+  validarValoresDeCampos,
+} from "../utils/camposPersonalizados";
 import { definicionesParaValidar } from "./contactCustomFieldDefinition.service";
 import { resolveOwnerId } from "./ownership.service";
 import { esNombreProvisorio } from "../utils/nombreProvisorio";
@@ -320,6 +324,8 @@ export interface UpdateContactInput {
 // `cambios` sobre los `actuales` del contacto, validados contra las
 // definiciones vigentes. Un valor inválido o una key sin definición es 400
 // con el nombre del campo. Lo usan crear, editar y la tool del agente.
+// Solo se valida lo que CAMBIA: un valor guardado que ya no valida (la opción
+// eliminada de una lista) no impide guardar el resto (ver soloLosQueCambian).
 export async function camposPersonalizadosParaGuardar(
   organizationId: string,
   actuales: unknown,
@@ -327,7 +333,11 @@ export async function camposPersonalizadosParaGuardar(
   opciones: { soloEditablesPorElAgente?: boolean } = {},
 ): Promise<Prisma.InputJsonValue> {
   const definiciones = await definicionesParaValidar(organizationId);
-  const validacion = validarValoresDeCampos(definiciones, cambios, opciones);
+  const validacion = validarValoresDeCampos(
+    definiciones,
+    soloLosQueCambian(actuales, cambios),
+    opciones,
+  );
   if (!validacion.ok) {
     throw new AppError(validacion.errores.join(". "), 400);
   }

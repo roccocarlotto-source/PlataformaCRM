@@ -395,6 +395,33 @@ describe("OpportunityListPage", () => {
     expect(screen.queryByText("Eliminar")).not.toBeInTheDocument();
   });
 
+  it("el título abre la ficha de la oportunidad, también la que un USER no tiene asignada (la ve en solo lectura)", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      http.get(opportunitiesUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeOpportunity({ id: "ajena", title: "Renovación anual", ownerId: "otro-vendedor" }),
+            makeOpportunity({ id: "propia", title: "Mi venta", ownerId: "u1" }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+        }),
+      ),
+      ...relationHandlers(),
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: "Renovación anual" })).toHaveAttribute(
+      "href",
+      "/opportunities/ajena/edit",
+    );
+    expect(screen.getByRole("link", { name: "Mi venta" })).toHaveAttribute(
+      "href",
+      "/opportunities/propia/edit",
+    );
+  });
+
   it("ADMIN ve Editar/Eliminar en el menú de 3 puntos de la fila, con Editar como link", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(

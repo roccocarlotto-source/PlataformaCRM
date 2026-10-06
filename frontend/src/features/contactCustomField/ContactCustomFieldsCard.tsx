@@ -101,19 +101,30 @@ export function ContactCustomFieldsCard({
             />
           </FormField>
         );
-      case "SELECT":
+      case "SELECT": {
+        // Una opción que el contacto tenía elegida y un ADMIN eliminó de la
+        // lista: el contacto la conserva. Se muestra, marcada, para que no
+        // parezca "Sin cargar"; una vez que se cambia por otra no se puede
+        // volver a elegir.
+        const eliminada = typeof valor === "string" && !def.options.includes(valor) ? valor : null;
         // Suelto, sin FormField: Select trae su propio <label htmlFor>.
         return (
           <Select
             id={`custom-field-${def.key}`}
             label={def.label}
             value={typeof valor === "string" ? valor : ""}
-            options={def.options.map((opcion) => ({ value: opcion, label: opcion }))}
+            options={[
+              ...def.options.map((opcion) => ({ value: opcion, label: opcion })),
+              ...(eliminada !== null
+                ? [{ value: eliminada, label: `${eliminada} (opción eliminada)` }]
+                : []),
+            ]}
             emptyOption={{ label: "Sin cargar" }}
             disabled={disabled}
             onChange={(opcion) => set(def.key, opcion === "" ? null : opcion)}
           />
         );
+      }
     }
   }
 

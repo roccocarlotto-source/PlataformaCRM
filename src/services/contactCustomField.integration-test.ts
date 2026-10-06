@@ -4,17 +4,23 @@ import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { AppError } from "../utils/AppError";
-import { MAX_CAMPOS_POR_ORGANIZACION } from "../utils/camposPersonalizados";
+import {
+  MAX_CAMPOS_POR_ORGANIZACION,
+  mensajeDeOpcionRepetida,
+} from "../utils/camposPersonalizados";
 import { CATALOGO_DE_TOOLS, type ContextoDeEjecucionDeTool } from "./agentTools.service";
 import { createContact, getContactById, updateContact } from "./contact.service";
 import {
   MENSAJE_CAMPO_DUPLICADO,
+  MENSAJE_CAMPO_NO_ENCONTRADO,
+  MENSAJE_RENOMBRES_SIN_OPCIONES,
   MENSAJE_TIPO_INMUTABLE,
   MENSAJE_TOPE_DE_CAMPOS,
   actualizarDefinicion,
   borrarDefinicion,
   crearDefinicion,
   listarDefiniciones,
+  usoDeOpciones,
 } from "./contactCustomFieldDefinition.service";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +32,10 @@ import {
 //   3. El agente: update_contact_custom_fields escribe solo los editables,
 //      valida igual, y no toca nada más del contacto.
 //   4. Dos organizaciones: las definiciones de una no valen en la otra.
+//   5. Opciones de una lista que ya usan contactos: cuántos la usan,
+//      renombrar mueve el valor de esos contactos (solo los de la
+//      organización), eliminar los deja con el valor viejo, y ese valor viejo
+//      no impide guardar el contacto.
 // ---------------------------------------------------------------------------
 
 interface Escenario {
@@ -128,10 +138,24 @@ test("definiciones: la key sale de la etiqueta, un SELECT limpia sus opciones, y
   const combustible = await crearDefinicion(a.organizationId, {
     label: "Combustible",
     type: "SELECT",
-    options: [" Nafta", "Diésel", "Nafta", "", "GNC"],
+    options: [" Nafta", "Diésel", "", "GNC"],
     agentEditable: true,
   });
   assert.deepEqual(combustible.options, ["Nafta", "Diésel", "GNC"]);
+  // Una opción repetida —igual, o distinta solo en mayúsculas o acentos— es
+  // un 400 que la nombra, no un descarte silencioso.
+  const repetida = await capturar(() =>
+    actualizarDefinicion(a.organizationId, combustible.id, {
+      options: ["Nafta", "Diésel", "GNC", "diesel"],
+    }),
+  );
+  assert.equal(repetida.statusCode, 400);
+  assert.equal(repetida.message, mensajeDeOpcionRepetida("diesel"));
+  assert.deepEqual(
+    (await listarDefiniciones(a.organizationId)).find((d) => d.id === combustible.id)?.options,
+    ["Nafta", "Diésel", "GNC"],
+    "el rechazo no cambió nada",
+  );
   const lista = await listarDefiniciones(a.organizationId);
   assert.deepEqual(
     lista.map((d) => d.key),
@@ -301,4 +325,122 @@ test("dos organizaciones: las definiciones de A no valen en B", async () => {
   assert.equal(deB.statusCode, 400);
   assert.match(deB.message, /«patente_del_auto» no es un campo/);
   assert.equal((await listarDefiniciones(b.organizationId)).length, 0);
+});
+
+test("opciones en uso: se cuentan, renombrar mueve a los contactos de ESA organización, y eliminar los deja con el valor viejo sin trabar su ficha", async () => {
+  const formaDePago = await crearDefinicion(b.organizationId, {
+    label: "Forma de pago",
+    type: "SELECT",
+    options: ["Contado", "Financiado", "Permuta"],
+  });
+  const alta = (firstName: string, opcion: string) =>
+    createContact(b.organizationId, b.userId, {
+      firstName,
+      lastName: "De prueba",
+      customFields: { forma_de_pago: opcion },
+    });
+  const uno = await alta("Uno", "Contado");
+  const dos = await alta("Dos", "Contado");
+  const tres = await alta("Tres", "Permuta");
+  const cuatro = await alta("Cuatro", "Financiado");
+  // Uno dado de baja: no se cuenta, pero sí se renombra (por si se restaura).
+  const deBaja = await alta("De baja", "Contado");
+  await prisma.contact.update({ where: { id: deBaja.id }, data: { deletedAt: new Date() } });
+  // Otra organización con la misma key y el mismo valor: no se toca ni se cuenta.
+  const ajeno = await prisma.contact.create({
+    data: {
+      organizationId: a.organizationId,
+      firstName: "Ajeno",
+      lastName: "De prueba",
+      customFields: { forma_de_pago: "Contado" },
+    },
+  });
+  const valorDe = async (id: string) =>
+    (
+      (await prisma.contact.findUniqueOrThrow({ where: { id } })).customFields as {
+        forma_de_pago?: string;
+      }
+    ).forma_de_pago;
+
+  assert.deepEqual(await usoDeOpciones(b.organizationId, formaDePago.id), {
+    Contado: 2,
+    Permuta: 1,
+    Financiado: 1,
+  });
+  // Un campo que no es lista no tiene opciones; el de otra organización, 404.
+  const texto = await crearDefinicion(b.organizationId, { label: "Observaciones", type: "TEXT" });
+  assert.deepEqual(await usoDeOpciones(b.organizationId, texto.id), {});
+  const ajena = await capturar(() => usoDeOpciones(a.organizationId, formaDePago.id));
+  assert.equal(ajena.statusCode, 404);
+  assert.equal(ajena.message, MENSAJE_CAMPO_NO_ENCONTRADO);
+
+  // Renombrar "Contado" y eliminar "Permuta" en el mismo guardado.
+  const actualizada = await actualizarDefinicion(b.organizationId, formaDePago.id, {
+    options: ["Efectivo", "Financiado"],
+    renamedOptions: [{ from: "Contado", to: "Efectivo" }],
+  });
+  assert.deepEqual(actualizada.options, ["Efectivo", "Financiado"]);
+  assert.equal(await valorDe(uno.id), "Efectivo");
+  assert.equal(await valorDe(dos.id), "Efectivo");
+  assert.equal(await valorDe(deBaja.id), "Efectivo", "el dado de baja también se renombra");
+  assert.equal(await valorDe(cuatro.id), "Financiado");
+  assert.equal(await valorDe(tres.id), "Permuta", "la eliminada queda como estaba");
+  assert.equal(await valorDe(ajeno.id), "Contado", "otra organización no se toca");
+  assert.deepEqual(await usoDeOpciones(b.organizationId, formaDePago.id), {
+    Efectivo: 2,
+    Permuta: 1,
+    Financiado: 1,
+  });
+
+  // El contacto con la opción eliminada se puede guardar: la ficha manda su
+  // valor viejo junto con lo que cambió, y lo que no cambió no se valida.
+  const guardado = await updateContact(b.organizationId, b.userId, tres.id, {
+    firstName: "Tres editado",
+    customFields: { forma_de_pago: "Permuta", observaciones: "Llamar de tarde" },
+  });
+  assert.equal(guardado.firstName, "Tres editado");
+  assert.deepEqual(guardado.customFields, {
+    forma_de_pago: "Permuta",
+    observaciones: "Llamar de tarde",
+  });
+  // Pero ya no se puede ELEGIR: no es una opción de la lista.
+  const yaNoExiste = await capturar(() =>
+    updateContact(b.organizationId, b.userId, cuatro.id, {
+      customFields: { forma_de_pago: "Permuta" },
+    }),
+  );
+  assert.equal(yaNoExiste.statusCode, 400);
+  assert.match(yaNoExiste.message, /Efectivo, Financiado/);
+
+  // Un intercambio (A → B y B → A) en un solo guardado no se pisa.
+  await actualizarDefinicion(b.organizationId, formaDePago.id, {
+    options: ["Financiado", "Efectivo"],
+    renamedOptions: [
+      { from: "Efectivo", to: "Financiado" },
+      { from: "Financiado", to: "Efectivo" },
+    ],
+  });
+  assert.equal(await valorDe(uno.id), "Financiado");
+  assert.equal(await valorDe(cuatro.id), "Efectivo");
+
+  // Renombres inválidos: nada cambia.
+  const sinOpciones = await capturar(() =>
+    actualizarDefinicion(b.organizationId, formaDePago.id, {
+      renamedOptions: [{ from: "Efectivo", to: "Cheque" }],
+    }),
+  );
+  assert.equal(sinOpciones.statusCode, 400);
+  assert.equal(sinOpciones.message, MENSAJE_RENOMBRES_SIN_OPCIONES);
+  const origenInexistente = await capturar(() =>
+    actualizarDefinicion(b.organizationId, formaDePago.id, {
+      options: ["Cheque", "Efectivo"],
+      renamedOptions: [{ from: "Permuta", to: "Cheque" }],
+    }),
+  );
+  assert.equal(origenInexistente.statusCode, 400);
+  assert.equal(await valorDe(tres.id), "Permuta");
+  assert.deepEqual(
+    (await listarDefiniciones(b.organizationId)).find((d) => d.id === formaDePago.id)?.options,
+    ["Financiado", "Efectivo"],
+  );
 });

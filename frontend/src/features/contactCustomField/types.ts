@@ -32,7 +32,16 @@ export interface CreateContactCustomFieldInput {
 export interface UpdateContactCustomFieldInput {
   label?: string;
   options?: string[];
+  // Solo junto con `options`: las opciones que cambiaron de texto. Los
+  // contactos que las tenían elegidas pasan al texto nuevo.
+  renamedOptions?: { from: string; to: string }[];
   agentEditable?: boolean;
+}
+
+// GET /contact-custom-fields/:id/option-usage — { opción: contactos que la
+// tienen elegida }, solo las que usa al menos uno.
+export interface ContactCustomFieldOptionUsage {
+  contactsByOption: Record<string, number>;
 }
 
 // Un valor guardado en Contact.customFields. null borra.

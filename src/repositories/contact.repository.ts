@@ -324,6 +324,75 @@ export function updateContactCustomFields(
   });
 }
 
+// Cuántos contactos vigentes tienen cada valor en el campo personalizado
+// `key` (una lista de opciones): { valor: cantidad }. Lo usa la pantalla de
+// administración para avisar, antes de borrar o renombrar una opción, a
+// cuántos contactos toca. Recorre los contactos de UNA organización sin
+// índice, como findContactIdByNormalizedPhone: es una consulta de un ADMIN al
+// guardar un campo, no un camino caliente.
+export async function countContactsByCustomFieldValue(
+  organizationId: string,
+  key: string,
+  db: Db = prisma,
+): Promise<Record<string, number>> {
+  const filas = await db.$queryRaw<{ valor: string; total: number }[]>`
+    SELECT custom_fields->>${key}::text AS valor, count(*)::int AS total
+    FROM contacts
+    WHERE organization_id = ${organizationId}::uuid
+      AND deleted_at IS NULL
+      AND jsonb_typeof(custom_fields->${key}::text) = 'string'
+    GROUP BY 1
+  `;
+  return Object.fromEntries(filas.map((fila) => [fila.valor, fila.total]));
+}
+
+// Renombra el valor de una opción en los contactos que la tienen elegida:
+// cada { from, to } pasa de un texto al otro. UN solo UPDATE, para que un
+// intercambio (A → B y B → A a la vez) no se pise a sí mismo. Incluye los
+// contactos dados de baja: si alguno se restaura, tiene que volver con una
+// opción que exista. No toca updated_at a propósito: renombrar una opción del
+// catálogo no es una edición del contacto, y reordenaría los listados.
+export function renameCustomFieldOptionInContacts(
+  organizationId: string,
+  key: string,
+  renombres: { from: string; to: string }[],
+  db: Db,
+) {
+  const desde = renombres.map((r) => r.from);
+  const hacia = renombres.map((r) => r.to);
+  return db.$executeRaw`
+    UPDATE contacts c
+    SET custom_fields = jsonb_set(c.custom_fields, ARRAY[${key}::text], to_jsonb(m.hacia))
+    FROM unnest(${desde}::text[], ${hacia}::text[]) AS m(desde, hacia)
+    WHERE c.organization_id = ${organizationId}::uuid
+      AND jsonb_typeof(c.custom_fields->${key}::text) = 'string'
+      AND c.custom_fields->>${key}::text = m.desde
+  `;
+}
+
+// Reemplaza el nombre de un contacto SOLO si sigue siendo `esperado`: el
+// nombre provisorio que le puso el canal. La condición va en el WHERE y no en
+// una lectura previa, para que un nombre que una persona o el agente cargaron
+// mientras tanto no se pise nunca (count === 0 = ya tenía otro nombre).
+export function replaceContactNameIfUnchanged(
+  id: string,
+  organizationId: string,
+  esperado: { firstName: string; lastName: string },
+  nuevo: { firstName: string; lastName: string },
+  db: Db = prisma,
+) {
+  return db.contact.updateMany({
+    where: {
+      id,
+      organizationId,
+      deletedAt: null,
+      firstName: esperado.firstName,
+      lastName: esperado.lastName,
+    },
+    data: nuevo,
+  });
+}
+
 // updateMany en vez de update: el WHERE efectivo tiene que exigir
 // organizationId además de id (M4) — la escritura en sí es la garantía de
 // aislamiento, no solo el pre-check del service. count === 0 se traduce a

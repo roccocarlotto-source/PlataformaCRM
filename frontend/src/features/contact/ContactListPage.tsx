@@ -259,10 +259,16 @@ export function ContactListPage() {
                   <tr key={contact.id}>
                     <td>
                       {/* decorative: el nombre completo ya está al lado, el
-                        avatar no tiene que anunciarse dos veces. */}
+                        avatar no tiene que anunciarse dos veces.
+                        El nombre abre la ficha, para TODOS los roles: quien
+                        no puede editarlo (D2) la ve en solo lectura, que es
+                        lo que ya hace ContactFormPage. Es un link en el
+                        nombre y no un onClick en la fila: se tabula, se abre
+                        en otra pestaña y no pelea con seleccionar el email o
+                        el teléfono para copiarlos. */}
                       <span className="ds-person">
                         <Avatar name={fullName} size="sm" decorative />
-                        <span>{fullName}</span>
+                        <Link to={`/contacts/${contact.id}/edit`}>{fullName}</Link>
                       </span>
                     </td>
                     <td>{nombreDeEmpresa(contact.companyId)}</td>

@@ -23,7 +23,13 @@ import {
   registrarEntrante,
   type RegistrarEntranteInput,
 } from "./agentOrchestration.service";
-import { resolveMetaContact, type CanalMeta } from "./metaContact.service";
+import {
+  completarNombreDesdeElPerfil,
+  resolveMetaContact,
+  type CanalMeta,
+  type CompletarNombreInput,
+  type ContactoDeMeta,
+} from "./metaContact.service";
 
 // ---------------------------------------------------------------------------
 // El procesamiento de un POST /webhooks/meta ya verificado (ítem 171, paso 3
@@ -205,7 +211,10 @@ export interface DepsDelWebhookMeta {
     organizationId: string,
     channel: CanalMeta,
     externalId: string,
-  ) => Promise<string>;
+  ) => Promise<ContactoDeMeta>;
+  // El nombre real del contacto recién creado, pedido a Meta. Se DISPARA y no
+  // se espera (ver el paso 4): no puede lanzar ni frenar el mensaje.
+  completarNombreDelContacto: (entrada: CompletarNombreInput) => Promise<unknown>;
   registrarEntrante: (
     input: RegistrarEntranteInput,
     opciones: { enLaMismaTransaccion?: (tx: Db, entrante: { id: string }) => Promise<unknown> },
@@ -238,6 +247,7 @@ export const depsDelWebhookMetaReales: DepsDelWebhookMeta = {
   findAgentByFacebookPageId: (pageId) => findAgentByFacebookPageId(pageId),
   findMessageByExternalId: (organizationId, mid) => findMessageByExternalId(organizationId, mid),
   resolveMetaContact,
+  completarNombreDelContacto: (entrada) => completarNombreDesdeElPerfil(entrada),
   registrarEntrante,
   createAgentInboundJob,
   derivarEntranteSinAgente,
@@ -319,12 +329,28 @@ async function procesarMensaje(
     return "duplicado";
   }
 
-  // 4. El Contact, por su PSID/IGSID.
-  const contactId = await deps.resolveMetaContact(
+  // 4. El Contact, por su PSID/IGSID. Si se acaba de crear (con el nombre
+  //    genérico), se le pide a Meta el nombre del perfil SIN ESPERARLO: el
+  //    webhook tiene que contestar ya (ítem 125) y el mensaje no depende de
+  //    ese dato. El .catch es por si un doble de test rechaza: la real no lanza.
+  const { contactId, creado } = await deps.resolveMetaContact(
     organizationId,
     mensaje.channel,
     mensaje.senderId,
   );
+  if (creado) {
+    void deps
+      .completarNombreDelContacto({
+        organizationId,
+        channel: mensaje.channel,
+        pageId,
+        externalId: mensaje.senderId,
+        contactId,
+      })
+      .catch((err: unknown) => {
+        log.warn({ err }, "No se pudo completar el nombre del contacto de Meta");
+      });
+  }
 
   // 5. Entrante + job en la misma transacción. channelAccountId es SIEMPRE el
   //    Page ID, también para Instagram: es con lo que el envío (ítem 172) va a
