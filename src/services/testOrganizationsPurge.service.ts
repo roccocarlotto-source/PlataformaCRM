@@ -148,6 +148,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("h01-org-x-{ts}", `${R}tenant-isolation.integration-test.ts`),
   patron("h01-org-y-{ts}", `${R}tenant-isolation.integration-test.ts`),
   patron("t1-org-{ts}", `${S}activity.service.integration-test.ts`),
+  patron("campos-{etiqueta}-{ts}-{hex8}", `${S}contactCustomField.integration-test.ts`),
   patron("agentloop-{etiqueta}-{ts}-{hex8}", `${S}agentOrchestration.integration-test.ts`),
   patron("concurrencia-{ts}-{hex8}", `${S}agentTurnConcurrencia.integration-test.ts`),
   patron("auth-rogue-{ts}-{hex8}", `${S}auth.service.integration-test.ts`),

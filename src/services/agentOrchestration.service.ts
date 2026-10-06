@@ -31,7 +31,9 @@ import {
 import { findVouchersDelContacto } from "../repositories/discountVoucher.repository";
 import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
+import { describirValor, type DefinicionDeCampo } from "../utils/camposPersonalizados";
 import { formatearParaElCanal } from "../utils/formatoPorCanal";
+import { definicionesParaValidar } from "./contactCustomFieldDefinition.service";
 import {
   atencionFueraDeHorario,
   fraseFueraDeHorario,
@@ -830,6 +832,51 @@ export function bloqueDeContacto(
 }
 
 // ---------------------------------------------------------------------------
+// LOS CAMPOS PERSONALIZADOS DEL CONTACTO (B6, 06/10/2026). El agente LEE
+// todos los campos definidos por la organización con su valor (o "sin
+// cargar"), dentro de <datos_del_crm> como el resto de lo que dio el contacto,
+// y se entera de cuáles puede ESCRIBIR con update_contact_custom_fields: solo
+// los marcados "editable por el agente", con su tipo y, en una lista, sus
+// opciones. Sin definiciones no hay bloque: la organización no usa campos.
+// ---------------------------------------------------------------------------
+export function bloqueDeCamposPersonalizados(
+  definiciones: DefinicionDeCampo[],
+  valores: unknown,
+): string | null {
+  if (definiciones.length === 0) {
+    return null;
+  }
+  const json =
+    valores && typeof valores === "object" && !Array.isArray(valores)
+      ? (valores as Record<string, unknown>)
+      : {};
+  const lineas = definiciones.map((def) => {
+    const valor = describirValor(def, json[def.key]);
+    return `${def.label}: ${valor ?? "(sin cargar)"}`;
+  });
+  const editables = definiciones.filter((def) => def.agentEditable);
+  const comoSeEscribe = (def: DefinicionDeCampo): string => {
+    switch (def.type) {
+      case "TEXT":
+        return "texto";
+      case "NUMBER":
+        return "número";
+      case "DATE":
+        return "fecha AAAA-MM-DD";
+      case "BOOLEAN":
+        return "true o false";
+      case "SELECT":
+        return `una de: ${def.options.join(" | ")}`;
+    }
+  };
+  const escritura =
+    editables.length === 0
+      ? "Ninguno de estos campos lo podés modificar vos: si el contacto te da uno de esos datos, no lo guardes y mencionáselo a quien retome la conversación."
+      : `Los que PODÉS guardar con update_contact_custom_fields, por su clave y con el valor en el formato indicado: ${editables.map((def) => `${def.key} (${def.label}: ${comoSeEscribe(def)})`).join("; ")}. Los demás solo se leen.`;
+  return `Campos personalizados que el CRM tiene de esta persona:\n${envolverDatosDelCrm(lineas.join(", "))}\n${escritura}`;
+}
+
+// ---------------------------------------------------------------------------
 // LOS CUPONES DEL CONTACTO (pedido de Rocco; FABLE §5.1 fila 12c de
 // docs-privados/auditoria-2026-10-05-FABLE.md, local)
 // ---------------------------------------------------------------------------
@@ -998,6 +1045,11 @@ export function armarSystemPrompt(
   // email ni el teléfono guardados (ver bloqueDeContacto). Opcional para los
   // tests que arman el prompt sin conversación.
   canal?: ConversationChannel,
+  // B6: las definiciones de campos personalizados de la organización. Con
+  // ellas y el JSON del contacto se arma el bloque de campos (bloqueDeCampos
+  // Personalizados). Vacío o ausente: el bloque no aparece.
+  camposPersonalizados: DefinicionDeCampo[] = [],
+  valoresDeCampos: unknown = null,
 ): string {
   const partes = [agent.instructions.trim()];
 
@@ -1015,6 +1067,12 @@ export function armarSystemPrompt(
   // que el backend ya tiene y el modelo no tiene por qué ir a buscar.
   if (contacto) {
     partes.push(bloqueDeContacto(contacto, canal));
+  }
+
+  // B6: pegado a los datos del contacto, son de la misma persona.
+  const bloqueDeCampos = bloqueDeCamposPersonalizados(camposPersonalizados, valoresDeCampos);
+  if (bloqueDeCampos !== null) {
+    partes.push(bloqueDeCampos);
   }
 
   // Pegado a los datos del contacto: son de la misma persona.
@@ -1953,6 +2011,7 @@ export async function responderEnLaConversacion(
     franjasDeLaSucursal,
     ultimosMensajes,
     cuponesDelContacto,
+    camposPersonalizados,
   ] = await Promise.all([
     humanoAtiendeLaConversacion(conversation),
     findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
@@ -1960,6 +2019,8 @@ export async function responderEnLaConversacion(
     findBusinessHoursByBranch(agent.branchId, organizationId),
     findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),
     findVouchersDelContacto(organizationId, contact.id, MAX_CUPONES_EN_EL_PROMPT),
+    // B6: las definiciones de campos personalizados, en la misma ida.
+    definicionesParaValidar(organizationId),
   ]);
   if (hayHumano) {
     return {
@@ -2015,6 +2076,8 @@ export async function responderEnLaConversacion(
     fueraDeHorario,
     cuponesDelContacto,
     conversation.channel,
+    camposPersonalizados,
+    contact.customFields,
   );
   const mensajes = ordenarPendientesAlFinal(
     ultimosMensajes,

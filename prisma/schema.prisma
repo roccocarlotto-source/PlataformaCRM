@@ -712,6 +712,8 @@ model Organization {
   // El agente de IA de uso interno (ítem 179) — a lo sumo uno — y su historial.
   internalAgents           InternalAgent[]
   internalAgentMessages    InternalAgentMessage[]
+  // Campos personalizados de contactos (B6, migración 20261024120000).
+  contactCustomFieldDefinitions ContactCustomFieldDefinition[]
   // La plantilla de WhatsApp con la que salen sus seguimientos (ítem 160).
   // Una activa a la vez; las borradas quedan como historial.
   whatsappTemplates        WhatsappTemplate[]
@@ -2929,6 +2931,60 @@ model QrFollowUp {
   @@index([organizationId, contactId])
   @@index([organizationId, qrCodeId])
   @@map("qr_follow_ups")
+}
+
+// ---------------------------------------------------------------------------
+// ContactCustomFieldDefinition — campos personalizados de contactos, v1 (B6,
+// 06/10/2026; migración 20261024120000). Las DEFINICIONES: qué campos tiene
+// cada organización, de qué tipo y si el agente de IA puede escribirlos. Los
+// VALORES van en la columna Contact.customFields que ya existía, como
+// { [key]: valor }, validados contra estas filas (utils/camposPersonalizados.ts).
+//
+// Hasta MAX_CAMPOS_POR_ORGANIZACION (30) por organización, igual para todos
+// los planes; lo cuenta el service, no la base. Los define un ADMIN desde
+// Administración → Campos de contacto; los ven y editan todos en la ficha.
+//
+// `key` es el nombre estable del campo (slug de la etiqueta al crearlo): es
+// lo que indexa el JSON de cada contacto y lo que usa el agente, y no cambia
+// aunque se renombre la etiqueta. UNIQUE por organización incluidas las
+// borradas: volver a crear un campo con la misma key RESTAURA la fila borrada
+// (y con ella los valores que los contactos todavía tienen), en vez de dejar
+// dos definiciones para el mismo dato.
+//
+// Soft delete (deletedAt), como el resto de los catálogos: un campo borrado
+// deja de verse y de validarse, y sus valores quedan en el JSON sin mostrarse.
+// ---------------------------------------------------------------------------
+enum ContactCustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+}
+
+model ContactCustomFieldDefinition {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  key   String                 @db.VarChar(60)
+  label String                 @db.VarChar(100)
+  type  ContactCustomFieldType
+  // Las opciones de un SELECT, como lista de strings; [] en los demás tipos.
+  options Json @default("[]")
+  // Si el agente de IA puede escribirlo (leerlos puede todos).
+  agentEditable Boolean @default(false) @map("agent_editable")
+  // Orden en la ficha; se asigna al crear.
+  position Int @default(0)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, key])
+  @@index([organizationId, createdAt])
+  @@map("contact_custom_field_definitions")
 }
 
 // ---------------------------------------------------------------------------

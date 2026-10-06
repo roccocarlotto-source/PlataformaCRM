@@ -21,6 +21,7 @@ import {
   MailPlus,
   MapPin,
   Menu,
+  ListChecks,
   MessageCircle,
   MessagesSquare,
   MessageSquareText,
@@ -395,6 +396,7 @@ export function AppLayout() {
               "/ingestion-events",
               "/organization",
               "/branches",
+              "/contact-custom-fields",
             ]}
           >
             {/* Módulo QR (docs/qr-integration.md, Fase 3): visible para ambos roles,
@@ -431,6 +433,11 @@ export function AppLayout() {
                     sucursales donde las necesita, en BranchSelect (QR, Vehículo). */}
                 <SidebarLink to="/branches" icon={MapPin}>
                   Sucursales
+                </SidebarLink>
+                {/* Campos personalizados de contactos (B6): los define el ADMIN;
+                    la ficha los muestra a todos. */}
+                <SidebarLink to="/contact-custom-fields" icon={ListChecks}>
+                  Campos de contacto
                 </SidebarLink>
               </>
             ) : null}

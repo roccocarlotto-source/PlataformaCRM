@@ -9,6 +9,7 @@ import { env } from "../../config/env";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
+import { makeDefinicion } from "../../test/contactCustomFieldFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { ContactFormPage } from "./ContactFormPage";
 import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
@@ -71,7 +72,15 @@ function usersHandler() {
   );
 }
 
-function renderForm(initialPath: string) {
+// B6: la ficha consulta las definiciones de campos personalizados. Sin
+// definiciones (lo normal en estos tests) la tarjeta no se muestra; los tests
+// de B6 pasan las suyas a renderForm.
+function customFieldsHandler(definiciones: unknown[]) {
+  return http.get(`${env.apiUrl}/api/contact-custom-fields`, () => HttpResponse.json(definiciones));
+}
+
+function renderForm(initialPath: string, camposPersonalizados: unknown[] = []) {
+  server.use(customFieldsHandler(camposPersonalizados));
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -203,6 +212,59 @@ describe("ContactFormPage", () => {
     await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
     expect(patchedId).toBe("ct1");
     expect(patchedBody).toMatchObject({ firstName: "Editado", companyId: "co-1" });
+  });
+
+  // B6: la tarjeta "Campos personalizados" con un input por definición de la
+  // organización; el PATCH manda { key: valor } y null para lo que se vació.
+  it("B6: la ficha muestra los campos personalizados por tipo y el PATCH manda los valores (null al vaciar)", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeContact({
+            id: params.id as string,
+            firstName: "Ana",
+            customFields: { patente: "AB123CD", kilometros: 45000 },
+          }),
+        ),
+      ),
+      http.patch(`${contactsUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeContact({ id: "ct1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit", [
+      makeDefinicion({ id: "d1", key: "patente", label: "Patente", type: "TEXT" }),
+      makeDefinicion({ id: "d2", key: "kilometros", label: "Kilómetros", type: "NUMBER" }),
+      makeDefinicion({ id: "d3", key: "tiene_usado", label: "Tiene usado", type: "BOOLEAN" }),
+      makeDefinicion({
+        id: "d4",
+        key: "combustible",
+        label: "Combustible",
+        type: "SELECT",
+        options: ["Nafta", "Diésel"],
+      }),
+    ]);
+
+    await waitFor(() => expect(screen.getByLabelText("Patente")).toHaveValue("AB123CD"));
+    expect(screen.getByLabelText("Kilómetros")).toHaveValue(45000);
+    expect(screen.getByLabelText("Tiene usado")).not.toBeChecked();
+
+    await user.clear(screen.getByLabelText("Patente"));
+    await user.click(screen.getByLabelText("Tiene usado"));
+    await chooseSelectOption(user, screen.getByLabelText("Combustible"), "Diésel");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
+    expect(patchedBody?.customFields).toEqual({
+      patente: null,
+      kilometros: 45000,
+      tiene_usado: true,
+      combustible: "Diésel",
+    });
   });
 
   it("vehículo de interés: una unidad dada de baja se sigue mostrando con su estado, la del agente lo dice, y Quitar manda null", async () => {

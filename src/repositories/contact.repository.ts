@@ -283,6 +283,8 @@ export interface CreateContactData {
   jobTitle?: string | null;
   lifecycleStage?: LifecycleStage;
   source?: string | null;
+  // B6: los valores de los campos personalizados, ya validados (service).
+  customFields?: Prisma.InputJsonValue;
 }
 
 export function createContact(data: CreateContactData, db: Db = prisma) {
@@ -302,6 +304,24 @@ export interface UpdateContactData {
   jobTitle?: string | null;
   lifecycleStage?: LifecycleStage;
   source?: string | null;
+  // B6: el JSON entero que queda (el service ya mezcló y validó).
+  customFields?: Prisma.InputJsonValue;
+}
+
+// B6: la escritura del agente sobre los campos personalizados, y NADA más
+// del contacto (mismo criterio que updateLeadQualification: una puerta propia
+// para que la tool no pueda tocar el resto). El JSON ya viene validado y
+// mezclado por el service.
+export function updateContactCustomFields(
+  id: string,
+  organizationId: string,
+  customFields: Prisma.InputJsonValue,
+  db: Db = prisma,
+) {
+  return db.contact.updateMany({
+    where: { id, organizationId, deletedAt: null },
+    data: { customFields },
+  });
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

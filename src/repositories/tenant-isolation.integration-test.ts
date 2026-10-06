@@ -113,6 +113,10 @@ import {
   writeSyncedKnowledgeBaseEntry,
 } from "./knowledgeBaseEntry.repository";
 import { setInternalAgentModel } from "./internalAgent.repository";
+import {
+  softDeleteContactCustomFieldDefinition,
+  updateContactCustomFieldDefinition,
+} from "./contactCustomFieldDefinition.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -1415,6 +1419,7 @@ interface FixtureNuevos {
   metaConnectionY: string;
   qrCodeY: string;
   qrFollowUpY: string;
+  campoY: string;
   voucherY: string;
   voucherFollowUpY: string;
   templateY: string;
@@ -1610,6 +1615,17 @@ before(async () => {
       attempts: 1,
     },
   });
+  // B6: una definición de campo personalizado de Y.
+  const campoY = await prisma.contactCustomFieldDefinition.create({
+    data: {
+      organizationId: org,
+      key: "patente",
+      label: "Patente",
+      type: "TEXT",
+      options: [],
+      agentEditable: true,
+    },
+  });
   const voucherY = await prisma.discountVoucher.create({
     data: {
       organizationId: org,
@@ -1709,6 +1725,7 @@ before(async () => {
     metaConnectionY: metaConnectionY.id,
     qrCodeY: qrCodeY.id,
     qrFollowUpY: qrFollowUpY.id,
+    campoY: campoY.id,
     voucherY: voucherY.id,
     voucherFollowUpY: voucherFollowUpY.id,
     templateY: templateY.id,
@@ -1734,6 +1751,7 @@ after(async () => {
   await prisma.discountVoucherFollowUp.deleteMany(w);
   await prisma.discountVoucher.deleteMany(w);
   await prisma.qrFollowUp.deleteMany(w);
+  await prisma.contactCustomFieldDefinition.deleteMany(w);
   await prisma.qrCode.deleteMany(w);
   await prisma.metaPageConnection.deleteMany(w);
   await prisma.contactChannelIdentity.deleteMany(w);
@@ -1780,6 +1798,7 @@ const leerY = {
   vehicle: () => prisma.vehicle.findUniqueOrThrow({ where: { id: nx.vehicleY } }),
   photo: () => prisma.vehiclePhoto.findUniqueOrThrow({ where: { id: nx.photoY } }),
   kb: () => prisma.knowledgeBaseEntry.findUniqueOrThrow({ where: { id: nx.kbY } }),
+  campo: () => prisma.contactCustomFieldDefinition.findUniqueOrThrow({ where: { id: nx.campoY } }),
   internalAgent: () => prisma.internalAgent.findUniqueOrThrow({ where: { id: nx.internalAgentY } }),
   identity: () =>
     prisma.contactChannelIdentity.findMany({ where: { externalId: nx.identityExternalIdY } }),
@@ -2212,6 +2231,25 @@ test("H-01 InternalAgent e InternalAgentMessage: cambiar el modelo desde X no to
 // entere: todo modelo con organizationId del schema tiene que aparecer en
 // este archivo (como prisma.<modelo>.). Si agregás un modelo, agregale su
 // prueba acá.
+// B6: las definiciones de campos personalizados. Las dos escrituras del
+// repositorio con el id de Y y la organización de X no tocan nada.
+test("H-01 ContactCustomFieldDefinition: update y softDelete con el id de Y y la organización de X no tocan la definición de Y", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.campo,
+    () =>
+      updateContactCustomFieldDefinition(nx.campoY, nx.orgX, {
+        label: "hijacked",
+        agentEditable: false,
+      }),
+    "updateContactCustomFieldDefinition",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.campo,
+    () => softDeleteContactCustomFieldDefinition(nx.campoY, nx.orgX),
+    "softDeleteContactCustomFieldDefinition",
+  );
+});
+
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {
   const schema = await readFile(join(process.cwd(), "prisma", "schema.prisma"), "utf8");
   const esteArchivo = await readFile(

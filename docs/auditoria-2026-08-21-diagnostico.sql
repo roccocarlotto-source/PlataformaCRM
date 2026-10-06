@@ -246,7 +246,10 @@ from (
       -- Cupón de descuento agendado para mandarse por WhatsApp (ítem 177,
       -- migración 20261008120000): organization_id propio y la política
       -- uniforme.
-      ('discount_voucher_follow_ups')
+      ('discount_voucher_follow_ups'),
+      -- Campos personalizados de contactos (B6, migración 20261024120000):
+      -- organization_id propio y la política uniforme.
+      ('contact_custom_field_definitions')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
