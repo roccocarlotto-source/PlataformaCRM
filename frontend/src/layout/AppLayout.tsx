@@ -483,6 +483,10 @@ export function AppLayout() {
               <SidebarLink to="/admin/agents/model" icon={Bot}>
                 Modelo de IA
               </SidebarLink>
+              {/* B4: el gasto en el modelo por organización, últimos 30 días. */}
+              <SidebarLink to="/admin/llm-usage" icon={Activity}>
+                Uso de IA
+              </SidebarLink>
             </div>
           ) : null}
         </nav>

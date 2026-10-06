@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createOrganizationHandler,
+  listLlmUsageHandler,
   listOrganizationsHandler,
 } from "../controllers/organizationAdmin.controller";
 import { authenticate } from "../middlewares/authenticate";
@@ -35,4 +36,13 @@ organizationAdminRouter.get(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   listOrganizationsHandler,
+);
+
+// B4: el gasto en el modelo por organización (últimos 30 días), misma cadena.
+organizationAdminRouter.get(
+  "/admin/llm-usage",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  listLlmUsageHandler,
 );

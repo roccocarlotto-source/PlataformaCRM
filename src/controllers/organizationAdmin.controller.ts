@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { z } from "zod";
 import { listActiveOrganizations } from "../repositories/organization.repository";
+import { DIAS_DE_LA_VISTA_DE_USO, gastoPorOrganizacion } from "../services/llmUsage.service";
 import { createOrganizationWithFoundingAdmin } from "../services/organizationAdmin.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -47,5 +48,17 @@ export const createOrganizationHandler = asyncHandler<AuthenticatedRequest>(
 export const listOrganizationsHandler = asyncHandler<AuthenticatedRequest>(
   async (_req, res: Response) => {
     res.status(200).json(await listActiveOrganizations());
+  },
+);
+
+// B4: el gasto en el modelo por organización de los últimos 30 días, para la
+// vista de plataforma (Configuración → Uso de IA). Solo platform admin: es
+// información de la plataforma sobre sus clientes, no de ningún tenant.
+export const listLlmUsageHandler = asyncHandler<AuthenticatedRequest>(
+  async (_req, res: Response) => {
+    res.status(200).json({
+      dias: DIAS_DE_LA_VISTA_DE_USO,
+      organizaciones: await gastoPorOrganizacion(DIAS_DE_LA_VISTA_DE_USO),
+    });
   },
 );

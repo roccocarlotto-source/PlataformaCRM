@@ -10,6 +10,7 @@ import type {
   AssignWhatsappNumberInput,
   CreateOrganizationInput,
   CreateOrganizationResponse,
+  LlmUsageSummary,
   MetaAuthorization,
   MetaConnectionPendiente,
   PlatformOrganization,
@@ -75,6 +76,11 @@ export function assignInternalAgentModel({
 // Las organizaciones vigentes, para el selector de las pantallas de plataforma.
 export function listOrganizations(signal?: AbortSignal): Promise<PlatformOrganization[]> {
   return request<PlatformOrganization[]>("/admin/organizations", { getAccessToken, signal });
+}
+
+// B4: el gasto en el modelo por organización de los últimos 30 días.
+export function getLlmUsage(signal?: AbortSignal): Promise<LlmUsageSummary> {
+  return request<LlmUsageSummary>("/admin/llm-usage", { getAccessToken, signal });
 }
 
 // ---------------------------------------------------------------------------
