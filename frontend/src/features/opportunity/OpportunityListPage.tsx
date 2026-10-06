@@ -202,48 +202,30 @@ function OpportunityTableView() {
               setPage(1);
             }}
           />
-          <div>
-            <CompanySelect
-              id="opportunity-filter-company"
-              label="Empresa"
-              value={companyId}
-              onChange={(id) => {
-                setCompanyId(id);
-                setPage(1);
-              }}
-            />
-            {companyId ? (
-              <Button
-                onClick={() => {
-                  setCompanyId(undefined);
-                  setPage(1);
-                }}
-              >
-                Quitar filtro de empresa
-              </Button>
-            ) : null}
-          </div>
-          <div>
-            <PipelineSelect
-              id="opportunity-filter-pipeline"
-              label="Proceso de venta"
-              value={pipelineId}
-              onChange={(id) => {
-                setPipelineId(id);
-                setPage(1);
-              }}
-            />
-            {pipelineId ? (
-              <Button
-                onClick={() => {
-                  setPipelineId(undefined);
-                  setPage(1);
-                }}
-              >
-                Quitar filtro de proceso de venta
-              </Button>
-            ) : null}
-          </div>
+          <CompanySelect
+            id="opportunity-filter-company"
+            label="Empresa"
+            value={companyId}
+            onChange={(id) => {
+              setCompanyId(id);
+              setPage(1);
+            }}
+            onClear={() => {
+              setCompanyId(undefined);
+              setPage(1);
+            }}
+            clearLabel="Quitar filtro de empresa"
+          />
+          <PipelineSelect
+            id="opportunity-filter-pipeline"
+            label="Proceso de venta"
+            value={pipelineId}
+            emptyLabel="Todos"
+            onChange={(id) => {
+              setPipelineId(id || undefined);
+              setPage(1);
+            }}
+          />
           <Select
             label="Ordenar por"
             value={sortBy}

@@ -13,6 +13,9 @@ interface PipelineSelectProps {
   // selector solo existe cuando la lista cargó: el formulario que lo exige
   // cubre ese hueco con su propio chequeo en el submit.
   required?: boolean;
+  /** Como filtro: una fila vacía SIEMPRE disponible ("Todos") que vuelve a
+   *  "sin proceso de venta", en vez de un botón de quitar aparte. */
+  emptyLabel?: string;
 }
 
 // Combobox del design system (Select, §46 de docs/frontend-cambios-pendientes.md;
@@ -30,6 +33,7 @@ export function PipelineSelect({
   value,
   onChange,
   required = false,
+  emptyLabel,
 }: PipelineSelectProps) {
   const pipelinesQuery = usePipelines({ pageSize: 100, sortBy: "name", sortOrder: "asc" });
 
@@ -52,7 +56,9 @@ export function PipelineSelect({
         // vuelve a vacío una vez que tiene valor (elegirla sin valor es un
         // no-op, Select solo llama a onChange si el valor cambia). Mismo
         // criterio que UserSelect con clearable={false}.
-        emptyOption={value ? undefined : { label: "Elegí uno…" }}
+        emptyOption={
+          emptyLabel ? { label: emptyLabel } : value ? undefined : { label: "Elegí uno…" }
+        }
         required={required}
       />
     );
