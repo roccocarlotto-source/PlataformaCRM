@@ -349,6 +349,26 @@ test("suscribirPaginaALaApp: POST /{page-id}/subscribed_apps con el PAGE token e
   assert.equal(String(llamadas[0].init.body).includes("page-token-111"), false);
 });
 
+// Lo que de verdad le llega a Meta en el cuerpo, campo por campo, y no solo
+// "lo mismo que la constante": sin `message_echoes` la bandeja de Meta Business
+// Suite es invisible para el CRM en Messenger (OPUS-B-01).
+test("suscribirPaginaALaApp: el cuerpo suscribe messages, messaging_postbacks y message_echoes", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: { success: true } });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+
+  await cliente.suscribirPaginaALaApp("111", "page-token-111");
+
+  const campos = new URLSearchParams(String(llamadas[0].init.body))
+    .get("subscribed_fields")
+    ?.split(",");
+  assert.ok(campos?.includes("messages"), "messages");
+  assert.ok(campos?.includes("messaging_postbacks"), "messaging_postbacks");
+  assert.ok(
+    campos?.includes("message_echoes"),
+    "message_echoes: sin él, las respuestas desde la bandeja de Meta no llegan por Messenger",
+  );
+});
+
 test("suscribirPaginaALaApp: Meta rechaza (permiso faltante) → MetaAuthError con tokenInvalido", async () => {
   const { fetch } = mockearFetch({
     ok: false,

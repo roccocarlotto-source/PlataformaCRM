@@ -98,6 +98,25 @@ export async function humanSpokeLast(
   return ultimo?.senderType === "HUMAN";
 }
 
+// ¿Una persona del negocio escribió en este hilo desde `desde`? Es la guarda
+// de la carrera del turno del agente (responderEnLaConversacion): el gate de
+// humanSpokeLast se lee al EMPEZAR el turno, y esto se pregunta al TERMINAR,
+// antes de guardar la respuesta, por lo que entró mientras el modelo pensaba.
+// `desde` sale del reloj de Node, igual que created_at (lo pone Prisma al
+// insertar, no la base), así que se comparan entre sí sin desfasaje.
+export async function humanoEscribioDesde(
+  conversationId: string,
+  organizationId: string,
+  desde: Date,
+  db: Db = prisma,
+): Promise<boolean> {
+  const alguno = await db.message.findFirst({
+    where: { conversationId, organizationId, senderType: "HUMAN", createdAt: { gte: desde } },
+    select: { id: true },
+  });
+  return alguno !== null;
+}
+
 // Cuándo escribió el contacto por última vez en este hilo, o null si nunca
 // (I-03): la ventana de 24 h de WhatsApp para mandar texto libre se cuenta
 // desde acá.

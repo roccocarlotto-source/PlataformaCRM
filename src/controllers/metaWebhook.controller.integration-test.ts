@@ -97,6 +97,10 @@ const RESPUESTA_DEL_AGENTE = "¡Hola! ¿En qué te ayudo?";
 let enviadosAMeta: SendMetaTextInput[] = [];
 let falloDelEnvio: MetaSendError | null = null;
 let llamadasAlLlm = 0;
+// Lo que contesta el doble del LLM, y una puerta que, si está puesta, lo deja
+// "pensando" hasta que el test la abra (la carrera con una persona).
+let respuestaDelLlm = RESPUESTA_DEL_AGENTE;
+let puertaDelLlm: Promise<void> | null = null;
 
 const depsDeEnvio: DepsDeEnvio = {
   accessToken: () => undefined,
@@ -183,7 +187,8 @@ before(async () => {
     name: "doble",
     async complete() {
       llamadasAlLlm++;
-      return { text: RESPUESTA_DEL_AGENTE, toolCalls: [] };
+      if (puertaDelLlm) await puertaDelLlm;
+      return { text: respuestaDelLlm, toolCalls: [] };
     },
   });
 });
@@ -563,6 +568,17 @@ function reiniciarDobles() {
   enviadosAMeta = [];
   falloDelEnvio = null;
   llamadasAlLlm = 0;
+  respuestaDelLlm = RESPUESTA_DEL_AGENTE;
+  puertaDelLlm = null;
+}
+
+// Espera (con tope) a que `condicion` se cumpla.
+async function esperarA(condicion: () => boolean, descripcion: string, topeMs = 5000) {
+  const inicio = Date.now();
+  while (!condicion()) {
+    if (Date.now() - inicio > topeMs) throw new Error(`No pasó a tiempo: ${descripcion}`);
+    await new Promise((r) => setTimeout(r, 10));
+  }
 }
 
 async function restaurarConexionC() {
@@ -879,4 +895,131 @@ test("OPUS-B-01: un eco hacia alguien que nunca le escribió al negocio no crea 
     }),
     0,
   );
+});
+
+// ---------------------------------------------------------------------------
+// La carrera con una persona (05/10/2026, visto en producción por Messenger):
+// el cliente escribe, el turno del agente arranca, una persona le contesta
+// desde la bandeja de Meta mientras el modelo piensa, y segundos después el
+// agente guardaba y mandaba su respuesta ENCIMA de la de la persona — y como
+// humanSpokeLast miraba quién habló último, desde ahí seguía contestando todo.
+// ---------------------------------------------------------------------------
+test("carrera: una persona contesta desde la bandeja de Meta MIENTRAS el agente piensa -> la respuesta del agente no se guarda ni se manda, y el agente queda callado", async () => {
+  reiniciarDobles();
+  await crearAdmin(negocioC.orgId);
+  const cliente = idAlAzar("2");
+  const escribe = (text: string, mid = `m_${randomUUID()}`) =>
+    enviar(payload({ object: "page", cuentaId: negocioC.pageId, senderId: cliente, mid, text }));
+  const eco = (text: string) =>
+    enviar(
+      payload({ object: "page", cuentaId: negocioC.pageId, senderId: cliente, text, isEcho: true }),
+    );
+
+  // El modelo queda "pensando" hasta que el test abra la puerta.
+  let abrirLaPuerta!: () => void;
+  puertaDelLlm = new Promise<void>((resolve) => {
+    abrirLaPuerta = resolve;
+  });
+
+  const midDelCliente = `m_${randomUUID()}`;
+  assert.equal((await escribe("Hola, ¿tienen el Kwid 2021?", midDelCliente)).status, 200);
+  const drenado = drenarC();
+  await esperarA(() => llamadasAlLlm === 1, "el turno llamó al modelo");
+
+  // Mientras tanto, Laura le contesta al cliente desde Meta Business Suite.
+  assert.equal((await eco("Hola, soy Laura. Sí, está disponible, ¿querés verlo?")).status, 200);
+  const conversacion = await prisma.conversation.findFirstOrThrow({
+    where: { organizationId: negocioC.orgId, externalThreadId: cliente },
+  });
+  assert.equal(
+    await prisma.message.count({ where: { conversationId: conversacion.id, senderType: "HUMAN" } }),
+    1,
+    "la respuesta de la persona quedó registrada mientras el agente pensaba",
+  );
+
+  // El modelo termina de redactar.
+  abrirLaPuerta();
+  const resumen = await drenado;
+  assert.equal(resumen.fallidos, 0);
+  assert.equal(resumen.respondidos, 1);
+  assert.equal(
+    enviadosAMeta.length,
+    0,
+    "la respuesta del agente NO sale por encima de la de la persona",
+  );
+  assert.equal(
+    await prisma.message.count({ where: { conversationId: conversacion.id, senderType: "AGENT" } }),
+    0,
+    "y tampoco queda guardada después de la de la persona",
+  );
+  const { job } = await jobDe(midDelCliente);
+  assert.equal(job.status, "DONE");
+  assert.equal(job.responseMessageId, null);
+  assert.equal(
+    (await prisma.conversation.findUniqueOrThrow({ where: { id: conversacion.id } })).status,
+    "TRANSFERRED_TO_HUMAN",
+  );
+
+  // El cliente vuelve a escribir: la última que habló por el negocio sigue
+  // siendo la persona, así que el agente no corre ningún turno.
+  const antes = llamadasAlLlm;
+  assert.equal((await escribe("Dale, mañana paso a verlo")).status, 200);
+  const segundo = await drenarC();
+  assert.equal(segundo.fallidos, 0);
+  assert.equal(llamadasAlLlm, antes, "ningún turno del modelo");
+  assert.equal(enviadosAMeta.length, 0, "nada sale por el Send API");
+});
+
+// ---------------------------------------------------------------------------
+// Formato por canal (05/10/2026): el modelo escribe en Markdown y Messenger e
+// Instagram muestran los asteriscos tal cual. Lo que sale por el Send API —y
+// lo que queda guardado, que es lo que compara el reconocimiento de ecos— es
+// el texto plano. Ver utils/formatoPorCanal.ts.
+// ---------------------------------------------------------------------------
+test("formato por canal: la negrita y las viñetas del modelo salen como texto plano por Messenger e Instagram, y el eco de eso se reconoce como propio", async () => {
+  reiniciarDobles();
+  respuestaDelLlm = "Tenemos el *Renault Kwid Zen (2021)* a **USD 12.500**.\n- 45.000 km";
+  const esperado = "Tenemos el Renault Kwid Zen (2021) a USD 12.500.\n• 45.000 km";
+
+  for (const canal of ["MESSENGER", "INSTAGRAM"] as const) {
+    const remitente = idAlAzar(canal === "MESSENGER" ? "2" : "3");
+    const mid = `m_${randomUUID()}`;
+    const res = await enviar(
+      payload({
+        object: canal === "MESSENGER" ? "page" : "instagram",
+        cuentaId: canal === "MESSENGER" ? negocioC.pageId : negocioC.igId,
+        senderId: remitente,
+        mid,
+      }),
+    );
+    assert.equal(res.status, 200);
+    const resumen = await drenarC();
+    assert.equal(resumen.respondidos, 1);
+    assert.equal(enviadosAMeta.at(-1)?.text, esperado, canal);
+
+    const { entrante } = await jobDe(mid);
+    const [saliente] = await prisma.message.findMany({
+      where: { conversationId: entrante.conversationId, direction: "OUTBOUND" },
+    });
+    assert.equal(saliente.content, esperado, `${canal}: lo guardado es lo que el cliente ve`);
+
+    // Meta manda el eco de ESA respuesta: es nuestra, no cuenta como persona.
+    const eco = await enviar(
+      payload({
+        object: canal === "MESSENGER" ? "page" : "instagram",
+        cuentaId: canal === "MESSENGER" ? negocioC.pageId : negocioC.igId,
+        senderId: remitente,
+        text: esperado,
+        isEcho: true,
+      }),
+    );
+    assert.equal(eco.status, 200);
+    assert.equal(
+      await prisma.message.count({
+        where: { conversationId: entrante.conversationId, senderType: "HUMAN" },
+      }),
+      0,
+      `${canal}: el eco de la respuesta formateada no se registra como una persona`,
+    );
+  }
 });

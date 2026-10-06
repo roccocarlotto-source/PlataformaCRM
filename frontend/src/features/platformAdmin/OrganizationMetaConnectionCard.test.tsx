@@ -162,6 +162,38 @@ describe("OrganizationMetaConnectionCard", () => {
     confirmSpy.mockRestore();
   });
 
+  it("conectada: «Volver a conectar» repite el flujo de conectar sin desconectar (vuelve a suscribir la página)", async () => {
+    let posts = 0;
+    let deletes = 0;
+    const asignaciones = espiarNavegacion();
+    const user = userEvent.setup();
+    server.use(
+      http.get(baseUrl, () => HttpResponse.json(conexion())),
+      http.post(`${baseUrl}/connect`, () => {
+        posts += 1;
+        return HttpResponse.json({
+          authorizationUrl: "https://www.facebook.com/v25.0/dialog/oauth?reconectar=1",
+        });
+      }),
+      http.delete(baseUrl, () => {
+        deletes += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderSection();
+
+    expect(await screen.findByText("Conectada")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Volver a conectar" }));
+
+    await waitFor(() =>
+      expect(asignaciones).toEqual(["https://www.facebook.com/v25.0/dialog/oauth?reconectar=1"]),
+    );
+    expect(posts).toBe(1);
+    expect(deletes).toBe(0);
+    expect(screen.getByRole("button", { name: "Abriendo Facebook…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Desconectar" })).toBeDisabled();
+  });
+
   it("conectada sin Instagram vinculado lo dice", async () => {
     server.use(http.get(baseUrl, () => HttpResponse.json(conexion())));
     renderSection();
