@@ -11,7 +11,14 @@ export type OpportunityStatus = "OPEN" | "WON" | "LOST";
 export type OpportunityFinancingType =
   "NONE" | "INSTALLMENT_24M" | "INSTALLMENT_36M" | "OWN_FINANCING";
 export type OpportunityLeadSource =
-  "PORTAL_MERCADOLIBRE" | "WEBSITE" | "SHOWROOM" | "REFERRAL" | "WHATSAPP";
+  | "PORTAL_MERCADOLIBRE"
+  | "WEBSITE"
+  | "SHOWROOM"
+  | "REFERRAL"
+  | "WHATSAPP"
+  // B2: los canales de Meta (migración 20261022120000).
+  | "MESSENGER"
+  | "INSTAGRAM";
 
 // ⚠️ amount es Decimal(14,2) en Prisma — mismo caso verificado empíricamente
 // que Stage.probability (M4): Prisma.Decimal.toJSON() devuelve STRING. La

@@ -113,6 +113,7 @@ import {
   writeSyncedKnowledgeBaseEntry,
 } from "./knowledgeBaseEntry.repository";
 import { setInternalAgentModel } from "./internalAgent.repository";
+import { purgeLlmTurnUsages, sumarUsoPorOrganizacion } from "./llmTurnUsage.repository";
 import {
   softDeleteContactCustomFieldDefinition,
   updateContactCustomFieldDefinition,
@@ -1419,6 +1420,7 @@ interface FixtureNuevos {
   metaConnectionY: string;
   qrCodeY: string;
   qrFollowUpY: string;
+  llmTurnUsageY: string;
   campoY: string;
   voucherY: string;
   voucherFollowUpY: string;
@@ -1615,6 +1617,21 @@ before(async () => {
       attempts: 1,
     },
   });
+  // B4: el uso del modelo de un turno de Y (solo se inserta y se purga).
+  const llmTurnUsageY = await prisma.llmTurnUsage.create({
+    data: {
+      organizationId: org,
+      agentId: agentY.id,
+      conversationId: conversationY.id,
+      channel: "WHATSAPP",
+      model: "doble/modelo",
+      calls: 1,
+      promptTokens: 10,
+      completionTokens: 5,
+      costUsd: 0.001,
+      createdAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000),
+    },
+  });
   // B6: una definición de campo personalizado de Y.
   const campoY = await prisma.contactCustomFieldDefinition.create({
     data: {
@@ -1725,6 +1742,7 @@ before(async () => {
     metaConnectionY: metaConnectionY.id,
     qrCodeY: qrCodeY.id,
     qrFollowUpY: qrFollowUpY.id,
+    llmTurnUsageY: llmTurnUsageY.id,
     campoY: campoY.id,
     voucherY: voucherY.id,
     voucherFollowUpY: voucherFollowUpY.id,
@@ -1751,6 +1769,7 @@ after(async () => {
   await prisma.discountVoucherFollowUp.deleteMany(w);
   await prisma.discountVoucher.deleteMany(w);
   await prisma.qrFollowUp.deleteMany(w);
+  await prisma.llmTurnUsage.deleteMany(w);
   await prisma.contactCustomFieldDefinition.deleteMany(w);
   await prisma.qrCode.deleteMany(w);
   await prisma.metaPageConnection.deleteMany(w);
@@ -2247,6 +2266,29 @@ test("H-01 ContactCustomFieldDefinition: update y softDelete con el id de Y y la
     leerY.campo,
     () => softDeleteContactCustomFieldDefinition(nx.campoY, nx.orgX),
     "softDeleteContactCustomFieldDefinition",
+  );
+});
+
+// B4: llm_turn_usages solo se inserta (registrarUsoDelTurno), se suma por
+// organización y se purga por fecha. Las dos escrituras/lecturas con
+// organización: la purga acotada a X no toca la fila de Y, y la suma por
+// organización atribuye el gasto de Y a Y y no a X.
+test("H-01 LlmTurnUsage: la purga acotada a X no borra la fila (vencida) de Y, y la suma por organización no la mezcla", async () => {
+  const corte = new Date(Date.now() + 60_000);
+  const { count } = await purgeLlmTurnUsages(corte, { organizationId: nx.orgX });
+  assert.equal(count, 0, "X no tiene filas: la purga acotada a X no borra nada");
+  assert.ok(
+    await prisma.llmTurnUsage.findUnique({ where: { id: nx.llmTurnUsageY } }),
+    "la fila de Y sigue",
+  );
+  const sumas = await sumarUsoPorOrganizacion(new Date(0));
+  const deY = sumas.find((s) => s.organizationId === nx.orgY);
+  assert.equal(deY?.turnos, 1);
+  assert.equal(deY?.promptTokens, 10);
+  assert.equal(
+    sumas.find((s) => s.organizationId === nx.orgX),
+    undefined,
+    "X no tiene gasto: no aparece",
   );
 });
 

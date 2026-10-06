@@ -38,6 +38,7 @@ import { VehicleListPage } from "../features/vehicle/VehicleListPage";
 import { AgentFacebookPagePage } from "../features/platformAdmin/AgentFacebookPagePage";
 import { AgentModelPage } from "../features/platformAdmin/AgentModelPage";
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
+import { LlmUsagePage } from "../features/platformAdmin/LlmUsagePage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
 import { BranchFormPage } from "../features/branch/BranchFormPage";
@@ -375,6 +376,8 @@ export const router = createBrowserRouter([
               // B-05: el modelo de IA de un agente o del agente interno lo
               // elige solo la plataforma (PUT /api/admin/.../model).
               { path: "/admin/agents/model", element: <AgentModelPage /> },
+              // B4: el gasto en el modelo por organización (GET /api/admin/llm-usage).
+              { path: "/admin/llm-usage", element: <LlmUsagePage /> },
             ],
           },
         ],

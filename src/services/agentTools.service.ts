@@ -170,11 +170,13 @@ export const MAX_RESERVAS_FUTURAS_POR_CONTACTO = 2;
 export const MENSAJE_TOPE_DE_RESERVAS = `Este cliente ya tiene ${String(MAX_RESERVAS_FUTURAS_POR_CONTACTO)} reservas futuras activas, que es el máximo que se puede agendar desde el chat. No reservaste nada nuevo: decíselo, y si necesita otra o quiere cambiar una, derivá la conversación a una persona.`;
 
 // FABLE-I-06 / B-15 (docs-privados, local): de dónde vino la oportunidad que
-// crea el agente. Solo los canales que el enum ya tiene; Messenger e Instagram
-// quedan sin origen hasta que exista un valor para ellos.
-const ORIGEN_POR_CANAL: Partial<Record<ConversationChannel, OpportunityLeadSource>> = {
+// crea el agente. Desde B2 (migración 20261022120000) el enum tiene valor para
+// los cuatro canales. Exportado para fijarlo con un test.
+export const ORIGEN_POR_CANAL: Record<ConversationChannel, OpportunityLeadSource> = {
   WEB: "WEBSITE",
   WHATSAPP: "WHATSAPP",
+  MESSENGER: "MESSENGER",
+  INSTAGRAM: "INSTAGRAM",
 };
 
 // Serializable: va a Message.toolCalls y, como string JSON, de vuelta al

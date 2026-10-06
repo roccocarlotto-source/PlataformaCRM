@@ -142,6 +142,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("m13-org-b-{ts}-{hex8}", `${R}contact-email-uniqueness.integration-test.ts`),
   patron("batch-test-{ts}-{hex8}", `${R}ingestionEvent-batch.integration-test.ts`),
   patron("purga-test-{ts}-{hex8}", `${R}ingestionEvent-purge.integration-test.ts`),
+  patron("llm-uso-{etiqueta}-{ts}-{hex8}", `${R}llmTurnUsage.integration-test.ts`),
   patron("b17-{ts}-{hex8}", `${R}lockForUpdate.integration-test.ts`),
   patron("m4-org-a-{ts}", `${R}tenant-isolation.integration-test.ts`),
   patron("m4-org-b-{ts}", `${R}tenant-isolation.integration-test.ts`),

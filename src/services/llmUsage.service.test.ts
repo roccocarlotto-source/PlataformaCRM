@@ -31,18 +31,24 @@ test("sumarUso: si ningún proveedor informó costo, el costo queda en null (no 
   assert.equal(uso.costUsd, null);
 });
 
-test("registrarUsoDelTurno: una línea por turno con la organización, el modelo y los totales", () => {
+test("registrarUsoDelTurno: una línea de log y una fila por turno con la organización, el canal, el modelo y los totales", async () => {
   const info = mock.method(logger, "info", () => undefined);
+  const guardadas: unknown[] = [];
+  const deps = { guardar: async (data: unknown) => void guardadas.push(data) };
   try {
     const uso = usoVacio();
     sumarUso(uso, { promptTokens: 900, completionTokens: 60, costUsd: 0.0003 });
-    registrarUsoDelTurno({
-      organizationId: "org-1",
-      agentId: "agente-1",
-      conversationId: "conv-1",
-      model: "proveedor/modelo",
-      uso,
-    });
+    await registrarUsoDelTurno(
+      {
+        organizationId: "org-1",
+        agentId: "agente-1",
+        conversationId: "conv-1",
+        channel: "MESSENGER",
+        model: "proveedor/modelo",
+        uso,
+      },
+      deps,
+    );
 
     assert.equal(info.mock.callCount(), 1);
     assert.deepEqual(info.mock.calls[0].arguments, [
@@ -50,6 +56,7 @@ test("registrarUsoDelTurno: una línea por turno con la organización, el modelo
         organizationId: "org-1",
         agentId: "agente-1",
         conversationId: "conv-1",
+        channel: "MESSENGER",
         model: "proveedor/modelo",
         llamadas: 1,
         promptTokens: 900,
@@ -58,17 +65,60 @@ test("registrarUsoDelTurno: una línea por turno con la organización, el modelo
       },
       MENSAJE_DE_USO_DEL_TURNO,
     ]);
+    // B4: la fila de llm_turn_usages, con lo mismo.
+    assert.deepEqual(guardadas, [
+      {
+        organizationId: "org-1",
+        agentId: "agente-1",
+        conversationId: "conv-1",
+        channel: "MESSENGER",
+        model: "proveedor/modelo",
+        calls: 1,
+        promptTokens: 900,
+        completionTokens: 60,
+        costUsd: 0.0003,
+      },
+    ]);
 
     // Un turno que no llegó a llamar al modelo no registra nada.
-    registrarUsoDelTurno({
-      organizationId: "org-1",
-      agentId: "agente-1",
-      conversationId: "conv-1",
-      model: "proveedor/modelo",
-      uso: usoVacio(),
-    });
+    await registrarUsoDelTurno(
+      {
+        organizationId: "org-1",
+        agentId: "agente-1",
+        conversationId: "conv-1",
+        channel: "MESSENGER",
+        model: "proveedor/modelo",
+        uso: usoVacio(),
+      },
+      deps,
+    );
     assert.equal(info.mock.callCount(), 1);
+    assert.equal(guardadas.length, 1);
   } finally {
     info.mock.restore();
+  }
+});
+
+test("registrarUsoDelTurno: si la fila no se puede guardar, se loguea y no lanza (el turno ya respondió)", async () => {
+  const info = mock.method(logger, "info", () => undefined);
+  const error = mock.method(logger, "error", () => undefined);
+  try {
+    const uso = usoVacio();
+    sumarUso(uso, { promptTokens: 1, completionTokens: 1, costUsd: null });
+    await registrarUsoDelTurno(
+      {
+        organizationId: "org-1",
+        agentId: "agente-1",
+        conversationId: "conv-1",
+        channel: "WEB",
+        model: "proveedor/modelo",
+        uso,
+      },
+      { guardar: () => Promise.reject(new Error("la base no respondió")) },
+    );
+    assert.equal(error.mock.callCount(), 1);
+  } finally {
+    info.mock.restore();
+    error.mock.restore();
   }
 });
