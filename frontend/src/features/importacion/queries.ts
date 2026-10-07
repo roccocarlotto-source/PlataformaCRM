@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getLote, getOpciones, listarFilas, listarLotes } from "./api";
+import { getLote, getOpciones, listarFilas, listarLotes, listarSincronizaciones } from "./api";
 import type { EstadoDelLote, TipoDePlan } from "./types";
 
 export const importacionKeys = {
@@ -7,6 +7,7 @@ export const importacionKeys = {
   opciones: (organizationId: string) =>
     [...importacionKeys.all, "opciones", organizationId] as const,
   lotes: (organizationId: string) => [...importacionKeys.all, "lotes", organizationId] as const,
+  syncs: (organizationId: string) => [...importacionKeys.all, "syncs", organizationId] as const,
   lote: (organizationId: string, batchId: string) =>
     [...importacionKeys.all, "lote", organizationId, batchId] as const,
   filas: (organizationId: string, batchId: string, filtro: object) =>
@@ -17,6 +18,14 @@ export function useOpciones(organizationId: string) {
   return useQuery({
     queryKey: importacionKeys.opciones(organizationId),
     queryFn: ({ signal }) => getOpciones(organizationId, signal),
+    enabled: organizationId !== "",
+  });
+}
+
+export function useSincronizaciones(organizationId: string) {
+  return useQuery({
+    queryKey: importacionKeys.syncs(organizationId),
+    queryFn: ({ signal }) => listarSincronizaciones(organizationId, signal),
     enabled: organizationId !== "",
   });
 }
@@ -39,8 +48,11 @@ export function useLote(organizationId: string, batchId: string) {
     queryKey: importacionKeys.lote(organizationId, batchId),
     queryFn: ({ signal }) => getLote(organizationId, batchId, signal),
     enabled: organizationId !== "" && batchId !== "",
+    // También mientras queden fotos del stock por bajar.
     refetchInterval: (query) =>
-      query.state.data && EN_CURSO.includes(query.state.data.lote.status)
+      query.state.data &&
+      (EN_CURSO.includes(query.state.data.lote.status) ||
+        (query.state.data.fotos?.PENDING ?? 0) > 0)
         ? INTERVALO_DE_PROGRESO_MS
         : false,
   });

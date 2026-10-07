@@ -5,6 +5,7 @@ import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Notice } from "../../design-system/Notice";
 import { Pagination } from "../../design-system/Pagination";
@@ -160,8 +161,23 @@ export function PasoVistaPrevia({
       decidirFilas(organizationId, lote.id, [rowId], decision),
     onSuccess: refrescar,
   });
+  // "Mantener sincronizado cada N horas" (§7): solo un lote de stock que vino
+  // de un link de Google Sheets. Apagada por defecto, 6 h sugeridas.
+  const sincronizable = lote.originKind === "GOOGLE_SHEETS_LINK";
+  const [sincronizar, setSincronizar] = useState(false);
+  const [horas, setHoras] = useState("6");
+  const [marcarFaltantes, setMarcarFaltantes] = useState(false);
+  const horasValidas =
+    Number.isInteger(Number(horas)) && Number(horas) >= 1 && Number(horas) <= 168;
   const confirmar = useMutation({
-    mutationFn: () => confirmarLote(organizationId, lote.id),
+    mutationFn: () =>
+      confirmarLote(
+        organizationId,
+        lote.id,
+        sincronizable && sincronizar
+          ? { intervalHours: Number(horas), marcarFaltantes }
+          : undefined,
+      ),
     onSuccess: refrescar,
   });
   const cancelar = useMutation({
@@ -283,6 +299,42 @@ export function PasoVistaPrevia({
           />
         ) : null}
       </Card>
+      {sincronizable ? (
+        <Card heading="Sincronización">
+          <FormField label="Mantener sincronizado con la planilla">
+            <input
+              type="checkbox"
+              checked={sincronizar}
+              onChange={(e) => setSincronizar(e.target.checked)}
+            />
+          </FormField>
+          {sincronizar ? (
+            <>
+              <FormField label="Cada cuántas horas (entre 1 y 168)">
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={horas}
+                  onChange={(e) => setHoras(e.target.value)}
+                />
+              </FormField>
+              <FormField label="Pasar a No disponible las unidades que desaparezcan de la planilla">
+                <input
+                  type="checkbox"
+                  checked={marcarFaltantes}
+                  onChange={(e) => setMarcarFaltantes(e.target.checked)}
+                />
+              </FormField>
+              <p className="ds-hint">
+                Los campos mapeados se actualizan desde la planilla en cada sincronización. El
+                estado que maneja el CRM (reservada, vendida, con una oportunidad) no se pisa, y
+                nada se borra.
+              </p>
+            </>
+          ) : null}
+        </Card>
+      ) : null}
       {[confirmar, cancelar, decidir, sinEmpresas].map((m, i) =>
         m.isError ? (
           <ErrorState key={i}>
@@ -291,7 +343,12 @@ export function PasoVistaPrevia({
         ) : null,
       )}
       <div className="ds-card-actions">
-        <Button type="button" loading={confirmar.isPending} onClick={() => void alConfirmar()}>
+        <Button
+          type="button"
+          loading={confirmar.isPending}
+          disabled={sincronizable && sincronizar && !horasValidas}
+          onClick={() => void alConfirmar()}
+        >
           Confirmar e importar
         </Button>
         <Button type="button" variant="secondary" onClick={onCambiarMapeo}>

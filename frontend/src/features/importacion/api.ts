@@ -13,6 +13,8 @@ import type {
   SubidaDeArchivo,
   TipoDePlan,
   TipoImportable,
+  PedidoDeSincronizar,
+  Sincronizacion,
 } from "./types";
 
 // Plataforma → Importar datos: /api/admin/organizations/:organizationId/imports.
@@ -44,6 +46,18 @@ export function subirArchivo(organizationId: string, archivo: File, pedido: Pedi
   }
   form.append("file", archivo);
   return uploadFile<SubidaDeArchivo>(base(organizationId), form, { getAccessToken });
+}
+
+// Google Sheets por link: solo stock (docs/importacion-de-datos.md §4.2).
+export function subirLinkDeSheets(
+  organizationId: string,
+  pedido: PedidoDeSubida & { sheetUrl: string },
+) {
+  return request<SubidaDeArchivo>(`${base(organizationId)}/sheets`, {
+    method: "POST",
+    body: pedido,
+    getAccessToken,
+  });
 }
 
 export function listarLotes(organizationId: string, signal?: AbortSignal) {
@@ -92,11 +106,32 @@ export function decidirFilas(
   });
 }
 
-export function confirmarLote(organizationId: string, batchId: string) {
-  return request<{ confirmadas: number }>(`${base(organizationId)}/${batchId}/confirm`, {
-    method: "POST",
-    getAccessToken,
-  });
+export function confirmarLote(
+  organizationId: string,
+  batchId: string,
+  sincronizar?: PedidoDeSincronizar,
+) {
+  return request<{ confirmadas: number; syncId: string | null }>(
+    `${base(organizationId)}/${batchId}/confirm`,
+    { method: "POST", body: sincronizar ? { sincronizar } : {}, getAccessToken },
+  );
+}
+
+export function listarSincronizaciones(organizationId: string, signal?: AbortSignal) {
+  return request<Sincronizacion[]>(`${base(organizationId)}/syncs`, { getAccessToken, signal });
+}
+
+export function cambiarSincronizacion(
+  organizationId: string,
+  syncId: string,
+  que: "pause" | "resume" | "delete",
+) {
+  return que === "delete"
+    ? request<void>(`${base(organizationId)}/syncs/${syncId}`, { method: "DELETE", getAccessToken })
+    : request<unknown>(`${base(organizationId)}/syncs/${syncId}/${que}`, {
+        method: "POST",
+        getAccessToken,
+      });
 }
 
 export function cancelarLote(organizationId: string, batchId: string) {
@@ -113,6 +148,10 @@ export function deshacerLote(organizationId: string, batchId: string) {
   });
 }
 
-export function descargarCsv(organizationId: string, batchId: string, cual: "failed" | "changes") {
+export function descargarCsv(
+  organizationId: string,
+  batchId: string,
+  cual: "failed" | "changes" | "photos",
+) {
   return downloadFile(`${base(organizationId)}/${batchId}/${cual}.csv`, { getAccessToken });
 }

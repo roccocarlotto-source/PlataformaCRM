@@ -168,6 +168,7 @@ beforeEach(() => {
       }),
     ),
     http.get(base, () => HttpResponse.json({ data: [], total: 0, page: 1, pageSize: 10 })),
+    http.get(`${base}/syncs`, () => HttpResponse.json([])),
     http.post(base, async ({ request }) => {
       // El cuerpo CRUDO, como ImportPage.test.tsx: el parseo de multipart del
       // lado del servidor no está en este entorno. Cada campo de texto es una
@@ -525,6 +526,29 @@ describe("ImportarDatosPage", () => {
     });
   });
 
+  it("stock terminado: el informe dice cuántas fotos se bajaron y cuántas no, y descarga el CSV de las que no", async () => {
+    estado = "DONE";
+    let pedidas = 0;
+    server.use(
+      http.get(`${base}/${LOTE}`, () =>
+        HttpResponse.json({
+          lote: { ...lote(), entityType: "VEHICLE" },
+          resumen: { total: 2, porEstado: {}, porPlan: {}, porResultado: {} },
+          fotos: { DONE: 3, FAILED: 1, SKIPPED: 1 },
+        }),
+      ),
+      http.get(`${base}/${LOTE}/photos.csv`, () => {
+        pedidas++;
+        return new HttpResponse("Unidad;Link\r\n", { headers: { "Content-Type": "text/csv" } });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}&batchId=${LOTE}`);
+    expect(await screen.findByText(/Fotos: 3 bajadas, 2 sin bajar/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Descargar fotos sin bajar" }));
+    await waitFor(() => expect(pedidas).toBe(1));
+  });
+
   it("«No crear empresas» vuelve a mandar los ajustes con crearEmpresas: false", async () => {
     estado = "READY";
     const user = userEvent.setup();
@@ -532,6 +556,154 @@ describe("ImportarDatosPage", () => {
     await user.click(await screen.findByRole("button", { name: "No crear empresas" }));
     await waitFor(() => expect(configs).toHaveLength(1));
     expect(configs[0]).toMatchObject({ crearEmpresas: false });
+  });
+
+  it("Google Sheets: solo aparece para el stock, manda el link a /sheets y muestra por qué no se pudo leer", async () => {
+    const pedidos: unknown[] = [];
+    server.use(
+      http.post(`${base}/sheets`, async ({ request }) => {
+        pedidos.push(await request.json());
+        return HttpResponse.json(
+          { error: { message: "La planilla no está compartida con el enlace" } },
+          { status: 400 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}`);
+    const tipo = await screen.findByRole("combobox", { name: "Qué se importa" });
+    await chooseSelectOption(user, tipo, "Contactos");
+    expect(screen.queryByRole("combobox", { name: "De dónde" })).not.toBeInTheDocument();
+    await chooseSelectOption(user, tipo, "Stock de vehículos");
+    await chooseSelectOption(
+      user,
+      screen.getByRole("combobox", { name: "De dónde" }),
+      "Un link de Google Sheets",
+    );
+    await user.type(screen.getByLabelText("Nombre del sistema de origen"), "Planilla");
+    await user.type(
+      screen.getByLabelText("Link de la planilla"),
+      "https://docs.google.com/spreadsheets/d/1PlanillaFicticia_0123456789/edit",
+    );
+    await user.click(screen.getByRole("button", { name: "Subir y continuar" }));
+    expect(
+      await screen.findByText(/No pudimos leer la planilla: La planilla no está compartida/),
+    ).toBeInTheDocument();
+    expect(pedidos).toEqual([
+      {
+        entityType: "VEHICLE",
+        sourceName: "Planilla",
+        sheetUrl: "https://docs.google.com/spreadsheets/d/1PlanillaFicticia_0123456789/edit",
+      },
+    ]);
+  });
+
+  it("sincronizar: un lote de Google Sheets ofrece la casilla, y confirmar manda el intervalo y las faltantes", async () => {
+    estado = "READY";
+    const cuerpos: unknown[] = [];
+    server.use(
+      http.get(`${base}/${LOTE}`, () =>
+        HttpResponse.json({
+          lote: { ...lote(), entityType: "VEHICLE", originKind: "GOOGLE_SHEETS_LINK" },
+          resumen: { total: 3, porEstado: {}, porPlan: { CREATE: 3 }, porResultado: {} },
+        }),
+      ),
+      http.get(`${base}/${LOTE}/rows`, () =>
+        HttpResponse.json({ data: [], total: 0, page: 1, pageSize: 50 }),
+      ),
+      http.post(`${base}/${LOTE}/confirm`, async ({ request }) => {
+        cuerpos.push(await request.json());
+        return HttpResponse.json({ confirmadas: 3, syncId: "s-1" });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}&batchId=${LOTE}`);
+    await user.click(await screen.findByLabelText("Mantener sincronizado con la planilla"));
+    expect(
+      screen.getByText(
+        /Los campos mapeados se actualizan desde la planilla en cada sincronización/,
+      ),
+    ).toBeInTheDocument();
+    const horas = screen.getByLabelText(/Cada cuántas horas/);
+    await user.clear(horas);
+    await user.type(horas, "0");
+    expect(screen.getByRole("button", { name: "Confirmar e importar" })).toBeDisabled();
+    await user.clear(horas);
+    await user.type(horas, "12");
+    await user.click(screen.getByLabelText(/Pasar a No disponible/));
+    await user.click(screen.getByRole("button", { name: "Confirmar e importar" }));
+    await waitFor(() =>
+      expect(cuerpos).toEqual([{ sincronizar: { intervalHours: 12, marcarFaltantes: true } }]),
+    );
+  });
+
+  it("un lote de archivo no ofrece sincronizar y confirma sin cuerpo de sincronización", async () => {
+    estado = "READY";
+    const cuerpos: unknown[] = [];
+    server.use(
+      http.post(`${base}/${LOTE}/confirm`, async ({ request }) => {
+        cuerpos.push(await request.json());
+        return HttpResponse.json({ confirmadas: 3, syncId: null });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}&batchId=${LOTE}`);
+    await user.click(await screen.findByRole("button", { name: "Confirmar e importar" }));
+    await waitFor(() => expect(cuerpos).toEqual([{}]));
+    expect(
+      screen.queryByLabelText("Mantener sincronizado con la planilla"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("sincronizaciones: la pausada por fallas se resalta con su error; reanudar, pausar y borrar llaman al backend", async () => {
+    const llamadas: string[] = [];
+    const sync = (extra: Record<string, unknown>) => ({
+      id: "s-1",
+      source: { name: "Planilla de stock" },
+      intervalHours: 6,
+      markMissingUnavailable: false,
+      nextRunAt: new Date().toISOString(),
+      lastRunAt: new Date(Date.now() - 14 * 3_600_000).toISOString(),
+      lastStatus: "FAILED",
+      lastError: "La planilla no está compartida con el enlace",
+      consecutiveFailures: 3,
+      pausedAt: new Date().toISOString(),
+      pausedReason: "AUTO_FAILURES",
+      createdAt: new Date().toISOString(),
+      ultimaCorrida: { id: LOTE, status: "DONE", createdAt: new Date().toISOString() },
+      ...extra,
+    });
+    server.use(
+      http.get(`${base}/syncs`, () =>
+        HttpResponse.json([
+          sync({}),
+          sync({
+            id: "s-2",
+            pausedAt: null,
+            pausedReason: null,
+            lastStatus: "OK",
+            lastError: null,
+          }),
+        ]),
+      ),
+      http.post(`${base}/syncs/:id/:que`, ({ params }) => {
+        llamadas.push(`${String(params.que)} ${String(params.id)}`);
+        return HttpResponse.json({});
+      }),
+      http.delete(`${base}/syncs/:id`, ({ params }) => {
+        llamadas.push(`delete ${String(params.id)}`);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}`);
+    expect(await screen.findByText("Pausada: falló 3 veces seguidas")).toBeInTheDocument();
+    expect(screen.getByText(/Error: La planilla no está compartida/)).toBeInTheDocument();
+    expect(screen.getAllByText(/última sincronización hace 14 h/)).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "Reanudar" }));
+    await user.click(screen.getByRole("button", { name: "Pausar" }));
+    await user.click(screen.getAllByRole("button", { name: "Borrar" })[1]);
+    await waitFor(() => expect(llamadas).toEqual(["resume s-1", "pause s-2", "delete s-2"]));
   });
 
   it("un archivo que el backend rechaza muestra el motivo, y no avanza", async () => {

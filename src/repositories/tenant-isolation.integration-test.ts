@@ -46,6 +46,17 @@ import {
   resumenDeFilas,
   transicionarLote,
 } from "./importacion.repository";
+import { marcarFoto, resumenDeFotos } from "./vehiclePhotoImport.repository";
+import {
+  borrarSync,
+  findSync,
+  listarSyncs,
+  pausarSync,
+  reanudarSync,
+  registrarCorridaFallida,
+  registrarCorridaOk,
+  soltarSync,
+} from "./importSync.repository";
 import {
   expireDueQuotes,
   supersedeOpenQuotes,
@@ -2462,6 +2473,29 @@ test("H-01 Importación: lote, filas y vínculos de Y no se leen ni se escriben 
   );
   assert.deepEqual(await leerY.importBatch(), antes.batch);
   assert.deepEqual(await leerY.importLink(), antes.link);
+});
+
+// La cola de fotos del stock importado (vehiclePhotoImport.repository.ts).
+test("H-01 VehiclePhotoImport: marcar o resumir la foto de Y con la organización de X no toca ni ve nada", async () => {
+  const antes = await leerY.photoImport();
+  const r = await marcarFoto(nx.photoImportY, nx.orgX, { status: "FAILED", error: "ajeno" });
+  assert.equal(r.count, 0);
+  assert.deepEqual(await resumenDeFotos(nx.orgX, nx.importBatchY), {});
+  assert.deepEqual(await leerY.photoImport(), antes);
+});
+
+// Las sincronizaciones del stock (importSync.repository.ts).
+test("H-01 ImportSync: registrar, pausar, reanudar, borrar o leer la sincronización de Y con la organización de X no toca ni ve nada", async () => {
+  const antes = await leerY.importSync();
+  assert.equal((await registrarCorridaOk(nx.importSyncY, nx.orgX)).count, 0);
+  assert.equal(await registrarCorridaFallida(nx.importSyncY, nx.orgX, "ajeno"), 0);
+  assert.equal((await soltarSync(nx.importSyncY, nx.orgX)).count, 0);
+  assert.equal((await pausarSync(nx.orgX, nx.importSyncY)).count, 0);
+  assert.equal((await reanudarSync(nx.orgX, nx.importSyncY)).count, 0);
+  assert.equal((await borrarSync(nx.orgX, nx.importSyncY)).count, 0);
+  assert.equal(await findSync(nx.orgX, nx.importSyncY), null);
+  assert.ok((await listarSyncs(nx.orgX)).every((s) => s.id !== nx.importSyncY));
+  assert.deepEqual(await leerY.importSync(), antes);
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {

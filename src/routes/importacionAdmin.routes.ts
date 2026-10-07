@@ -5,6 +5,7 @@ import {
   confirmarHandler,
   csvCambiosHandler,
   csvFallidasHandler,
+  csvFotosHandler,
   decidirHandler,
   deshacerHandler,
   filasHandler,
@@ -12,6 +13,11 @@ import {
   obtenerHandler,
   opcionesHandler,
   subirHandler,
+  subirSheetsHandler,
+  listarSyncsHandler,
+  pausarSyncHandler,
+  reanudarSyncHandler,
+  borrarSyncHandler,
 } from "../controllers/importacionAdmin.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { importUpload } from "../middlewares/importUpload";
@@ -42,7 +48,20 @@ importacionAdminRouter.post(
   importUpload,
   subirHandler,
 );
+// El link de Google Sheets: misma cuota que subir un archivo (baja y parsea).
+importacionAdminRouter.post(
+  `${BASE}/sheets`,
+  authenticate,
+  importPreviewRateLimiter,
+  requirePlatformAdmin,
+  subirSheetsHandler,
+);
 importacionAdminRouter.get(BASE, ...gate, listarHandler);
+// Las sincronizaciones (§7), antes de /:batchId.
+importacionAdminRouter.get(`${BASE}/syncs`, ...gate, listarSyncsHandler);
+importacionAdminRouter.post(`${BASE}/syncs/:syncId/pause`, ...gate, pausarSyncHandler);
+importacionAdminRouter.post(`${BASE}/syncs/:syncId/resume`, ...gate, reanudarSyncHandler);
+importacionAdminRouter.delete(`${BASE}/syncs/:syncId`, ...gate, borrarSyncHandler);
 importacionAdminRouter.get(`${BASE}/:batchId`, ...gate, obtenerHandler);
 importacionAdminRouter.put(`${BASE}/:batchId/config`, ...gate, configurarHandler);
 importacionAdminRouter.get(`${BASE}/:batchId/rows`, ...gate, filasHandler);
@@ -52,3 +71,4 @@ importacionAdminRouter.post(`${BASE}/:batchId/cancel`, ...gate, cancelarHandler)
 importacionAdminRouter.post(`${BASE}/:batchId/undo`, ...gate, deshacerHandler);
 importacionAdminRouter.get(`${BASE}/:batchId/failed.csv`, ...gate, csvFallidasHandler);
 importacionAdminRouter.get(`${BASE}/:batchId/changes.csv`, ...gate, csvCambiosHandler);
+importacionAdminRouter.get(`${BASE}/:batchId/photos.csv`, ...gate, csvFotosHandler);

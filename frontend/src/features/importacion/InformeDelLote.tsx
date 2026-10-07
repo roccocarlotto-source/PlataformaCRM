@@ -74,6 +74,8 @@ export function InformeDelLote({
   const resumen = lote.counters?.final ?? detalle.resumen;
   const fallidas = resumen.porEstado.FAILED ?? 0;
   const actualizadas = resumen.porResultado.UPDATED ?? 0;
+  const fotos = detalle.fotos ?? null;
+  const fotosConProblemas = (fotos?.FAILED ?? 0) + (fotos?.SKIPPED ?? 0);
 
   const queryClient = useQueryClient();
   const confirm = useConfirm();
@@ -92,9 +94,14 @@ export function InformeDelLote({
   }
 
   const descarga = useMutation({
-    mutationFn: async (cual: "failed" | "changes") => {
+    mutationFn: async (cual: "failed" | "changes" | "photos") => {
       const blob = await descargarCsv(organizationId, lote.id, cual);
-      guardarArchivo(blob, cual === "failed" ? "filas-fallidas.csv" : "cambios.csv");
+      const nombres = {
+        failed: "filas-fallidas.csv",
+        changes: "cambios.csv",
+        photos: "fotos-no-bajadas.csv",
+      };
+      guardarArchivo(blob, nombres[cual]);
     },
   });
 
@@ -112,6 +119,25 @@ export function InformeDelLote({
           <span className="ds-kpi-value">{fallidas}</span>
         </div>
       </div>
+      {fotos ? (
+        <p role="status">
+          Fotos: {fotos.DONE ?? 0} bajadas
+          {(fotos.PENDING ?? 0) > 0 ? `, ${String(fotos.PENDING)} bajándose` : ""}
+          {fotosConProblemas > 0 ? `, ${String(fotosConProblemas)} sin bajar` : ""}.
+        </p>
+      ) : null}
+      {lote.counters?.sync ? (
+        <p role="status">
+          {lote.counters.sync.faltantes === 0
+            ? "No falta ninguna unidad de la planilla."
+            : `${String(lote.counters.sync.faltantes)} unidades ya no están en la planilla` +
+              (lote.counters.sync.marcadasNoDisponibles > 0
+                ? `: ${String(lote.counters.sync.marcadasNoDisponibles)} pasaron a No disponible.`
+                : lote.counters.sync.sinMarcarPorFallidas
+                  ? ": no se marcaron porque la corrida tuvo filas fallidas."
+                  : ".")}
+        </p>
+      ) : null}
       {fallidas > 0 ? (
         <p className="ds-hint">
           El CSV de fallidas trae las columnas originales y el motivo de cada fila: se corrige y se
@@ -165,6 +191,11 @@ export function InformeDelLote({
         {actualizadas > 0 ? (
           <Button type="button" variant="secondary" onClick={() => descarga.mutate("changes")}>
             Descargar cambios
+          </Button>
+        ) : null}
+        {fotosConProblemas > 0 ? (
+          <Button type="button" variant="secondary" onClick={() => descarga.mutate("photos")}>
+            Descargar fotos sin bajar
           </Button>
         ) : null}
         <Button type="button" onClick={onNueva}>

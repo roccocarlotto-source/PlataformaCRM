@@ -94,6 +94,7 @@ export const DESTINOS: Record<TipoImportable, Record<string, string>> = {
     transmission: "Caja",
     licensePlate: "Patente",
     vin: "VIN",
+    photos: "Fotos (links)",
   },
   ACTIVITY: {
     externalId: "Id en el sistema de origen",

@@ -6,12 +6,15 @@ import {
   listarFilasSchema,
   listarLotesSchema,
   subirImportacionSchema,
+  confirmarSchema,
+  subirSheetsSchema,
 } from "../schemas/importacion.schema";
 import {
   cancelarImportacion,
   configurarImportacion,
   confirmarImportacion,
   csvDeCambios,
+  csvDeFotos,
   csvDeFallidas,
   decidirFilasDeImportacion,
   listarFilas,
@@ -19,6 +22,9 @@ import {
   obtenerImportacion,
   opcionesDeImportacion,
   subirImportacion,
+  subirLinkDeSheets,
+  listarSincronizaciones,
+  cambiarSincronizacion,
 } from "../services/importacion.service";
 import { pedirDeshacer } from "../services/importacionDeshacer.service";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -69,6 +75,11 @@ export const subirHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
   res.status(201).json(resultado);
 });
 
+export const subirSheetsHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const pedido = parseOrThrow(subirSheetsSchema, req.body);
+  res.status(201).json(await subirLinkDeSheets(organizacionDelPath(req), req.auth.userId, pedido));
+});
+
 export const listarHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const paginado = parseOrThrow(listarLotesSchema, req.query);
   const { data, total } = await listarImportaciones(organizacionDelPath(req), paginado);
@@ -103,8 +114,30 @@ export const decidirHandler = asyncHandler<AuthenticatedRequest>(async (req, res
 });
 
 export const confirmarHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-  res.status(200).json(await confirmarImportacion(organizacionDelPath(req), loteDelPath(req)));
+  const { sincronizar } = parseOrThrow(confirmarSchema, req.body ?? {});
+  res
+    .status(200)
+    .json(await confirmarImportacion(organizacionDelPath(req), loteDelPath(req), sincronizar));
 });
+
+export const listarSyncsHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  res.status(200).json(await listarSincronizaciones(organizacionDelPath(req)));
+});
+
+function syncHandler(accion: "pausar" | "reanudar" | "borrar") {
+  return asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+    const sync = await cambiarSincronizacion(
+      organizacionDelPath(req),
+      parseOrThrow(uuid, req.params.syncId),
+      accion,
+    );
+    if (sync === null) res.status(204).end();
+    else res.status(200).json(sync);
+  });
+}
+export const pausarSyncHandler = syncHandler("pausar");
+export const reanudarSyncHandler = syncHandler("reanudar");
+export const borrarSyncHandler = syncHandler("borrar");
 
 export const cancelarHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   res.status(200).json(await cancelarImportacion(organizacionDelPath(req), loteDelPath(req)));
@@ -128,6 +161,12 @@ export const csvFallidasHandler = asyncHandler<AuthenticatedRequest>(async (req,
   const csv = await csvDeFallidas(organizationId, batchId);
   registrarAcceso(req, organizationId, "importacion.fallidas.csv");
   enviarCsv(res, `filas-fallidas-${batchId}.csv`, csv);
+});
+
+export const csvFotosHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const organizationId = organizacionDelPath(req);
+  const batchId = loteDelPath(req);
+  enviarCsv(res, `fotos-${batchId}.csv`, await csvDeFotos(organizationId, batchId));
 });
 
 export const csvCambiosHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {

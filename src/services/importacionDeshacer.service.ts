@@ -52,10 +52,10 @@ const NO_CUENTAN_COMO_USO = new Set([
   "knowledge_base_entries",
   // El registro de cambios de ficha que genera el propio alta del vehículo.
   "vehicle_change_logs",
-  // Las fotos de un vehículo importado: las que bajó la importación son
-  // parte del alta. (Se repasa con el stock, PR 7.)
-  "vehicle_photos",
 ]);
+// vehicle_photos SÍ cuenta, salvo las fotos que bajó la importación (están en
+// vehicle_photo_imports): una foto subida a mano a una unidad importada es uso
+// propio, las del archivo son parte del alta.
 
 // Un plazo además de la purga no hay (decisión 17); este es el de la purga de
 // las filas del staging (docs/data-classification.md §5.1): pasado, el
@@ -145,7 +145,19 @@ export async function deshacerLote(lote: ImportBatch, db: Db): Promise<Resultado
 
     const usados = new Map<string, string>();
     for (const ref of await referenciasA(tabla, db)) {
-      const excluir = borradosPorTabla.get(ref.tabla) ?? [];
+      const excluir =
+        ref.tabla === "vehicle_photos"
+          ? (
+              await db.vehiclePhotoImport.findMany({
+                where: {
+                  organizationId: org,
+                  vehicleId: { in: [...vivos] },
+                  vehiclePhotoId: { not: null },
+                },
+                select: { vehiclePhotoId: true },
+              })
+            ).map((f) => f.vehiclePhotoId as string)
+          : (borradosPorTabla.get(ref.tabla) ?? []);
       const filas = await db.$queryRaw<{ ref: string }[]>`
         SELECT DISTINCT ${identificador(ref.columna)}::text AS ref FROM ${identificador(ref.tabla)}
         WHERE organization_id = ${org}::uuid

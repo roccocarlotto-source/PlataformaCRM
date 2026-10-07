@@ -1,22 +1,20 @@
-import { createHash } from "node:crypto";
 import { Prisma, SourceType, type ImportBatch, type ImportRowDecision } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { findActiveContactCustomFieldDefinitions } from "../repositories/contactCustomFieldDefinition.repository";
 import {
   borrarFilasSinConfirmar,
   confirmarFilas,
-  createImportBatch,
   decidirFilas,
   filasConCambios,
   filasFallidas,
   findImportBatch,
-  insertarFilasStaged,
   listarFilasDelLote,
   listImportBatches,
   resumenDeFilas,
   transicionarLote,
 } from "../repositories/importacion.repository";
 import { IMPORT_BATCH_TRANSACTION_TIMEOUT_MS } from "../repositories/ingestionEvent.repository";
+import { fotosConProblemas, resumenDeFotos } from "../repositories/vehiclePhotoImport.repository";
 import { findOrganizationById } from "../repositories/organization.repository";
 import { createSource, findSourceById } from "../repositories/source.repository";
 import { crearAjustesSchema, type TIPOS_IMPORTABLES } from "../schemas/importacion.schema";
@@ -33,12 +31,23 @@ import {
   parsearArchivo,
   type Codificacion,
   type FilaCruda,
+  type ArchivoParseado,
   type LecturaDelArchivo,
   type Separador,
   type ValorDeCelda,
 } from "../utils/spreadsheet";
 import { parseOrThrow } from "../utils/validation";
 import { aDefinicionDeCampo } from "./contactCustomFieldDefinition.service";
+import { crearLoteConFilas } from "./importacionLote";
+import { crearSincronizacionDesdeLote, type PedidoDeSincronizar } from "./importacionSync.service";
+import {
+  borrarSync,
+  findSync,
+  listarSyncs,
+  pausarSync,
+  reanudarSync,
+} from "../repositories/importSync.repository";
+import { leerPlanilla, parsearLinkDeSheets, type PlanillaDeSheets } from "./importacionSheets";
 
 // ---------------------------------------------------------------------------
 // El asistente de importación de Plataforma → Importar datos
@@ -60,7 +69,13 @@ type TipoImportable = (typeof TIPOS_IMPORTABLES)[number];
 const FILAS_DE_MUESTRA = 5;
 
 export interface ConfigDelLote {
-  archivo: { nombre: string | null; encabezados: string[]; lectura: LecturaDelArchivo };
+  archivo: {
+    nombre: string | null;
+    encabezados: string[];
+    lectura: LecturaDelArchivo;
+    // Solo si vino de un link de Google Sheets: para la sincronización.
+    planilla?: PlanillaDeSheets;
+  };
   ajustes: AjustesDeImportacion | null;
 }
 
@@ -115,23 +130,78 @@ export async function subirImportacion(
     limites: LIMITES_DEL_ASISTENTE,
   });
 
-  if (pedido.sourceId !== undefined) {
-    const fuente = await findSourceById(pedido.sourceId, organizationId);
-    if (!fuente) throw new AppError("Sistema de origen no encontrado", 404);
-    if (fuente.type !== SourceType.FILE_IMPORT) {
-      throw new AppError(
-        "El sistema de origen tiene que ser una fuente de archivos (FILE_IMPORT)",
-        400,
-      );
-    }
-    if (!fuente.isActive) throw new AppError("El sistema de origen está pausado", 400);
-  }
+  await exigirFuenteUsable(organizationId, pedido.sourceId);
 
+  return crearLote(organizationId, userId, pedido, parseado, {
+    nombre: archivo.nombre,
+    contenido: archivo.contenido,
+    originKind: "FILE",
+  });
+}
+
+// Google Sheets por link (§4.2): solo stock (decisión 3), leído como CSV.
+export async function subirLinkDeSheets(
+  organizationId: string,
+  userId: string,
+  pedido: { entityType: TipoImportable; sourceId?: string; sourceName?: string; sheetUrl: string },
+) {
+  await exigirOrganizacion(organizationId);
+  if (pedido.entityType !== "VEHICLE") {
+    throw new AppError(
+      "El link de Google Sheets es solo para el stock: contactos, empresas e historial se suben como archivo",
+      400,
+    );
+  }
+  const planilla = parsearLinkDeSheets(pedido.sheetUrl);
+  const contenido = await leerPlanilla(planilla);
+  // La exportación de Google es CSV con coma y UTF-8: se lee así, sin adivinar.
+  const parseado = await parsearArchivo(contenido, "csv", {
+    separador: ",",
+    codificacion: "utf-8",
+    limites: LIMITES_DEL_ASISTENTE,
+  });
+  await exigirFuenteUsable(organizationId, pedido.sourceId);
+  return crearLote(organizationId, userId, pedido, parseado, {
+    nombre: "Google Sheets",
+    contenido,
+    originKind: "GOOGLE_SHEETS_LINK",
+    planilla,
+  });
+}
+
+async function exigirFuenteUsable(organizationId: string, sourceId: string | undefined) {
+  if (sourceId === undefined) return;
+  const fuente = await findSourceById(sourceId, organizationId);
+  if (!fuente) throw new AppError("Sistema de origen no encontrado", 404);
+  if (fuente.type !== SourceType.FILE_IMPORT) {
+    throw new AppError(
+      "El sistema de origen tiene que ser una fuente de archivos (FILE_IMPORT)",
+      400,
+    );
+  }
+  if (!fuente.isActive) throw new AppError("El sistema de origen está pausado", 400);
+}
+
+// El lote y sus filas en STAGED, en una transacción (con la fuente nueva si
+// hace falta). Lo comparten el archivo y el link de Sheets.
+async function crearLote(
+  organizationId: string,
+  userId: string,
+  pedido: { entityType: TipoImportable; sourceId?: string; sourceName?: string },
+  parseado: ArchivoParseado,
+  origen: {
+    nombre: string;
+    contenido: Buffer;
+    originKind: "FILE" | "GOOGLE_SHEETS_LINK";
+    planilla?: PlanillaDeSheets;
+  },
+) {
   const config: ConfigDelLote = {
     archivo: {
-      nombre: archivo.nombre,
+      nombre: origen.nombre,
       encabezados: parseado.encabezados,
       lectura: parseado.lectura,
+      ...(origen.planilla ? { planilla: origen.planilla } : {}),
     },
     ajustes: null,
   };
@@ -150,31 +220,20 @@ export async function subirImportacion(
             tx,
           )
         ).id;
-      const creado = await createImportBatch(
+      return crearLoteConFilas(
         {
           organizationId,
           sourceId,
           entityType: pedido.entityType,
-          originKind: "FILE",
-          fileName: archivo.nombre.slice(0, 255),
-          fileSha256: createHash("sha256").update(archivo.contenido).digest("hex"),
-          fileBytes: archivo.contenido.length,
-          rowCount: parseado.filas.length,
+          originKind: origen.originKind,
+          nombre: origen.nombre,
+          contenido: origen.contenido,
+          parseado,
           config: config as unknown as Prisma.InputJsonValue,
           createdByUserId: userId,
         },
         tx,
       );
-      await insertarFilasStaged(
-        {
-          organizationId,
-          sourceId,
-          batchId: creado.id,
-          filas: parseado.filas.map((rawPayload, i) => ({ rowNumber: i + 1, rawPayload })),
-        },
-        tx,
-      );
-      return creado;
     },
     { timeout: IMPORT_BATCH_TRANSACTION_TIMEOUT_MS },
   );
@@ -269,7 +328,29 @@ export async function configurarImportacion(
 
 export async function obtenerImportacion(organizationId: string, batchId: string) {
   const lote = await exigirLote(organizationId, batchId);
-  return { lote, resumen: await resumenDeFilas(organizationId, batchId) };
+  return {
+    lote,
+    resumen: await resumenDeFilas(organizationId, batchId),
+    // Solo en el stock: las fotos encoladas por estado (PENDING, DONE, FAILED,
+    // SKIPPED). Siguen bajándose después de que el lote terminó.
+    fotos: lote.entityType === "VEHICLE" ? await resumenDeFotos(organizationId, batchId) : null,
+  };
+}
+
+// Las fotos que no se bajaron, con la unidad y el motivo (§8.1, paso 8).
+export async function csvDeFotos(organizationId: string, batchId: string): Promise<Buffer> {
+  await exigirLote(organizationId, batchId);
+  const filas = await fotosConProblemas(organizationId, batchId);
+  return armarCsv(
+    ["Unidad", "Vehículo", "Link", "Estado", "Motivo"],
+    filas.map((f) => [
+      f.vehicle.internalCode,
+      `${f.vehicle.make} ${f.vehicle.model}`,
+      f.url,
+      f.status === "FAILED" ? "No se pudo bajar" : "Omitida",
+      f.error,
+    ]),
+  );
 }
 
 export function listarImportaciones(
@@ -317,7 +398,11 @@ const DEPENDE_DE: Partial<Record<string, string[]>> = {
   CONTACT: ["COMPANY", "VEHICLE"],
 };
 
-export async function confirmarImportacion(organizationId: string, batchId: string) {
+export async function confirmarImportacion(
+  organizationId: string,
+  batchId: string,
+  sincronizar?: PedidoDeSincronizar,
+) {
   const lote = await exigirLote(organizationId, batchId);
   const previos = DEPENDE_DE[lote.entityType] ?? [];
   if (previos.length > 0) {
@@ -347,7 +432,9 @@ export async function confirmarImportacion(organizationId: string, batchId: stri
       throw new AppError("Solo se confirma una importación con la vista previa lista", 409);
     }
     const filas = await confirmarFilas(organizationId, batchId, tx);
-    return { confirmadas: filas.count };
+    // "Mantener sincronizado" (§7): solo un lote de stock de Google Sheets.
+    const sync = sincronizar ? await crearSincronizacionDesdeLote(lote, sincronizar, tx) : null;
+    return { confirmadas: filas.count, syncId: sync?.id ?? null };
   });
 }
 
@@ -455,4 +542,41 @@ export async function opcionesDeImportacion(organizationId: string) {
     camposPersonalizados: campos,
     sucursales,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sincronizaciones (§7)
+// ---------------------------------------------------------------------------
+
+export async function listarSincronizaciones(organizationId: string) {
+  await exigirOrganizacion(organizationId);
+  // Sin config: el mapeo y los ajustes no hacen falta en la lista.
+  return (await listarSyncs(organizationId)).map((sync) => ({
+    id: sync.id,
+    source: sync.source,
+    intervalHours: sync.intervalHours,
+    markMissingUnavailable: sync.markMissingUnavailable,
+    nextRunAt: sync.nextRunAt,
+    lastRunAt: sync.lastRunAt,
+    lastStatus: sync.lastStatus,
+    lastError: sync.lastError,
+    consecutiveFailures: sync.consecutiveFailures,
+    pausedAt: sync.pausedAt,
+    pausedReason: sync.pausedReason,
+    createdAt: sync.createdAt,
+    ultimaCorrida: sync.batches[0] ?? null,
+  }));
+}
+
+export async function cambiarSincronizacion(
+  organizationId: string,
+  syncId: string,
+  accion: "pausar" | "reanudar" | "borrar",
+) {
+  if (!(await findSync(organizationId, syncId))) {
+    throw new AppError("Sincronización no encontrada", 404);
+  }
+  const hacer = { pausar: pausarSync, reanudar: reanudarSync, borrar: borrarSync }[accion];
+  await hacer(organizationId, syncId);
+  return accion === "borrar" ? null : findSync(organizationId, syncId);
 }

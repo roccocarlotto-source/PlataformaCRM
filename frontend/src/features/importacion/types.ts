@@ -77,6 +77,9 @@ export interface Lote {
   organizationId: string;
   sourceId: string;
   entityType: TipoImportable | "ACTIVITY" | "VEHICLE";
+  // GOOGLE_SHEETS_LINK: se puede sincronizar al confirmar. SYNC: una corrida
+  // de una sincronización, confirmada sola.
+  originKind?: "FILE" | "GOOGLE_SHEETS_LINK" | "SYNC";
   status: EstadoDelLote;
   fileName: string | null;
   rowCount: number;
@@ -91,6 +94,9 @@ export interface Lote {
       omitidos: { tipo: string; id: string; motivo: string }[];
       totalOmitidos: number;
     };
+    // Una corrida de una sincronización (§7): las unidades que ya no están
+    // en la planilla.
+    sync?: { faltantes: number; marcadasNoDisponibles: number; sinMarcarPorFallidas: boolean };
   } | null;
   errorMessage: string | null;
   createdAt: string;
@@ -111,6 +117,9 @@ export interface SubidaDeArchivo {
 export interface DetalleDelLote {
   lote: Lote;
   resumen: ResumenDeFilas;
+  // Solo en el stock: las fotos encoladas por estado (PENDING, DONE, FAILED,
+  // SKIPPED). Siguen bajándose después de que el lote terminó.
+  fotos?: Record<string, number> | null;
 }
 
 export type TipoDePlan = "CREATE" | "UPDATE" | "CONFLICT" | "UNCHANGED" | "SKIP" | "FAIL";
@@ -165,4 +174,26 @@ export interface OpcionesDeImportacion {
   fuentes: { id: string; name: string; isActive: boolean }[];
   camposPersonalizados: CampoPersonalizado[];
   sucursales?: { id: string; name: string }[];
+}
+
+// Una sincronización del stock desde Google Sheets (§7).
+export interface Sincronizacion {
+  id: string;
+  source: { name: string };
+  intervalHours: number;
+  markMissingUnavailable: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  lastStatus: "OK" | "FAILED" | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  pausedAt: string | null;
+  pausedReason: "MANUAL" | "AUTO_FAILURES" | null;
+  createdAt: string;
+  ultimaCorrida: { id: string; status: EstadoDelLote; createdAt: string } | null;
+}
+
+export interface PedidoDeSincronizar {
+  intervalHours: number;
+  marcarFaltantes: boolean;
 }

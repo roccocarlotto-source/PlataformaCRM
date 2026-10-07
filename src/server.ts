@@ -15,6 +15,8 @@ import { iniciarWorkerDeSeguimientosQr } from "./workers/qrFollowUpWorker";
 import { iniciarWorkerDeCupones } from "./workers/discountVoucherFollowUpWorker";
 import { iniciarWorkerDeAvisoSinRespuesta } from "./workers/avisoSinRespuestaWorker";
 import { iniciarWorkerDeLotesDeImportacion } from "./workers/importBatchWorker";
+import { iniciarWorkerDeFotosImportadas } from "./workers/importPhotoWorker";
+import { iniciarWorkerDeSincronizaciones } from "./workers/importSyncWorker";
 
 const server = app.listen(env.PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
@@ -118,6 +120,17 @@ const detenerWorkerDeLotesDeImportacion = arrancarWorkers
   ? iniciarWorkerDeLotesDeImportacion()
   : sinWorker;
 
+// Las fotos del stock importado: descargas de links externos, detrás de la
+// misma guarda (docs/importacion-de-datos.md §6).
+const detenerWorkerDeFotosImportadas = arrancarWorkers
+  ? iniciarWorkerDeFotosImportadas()
+  : sinWorker;
+
+// Las sincronizaciones del stock desde Google Sheets (§7).
+const detenerWorkerDeSincronizaciones = arrancarWorkers
+  ? iniciarWorkerDeSincronizaciones()
+  : sinWorker;
+
 // El apagado ordenado (M-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -131,7 +144,7 @@ const shutdown = crearShutdown({
       // dejan terminar solas, que es lo correcto.
       server.closeIdleConnections();
     }),
-  // Los diez stops esperan a la pasada en curso de su worker (M-12 c): cada
+  // Los doce stops esperan a la pasada en curso de su worker (M-12 c): cada
   // evento va en su propia transacción y ninguna queda a medias, y los que no
   // llegó a tocar siguen en PENDING para el próximo arranque. El de turnos de
   // WhatsApp espera solo el job en curso; si un turno largo supera el tope del
@@ -146,6 +159,8 @@ const shutdown = crearShutdown({
       detenerWorkerDeTurnosDeAgente(),
       detenerWorkerDeSeguimientosQr(),
       detenerWorkerDeLotesDeImportacion(),
+      detenerWorkerDeFotosImportadas(),
+      detenerWorkerDeSincronizaciones(),
       detenerWorkerDeCupones(),
       detenerWorkerDeAvisoSinRespuesta(),
     ]);

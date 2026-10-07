@@ -50,6 +50,32 @@ export const subirImportacionSchema = z
       "Mandá sourceId (un sistema de origen existente) o sourceName (uno nuevo), uno de los dos",
   });
 
+// POST .../imports/sheets: un link de Google Sheets en vez de un archivo.
+export const subirSheetsSchema = z
+  .object({
+    entityType: z.enum(TIPOS_IMPORTABLES),
+    sourceId: z.string().uuid("sourceId inválido").optional(),
+    sourceName: z.string().trim().min(1).max(255).optional(),
+    sheetUrl: z.string().trim().min(1).max(2048),
+  })
+  .refine((v) => (v.sourceId === undefined) !== (v.sourceName === undefined), {
+    message:
+      "Mandá sourceId (un sistema de origen existente) o sourceName (uno nuevo), uno de los dos",
+  });
+
+// POST .../imports/:batchId/confirm: opcionalmente, "Mantener sincronizado
+// cada N horas" (§7), mínimo 1 h.
+export const confirmarSchema = z
+  .object({
+    sincronizar: z
+      .object({
+        intervalHours: z.number().int().min(1).max(168),
+        marcarFaltantes: z.boolean().default(false),
+      })
+      .optional(),
+  })
+  .default({});
+
 const MAX_COLUMNAS_MAPEADAS = 200;
 
 function destinosDe(tipo: TipoImportable): readonly string[] {
