@@ -34,12 +34,14 @@ import {
   parsearArchivo,
   type Codificacion,
   type FilaCruda,
+  type ArchivoParseado,
   type LecturaDelArchivo,
   type Separador,
   type ValorDeCelda,
 } from "../utils/spreadsheet";
 import { parseOrThrow } from "../utils/validation";
 import { aDefinicionDeCampo } from "./contactCustomFieldDefinition.service";
+import { leerPlanilla, parsearLinkDeSheets, type PlanillaDeSheets } from "./importacionSheets";
 
 // ---------------------------------------------------------------------------
 // El asistente de importación de Plataforma → Importar datos
@@ -61,7 +63,13 @@ type TipoImportable = (typeof TIPOS_IMPORTABLES)[number];
 const FILAS_DE_MUESTRA = 5;
 
 export interface ConfigDelLote {
-  archivo: { nombre: string | null; encabezados: string[]; lectura: LecturaDelArchivo };
+  archivo: {
+    nombre: string | null;
+    encabezados: string[];
+    lectura: LecturaDelArchivo;
+    // Solo si vino de un link de Google Sheets: para la sincronización.
+    planilla?: PlanillaDeSheets;
+  };
   ajustes: AjustesDeImportacion | null;
 }
 
@@ -116,23 +124,78 @@ export async function subirImportacion(
     limites: LIMITES_DEL_ASISTENTE,
   });
 
-  if (pedido.sourceId !== undefined) {
-    const fuente = await findSourceById(pedido.sourceId, organizationId);
-    if (!fuente) throw new AppError("Sistema de origen no encontrado", 404);
-    if (fuente.type !== SourceType.FILE_IMPORT) {
-      throw new AppError(
-        "El sistema de origen tiene que ser una fuente de archivos (FILE_IMPORT)",
-        400,
-      );
-    }
-    if (!fuente.isActive) throw new AppError("El sistema de origen está pausado", 400);
-  }
+  await exigirFuenteUsable(organizationId, pedido.sourceId);
 
+  return crearLote(organizationId, userId, pedido, parseado, {
+    nombre: archivo.nombre,
+    contenido: archivo.contenido,
+    originKind: "FILE",
+  });
+}
+
+// Google Sheets por link (§4.2): solo stock (decisión 3), leído como CSV.
+export async function subirLinkDeSheets(
+  organizationId: string,
+  userId: string,
+  pedido: { entityType: TipoImportable; sourceId?: string; sourceName?: string; sheetUrl: string },
+) {
+  await exigirOrganizacion(organizationId);
+  if (pedido.entityType !== "VEHICLE") {
+    throw new AppError(
+      "El link de Google Sheets es solo para el stock: contactos, empresas e historial se suben como archivo",
+      400,
+    );
+  }
+  const planilla = parsearLinkDeSheets(pedido.sheetUrl);
+  const contenido = await leerPlanilla(planilla);
+  // La exportación de Google es CSV con coma y UTF-8: se lee así, sin adivinar.
+  const parseado = await parsearArchivo(contenido, "csv", {
+    separador: ",",
+    codificacion: "utf-8",
+    limites: LIMITES_DEL_ASISTENTE,
+  });
+  await exigirFuenteUsable(organizationId, pedido.sourceId);
+  return crearLote(organizationId, userId, pedido, parseado, {
+    nombre: "Google Sheets",
+    contenido,
+    originKind: "GOOGLE_SHEETS_LINK",
+    planilla,
+  });
+}
+
+async function exigirFuenteUsable(organizationId: string, sourceId: string | undefined) {
+  if (sourceId === undefined) return;
+  const fuente = await findSourceById(sourceId, organizationId);
+  if (!fuente) throw new AppError("Sistema de origen no encontrado", 404);
+  if (fuente.type !== SourceType.FILE_IMPORT) {
+    throw new AppError(
+      "El sistema de origen tiene que ser una fuente de archivos (FILE_IMPORT)",
+      400,
+    );
+  }
+  if (!fuente.isActive) throw new AppError("El sistema de origen está pausado", 400);
+}
+
+// El lote y sus filas en STAGED, en una transacción (con la fuente nueva si
+// hace falta). Lo comparten el archivo y el link de Sheets.
+async function crearLote(
+  organizationId: string,
+  userId: string,
+  pedido: { entityType: TipoImportable; sourceId?: string; sourceName?: string },
+  parseado: ArchivoParseado,
+  origen: {
+    nombre: string;
+    contenido: Buffer;
+    originKind: "FILE" | "GOOGLE_SHEETS_LINK";
+    planilla?: PlanillaDeSheets;
+  },
+) {
   const config: ConfigDelLote = {
     archivo: {
-      nombre: archivo.nombre,
+      nombre: origen.nombre,
       encabezados: parseado.encabezados,
       lectura: parseado.lectura,
+      ...(origen.planilla ? { planilla: origen.planilla } : {}),
     },
     ajustes: null,
   };
@@ -156,10 +219,10 @@ export async function subirImportacion(
           organizationId,
           sourceId,
           entityType: pedido.entityType,
-          originKind: "FILE",
-          fileName: archivo.nombre.slice(0, 255),
-          fileSha256: createHash("sha256").update(archivo.contenido).digest("hex"),
-          fileBytes: archivo.contenido.length,
+          originKind: origen.originKind,
+          fileName: origen.nombre.slice(0, 255),
+          fileSha256: createHash("sha256").update(origen.contenido).digest("hex"),
+          fileBytes: origen.contenido.length,
           rowCount: parseado.filas.length,
           config: config as unknown as Prisma.InputJsonValue,
           createdByUserId: userId,

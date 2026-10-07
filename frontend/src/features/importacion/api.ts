@@ -46,6 +46,18 @@ export function subirArchivo(organizationId: string, archivo: File, pedido: Pedi
   return uploadFile<SubidaDeArchivo>(base(organizationId), form, { getAccessToken });
 }
 
+// Google Sheets por link: solo stock (docs/importacion-de-datos.md §4.2).
+export function subirLinkDeSheets(
+  organizationId: string,
+  pedido: PedidoDeSubida & { sheetUrl: string },
+) {
+  return request<SubidaDeArchivo>(`${base(organizationId)}/sheets`, {
+    method: "POST",
+    body: pedido,
+    getAccessToken,
+  });
+}
+
 export function listarLotes(organizationId: string, signal?: AbortSignal) {
   return request<Paginado<Lote>>(`${base(organizationId)}?pageSize=10`, { getAccessToken, signal });
 }

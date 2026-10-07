@@ -13,6 +13,7 @@ import {
   obtenerHandler,
   opcionesHandler,
   subirHandler,
+  subirSheetsHandler,
 } from "../controllers/importacionAdmin.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { importUpload } from "../middlewares/importUpload";
@@ -42,6 +43,14 @@ importacionAdminRouter.post(
   requirePlatformAdmin,
   importUpload,
   subirHandler,
+);
+// El link de Google Sheets: misma cuota que subir un archivo (baja y parsea).
+importacionAdminRouter.post(
+  `${BASE}/sheets`,
+  authenticate,
+  importPreviewRateLimiter,
+  requirePlatformAdmin,
+  subirSheetsHandler,
 );
 importacionAdminRouter.get(BASE, ...gate, listarHandler);
 importacionAdminRouter.get(`${BASE}/:batchId`, ...gate, obtenerHandler);
