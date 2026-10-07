@@ -221,6 +221,17 @@ export async function uploadVehiclePhoto(
   vehicleId: string,
   input: UploadVehiclePhotoInput,
 ): Promise<VehiclePhotoWithUrl[]> {
+  return (await subirFotoDeVehiculo(organizationId, vehicleId, input)).galeria;
+}
+
+// La misma subida, devolviendo además el id de la foto creada: la usa la
+// importación de stock para registrar qué foto bajó (vehicle_photo_imports,
+// docs/importacion-de-datos.md §6).
+export async function subirFotoDeVehiculo(
+  organizationId: string,
+  vehicleId: string,
+  input: UploadVehiclePhotoInput,
+): Promise<{ galeria: VehiclePhotoWithUrl[]; photoId: string }> {
   // 404 antes de tocar Storage: no se sube nada para una unidad que no es
   // del caller.
   await getVehicleById(organizationId, vehicleId);
@@ -239,7 +250,7 @@ export async function uploadVehiclePhoto(
       if (placement.isCover) {
         await clearCover(vehicleId, organizationId, tx);
       }
-      await createPhoto(
+      const creada = await createPhoto(
         {
           organizationId,
           vehicleId,
@@ -250,7 +261,7 @@ export async function uploadVehiclePhoto(
         },
         tx,
       );
-      return getVehiclePhotos(organizationId, vehicleId, tx);
+      return { galeria: await getVehiclePhotos(organizationId, vehicleId, tx), photoId: creada.id };
     });
   } catch (err) {
     // La fila no se escribió: el objeto recién subido no tiene dueño. Se

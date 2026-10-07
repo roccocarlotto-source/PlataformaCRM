@@ -47,6 +47,7 @@ import {
   type UpdateVehicleInput,
 } from "./vehicle.service";
 import { AppError } from "../utils/AppError";
+import { encolarFotosDelVehiculo, linksDeLaCelda } from "./importacionFotos.service";
 
 // ---------------------------------------------------------------------------
 // Promoción de UNA fila del asistente de importación (docs/importacion-de-
@@ -564,6 +565,7 @@ async function escribirVehiculo(
       );
     }
     await vincularVehiculo(evento, c, existente.id, null, db);
+    await encolarFotos(evento, loteId, existente.id, c, notas, db);
     return {
       entityId: existente.id,
       contactId: null,
@@ -604,7 +606,36 @@ async function escribirVehiculo(
     db,
   );
   await vincularVehiculo(evento, c, creado.id, loteId, db);
+  await encolarFotos(evento, loteId, creado.id, c, notas, db);
   return { entityId: creado.id, contactId: null, outcome: "CREATED", changes: [], notas };
+}
+
+// Las fotos se encolan y las baja el worker de fotos (§6): la promoción no
+// espera ninguna descarga.
+async function encolarFotos(
+  evento: EventoReclamado,
+  loteId: string,
+  vehicleId: string,
+  c: CandidatoDeVehiculo,
+  notas: PromotionNote[],
+  db: Db,
+): Promise<void> {
+  const links = linksDeLaCelda(c.fotos);
+  const { omitidas } = await encolarFotosDelVehiculo(
+    evento.organizationId,
+    loteId,
+    vehicleId,
+    links,
+    db,
+  );
+  if (omitidas > 0) {
+    notas.push({
+      tipo: "ignorado",
+      campo: "photos",
+      entrante: String(omitidas),
+      motivo: `${String(omitidas)} fotos no se bajan: pasan el tope por unidad o por lote`,
+    });
+  }
 }
 
 async function vincularVehiculo(

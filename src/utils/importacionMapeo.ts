@@ -119,6 +119,7 @@ export const DESTINOS_DE_STOCK = [
   "transmission",
   "licensePlate",
   "vin",
+  "photos",
 ] as const;
 export type DestinoDeStock = (typeof DESTINOS_DE_STOCK)[number];
 
@@ -693,6 +694,9 @@ export interface CandidatoDeVehiculo {
   transmission?: (typeof TRANSMISIONES)[number];
   licensePlate?: string;
   vin?: string;
+  // Los links de las fotos, tal como vienen en la celda (los separa y encola
+  // importacionFotos.service.ts).
+  fotos?: string;
 }
 
 // Las monedas que se reconocen en una celda: USD, o la local de la
@@ -841,6 +845,7 @@ export function traducirFilaDeVehiculo(
     ),
     licensePlate: licensePlate?.toUpperCase(),
     vin: vin?.toUpperCase(),
+    fotos: textoDe(celda(fila, ajustes, "photos")),
   };
   if (a.errores.length > 0) return { ok: false, errores: a.errores, advertencias: a.advertencias };
   return { ok: true, candidato, advertencias: a.advertencias };
@@ -1203,6 +1208,7 @@ const SINONIMOS: Record<TipoImportable, Record<string, readonly string[]>> = {
     transmission: ["transmision", "caja", "transmission"],
     licensePlate: ["patente", "matricula", "placa", "dominio", "plate"],
     vin: ["vin", "chasis", "numero de chasis", "nro de chasis"],
+    photos: ["fotos", "imagenes", "imágenes", "links de fotos", "photos"],
   },
   ACTIVITY: {
     externalId: ["id", "id actividad", "id nota", "codigo"],

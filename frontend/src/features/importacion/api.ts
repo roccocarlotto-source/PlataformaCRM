@@ -113,6 +113,10 @@ export function deshacerLote(organizationId: string, batchId: string) {
   });
 }
 
-export function descargarCsv(organizationId: string, batchId: string, cual: "failed" | "changes") {
+export function descargarCsv(
+  organizationId: string,
+  batchId: string,
+  cual: "failed" | "changes" | "photos",
+) {
   return downloadFile(`${base(organizationId)}/${batchId}/${cual}.csv`, { getAccessToken });
 }

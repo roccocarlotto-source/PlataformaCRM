@@ -17,6 +17,7 @@ import {
   transicionarLote,
 } from "../repositories/importacion.repository";
 import { IMPORT_BATCH_TRANSACTION_TIMEOUT_MS } from "../repositories/ingestionEvent.repository";
+import { fotosConProblemas, resumenDeFotos } from "../repositories/vehiclePhotoImport.repository";
 import { findOrganizationById } from "../repositories/organization.repository";
 import { createSource, findSourceById } from "../repositories/source.repository";
 import { crearAjustesSchema, type TIPOS_IMPORTABLES } from "../schemas/importacion.schema";
@@ -269,7 +270,29 @@ export async function configurarImportacion(
 
 export async function obtenerImportacion(organizationId: string, batchId: string) {
   const lote = await exigirLote(organizationId, batchId);
-  return { lote, resumen: await resumenDeFilas(organizationId, batchId) };
+  return {
+    lote,
+    resumen: await resumenDeFilas(organizationId, batchId),
+    // Solo en el stock: las fotos encoladas por estado (PENDING, DONE, FAILED,
+    // SKIPPED). Siguen bajándose después de que el lote terminó.
+    fotos: lote.entityType === "VEHICLE" ? await resumenDeFotos(organizationId, batchId) : null,
+  };
+}
+
+// Las fotos que no se bajaron, con la unidad y el motivo (§8.1, paso 8).
+export async function csvDeFotos(organizationId: string, batchId: string): Promise<Buffer> {
+  await exigirLote(organizationId, batchId);
+  const filas = await fotosConProblemas(organizationId, batchId);
+  return armarCsv(
+    ["Unidad", "Vehículo", "Link", "Estado", "Motivo"],
+    filas.map((f) => [
+      f.vehicle.internalCode,
+      `${f.vehicle.make} ${f.vehicle.model}`,
+      f.url,
+      f.status === "FAILED" ? "No se pudo bajar" : "Omitida",
+      f.error,
+    ]),
+  );
 }
 
 export function listarImportaciones(

@@ -16,6 +16,10 @@ import { findRoleByName } from "../repositories/role.repository";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { drenarPendientes } from "../workers/ingestionWorker";
+import { procesarFotosPendientes } from "../workers/importPhotoWorker";
+import { DescargaRechazada } from "../lib/fetchPublico";
+import { procesarFoto } from "../services/importacionFotos.service";
+import { subirFotoDeVehiculo, VEHICLE_PHOTO_BUCKET } from "../services/vehiclePhoto.service";
 import { procesarLotes } from "../workers/importBatchWorker";
 import {
   cancelarHandler,
@@ -23,6 +27,7 @@ import {
   confirmarHandler,
   csvCambiosHandler,
   csvFallidasHandler,
+  csvFotosHandler,
   decidirHandler,
   deshacerHandler,
   filasHandler,
@@ -71,6 +76,7 @@ before(async () => {
   app.post(`${BASE}/:batchId/undo`, ...gate, deshacerHandler);
   app.get(`${BASE}/:batchId/failed.csv`, ...gate, csvFallidasHandler);
   app.get(`${BASE}/:batchId/changes.csv`, ...gate, csvCambiosHandler);
+  app.get(`${BASE}/:batchId/photos.csv`, ...gate, csvFotosHandler);
   app.use(notFound);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
@@ -1010,6 +1016,8 @@ async function desmontarStock(e: Escenario) {
   await prisma.importBatch.deleteMany({ where });
   await prisma.contact.deleteMany({ where });
   await prisma.knowledgeBaseEntry.deleteMany({ where });
+  await prisma.vehiclePhotoImport.deleteMany({ where });
+  await prisma.vehiclePhoto.deleteMany({ where });
   await prisma.vehicle.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
   await desmontar(e);
@@ -1202,6 +1210,190 @@ test("stock: sin cotización cargada, la fila con montos en moneda local falla c
     const final = await confirmarYPromover(e, batchId);
     assert.equal(final.resumen.porResultado.CREATED, 2);
   } finally {
+    await desmontarStock(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Fotos del stock (§6, decisión 13)
+// ---------------------------------------------------------------------------
+
+const PNG_DE_PRUEBA = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+
+// El descargador falso: las URLs de fotos.example.com devuelven un PNG, salvo
+// las que dicen "html" (una página, no una imagen) y "cae" (un error
+// transitorio la primera vez).
+function descargadorFalso() {
+  const pedidas: string[] = [];
+  let cayo = false;
+  const descargar = async (url: string) => {
+    pedidas.push(url);
+    if (url.includes("html")) {
+      return { buffer: Buffer.from("<html>"), contentType: "text/html", urlFinal: url };
+    }
+    if (url.includes("cae") && !cayo) {
+      cayo = true;
+      throw new DescargaRechazada("el servidor respondió 503", "TRANSITORIO");
+    }
+    return { buffer: PNG_DE_PRUEBA, contentType: "image/png", urlFinal: url };
+  };
+  return { descargar, pedidas };
+}
+
+async function borrarFotosDeStorage(organizationId: string) {
+  const fotos = await prisma.vehiclePhoto.findMany({
+    where: { organizationId },
+    select: { storagePath: true },
+  });
+  if (fotos.length > 0) {
+    await getSupabaseAdmin()
+      .storage.from(VEHICLE_PHOTO_BUCKET.name)
+      .remove(fotos.map((f) => f.storagePath));
+  }
+  await prisma.vehiclePhotoImport.deleteMany({ where: { organizationId } });
+  await prisma.vehiclePhoto.deleteMany({ where: { organizationId } });
+}
+
+test("fotos: se encolan al promover y las baja el worker; una que no es imagen falla, una transitoria se reintenta, el tope por unidad omite las de más, y reimportar no las vuelve a bajar", async () => {
+  const { e, branchId } = await conStock("stock-fotos");
+  try {
+    const muchas = Array.from(
+      { length: 22 },
+      (_, i) => `https://fotos.example.com/s3-${String(i)}.png`,
+    ).join(" ");
+    const contenido =
+      "Código;Marca;Modelo;Año;Fotos\r\n" +
+      "F-1;Marca Ficticia;Modelo A;2020;https://fotos.example.com/a.png, https://fotos.example.com/html.png\r\n" +
+      "F-2;Marca Ficticia;Modelo B;2019;https://fotos.example.com/cae.png\r\n" +
+      `F-3;Otra Marca;Modelo C;2021;${muchas}\r\n` +
+      "F-4;Otra Marca;Modelo D;2018;http://127.0.0.1/interna.png\r\n";
+    const ajustes = {
+      mapeo: { Código: "stockCode", Marca: "make", Modelo: "model", Año: "year", Fotos: "photos" },
+      stock: { branchId, responsableId: e.vendedorId },
+    };
+    const { batchId, sourceId } = await importarStock(
+      e,
+      contenido,
+      { sourceName: "Stock" },
+      ajustes,
+    );
+    const plan = (await filas(e, batchId))[2].plan;
+    assert.match(plan.advertencias.join(" "), /se bajan hasta 20 por unidad/);
+    await confirmarYPromover(e, batchId);
+
+    const cola = await prisma.vehiclePhotoImport.groupBy({
+      by: ["status"],
+      where: { organizationId: e.organizationId },
+      _count: { _all: true },
+    });
+    const porEstado = Object.fromEntries(cola.map((c) => [c.status, c._count._all]));
+    assert.deepEqual(porEstado, { PENDING: 24, SKIPPED: 2 }, "22 de F-3: 20 entran y 2 se omiten");
+
+    // F-4 apunta a la red interna: se procesa con el descargador de verdad.
+    const interna = await prisma.vehiclePhotoImport.findFirstOrThrow({
+      where: { organizationId: e.organizationId, url: { contains: "127.0.0.1" } },
+    });
+    await prisma.vehiclePhotoImport.update({ where: { id: interna.id }, data: { attempts: 1 } });
+    assert.equal(await procesarFoto({ ...interna, attempts: 1 }), "FAILED");
+    const rechazada = await prisma.vehiclePhotoImport.findUniqueOrThrow({
+      where: { id: interna.id },
+    });
+    assert.match(rechazada.error ?? "", /no es pública/);
+
+    const falso = descargadorFalso();
+    for (;;) {
+      const r = await procesarFotosPendientes(falso.descargar);
+      if (r.bajadas + r.fallidas + r.omitidas + r.reintentos === 0) break;
+    }
+    // La transitoria quedó para más tarde: se adelanta el reloj y se baja.
+    await prisma.vehiclePhotoImport.updateMany({
+      where: { organizationId: e.organizationId, status: "PENDING" },
+      data: { nextAttemptAt: new Date(Date.now() - 60_000) },
+    });
+    await procesarFotosPendientes(falso.descargar);
+
+    const final = await prisma.vehiclePhotoImport.groupBy({
+      by: ["status"],
+      where: { organizationId: e.organizationId },
+      _count: { _all: true },
+    });
+    assert.deepEqual(Object.fromEntries(final.map((c) => [c.status, c._count._all])), {
+      DONE: 22,
+      FAILED: 2,
+      SKIPPED: 2,
+    });
+    const f1 = await prisma.vehicle.findFirstOrThrow({
+      where: { organizationId: e.organizationId, internalNotes: "Código anterior: F-1" },
+      include: { photos: true },
+    });
+    assert.equal(f1.photos.length, 1);
+    assert.equal(f1.photos[0].isCover, true, "la primera foto queda de portada");
+
+    // El informe: el resumen de fotos y el CSV con las que no se bajaron.
+    const detalle = (await (await enviar(e, "GET", `/${batchId}`)).json()) as {
+      fotos: Record<string, number>;
+    };
+    assert.equal(detalle.fotos.DONE, 22);
+    const csv = Buffer.from(await (await enviar(e, "GET", `/${batchId}/photos.csv`)).arrayBuffer())
+      .toString("utf8")
+      .slice(1);
+    assert.match(csv, /^Unidad;Vehículo;Link;Estado;Motivo\r\n/);
+    assert.match(csv, /html\.png;No se pudo bajar;no es una imagen JPEG, PNG ni WebP/);
+    assert.match(csv, /Omitida;la unidad ya tiene 20 fotos/);
+
+    // Reimportar el mismo archivo no encola nada nuevo.
+    const antes = await prisma.vehiclePhotoImport.count({
+      where: { organizationId: e.organizationId },
+    });
+    const otra = await importarStock(e, contenido, { sourceId }, ajustes);
+    await confirmarYPromover(e, otra.batchId);
+    assert.equal(
+      await prisma.vehiclePhotoImport.count({ where: { organizationId: e.organizationId } }),
+      antes,
+    );
+  } finally {
+    await borrarFotosDeStorage(e.organizationId);
+    await desmontarStock(e);
+  }
+});
+
+test("fotos y deshacer: las fotos que bajó la importación no salvan a la unidad; una subida a mano sí", async () => {
+  const { e, branchId } = await conStock("stock-fotos-deshacer");
+  try {
+    const { batchId } = await importarStock(
+      e,
+      "Código;Marca;Modelo;Año;Fotos\r\nD-1;Marca Ficticia;Modelo A;2020;https://fotos.example.com/d1.png\r\nD-2;Marca Ficticia;Modelo B;2020;https://fotos.example.com/d2.png\r\n",
+      { sourceName: "Stock" },
+      {
+        mapeo: {
+          Código: "stockCode",
+          Marca: "make",
+          Modelo: "model",
+          Año: "year",
+          Fotos: "photos",
+        },
+        stock: { branchId, responsableId: e.vendedorId },
+      },
+    );
+    await confirmarYPromover(e, batchId);
+    await procesarFotosPendientes(descargadorFalso().descargar);
+    const d2 = await prisma.vehicle.findFirstOrThrow({
+      where: { organizationId: e.organizationId, internalNotes: "Código anterior: D-2" },
+    });
+    // Una foto subida a mano después de la importación: uso propio.
+    await subirFotoDeVehiculo(e.organizationId, d2.id, {
+      buffer: PNG_DE_PRUEBA,
+      image: { mimeType: "image/png", extension: "png" },
+    });
+    const deshecho = await deshacer(e, batchId);
+    assert.deepEqual(deshecho.lote.counters.deshacer.borrados, { VEHICLE: 1 });
+    assert.ok(
+      deshecho.lote.counters.deshacer.omitidos.some(
+        (o) => o.id === d2.id && /vehicle_photos/.test(o.motivo),
+      ),
+    );
+  } finally {
+    await borrarFotosDeStorage(e.organizationId);
     await desmontarStock(e);
   }
 });

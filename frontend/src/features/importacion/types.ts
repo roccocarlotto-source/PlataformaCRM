@@ -111,6 +111,9 @@ export interface SubidaDeArchivo {
 export interface DetalleDelLote {
   lote: Lote;
   resumen: ResumenDeFilas;
+  // Solo en el stock: las fotos encoladas por estado (PENDING, DONE, FAILED,
+  // SKIPPED). Siguen bajándose después de que el lote terminó.
+  fotos?: Record<string, number> | null;
 }
 
 export type TipoDePlan = "CREATE" | "UPDATE" | "CONFLICT" | "UNCHANGED" | "SKIP" | "FAIL";

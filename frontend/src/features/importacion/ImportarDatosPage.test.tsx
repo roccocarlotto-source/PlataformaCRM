@@ -525,6 +525,29 @@ describe("ImportarDatosPage", () => {
     });
   });
 
+  it("stock terminado: el informe dice cuántas fotos se bajaron y cuántas no, y descarga el CSV de las que no", async () => {
+    estado = "DONE";
+    let pedidas = 0;
+    server.use(
+      http.get(`${base}/${LOTE}`, () =>
+        HttpResponse.json({
+          lote: { ...lote(), entityType: "VEHICLE" },
+          resumen: { total: 2, porEstado: {}, porPlan: {}, porResultado: {} },
+          fotos: { DONE: 3, FAILED: 1, SKIPPED: 1 },
+        }),
+      ),
+      http.get(`${base}/${LOTE}/photos.csv`, () => {
+        pedidas++;
+        return new HttpResponse("Unidad;Link\r\n", { headers: { "Content-Type": "text/csv" } });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}&batchId=${LOTE}`);
+    expect(await screen.findByText(/Fotos: 3 bajadas, 2 sin bajar/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Descargar fotos sin bajar" }));
+    await waitFor(() => expect(pedidas).toBe(1));
+  });
+
   it("«No crear empresas» vuelve a mandar los ajustes con crearEmpresas: false", async () => {
     estado = "READY";
     const user = userEvent.setup();
