@@ -39,8 +39,11 @@ export function useLote(organizationId: string, batchId: string) {
     queryKey: importacionKeys.lote(organizationId, batchId),
     queryFn: ({ signal }) => getLote(organizationId, batchId, signal),
     enabled: organizationId !== "" && batchId !== "",
+    // También mientras queden fotos del stock por bajar.
     refetchInterval: (query) =>
-      query.state.data && EN_CURSO.includes(query.state.data.lote.status)
+      query.state.data &&
+      (EN_CURSO.includes(query.state.data.lote.status) ||
+        (query.state.data.fotos?.PENDING ?? 0) > 0)
         ? INTERVALO_DE_PROGRESO_MS
         : false,
   });

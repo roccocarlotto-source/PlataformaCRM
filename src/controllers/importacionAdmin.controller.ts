@@ -12,6 +12,7 @@ import {
   configurarImportacion,
   confirmarImportacion,
   csvDeCambios,
+  csvDeFotos,
   csvDeFallidas,
   decidirFilasDeImportacion,
   listarFilas,
@@ -128,6 +129,12 @@ export const csvFallidasHandler = asyncHandler<AuthenticatedRequest>(async (req,
   const csv = await csvDeFallidas(organizationId, batchId);
   registrarAcceso(req, organizationId, "importacion.fallidas.csv");
   enviarCsv(res, `filas-fallidas-${batchId}.csv`, csv);
+});
+
+export const csvFotosHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const organizationId = organizacionDelPath(req);
+  const batchId = loteDelPath(req);
+  enviarCsv(res, `fotos-${batchId}.csv`, await csvDeFotos(organizationId, batchId));
 });
 
 export const csvCambiosHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {

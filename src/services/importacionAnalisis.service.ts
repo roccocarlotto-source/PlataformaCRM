@@ -34,6 +34,7 @@ import type { FilaCruda } from "../utils/spreadsheet";
 import { aDefinicionDeCampo } from "./contactCustomFieldDefinition.service";
 import { ajustesDelLote, montosEnDolares } from "./importacionPromocion.service";
 import { monedaLocalDe, type MonedaLocal } from "./importacionMoneda";
+import { linksDeLaCelda, TOPES_DE_FOTOS } from "./importacionFotos.service";
 import { ResolutorDeImportacion, type IdentificadoPor } from "./importacionResolutor";
 
 // ---------------------------------------------------------------------------
@@ -251,6 +252,12 @@ function planDeVehiculo(
   if (local && moneda.cotizacion) {
     advertencias.push(
       `Costo y precio mínimo pasados a dólares con 1 USD = ${String(moneda.cotizacion.rate)} ${moneda.codigo ?? ""} (cotización del ${moneda.cotizacion.fecha})`,
+    );
+  }
+  const fotos = linksDeLaCelda(c.fotos);
+  if (fotos.length > TOPES_DE_FOTOS.porVehiculo) {
+    advertencias.push(
+      `Trae ${String(fotos.length)} fotos: se bajan hasta ${String(TOPES_DE_FOTOS.porVehiculo)} por unidad`,
     );
   }
   const encontrado = ctx.resolutor.vehiculoDe(c);

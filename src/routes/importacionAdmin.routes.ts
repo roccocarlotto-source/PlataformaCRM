@@ -5,6 +5,7 @@ import {
   confirmarHandler,
   csvCambiosHandler,
   csvFallidasHandler,
+  csvFotosHandler,
   decidirHandler,
   deshacerHandler,
   filasHandler,
@@ -52,3 +53,4 @@ importacionAdminRouter.post(`${BASE}/:batchId/cancel`, ...gate, cancelarHandler)
 importacionAdminRouter.post(`${BASE}/:batchId/undo`, ...gate, deshacerHandler);
 importacionAdminRouter.get(`${BASE}/:batchId/failed.csv`, ...gate, csvFallidasHandler);
 importacionAdminRouter.get(`${BASE}/:batchId/changes.csv`, ...gate, csvCambiosHandler);
+importacionAdminRouter.get(`${BASE}/:batchId/photos.csv`, ...gate, csvFotosHandler);
