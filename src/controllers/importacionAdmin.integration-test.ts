@@ -24,6 +24,7 @@ import {
   csvCambiosHandler,
   csvFallidasHandler,
   decidirHandler,
+  deshacerHandler,
   filasHandler,
   obtenerHandler,
   opcionesHandler,
@@ -67,6 +68,7 @@ before(async () => {
   app.patch(`${BASE}/:batchId/rows`, ...gate, decidirHandler);
   app.post(`${BASE}/:batchId/confirm`, ...gate, confirmarHandler);
   app.post(`${BASE}/:batchId/cancel`, ...gate, cancelarHandler);
+  app.post(`${BASE}/:batchId/undo`, ...gate, deshacerHandler);
   app.get(`${BASE}/:batchId/failed.csv`, ...gate, csvFallidasHandler);
   app.get(`${BASE}/:batchId/changes.csv`, ...gate, csvCambiosHandler);
   app.use(notFound);
@@ -151,6 +153,7 @@ async function montar(etiqueta: string): Promise<Escenario> {
 async function desmontar(e: Escenario): Promise<void> {
   const where = { organizationId: e.organizationId };
   await prisma.ingestionEvent.deleteMany({ where });
+  await prisma.activity.deleteMany({ where });
   await prisma.externalRecordLink.deleteMany({ where });
   await prisma.importBatch.deleteMany({ where });
   await prisma.contact.deleteMany({ where });
@@ -638,6 +641,126 @@ test("CHURNED (decisión 24): un contacto nuevo toma la etapa del archivo; uno e
       select: { promotionNotes: true },
     });
     assert.match(JSON.stringify(notas.promotionNotes), /lifecycleStage/);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Deshacer un lote (§8.3, decisión 17)
+// ---------------------------------------------------------------------------
+
+async function deshacer(e: Escenario, batchId: string) {
+  const r = await enviar(e, "POST", `/${batchId}/undo`);
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  await procesarLotes();
+  return (await (await enviar(e, "GET", `/${batchId}`)).json()) as DetalleJson & {
+    lote: {
+      counters: {
+        deshacer: { borrados: Record<string, number>; omitidos: { id: string; motivo: string }[] };
+      };
+    };
+  };
+}
+
+test("deshacer: da de baja lo creado y sus vínculos, deja lo que tuvo uso propio, y reimportar después crea de nuevo", async () => {
+  const e = await montar("deshacer");
+  try {
+    const contenido = await fixture("contactos.csv", e.vendedorEmail);
+    const { batchId, subida } = await importarContactos(e, contenido, { sourceName: "Planilla" });
+    await confirmarYPromover(e, batchId);
+    const beto = await prisma.contact.findFirstOrThrow({
+      where: { organizationId: e.organizationId, firstName: "Beto" },
+    });
+    // Una nota cargada a mano en el CRM: Beto ya tuvo uso propio.
+    await prisma.activity.create({
+      data: {
+        organizationId: e.organizationId,
+        authorId: e.vendedorId,
+        contactId: beto.id,
+        type: "NOTE",
+        subject: "Lo llamé",
+      },
+    });
+
+    // Antes de terminar, no se deshace.
+    const pendiente = await subir(e, contenido, { entityType: "CONTACT", sourceName: "Otra" });
+    assert.equal((await enviar(e, "POST", `/${pendiente.body.lote.id}/undo`)).status, 409);
+
+    const detalle = await deshacer(e, batchId);
+    assert.equal(detalle.lote.status, "UNDONE");
+    assert.deepEqual(detalle.lote.counters.deshacer.borrados, { CONTACT: 2, COMPANY: 1 });
+    const omitido = detalle.lote.counters.deshacer.omitidos.find((o) => o.id === beto.id);
+    assert.match(omitido?.motivo ?? "", /uso propio en el CRM \(activities\)/);
+
+    const vivos = await prisma.contact.findMany({
+      where: { organizationId: e.organizationId, deletedAt: null },
+      select: { firstName: true },
+    });
+    assert.deepEqual(
+      vivos.map((c) => c.firstName),
+      ["Beto"],
+    );
+    assert.equal(
+      await prisma.company.count({ where: { organizationId: e.organizationId, deletedAt: null } }),
+      0,
+      "la empresa la usaban solo los contactos que se borraron",
+    );
+    // Los vínculos de lo borrado se fueron; los de Beto quedan.
+    const vinculos = await prisma.externalRecordLink.findMany({
+      where: { organizationId: e.organizationId },
+      select: { entityId: true },
+    });
+    assert.ok(vinculos.length > 0);
+    assert.ok(vinculos.every((v) => v.entityId === beto.id));
+
+    // Deshacer dos veces, no.
+    assert.equal((await enviar(e, "POST", `/${batchId}/undo`)).status, 409);
+
+    // Reimportar crea de nuevo lo que se deshizo, y no duplica a Beto.
+    const otra = await importarContactos(e, contenido, { sourceId: subida.body.lote.sourceId });
+    await confirmarYPromover(e, otra.batchId);
+    const despues = await prisma.contact.findMany({
+      where: { organizationId: e.organizationId, deletedAt: null },
+      orderBy: { firstName: "asc" },
+      select: { firstName: true },
+    });
+    assert.deepEqual(
+      despues.map((c) => c.firstName),
+      ["Ana", "Beto", "Diego"],
+    );
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("deshacer: lo que el lote solo actualizó no se revierte ni se borra", async () => {
+  const e = await montar("deshacer-actualizado");
+  try {
+    const previo = await prisma.contact.create({
+      data: {
+        organizationId: e.organizationId,
+        firstName: "Eva",
+        lastName: "Ruiz",
+        email: "eva@example.com",
+      },
+    });
+    const { batchId } = await importarContactos(
+      e,
+      "Nombre;Mail;Puesto\r\nEva Ruiz;eva@example.com;Gerente\r\n",
+      { sourceName: "Planilla" },
+      { mapeo: { Nombre: "fullName", Mail: "email", Puesto: "jobTitle" } },
+    );
+    await confirmarYPromover(e, batchId);
+    const detalle = await deshacer(e, batchId);
+    assert.deepEqual(detalle.lote.counters.deshacer.borrados, {});
+    const eva = await prisma.contact.findUniqueOrThrow({ where: { id: previo.id } });
+    assert.equal(eva.deletedAt, null);
+    assert.equal(
+      eva.jobTitle,
+      "Gerente",
+      "lo actualizado queda: se corrige a mano con el CSV de cambios",
+    );
   } finally {
     await desmontar(e);
   }

@@ -106,7 +106,7 @@ function LoteEnCurso({
       />
     );
   }
-  if (lote.status === "DONE") {
+  if (lote.status === "DONE" || lote.status === "UNDONE") {
     return (
       <InformeDelLote organizationId={organizationId} detalle={detalle.data} onNueva={onNueva} />
     );
