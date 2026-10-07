@@ -44,10 +44,16 @@ function resumenDeFila(fila: FilaDelLote, mapeo: Record<string, string>): string
     valor("fullName") ??
     valor("name") ??
     valor("subject") ??
+    ([valor("make"), valor("model"), valor("year")].filter(Boolean).join(" ") || null) ??
     valor("body") ??
     ([valor("firstName"), valor("lastName")].filter(Boolean).join(" ") || null);
   const extra =
-    valor("email") ?? valor("contactEmail") ?? valor("contactExternalId") ?? valor("externalId");
+    valor("email") ??
+    valor("contactEmail") ??
+    valor("contactExternalId") ??
+    valor("stockCode") ??
+    valor("licensePlate") ??
+    valor("externalId");
   const partes = [nombre, extra].filter((p): p is string => p !== null);
   if (partes.length > 0) return partes.join(" · ");
   return Object.values(fila.rawPayload)

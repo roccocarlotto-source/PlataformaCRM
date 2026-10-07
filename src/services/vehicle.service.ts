@@ -588,37 +588,60 @@ async function validateTradeInOpportunityId(organizationId: string, opportunityI
 // quema sin usarse (igual que displayNumber).
 // ---------------------------------------------------------------------------
 
-export function createVehicle(organizationId: string, input: CreateVehicleInput) {
-  // Reglas puras primero: un body contradictorio o incompleto se rechaza
-  // antes de abrir una transacción.
+function prepararAlta(input: CreateVehicleInput) {
   const data = applyWarrantyRule(
     input.warranty ?? null,
     applyConsignmentRule(input.origin ?? null, input),
   );
   assertCompleteForPublish(data, { photoCount: 0 });
+  return data;
+}
 
-  return prisma.$transaction(async (tx) => {
-    await lockOrganizationForUpdate(organizationId, tx);
-    await validateBranchId(organizationId, data.branchId, tx);
-    if (data.assignedSalespersonId) {
-      await validateAssignedSalespersonId(organizationId, data.assignedSalespersonId, tx);
-    }
-    if (data.tradeInOpportunityId) {
-      await validateTradeInOpportunityId(organizationId, data.tradeInOpportunityId, tx);
-    }
-    await validateIdentifiersUnique(
-      organizationId,
-      { vin: data.vin, licensePlate: data.licensePlate },
-      undefined,
-      tx,
-    );
-    const stockNumber = await assignNextVehicleStockNumber(organizationId, tx);
+export function createVehicle(organizationId: string, input: CreateVehicleInput) {
+  // Reglas puras primero: un body contradictorio o incompleto se rechaza
+  // antes de abrir una transacción.
+  const data = prepararAlta(input);
+  return prisma.$transaction((tx) => insertarVehiculo(organizationId, data, tx));
+}
 
-    return createVehicleRepo(
-      { ...data, organizationId, internalCode: formatInternalCode(stockNumber) },
-      tx,
-    );
-  });
+// La misma alta dentro de una transacción que ya está abierta: la usa la
+// importación de stock, que corre en la transacción del worker que tiene
+// reclamada la fila (docs/importacion-de-datos.md §5.4). Mismas reglas, en el
+// mismo orden; tomar de nuevo el lock de la organización en la misma
+// transacción no espera a nadie.
+export function createVehicleEnTransaccion(
+  organizationId: string,
+  input: CreateVehicleInput,
+  tx: Db,
+) {
+  return insertarVehiculo(organizationId, prepararAlta(input), tx);
+}
+
+async function insertarVehiculo(
+  organizationId: string,
+  data: ReturnType<typeof prepararAlta>,
+  tx: Db,
+) {
+  await lockOrganizationForUpdate(organizationId, tx);
+  await validateBranchId(organizationId, data.branchId, tx);
+  if (data.assignedSalespersonId) {
+    await validateAssignedSalespersonId(organizationId, data.assignedSalespersonId, tx);
+  }
+  if (data.tradeInOpportunityId) {
+    await validateTradeInOpportunityId(organizationId, data.tradeInOpportunityId, tx);
+  }
+  await validateIdentifiersUnique(
+    organizationId,
+    { vin: data.vin, licensePlate: data.licensePlate },
+    undefined,
+    tx,
+  );
+  const stockNumber = await assignNextVehicleStockNumber(organizationId, tx);
+
+  return createVehicleRepo(
+    { ...data, organizationId, internalCode: formatInternalCode(stockNumber) },
+    tx,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -639,90 +662,106 @@ export async function updateVehicle(
   id: string,
   input: UpdateVehicleInput,
 ) {
-  return prisma.$transaction(async (tx) => {
-    await lockOrganizationForUpdate(organizationId, tx);
-    // 404 si no existe, no es de esta organización, o está dada de baja.
-    const current = await getVehicleById(organizationId, id, tx);
+  return prisma.$transaction((tx) =>
+    updateVehicleEnTransaccion(organizationId, actorUserId, id, input, tx),
+  );
+}
 
-    const effectiveOrigin = input.origin !== undefined ? input.origin : current.origin;
-    const effectiveWarranty = input.warranty !== undefined ? input.warranty : current.warranty;
-    const data: UpdateVehicleInput = applyWarrantyRule(
-      effectiveWarranty,
-      applyConsignmentRule(effectiveOrigin, input),
-    );
+// Lo mismo dentro de una transacción ya abierta (la importación de stock,
+// como createVehicleEnTransaccion).
+export async function updateVehicleEnTransaccion(
+  organizationId: string,
+  actorUserId: string,
+  id: string,
+  input: UpdateVehicleInput,
+  tx: Db,
+) {
+  await lockOrganizationForUpdate(organizationId, tx);
+  // 404 si no existe, no es de esta organización, o está dada de baja.
+  const current = await getVehicleById(organizationId, id, tx);
 
-    // La ficha con la que la fila queda, para las reglas que miran el todo.
-    // Las fotos se cuentan solo si hace falta (la fila queda publicada), y
-    // bajo el lock: un DELETE de foto concurrente espera a este PATCH.
-    const effective = { ...current, ...data };
-    const photoCount = effective.publishOnWebsite
-      ? await countPhotosByVehicle(id, organizationId, tx)
-      : 0;
-    assertCompleteForPublish(effective, { photoCount });
+  const effectiveOrigin = input.origin !== undefined ? input.origin : current.origin;
+  const effectiveWarranty = input.warranty !== undefined ? input.warranty : current.warranty;
+  const data: UpdateVehicleInput = applyWarrantyRule(
+    effectiveWarranty,
+    applyConsignmentRule(effectiveOrigin, input),
+  );
 
-    // Ítem 153: volverla a AVAILABLE a mano mientras una oportunidad la
-    // retiene habilitaba vincularla a una segunda oportunidad — dos clientes
-    // con el mismo auto, y al ganar una la otra quedaba esperando un auto
-    // vendido. Los demás cambios a mano (IN_PREPARATION, IN_TRANSIT) siguen
-    // permitidos: son operativos y opportunity.service ya los respeta.
-    if (
-      data.status === "AVAILABLE" &&
-      current.status !== "AVAILABLE" &&
-      (await countOpportunitiesHoldingVehicle(id, organizationId, tx)) > 0
-    ) {
-      throw new AppError(UNIDAD_RETENIDA_POR_OPORTUNIDAD, 409);
-    }
+  // La ficha con la que la fila queda, para las reglas que miran el todo.
+  // Las fotos se cuentan solo si hace falta (la fila queda publicada), y
+  // bajo el lock: un DELETE de foto concurrente espera a este PATCH.
+  const effective = { ...current, ...data };
+  const photoCount = effective.publishOnWebsite
+    ? await countPhotosByVehicle(id, organizationId, tx)
+    : 0;
+  assertCompleteForPublish(effective, { photoCount });
 
-    if (data.branchId !== undefined) {
-      await validateBranchId(organizationId, data.branchId, tx);
-    }
-    if (data.assignedSalespersonId) {
-      await validateAssignedSalespersonId(organizationId, data.assignedSalespersonId, tx);
-    }
-    // Solo si viene un id: null desvincula, y no cambiar el vínculo no
-    // revalida una oportunidad que se dio de baja después de cargarlo.
-    if (data.tradeInOpportunityId) {
-      await validateTradeInOpportunityId(organizationId, data.tradeInOpportunityId, tx);
-    }
-    await validateIdentifiersUnique(
-      organizationId,
-      { vin: data.vin, licensePlate: data.licensePlate },
-      id,
-      tx,
-    );
+  // Ítem 153: volverla a AVAILABLE a mano mientras una oportunidad la
+  // retiene habilitaba vincularla a una segunda oportunidad — dos clientes
+  // con el mismo auto, y al ganar una la otra quedaba esperando un auto
+  // vendido. Los demás cambios a mano (IN_PREPARATION, IN_TRANSIT) siguen
+  // permitidos: son operativos y opportunity.service ya los respeta.
+  //
+  // UNAVAILABLE ("No disponible", migración 20261026120000) tampoco: sacaría
+  // del stock ofrecible una unidad que una oportunidad tiene reservada o
+  // vendida, y la oportunidad seguiría apuntando a ella.
+  if (
+    (data.status === "AVAILABLE" || data.status === "UNAVAILABLE") &&
+    current.status !== data.status &&
+    (await countOpportunitiesHoldingVehicle(id, organizationId, tx)) > 0
+  ) {
+    throw new AppError(UNIDAD_RETENIDA_POR_OPORTUNIDAD, 409);
+  }
 
-    const entries = computeChangeLogEntries(
-      current as unknown as Record<string, unknown>,
-      data as Record<string, unknown>,
-    );
-    if (entries.length === 0) {
-      // Todo lo que vino ya estaba así: sin escritura y sin historial.
-      return current;
-    }
+  if (data.branchId !== undefined) {
+    await validateBranchId(organizationId, data.branchId, tx);
+  }
+  if (data.assignedSalespersonId) {
+    await validateAssignedSalespersonId(organizationId, data.assignedSalespersonId, tx);
+  }
+  // Solo si viene un id: null desvincula, y no cambiar el vínculo no
+  // revalida una oportunidad que se dio de baja después de cargarlo.
+  if (data.tradeInOpportunityId) {
+    await validateTradeInOpportunityId(organizationId, data.tradeInOpportunityId, tx);
+  }
+  await validateIdentifiersUnique(
+    organizationId,
+    { vin: data.vin, licensePlate: data.licensePlate },
+    id,
+    tx,
+  );
 
-    // Solo los campos que cambian: un UPDATE que reescribe con el mismo valor
-    // no aporta nada y movería updatedAt sin motivo.
-    const changed = Object.fromEntries(
-      entries.map((entry) => [entry.fieldName, data[entry.fieldName as keyof UpdateVehicleInput]]),
-    ) as VehicleUpdateData;
+  const entries = computeChangeLogEntries(
+    current as unknown as Record<string, unknown>,
+    data as Record<string, unknown>,
+  );
+  if (entries.length === 0) {
+    // Todo lo que vino ya estaba así: sin escritura y sin historial.
+    return current;
+  }
 
-    const result = await updateVehicleRepo(id, organizationId, changed, tx);
-    if (result.count === 0) {
-      throw new AppError(VEHICULO_NO_ENCONTRADO, 404);
-    }
-    await createVehicleChangeLogs(
-      { organizationId, vehicleId: id, changedById: actorUserId },
-      entries,
-      tx,
-    );
+  // Solo los campos que cambian: un UPDATE que reescribe con el mismo valor
+  // no aporta nada y movería updatedAt sin motivo.
+  const changed = Object.fromEntries(
+    entries.map((entry) => [entry.fieldName, data[entry.fieldName as keyof UpdateVehicleInput]]),
+  ) as VehicleUpdateData;
 
-    const updated = await getVehicleById(organizationId, id, tx);
-    // Ítem 152: vendida, reservada o despublicada → su entrada de la base de
-    // conocimiento se da de baja en esta misma transacción, sin esperar al
-    // botón "Sincronizar".
-    await retirarDeLaBaseSiDejoDeCalificar(organizationId, updated, tx);
-    return updated;
-  });
+  const result = await updateVehicleRepo(id, organizationId, changed, tx);
+  if (result.count === 0) {
+    throw new AppError(VEHICULO_NO_ENCONTRADO, 404);
+  }
+  await createVehicleChangeLogs(
+    { organizationId, vehicleId: id, changedById: actorUserId },
+    entries,
+    tx,
+  );
+
+  const updated = await getVehicleById(organizationId, id, tx);
+  // Ítem 152: vendida, reservada o despublicada → su entrada de la base de
+  // conocimiento se da de baja en esta misma transacción, sin esperar al
+  // botón "Sincronizar".
+  await retirarDeLaBaseSiDejoDeCalificar(organizationId, updated, tx);
+  return updated;
 }
 
 // "Dar de baja la unidad": soft delete, la ficha y su historial se conservan.

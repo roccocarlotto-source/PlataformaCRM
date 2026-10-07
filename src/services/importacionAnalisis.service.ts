@@ -15,6 +15,11 @@ import {
   planearContacto,
   planearEmpresa,
   tipoDePlan,
+  clavesDeVehiculo,
+  planearVehiculo,
+  traducirFilaDeVehiculo,
+  type AjustesDeImportacion,
+  type CandidatoDeVehiculo,
   traducirFilaDeActividad,
   traducirFilaDeContacto,
   traducirFilaDeEmpresa,
@@ -27,7 +32,8 @@ import {
 } from "../utils/importacionMapeo";
 import type { FilaCruda } from "../utils/spreadsheet";
 import { aDefinicionDeCampo } from "./contactCustomFieldDefinition.service";
-import { ajustesDelLote } from "./importacionPromocion.service";
+import { ajustesDelLote, montosEnDolares } from "./importacionPromocion.service";
+import { monedaLocalDe, type MonedaLocal } from "./importacionMoneda";
 import { ResolutorDeImportacion, type IdentificadoPor } from "./importacionResolutor";
 
 // ---------------------------------------------------------------------------
@@ -226,6 +232,64 @@ function planDeEmpresa(
   return { tipo: "CREATE", advertencias };
 }
 
+// Stock: lo mismo que la promoción, con la cotización que se va a usar a la
+// vista (decisión 8) y las vendidas omitidas (decisión 12).
+function planDeVehiculo(
+  ctx: Contexto,
+  c: CandidatoDeVehiculo,
+  rowNumber: number,
+  ajustes: AjustesDeImportacion,
+  moneda: MonedaLocal,
+  advertencias: string[],
+): PlanDeFila {
+  if (c.vendidaEnOrigen && !ajustes.stock?.importarVendidas) {
+    return { tipo: "SKIP", advertencias: [...advertencias, "Vendida en el origen: se omite"] };
+  }
+  const montos = montosEnDolares(c, moneda);
+  if (!montos.ok) return { tipo: "FAIL", errores: [montos.error], advertencias };
+  const local = [c.costo, c.minimo].some((m) => m?.moneda === "LOCAL");
+  if (local && moneda.cotizacion) {
+    advertencias.push(
+      `Costo y precio mínimo pasados a dólares con 1 USD = ${String(moneda.cotizacion.rate)} ${moneda.codigo ?? ""} (cotización del ${moneda.cotizacion.fecha})`,
+    );
+  }
+  const encontrado = ctx.resolutor.vehiculoDe(c);
+  if (encontrado) {
+    const cambios = planearVehiculo(
+      c,
+      encontrado.existente,
+      montos.valor,
+      encontrado.identificadoPor,
+    );
+    return {
+      tipo: tipoDePlan(cambios),
+      advertencias,
+      existenteId: encontrado.existente.id,
+      cambios,
+    };
+  }
+  const claves = clavesDeVehiculo(c);
+  for (const clave of claves) {
+    const id = ctx.resolutor.vinculo("VEHICLE", clave);
+    if (id?.startsWith(PROVISORIO)) {
+      const previa = Number(id.slice(PROVISORIO.length));
+      advertencias.push(
+        `La fila ${String(previa)} del archivo ya trae esta unidad: esta fila actualiza lo que crea aquella`,
+      );
+      return { tipo: "UPDATE", advertencias, mismaQueFila: previa };
+    }
+  }
+  if (claves.length === 0) {
+    ctx.resumen.sinClave++;
+    advertencias.push(
+      "Sin id, código de stock, patente ni VIN: volver a subir el archivo la duplicaría",
+    );
+  }
+  for (const clave of claves)
+    ctx.resolutor.recordarVinculo("VEHICLE", clave, `${PROVISORIO}${String(rowNumber)}`);
+  return { tipo: "CREATE", advertencias };
+}
+
 // Historial: falla si no encuentra el contacto (las actividades sueltas no
 // tienen dónde mostrarse); si ya se importó (misma clave), sin cambios.
 function planDeActividad(
@@ -255,9 +319,6 @@ function planDeActividad(
 export async function analizarLote(lote: ImportBatch, db: Db): Promise<ResumenDelAnalisis> {
   const ajustes = ajustesDelLote(lote.config);
   if (!ajustes) throw new Error(`analizarLote: el lote ${lote.id} no tiene ajustes`);
-  if (lote.entityType === "VEHICLE") {
-    throw new Error(`analizarLote: el tipo ${lote.entityType} todavía no se analiza`);
-  }
   const definiciones =
     lote.entityType === "CONTACT"
       ? (await findActiveContactCustomFieldDefinitions(lote.organizationId, db)).map(
@@ -265,6 +326,10 @@ export async function analizarLote(lote: ImportBatch, db: Db): Promise<ResumenDe
         )
       : [];
   const codigoDePais = await findDefaultPhoneCountryCode(lote.organizationId, db);
+  const moneda: MonedaLocal =
+    lote.entityType === "VEHICLE"
+      ? await monedaLocalDe(lote.organizationId, db)
+      : { codigo: null, cotizacion: null };
   const ctx: Contexto = {
     resolutor: new ResolutorDeImportacion(lote.organizationId, lote.sourceId, db),
     resumen: { empresasNuevas: 0, ejemplosDeEmpresasNuevas: [], sinClave: 0 },
@@ -291,6 +356,24 @@ export async function analizarLote(lote: ImportBatch, db: Db): Promise<ResumenDe
           id: f.id,
           plan: t.ok
             ? planDeContacto(ctx, t.candidato, f.rowNumber ?? 0, ajustes.crearEmpresas, [
+                ...t.advertencias,
+              ])
+            : { tipo: "FAIL", errores: t.errores, advertencias: t.advertencias },
+        });
+      });
+    } else if (lote.entityType === "VEHICLE") {
+      const traducidas = tanda.map((f) =>
+        traducirFilaDeVehiculo(f.rawPayload as FilaCruda, ajustes, moneda.codigo),
+      );
+      await ctx.resolutor.precargarVehiculosDelLote(
+        traducidas.flatMap((t) => (t.ok ? [t.candidato] : [])),
+      );
+      tanda.forEach((f, i) => {
+        const t = traducidas[i];
+        planes.push({
+          id: f.id,
+          plan: t.ok
+            ? planDeVehiculo(ctx, t.candidato, f.rowNumber ?? 0, ajustes, moneda, [
                 ...t.advertencias,
               ])
             : { tipo: "FAIL", errores: t.errores, advertencias: t.advertencias },

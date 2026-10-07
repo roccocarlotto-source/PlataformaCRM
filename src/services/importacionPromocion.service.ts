@@ -14,8 +14,13 @@ import {
   clavesDeEmpresa,
   planearContacto,
   planearEmpresa,
+  aDolares,
   claveDeActividad,
+  clavesDeVehiculo,
   cuerpoDeActividad,
+  planearVehiculo,
+  traducirFilaDeVehiculo,
+  type CandidatoDeVehiculo,
   traducirFilaDeActividad,
   traducirFilaDeContacto,
   traducirFilaDeEmpresa,
@@ -30,6 +35,18 @@ import {
 } from "../utils/importacionMapeo";
 import type { FilaCruda } from "../utils/spreadsheet";
 import { ResolutorDeImportacion } from "./importacionResolutor";
+import {
+  FALTA_COTIZACION,
+  FALTA_MONEDA_LOCAL,
+  monedaLocalDe,
+  type MonedaLocal,
+} from "./importacionMoneda";
+import {
+  createVehicleEnTransaccion,
+  updateVehicleEnTransaccion,
+  type UpdateVehicleInput,
+} from "./vehicle.service";
+import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
 // Promoción de UNA fila del asistente de importación (docs/importacion-de-
@@ -90,7 +107,7 @@ function notasDeConflicto(
 }
 
 interface ResultadoDeEscritura {
-  entityId: string;
+  entityId: string | null;
   contactId: string | null;
   outcome: "CREATED" | "UPDATED" | "UNCHANGED" | "SKIPPED";
   changes: { campo: string; antes: unknown; despues: unknown }[];
@@ -447,6 +464,172 @@ async function escribirEmpresa(
 }
 
 // ---------------------------------------------------------------------------
+// Stock de vehículos (§5.4)
+// ---------------------------------------------------------------------------
+
+// El costo y el precio mínimo en dólares (decisión 8). Exportada para el
+// análisis, que muestra la misma conversión en la vista previa.
+export function montosEnDolares(
+  c: CandidatoDeVehiculo,
+  moneda: MonedaLocal,
+): { ok: true; valor: { costo?: number; minimo?: number } } | { ok: false; error: string } {
+  const valor: { costo?: number; minimo?: number } = {};
+  for (const [campo, monto] of [
+    ["costo", c.costo],
+    ["minimo", c.minimo],
+  ] as const) {
+    if (!monto) continue;
+    if (monto.moneda === "USD") {
+      valor[campo] = monto.monto;
+      continue;
+    }
+    if (!moneda.codigo) return { ok: false, error: FALTA_MONEDA_LOCAL };
+    if (!moneda.cotizacion) return { ok: false, error: FALTA_COTIZACION };
+    valor[campo] = aDolares(monto.monto, moneda.cotizacion.rate);
+  }
+  return { ok: true, valor };
+}
+
+// De los cambios que se aplican, los datos del PATCH de vehicle.service.
+const CAMPOS_DE_VEHICULO: Record<string, keyof UpdateVehicleInput> = {
+  make: "make",
+  model: "model",
+  trim: "trim",
+  year: "year",
+  mileage: "mileage",
+  condition: "condition",
+  priceListUsd: "priceListUsd",
+  priceListLocal: "priceListLocal",
+  acquisitionCostUsd: "acquisitionCostUsd",
+  minAcceptablePriceUsd: "minAcceptablePriceUsd",
+  status: "status",
+  exteriorColor: "exteriorColor",
+  fuelType: "fuelType",
+  transmission: "transmission",
+  licensePlate: "licensePlate",
+  vin: "vin",
+};
+
+async function escribirVehiculo(
+  evento: EventoReclamado,
+  loteId: string,
+  c: CandidatoDeVehiculo,
+  montos: { costo?: number; minimo?: number },
+  ajustes: AjustesDeImportacion,
+  politica: Politica,
+  resolutor: ResolutorDeImportacion,
+  notas: PromotionNote[],
+  db: Db,
+): Promise<ResultadoDeEscritura> {
+  const stock = ajustes.stock as NonNullable<AjustesDeImportacion["stock"]>;
+  const encontrado = resolutor.vehiculoDe(c);
+
+  if (c.vendidaEnOrigen && !stock.importarVendidas) {
+    // Decisión 12: vendidas en el origen, omitidas salvo la casilla.
+    notas.push({
+      tipo: "ignorado",
+      campo: "status",
+      entrante: "SOLD",
+      motivo: "vendida en el origen: se omite (el lote no importa vendidas)",
+    });
+    return {
+      entityId: encontrado?.existente.id ?? null,
+      contactId: null,
+      outcome: "SKIPPED",
+      changes: [],
+      notas,
+    };
+  }
+
+  if (encontrado) {
+    const existente = encontrado.existente;
+    if (politica === "SKIP") {
+      await vincularVehiculo(evento, c, existente.id, null, db);
+      return { entityId: existente.id, contactId: null, outcome: "SKIPPED", changes: [], notas };
+    }
+    const cambios = planearVehiculo(c, existente, montos, encontrado.identificadoPor);
+    const aplicar = cambiosAAplicar(cambios, politica);
+    notas.push(...notasDeConflicto(cambios, aplicar));
+    if (aplicar.length > 0) {
+      const data = Object.fromEntries(
+        aplicar.map((cambio) => [CAMPOS_DE_VEHICULO[cambio.campo], cambio.entrante]),
+      ) as UpdateVehicleInput;
+      // El historial de la ficha a nombre del responsable elegido.
+      await updateVehicleEnTransaccion(
+        evento.organizationId,
+        stock.responsableId,
+        existente.id,
+        data,
+        db,
+      );
+    }
+    await vincularVehiculo(evento, c, existente.id, null, db);
+    return {
+      entityId: existente.id,
+      contactId: null,
+      outcome: aplicar.length > 0 ? "UPDATED" : "UNCHANGED",
+      changes: aplicar.map((cambio) => ({
+        campo: cambio.campo,
+        antes: cambio.actual,
+        despues: cambio.entrante,
+      })),
+      notas,
+    };
+  }
+
+  const creado = await createVehicleEnTransaccion(
+    evento.organizationId,
+    {
+      make: c.make,
+      model: c.model,
+      trim: c.trim ?? null,
+      year: c.year,
+      condition: c.condition,
+      mileage: c.mileage ?? null,
+      priceListUsd: c.priceListUsd ?? null,
+      priceListLocal: c.priceListLocal ?? null,
+      acquisitionCostUsd: montos.costo ?? null,
+      minAcceptablePriceUsd: montos.minimo ?? null,
+      status: c.status ?? "AVAILABLE",
+      exteriorColor: c.exteriorColor ?? null,
+      fuelType: c.fuelType ?? null,
+      transmission: c.transmission ?? null,
+      licensePlate: c.licensePlate ?? null,
+      vin: c.vin ?? null,
+      branchId: stock.branchId,
+      // Decisión 9: el código del sistema anterior queda a la vista en la
+      // ficha; nuestro STK-… sigue siendo el principal.
+      internalNotes: c.stockCode ? `Código anterior: ${c.stockCode}` : null,
+    },
+    db,
+  );
+  await vincularVehiculo(evento, c, creado.id, loteId, db);
+  return { entityId: creado.id, contactId: null, outcome: "CREATED", changes: [], notas };
+}
+
+async function vincularVehiculo(
+  evento: EventoReclamado,
+  c: CandidatoDeVehiculo,
+  entityId: string,
+  creadoPor: string | null,
+  db: Db,
+): Promise<void> {
+  for (const externalKey of clavesDeVehiculo(c)) {
+    await guardarVinculo(
+      {
+        organizationId: evento.organizationId,
+        sourceId: evento.sourceId,
+        entityType: "VEHICLE",
+        externalKey,
+        entityId,
+        createdByBatchId: creadoPor,
+      },
+      db,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Historial (§5.3, decisiones 5, 7, 23 y 25)
 // ---------------------------------------------------------------------------
 
@@ -582,13 +765,6 @@ export async function promoverFilaDelAsistente(
     // READY sale de analizar con ajustes). Si no los tiene, es un bug.
     throw new Error(`promoverFilaDelAsistente: el lote ${lote.id} no tiene ajustes`);
   }
-  if (lote.entityType === "VEHICLE") {
-    return fallar(
-      evento,
-      `Este tipo de dato (${lote.entityType}) todavía no se puede importar`,
-      db,
-    );
-  }
 
   const fila = evento.rawPayload as FilaCruda;
   const politica: Politica = (lote.decision as ImportRowDecision | null) ?? ajustes.duplicados;
@@ -615,6 +791,32 @@ export async function promoverFilaDelAsistente(
       notas,
       db,
     );
+  } else if (lote.entityType === "VEHICLE") {
+    const moneda = await monedaLocalDe(evento.organizationId, db);
+    const traducida = traducirFilaDeVehiculo(fila, ajustes, moneda.codigo);
+    if (!traducida.ok) return fallar(evento, traducida.errores.join("; "), db);
+    const montos = montosEnDolares(traducida.candidato, moneda);
+    if (!montos.ok) return fallar(evento, montos.error, db);
+    await resolutor.precargarVehiculosDelLote([traducida.candidato]);
+    try {
+      resultado = await escribirVehiculo(
+        evento,
+        lote.id,
+        traducida.candidato,
+        montos.valor,
+        ajustes,
+        politica,
+        resolutor,
+        notas,
+        db,
+      );
+    } catch (err) {
+      // Las reglas de vehicle.service (patente o VIN de otra unidad,
+      // sucursal) son un dato malo de ESTA fila: se marca y el lote sigue.
+      // Corren antes de escribir, así que la transacción sigue sana.
+      if (err instanceof AppError && err.statusCode < 500) return fallar(evento, err.message, db);
+      throw err;
+    }
   } else if (lote.entityType === "ACTIVITY") {
     const traducida = traducirFilaDeActividad(fila, ajustes, evento.codigoDePais);
     if (!traducida.ok) return fallar(evento, traducida.errores.join("; "), db);

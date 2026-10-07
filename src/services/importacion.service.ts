@@ -199,9 +199,6 @@ export async function configurarImportacion(
   cuerpo: unknown,
 ) {
   const lote = await exigirLote(organizationId, batchId);
-  if (lote.entityType === "VEHICLE") {
-    throw new AppError("Este tipo de dato todavía no se puede importar", 400);
-  }
   const ajustes = parseOrThrow(crearAjustesSchema(lote.entityType), cuerpo);
   if (ajustes.historial) {
     // El autor del historial tiene que ser un usuario activo de ESTA
@@ -212,6 +209,24 @@ export async function configurarImportacion(
     });
     if (!autor)
       throw new AppError("El autor elegido no es un usuario activo de la organización", 400);
+  }
+  if (ajustes.stock) {
+    // La sucursal de las unidades nuevas y quién firma los cambios de ficha,
+    // de ESTA organización (las dos son FKs compuestas).
+    const [sucursal, responsable] = await Promise.all([
+      prisma.branch.findFirst({
+        where: { id: ajustes.stock.branchId, organizationId, deletedAt: null },
+        select: { id: true },
+      }),
+      prisma.user.findFirst({
+        where: { id: ajustes.stock.responsableId, organizationId, deletedAt: null, isActive: true },
+        select: { id: true },
+      }),
+    ]);
+    if (!sucursal) throw new AppError("La sucursal elegida no es de la organización", 400);
+    if (!responsable) {
+      throw new AppError("El responsable elegido no es un usuario activo de la organización", 400);
+    }
   }
   const config = configDe(lote);
 
@@ -299,7 +314,7 @@ export async function decidirFilasDeImportacion(
 // importando (las notas no encontrarían a los que todavía no se crearon).
 const DEPENDE_DE: Partial<Record<string, string[]>> = {
   ACTIVITY: ["CONTACT"],
-  CONTACT: ["COMPANY"],
+  CONTACT: ["COMPANY", "VEHICLE"],
 };
 
 export async function confirmarImportacion(organizationId: string, batchId: string) {
@@ -405,7 +420,7 @@ export async function csvDeCambios(organizationId: string, batchId: string): Pro
 
 export async function opcionesDeImportacion(organizationId: string) {
   await exigirOrganizacion(organizationId);
-  const [usuarios, fuentes, campos] = await Promise.all([
+  const [usuarios, fuentes, campos, sucursales] = await Promise.all([
     prisma.user.findMany({
       where: { organizationId, deletedAt: null, isActive: true },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -423,6 +438,11 @@ export async function opcionesDeImportacion(organizationId: string) {
       select: { id: true, name: true, isActive: true },
     }),
     definicionesDe(organizationId),
+    prisma.branch.findMany({
+      where: { organizationId, deletedAt: null },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
   return {
     usuarios: usuarios.map((u) => ({
@@ -433,5 +453,6 @@ export async function opcionesDeImportacion(organizationId: string) {
     })),
     fuentes,
     camposPersonalizados: campos,
+    sucursales,
   };
 }

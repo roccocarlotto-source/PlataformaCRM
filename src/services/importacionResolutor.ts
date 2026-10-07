@@ -3,6 +3,10 @@ import type { Db } from "../lib/prisma";
 import { soloDigitos } from "../lib/telefono";
 import { buscarVinculos } from "../repositories/importacion.repository";
 import {
+  normalizarPatente,
+  clavesDeVehiculo,
+  type CandidatoDeVehiculo,
+  type VehiculoExistente,
   claveDeActividad,
   claveDeId,
   claveDeNombreDeEmpresa,
@@ -81,10 +85,7 @@ function aContactoExistente(f: FilaDeContacto): ContactoExistente {
   };
 }
 
-// La patente como se compara: mayúsculas, sin espacios ni guiones.
-export function normalizarPatente(patente: string): string {
-  return patente.toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
+export { normalizarPatente };
 
 export class ResolutorDeImportacion {
   private readonly vinculos = new Map<string, string>();
@@ -97,6 +98,9 @@ export class ResolutorDeImportacion {
   private readonly vehiculoPorRef = new Map<string, string>();
   private empresasDeLaOrganizacionCargadas = false;
   private readonly actividadesVivas = new Set<string>();
+  private readonly vehiculos = new Map<string, VehiculoExistente>();
+  private readonly vehiculoPorPatente = new Map<string, string>();
+  private readonly vehiculoPorVin = new Map<string, string>();
 
   constructor(
     private readonly organizationId: string,
@@ -486,6 +490,117 @@ export class ResolutorDeImportacion {
             vehiculos.find((v) => v.patente !== null && v.patente === normalizarPatente(ref))?.id);
       if (id) this.vehiculoPorRef.set(ref, id);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Stock (§5.4): la unidad existente por vínculo del sistema de origen, por
+  // patente o por VIN (las dos, sin distinguir mayúsculas ni separadores, como
+  // la regla de unicidad de vehicle.service). Con si una oportunidad la retiene.
+  // -------------------------------------------------------------------------
+
+  async precargarVehiculosDelLote(candidatos: readonly CandidatoDeVehiculo[]): Promise<void> {
+    await this.precargarVinculos("VEHICLE", [...new Set(candidatos.flatMap(clavesDeVehiculo))]);
+    const patentes = [
+      ...new Set(
+        candidatos.flatMap((c) => (c.licensePlate ? [normalizarPatente(c.licensePlate)] : [])),
+      ),
+    ];
+    const vins = [...new Set(candidatos.flatMap((c) => (c.vin ? [c.vin.toUpperCase()] : [])))];
+    const porVinculo = [...this.vinculos.entries()]
+      .filter(([k]) => k.startsWith("VEHICLE|"))
+      .map(([, v]) => v)
+      .filter((id) => !this.vehiculos.has(id));
+    if (patentes.length + vins.length + porVinculo.length === 0) return;
+    const filas = await this.db.$queryRaw<
+      {
+        id: string;
+        make: string;
+        model: string;
+        trim: string | null;
+        year: number;
+        mileage: number | null;
+        condition: string;
+        price_list_usd: string | null;
+        price_list_local: string | null;
+        acquisition_cost_usd: string | null;
+        min_acceptable_price_usd: string | null;
+        status: string;
+        exterior_color: string | null;
+        fuel_type: string | null;
+        transmission: string | null;
+        license_plate: string | null;
+        vin: string | null;
+        patente: string | null;
+        retenida: boolean;
+      }[]
+    >`
+      SELECT v.id, v.make, v.model, v.trim, v.year, v.mileage, v.condition::text AS condition,
+             v.price_list_usd::text, v.price_list_local::text, v.acquisition_cost_usd::text,
+             v.min_acceptable_price_usd::text, v.status::text AS status, v.exterior_color,
+             v.fuel_type::text AS fuel_type, v.transmission::text AS transmission,
+             v.license_plate, v.vin,
+             upper(regexp_replace(v.license_plate, '[^A-Za-z0-9]', '', 'g')) AS patente,
+             EXISTS (
+               SELECT 1 FROM opportunities o
+               WHERE o.organization_id = v.organization_id AND o.vehicle_id = v.id
+                 AND o.deleted_at IS NULL
+                 AND (o.status = 'OPEN' OR (o.status = 'WON' AND NOT EXISTS (
+                   SELECT 1 FROM deliveries d
+                   WHERE d.organization_id = o.organization_id AND d.opportunity_id = o.id
+                     AND d.status = 'DELIVERED')))
+             ) AS retenida
+      FROM vehicles v
+      WHERE v.organization_id = ${this.organizationId}::uuid AND v.deleted_at IS NULL
+        AND (v.id = ANY(${porVinculo}::uuid[])
+             OR upper(regexp_replace(v.license_plate, '[^A-Za-z0-9]', '', 'g')) = ANY(${patentes}::text[])
+             OR upper(v.vin) = ANY(${vins}::text[]))
+    `;
+    const numero = (x: string | null) => (x === null ? null : Number(x));
+    for (const f of filas) {
+      this.vehiculos.set(f.id, {
+        id: f.id,
+        make: f.make,
+        model: f.model,
+        trim: f.trim,
+        year: f.year,
+        mileage: f.mileage,
+        condition: f.condition,
+        priceListUsd: numero(f.price_list_usd),
+        priceListLocal: numero(f.price_list_local),
+        acquisitionCostUsd: numero(f.acquisition_cost_usd),
+        minAcceptablePriceUsd: numero(f.min_acceptable_price_usd),
+        status: f.status,
+        exteriorColor: f.exterior_color,
+        fuelType: f.fuel_type,
+        transmission: f.transmission,
+        licensePlate: f.license_plate,
+        vin: f.vin,
+        retenida: f.retenida,
+      });
+      if (f.patente) this.vehiculoPorPatente.set(f.patente, f.id);
+      if (f.vin) this.vehiculoPorVin.set(f.vin.toUpperCase(), f.id);
+    }
+  }
+
+  vehiculoDe(
+    c: CandidatoDeVehiculo,
+  ): { existente: VehiculoExistente; identificadoPor: "vinculo" | "patente" | "vin" } | null {
+    for (const clave of clavesDeVehiculo(c)) {
+      const id = this.vinculo("VEHICLE", clave);
+      const existente = id ? this.vehiculos.get(id) : undefined;
+      if (existente) return { existente, identificadoPor: "vinculo" };
+    }
+    if (c.licensePlate) {
+      const id = this.vehiculoPorPatente.get(normalizarPatente(c.licensePlate));
+      const existente = id ? this.vehiculos.get(id) : undefined;
+      if (existente) return { existente, identificadoPor: "patente" };
+    }
+    if (c.vin) {
+      const id = this.vehiculoPorVin.get(c.vin.toUpperCase());
+      const existente = id ? this.vehiculos.get(id) : undefined;
+      if (existente) return { existente, identificadoPor: "vin" };
+    }
+    return null;
   }
 
   vehiculo(ref: string): string | null {

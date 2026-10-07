@@ -3,6 +3,11 @@ import {
   DESTINOS_DE_CONTACTO,
   DESTINOS_DE_EMPRESA,
   DESTINOS_DE_HISTORIAL,
+  DESTINOS_DE_STOCK,
+  COMBUSTIBLES,
+  CONDICIONES,
+  ESTADOS_DE_STOCK,
+  TRANSMISIONES,
   LIFECYCLE_STAGES,
   TIPOS_DE_HISTORIAL,
   PREFIJO_CAMPO_PERSONALIZADO,
@@ -24,6 +29,7 @@ export const TIPOS_IMPORTABLES = [
   "COMPANY",
   "CONTACT",
   "ACTIVITY",
+  "VEHICLE",
 ] as const satisfies readonly TipoImportable[];
 
 // Los campos de texto del multipart de POST .../imports. El archivo va aparte
@@ -49,6 +55,7 @@ const MAX_COLUMNAS_MAPEADAS = 200;
 function destinosDe(tipo: TipoImportable): readonly string[] {
   if (tipo === "CONTACT") return DESTINOS_DE_CONTACTO;
   if (tipo === "ACTIVITY") return DESTINOS_DE_HISTORIAL;
+  if (tipo === "VEHICLE") return DESTINOS_DE_STOCK;
   return DESTINOS_DE_EMPRESA;
 }
 
@@ -56,7 +63,26 @@ const NOMBRE_DEL_TIPO: Record<TipoImportable, string> = {
   CONTACT: "contactos",
   COMPANY: "empresas",
   ACTIVITY: "historial",
+  VEHICLE: "stock",
 };
+
+// Lo propio de un lote de stock (§5.4): la sucursal de las unidades nuevas,
+// quién firma los cambios en el historial de la ficha (la sucursal y el
+// usuario los valida el service contra la organización), los valores por
+// defecto y qué es cada valor del origen.
+const valoresDe = <T extends readonly [string, ...string[]]>(permitidos: T) =>
+  z.record(z.string().min(1).max(100), z.enum(permitidos)).default({});
+const stockSchema = z.object({
+  branchId: z.string().uuid("branchId inválido"),
+  responsableId: z.string().uuid("responsableId inválido"),
+  condicionPorDefecto: z.enum(CONDICIONES).default("USED"),
+  monedaPorDefecto: z.enum(["USD", "LOCAL"]).default("USD"),
+  importarVendidas: z.boolean().default(false),
+  estados: valoresDe(ESTADOS_DE_STOCK),
+  condiciones: valoresDe(CONDICIONES),
+  combustibles: valoresDe(COMBUSTIBLES),
+  transmisiones: valoresDe(TRANSMISIONES),
+});
 
 // Lo propio de un lote de historial (§5.3): quién figura como autor
 // (decisión 5; que sea un usuario de la organización lo valida el service),
@@ -98,6 +124,7 @@ export function crearAjustesSchema(tipo: TipoImportable) {
       duplicados: z.enum(["FILL_EMPTY", "OVERWRITE", "SKIP"]).default("FILL_EMPTY"),
       crearEmpresas: z.boolean().default(true),
       historial: tipo === "ACTIVITY" ? historialSchema : historialSchema.optional(),
+      stock: tipo === "VEHICLE" ? stockSchema : stockSchema.optional(),
     })
     .superRefine((ajustes, ctx) => {
       const vistos = new Set<string>();
@@ -152,6 +179,20 @@ export function crearAjustesSchema(tipo: TipoImportable) {
             message: "Mapeá la columna del tipo o elegí un tipo para todo el archivo",
           });
         }
+      } else if (tipo === "VEHICLE") {
+        for (const [destino, nombre] of [
+          ["make", "la marca"],
+          ["model", "el modelo"],
+          ["year", "el año"],
+        ] as const) {
+          if (!vistos.has(destino)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["mapeo"],
+              message: `Falta mapear ${nombre}`,
+            });
+          }
+        }
       } else if (!vistos.has("name")) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -168,7 +209,7 @@ export const decidirFilasSchema = z.object({
   decision: z.enum(["FILL_EMPTY", "OVERWRITE", "SKIP"]).nullable(),
 });
 
-export const TIPOS_DE_PLAN = ["CREATE", "UPDATE", "CONFLICT", "UNCHANGED", "FAIL"] as const;
+export const TIPOS_DE_PLAN = ["CREATE", "UPDATE", "CONFLICT", "UNCHANGED", "SKIP", "FAIL"] as const;
 
 export const listarFilasSchema = z.object({
   tipo: z.enum(TIPOS_DE_PLAN).optional(),

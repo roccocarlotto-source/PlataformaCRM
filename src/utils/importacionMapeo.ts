@@ -8,6 +8,7 @@ import {
   type ValorDeCampo,
 } from "./camposPersonalizados";
 import {
+  interpretarEntero,
   interpretarFecha,
   interpretarNumero,
   interpretarOpcion,
@@ -97,7 +98,57 @@ export const DESTINOS_DE_HISTORIAL = [
 ] as const;
 export type DestinoDeHistorial = (typeof DESTINOS_DE_HISTORIAL)[number];
 
-export type TipoImportable = "COMPANY" | "CONTACT" | "ACTIVITY";
+export const DESTINOS_DE_STOCK = [
+  "externalId",
+  "stockCode",
+  "make",
+  "model",
+  "trim",
+  "year",
+  "mileage",
+  "condition",
+  "price",
+  "currency",
+  "priceUsd",
+  "priceLocal",
+  "cost",
+  "minPrice",
+  "status",
+  "color",
+  "fuelType",
+  "transmission",
+  "licensePlate",
+  "vin",
+] as const;
+export type DestinoDeStock = (typeof DESTINOS_DE_STOCK)[number];
+
+export type TipoImportable = "COMPANY" | "CONTACT" | "ACTIVITY" | "VEHICLE";
+
+// Los estados que aparecen en un archivo de stock (§5.4, decisiones 12 y la
+// del 06/10 sobre reservadas). La importación escribe solo AVAILABLE,
+// IN_PREPARATION, IN_TRANSIT y UNAVAILABLE; RESERVED entra como UNAVAILABLE;
+// SOLD y DELIVERED son "vendidas": se omiten salvo la casilla del lote, y
+// entonces entran como SOLD.
+export const ESTADOS_DE_STOCK = [
+  "AVAILABLE",
+  "IN_PREPARATION",
+  "IN_TRANSIT",
+  "UNAVAILABLE",
+  "RESERVED",
+  "SOLD",
+  "DELIVERED",
+] as const;
+export type EstadoDeStock = (typeof ESTADOS_DE_STOCK)[number];
+export const CONDICIONES = ["NEW", "USED"] as const;
+export const COMBUSTIBLES = [
+  "GASOLINE",
+  "DIESEL",
+  "HYBRID",
+  "ELECTRIC",
+  "CNG",
+  "GASOLINE_CNG",
+] as const;
+export const TRANSMISIONES = ["MANUAL", "AUTOMATIC", "AUTOMATIC_SEQUENTIAL", "CVT"] as const;
 
 // Los tipos de actividad que se importan (decisión del 06/10/2026: notas,
 // llamadas y tareas).
@@ -128,6 +179,26 @@ export interface AjustesDeImportacion {
   crearEmpresas: boolean;
   // Solo en un lote de historial (§5.3).
   historial?: AjustesDeHistorial;
+  // Solo en un lote de stock (§5.4).
+  stock?: AjustesDeStock;
+}
+
+export interface AjustesDeStock {
+  // La sucursal de las unidades nuevas (branchId es NOT NULL).
+  branchId: string;
+  // Quién firma los cambios en el historial de la ficha (VehicleChangeLog
+  // exige un usuario de la organización; el platform admin no es miembro).
+  responsableId: string;
+  // Sin columna de condición, o con la celda vacía.
+  condicionPorDefecto: (typeof CONDICIONES)[number];
+  // La moneda de "precio", "costo" y "precio mínimo" sin columna de moneda.
+  monedaPorDefecto: "USD" | "LOCAL";
+  // Las vendidas en el origen se omiten salvo esta casilla (decisión 12).
+  importarVendidas: boolean;
+  estados: Record<string, EstadoDeStock>;
+  condiciones: Record<string, (typeof CONDICIONES)[number]>;
+  combustibles: Record<string, (typeof COMBUSTIBLES)[number]>;
+  transmisiones: Record<string, (typeof TRANSMISIONES)[number]>;
 }
 
 export interface AjustesDeHistorial {
@@ -591,6 +662,274 @@ export function cuerpoDeActividad(c: CandidatoDeActividad): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Stock de vehículos (§5.4)
+// ---------------------------------------------------------------------------
+
+export type Moneda = "USD" | "LOCAL";
+export interface Monto {
+  monto: number;
+  moneda: Moneda;
+}
+
+export interface CandidatoDeVehiculo {
+  externalId?: string;
+  stockCode?: string;
+  make: string;
+  model: string;
+  trim?: string;
+  year: number;
+  mileage?: number;
+  condition: (typeof CONDICIONES)[number];
+  priceListUsd?: number;
+  priceListLocal?: number;
+  // En la moneda de la fila: la promoción los pasa a USD con la cotización.
+  costo?: Monto;
+  minimo?: Monto;
+  // El estado que se escribe (ya traducido), o undefined si no vino.
+  status?: "AVAILABLE" | "IN_PREPARATION" | "IN_TRANSIT" | "UNAVAILABLE" | "SOLD";
+  vendidaEnOrigen: boolean;
+  exteriorColor?: string;
+  fuelType?: (typeof COMBUSTIBLES)[number];
+  transmission?: (typeof TRANSMISIONES)[number];
+  licensePlate?: string;
+  vin?: string;
+}
+
+// Las monedas que se reconocen en una celda: USD, o la local de la
+// organización (su código, "$" o "pesos").
+const USD = new Set(["usd", "us$", "u$s", "u$d", "dolar", "dolares", "dólar", "dólares"]);
+
+export function interpretarMoneda(
+  valor: ValorDeCelda | undefined,
+  porDefecto: Moneda,
+  codigoLocal: string | null,
+): Interpretado<Moneda> {
+  if (vacia(valor)) return { ok: true, valor: porDefecto };
+  const t = claveDeOpcion(String(valor));
+  if (USD.has(t)) return { ok: true, valor: "USD" };
+  if (
+    t === "$" ||
+    t === "pesos" ||
+    t === "local" ||
+    (codigoLocal && t === codigoLocal.toLowerCase())
+  ) {
+    return { ok: true, valor: "LOCAL" };
+  }
+  return {
+    ok: false,
+    error: `«${String(valor)}» no es USD ni la moneda local${codigoLocal ? ` (${codigoLocal})` : ""}`,
+  };
+}
+
+// Un monto local a dólares con la cotización USD -> local, redondeado al
+// centavo.
+export function aDolares(montoLocal: number, cotizacion: number): number {
+  return Math.round((montoLocal / cotizacion) * 100) / 100;
+}
+
+export function normalizarPatente(patente: string): string {
+  return patente.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+export function traducirFilaDeVehiculo(
+  fila: FilaCruda,
+  ajustes: AjustesDeImportacion,
+  codigoLocal: string | null,
+): Traduccion<CandidatoDeVehiculo> {
+  const a = new Acumulador();
+  const stock = ajustes.stock;
+  if (!stock)
+    return { ok: false, errores: ["El lote no tiene los ajustes del stock"], advertencias: [] };
+  const decimal = ajustes.formato.separadorDecimal;
+
+  const make = a.texto(fila, ajustes, "make", 100);
+  const model = a.texto(fila, ajustes, "model", 100);
+  if (make === undefined) a.errores.push("Falta la marca");
+  if (model === undefined) a.errores.push("Falta el modelo");
+  const year = a.interpretado(
+    interpretarEntero(celda(fila, ajustes, "year") ?? null, decimal),
+    nombreDeColumna(ajustes, "year"),
+  );
+  if (year === undefined) {
+    if (!a.errores.some((e) => e.includes(nombreDeColumna(ajustes, "year"))))
+      a.errores.push("Falta el año");
+  } else if (year < 1900 || year > 2100) {
+    a.errores.push(`El año ${String(year)} no es válido`);
+  }
+  const mileage = a.interpretado(
+    interpretarEntero(celda(fila, ajustes, "mileage") ?? null, decimal),
+    nombreDeColumna(ajustes, "mileage"),
+  );
+  const condition =
+    a.interpretado(
+      mapearValor(celda(fila, ajustes, "condition") ?? null, stock.condiciones, CONDICIONES),
+      nombreDeColumna(ajustes, "condition"),
+    ) ?? stock.condicionPorDefecto;
+
+  const moneda =
+    a.interpretado(
+      interpretarMoneda(celda(fila, ajustes, "currency"), stock.monedaPorDefecto, codigoLocal),
+      nombreDeColumna(ajustes, "currency"),
+    ) ?? stock.monedaPorDefecto;
+  const monto = (destino: string) =>
+    a.interpretado(
+      interpretarNumero(celda(fila, ajustes, destino) ?? null, decimal),
+      nombreDeColumna(ajustes, destino),
+    );
+  const precio = monto("price");
+  let priceListUsd = monto("priceUsd");
+  let priceListLocal = monto("priceLocal");
+  if (precio !== undefined) {
+    if (moneda === "USD") priceListUsd ??= precio;
+    else priceListLocal ??= precio;
+  }
+  const costo = monto("cost");
+  const minimo = monto("minPrice");
+  for (const [nombre, v] of [
+    ["precio", precio],
+    ["costo", costo],
+    ["precio mínimo", minimo],
+  ] as const) {
+    if (v !== undefined && v < 0) a.errores.push(`El ${nombre} no puede ser negativo`);
+  }
+
+  // Estado.
+  const crudo = a.interpretado(
+    mapearValor(celda(fila, ajustes, "status") ?? null, stock.estados, ESTADOS_DE_STOCK),
+    nombreDeColumna(ajustes, "status"),
+  );
+  let status: CandidatoDeVehiculo["status"];
+  let vendidaEnOrigen = false;
+  if (crudo === "SOLD" || crudo === "DELIVERED") {
+    vendidaEnOrigen = true;
+    status = "SOLD";
+  } else if (crudo === "RESERVED") {
+    status = "UNAVAILABLE";
+    a.advertencias.push(
+      "Reservada en el origen: entra como «No disponible» hasta que se reserve en el CRM",
+    );
+  } else {
+    status = crudo;
+  }
+
+  const licensePlate = a.texto(fila, ajustes, "licensePlate", 20);
+  const vin = a.texto(fila, ajustes, "vin", 30);
+
+  const candidato: CandidatoDeVehiculo = {
+    externalId: a.texto(fila, ajustes, "externalId", LARGO.externalId),
+    stockCode: a.texto(fila, ajustes, "stockCode", LARGO.externalId),
+    make: make ?? "",
+    model: model ?? "",
+    trim: a.texto(fila, ajustes, "trim", 100),
+    year: year ?? 0,
+    mileage,
+    condition,
+    priceListUsd,
+    priceListLocal,
+    costo: costo === undefined ? undefined : { monto: costo, moneda },
+    minimo: minimo === undefined ? undefined : { monto: minimo, moneda },
+    status,
+    vendidaEnOrigen,
+    exteriorColor: a.texto(fila, ajustes, "color", 50),
+    fuelType: a.interpretado(
+      mapearValor(celda(fila, ajustes, "fuelType") ?? null, stock.combustibles, COMBUSTIBLES),
+      nombreDeColumna(ajustes, "fuelType"),
+    ),
+    transmission: a.interpretado(
+      mapearValor(celda(fila, ajustes, "transmission") ?? null, stock.transmisiones, TRANSMISIONES),
+      nombreDeColumna(ajustes, "transmission"),
+    ),
+    licensePlate: licensePlate?.toUpperCase(),
+    vin: vin?.toUpperCase(),
+  };
+  if (a.errores.length > 0) return { ok: false, errores: a.errores, advertencias: a.advertencias };
+  return { ok: true, candidato, advertencias: a.advertencias };
+}
+
+// Las claves de un vehículo (§3.2): el id del origen, el código de stock del
+// origen, la patente, el VIN. Los vínculos de "codigo:" son los que busca el
+// vehículo de interés de un contacto (importacionResolutor.ts).
+export function clavesDeVehiculo(c: CandidatoDeVehiculo): string[] {
+  const claves: string[] = [];
+  if (c.externalId !== undefined) claves.push(claveDeId(c.externalId));
+  if (c.stockCode !== undefined) claves.push(`codigo:${c.stockCode}`);
+  if (c.licensePlate !== undefined) claves.push(`patente:${normalizarPatente(c.licensePlate)}`);
+  if (c.vin !== undefined) claves.push(`vin:${c.vin.toUpperCase()}`);
+  return claves;
+}
+
+// Lo que el plan necesita de la unidad existente. Los montos, en número.
+export interface VehiculoExistente {
+  id: string;
+  make: string;
+  model: string;
+  trim: string | null;
+  year: number;
+  mileage: number | null;
+  condition: string;
+  priceListUsd: number | null;
+  priceListLocal: number | null;
+  acquisitionCostUsd: number | null;
+  minAcceptablePriceUsd: number | null;
+  status: string;
+  exteriorColor: string | null;
+  fuelType: string | null;
+  transmission: string | null;
+  licensePlate: string | null;
+  vin: string | null;
+  // Una oportunidad la retiene (reservada o vendida por el CRM).
+  retenida: boolean;
+}
+
+export const MOTIVO_ESTADO_DEL_CRM =
+  "el estado lo maneja el CRM (reservada, vendida o retenida por una oportunidad): no se pisa";
+
+// Montos ya en USD (los convierte quien llama, con la cotización).
+export function planearVehiculo(
+  c: CandidatoDeVehiculo,
+  existente: VehiculoExistente,
+  montosUsd: { costo?: number; minimo?: number },
+  identificadoPor: "vinculo" | "patente" | "vin",
+): CambioPlaneado[] {
+  const estadoDelCrm =
+    existente.retenida || ["RESERVED", "SOLD", "DELIVERED"].includes(existente.status);
+  const cambios: (CambioPlaneado | null)[] = [
+    comparar("make", existente.make, c.make),
+    comparar("model", existente.model, c.model),
+    comparar("trim", existente.trim, c.trim),
+    comparar("year", existente.year, c.year),
+    comparar("mileage", existente.mileage, c.mileage),
+    comparar("condition", existente.condition, c.condition),
+    comparar("priceListUsd", existente.priceListUsd, c.priceListUsd),
+    comparar("priceListLocal", existente.priceListLocal, c.priceListLocal),
+    comparar("acquisitionCostUsd", existente.acquisitionCostUsd, montosUsd.costo),
+    comparar("minAcceptablePriceUsd", existente.minAcceptablePriceUsd, montosUsd.minimo),
+    comparar(
+      "status",
+      existente.status,
+      c.status,
+      estadoDelCrm ? { bloqueado: MOTIVO_ESTADO_DEL_CRM } : {},
+    ),
+    comparar("exteriorColor", existente.exteriorColor, c.exteriorColor),
+    comparar("fuelType", existente.fuelType, c.fuelType),
+    comparar("transmission", existente.transmission, c.transmission),
+    comparar("licensePlate", existente.licensePlate, c.licensePlate, {
+      igual: (x, y) => normalizarPatente(String(x)) === normalizarPatente(String(y)),
+      ...(identificadoPor === "patente"
+        ? { bloqueado: "la patente identifica a la unidad: no se pisa" }
+        : {}),
+    }),
+    comparar("vin", existente.vin, c.vin, {
+      igual: (x, y) => String(x).toUpperCase() === String(y).toUpperCase(),
+      ...(identificadoPor === "vin"
+        ? { bloqueado: "el VIN identifica a la unidad: no se pisa" }
+        : {}),
+    }),
+  ];
+  return cambios.filter((x): x is CambioPlaneado => x !== null);
+}
+
+// ---------------------------------------------------------------------------
 // EL PLAN, campo por campo (§8.2)
 //
 //   completar          el CRM no tiene valor: se escribe (con FILL_EMPTY y con
@@ -617,7 +956,9 @@ export interface CambioPlaneado {
   motivo?: string;
 }
 
-export type TipoDePlan = "CREATE" | "UPDATE" | "CONFLICT" | "UNCHANGED" | "FAIL";
+// SKIP: la fila no se importa a propósito (una unidad vendida en el origen,
+// sin la casilla de importar vendidas), no por un error.
+export type TipoDePlan = "CREATE" | "UPDATE" | "CONFLICT" | "UNCHANGED" | "SKIP" | "FAIL";
 
 export function tipoDePlan(cambios: readonly CambioPlaneado[]): TipoDePlan {
   if (cambios.some((c) => c.accion === "difiere" || c.accion === "difiere_bloqueado")) {
@@ -840,6 +1181,28 @@ const SINONIMOS: Record<TipoImportable, Record<string, readonly string[]>> = {
     vehicleRef: ["vehiculo de interes", "vehiculo", "auto de interes", "patente de interes"],
     companyName: ["empresa", "compania", "razon social", "company"],
     customerSince: ["cliente desde", "fecha de alta", "alta", "fecha alta", "created"],
+  },
+  VEHICLE: {
+    externalId: ["id", "id unidad", "id vehiculo"],
+    stockCode: ["codigo", "codigo de stock", "cod", "stock", "nro de stock", "numero de stock"],
+    make: ["marca", "make"],
+    model: ["modelo", "model"],
+    trim: ["version", "versión", "trim"],
+    year: ["ano", "año", "modelo ano", "year"],
+    mileage: ["km", "kms", "kilometros", "kilometraje", "mileage"],
+    condition: ["condicion", "estado del vehiculo", "nuevo/usado", "0km", "condition"],
+    price: ["precio", "precio de lista", "precio venta", "price"],
+    currency: ["moneda", "currency"],
+    priceUsd: ["precio usd", "precio u$s", "precio dolares", "usd"],
+    priceLocal: ["precio pesos", "precio local", "precio $"],
+    cost: ["costo", "costo de compra", "cost"],
+    minPrice: ["precio minimo", "minimo", "piso"],
+    status: ["estado", "situacion", "status"],
+    color: ["color"],
+    fuelType: ["combustible", "fuel"],
+    transmission: ["transmision", "caja", "transmission"],
+    licensePlate: ["patente", "matricula", "placa", "dominio", "plate"],
+    vin: ["vin", "chasis", "numero de chasis", "nro de chasis"],
   },
   ACTIVITY: {
     externalId: ["id", "id actividad", "id nota", "codigo"],

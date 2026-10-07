@@ -65,8 +65,8 @@ export function PasoArchivo({
           onChange={setTipo}
         />
         <p className="ds-hint">
-          Primero las empresas, después los contactos y por último el historial: así cada uno
-          encuentra a lo que se refiere.
+          Primero las empresas y el stock, después los contactos y por último el historial: así cada
+          uno encuentra a lo que se refiere.
         </p>
         <Select
           label="Sistema de origen"

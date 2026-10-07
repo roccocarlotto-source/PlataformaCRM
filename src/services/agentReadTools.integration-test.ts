@@ -349,7 +349,10 @@ const CAMPOS_PUBLICOS = [
 async function unidad(
   e: Escenario,
   datos: Parameters<typeof borrador>[1],
-  estado: { publishOnWebsite?: boolean; status?: "AVAILABLE" | "RESERVED" | "SOLD" } = {},
+  estado: {
+    publishOnWebsite?: boolean;
+    status?: "AVAILABLE" | "RESERVED" | "SOLD" | "UNAVAILABLE";
+  } = {},
 ) {
   const v = await borrador(e, datos);
   return prisma.vehicle.update({
@@ -497,6 +500,19 @@ test("search_vehicles: una unidad AVAILABLE pero con publishOnWebsite false no a
   );
   assert.equal(data.total, 0);
   assert.deepEqual(data.vehiculos, []);
+});
+
+// "No disponible" (UNAVAILABLE, migración 20261026120000): sigue en el stock
+// pero el agente no la ofrece, aunque esté publicada (docs/importacion-de-
+// datos.md §5.4). La busca por su precio exacto y no aparece.
+test("search_vehicles: una unidad publicada pero «No disponible» no aparece nunca", async () => {
+  await unidad(stock, { make: "Toyota", priceListUsd: 14_321 }, { status: "UNAVAILABLE" });
+  const data = await datosDe<ResultadoBusqueda>(
+    "search_vehicles",
+    { priceMinUsd: 14_000, priceMaxUsd: 14_500 },
+    contextoDe(stock.organizationId, "00000000-0000-4000-8000-000000000003", stock.branchId),
+  );
+  assert.equal(data.total, 0);
 });
 
 test("search_vehicles: los campos internos nunca están en la respuesta", async () => {
