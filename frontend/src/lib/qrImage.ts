@@ -5,6 +5,7 @@
 // para que la codificación y la mecánica de descarga se prueben por separado.
 // ---------------------------------------------------------------------------
 import QRCode from "qrcode";
+import { guardarArchivo } from "./guardarArchivo";
 
 export async function generateQrSvg(url: string): Promise<string> {
   return await QRCode.toString(url, { type: "svg" });
@@ -73,11 +74,5 @@ export function composeQrImage(qrSvg: string, message?: string | null): string {
 // Dispara la descarga del SVG como archivo — sin ida al servidor, el string
 // ya tiene todo lo que necesita.
 export function downloadSvg(svg: string, filename: string): void {
-  const blob = new Blob([svg], { type: "image/svg+xml" });
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(objectUrl);
+  guardarArchivo(new Blob([svg], { type: "image/svg+xml" }), filename);
 }
