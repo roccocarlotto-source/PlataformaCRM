@@ -39,6 +39,7 @@ function vehiculo(overrides: Partial<Vehicle> = {}): Vehicle {
     minAcceptablePriceUsd: null,
     acquisitionCostUsd: null,
     status: "AVAILABLE",
+    statusBeforeHold: null,
     visibleInListing: true,
     origin: null,
     stockEnteredAt: null,

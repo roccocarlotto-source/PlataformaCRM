@@ -3465,6 +3465,14 @@ model Vehicle {
   // que se diga otra cosa, y el listado filtra por esto en todos los
   // estados, incluido el borrador.
   status                VehicleStatus              @default(AVAILABLE)
+  // El estado que tenía la unidad cuando una oportunidad la retuvo (la reservó
+  // o la vendió), para devolvérselo al liberarla: una «No disponible» vuelve a
+  // «No disponible», no a «Disponible» (decisión del 07/10/2026, migración
+  // 20261027120000). null = no la retiene nadie, o la retuvo antes de esta
+  // columna (y entonces venía de AVAILABLE, que es lo único que se podía
+  // vincular). Lo escriben solo setVehicleStatusForOpportunityLink y
+  // liberarVehiculoDeOportunidad (vehicle.service.ts).
+  statusBeforeHold      VehicleStatus?             @map("status_before_hold")
   // Visible en el LISTADO INTERNO del CRM. Distinto de publishOnWebsite (que
   // es hacia afuera) y de status: sirve para sacar de la vista diaria una
   // unidad que sigue en stock (en el taller, prestada) sin cambiarle el

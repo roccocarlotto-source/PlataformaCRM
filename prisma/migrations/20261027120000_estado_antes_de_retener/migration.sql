@@ -1,0 +1,22 @@
+-- ---------------------------------------------------------------------------
+-- vehicles.status_before_hold (07/10/2026): el estado que tenía una unidad
+-- cuando una oportunidad la retuvo (la reservó o la vendió), para devolvérselo
+-- al liberarla.
+--
+-- Hasta acá solo se vinculaba una unidad AVAILABLE, así que liberarla era
+-- volver a AVAILABLE. Desde ahora también se vincula una UNAVAILABLE ("No
+-- disponible", migración 20261026120000) —pasa directo a reservada sin quedar
+-- ofrecible en el medio— y al liberarla tiene que volver a UNAVAILABLE, no a
+-- AVAILABLE: si no, una reserva que se cae dejaría al agente ofreciendo una
+-- unidad que nadie puso a la venta.
+--
+-- Nullable y sin backfill: una unidad retenida hoy vino de AVAILABLE (lo único
+-- vinculable), y null se libera a AVAILABLE, que es lo mismo. Sin default: un
+-- ADD COLUMN así no reescribe la tabla.
+--
+-- Escrita a mano, mismo motivo que el resto desde 20260821 (la shadow
+-- database no tiene el schema auth). La valida el job `integration` del CI.
+-- ---------------------------------------------------------------------------
+
+-- AlterTable
+ALTER TABLE "vehicles" ADD COLUMN "status_before_hold" "VehicleStatus";

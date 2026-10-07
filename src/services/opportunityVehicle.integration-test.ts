@@ -447,3 +447,59 @@ test("C-13: sin carrera, reemplazar la unidad sigue funcionando (la relectura co
   assert.equal(await estadoDe(x.id), "AVAILABLE");
   assert.equal(await estadoDe(y.id), "RESERVED");
 });
+
+// ---------------------------------------------------------------------------
+// «No disponible» se vincula y vuelve a «No disponible» al liberarse
+// (decisión del 07/10/2026, migración 20261027120000): pasa directo a
+// reservada sin quedar ofrecible por el agente en el medio, y si la reserva se
+// cae no queda ofrecible tampoco.
+// ---------------------------------------------------------------------------
+
+async function noDisponible() {
+  const v = await borrador(e);
+  await prisma.vehicle.update({ where: { id: v.id }, data: { status: "UNAVAILABLE" } });
+  return v;
+}
+
+test("No disponible: se vincula directo (queda RESERVED) y al perder la oportunidad vuelve a No disponible", async () => {
+  const v = await noDisponible();
+  const opp = await oportunidad({ vehicleId: v.id });
+  assert.equal(await estadoDe(v.id), "RESERVED");
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { status: "LOST" });
+  assert.equal(await estadoDe(v.id), "UNAVAILABLE");
+  const fila = await prisma.vehicle.findUniqueOrThrow({ where: { id: v.id } });
+  assert.equal(fila.statusBeforeHold, null, "liberada, se olvida de dónde venía");
+});
+
+test("No disponible: ganada y después perdida, o la oportunidad borrada, o cambiada de unidad: vuelve a No disponible", async () => {
+  const ganada = await noDisponible();
+  const opp = await oportunidad({ vehicleId: ganada.id });
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { status: "WON" });
+  assert.equal(await estadoDe(ganada.id), "SOLD");
+  await prisma.delivery.deleteMany({ where: { opportunityId: opp.id } });
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { status: "LOST" });
+  assert.equal(await estadoDe(ganada.id), "UNAVAILABLE");
+
+  const borrada = await noDisponible();
+  const oppBorrada = await oportunidad({ vehicleId: borrada.id });
+  await deleteOpportunity(e.organizationId, e.userId, oppBorrada.id);
+  assert.equal(await estadoDe(borrada.id), "UNAVAILABLE");
+
+  const anterior = await noDisponible();
+  const nueva = await borrador(e);
+  const oppCambiada = await oportunidad({ vehicleId: anterior.id });
+  await updateOpportunity(e.organizationId, e.userId, oppCambiada.id, { vehicleId: nueva.id });
+  assert.equal(await estadoDe(anterior.id), "UNAVAILABLE");
+  assert.equal(await estadoDe(nueva.id), "RESERVED");
+});
+
+test("Disponible sigue como siempre: perdida vuelve a Disponible; y vincular a una oportunidad ya perdida no cambia el estado de la unidad", async () => {
+  const disponible = await borrador(e);
+  const opp = await oportunidad({ vehicleId: disponible.id });
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { status: "LOST" });
+  assert.equal(await estadoDe(disponible.id), "AVAILABLE");
+
+  const v = await noDisponible();
+  await oportunidad({ vehicleId: v.id, status: "LOST", lostReason: "Sin interés" });
+  assert.equal(await estadoDe(v.id), "UNAVAILABLE");
+});
