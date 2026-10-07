@@ -1278,6 +1278,11 @@ model Activity {
   body           String?
   dueDate        DateTime?    @map("due_date")
   completedAt    DateTime?    @map("completed_at")
+  // Cuándo PASÓ (la nota, la llamada, la tarea): la línea de tiempo se ordena
+  // por esto. createdAt es cuándo se cargó en ESTE CRM. Iguales en la carga
+  // manual (default now()); distintos en el historial importado, que trae su
+  // fecha original (migración 20261026120000, docs/importacion-de-datos.md §5.3).
+  occurredAt     DateTime     @default(now()) @map("occurred_at")
   // Confirmación del ADMIN sobre una tarea que el asignado marcó como hecha
   // (docs/frontend-cambios-pendientes.md §29). Tres estados derivados de dos
   // columnas: pendiente (completedAt null) → pendiente de confirmar
@@ -1317,6 +1322,8 @@ model Activity {
   // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
   // No parcial a propósito: ver la migración 20260828120000.
   @@index([organizationId, deletedAt, createdAt])
+  // La línea de tiempo, ordenada por cuándo pasó.
+  @@index([organizationId, deletedAt, occurredAt])
   @@map("activities")
 }
 

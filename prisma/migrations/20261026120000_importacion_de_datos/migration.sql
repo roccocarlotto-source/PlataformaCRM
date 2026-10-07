@@ -21,6 +21,13 @@
 --   ingestion_events  row_number, plan, decision, outcome,
 --                     promoted_entity_type, promoted_entity_id, changes (§2.4)
 --   contacts          customer_since ("Cliente desde"), imported_at (§2.5)
+--   activities        occurred_at: cuándo pasó (P1 de §13). La línea de tiempo
+--                     se ordena por esta columna; created_at queda como la
+--                     fecha de carga. Esta SÍ es NOT NULL con default: se
+--                     agrega nullable, se completa con created_at (en lo que
+--                     ya existe, cuándo pasó = cuándo se cargó), y recién
+--                     después se fija el default y el NOT NULL. El UPDATE
+--                     recorre la tabla una vez.
 --
 -- Valores de enum nuevos:
 --   IngestionStatus.STAGED     fila del asistente sin confirmar; el worker no
@@ -87,6 +94,13 @@ ADD COLUMN     "plan" JSONB,
 ADD COLUMN     "promoted_entity_id" UUID,
 ADD COLUMN     "promoted_entity_type" "ImportEntityType",
 ADD COLUMN     "row_number" INTEGER;
+
+-- AlterTable: activities.occurred_at, en tres pasos (ver la cabecera)
+ALTER TABLE "activities" ADD COLUMN "occurred_at" TIMESTAMP(3);
+UPDATE "activities" SET "occurred_at" = "created_at" WHERE "occurred_at" IS NULL;
+ALTER TABLE "activities" ALTER COLUMN "occurred_at" SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "activities" ALTER COLUMN "occurred_at" SET NOT NULL;
+CREATE INDEX "activities_organization_id_deleted_at_occurred_at_idx" ON "activities"("organization_id", "deleted_at", "occurred_at");
 
 -- CreateTable
 CREATE TABLE "import_batches" (
