@@ -14,10 +14,14 @@ import {
   clavesDeEmpresa,
   planearContacto,
   planearEmpresa,
+  claveDeActividad,
+  cuerpoDeActividad,
+  traducirFilaDeActividad,
   traducirFilaDeContacto,
   traducirFilaDeEmpresa,
   type AjustesDeImportacion,
   type CambioPlaneado,
+  type CandidatoDeActividad,
   type CandidatoDeContacto,
   type CandidatoDeEmpresa,
   type ContactoExistente,
@@ -443,6 +447,120 @@ async function escribirEmpresa(
 }
 
 // ---------------------------------------------------------------------------
+// Historial (§5.3, decisiones 5, 7, 23 y 25)
+// ---------------------------------------------------------------------------
+
+// Un día del calendario como instante: el mediodía UTC cae en el mismo día en
+// toda América y en Europa, así la fecha no se corre al mostrarla.
+export function mediodiaUtc(dia: string): Date {
+  return new Date(`${dia}T12:00:00.000Z`);
+}
+
+async function escribirActividad(
+  evento: EventoReclamado,
+  loteId: string,
+  c: CandidatoDeActividad,
+  contactoId: string,
+  ajustes: AjustesDeImportacion,
+  politica: Politica,
+  resolutor: ResolutorDeImportacion,
+  notas: PromotionNote[],
+  db: Db,
+): Promise<ResultadoDeEscritura> {
+  const historial = ajustes.historial as NonNullable<AjustesDeImportacion["historial"]>;
+  const clave = claveDeActividad(c);
+  const body = cuerpoDeActividad(c);
+  const existente = resolutor.actividadDe(c);
+  if (existente) {
+    // Lo ya importado no se toca, salvo que se pida pisar: entonces el asunto
+    // y el texto se actualizan con lo del archivo.
+    if (politica !== "OVERWRITE") {
+      return {
+        entityId: existente,
+        contactId: contactoId,
+        outcome: politica === "SKIP" ? "SKIPPED" : "UNCHANGED",
+        changes: [],
+        notas,
+      };
+    }
+    const antes = await db.activity.findUniqueOrThrow({
+      where: { id: existente },
+      select: { subject: true, body: true },
+    });
+    const changes = [
+      ...(antes.subject !== c.subject
+        ? [{ campo: "subject", antes: antes.subject, despues: c.subject }]
+        : []),
+      ...(antes.body !== body ? [{ campo: "body", antes: antes.body, despues: body }] : []),
+    ];
+    if (changes.length === 0) {
+      return {
+        entityId: existente,
+        contactId: contactoId,
+        outcome: "UNCHANGED",
+        changes: [],
+        notas,
+      };
+    }
+    await db.activity.update({ where: { id: existente }, data: { subject: c.subject, body } });
+    return { entityId: existente, contactId: contactoId, outcome: "UPDATED", changes, notas };
+  }
+
+  const occurredAt = c.occurredAt ? mediodiaUtc(c.occurredAt) : new Date();
+  let assigneeId: string | null = null;
+  let dueDate: Date | null = null;
+  let completedAt: Date | null = null;
+  if (c.type === "TASK") {
+    dueDate = c.dueDate ? mediodiaUtc(c.dueDate) : c.occurredAt ? occurredAt : null;
+    // Hecha: completada con su fecha original Y confirmada (decisiones 7 y
+    // 25). Sin hacer: abierta, y vencida si la fecha ya pasó, asignada al
+    // responsable del archivo o al autor elegido.
+    if (c.done) completedAt = dueDate ?? occurredAt;
+    if (c.assigneeEmail !== undefined) {
+      assigneeId = resolutor.usuario(c.assigneeEmail);
+      if (assigneeId === null) {
+        notas.push({
+          tipo: "ignorado",
+          campo: "assigneeEmail",
+          entrante: c.assigneeEmail,
+          motivo: "no es un usuario activo de la organización: la tarea quedó asignada al autor",
+        });
+      }
+    }
+    assigneeId ??= historial.autorId;
+  }
+  const creada = await db.activity.create({
+    data: {
+      organizationId: evento.organizationId,
+      type: c.type,
+      authorId: historial.autorId,
+      assigneeId,
+      contactId: contactoId,
+      subject: c.subject.slice(0, 255),
+      body,
+      occurredAt,
+      dueDate,
+      completedAt,
+      confirmedAt: completedAt,
+      confirmedById: completedAt ? historial.autorId : null,
+    },
+    select: { id: true },
+  });
+  await guardarVinculo(
+    {
+      organizationId: evento.organizationId,
+      sourceId: evento.sourceId,
+      entityType: "ACTIVITY",
+      externalKey: clave,
+      entityId: creada.id,
+      createdByBatchId: loteId,
+    },
+    db,
+  );
+  return { entityId: creada.id, contactId: contactoId, outcome: "CREATED", changes: [], notas };
+}
+
+// ---------------------------------------------------------------------------
 
 export function ajustesDelLote(config: unknown): AjustesDeImportacion | null {
   const ajustes = (config as { ajustes?: AjustesDeImportacion | null } | null)?.ajustes;
@@ -464,7 +582,7 @@ export async function promoverFilaDelAsistente(
     // READY sale de analizar con ajustes). Si no los tiene, es un bug.
     throw new Error(`promoverFilaDelAsistente: el lote ${lote.id} no tiene ajustes`);
   }
-  if (lote.entityType !== "CONTACT" && lote.entityType !== "COMPANY") {
+  if (lote.entityType === "VEHICLE") {
     return fallar(
       evento,
       `Este tipo de dato (${lote.entityType}) todavía no se puede importar`,
@@ -491,6 +609,29 @@ export async function promoverFilaDelAsistente(
       evento,
       lote.id,
       traducida.candidato,
+      ajustes,
+      politica,
+      resolutor,
+      notas,
+      db,
+    );
+  } else if (lote.entityType === "ACTIVITY") {
+    const traducida = traducirFilaDeActividad(fila, ajustes, evento.codigoDePais);
+    if (!traducida.ok) return fallar(evento, traducida.errores.join("; "), db);
+    await resolutor.precargarActividades([traducida.candidato]);
+    const contactoId = resolutor.contactoDeActividad(traducida.candidato);
+    if (!contactoId) {
+      return fallar(
+        evento,
+        "No se encontró el contacto: importá los contactos antes que el historial",
+        db,
+      );
+    }
+    resultado = await escribirActividad(
+      evento,
+      lote.id,
+      traducida.candidato,
+      contactoId,
       ajustes,
       politica,
       resolutor,

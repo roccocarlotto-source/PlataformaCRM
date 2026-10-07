@@ -364,6 +364,84 @@ describe("ImportarDatosPage", () => {
     expect(screen.queryByRole("button", { name: "Deshacer lo creado" })).not.toBeInTheDocument();
   });
 
+  it("historial: el autor por defecto es el ADMIN más antiguo, y los valores de tipo se asignan; el PUT lleva historial", async () => {
+    const historial = (): Lote => ({
+      ...lote(),
+      entityType: "ACTIVITY",
+      config: {
+        archivo: {
+          nombre: "historial.csv",
+          encabezados: ["ID Cliente", "Tipo", "Texto"],
+          lectura: { separador: ";", codificacion: "utf-8" },
+        },
+        ajustes: null,
+      },
+    });
+    server.use(
+      http.get(`${base}/options`, () =>
+        HttpResponse.json({
+          usuarios: [
+            {
+              id: "u-vend",
+              email: "vende@example.com",
+              fullName: "Vendedora Antigua",
+              rol: "USER",
+            },
+            { id: "u-admin", email: "admin@example.com", fullName: "Admin Antiguo", rol: "ADMIN" },
+            { id: "u-admin2", email: "admin2@example.com", fullName: "Admin Nuevo", rol: "ADMIN" },
+          ],
+          fuentes: [],
+          camposPersonalizados: [],
+        }),
+      ),
+      http.get(`${base}/${LOTE}`, () =>
+        HttpResponse.json({
+          lote: historial(),
+          resumen: { total: 2, porEstado: {}, porPlan: {}, porResultado: {} },
+        }),
+      ),
+      http.get(`${base}/${LOTE}/rows`, () =>
+        HttpResponse.json({
+          data: [
+            {
+              ...FILAS[0],
+              rawPayload: { "ID Cliente": "C-1", Tipo: "Llamada", Texto: "No atendió" },
+            },
+          ],
+          total: 1,
+          page: 1,
+          pageSize: 50,
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}&batchId=${LOTE}`);
+    const autor = await screen.findByRole("combobox", { name: "Autor de las actividades" });
+    expect(autor).toHaveValue("Admin Antiguo");
+    await chooseSelectOption(
+      user,
+      screen.getByRole("combobox", { name: "ID Cliente" }),
+      "Id del contacto en el origen",
+    );
+    await chooseSelectOption(
+      user,
+      screen.getByRole("combobox", { name: "Tipo" }),
+      "Tipo (nota, llamada o tarea)",
+    );
+    await chooseSelectOption(user, screen.getByRole("combobox", { name: "Texto" }), "Texto");
+    await chooseSelectOption(
+      user,
+      await screen.findByRole("combobox", { name: "Llamada" }),
+      "Llamada",
+    );
+    await user.click(screen.getByRole("button", { name: "Ver la vista previa" }));
+    await waitFor(() => expect(configs).toHaveLength(1));
+    expect(configs[0]).toMatchObject({
+      mapeo: { "ID Cliente": "contactExternalId", Tipo: "type", Texto: "body" },
+      historial: { autorId: "u-admin", tipos: { Llamada: "CALL" } },
+    });
+  });
+
   it("«No crear empresas» vuelve a mandar los ajustes con crearEmpresas: false", async () => {
     estado = "READY";
     const user = userEvent.setup();

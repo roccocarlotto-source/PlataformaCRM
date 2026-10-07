@@ -3,9 +3,12 @@ import type { Db } from "../lib/prisma";
 import { soloDigitos } from "../lib/telefono";
 import { buscarVinculos } from "../repositories/importacion.repository";
 import {
+  claveDeActividad,
+  claveDeId,
   claveDeNombreDeEmpresa,
   clavesDeContacto,
   clavesDeEmpresa,
+  type CandidatoDeActividad,
   type CandidatoDeContacto,
   type CandidatoDeEmpresa,
   type ContactoExistente,
@@ -93,6 +96,7 @@ export class ResolutorDeImportacion {
   private readonly usuarioPorEmail = new Map<string, string>();
   private readonly vehiculoPorRef = new Map<string, string>();
   private empresasDeLaOrganizacionCargadas = false;
+  private readonly actividadesVivas = new Set<string>();
 
   constructor(
     private readonly organizationId: string,
@@ -134,34 +138,8 @@ export class ResolutorDeImportacion {
     const claves = [...new Set(candidatos.flatMap(clavesDeContacto))];
     await this.precargarVinculos("CONTACT", claves);
 
-    const emails = [
-      ...new Set(candidatos.flatMap((c) => (c.email ? [c.email.toLowerCase()] : []))),
-    ];
-    if (emails.length > 0) {
-      const filas = await this.db.$queryRaw<{ id: string; email: string }[]>`
-        SELECT id, lower(email) AS email FROM contacts
-        WHERE organization_id = ${this.organizationId}::uuid AND deleted_at IS NULL
-          AND lower(email) = ANY(${emails}::text[])
-      `;
-      for (const f of filas) this.contactoPorEmail.set(f.email, f.id);
-    }
-
-    const digitos = [
-      ...new Set(candidatos.flatMap((c) => (c.phone ? [soloDigitos(c.phone)] : []))),
-    ];
-    if (digitos.length > 0) {
-      // Si quedan teléfonos repetidos de antes de F5, el creado primero.
-      const filas = await this.db.$queryRaw<{ id: string; digitos: string }[]>`
-        SELECT DISTINCT ON (digitos) id, digitos FROM (
-          SELECT id, created_at, regexp_replace(phone, '[^0-9]', '', 'g') AS digitos FROM contacts
-          WHERE organization_id = ${this.organizationId}::uuid AND deleted_at IS NULL
-            AND phone IS NOT NULL
-        ) t
-        WHERE digitos = ANY(${digitos}::text[])
-        ORDER BY digitos, created_at, id
-      `;
-      for (const f of filas) this.contactoPorTelefono.set(f.digitos, f.id);
-    }
+    await this.precargarEmails(candidatos.flatMap((c) => (c.email ? [c.email] : [])));
+    await this.precargarTelefonos(candidatos.flatMap((c) => (c.phone ? [c.phone] : [])));
 
     const ids = new Set<string>([
       ...[...this.vinculos.entries()].filter(([k]) => k.startsWith("CONTACT|")).map(([, v]) => v),
@@ -176,6 +154,112 @@ export class ResolutorDeImportacion {
       candidatos.flatMap((c) => (c.companyName ? [c.companyName] : [])),
     );
     await this.precargarVehiculos(candidatos.flatMap((c) => (c.vehicleRef ? [c.vehicleRef] : [])));
+  }
+
+  private async precargarEmails(lista: string[]): Promise<void> {
+    const emails = [...new Set(lista.map((e) => e.toLowerCase()))].filter(
+      (e) => !this.contactoPorEmail.has(e),
+    );
+    if (emails.length > 0) {
+      const filas = await this.db.$queryRaw<{ id: string; email: string }[]>`
+        SELECT id, lower(email) AS email FROM contacts
+        WHERE organization_id = ${this.organizationId}::uuid AND deleted_at IS NULL
+          AND lower(email) = ANY(${emails}::text[])
+      `;
+      for (const f of filas) this.contactoPorEmail.set(f.email, f.id);
+    }
+  }
+
+  private async precargarTelefonos(lista: string[]): Promise<void> {
+    const digitos = [...new Set(lista.map(soloDigitos))].filter(
+      (d) => !this.contactoPorTelefono.has(d),
+    );
+    if (digitos.length > 0) {
+      // Si quedan teléfonos repetidos de antes de F5, el creado primero.
+      const filas = await this.db.$queryRaw<{ id: string; digitos: string }[]>`
+        SELECT DISTINCT ON (digitos) id, digitos FROM (
+          SELECT id, created_at, regexp_replace(phone, '[^0-9]', '', 'g') AS digitos FROM contacts
+          WHERE organization_id = ${this.organizationId}::uuid AND deleted_at IS NULL
+            AND phone IS NOT NULL
+        ) t
+        WHERE digitos = ANY(${digitos}::text[])
+        ORDER BY digitos, created_at, id
+      `;
+      for (const f of filas) this.contactoPorTelefono.set(f.digitos, f.id);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Historial (§5.3)
+  // -------------------------------------------------------------------------
+
+  // Las actividades del lote y los contactos a los que van. El contacto se
+  // busca por su id del sistema de origen en CUALQUIER fuente de la
+  // organización (los contactos suelen venir de otra planilla que el
+  // historial), prefiriendo la del lote; después por email y por teléfono.
+  async precargarActividades(candidatos: readonly CandidatoDeActividad[]): Promise<void> {
+    await this.precargarVinculos("ACTIVITY", candidatos.map(claveDeActividad));
+    const idsDeActividad = [...this.vinculos.entries()]
+      .filter(([k]) => k.startsWith("ACTIVITY|"))
+      .map(([, v]) => v)
+      .filter((id) => !this.actividadesVivas.has(id));
+    if (idsDeActividad.length > 0) {
+      const vivas = await this.db.activity.findMany({
+        where: { organizationId: this.organizationId, id: { in: idsDeActividad }, deletedAt: null },
+        select: { id: true },
+      });
+      for (const a of vivas) this.actividadesVivas.add(a.id);
+    }
+
+    const externos = [
+      ...new Set(candidatos.flatMap((c) => (c.contactExternalId ? [c.contactExternalId] : []))),
+    ];
+    if (externos.length > 0) {
+      const vinculos = await this.db.externalRecordLink.findMany({
+        where: {
+          organizationId: this.organizationId,
+          entityType: "CONTACT",
+          externalKey: { in: externos.map(claveDeId) },
+        },
+        select: { externalKey: true, entityId: true, sourceId: true },
+      });
+      for (const externo of externos) {
+        const de = vinculos.filter((v) => v.externalKey === claveDeId(externo));
+        const elegido = de.find((v) => v.sourceId === this.sourceId) ?? de[0];
+        // En el mapa de vínculos, así el seguimiento de uniones lo repunta.
+        if (elegido)
+          this.vinculos.set(this.claveDeMapa("CONTACT", `ext:${externo}`), elegido.entityId);
+      }
+    }
+    await this.precargarEmails(candidatos.flatMap((c) => (c.contactEmail ? [c.contactEmail] : [])));
+    await this.precargarTelefonos(
+      candidatos.flatMap((c) => (c.contactPhone ? [c.contactPhone] : [])),
+    );
+    await this.precargarContactosPorId([
+      ...new Set([
+        ...[...this.vinculos.entries()].filter(([k]) => k.startsWith("CONTACT|")).map(([, v]) => v),
+        ...this.contactoPorEmail.values(),
+        ...this.contactoPorTelefono.values(),
+      ]),
+    ]);
+    await this.precargarUsuarios(
+      candidatos.flatMap((c) => (c.assigneeEmail ? [c.assigneeEmail] : [])),
+    );
+  }
+
+  contactoDeActividad(c: CandidatoDeActividad): string | null {
+    const candidatos = [
+      c.contactExternalId ? this.vinculo("CONTACT", `ext:${c.contactExternalId}`) : undefined,
+      c.contactEmail ? this.contactoPorEmail.get(c.contactEmail.toLowerCase()) : undefined,
+      c.contactPhone ? this.contactoPorTelefono.get(soloDigitos(c.contactPhone)) : undefined,
+    ];
+    return candidatos.find((id) => id !== undefined && this.contactos.has(id)) ?? null;
+  }
+
+  // La actividad que ya trajo una importación anterior (por su clave), viva.
+  actividadDe(c: CandidatoDeActividad): string | null {
+    const id = this.vinculo("ACTIVITY", claveDeActividad(c));
+    return id && this.actividadesVivas.has(id) ? id : null;
   }
 
   // Los contactos por id, siguiendo las uniones: un vínculo a un contacto que

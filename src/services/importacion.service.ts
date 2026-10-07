@@ -199,10 +199,20 @@ export async function configurarImportacion(
   cuerpo: unknown,
 ) {
   const lote = await exigirLote(organizationId, batchId);
-  if (lote.entityType !== "CONTACT" && lote.entityType !== "COMPANY") {
+  if (lote.entityType === "VEHICLE") {
     throw new AppError("Este tipo de dato todavía no se puede importar", 400);
   }
   const ajustes = parseOrThrow(crearAjustesSchema(lote.entityType), cuerpo);
+  if (ajustes.historial) {
+    // El autor del historial tiene que ser un usuario activo de ESTA
+    // organización (decisión 5): authorId es una FK compuesta.
+    const autor = await prisma.user.findFirst({
+      where: { id: ajustes.historial.autorId, organizationId, deletedAt: null, isActive: true },
+      select: { id: true },
+    });
+    if (!autor)
+      throw new AppError("El autor elegido no es un usuario activo de la organización", 400);
+  }
   const config = configDe(lote);
 
   const encabezados = new Set(config.archivo.encabezados);
@@ -284,8 +294,32 @@ export async function decidirFilasDeImportacion(
   return { actualizadas: r.count };
 }
 
+// El orden de dependencias (§5.5): el historial busca contactos, así que no se
+// confirma mientras un lote de contactos de la misma organización se está
+// importando (las notas no encontrarían a los que todavía no se crearon).
+const DEPENDE_DE: Partial<Record<string, string[]>> = {
+  ACTIVITY: ["CONTACT"],
+  CONTACT: ["COMPANY"],
+};
+
 export async function confirmarImportacion(organizationId: string, batchId: string) {
-  await exigirLote(organizationId, batchId);
+  const lote = await exigirLote(organizationId, batchId);
+  const previos = DEPENDE_DE[lote.entityType] ?? [];
+  if (previos.length > 0) {
+    const corriendo = await prisma.importBatch.count({
+      where: {
+        organizationId,
+        status: "RUNNING",
+        entityType: { in: previos as ("CONTACT" | "COMPANY")[] },
+      },
+    });
+    if (corriendo > 0) {
+      throw new AppError(
+        "Hay una importación de la que esta depende todavía en curso: esperá a que termine y volvé a analizar",
+        409,
+      );
+    }
+  }
   return prisma.$transaction(async (tx) => {
     const r = await transicionarLote(
       organizationId,

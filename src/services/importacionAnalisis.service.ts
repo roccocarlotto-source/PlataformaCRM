@@ -15,9 +15,11 @@ import {
   planearContacto,
   planearEmpresa,
   tipoDePlan,
+  traducirFilaDeActividad,
   traducirFilaDeContacto,
   traducirFilaDeEmpresa,
   type CambioPlaneado,
+  type CandidatoDeActividad,
   type CandidatoDeContacto,
   type CandidatoDeEmpresa,
   type ReferenciasResueltas,
@@ -224,11 +226,36 @@ function planDeEmpresa(
   return { tipo: "CREATE", advertencias };
 }
 
+// Historial: falla si no encuentra el contacto (las actividades sueltas no
+// tienen dónde mostrarse); si ya se importó (misma clave), sin cambios.
+function planDeActividad(
+  ctx: Contexto,
+  c: CandidatoDeActividad,
+  advertencias: string[],
+): PlanDeFila {
+  const contacto = ctx.resolutor.contactoDeActividad(c);
+  if (!contacto) {
+    return {
+      tipo: "FAIL",
+      errores: ["No se encontró el contacto: importá los contactos antes que el historial"],
+      advertencias,
+    };
+  }
+  const existente = ctx.resolutor.actividadDe(c);
+  if (existente) return { tipo: "UNCHANGED", advertencias, existenteId: existente };
+  if (c.assigneeEmail !== undefined && ctx.resolutor.usuario(c.assigneeEmail) === null) {
+    advertencias.push(
+      `«${c.assigneeEmail}» no es un usuario activo de la organización: la tarea queda asignada al autor`,
+    );
+  }
+  return { tipo: "CREATE", advertencias };
+}
+
 // Analiza el lote entero, en la transacción del worker que lo tiene tomado.
 export async function analizarLote(lote: ImportBatch, db: Db): Promise<ResumenDelAnalisis> {
   const ajustes = ajustesDelLote(lote.config);
   if (!ajustes) throw new Error(`analizarLote: el lote ${lote.id} no tiene ajustes`);
-  if (lote.entityType !== "CONTACT" && lote.entityType !== "COMPANY") {
+  if (lote.entityType === "VEHICLE") {
     throw new Error(`analizarLote: el tipo ${lote.entityType} todavía no se analiza`);
   }
   const definiciones =
@@ -266,6 +293,22 @@ export async function analizarLote(lote: ImportBatch, db: Db): Promise<ResumenDe
             ? planDeContacto(ctx, t.candidato, f.rowNumber ?? 0, ajustes.crearEmpresas, [
                 ...t.advertencias,
               ])
+            : { tipo: "FAIL", errores: t.errores, advertencias: t.advertencias },
+        });
+      });
+    } else if (lote.entityType === "ACTIVITY") {
+      const traducidas = tanda.map((f) =>
+        traducirFilaDeActividad(f.rawPayload as FilaCruda, ajustes, codigoDePais),
+      );
+      await ctx.resolutor.precargarActividades(
+        traducidas.flatMap((t) => (t.ok ? [t.candidato] : [])),
+      );
+      tanda.forEach((f, i) => {
+        const t = traducidas[i];
+        planes.push({
+          id: f.id,
+          plan: t.ok
+            ? planDeActividad(ctx, t.candidato, [...t.advertencias])
             : { tipo: "FAIL", errores: t.errores, advertencias: t.advertencias },
         });
       });

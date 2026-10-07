@@ -1,0 +1,6 @@
+ID;ID Cliente;Mail cliente;Tipo;Fecha;Asunto;Texto;Hecha;Vence;Autor
+N-1;C-001;;Nota;10/01/2021;;Pidió presupuesto del auto;;;Vendedora Anterior
+L-1;;beto@example.com;Llamada;11/01/2021;Llamada de seguimiento;No atendió;;;
+T-1;C-004;;Tarea;;Enviar contrato;;Sí;15/01/2021;
+T-2;C-001;;Tarea;;Llamar para renovar;;No;20/02/2021;
+X-1;C-999;;Nota;12/01/2021;;Contacto que no existe;;;

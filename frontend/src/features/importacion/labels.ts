@@ -3,6 +3,7 @@ import type {
   CampoPersonalizado,
   Etapa,
   Politica,
+  TipoDeHistorial,
   TipoDePlan,
   TipoImportable,
 } from "./types";
@@ -14,6 +15,13 @@ import type {
 export const TIPOS: { value: TipoImportable; label: string }[] = [
   { value: "COMPANY", label: "Empresas" },
   { value: "CONTACT", label: "Contactos" },
+  { value: "ACTIVITY", label: "Historial (notas, llamadas y tareas)" },
+];
+
+export const TIPOS_DE_HISTORIAL: { value: TipoDeHistorial; label: string }[] = [
+  { value: "NOTE", label: "Nota" },
+  { value: "CALL", label: "Llamada" },
+  { value: "TASK", label: "Tarea" },
 ];
 
 export const DESTINOS: Record<TipoImportable, Record<string, string>> = {
@@ -32,6 +40,20 @@ export const DESTINOS: Record<TipoImportable, Record<string, string>> = {
     vehicleRef: "Vehículo de interés (código o patente)",
     companyName: "Empresa (nombre)",
     customerSince: "Cliente desde",
+  },
+  ACTIVITY: {
+    externalId: "Id en el sistema de origen",
+    type: "Tipo (nota, llamada o tarea)",
+    contactExternalId: "Id del contacto en el origen",
+    contactEmail: "Email del contacto",
+    contactPhone: "Teléfono del contacto",
+    subject: "Asunto",
+    body: "Texto",
+    occurredAt: "Fecha",
+    dueDate: "Vencimiento (tareas)",
+    done: "Hecha (tareas)",
+    authorName: "Autor original",
+    assigneeEmail: "Responsable (email, tareas)",
   },
   COMPANY: {
     externalId: "Id en el sistema de origen",

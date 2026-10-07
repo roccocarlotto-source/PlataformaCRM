@@ -5,7 +5,8 @@
 // docs/importacion-de-datos.md §8). Nada que el backend no devuelva.
 // ---------------------------------------------------------------------------
 
-export type TipoImportable = "CONTACT" | "COMPANY";
+export type TipoImportable = "CONTACT" | "COMPANY" | "ACTIVITY";
+export type TipoDeHistorial = "NOTE" | "CALL" | "TASK";
 
 export type EstadoDelLote =
   "STAGED" | "ANALYZING" | "READY" | "RUNNING" | "DONE" | "CANCELLED" | "UNDOING" | "UNDONE";
@@ -35,6 +36,13 @@ export interface Ajustes {
   etapas: Record<string, Etapa>;
   duplicados: Politica;
   crearEmpresas: boolean;
+  // Solo en un lote de historial: quién figura como autor, el tipo cuando la
+  // celda está vacía, y qué tipo es cada valor del origen.
+  historial?: {
+    autorId: string;
+    tipoPorDefecto?: TipoDeHistorial;
+    tipos: Record<string, TipoDeHistorial>;
+  };
 }
 
 export interface ConfigDelLote {
@@ -137,6 +145,7 @@ export interface CampoPersonalizado {
 }
 
 export interface OpcionesDeImportacion {
+  // Ordenados por antigüedad (el más antiguo primero).
   usuarios: { id: string; email: string; fullName: string; rol: string }[];
   fuentes: { id: string; name: string; isActive: boolean }[];
   camposPersonalizados: CampoPersonalizado[];

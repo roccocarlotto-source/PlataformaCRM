@@ -6,7 +6,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { Select } from "../../design-system/Select";
 import { configurarLote } from "./api";
-import { DESTINOS, ETAPAS, POLITICAS, opcionesDeDestino } from "./labels";
+import { DESTINOS, ETAPAS, POLITICAS, TIPOS_DE_HISTORIAL, opcionesDeDestino } from "./labels";
 import { importacionKeys } from "./queries";
 import type {
   Ajustes,
@@ -15,6 +15,7 @@ import type {
   Lote,
   OpcionesDeImportacion,
   Politica,
+  TipoDeHistorial,
   TipoImportable,
   ValorDeCelda,
 } from "./types";
@@ -70,6 +71,17 @@ export function PasoMapeo({
   const [duplicados, setDuplicados] = useState<Politica>(previos?.duplicados ?? "FILL_EMPTY");
   const [crearEmpresas, setCrearEmpresas] = useState(previos?.crearEmpresas ?? true);
   const [etapas, setEtapas] = useState<Record<string, Etapa>>(previos?.etapas ?? {});
+  // Historial: el autor por defecto es el ADMIN más antiguo (decisión 5); la
+  // lista viene ordenada por antigüedad.
+  const autorPorDefecto =
+    opciones.usuarios.find((u) => u.rol === "ADMIN")?.id ?? opciones.usuarios[0]?.id ?? "";
+  const [autorId, setAutorId] = useState(previos?.historial?.autorId ?? autorPorDefecto);
+  const [tipoPorDefecto, setTipoPorDefecto] = useState<TipoDeHistorial | "">(
+    previos?.historial?.tipoPorDefecto ?? "",
+  );
+  const [tipos, setTipos] = useState<Record<string, TipoDeHistorial>>(
+    previos?.historial?.tipos ?? {},
+  );
 
   const destinos = opcionesDeDestino(tipo, opciones.camposPersonalizados);
 
@@ -87,6 +99,20 @@ export function PasoMapeo({
     }
     return [...vistos.values()];
   }, [columnaDeEtapa, muestra]);
+
+  // Lo mismo para la columna de tipo del historial ("Llamada" -> CALL).
+  const columnaDeTipo = Object.entries(mapeo).find(([, d]) => d === "type")?.[0];
+  const valoresDeTipo = useMemo(() => {
+    if (!columnaDeTipo) return [];
+    const vistos = new Map<string, string>();
+    for (const fila of muestra) {
+      const v = fila[columnaDeTipo];
+      if (v === null || String(v).trim() === "") continue;
+      const t = String(v).trim();
+      if (!vistos.has(clave(t))) vistos.set(clave(t), t);
+    }
+    return [...vistos.values()];
+  }, [columnaDeTipo, muestra]);
 
   const queryClient = useQueryClient();
   const guardar = useMutation({
@@ -114,7 +140,11 @@ export function PasoMapeo({
   const faltaNombre =
     tipo === "CONTACT"
       ? !usados.has("fullName") && !(usados.has("firstName") && usados.has("lastName"))
-      : !usados.has("name");
+      : tipo === "ACTIVITY"
+        ? !["contactExternalId", "contactEmail", "contactPhone"].some((d) => usados.has(d)) ||
+          (!usados.has("type") && tipoPorDefecto === "") ||
+          autorId === ""
+        : !usados.has("name");
 
   function enviar(event: FormEvent) {
     event.preventDefault();
@@ -133,6 +163,17 @@ export function PasoMapeo({
       etapas: etapasUsadas,
       duplicados,
       crearEmpresas,
+      ...(tipo === "ACTIVITY"
+        ? {
+            historial: {
+              autorId,
+              ...(tipoPorDefecto ? { tipoPorDefecto } : {}),
+              tipos: Object.fromEntries(
+                Object.entries(tipos).filter(([valor]) => valoresDeTipo.includes(valor)),
+              ),
+            },
+          }
+        : {}),
     });
   }
 
@@ -160,10 +201,61 @@ export function PasoMapeo({
           <p className="ds-hint" role="status">
             {tipo === "CONTACT"
               ? `Falta elegir la columna de «${DESTINOS.CONTACT.fullName}», o las de «${DESTINOS.CONTACT.firstName}» y «${DESTINOS.CONTACT.lastName}».`
-              : `Falta elegir la columna de «${DESTINOS.COMPANY.name}».`}
+              : tipo === "ACTIVITY"
+                ? "Falta elegir a qué contacto va cada fila (id del origen, email o teléfono), el tipo (una columna o un tipo para todo el archivo) y el autor."
+                : `Falta elegir la columna de «${DESTINOS.COMPANY.name}».`}
           </p>
         ) : null}
       </Card>
+
+      {tipo === "ACTIVITY" ? (
+        <Card heading="Historial">
+          <div className="ds-field-grid">
+            <Select
+              label="Autor de las actividades"
+              value={autorId}
+              options={opciones.usuarios.map((u) => ({
+                value: u.id,
+                label: u.fullName,
+                subtitle: u.email,
+              }))}
+              emptyOption={{ label: "Elegir…" }}
+              onChange={setAutorId}
+            />
+            <Select
+              label="Tipo para las filas sin tipo"
+              value={tipoPorDefecto}
+              options={TIPOS_DE_HISTORIAL}
+              emptyOption={{ label: "Ninguno (la fila falla)" }}
+              onChange={setTipoPorDefecto}
+            />
+          </div>
+          <p className="ds-hint">
+            El autor que trae el archivo, si lo trae, se agrega al texto («Autor original: …»). Las
+            tareas hechas quedan completadas y confirmadas; las vencidas sin hacer, abiertas y
+            asignadas a este autor.
+          </p>
+          {valoresDeTipo.length > 0 ? (
+            <div className="ds-field-grid">
+              {valoresDeTipo.map((valor) => (
+                <Select
+                  key={valor}
+                  label={valor}
+                  value={tipos[valor] ?? ""}
+                  options={TIPOS_DE_HISTORIAL}
+                  emptyOption={{ label: "Sin asignar" }}
+                  onChange={(t) => {
+                    const nuevo = { ...tipos };
+                    if (t === "") delete nuevo[valor];
+                    else nuevo[valor] = t;
+                    setTipos(nuevo);
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Card heading="Formato de los datos">
         <div className="ds-field-grid">
