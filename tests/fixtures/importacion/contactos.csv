@@ -1,0 +1,6 @@
+ID Cliente;Nombre completo;Mail;Celular;Etapa;Vendedor;Empresa;Cliente desde;Forma de pago;Notas
+C-001;Ana Pérez;ana.perez@example.com;099 111 222;Cliente;{{VENDEDOR}};Compañía Ejemplo;14/03/2021;Contado;Prefiere que la llamen de tarde
+C-002;Beto;beto@example.com;;Interesado;;;;Permuta, Contado;Llamar el lunes
+C-003;Carla Gómez;no-es-un-mail;099 333 444;Interesado;;Otra Empresa Ficticia;;;=1+1
+C-004;Diego Martínez;;099 444 555;;vendedor-inexistente@example.com;Compañía Ejemplo;01/02/2020;;
+C-001;Ana Pérez;ana.perez@example.com;099 111 222;Cliente;;;;;Segunda fila del mismo cliente

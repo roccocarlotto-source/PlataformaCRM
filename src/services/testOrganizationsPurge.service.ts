@@ -140,6 +140,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("canales-meta-{etiqueta}-{ts}-{hex8}", `${R}canalesMeta.integration-test.ts`),
   patron("m13-org-a-{ts}-{hex8}", `${R}contact-email-uniqueness.integration-test.ts`),
   patron("m13-org-b-{ts}-{hex8}", `${R}contact-email-uniqueness.integration-test.ts`),
+  patron("importacion-{etiqueta}-{ts}-{hex8}", `${C}importacionAdmin.integration-test.ts`),
   patron("batch-test-{ts}-{hex8}", `${R}ingestionEvent-batch.integration-test.ts`),
   patron("purga-test-{ts}-{hex8}", `${R}ingestionEvent-purge.integration-test.ts`),
   patron("llm-uso-{etiqueta}-{ts}-{hex8}", `${R}llmTurnUsage.integration-test.ts`),

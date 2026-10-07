@@ -21,6 +21,7 @@ import {
   type IngestContactPayload,
 } from "../schemas/ingestContact.schema";
 import type { PromotionNote } from "../types/promotion";
+import { promoverFilaDelAsistente } from "./importacionPromocion.service";
 
 // ---------------------------------------------------------------------------
 // Promoción staging -> Contact (§4 de docs/ingestion-architecture.md).
@@ -36,8 +37,10 @@ import type { PromotionNote } from "../types/promotion";
 // poll lo promovería de nuevo.
 // ---------------------------------------------------------------------------
 
+// contactId null: una fila del asistente de importación que promovió una
+// empresa, no un contacto (importacionPromocion.service.ts).
 export type ResultadoPromocion =
-  | { estado: "PROCESSED"; contactId: string; notas: PromotionNote[] }
+  | { estado: "PROCESSED"; contactId: string | null; notas: PromotionNote[] }
   | { estado: "FAILED"; errorMessage: string };
 
 // QUÉ SE ESCRIBE EN Contact.source — decisión de esta etapa.
@@ -400,6 +403,14 @@ async function escribirCandidato(
 }
 
 export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<ResultadoPromocion> {
+  // Una fila del asistente de importación de Plataforma (lote de
+  // import_batches) tiene su propia promoción: mapeo por lote, vínculos con el
+  // sistema de origen, políticas de duplicados (docs/importacion-de-datos.md).
+  // El webhook y POST /api/imports siguen por acá abajo, sin cambios.
+  if (evento.lote) {
+    return promoverFilaDelAsistente(evento, db);
+  }
+
   // La traducción por fieldMapping ocurre ANTES de validar y DESPUÉS de
   // staging — ver el bloque de arriba. Para el webhook es un paso transparente:
   // devuelve el rawPayload tal cual, con el contrato fijo del ítem 4.
