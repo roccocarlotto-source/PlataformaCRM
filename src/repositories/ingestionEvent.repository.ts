@@ -1,4 +1,10 @@
-import { IngestionStatus, Prisma, type SourceType } from "@prisma/client";
+import {
+  IngestionStatus,
+  Prisma,
+  type ImportEntityType,
+  type ImportRowDecision,
+  type SourceType,
+} from "@prisma/client";
 import type { PromotionNote } from "../types/promotion";
 import { prisma, type Db } from "../lib/prisma";
 import { AppError } from "../utils/AppError";
@@ -33,7 +39,7 @@ import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
 
 const NUL = String.fromCharCode(0);
 
-function contieneNul(value: unknown): boolean {
+export function contieneNul(value: unknown): boolean {
   if (typeof value === "string") {
     return value.includes(NUL);
   }
@@ -48,7 +54,7 @@ function contieneNul(value: unknown): boolean {
   return false;
 }
 
-const MENSAJE_NUL = "no puede contener el carácter NUL (U+0000)";
+export const MENSAJE_NUL = "no puede contener el carácter NUL (U+0000)";
 
 function assertSinNul(rawPayload: unknown): void {
   if (contieneNul(rawPayload)) {
@@ -206,14 +212,31 @@ export interface EventoReclamado {
   // del mismo reclamo (JOIN con organizations) por la misma razón que
   // sourceName: preguntarlo aparte sería una ida a la base por fila.
   codigoDePais: string | null;
+  // Asistente de importación (docs/importacion-de-datos.md §2): el lote de
+  // import_batches al que pertenece la fila, si es una fila del asistente. null
+  // para el webhook y para POST /api/imports, que siguen por promoverEvento.
+  lote: LoteDelEvento | null;
   // Cuántas veces esta fila ya falló por error de SISTEMA (B-30) — es lo que
   // el catch de drenarPendientes le pasa a resolverFallo para decidir entre
   // reprogramar y DEAD_LETTER. Espejo de EventoReclamado en la cola de outbox.
   attempts: number;
 }
 
+export interface LoteDelEvento {
+  id: string;
+  entityType: ImportEntityType;
+  config: unknown;
+  rowNumber: number | null;
+  decision: ImportRowDecision | null;
+}
+
 interface FilaReclamada {
   id: string;
+  lote_id: string | null;
+  lote_entity_type: ImportEntityType | null;
+  lote_config: unknown;
+  row_number: number | null;
+  decision: ImportRowDecision | null;
   organization_id: string;
   source_id: string;
   source_name: string;
@@ -290,12 +313,16 @@ export async function claimNextPendingEvent(
            s.name AS source_name, s.type AS source_type,
            s.field_mapping AS field_mapping,
            e.raw_payload, e.attempts,
-           o.default_phone_country_code
+           o.default_phone_country_code,
+           b.id AS lote_id, b.entity_type AS lote_entity_type, b.config AS lote_config,
+           e.row_number, e.decision
     FROM ingestion_events e
     JOIN sources s
       ON s.organization_id = e.organization_id AND s.id = e.source_id
       AND s.is_active AND s.deleted_at IS NULL
     JOIN organizations o ON o.id = e.organization_id
+    LEFT JOIN import_batches b
+      ON b.organization_id = e.organization_id AND b.id = e.batch_id
     WHERE e.status = 'PENDING'::"IngestionStatus"
       AND coalesce(e.next_attempt_at, e.created_at) <= now()
     ${filtroOrg}
@@ -320,6 +347,16 @@ export async function claimNextPendingEvent(
     rawPayload: fila.raw_payload,
     attempts: fila.attempts,
     codigoDePais: fila.default_phone_country_code,
+    lote:
+      fila.lote_id !== null && fila.lote_entity_type !== null
+        ? {
+            id: fila.lote_id,
+            entityType: fila.lote_entity_type,
+            config: fila.lote_config,
+            rowNumber: fila.row_number,
+            decision: fila.decision,
+          }
+        : null,
   };
 }
 
@@ -1128,6 +1165,12 @@ export async function anonymizeIngestionEventsOfContact(
       data: {
         rawPayload: RAW_PAYLOAD_BORRADO,
         promotionNotes: redactPromotionNotes(evento.promotionNotes),
+        // El asistente de importación (docs/importacion-de-datos.md §8.3):
+        // el plan de la vista previa y el antes/después de los cambios
+        // llevan los valores del contacto. Se borran enteros: a diferencia
+        // de las notas, no hay un registro de conflicto que conservar.
+        plan: Prisma.DbNull,
+        changes: Prisma.DbNull,
       },
     });
 

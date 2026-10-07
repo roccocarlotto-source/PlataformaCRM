@@ -39,6 +39,14 @@ import {
   anonymizeIngestionEventsOfContact,
 } from "./ingestionEvent.repository";
 import {
+  buscarVinculos,
+  decidirFilas,
+  findImportBatch,
+  listarFilasDelLote,
+  resumenDeFilas,
+  transicionarLote,
+} from "./importacion.repository";
+import {
   expireDueQuotes,
   supersedeOpenQuotes,
   transitionQuoteConditional,
@@ -2431,6 +2439,29 @@ test("H-01 Importación: una fila de X no puede apuntar a la fuente, la sincroni
   assert.deepEqual(await leerY.importLink(), antes.link);
   assert.deepEqual(await leerY.photoImport(), antes.photo);
   assert.equal(await prisma.importBatch.count({ where: { organizationId: nx.orgX } }), 0);
+});
+
+// Las lecturas y escrituras del asistente de importación
+// (importacion.repository.ts) con los ids de Y y la organización de X: no
+// encuentran nada y no tocan nada.
+test("H-01 Importación: lote, filas y vínculos de Y no se leen ni se escriben con la organización de X", async () => {
+  const antes = { batch: await leerY.importBatch(), link: await leerY.importLink() };
+  assert.equal(await findImportBatch(nx.orgX, nx.importBatchY), null);
+  const cas = await transicionarLote(nx.orgX, nx.importBatchY, ["STAGED"], { status: "CANCELLED" });
+  assert.equal(cas.count, 0);
+  const decididas = await decidirFilas(nx.orgX, nx.importBatchY, [randomUUID()], "SKIP");
+  assert.equal(decididas.count, 0);
+  assert.equal(
+    (await buscarVinculos(nx.orgX, nx.importSourceY, "VEHICLE", ["codigo:H01-Y"])).size,
+    0,
+  );
+  assert.equal((await resumenDeFilas(nx.orgX, nx.importBatchY)).total, 0);
+  assert.equal(
+    (await listarFilasDelLote(nx.orgX, nx.importBatchY, { page: 1, pageSize: 10 })).total,
+    0,
+  );
+  assert.deepEqual(await leerY.importBatch(), antes.batch);
+  assert.deepEqual(await leerY.importLink(), antes.link);
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {

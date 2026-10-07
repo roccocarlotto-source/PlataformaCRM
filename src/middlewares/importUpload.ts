@@ -35,8 +35,10 @@ const upload = multer({
     // UN solo archivo por request. Sin esto, alguien podría mandar 100 archivos
     // de 10 MB y el límite por archivo no acotaría nada del total.
     files: 1,
-    // Los campos de texto del multipart: acá solo viaja sourceId.
-    fields: 5,
+    // Los campos de texto del multipart: sourceId en POST /api/imports; en el
+    // asistente de Plataforma, el tipo de dato, el sistema de origen y la forma
+    // de leer el archivo (separador, codificación, hoja).
+    fields: 10,
   },
 }).single(CAMPO_ARCHIVO);
 

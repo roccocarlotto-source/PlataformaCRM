@@ -950,6 +950,7 @@ function eventoReclamadoDe(id: string, rawPayload: unknown): EventoReclamado {
     attempts: 0,
     rawPayload,
     codigoDePais: null,
+    lote: null,
   };
 }
 

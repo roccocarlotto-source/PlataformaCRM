@@ -113,6 +113,17 @@ const envSchema = z.object({
   // proceso: se drena un tramo, se cede el control, y el siguiente tick sigue.
   INGEST_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(50),
 
+  // El worker de los lotes del asistente de importación
+  // (src/workers/importBatchWorker.ts): calcula la vista previa y cierra los
+  // lotes terminados. Las filas las promueve el worker de ingesta. Mismo enum
+  // explícito que INGEST_WORKER_ENABLED; 5 segundos porque hay una persona
+  // mirando la pantalla de la vista previa mientras se calcula.
+  IMPORT_BATCH_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  IMPORT_BATCH_WORKER_POLL_MS: z.coerce.number().int().positive().default(5000),
+
   // Reintentos de la promoción ante un error de SISTEMA (B-30 de
   // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — réplica de los OUTBOX_* de abajo, mismos
   // defaults y mismo razonamiento: 5 intentos con base de 30 s duplicando dan

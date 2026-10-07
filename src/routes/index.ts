@@ -25,6 +25,7 @@ import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
 import { organizationRouter } from "./organization.routes";
 import { organizationAdminRouter } from "./organizationAdmin.routes";
+import { importacionAdminRouter } from "./importacionAdmin.routes";
 import { paymentRouter } from "./payment.routes";
 
 import { resourceRouter } from "./resource.routes";
@@ -229,3 +230,8 @@ routes.use("/api", organizationAdminRouter);
 // 127): PUT /api/admin/agents/:agentId/whatsapp-phone-number. Misma gate que
 // organizationAdminRouter, en un router propio por el mismo motivo.
 routes.use("/api", agentAdminRouter);
+
+// Importación de datos para el alta de clientes (docs/importacion-de-datos.md):
+// /api/admin/organizations/:organizationId/imports. Misma gate de platform
+// admin, con la organización del path.
+routes.use("/api", importacionAdminRouter);
