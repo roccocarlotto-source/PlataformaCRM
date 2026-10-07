@@ -2,7 +2,9 @@ import { z } from "zod";
 import {
   DESTINOS_DE_CONTACTO,
   DESTINOS_DE_EMPRESA,
+  DESTINOS_DE_HISTORIAL,
   LIFECYCLE_STAGES,
+  TIPOS_DE_HISTORIAL,
   PREFIJO_CAMPO_PERSONALIZADO,
   type AjustesDeImportacion,
   type TipoImportable,
@@ -21,6 +23,7 @@ import { CODIFICACIONES, SEPARADORES } from "../utils/spreadsheet";
 export const TIPOS_IMPORTABLES = [
   "COMPANY",
   "CONTACT",
+  "ACTIVITY",
 ] as const satisfies readonly TipoImportable[];
 
 // Los campos de texto del multipart de POST .../imports. El archivo va aparte
@@ -44,8 +47,25 @@ export const subirImportacionSchema = z
 const MAX_COLUMNAS_MAPEADAS = 200;
 
 function destinosDe(tipo: TipoImportable): readonly string[] {
-  return tipo === "CONTACT" ? DESTINOS_DE_CONTACTO : DESTINOS_DE_EMPRESA;
+  if (tipo === "CONTACT") return DESTINOS_DE_CONTACTO;
+  if (tipo === "ACTIVITY") return DESTINOS_DE_HISTORIAL;
+  return DESTINOS_DE_EMPRESA;
 }
+
+const NOMBRE_DEL_TIPO: Record<TipoImportable, string> = {
+  CONTACT: "contactos",
+  COMPANY: "empresas",
+  ACTIVITY: "historial",
+};
+
+// Lo propio de un lote de historial (§5.3): quién figura como autor
+// (decisión 5; que sea un usuario de la organización lo valida el service),
+// el tipo por defecto y qué tipo es cada valor del origen.
+const historialSchema = z.object({
+  autorId: z.string().uuid("autorId inválido"),
+  tipoPorDefecto: z.enum(TIPOS_DE_HISTORIAL).optional(),
+  tipos: z.record(z.string().min(1).max(100), z.enum(TIPOS_DE_HISTORIAL)).default({}),
+});
 
 // PUT .../imports/:batchId/config. El mapeo se valida acá contra el catálogo de
 // destinos; contra los encabezados del archivo y los campos personalizados de la
@@ -77,6 +97,7 @@ export function crearAjustesSchema(tipo: TipoImportable) {
       etapas: z.record(z.string().min(1).max(100), z.enum(LIFECYCLE_STAGES)).default({}),
       duplicados: z.enum(["FILL_EMPTY", "OVERWRITE", "SKIP"]).default("FILL_EMPTY"),
       crearEmpresas: z.boolean().default(true),
+      historial: tipo === "ACTIVITY" ? historialSchema : historialSchema.optional(),
     })
     .superRefine((ajustes, ctx) => {
       const vistos = new Set<string>();
@@ -87,7 +108,7 @@ export function crearAjustesSchema(tipo: TipoImportable) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["mapeo", encabezado],
-            message: `«${destino}» no es un destino de ${tipo === "CONTACT" ? "contactos" : "empresas"}`,
+            message: `«${destino}» no es un destino de ${NOMBRE_DEL_TIPO[tipo]}`,
           });
         }
         if (vistos.has(destino)) {
@@ -114,6 +135,21 @@ export function crearAjustesSchema(tipo: TipoImportable) {
             code: z.ZodIssueCode.custom,
             path: ["mapeo"],
             message: "Mapeá nombre completo, o nombre y apellido por separado, no los dos",
+          });
+        }
+      } else if (tipo === "ACTIVITY") {
+        if (!["contactExternalId", "contactEmail", "contactPhone"].some((d) => vistos.has(d))) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["mapeo"],
+            message: "Falta mapear a qué contacto va: el id del origen, el email o el teléfono",
+          });
+        }
+        if (!vistos.has("type") && !ajustes.historial?.tipoPorDefecto) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["historial", "tipoPorDefecto"],
+            message: "Mapeá la columna del tipo o elegí un tipo para todo el archivo",
           });
         }
       } else if (!vistos.has("name")) {

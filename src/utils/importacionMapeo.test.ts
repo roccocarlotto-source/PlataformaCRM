@@ -4,6 +4,9 @@ import { crearAjustesSchema } from "../schemas/importacion.schema";
 import type { DefinicionDeCampo } from "./camposPersonalizados";
 import {
   cambiosAAplicar,
+  claveDeActividad,
+  cuerpoDeActividad,
+  traducirFilaDeActividad,
   clavesDeContacto,
   clavesDeEmpresa,
   compararEtapa,
@@ -341,4 +344,102 @@ test("sugerirMapeo: sinónimos sin fuzzy matching, campos personalizados por eti
     Celular: "phone",
     "Forma de pago": "custom:forma_de_pago",
   });
+});
+
+// ---------------------------------------------------------------------------
+// Historial (§5.3)
+// ---------------------------------------------------------------------------
+
+function ajustesDeHistorial(
+  mapeo: Record<string, string>,
+  tipoPorDefecto?: "NOTE" | "CALL" | "TASK",
+) {
+  return crearAjustesSchema("ACTIVITY").parse({
+    mapeo,
+    historial: {
+      autorId: "11111111-1111-4111-8111-111111111111",
+      tipoPorDefecto,
+      tipos: { Llamada: "CALL", Tarea: "TASK" },
+    },
+  }) as AjustesDeImportacion;
+}
+
+test("historial: tipo por mapeo de valores, contacto por id o email, fecha original, asunto armado y autor original en el texto", () => {
+  const r = traducirFilaDeActividad(
+    {
+      Tipo: "llamada",
+      Cliente: "C-1",
+      Fecha: "10/01/2021",
+      Texto: "No atendió",
+      Autor: "Vendedora Anterior",
+    },
+    ajustesDeHistorial({
+      Tipo: "type",
+      Cliente: "contactExternalId",
+      Fecha: "occurredAt",
+      Texto: "body",
+      Autor: "authorName",
+    }),
+    null,
+  );
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  assert.equal(r.candidato.type, "CALL");
+  assert.equal(r.candidato.contactExternalId, "C-1");
+  assert.equal(r.candidato.occurredAt, "2021-01-10");
+  assert.equal(r.candidato.subject, "Llamada del 10/01/2021");
+  assert.equal(cuerpoDeActividad(r.candidato), "No atendió\n\nAutor original: Vendedora Anterior");
+});
+
+test("historial: sin a qué contacto va, o con un tipo desconocido, la fila falla; el tipo por defecto cubre la celda vacía", () => {
+  const a = ajustesDeHistorial({ Tipo: "type", Mail: "contactEmail" }, "NOTE");
+  assert.equal(traducirFilaDeActividad({ Tipo: "Nota", Mail: "" }, a, null).ok, false);
+  assert.equal(
+    traducirFilaDeActividad({ Tipo: "Reunión", Mail: "a@example.com" }, a, null).ok,
+    false,
+  );
+  const vacio = traducirFilaDeActividad({ Tipo: "", Mail: "a@example.com" }, a, null);
+  assert.equal(vacio.ok, true);
+  if (vacio.ok) assert.equal(vacio.candidato.type, "NOTE");
+});
+
+test("historial: la clave es el id del origen o, sin él, una huella estable de lo que define la actividad", () => {
+  const a = ajustesDeHistorial(
+    { Mail: "contactEmail", Fecha: "occurredAt", Texto: "body" },
+    "NOTE",
+  );
+  const fila = { Mail: "A@Example.com", Fecha: "10/01/2021", Texto: "Hola" };
+  const uno = traducirFilaDeActividad(fila, a, null);
+  const dos = traducirFilaDeActividad({ ...fila, Mail: "a@example.com" }, a, null);
+  const otro = traducirFilaDeActividad({ ...fila, Texto: "Chau" }, a, null);
+  assert.ok(uno.ok && dos.ok && otro.ok);
+  if (!uno.ok || !dos.ok || !otro.ok) return;
+  assert.match(claveDeActividad(uno.candidato), /^hash:[0-9a-f]{64}$/);
+  assert.equal(
+    claveDeActividad(uno.candidato),
+    claveDeActividad(dos.candidato),
+    "el email no distingue mayúsculas",
+  );
+  assert.notEqual(claveDeActividad(uno.candidato), claveDeActividad(otro.candidato));
+  const conId = traducirFilaDeActividad(
+    { ...fila, Id: "N-1" },
+    ajustesDeHistorial({ Id: "externalId", Mail: "contactEmail" }, "NOTE"),
+    null,
+  );
+  if (conId.ok) assert.equal(claveDeActividad(conId.candidato), "id:N-1");
+});
+
+test("ajustes de historial: sin autor, sin contacto mapeado, o sin tipo (ni columna ni por defecto) se rechazan", () => {
+  const s = crearAjustesSchema("ACTIVITY");
+  assert.equal(s.safeParse({ mapeo: { Mail: "contactEmail", Tipo: "type" } }).success, false);
+  const autor = { autorId: "11111111-1111-4111-8111-111111111111", tipos: {} };
+  assert.equal(s.safeParse({ mapeo: { Tipo: "type" }, historial: autor }).success, false);
+  assert.equal(s.safeParse({ mapeo: { Mail: "contactEmail" }, historial: autor }).success, false);
+  assert.equal(
+    s.safeParse({
+      mapeo: { Mail: "contactEmail" },
+      historial: { ...autor, tipoPorDefecto: "NOTE" },
+    }).success,
+    true,
+  );
 });

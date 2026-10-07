@@ -10,3 +10,7 @@ es real: los emails son de `example.com` y los teléfonos, números de fantasía
   el nombre (C-002), una nota que empieza con `=` en la fila que falla (C-003), un vendedor que no
   existe (C-004) y el mismo cliente dos veces (C-001).
 - `empresas.csv`: una fila sin nombre (E-03), que tiene que fallar.
+- `historial.csv`: notas, llamadas y tareas de los contactos de
+  `contactos.csv` (por su id del origen o por email). Trae una tarea hecha
+  (T-1), una sin hacer y vencida (T-2), un autor original (N-1) y una fila de un
+  contacto que no existe (X-1), que tiene que fallar.

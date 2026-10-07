@@ -765,3 +765,172 @@ test("deshacer: lo que el lote solo actualizó no se revierte ni se borra", asyn
     await desmontar(e);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Historial (§5.3, decisiones 5, 7, 23 y 25)
+// ---------------------------------------------------------------------------
+
+const MAPEO_DE_HISTORIAL = {
+  ID: "externalId",
+  "ID Cliente": "contactExternalId",
+  "Mail cliente": "contactEmail",
+  Tipo: "type",
+  Fecha: "occurredAt",
+  Asunto: "subject",
+  Texto: "body",
+  Hecha: "done",
+  Vence: "dueDate",
+  Autor: "authorName",
+};
+
+test("historial: notas, llamadas y tareas ligadas por id del origen o email, con fecha original, autor elegido, «Autor original» y tareas hechas confirmadas", async () => {
+  const e = await montar("historial");
+  try {
+    // Primero los contactos (otra fuente: el historial los encuentra igual).
+    const contactos = await importarContactos(e, await fixture("contactos.csv", e.vendedorEmail), {
+      sourceName: "Planilla de clientes",
+    });
+    await confirmarYPromover(e, contactos.batchId);
+
+    const subida = await subir(
+      e,
+      await fixture("historial.csv"),
+      {
+        entityType: "ACTIVITY",
+        sourceName: "Historial anterior",
+      },
+      "historial.csv",
+    );
+    assert.equal(subida.status, 201, JSON.stringify(subida.body));
+    const batchId = subida.body.lote.id;
+    const ajustes = {
+      mapeo: MAPEO_DE_HISTORIAL,
+      historial: {
+        autorId: e.vendedorId,
+        tipos: { Nota: "NOTE", Llamada: "CALL", Tarea: "TASK" },
+      },
+    };
+    await analizar(e, batchId, ajustes);
+    const planes = (await filas(e, batchId)).map((f) => f.plan.tipo);
+    assert.deepEqual(planes, ["CREATE", "CREATE", "CREATE", "CREATE", "FAIL"]);
+
+    // Mientras un lote de contactos corre, el historial no se confirma.
+    const otraTanda = await importarContactos(
+      e,
+      "Nombre;Mail\r\nZoe Ficticia;zoe@example.com\r\n",
+      {
+        sourceName: "Otra planilla",
+      },
+      { mapeo: { Nombre: "fullName", Mail: "email" } },
+    );
+    assert.equal((await enviar(e, "POST", `/${otraTanda.batchId}/confirm`)).status, 200);
+    assert.equal((await enviar(e, "POST", `/${batchId}/confirm`)).status, 409);
+    for (;;) {
+      const d = await drenarPendientes({ organizationId: e.organizationId });
+      if (d.procesados + d.fallidos + d.pospuestos + d.muertos === 0) break;
+    }
+    await procesarLotes();
+
+    const final = await confirmarYPromover(e, batchId);
+    assert.deepEqual(final.resumen.porResultado, { CREATED: 4 });
+    assert.equal(final.resumen.porEstado.FAILED, 1);
+
+    const actividades = await prisma.activity.findMany({
+      where: { organizationId: e.organizationId },
+      include: { contact: { select: { firstName: true } } },
+    });
+    const por = (asunto: RegExp) => {
+      const a = actividades.find((x) => asunto.test(x.subject));
+      assert.ok(a, `falta la actividad ${asunto}`);
+      return a;
+    };
+    const nota = por(/^Nota del 10\/01\/2021$/);
+    assert.equal(nota.type, "NOTE");
+    assert.equal(nota.contact?.firstName, "Ana");
+    assert.equal(nota.authorId, e.vendedorId);
+    assert.equal(nota.occurredAt.toISOString(), "2021-01-10T12:00:00.000Z");
+    assert.ok(
+      nota.createdAt.getTime() > nota.occurredAt.getTime(),
+      "createdAt es la fecha de importación",
+    );
+    assert.equal(nota.body, "Pidió presupuesto del auto\n\nAutor original: Vendedora Anterior");
+
+    const llamada = por(/^Llamada de seguimiento$/);
+    assert.equal(llamada.type, "CALL");
+    assert.equal(llamada.contact?.firstName, "Beto", "por email");
+
+    const hecha = por(/^Enviar contrato$/);
+    assert.equal(hecha.contact?.firstName, "Diego");
+    assert.equal(hecha.completedAt?.toISOString(), "2021-01-15T12:00:00.000Z");
+    assert.equal(
+      hecha.confirmedAt?.toISOString(),
+      "2021-01-15T12:00:00.000Z",
+      "hecha = completada y confirmada",
+    );
+    assert.equal(hecha.confirmedById, e.vendedorId);
+
+    const abierta = por(/^Llamar para renovar$/);
+    assert.equal(abierta.completedAt, null, "no hecha y vencida: queda abierta");
+    assert.equal(abierta.dueDate?.toISOString(), "2021-02-20T12:00:00.000Z");
+    assert.equal(abierta.assigneeId, e.vendedorId, "asignada al autor elegido");
+
+    // Reimportar no duplica.
+    const otra = await subir(
+      e,
+      await fixture("historial.csv"),
+      {
+        entityType: "ACTIVITY",
+        sourceId: subida.body.lote.sourceId,
+      },
+      "historial.csv",
+    );
+    await analizar(e, otra.body.lote.id, ajustes);
+    const segunda = await confirmarYPromover(e, otra.body.lote.id);
+    assert.deepEqual(segunda.resumen.porResultado, { UNCHANGED: 4 });
+    assert.equal(await prisma.activity.count({ where: { organizationId: e.organizationId } }), 4);
+
+    // Deshacer el historial da de baja sus actividades.
+    const deshecho = await deshacer(e, batchId);
+    assert.deepEqual(deshecho.lote.counters.deshacer.borrados, { ACTIVITY: 4 });
+    assert.equal(
+      await prisma.activity.count({ where: { organizationId: e.organizationId, deletedAt: null } }),
+      0,
+    );
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("historial: el autor tiene que ser un usuario activo de la organización, y sin columna de tipo hace falta un tipo por defecto", async () => {
+  const e = await montar("historial-autor");
+  const otra = await montar("historial-autor-otra");
+  try {
+    identidad = { ...identidad!, userId: e.platformAdminId };
+    const subida = await subir(
+      e,
+      await fixture("historial.csv"),
+      {
+        entityType: "ACTIVITY",
+        sourceName: "Historial",
+      },
+      "historial.csv",
+    );
+    const batchId = subida.body.lote.id;
+    const ajeno = await enviar(e, "PUT", `/${batchId}/config`, {
+      mapeo: MAPEO_DE_HISTORIAL,
+      historial: { autorId: otra.vendedorId, tipos: {} },
+    });
+    assert.equal(ajeno.status, 400);
+    const sinTipo = Object.fromEntries(
+      Object.entries(MAPEO_DE_HISTORIAL).filter(([columna]) => columna !== "Tipo"),
+    );
+    const sinTipoNiDefecto = await enviar(e, "PUT", `/${batchId}/config`, {
+      mapeo: sinTipo,
+      historial: { autorId: e.vendedorId, tipos: {} },
+    });
+    assert.equal(sinTipoNiDefecto.status, 400);
+  } finally {
+    await desmontar(otra);
+    await desmontar(e).catch(() => undefined);
+  }
+});

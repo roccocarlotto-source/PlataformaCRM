@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { LifecycleStage } from "@prisma/client";
 import { normalizarTelefono, soloDigitos } from "../lib/telefono";
 import {
@@ -80,7 +81,28 @@ export function claveDeCampoPersonalizado(destino: string): string | null {
     : null;
 }
 
-export type TipoImportable = "COMPANY" | "CONTACT";
+export const DESTINOS_DE_HISTORIAL = [
+  "externalId",
+  "type",
+  "contactExternalId",
+  "contactEmail",
+  "contactPhone",
+  "subject",
+  "body",
+  "occurredAt",
+  "dueDate",
+  "done",
+  "authorName",
+  "assigneeEmail",
+] as const;
+export type DestinoDeHistorial = (typeof DESTINOS_DE_HISTORIAL)[number];
+
+export type TipoImportable = "COMPANY" | "CONTACT" | "ACTIVITY";
+
+// Los tipos de actividad que se importan (decisión del 06/10/2026: notas,
+// llamadas y tareas).
+export const TIPOS_DE_HISTORIAL = ["NOTE", "CALL", "TASK"] as const;
+export type TipoDeHistorial = (typeof TIPOS_DE_HISTORIAL)[number];
 
 // ---------------------------------------------------------------------------
 // Ajustes del lote (paso 3 y 4 del asistente). Los valida
@@ -104,6 +126,19 @@ export interface AjustesDeImportacion {
   duplicados: Politica;
   // Empresas que no existen al importar contactos: se crean (decisión 10).
   crearEmpresas: boolean;
+  // Solo en un lote de historial (§5.3).
+  historial?: AjustesDeHistorial;
+}
+
+export interface AjustesDeHistorial {
+  // El usuario de la organización que figura como autor (decisión 5): el
+  // platform admin no es miembro. Por defecto, el ADMIN más antiguo (lo
+  // propone la pantalla).
+  autorId: string;
+  // El tipo cuando no hay columna de tipo, o la celda está vacía.
+  tipoPorDefecto?: TipoDeHistorial;
+  // Valores del origen -> tipo ("Llamada" -> CALL).
+  tipos: Record<string, TipoDeHistorial>;
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +454,143 @@ export function clavesDeEmpresa(c: CandidatoDeEmpresa): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Historial: notas, llamadas y tareas pasadas (§5.3)
+// ---------------------------------------------------------------------------
+
+export interface CandidatoDeActividad {
+  externalId?: string;
+  type: TipoDeHistorial;
+  // A qué contacto va: el id del origen, el email o el teléfono normalizado.
+  contactExternalId?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  subject: string;
+  body?: string;
+  // "YYYY-MM-DD": cuándo pasó (decisión 23). Sin columna, la importación.
+  occurredAt?: string;
+  dueDate?: string;
+  done?: boolean;
+  authorName?: string;
+  assigneeEmail?: string;
+}
+
+const ETIQUETA_DE_TIPO: Record<TipoDeHistorial, string> = {
+  NOTE: "Nota",
+  CALL: "Llamada",
+  TASK: "Tarea",
+};
+
+function diaParaMostrar(fecha: string): string {
+  const [a, m, d] = fecha.split("-");
+  return `${d}/${m}/${a}`;
+}
+
+export function traducirFilaDeActividad(
+  fila: FilaCruda,
+  ajustes: AjustesDeImportacion,
+  codigoDePais: string | null,
+): Traduccion<CandidatoDeActividad> {
+  const a = new Acumulador();
+  const historial = ajustes.historial;
+  if (!historial)
+    return { ok: false, errores: ["El lote no tiene los ajustes del historial"], advertencias: [] };
+
+  const celdaDeTipo = celda(fila, ajustes, "type");
+  let type: TipoDeHistorial | undefined = a.interpretado(
+    mapearValor(celdaDeTipo ?? null, historial.tipos, TIPOS_DE_HISTORIAL),
+    nombreDeColumna(ajustes, "type"),
+  );
+  type ??= historial.tipoPorDefecto;
+  if (type === undefined && a.errores.length === 0)
+    a.errores.push("Falta el tipo (nota, llamada o tarea)");
+
+  const contactExternalId = a.texto(fila, ajustes, "contactExternalId", LARGO.externalId);
+  const contactEmail = a.texto(fila, ajustes, "contactEmail", LARGO.email);
+  const telefono = a.texto(fila, ajustes, "contactPhone", LARGO.phone);
+  const contactPhone =
+    telefono === undefined ? undefined : (normalizarTelefono(telefono, codigoDePais) ?? undefined);
+  if (telefono !== undefined && contactPhone === undefined) {
+    a.advertencias.push(
+      `El teléfono «${telefono}» no se pudo normalizar: no se usa para buscar el contacto`,
+    );
+  }
+  if (contactExternalId === undefined && contactEmail === undefined && contactPhone === undefined) {
+    a.errores.push("Falta a qué contacto va: el id del origen, el email o el teléfono");
+  }
+
+  const occurredAt = a.interpretado(
+    interpretarFecha(celda(fila, ajustes, "occurredAt") ?? null, ajustes.formato.fecha),
+    nombreDeColumna(ajustes, "occurredAt"),
+  );
+  const dueDate = a.interpretado(
+    interpretarFecha(celda(fila, ajustes, "dueDate") ?? null, ajustes.formato.fecha),
+    nombreDeColumna(ajustes, "dueDate"),
+  );
+  const done = a.interpretado(
+    interpretarSiNo(celda(fila, ajustes, "done") ?? null, {
+      si: ajustes.formato.si,
+      no: ajustes.formato.no,
+    }),
+    nombreDeColumna(ajustes, "done"),
+  );
+  const body = textoDe(celda(fila, ajustes, "body"));
+  let subject = a.texto(fila, ajustes, "subject", 255);
+  if (subject === undefined && type !== undefined) {
+    // Asunto obligatorio en el modelo (§5.3): sin columna, el tipo y la fecha.
+    subject = occurredAt
+      ? `${ETIQUETA_DE_TIPO[type]} del ${diaParaMostrar(occurredAt)}`
+      : ETIQUETA_DE_TIPO[type];
+  }
+
+  if (a.errores.length > 0 || type === undefined || subject === undefined) {
+    return { ok: false, errores: a.errores, advertencias: a.advertencias };
+  }
+  return {
+    ok: true,
+    candidato: {
+      externalId: a.texto(fila, ajustes, "externalId", LARGO.externalId),
+      type,
+      contactExternalId,
+      contactEmail,
+      contactPhone,
+      subject,
+      body,
+      occurredAt,
+      dueDate,
+      done,
+      authorName: textoDe(celda(fila, ajustes, "authorName")),
+      assigneeEmail: textoDe(celda(fila, ajustes, "assigneeEmail")),
+    },
+    advertencias: a.advertencias,
+  };
+}
+
+// La identidad de una actividad: el id del origen o, sin él, un hash de lo
+// que la define (a qué contacto, de qué tipo, cuándo, qué dice). Así volver a
+// subir el archivo no la duplica (§3.2).
+export function claveDeActividad(c: CandidatoDeActividad): string {
+  if (c.externalId !== undefined) return claveDeId(c.externalId);
+  const huella = JSON.stringify([
+    c.contactExternalId ?? null,
+    c.contactEmail?.toLowerCase() ?? null,
+    c.contactPhone ? soloDigitos(c.contactPhone) : null,
+    c.type,
+    c.occurredAt ?? null,
+    c.subject,
+    c.body ?? null,
+  ]);
+  return `hash:${createHash("sha256").update(huella).digest("hex")}`;
+}
+
+// El texto de la actividad: el del archivo y, si el origen trae autor, su
+// nombre al final (decisión 5).
+export function cuerpoDeActividad(c: CandidatoDeActividad): string | null {
+  const autor = c.authorName ? `Autor original: ${c.authorName}` : null;
+  const partes = [c.body, autor].filter((p): p is string => p !== undefined && p !== null);
+  return partes.length > 0 ? partes.join("\n\n") : null;
+}
+
+// ---------------------------------------------------------------------------
 // EL PLAN, campo por campo (§8.2)
 //
 //   completar          el CRM no tiene valor: se escribe (con FILL_EMPTY y con
@@ -668,6 +840,20 @@ const SINONIMOS: Record<TipoImportable, Record<string, readonly string[]>> = {
     vehicleRef: ["vehiculo de interes", "vehiculo", "auto de interes", "patente de interes"],
     companyName: ["empresa", "compania", "razon social", "company"],
     customerSince: ["cliente desde", "fecha de alta", "alta", "fecha alta", "created"],
+  },
+  ACTIVITY: {
+    externalId: ["id", "id actividad", "id nota", "codigo"],
+    type: ["tipo", "tipo de actividad", "type"],
+    contactExternalId: ["id cliente", "id contacto", "codigo cliente"],
+    contactEmail: ["email", "mail", "correo", "email cliente", "email contacto"],
+    contactPhone: ["telefono", "celular", "telefono cliente"],
+    subject: ["asunto", "titulo", "subject"],
+    body: ["texto", "nota", "detalle", "descripcion", "comentario", "body"],
+    occurredAt: ["fecha", "fecha de la actividad", "date"],
+    dueDate: ["vencimiento", "vence", "fecha limite", "due date"],
+    done: ["hecha", "completada", "realizada", "done"],
+    authorName: ["autor", "usuario", "creado por", "author"],
+    assigneeEmail: ["responsable", "asignado a", "assignee"],
   },
   COMPANY: {
     externalId: ["id", "codigo", "id empresa"],
