@@ -187,6 +187,12 @@ contacts.imported_at      TIMESTAMPTZ, nullable. Cuándo lo creó una
                           existe ninguna métrica así: los tableros son de
                           oportunidades. La columna deja la regla escrita
                           para la primera que se haga.
+activities.occurred_at    TIMESTAMP, NOT NULL, default now(). Cuándo PASÓ la
+                          nota, la llamada o la tarea (decisión 23). La línea
+                          de tiempo se ordena por esta columna; created_at
+                          queda como la fecha de carga. En lo que ya existía se
+                          completa con created_at; en la carga manual es el
+                          momento de crearla (editarla es un cambio aparte).
 VehicleStatus             + UNAVAILABLE (§7, decisión 16).
 ```
 
@@ -197,7 +203,7 @@ Un contacto que ya existía y que una importación solo actualiza no recibe
 
 Todos los cambios de esquema de la Fase 1 van en **una sola migración**, en el
 primer PR (decisión 20): las cuatro tablas nuevas (`import_batches`,
-`external_record_links`, `vehicle_photo_imports` e `import_syncs`), las columnas nuevas de `ingestion_events` y `contacts`, y los dos
+`external_record_links`, `vehicle_photo_imports` e `import_syncs`), las columnas nuevas de `ingestion_events`, `contacts` y `activities`, y los dos
 valores de enum (`IngestionStatus.STAGED`, `VehicleStatus.UNAVAILABLE`). Un
 `ALTER TYPE … ADD VALUE` no se puede usar en la misma transacción que lo
 agrega. La migración no los usa, así que no hay problema, pero conviene
@@ -354,7 +360,7 @@ que solo se advierte.
 |---|---|---|
 | `firstName`, `lastName`, `email`, `phone`, `jobTitle` | como hoy | Mismo `ingestContactSchema` y misma normalización de teléfono con el país de la organización. Para una sola columna "Nombre completo", ver abajo. |
 | `leadNotes` | notas | Se agrega con `appendLeadNotes`, no se reemplaza. |
-| `lifecycleStage` | etapa | Se mapean los valores del origen a `LEAD`/`MQL`/`SQL`/`CUSTOMER`/`CHURNED` en el paso de ajustes ("Cliente" → `CUSTOMER`). Nunca degrada una etapa existente (§4), ni con "pisar". |
+| `lifecycleStage` | etapa | Se mapean los valores del origen a `LEAD`/`MQL`/`SQL`/`CUSTOMER`/`CHURNED` en el paso de ajustes ("Cliente" → `CUSTOMER`). En un contacto nuevo se toma el del archivo. En uno existente, solo avanza (§8.2), ni con "pisar". |
 | `source` | origen | Texto libre, 100 caracteres. Sin columna, el nombre de la fuente. |
 | `ownerId` | email del vendedor | Usuario de la organización, no borrado. Si no existe, se advierte y queda sin asignar. |
 | `vehicleOfInterestId` | código de stock del origen o patente | Se busca en los vínculos de vehículos y después por patente. Con `vehicleOfInterestSetBy = HUMAN`. Si no se encuentra, se advierte. |
@@ -398,13 +404,15 @@ pago") para que se resuelva agregando la opción una vez y reanalizando.
 | `contactId` | email, teléfono o id del contacto en el origen | Se busca primero por el vínculo (si se mapea el id del origen), después por email y por teléfono normalizado. Sin contacto, la fila falla: una actividad suelta no tiene dónde mostrarse. |
 | `subject` | asunto | Obligatorio en el modelo (255). Si no hay columna, se arma con el tipo y la fecha ("Llamada del 14/03/2025"). |
 | `body` | texto | Sin tope propio. Se aplica el tope de celda (§9). |
-| fecha | fecha original | Tarea: `dueDate`, y `completedAt` con la fecha original si una columna o el ajuste dice que estaba hecha (decisión 7). Nota y llamada: ver la pregunta pendiente P1 al final de §13. |
+| fecha | fecha original | `occurredAt` (decisión 23); `createdAt` es la fecha de importación. Tarea: además `dueDate`, y `completedAt` con la fecha original si una columna o el ajuste dice que estaba hecha (decisión 7). |
 | `authorId` | — | El usuario de la organización que se elige en el asistente; por defecto, el ADMIN más antiguo (decisión 5). Si el origen trae autor, su nombre va al final del texto: "Autor original: …". |
 | `assigneeId` | email del responsable (tareas) | Si no existe, queda asignada al autor elegido. |
 
 **Tareas pasadas** (decisión 7):
 
-- las que vienen hechas quedan completadas con su fecha original;
+- las que vienen hechas quedan completadas con su fecha original **y
+  confirmadas** (decisión 25), con el autor elegido como quien confirma, para
+  no llenar la cola de "pendiente de confirmar" del ADMIN (§29);
 - las no hechas con fecha vencida quedan abiertas y vencidas, asignadas al
   autor elegido.
 
@@ -703,9 +711,12 @@ previa, sobre filas que ve, y se guarda el antes y el después por fila en
   regla de unicidad de siempre: un email o un teléfono que ya tiene otro
   contacto es un choque, no un cambio;
 - **la etapa, que solo avanza.** Un `LEAD` pasa a `CUSTOMER` si el archivo lo
-  dice. Un `CUSTOMER` no vuelve a `LEAD`. El orden es el del enum: `LEAD` <
-  `MQL` < `SQL` < `CUSTOMER` < `CHURNED`. Cómo tratar `CHURNED` es la
-  pregunta pendiente P2 de §13.
+  dice. Un `CUSTOMER` no vuelve a `LEAD`. Entre `LEAD` < `MQL` < `SQL` <
+  `CUSTOMER` manda ese orden. `CHURNED` no sigue el orden del enum
+  (decisión 24): solo se pasa a `CHURNED` desde `CUSTOMER`, y de `CHURNED` se
+  puede volver a `CUSTOMER`. Cualquier otro cambio hacia o desde `CHURNED` se
+  omite y se anota en la fila. En un contacto nuevo se toma el valor del
+  archivo, `CHURNED` incluido.
 
 **La vista previa es un pronóstico, no un contrato.** Entre el análisis y la
 promoción alguien puede editar un contacto o puede entrar un WhatsApp. La
@@ -953,25 +964,6 @@ Respondidas por Rocco el 06/10/2026, sobre el PR #428.
 | 20 | Migraciones | Una sola, en el primer PR. |
 | 21 | Selección múltiple | Incluida; #426 ya está en master. |
 | 22 | Una sola instancia | Ver §7: lock de la sincronización en la base y sin estado en memoria. |
-
-### Preguntas pendientes
-
-No frenan los PR 0 a 5. Se responden antes del PR que las necesita.
-
-- **P1 (PR 6). Fecha de las notas y llamadas.** `Activity` no tiene una fecha
-  propia del hecho, solo `createdAt`. Si `createdAt` es la fecha de
-  importación, como en los contactos, toda la historia importada aparece en la
-  ficha el día del alta, en un solo bloque y sin su orden real. Propuesta:
-  para el historial, `createdAt` = la fecha original. El argumento de la
-  decisión 6 era no inflar "contactos nuevos", y una nota no entra en esa
-  métrica. La alternativa es una columna `occurredAt` en `activities`, que
-  igual entraría en la migración del PR 1.
-- **P2 (PR 3). `CHURNED`.** El enum lo pone después de `CUSTOMER`, así que con
-  "solo avanza" un `LEAD` podría pasar a `CHURNED`, y un `CHURNED` reactivado
-  en el origen nunca volvería a `CUSTOMER`. ¿Se sigue el orden del enum tal
-  cual, o `CHURNED` solo se escribe sobre `CUSTOMER` y `CHURNED → CUSTOMER` se
-  permite?
-- **P3 (PR 6). Tareas hechas: ¿confirmadas?** Una tarea completada que hizo un
-  vendedor queda "pendiente de confirmar" para el ADMIN (§29). ¿Las importadas
-  como hechas quedan también confirmadas, con el autor elegido como quien
-  confirma, para no llenar esa cola con tareas de años anteriores?
+| 23 | Fecha del historial (P1) | Columna `occurredAt` en `activities`, en la migración de #430. `createdAt` es la fecha de importación. La línea de tiempo se ordena por `occurredAt`. En la carga manual, por defecto, el momento de crearla; editarla es un cambio aparte. |
+| 24 | `CHURNED` (P2) | No sigue el orden del enum. Solo desde `CUSTOMER`; de `CHURNED` se puede volver a `CUSTOMER`; en un contacto nuevo, el valor del archivo. Cualquier otro cambio hacia o desde `CHURNED` se omite y se anota en la fila. |
+| 25 | Tareas hechas (P3) | Quedan completadas y confirmadas. |
