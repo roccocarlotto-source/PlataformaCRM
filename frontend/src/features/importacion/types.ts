@@ -61,6 +61,13 @@ export interface Lote {
   counters: {
     analisis?: { empresasNuevas: number; ejemplosDeEmpresasNuevas: string[]; sinClave: number };
     final?: ResumenDeFilas;
+    // Deshacer (docs/importacion-de-datos.md §8.3): cuántos se dieron de baja
+    // por tipo, y lo que se omitió con su motivo (hasta 200).
+    deshacer?: {
+      borrados: Partial<Record<"ACTIVITY" | "CONTACT" | "COMPANY" | "VEHICLE", number>>;
+      omitidos: { tipo: string; id: string; motivo: string }[];
+      totalOmitidos: number;
+    };
   } | null;
   errorMessage: string | null;
   createdAt: string;

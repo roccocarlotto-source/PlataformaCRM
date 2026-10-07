@@ -4,11 +4,13 @@ import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import {
   claimLoteParaAnalizar,
+  claimLoteParaDeshacer,
   claimLoteTerminado,
   resumenDeFilas,
   transicionarLote,
 } from "../repositories/importacion.repository";
 import { analizarLote } from "../services/importacionAnalisis.service";
+import { deshacerLote } from "../services/importacionDeshacer.service";
 import { describirError } from "../utils/backoff";
 
 // ---------------------------------------------------------------------------
@@ -23,6 +25,8 @@ import { describirError } from "../utils/backoff";
 //   2. RUNNING -> DONE: cuando ya no le queda ninguna fila por promover, con
 //      los contadores finales materializados (sobreviven a la purga de las
 //      filas, §9.4).
+//   3. UNDOING -> UNDONE: deshacer lo creado (importacionDeshacer.service.ts).
+//      Si falla, el lote vuelve a DONE con el motivo, como el análisis.
 //
 // Mismo patrón que el resto (setTimeout encadenado, stop que espera la pasada
 // en curso). Correcto con más de una instancia: el reclamo es por fila de la
@@ -37,6 +41,7 @@ export const ANALISIS_TRANSACTION_TIMEOUT_MS = 120_000;
 export interface ResumenDeLotes {
   analizados: number;
   terminados: number;
+  deshechos: number;
   conError: number;
 }
 
@@ -62,6 +67,33 @@ async function analizarUno(resumen: ResumenDeLotes): Promise<boolean> {
     await transicionarLote(tomado.organizationId, tomado.id, ["ANALYZING"], {
       status: "STAGED",
       errorMessage: `No se pudo analizar el lote: ${describirError(err)}`.slice(0, 1000),
+    });
+    return true;
+  }
+}
+
+async function deshacerUno(resumen: ResumenDeLotes): Promise<boolean> {
+  let tomado: { id: string; organizationId: string } | undefined;
+  try {
+    const hubo = await prisma.$transaction(
+      async (tx) => {
+        const lote = await claimLoteParaDeshacer(tx);
+        if (!lote) return false;
+        tomado = { id: lote.id, organizationId: lote.organizationId };
+        await deshacerLote(lote, tx);
+        return true;
+      },
+      { timeout: ANALISIS_TRANSACTION_TIMEOUT_MS },
+    );
+    if (hubo) resumen.deshechos++;
+    return hubo;
+  } catch (err) {
+    if (!tomado) throw err;
+    resumen.conError++;
+    logger.error({ err, loteId: tomado.id }, "No se pudo deshacer un lote de importación");
+    await transicionarLote(tomado.organizationId, tomado.id, ["UNDOING"], {
+      status: "DONE",
+      errorMessage: `No se pudo deshacer el lote: ${describirError(err)}`.slice(0, 1000),
     });
     return true;
   }
@@ -94,11 +126,14 @@ async function terminarUno(resumen: ResumenDeLotes): Promise<boolean> {
 
 // Una pasada: analiza y cierra todo lo que haya, de a un lote por vez.
 export async function procesarLotes(): Promise<ResumenDeLotes> {
-  const resumen: ResumenDeLotes = { analizados: 0, terminados: 0, conError: 0 };
+  const resumen: ResumenDeLotes = { analizados: 0, terminados: 0, deshechos: 0, conError: 0 };
   while (await analizarUno(resumen)) {
     /* uno por transacción */
   }
   while (await terminarUno(resumen)) {
+    /* uno por transacción */
+  }
+  while (await deshacerUno(resumen)) {
     /* uno por transacción */
   }
   return resumen;
@@ -120,7 +155,7 @@ export function iniciarWorkerDeLotesDeImportacion(): () => Promise<void> {
     tickEnCurso = (async () => {
       try {
         const resumen = await procesarLotes();
-        if (resumen.analizados + resumen.terminados + resumen.conError > 0) {
+        if (resumen.analizados + resumen.terminados + resumen.deshechos + resumen.conError > 0) {
           logger.info(resumen, "Lotes de importación");
         }
       } catch (err) {

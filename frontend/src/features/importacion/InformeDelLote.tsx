@@ -1,10 +1,12 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useConfirm } from "../../design-system/useConfirm";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { Spinner } from "../../design-system/Spinner";
 import { guardarArchivo } from "../../lib/guardarArchivo";
-import { descargarCsv } from "./api";
+import { descargarCsv, deshacerLote } from "./api";
+import { importacionKeys } from "./queries";
 import { RESULTADOS } from "./labels";
 import type { DetalleDelLote } from "./types";
 
@@ -17,6 +19,15 @@ import type { DetalleDelLote } from "./types";
 
 export function ProgresoDelLote({ detalle }: { detalle: DetalleDelLote }) {
   const { lote, resumen } = detalle;
+  if (lote.status === "UNDOING") {
+    return (
+      <Card heading="Deshaciendo">
+        <p role="status">
+          <Spinner size="sm" /> Dando de baja lo que creó esta importación…
+        </p>
+      </Card>
+    );
+  }
   if (lote.status === "ANALYZING") {
     return (
       <Card heading="Calculando la vista previa">
@@ -37,6 +48,19 @@ export function ProgresoDelLote({ detalle }: { detalle: DetalleDelLote }) {
   );
 }
 
+const TIPO_EN_PLURAL: Record<string, string> = {
+  CONTACT: "contactos",
+  COMPANY: "empresas",
+  ACTIVITY: "actividades",
+  VEHICLE: "vehículos",
+};
+const TIPO_EN_SINGULAR: Record<string, string> = {
+  CONTACT: "Contacto",
+  COMPANY: "Empresa",
+  ACTIVITY: "Actividad",
+  VEHICLE: "Vehículo",
+};
+
 export function InformeDelLote({
   organizationId,
   detalle,
@@ -51,6 +75,22 @@ export function InformeDelLote({
   const fallidas = resumen.porEstado.FAILED ?? 0;
   const actualizadas = resumen.porResultado.UPDATED ?? 0;
 
+  const queryClient = useQueryClient();
+  const confirm = useConfirm();
+  const deshacer = useMutation({
+    mutationFn: () => deshacerLote(organizationId, lote.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: importacionKeys.all }),
+  });
+  const deshecho = lote.counters?.deshacer;
+
+  async function alDeshacer() {
+    const ok = await confirm(
+      "Se dan de baja los registros que creó esta importación. Lo que ya tuvo uso en el CRM (una conversación, una oportunidad, una nota cargada a mano) se deja y se informa. Lo que la importación actualizó no se revierte.",
+      { confirmLabel: "Deshacer", danger: true },
+    );
+    if (ok) deshacer.mutate();
+  }
+
   const descarga = useMutation({
     mutationFn: async (cual: "failed" | "changes") => {
       const blob = await descargarCsv(organizationId, lote.id, cual);
@@ -59,7 +99,7 @@ export function InformeDelLote({
   });
 
   return (
-    <Card heading="Informe">
+    <Card heading={lote.status === "UNDONE" ? "Informe (deshecha)" : "Informe"}>
       <div className="ds-kpi-row">
         {Object.entries(RESULTADOS).map(([clave, label]) => (
           <div key={clave} className="ds-kpi">
@@ -83,6 +123,33 @@ export function InformeDelLote({
           Lo actualizado no se deshace: el CSV de cambios trae el antes y el después de cada campo.
         </p>
       ) : null}
+      {deshecho ? (
+        <div className="ds-stack">
+          <p>
+            Se dieron de baja{" "}
+            {Object.entries(deshecho.borrados)
+              .map(([tipo, n]) => `${n} ${TIPO_EN_PLURAL[tipo] ?? tipo}`)
+              .join(", ") || "0 registros"}
+            . {deshecho.totalOmitidos > 0 ? `Se dejaron ${deshecho.totalOmitidos}:` : ""}
+          </p>
+          {deshecho.omitidos.length > 0 ? (
+            <ul className="ds-stack">
+              {deshecho.omitidos.map((o) => (
+                <li key={o.id} className="ds-hint">
+                  {TIPO_EN_SINGULAR[o.tipo] ?? o.tipo} {o.id.slice(0, 8)}: {o.motivo}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+      {lote.errorMessage ? <ErrorState>{lote.errorMessage}</ErrorState> : null}
+      {deshacer.isError ? (
+        <ErrorState>
+          No pudimos deshacer
+          {deshacer.error instanceof Error ? `: ${deshacer.error.message}` : "."}
+        </ErrorState>
+      ) : null}
       {descarga.isError ? (
         <ErrorState>
           No pudimos descargar el archivo
@@ -103,6 +170,16 @@ export function InformeDelLote({
         <Button type="button" onClick={onNueva}>
           Nueva importación
         </Button>
+        {lote.status === "DONE" ? (
+          <Button
+            type="button"
+            variant="danger"
+            loading={deshacer.isPending}
+            onClick={() => void alDeshacer()}
+          >
+            Deshacer lo creado
+          </Button>
+        ) : null}
       </div>
     </Card>
   );

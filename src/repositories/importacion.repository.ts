@@ -111,6 +111,19 @@ export async function claimLoteParaAnalizar(db: Db): Promise<ImportBatch | null>
   return findImportBatch(filas[0].organization_id, filas[0].id, db);
 }
 
+// Un lote que el admin pidió deshacer (§8.3), con el mismo reclamo por fila.
+export async function claimLoteParaDeshacer(db: Db): Promise<ImportBatch | null> {
+  const filas = await db.$queryRaw<{ id: string; organization_id: string }[]>`
+    SELECT id, organization_id FROM import_batches
+    WHERE status = 'UNDOING'::"ImportBatchStatus"
+    ORDER BY updated_at
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1
+  `;
+  if (filas.length === 0) return null;
+  return findImportBatch(filas[0].organization_id, filas[0].id, db);
+}
+
 // Lotes confirmados a los que ya no les queda ninguna fila por promover.
 export async function claimLoteTerminado(db: Db): Promise<ImportBatch | null> {
   const filas = await db.$queryRaw<{ id: string; organization_id: string }[]>`

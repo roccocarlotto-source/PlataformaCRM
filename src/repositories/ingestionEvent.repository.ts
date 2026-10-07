@@ -308,6 +308,13 @@ export async function claimNextPendingEvent(
   // consume intento— hasta que la fuente vuelva a estar activa. Es la mitad
   // estructural del fix; la otra es retryIngestionEvent, que rechaza antes de
   // encolar para no devolver un 200 sobre una fila que nadie va a tomar.
+  //
+  // EL DESEMPATE POR row_number: las filas de un lote del asistente de
+  // importación entran en un mismo INSERT y comparten created_at, así que sin
+  // él el orden entre ellas es el que elija Postgres. La vista previa
+  // pronostica en orden de archivo ("la fila 5 actualiza lo que crea la 1"),
+  // y la promoción tiene que ir en ese mismo orden. Para el webhook y
+  // POST /api/imports row_number es NULL y no cambia nada.
   const filas = await db.$queryRaw<FilaReclamada[]>`
     SELECT e.id, e.organization_id, e.source_id,
            s.name AS source_name, s.type AS source_type,
@@ -327,7 +334,7 @@ export async function claimNextPendingEvent(
       AND coalesce(e.next_attempt_at, e.created_at) <= now()
     ${filtroOrg}
     ${filtroExcluidos}
-    ORDER BY coalesce(e.next_attempt_at, e.created_at)
+    ORDER BY coalesce(e.next_attempt_at, e.created_at), e.row_number
     FOR UPDATE OF e SKIP LOCKED
     LIMIT 1
   `;

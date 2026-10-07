@@ -319,6 +319,51 @@ describe("ImportarDatosPage", () => {
     expect(URL.createObjectURL).toHaveBeenCalled();
   });
 
+  it("deshacer: desde el informe, con confirmación; la deshecha muestra lo borrado y lo que se dejó con su motivo", async () => {
+    estado = "DONE";
+    let pedidos = 0;
+    server.use(
+      http.post(`${base}/${LOTE}/undo`, () => {
+        pedidos++;
+        estado = "UNDONE";
+        return HttpResponse.json(lote());
+      }),
+      http.get(`${base}/${LOTE}`, () => {
+        const l = lote();
+        if (estado === "UNDONE") {
+          l.counters = {
+            ...l.counters,
+            deshacer: {
+              borrados: { CONTACT: 2, COMPANY: 1 },
+              omitidos: [
+                {
+                  tipo: "CONTACT",
+                  id: "77777777-7777-4777-8777-777777777777",
+                  motivo: "ya tiene uso propio en el CRM (activities)",
+                },
+              ],
+              totalOmitidos: 1,
+            },
+          };
+        }
+        return HttpResponse.json({
+          lote: l,
+          resumen: { total: 3, porEstado: {}, porPlan: {}, porResultado: {} },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}&batchId=${LOTE}`);
+    await user.click(await screen.findByRole("button", { name: "Deshacer lo creado" }));
+    await waitFor(() => expect(pedidos).toBe(1));
+    expect(window.confirm).toHaveBeenCalled();
+    expect(
+      await screen.findByText(/Se dieron de baja 2 contactos, 1 empresas/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/ya tiene uso propio en el CRM \(activities\)/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Deshacer lo creado" })).not.toBeInTheDocument();
+  });
+
   it("«No crear empresas» vuelve a mandar los ajustes con crearEmpresas: false", async () => {
     estado = "READY";
     const user = userEvent.setup();

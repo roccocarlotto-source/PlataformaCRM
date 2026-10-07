@@ -6,6 +6,7 @@ import {
   csvCambiosHandler,
   csvFallidasHandler,
   decidirHandler,
+  deshacerHandler,
   filasHandler,
   listarHandler,
   obtenerHandler,
@@ -48,5 +49,6 @@ importacionAdminRouter.get(`${BASE}/:batchId/rows`, ...gate, filasHandler);
 importacionAdminRouter.patch(`${BASE}/:batchId/rows`, ...gate, decidirHandler);
 importacionAdminRouter.post(`${BASE}/:batchId/confirm`, ...gate, confirmarHandler);
 importacionAdminRouter.post(`${BASE}/:batchId/cancel`, ...gate, cancelarHandler);
+importacionAdminRouter.post(`${BASE}/:batchId/undo`, ...gate, deshacerHandler);
 importacionAdminRouter.get(`${BASE}/:batchId/failed.csv`, ...gate, csvFallidasHandler);
 importacionAdminRouter.get(`${BASE}/:batchId/changes.csv`, ...gate, csvCambiosHandler);

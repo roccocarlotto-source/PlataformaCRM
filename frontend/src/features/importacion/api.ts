@@ -106,6 +106,13 @@ export function cancelarLote(organizationId: string, batchId: string) {
   });
 }
 
+export function deshacerLote(organizationId: string, batchId: string) {
+  return request<Lote>(`${base(organizationId)}/${batchId}/undo`, {
+    method: "POST",
+    getAccessToken,
+  });
+}
+
 export function descargarCsv(organizationId: string, batchId: string, cual: "failed" | "changes") {
   return downloadFile(`${base(organizationId)}/${batchId}/${cual}.csv`, { getAccessToken });
 }

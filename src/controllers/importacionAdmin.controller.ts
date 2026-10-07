@@ -20,6 +20,7 @@ import {
   opcionesDeImportacion,
   subirImportacion,
 } from "../services/importacion.service";
+import { pedirDeshacer } from "../services/importacionDeshacer.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -107,6 +108,12 @@ export const confirmarHandler = asyncHandler<AuthenticatedRequest>(async (req, r
 
 export const cancelarHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   res.status(200).json(await cancelarImportacion(organizacionDelPath(req), loteDelPath(req)));
+});
+
+export const deshacerHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  res
+    .status(200)
+    .json(await pedirDeshacer(organizacionDelPath(req), loteDelPath(req), req.auth.userId));
 });
 
 function enviarCsv(res: Response, nombre: string, contenido: Buffer) {
