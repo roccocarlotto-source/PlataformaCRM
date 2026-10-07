@@ -536,3 +536,44 @@ test("B-18 DELETE — sigue siendo solo ADMIN, aunque el USER la haya creado", a
   const fila = await prisma.activity.findUniqueOrThrow({ where: { id: creada.id } });
   assert.equal(fila.deletedAt, null);
 });
+
+// ---------------------------------------------------------------------------
+// occurredAt (P1 de docs/importacion-de-datos.md §13): la línea de tiempo se
+// ordena por cuándo PASÓ, no por cuándo se cargó. Una nota importada hoy con
+// fecha de hace un año va al final, aunque su createdAt sea el más nuevo. La
+// carga manual no cambia: occurredAt nace igual a createdAt (default now()).
+// ---------------------------------------------------------------------------
+
+test("occurredAt: el listado se ordena por defecto por cuándo pasó; una actividad cargada a mano tiene occurredAt = ahora", async () => {
+  const empresa = await prisma.company.create({
+    data: { organizationId: orgId, name: "Línea de tiempo" },
+  });
+  const manual = await post("/api/activities", admin.accessToken, {
+    type: "NOTE",
+    subject: "Cargada a mano",
+    companyId: empresa.id,
+  });
+  assert.equal(manual.status, 201);
+  const creada = (await manual.json()) as { id: string; occurredAt: string; createdAt: string };
+  assert.equal(creada.occurredAt, creada.createdAt);
+
+  const importada = await prisma.activity.create({
+    data: {
+      organizationId: orgId,
+      authorId: admin.id,
+      companyId: empresa.id,
+      type: "CALL",
+      subject: "Importada con fecha original",
+      occurredAt: new Date("2025-01-15T12:00:00.000Z"),
+    },
+  });
+
+  const res = await get(`/api/activities?companyId=${empresa.id}`, admin.accessToken);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as ListBody;
+  assert.deepEqual(
+    body.data.map((a) => a.id),
+    [creada.id, importada.id],
+    "la importada, creada después, va al final porque pasó antes",
+  );
+});

@@ -84,7 +84,7 @@ function resolutionHandlers() {
 const CREATED_AT = "2026-03-10T14:30:00.000Z";
 
 describe("ActivityFeed", () => {
-  it("ADMIN: pide las últimas 8 por createdAt desc sin filtros, y muestra tipo, asunto, relaciones resueltas, autor y fecha", async () => {
+  it("ADMIN: pide las últimas 8 por occurredAt desc (cuándo pasó) sin filtros, y muestra tipo, asunto, relaciones resueltas, autor y fecha", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const captured: URLSearchParams[] = [];
     server.use(
@@ -99,6 +99,7 @@ describe("ActivityFeed", () => {
             companyId: "co1",
             contactId: "ct1",
             opportunityId: "op1",
+            occurredAt: CREATED_AT,
             createdAt: CREATED_AT,
           }),
           makeActivity({
@@ -107,6 +108,7 @@ describe("ActivityFeed", () => {
             subject: "Nota interna",
             authorId: "u1",
             companyId: "co1",
+            occurredAt: CREATED_AT,
             createdAt: CREATED_AT,
           }),
         ]);
@@ -125,7 +127,7 @@ describe("ActivityFeed", () => {
       expect(within(card()).getByText("Llamada de seguimiento")).toBeInTheDocument(),
     );
     expect(captured).toHaveLength(1);
-    expect(captured[0]?.get("sortBy")).toBe("createdAt");
+    expect(captured[0]?.get("sortBy")).toBe("occurredAt");
     expect(captured[0]?.get("sortOrder")).toBe("desc");
     expect(captured[0]?.get("pageSize")).toBe("8");
     expect(captured[0]?.has("assigneeId")).toBe(false);

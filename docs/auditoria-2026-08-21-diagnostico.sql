@@ -252,7 +252,12 @@ from (
       ('llm_turn_usages'),
       -- Campos personalizados de contactos (B6, migración 20261024120000):
       -- organization_id propio y la política uniforme.
-      ('contact_custom_field_definitions')
+      ('contact_custom_field_definitions'),
+      -- Importación de datos para el alta de clientes (migración
+      -- 20261026120000): las cuatro tablas con organization_id propio y la
+      -- política uniforme.
+      ('import_batches'), ('external_record_links'), ('vehicle_photo_imports'),
+      ('import_syncs')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'

@@ -22,7 +22,8 @@ export interface ActivityFilters {
   confirmed?: boolean;
 }
 
-export type ActivitySortBy = "createdAt" | "updatedAt" | "dueDate" | "completedAt" | "subject";
+export type ActivitySortBy =
+  "occurredAt" | "createdAt" | "updatedAt" | "dueDate" | "completedAt" | "subject";
 export type SortOrder = "asc" | "desc";
 
 // organizationId siempre obligatorio y deletedAt: null siempre presente en
@@ -89,6 +90,9 @@ function buildOrderBy(
       return { completedAt: sortOrder };
     case "subject":
       return { subject: sortOrder };
+    // La línea de tiempo: cuándo pasó (P1 de docs/importacion-de-datos.md).
+    case "occurredAt":
+      return { occurredAt: sortOrder };
     case "createdAt":
     default:
       return { createdAt: sortOrder };

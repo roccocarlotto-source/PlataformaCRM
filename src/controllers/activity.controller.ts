@@ -107,8 +107,10 @@ const listQuerySchema = z
       .transform((value) => value === "true")
       .optional(),
     sortBy: z
-      .enum(["createdAt", "updatedAt", "dueDate", "completedAt", "subject"])
-      .default("createdAt"),
+      .enum(["occurredAt", "createdAt", "updatedAt", "dueDate", "completedAt", "subject"])
+      // Por cuándo pasó, no por cuándo se cargó: con el historial importado,
+      // las dos fechas dejan de coincidir (docs/importacion-de-datos.md §5.3).
+      .default("occurredAt"),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
   })
   .refine((data) => !data.dueDateFrom || !data.dueDateTo || data.dueDateFrom <= data.dueDateTo, {

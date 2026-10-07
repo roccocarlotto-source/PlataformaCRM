@@ -1430,6 +1430,11 @@ interface FixtureNuevos {
   kbY: string;
   internalAgentY: string;
   identityExternalIdY: string;
+  importSourceY: string;
+  importSyncY: string;
+  importBatchY: string;
+  importLinkY: string;
+  photoImportY: string;
 }
 
 let nx: FixtureNuevos;
@@ -1720,6 +1725,53 @@ before(async () => {
       content: "h01",
     },
   });
+  // Importación de datos (migración 20261026120000): la fuente del sistema
+  // de origen, una sincronización, un lote de esa sincronización, un vínculo
+  // creado por el lote y una foto encolada del vehículo de Y.
+  const importSourceY = await prisma.source.create({
+    data: { organizationId: org, name: "H01 Y planilla", type: "FILE_IMPORT" },
+  });
+  const importSyncY = await prisma.importSync.create({
+    data: {
+      organizationId: org,
+      sourceId: importSourceY.id,
+      createdByUserId: userY.id,
+      sheetId: "h01-planilla-ficticia",
+      sheetGid: "0",
+      intervalHours: 6,
+      nextRunAt: futuro,
+    },
+  });
+  const importBatchY = await prisma.importBatch.create({
+    data: {
+      organizationId: org,
+      sourceId: importSourceY.id,
+      syncId: importSyncY.id,
+      entityType: "VEHICLE",
+      originKind: "SYNC",
+      createdByUserId: userY.id,
+    },
+  });
+  const importLinkY = await prisma.externalRecordLink.create({
+    data: {
+      organizationId: org,
+      sourceId: importSourceY.id,
+      entityType: "VEHICLE",
+      externalKey: "codigo:H01-Y",
+      entityId: vehicleY.id,
+      createdByBatchId: importBatchY.id,
+    },
+  });
+  const photoImportY = await prisma.vehiclePhotoImport.create({
+    data: {
+      organizationId: org,
+      batchId: importBatchY.id,
+      vehicleId: vehicleY.id,
+      url: "https://fotos.example.com/h01-y.jpg",
+      urlSha256: "0".repeat(64),
+      position: 0,
+    },
+  });
 
   nx = {
     orgX: orgX.id,
@@ -1752,6 +1804,11 @@ before(async () => {
     kbY: kbY.id,
     internalAgentY: internalAgentY.id,
     identityExternalIdY,
+    importSourceY: importSourceY.id,
+    importSyncY: importSyncY.id,
+    importBatchY: importBatchY.id,
+    importLinkY: importLinkY.id,
+    photoImportY: photoImportY.id,
   };
 });
 
@@ -1761,6 +1818,11 @@ after(async () => {
   const w = { where: { organizationId: ambas } };
   await prisma.internalAgentMessage.deleteMany(w);
   await prisma.internalAgent.deleteMany(w);
+  await prisma.vehiclePhotoImport.deleteMany(w);
+  await prisma.externalRecordLink.deleteMany(w);
+  await prisma.importBatch.deleteMany(w);
+  await prisma.importSync.deleteMany(w);
+  await prisma.source.deleteMany(w);
   await prisma.vehicleChangeLog.deleteMany(w);
   await prisma.vehiclePhoto.deleteMany(w);
   await prisma.knowledgeBaseEntry.deleteMany(w);
@@ -1821,6 +1883,11 @@ const leerY = {
   internalAgent: () => prisma.internalAgent.findUniqueOrThrow({ where: { id: nx.internalAgentY } }),
   identity: () =>
     prisma.contactChannelIdentity.findMany({ where: { externalId: nx.identityExternalIdY } }),
+  importSync: () => prisma.importSync.findUniqueOrThrow({ where: { id: nx.importSyncY } }),
+  importBatch: () => prisma.importBatch.findUniqueOrThrow({ where: { id: nx.importBatchY } }),
+  importLink: () => prisma.externalRecordLink.findUniqueOrThrow({ where: { id: nx.importLinkY } }),
+  photoImport: () =>
+    prisma.vehiclePhotoImport.findUniqueOrThrow({ where: { id: nx.photoImportY } }),
 };
 
 function reclamoCruzado(id: string) {
@@ -2290,6 +2357,80 @@ test("H-01 LlmTurnUsage: la purga acotada a X no borra la fila (vencida) de Y, y
     undefined,
     "X no tiene gasto: no aparece",
   );
+});
+
+// Importación de datos (migración 20261026120000). Todavía sin repositorios:
+// lo que esta migración garantiza por sí sola son las FKs compuestas (C-3).
+// Una fila de X no puede colgar de la fuente, la sincronización, el lote ni
+// el vehículo de Y, aunque el código le pase esos ids: la base la rechaza. Los
+// H-01 de las escrituras llegan con los repositorios (PR 3 en adelante).
+test("H-01 Importación: una fila de X no puede apuntar a la fuente, la sincronización, el lote ni el vehículo de Y (FKs compuestas)", async () => {
+  const antes = {
+    sync: await leerY.importSync(),
+    batch: await leerY.importBatch(),
+    link: await leerY.importLink(),
+    photo: await leerY.photoImport(),
+  };
+  const deX = { organizationId: nx.orgX, createdByUserId: nx.userY };
+  const rechazos: [string, () => Promise<unknown>][] = [
+    [
+      "import_batches -> sources de Y",
+      () =>
+        prisma.importBatch.create({
+          data: { ...deX, sourceId: nx.importSourceY, entityType: "CONTACT", originKind: "FILE" },
+        }),
+    ],
+    [
+      "import_syncs -> sources de Y",
+      () =>
+        prisma.importSync.create({
+          data: {
+            ...deX,
+            sourceId: nx.importSourceY,
+            sheetId: "x",
+            sheetGid: "0",
+            intervalHours: 6,
+            nextRunAt: new Date(),
+          },
+        }),
+    ],
+    [
+      "external_record_links -> import_batches de Y",
+      () =>
+        prisma.externalRecordLink.create({
+          data: {
+            organizationId: nx.orgX,
+            sourceId: nx.importSourceY,
+            entityType: "VEHICLE",
+            externalKey: "codigo:H01-X",
+            entityId: nx.vehicleY,
+            createdByBatchId: nx.importBatchY,
+          },
+        }),
+    ],
+    [
+      "vehicle_photo_imports -> vehicles y import_batches de Y",
+      () =>
+        prisma.vehiclePhotoImport.create({
+          data: {
+            organizationId: nx.orgX,
+            batchId: nx.importBatchY,
+            vehicleId: nx.vehicleY,
+            url: "https://fotos.example.com/h01-x.jpg",
+            urlSha256: "1".repeat(64),
+            position: 0,
+          },
+        }),
+    ],
+  ];
+  for (const [nombre, crear] of rechazos) {
+    await assert.rejects(crear, /Foreign key constraint/i, nombre);
+  }
+  assert.deepEqual(await leerY.importSync(), antes.sync);
+  assert.deepEqual(await leerY.importBatch(), antes.batch);
+  assert.deepEqual(await leerY.importLink(), antes.link);
+  assert.deepEqual(await leerY.photoImport(), antes.photo);
+  assert.equal(await prisma.importBatch.count({ where: { organizationId: nx.orgX } }), 0);
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {

@@ -17,11 +17,11 @@ const FEED_LIMIT = 8;
 // últimas 8 actividades creadas, con el MISMO alcance que ya aplica el
 // backend (§25: un USER ve solo las suyas, un ADMIN todas) — acá no hay
 // ningún filtro ni autorización nueva, es GET /activities ordenado por
-// createdAt desc. Los nombres se resuelven con los mismos hooks que
+// occurredAt desc (cuándo pasó; P1 de docs/importacion-de-datos.md). Los nombres se resuelven con los mismos hooks que
 // ActivityListPage (empresa, contacto, oportunidad y, solo para ADMIN, el
 // autor vía GET /api/users) y la fecha con el mismo toLocaleString() de las
 // demás columnas de fecha del proyecto: sin "hace 5 minutos" nuevo.
-const FEED_QUERY = { sortBy: "createdAt", sortOrder: "desc", pageSize: FEED_LIMIT } as const;
+const FEED_QUERY = { sortBy: "occurredAt", sortOrder: "desc", pageSize: FEED_LIMIT } as const;
 
 export function ActivityFeed() {
   const { me } = useAuth();
@@ -88,7 +88,7 @@ export function ActivityFeed() {
                   </span>
                 </span>
                 <span className="ds-list-trailing ds-list-secondary">
-                  {formatDateTime(activity.createdAt)}
+                  {formatDateTime(activity.occurredAt)}
                 </span>
               </li>
             );
