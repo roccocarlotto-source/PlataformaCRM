@@ -29,8 +29,15 @@ describe("validarArchivo", () => {
     expect(error).toContain(".csv");
     expect(error).toContain(".xlsx");
 
-    expect(validarArchivo(archivo("planilla.xls"))).toMatch(/Formato no soportado/);
     expect(validarArchivo(archivo("sin-extension"))).toMatch(/Formato no soportado/);
+  });
+
+  it("XLS y ODS: el mensaje dice qué hacer (decisión 2), igual que el backend", () => {
+    for (const nombre of ["planilla.xls", "PLANILLA.XLS", "stock.ods"]) {
+      expect(validarArchivo(archivo(nombre))).toContain(
+        "Guardalo como .xlsx o .csv y volvé a subirlo",
+      );
+    }
   });
 
   it("rechaza un archivo por encima del tope y dice el máximo en MB", () => {
