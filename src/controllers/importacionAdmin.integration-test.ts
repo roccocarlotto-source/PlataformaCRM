@@ -16,6 +16,12 @@ import { findRoleByName } from "../repositories/role.repository";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { drenarPendientes } from "../workers/ingestionWorker";
+import {
+  contarSinConfirmarVencidos,
+  corteDeSinConfirmar,
+  descartarSinConfirmarVencidos,
+  MOTIVO_DESCARTADO_SIN_CONFIRMAR,
+} from "../repositories/importacion.repository";
 import { procesarFotosPendientes } from "../workers/importPhotoWorker";
 import { DescargaRechazada } from "../lib/fetchPublico";
 import { procesarFoto } from "../services/importacionFotos.service";
@@ -1478,5 +1484,73 @@ test("sheets: solo stock; el link se valida, la planilla se lee como CSV con com
   } finally {
     usarDescargadorDeSheetsParaTests(null);
     await desmontarStock(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Purga de lo que nunca se confirmó (§9.4, data-classification §5.1)
+// ---------------------------------------------------------------------------
+
+test("purga: a los 7 días sin confirmar se borran las filas STAGED y el lote queda CANCELLED con el motivo; uno reciente o uno confirmado no se tocan", async () => {
+  const e = await montar("purga-sin-confirmar");
+  try {
+    const archivo = "Razón social\r\nEmpresa Uno\r\nEmpresa Dos\r\n";
+    const lote = async (nombre: string) => {
+      const r = await subir(
+        e,
+        archivo,
+        { entityType: "COMPANY", sourceName: nombre },
+        `${nombre}.csv`,
+      );
+      assert.equal(r.status, 201);
+      return r.body.lote.id as string;
+    };
+    const subido = await lote("subido");
+    const listo = await lote("listo");
+    await analizar(e, listo, { mapeo: { "Razón social": "name" } });
+    const reciente = await lote("reciente");
+    const confirmado = await lote("confirmado");
+    await analizar(e, confirmado, { mapeo: { "Razón social": "name" } });
+    await confirmarYPromover(e, confirmado);
+
+    const hace8Dias = new Date(Date.now() - 8 * 24 * 3_600_000);
+    await prisma.importBatch.updateMany({
+      where: { id: { in: [subido, listo, confirmado] } },
+      data: { createdAt: hace8Dias },
+    });
+
+    const scope = { organizationId: e.organizationId };
+    assert.deepEqual(await contarSinConfirmarVencidos(corteDeSinConfirmar(), scope), {
+      lotes: 2,
+      filas: 4,
+    });
+    assert.deepEqual(await descartarSinConfirmarVencidos(corteDeSinConfirmar(), scope), {
+      lotes: 2,
+      filas: 4,
+    });
+
+    for (const id of [subido, listo]) {
+      const l = await prisma.importBatch.findUniqueOrThrow({ where: { id } });
+      assert.equal(l.status, "CANCELLED");
+      assert.equal(l.errorMessage, MOTIVO_DESCARTADO_SIN_CONFIRMAR);
+      assert.equal(await prisma.ingestionEvent.count({ where: { batchId: id } }), 0);
+    }
+    assert.equal(
+      (await prisma.importBatch.findUniqueOrThrow({ where: { id: reciente } })).status,
+      "STAGED",
+    );
+    assert.equal(await prisma.ingestionEvent.count({ where: { batchId: reciente } }), 2);
+    assert.equal(
+      (await prisma.importBatch.findUniqueOrThrow({ where: { id: confirmado } })).status,
+      "DONE",
+    );
+    assert.equal(await prisma.ingestionEvent.count({ where: { batchId: confirmado } }), 2);
+    // Correrla de nuevo no encuentra nada.
+    assert.deepEqual(await descartarSinConfirmarVencidos(corteDeSinConfirmar(), scope), {
+      lotes: 0,
+      filas: 0,
+    });
+  } finally {
+    await desmontar(e);
   }
 });
