@@ -14,6 +14,10 @@ import {
   opcionesHandler,
   subirHandler,
   subirSheetsHandler,
+  listarSyncsHandler,
+  pausarSyncHandler,
+  reanudarSyncHandler,
+  borrarSyncHandler,
 } from "../controllers/importacionAdmin.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { importUpload } from "../middlewares/importUpload";
@@ -53,6 +57,11 @@ importacionAdminRouter.post(
   subirSheetsHandler,
 );
 importacionAdminRouter.get(BASE, ...gate, listarHandler);
+// Las sincronizaciones (§7), antes de /:batchId.
+importacionAdminRouter.get(`${BASE}/syncs`, ...gate, listarSyncsHandler);
+importacionAdminRouter.post(`${BASE}/syncs/:syncId/pause`, ...gate, pausarSyncHandler);
+importacionAdminRouter.post(`${BASE}/syncs/:syncId/resume`, ...gate, reanudarSyncHandler);
+importacionAdminRouter.delete(`${BASE}/syncs/:syncId`, ...gate, borrarSyncHandler);
 importacionAdminRouter.get(`${BASE}/:batchId`, ...gate, obtenerHandler);
 importacionAdminRouter.put(`${BASE}/:batchId/config`, ...gate, configurarHandler);
 importacionAdminRouter.get(`${BASE}/:batchId/rows`, ...gate, filasHandler);

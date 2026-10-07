@@ -130,6 +130,13 @@ const envSchema = z.object({
     .default("true")
     .transform((valor) => valor === "true"),
   IMPORT_PHOTO_WORKER_POLL_MS: z.coerce.number().int().positive().default(5000),
+  // Las sincronizaciones del stock desde Google Sheets
+  // (src/workers/importSyncWorker.ts), por defecto cada 5 minutos.
+  IMPORT_SYNC_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  IMPORT_SYNC_WORKER_POLL_MS: z.coerce.number().int().positive().default(300_000),
 
   // Reintentos de la promoción ante un error de SISTEMA (B-30 de
   // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — réplica de los OUTBOX_* de abajo, mismos

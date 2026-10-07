@@ -586,10 +586,20 @@ mano, con el mismo detalle por fila.
   una con la última corrida, su resultado, su error y el informe.
   Se puede pausar, reanudar y borrar (soft delete).
 - **Pausa automática:** con 3 fallas seguidas (no poder bajar la planilla, que
-  deje de ser CSV, que el mapeo ya no matchee ninguna columna) se pausa sola con
+  deje de ser CSV, que falte **cualquier** columna mapeada) se pausa sola con
   `paused_reason = AUTO_FAILURES` y queda resaltada. Una corrida con filas
   fallidas pero que bajó y leyó la planilla no cuenta como falla de la
   sincronización.
+- **Una columna mapeada que falta es una falla, no un "se ignora".** Si es la
+  que identifica a la unidad (código, patente, VIN), seguir sin ella crearía un
+  duplicado de cada unidad.
+- **Qué es una faltante:** una unidad que este origen trajo alguna vez
+  (`external_record_links`) y que ninguna fila de la corrida encontró. Una
+  fila omitida por vendida sigue contando como presente. Si la corrida tiene
+  filas fallidas, las faltantes se informan pero no se marcan: una fila que
+  falló puede ser una unidad que sigue en la planilla.
+- **Una corrida no arranca si la anterior no terminó:** suelta el lock y espera
+  al próximo intervalo, sin contar como falla.
 
 **Worker.** `importSyncWorker`, el mismo esquema que los demás (bucle
 `setTimeout`, `IMPORT_SYNC_WORKER_ENABLED`, `IMPORT_SYNC_WORKER_POLL_MS`, por
