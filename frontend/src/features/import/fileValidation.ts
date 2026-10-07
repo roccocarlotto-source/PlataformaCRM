@@ -16,10 +16,18 @@ import { EXTENSIONES_SOPORTADAS, IMPORT_MAX_FILE_BYTES } from "./types";
 // pero al menos es lo que la persona ve.
 // ---------------------------------------------------------------------------
 
+// XLS y ODS no se leen (decisión 2 de docs/importacion-de-datos.md): mismo
+// mensaje que MENSAJE_GUARDAR_COMO_XLSX en el backend, que dice qué hacer.
+export const MENSAJE_GUARDAR_COMO_XLSX = "Guardalo como .xlsx o .csv y volvé a subirlo";
+
 // Devuelve el mensaje de error, o null si el archivo pasa.
 export function validarArchivo(file: File): string | null {
   const nombre = file.name.toLowerCase();
   const extensionOk = EXTENSIONES_SOPORTADAS.some((ext) => nombre.endsWith(ext));
+
+  if (nombre.endsWith(".xls") || nombre.endsWith(".ods")) {
+    return `Los archivos ${nombre.endsWith(".xls") ? ".xls" : ".ods"} no se pueden leer. ${MENSAJE_GUARDAR_COMO_XLSX}.`;
+  }
 
   if (!extensionOk) {
     return `Formato no soportado: solo se aceptan archivos ${EXTENSIONES_SOPORTADAS.join(" y ")}.`;

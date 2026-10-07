@@ -61,12 +61,68 @@ export interface ArchivoParseado {
   // matchea ninguna columna es imposible de diagnosticar.
   encabezados: string[];
   filas: FilaCruda[];
+  lectura: LecturaDelArchivo;
 }
 
 // Una fila lista para escribirse en staging.
 export interface FilaParaStaging {
   externalId: string;
   rawPayload: FilaCruda;
+}
+
+// ---------------------------------------------------------------------------
+// OPCIONES DE LECTURA (importación de datos, docs/importacion-de-datos.md
+// §4.1). Las dos rutas —POST /api/imports y el asistente de Plataforma— leen
+// con ESTAS funciones (§9.11: un solo parser). Lo que cambia entre ellas es
+// solo lo que se pasa acá:
+//
+//   - separador y codificación del CSV: si no se fijan, se DETECTAN, en las
+//     dos rutas. Un Excel en español exporta con ";" y en Windows-1252, y eso
+//     antes llegaba como una sola columna o con "Ã±" en los nombres. La
+//     detección prefiere la coma ante un empate, así que un CSV que antes se
+//     leía bien se sigue leyendo igual.
+//   - hoja de un XLSX: por nombre; sin ella, la primera, como siempre.
+//   - límites: el asistente pasa LIMITES_DEL_ASISTENTE. POST /api/imports no
+//     pasa ninguno y se comporta como antes: un tope nuevo ahí podría
+//     rechazar un archivo que hasta ayer entraba.
+// ---------------------------------------------------------------------------
+
+export const SEPARADORES = [",", ";", "\t", "|"] as const;
+export type Separador = (typeof SEPARADORES)[number];
+
+export const CODIFICACIONES = ["utf-8", "windows-1252"] as const;
+export type Codificacion = (typeof CODIFICACIONES)[number];
+
+export interface LimitesDeLectura {
+  maxColumnas: number;
+  maxCaracteresPorCelda: number;
+  // La fila serializada como JSON, que es lo que se guarda en rawPayload.
+  // Mismo tope que el payload del webhook.
+  maxBytesPorFila: number;
+}
+
+export const LIMITES_DEL_ASISTENTE: LimitesDeLectura = {
+  maxColumnas: 200,
+  maxCaracteresPorCelda: 10_000,
+  maxBytesPorFila: 64 * 1024,
+};
+
+export interface OpcionesDeLectura {
+  separador?: Separador;
+  codificacion?: Codificacion;
+  hoja?: string;
+  limites?: LimitesDeLectura;
+}
+
+// Cómo se leyó el archivo: lo que el asistente le muestra al admin en el paso
+// de ajustes para que pueda corregirlo ("Ã±" en los nombres = codificación
+// equivocada).
+export interface LecturaDelArchivo {
+  separador?: Separador;
+  codificacion?: Codificacion;
+  // Todas las hojas del libro, en orden, y la que se leyó.
+  hojas?: string[];
+  hoja?: string;
 }
 
 function normalizarCelda(valor: unknown): ValorDeCelda {
@@ -181,11 +237,75 @@ function estaVacia(fila: FilaCruda): boolean {
 // CSV
 // ---------------------------------------------------------------------------
 
-function parsearCsv(buffer: Buffer): ArchivoParseado {
+// La codificación: UTF-8 si los bytes lo son (decodificar en modo estricto
+// falla ante la primera secuencia inválida), y si no Windows-1252, que es lo
+// que exporta Excel en Windows y cubre Latin-1 en todos los caracteres
+// imprimibles. Node trae ICU completo, así que no hace falta una librería.
+// TextDecoder saca el BOM UTF-8 solo.
+export function decodificarTexto(
+  buffer: Buffer,
+  forzada?: Codificacion,
+): { texto: string; codificacion: Codificacion } {
+  if (forzada) {
+    return { texto: new TextDecoder(forzada).decode(buffer), codificacion: forzada };
+  }
+  try {
+    return {
+      texto: new TextDecoder("utf-8", { fatal: true }).decode(buffer),
+      codificacion: "utf-8",
+    };
+  } catch {
+    return { texto: new TextDecoder("windows-1252").decode(buffer), codificacion: "windows-1252" };
+  }
+}
+
+// Cuántas líneas del principio se usan para adivinar el separador.
+const LINEAS_PARA_DETECTAR = 20;
+
+// El separador: se lee el principio del archivo con cada candidato (con el
+// mismo csv-parse, así que las comillas se respetan) y gana el que da MÁS de
+// una columna y la misma cantidad en más líneas; ante un empate, el primero
+// de SEPARADORES, o sea la coma. Sin ningún candidato con más de una columna
+// (un CSV de una sola columna), coma.
+export function detectarSeparador(texto: string): Separador {
+  const muestra = texto.split(/\r?\n/).slice(0, LINEAS_PARA_DETECTAR).join("\n");
+  let mejor: { separador: Separador; consistentes: number; columnas: number } | undefined;
+  for (const separador of SEPARADORES) {
+    let registros: unknown[][];
+    try {
+      registros = parseCsv(muestra, {
+        delimiter: separador,
+        columns: false,
+        skip_empty_lines: true,
+        relax_column_count: true,
+        relax_quotes: true,
+      }) as unknown[][];
+    } catch {
+      continue;
+    }
+    if (registros.length === 0) continue;
+    const columnas = registros[0].length;
+    if (columnas < 2) continue;
+    const consistentes = registros.filter((r) => r.length === columnas).length;
+    if (
+      !mejor ||
+      consistentes > mejor.consistentes ||
+      (consistentes === mejor.consistentes && columnas > mejor.columnas)
+    ) {
+      mejor = { separador, consistentes, columnas };
+    }
+  }
+  return mejor?.separador ?? ",";
+}
+
+function parsearCsv(buffer: Buffer, opciones: OpcionesDeLectura): ArchivoParseado {
   let registros: unknown[][];
+  const { texto, codificacion } = decodificarTexto(buffer, opciones.codificacion);
+  const separador = opciones.separador ?? detectarSeparador(texto);
 
   try {
-    registros = parseCsv(buffer, {
+    registros = parseCsv(texto, {
+      delimiter: separador,
       // columns: false — se piden ARRAYS, no objetos. Con `columns: true`
       // csv-parse arma el objeto por su cuenta y no deja validar los
       // encabezados repetidos antes de que una columna se coma a la otra.
@@ -228,7 +348,11 @@ function parsearCsv(buffer: Buffer): ArchivoParseado {
     }
   }
 
-  return { encabezados: encabezados.filter((h) => h !== ""), filas };
+  return {
+    encabezados: encabezados.filter((h) => h !== ""),
+    filas,
+    lectura: { separador, codificacion },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +386,11 @@ function parsearCsv(buffer: Buffer): ArchivoParseado {
 // la organización, no un anónimo. La superficie es una cuenta con sesión, no
 // internet entero — al revés que el webhook del ítem 4. Queda anotado como
 // endurecimiento pendiente, no como algo que se pasó por alto.
-async function parsearXlsx(buffer: Buffer): Promise<ArchivoParseado> {
+async function parsearXlsx(buffer: Buffer, opciones: OpcionesDeLectura): Promise<ArchivoParseado> {
+  // Antes de entregarle el archivo a exceljs, que lo descomprime entero en
+  // memoria: ver revisarZip.
+  revisarZip(buffer);
+
   const workbook = new ExcelJS.Workbook();
 
   // exceljs declara `load(buffer: Buffer)` contra un @types/node anterior al
@@ -286,13 +414,22 @@ async function parsearXlsx(buffer: Buffer): Promise<ArchivoParseado> {
     );
   }
 
-  // SOLO LA PRIMERA HOJA. Un libro con varias hojas casi nunca tiene el mismo
+  // UNA SOLA HOJA. Un libro con varias hojas casi nunca tiene el mismo
   // conjunto de columnas en todas, así que concatenarlas produciría filas con
-  // los encabezados de otra hoja. Límite conocido: para importar otra hoja, se
-  // exporta esa hoja.
-  const worksheet = workbook.worksheets[0];
+  // los encabezados de otra hoja. Sin opciones.hoja, la primera (lo de
+  // siempre); el asistente deja elegir otra por nombre.
+  const hojas = workbook.worksheets.map((w) => w.name);
+  const worksheet =
+    opciones.hoja === undefined
+      ? workbook.worksheets[0]
+      : workbook.worksheets.find((w) => w.name === opciones.hoja);
   if (!worksheet) {
-    throw new AppError("El archivo no tiene ninguna hoja", 400);
+    throw new AppError(
+      opciones.hoja === undefined
+        ? "El archivo no tiene ninguna hoja"
+        : `El archivo no tiene una hoja «${opciones.hoja}». Hojas: ${hojas.join(", ")}`,
+      400,
+    );
   }
 
   let encabezados: string[] | undefined;
@@ -332,7 +469,96 @@ async function parsearXlsx(buffer: Buffer): Promise<ArchivoParseado> {
     throw new AppError("El archivo está vacío", 400);
   }
 
-  return { encabezados: encabezados.filter((h) => h !== ""), filas };
+  return {
+    encabezados: encabezados.filter((h) => h !== ""),
+    filas,
+    lectura: { hojas, hoja: worksheet.name },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ZIP BOMB (docs/importacion-de-datos.md §9.2). exceljs descomprime el libro
+// entero en memoria (el lector en streaming está roto, ver arriba), así que
+// el tope de 10 MB acota lo que se SUBE y no lo que ocupa al expandirse. Esto
+// lee el directorio central del ZIP —la lista de entradas que está al final
+// del archivo, con el tamaño descomprimido declarado de cada una— y rechaza
+// el archivo antes de descomprimir nada si la suma, la cantidad de entradas o
+// la proporción de compresión pasan los topes.
+//
+// RIESGO QUE QUEDA, dicho explícitamente: los tamaños son los DECLARADOS. Un
+// ZIP armado a mano puede declarar poco y descomprimir mucho, y esto no lo
+// ve. Acota el caso común (un ZIP bomb de manual declara sus tamaños reales)
+// y el resto lo acotan el tope de 10 MB y quién puede subir. No es una
+// garantía. ZIP64 se rechaza: un XLSX de 10 MB nunca lo necesita.
+// ---------------------------------------------------------------------------
+
+export const MAX_BYTES_DESCOMPRIMIDOS = 100 * 1024 * 1024;
+export const MAX_ENTRADAS_DEL_ZIP = 5_000;
+// Una hoja de cálculo comprime bien (XML repetitivo), del orden de 10 a 1.
+// 200 a 1 en una entrada grande ya no es una planilla.
+export const MAX_PROPORCION_DE_COMPRESION = 200;
+const ENTRADA_GRANDE = 1024 * 1024;
+
+const FIRMA_FIN_DE_DIRECTORIO = 0x06054b50;
+const FIRMA_ENTRADA_DEL_DIRECTORIO = 0x02014b50;
+
+function zipInvalido(detalle: string): AppError {
+  return new AppError(`No se pudo leer el archivo Excel: ${detalle}`, 400);
+}
+
+export function revisarZip(buffer: Buffer): void {
+  // El registro de fin de directorio mide 22 bytes más un comentario de hasta
+  // 65.535: se busca la firma desde el final hacia atrás.
+  const desde = Math.max(0, buffer.length - 22 - 0xffff);
+  let fin = -1;
+  for (let i = buffer.length - 22; i >= desde; i--) {
+    if (buffer.readUInt32LE(i) === FIRMA_FIN_DE_DIRECTORIO) {
+      fin = i;
+      break;
+    }
+  }
+  if (fin < 0) {
+    throw zipInvalido("no es un archivo .xlsx válido");
+  }
+  const entradas = buffer.readUInt16LE(fin + 10);
+  const tamanoDelDirectorio = buffer.readUInt32LE(fin + 12);
+  const inicio = buffer.readUInt32LE(fin + 16);
+  if (entradas === 0xffff || inicio === 0xffffffff || tamanoDelDirectorio === 0xffffffff) {
+    throw zipInvalido("el archivo usa un formato ZIP que no se acepta (ZIP64)");
+  }
+  if (entradas > MAX_ENTRADAS_DEL_ZIP) {
+    throw zipInvalido(`tiene ${entradas} archivos internos (máximo ${MAX_ENTRADAS_DEL_ZIP})`);
+  }
+  if (inicio + tamanoDelDirectorio > fin) {
+    throw zipInvalido("el índice interno está dañado");
+  }
+
+  let total = 0;
+  let p = inicio;
+  for (let n = 0; n < entradas; n++) {
+    if (p + 46 > fin || buffer.readUInt32LE(p) !== FIRMA_ENTRADA_DEL_DIRECTORIO) {
+      throw zipInvalido("el índice interno está dañado");
+    }
+    const comprimido = buffer.readUInt32LE(p + 20);
+    const descomprimido = buffer.readUInt32LE(p + 24);
+    if (comprimido === 0xffffffff || descomprimido === 0xffffffff) {
+      throw zipInvalido("el archivo usa un formato ZIP que no se acepta (ZIP64)");
+    }
+    if (
+      descomprimido > ENTRADA_GRANDE &&
+      descomprimido > Math.max(comprimido, 1) * MAX_PROPORCION_DE_COMPRESION
+    ) {
+      throw zipInvalido("su contenido se expande demasiado al descomprimirlo");
+    }
+    total += descomprimido;
+    if (total > MAX_BYTES_DESCOMPRIMIDOS) {
+      throw zipInvalido(
+        `descomprimido ocuparía más de ${MAX_BYTES_DESCOMPRIMIDOS / (1024 * 1024)} MB`,
+      );
+    }
+    p +=
+      46 + buffer.readUInt16LE(p + 28) + buffer.readUInt16LE(p + 30) + buffer.readUInt16LE(p + 32);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -347,10 +573,21 @@ export type FormatoDeArchivo = "csv" | "xlsx";
 //
 // Si el contenido no coincide con la extensión, el parser falla con un 400
 // explícito — el formato real lo decide el parseo, no esta función.
+// XLS (Excel 97-2003) y ODS no se leen (decisión 2 de
+// docs/importacion-de-datos.md: exceljs no los soporta y la alternativa sumaba
+// riesgo). Tienen su propio mensaje, que dice qué hacer, en vez del genérico.
+export const MENSAJE_GUARDAR_COMO_XLSX = "Guardalo como .xlsx o .csv y volvé a subirlo";
+
 export function formatoDesdeNombre(nombre: string): FormatoDeArchivo {
   const minuscula = nombre.toLowerCase();
   if (minuscula.endsWith(".csv")) return "csv";
   if (minuscula.endsWith(".xlsx")) return "xlsx";
+  if (minuscula.endsWith(".xls") || minuscula.endsWith(".ods")) {
+    throw new AppError(
+      `Los archivos ${minuscula.endsWith(".xls") ? ".xls" : ".ods"} no se pueden leer. ${MENSAJE_GUARDAR_COMO_XLSX}`,
+      415,
+    );
+  }
 
   throw new AppError("Formato no soportado: solo se aceptan archivos .csv y .xlsx", 415);
 }
@@ -358,14 +595,50 @@ export function formatoDesdeNombre(nombre: string): FormatoDeArchivo {
 export async function parsearArchivo(
   buffer: Buffer,
   formato: FormatoDeArchivo,
+  opciones: OpcionesDeLectura = {},
 ): Promise<ArchivoParseado> {
-  const parseado = formato === "csv" ? parsearCsv(buffer) : await parsearXlsx(buffer);
+  const parseado =
+    formato === "csv" ? parsearCsv(buffer, opciones) : await parsearXlsx(buffer, opciones);
 
   if (parseado.filas.length === 0) {
     throw new AppError("El archivo no tiene ninguna fila de datos", 400);
   }
 
+  if (opciones.limites) {
+    aplicarLimites(parseado, opciones.limites);
+  }
+
   return parseado;
+}
+
+// Los topes del asistente (§9.2). Un archivo que los pasa se rechaza entero,
+// con la fila y la columna: es un archivo hostil o roto, no una fila con un
+// dato malo, y lo que guarda el staging tiene que caber. Se cuenta como en
+// filasParaStaging: fila 1 = la primera de datos.
+function aplicarLimites(parseado: ArchivoParseado, limites: LimitesDeLectura): void {
+  if (parseado.encabezados.length > limites.maxColumnas) {
+    throw new AppError(
+      `El archivo tiene ${parseado.encabezados.length} columnas (máximo ${limites.maxColumnas})`,
+      400,
+    );
+  }
+  parseado.filas.forEach((fila, i) => {
+    for (const [columna, valor] of Object.entries(fila)) {
+      if (typeof valor === "string" && valor.length > limites.maxCaracteresPorCelda) {
+        throw new AppError(
+          `La fila ${i + 1}, columna «${columna}», tiene ${valor.length} caracteres (máximo ${limites.maxCaracteresPorCelda})`,
+          400,
+        );
+      }
+    }
+    const bytes = Buffer.byteLength(JSON.stringify(fila), "utf8");
+    if (bytes > limites.maxBytesPorFila) {
+      throw new AppError(
+        `La fila ${i + 1} ocupa ${Math.ceil(bytes / 1024)} KB (máximo ${limites.maxBytesPorFila / 1024} KB)`,
+        400,
+      );
+    }
+  });
 }
 
 // EL externalId DE UNA FILA DE ARCHIVO INCLUYE SU NÚMERO DE FILA, y la decisión
