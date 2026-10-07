@@ -820,10 +820,22 @@ export async function setVehicleStatusForOpportunityLink(
     return;
   }
 
+  // Al RETENERLA (pasa de libre a reservada o vendida) se recuerda de dónde
+  // venía, para devolvérselo al liberarla (liberarVehiculoDeOportunidad).
+  // Entre retenida y retenida (reservada -> vendida) se conserva el que había.
+  const libre = current.status === "AVAILABLE" || current.status === "UNAVAILABLE";
+  const retiene = newStatus === "RESERVED" || newStatus === "SOLD";
+  const extra = libre && retiene ? { statusBeforeHold: current.status } : {};
+
   const entries = computeChangeLogEntries(current as unknown as Record<string, unknown>, {
     status: newStatus,
   });
-  const result = await updateVehicleRepo(vehicleId, organizationId, { status: newStatus }, tx);
+  const result = await updateVehicleRepo(
+    vehicleId,
+    organizationId,
+    { status: newStatus, ...extra },
+    tx,
+  );
   if (result.count === 0) {
     // Se leyó la fila un instante antes, bajo el mismo lock: cero filas acá
     // es un bug del caller, no un 404 — mismo criterio que
@@ -842,4 +854,29 @@ export async function setVehicleStatusForOpportunityLink(
   // Ítem 152: reservada por una oportunidad, vendida o entregada → fuera de
   // la base de conocimiento en el mismo momento.
   await retirarDeLaBaseSiDejoDeCalificar(organizationId, { ...current, status: newStatus }, tx);
+}
+
+// La oportunidad suelta la unidad (se pierde, cambia de unidad o se borra): la
+// unidad vuelve al estado que tenía cuando la retuvo —AVAILABLE, o
+// UNAVAILABLE si era «No disponible»— y se olvida ese estado. Mismo lock y
+// mismo historial que setVehicleStatusForOpportunityLink.
+export async function liberarVehiculoDeOportunidad(
+  organizationId: string,
+  actorUserId: string,
+  vehicleId: string,
+  tx: Db,
+): Promise<void> {
+  const current = await getVehicleById(organizationId, vehicleId, tx);
+  // Si no la retiene nadie (una oportunidad perdida a la que se le vincula una
+  // unidad, por ejemplo), no hay nada que soltar: queda como está.
+  if (current.status !== "RESERVED" && current.status !== "SOLD") {
+    if (current.statusBeforeHold !== null) {
+      await updateVehicleRepo(vehicleId, organizationId, { statusBeforeHold: null }, tx);
+    }
+    return;
+  }
+  const destino: VehicleStatus =
+    current.statusBeforeHold === "UNAVAILABLE" ? "UNAVAILABLE" : "AVAILABLE";
+  await setVehicleStatusForOpportunityLink(organizationId, actorUserId, vehicleId, destino, tx);
+  await updateVehicleRepo(vehicleId, organizationId, { statusBeforeHold: null }, tx);
 }

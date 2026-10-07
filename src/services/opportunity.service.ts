@@ -46,7 +46,10 @@ import {
 } from "./delivery.service";
 import { hoyEnLaZona, resolverCamposDeCierre, resolverEstadoYEtapa } from "./opportunityClosing";
 import { resolveOwnerId } from "./ownership.service";
-import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
+import {
+  liberarVehiculoDeOportunidad,
+  setVehicleStatusForOpportunityLink,
+} from "./vehicle.service";
 
 // ---------------------------------------------------------------------------
 // Trigger `opportunity.won` del motor de automatizaciones
@@ -224,8 +227,14 @@ export const UNIDAD_NO_DISPONIBLE =
 
 // 409 y no 400: no es un dato inválido, es un conflicto con el estado que la
 // base tiene en este instante.
+//
+// Se vincula una unidad libre: AVAILABLE, o UNAVAILABLE ("No disponible",
+// decisión del 07/10/2026): pasa directo a reservada sin quedar ofrecible por
+// el agente en el medio, y al liberarse vuelve a "No disponible"
+// (liberarVehiculoDeOportunidad). El agente no llega a una UNAVAILABLE:
+// resolverVehiculo solo ve AVAILABLE.
 function assertVehicleAvailable(vehicle: { status: VehicleStatus }) {
-  if (vehicle.status !== "AVAILABLE") {
+  if (vehicle.status !== "AVAILABLE" && vehicle.status !== "UNAVAILABLE") {
     throw new AppError(UNIDAD_NO_DISPONIBLE, 409);
   }
 }
@@ -402,7 +411,9 @@ export async function createOpportunity(
       tx,
     );
 
-    if (input.vehicleId) {
+    if (input.vehicleId && created.status !== "LOST") {
+      // Creada ya perdida, la oportunidad no retiene la unidad: queda como
+      // estaba (AVAILABLE o "No disponible").
       await setVehicleStatusForOpportunityLink(
         organizationId,
         actorUserId,
@@ -674,13 +685,7 @@ export async function updateOpportunity(
           // applyConsignmentRule.
           const previo = await findVehicleById(oldVehicleId, organizationId, tx);
           if (previo && previo.status === "RESERVED") {
-            await setVehicleStatusForOpportunityLink(
-              organizationId,
-              actorUserId,
-              oldVehicleId,
-              "AVAILABLE",
-              tx,
-            );
+            await liberarVehiculoDeOportunidad(organizationId, actorUserId, oldVehicleId, tx);
           }
         }
 
@@ -721,13 +726,19 @@ export async function updateOpportunity(
       }
 
       if (needsVehicleSync && newVehicleId) {
-        await setVehicleStatusForOpportunityLink(
-          organizationId,
-          actorUserId,
-          newVehicleId,
-          vehicleStatusForOpportunityStatus(effectiveStatus),
-          tx,
-        );
+        // Perdida, la oportunidad suelta la unidad: vuelve a lo que era al
+        // retenerla. Abierta o ganada, la reserva o la vende.
+        if (effectiveStatus === "LOST") {
+          await liberarVehiculoDeOportunidad(organizationId, actorUserId, newVehicleId, tx);
+        } else {
+          await setVehicleStatusForOpportunityLink(
+            organizationId,
+            actorUserId,
+            newVehicleId,
+            vehicleStatusForOpportunityStatus(effectiveStatus),
+            tx,
+          );
+        }
 
         // Entrega (§40), en la misma transacción que deja la unidad SOLD.
         // Nace en dos casos: la oportunidad PASA a ganada con la unidad
@@ -806,13 +817,7 @@ export async function deleteOpportunity(organizationId: string, actorUserId: str
     await lockOrganizationForUpdate(organizationId, tx);
     const vehicle = await findVehicleById(vehicleId, organizationId, tx);
     if (vehicle && vehicle.status === "RESERVED") {
-      await setVehicleStatusForOpportunityLink(
-        organizationId,
-        actorUserId,
-        vehicleId,
-        "AVAILABLE",
-        tx,
-      );
+      await liberarVehiculoDeOportunidad(organizationId, actorUserId, vehicleId, tx);
     }
     const result = await softDeleteOpportunity(id, organizationId, tx);
     if (result.count === 0) {

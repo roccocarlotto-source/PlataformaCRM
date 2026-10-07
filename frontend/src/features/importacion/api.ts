@@ -13,6 +13,8 @@ import type {
   SubidaDeArchivo,
   TipoDePlan,
   TipoImportable,
+  PedidoDeSincronizar,
+  Sincronizacion,
 } from "./types";
 
 // Plataforma → Importar datos: /api/admin/organizations/:organizationId/imports.
@@ -104,11 +106,32 @@ export function decidirFilas(
   });
 }
 
-export function confirmarLote(organizationId: string, batchId: string) {
-  return request<{ confirmadas: number }>(`${base(organizationId)}/${batchId}/confirm`, {
-    method: "POST",
-    getAccessToken,
-  });
+export function confirmarLote(
+  organizationId: string,
+  batchId: string,
+  sincronizar?: PedidoDeSincronizar,
+) {
+  return request<{ confirmadas: number; syncId: string | null }>(
+    `${base(organizationId)}/${batchId}/confirm`,
+    { method: "POST", body: sincronizar ? { sincronizar } : {}, getAccessToken },
+  );
+}
+
+export function listarSincronizaciones(organizationId: string, signal?: AbortSignal) {
+  return request<Sincronizacion[]>(`${base(organizationId)}/syncs`, { getAccessToken, signal });
+}
+
+export function cambiarSincronizacion(
+  organizationId: string,
+  syncId: string,
+  que: "pause" | "resume" | "delete",
+) {
+  return que === "delete"
+    ? request<void>(`${base(organizationId)}/syncs/${syncId}`, { method: "DELETE", getAccessToken })
+    : request<unknown>(`${base(organizationId)}/syncs/${syncId}/${que}`, {
+        method: "POST",
+        getAccessToken,
+      });
 }
 
 export function cancelarLote(organizationId: string, batchId: string) {

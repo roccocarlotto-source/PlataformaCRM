@@ -6,6 +6,7 @@ import {
   listarFilasSchema,
   listarLotesSchema,
   subirImportacionSchema,
+  confirmarSchema,
   subirSheetsSchema,
 } from "../schemas/importacion.schema";
 import {
@@ -22,6 +23,8 @@ import {
   opcionesDeImportacion,
   subirImportacion,
   subirLinkDeSheets,
+  listarSincronizaciones,
+  cambiarSincronizacion,
 } from "../services/importacion.service";
 import { pedirDeshacer } from "../services/importacionDeshacer.service";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -111,8 +114,30 @@ export const decidirHandler = asyncHandler<AuthenticatedRequest>(async (req, res
 });
 
 export const confirmarHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-  res.status(200).json(await confirmarImportacion(organizacionDelPath(req), loteDelPath(req)));
+  const { sincronizar } = parseOrThrow(confirmarSchema, req.body ?? {});
+  res
+    .status(200)
+    .json(await confirmarImportacion(organizacionDelPath(req), loteDelPath(req), sincronizar));
 });
+
+export const listarSyncsHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  res.status(200).json(await listarSincronizaciones(organizacionDelPath(req)));
+});
+
+function syncHandler(accion: "pausar" | "reanudar" | "borrar") {
+  return asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+    const sync = await cambiarSincronizacion(
+      organizacionDelPath(req),
+      parseOrThrow(uuid, req.params.syncId),
+      accion,
+    );
+    if (sync === null) res.status(204).end();
+    else res.status(200).json(sync);
+  });
+}
+export const pausarSyncHandler = syncHandler("pausar");
+export const reanudarSyncHandler = syncHandler("reanudar");
+export const borrarSyncHandler = syncHandler("borrar");
 
 export const cancelarHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   res.status(200).json(await cancelarImportacion(organizacionDelPath(req), loteDelPath(req)));

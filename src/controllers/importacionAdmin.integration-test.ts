@@ -26,6 +26,8 @@ import { procesarFotosPendientes } from "../workers/importPhotoWorker";
 import { DescargaRechazada } from "../lib/fetchPublico";
 import { procesarFoto } from "../services/importacionFotos.service";
 import { usarDescargadorDeSheetsParaTests } from "../services/importacionSheets";
+import { procesarSincronizaciones } from "../workers/importSyncWorker";
+import { reclamarSync } from "../repositories/importSync.repository";
 import { subirFotoDeVehiculo, VEHICLE_PHOTO_BUCKET } from "../services/vehiclePhoto.service";
 import { procesarLotes } from "../workers/importBatchWorker";
 import {
@@ -42,6 +44,10 @@ import {
   opcionesHandler,
   subirHandler,
   subirSheetsHandler,
+  listarSyncsHandler,
+  pausarSyncHandler,
+  reanudarSyncHandler,
+  borrarSyncHandler,
 } from "./importacionAdmin.controller";
 
 // ---------------------------------------------------------------------------
@@ -76,6 +82,10 @@ before(async () => {
   app.get(`${BASE}/options`, ...gate, opcionesHandler);
   app.post(BASE, ...gate, importUpload, subirHandler);
   app.post(`${BASE}/sheets`, ...gate, subirSheetsHandler);
+  app.get(`${BASE}/syncs`, ...gate, listarSyncsHandler);
+  app.post(`${BASE}/syncs/:syncId/pause`, ...gate, pausarSyncHandler);
+  app.post(`${BASE}/syncs/:syncId/resume`, ...gate, reanudarSyncHandler);
+  app.delete(`${BASE}/syncs/:syncId`, ...gate, borrarSyncHandler);
   app.get(`${BASE}/:batchId`, ...gate, obtenerHandler);
   app.put(`${BASE}/:batchId/config`, ...gate, configurarHandler);
   app.get(`${BASE}/:batchId/rows`, ...gate, filasHandler);
@@ -171,6 +181,7 @@ async function desmontar(e: Escenario): Promise<void> {
   await prisma.activity.deleteMany({ where });
   await prisma.externalRecordLink.deleteMany({ where });
   await prisma.importBatch.deleteMany({ where });
+  await prisma.importSync.deleteMany({ where });
   await prisma.contact.deleteMany({ where });
   await prisma.company.deleteMany({ where });
   await prisma.contactCustomFieldDefinition.deleteMany({ where });
@@ -1552,5 +1563,294 @@ test("purga: a los 7 días sin confirmar se borran las filas STAGED y el lote qu
     });
   } finally {
     await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Sincronización del stock desde Google Sheets (§7)
+// ---------------------------------------------------------------------------
+
+const ENCABEZADO_DE_PLANILLA = "Código,Marca,Modelo,Año,Precio,Estado\r\n";
+const MAPEO_DE_PLANILLA = {
+  Código: "stockCode",
+  Marca: "make",
+  Modelo: "model",
+  Año: "year",
+  Precio: "price",
+  Estado: "status",
+};
+
+// Una planilla que el test cambia entre corridas, o que falla.
+function planillaFalsa(inicial: string) {
+  const estado = { contenido: inicial, falla: null as string | null, pedidas: 0 };
+  usarDescargadorDeSheetsParaTests(async () => {
+    estado.pedidas++;
+    if (estado.falla) throw new AppError(estado.falla, 400);
+    return Buffer.from(estado.contenido);
+  });
+  return estado;
+}
+
+// Que la sincronización esté vencida, como si hubiera pasado el intervalo.
+async function vencer(syncId: string) {
+  await prisma.importSync.update({
+    where: { id: syncId },
+    data: { nextRunAt: new Date(Date.now() - 1_000) },
+  });
+}
+
+async function crearSincronizada(e: Escenario, branchId: string, marcarFaltantes: boolean) {
+  const r = await enviar(e, "POST", "/sheets", {
+    entityType: "VEHICLE",
+    sourceName: "Planilla de stock",
+    sheetUrl: LINK_DE_PLANILLA,
+  });
+  assert.equal(r.status, 201);
+  const batchId = ((await r.json()) as { lote: { id: string } }).lote.id;
+  await analizar(e, batchId, {
+    mapeo: MAPEO_DE_PLANILLA,
+    // FILL_EMPTY en el lote: la sincronización igual pisa (decisión 15).
+    duplicados: "FILL_EMPTY",
+    stock: {
+      branchId,
+      responsableId: e.vendedorId,
+      monedaPorDefecto: "USD",
+      estados: { Disponible: "AVAILABLE" },
+    },
+  });
+  const conf = await enviar(e, "POST", `/${batchId}/confirm`, {
+    sincronizar: { intervalHours: 6, marcarFaltantes },
+  });
+  assert.equal(conf.status, 200);
+  const { syncId } = (await conf.json()) as { syncId: string };
+  for (;;) {
+    const d = await drenarPendientes({ organizationId: e.organizationId });
+    if (d.procesados + d.fallidos + d.pospuestos + d.muertos === 0) break;
+  }
+  await procesarLotes();
+  return { batchId, syncId };
+}
+
+async function correrYTerminar(e: Escenario) {
+  const r = await procesarSincronizaciones();
+  await procesarLotes();
+  for (;;) {
+    const d = await drenarPendientes({ organizationId: e.organizationId });
+    if (d.procesados + d.fallidos + d.pospuestos + d.muertos === 0) break;
+  }
+  await procesarLotes();
+  return r;
+}
+
+function unidad(e: Escenario, codigo: string) {
+  return prisma.vehicle.findFirstOrThrow({
+    where: { organizationId: e.organizationId, internalNotes: `Código anterior: ${codigo}` },
+  });
+}
+
+test("sincronización: se crea al confirmar el lote de Sheets; cada corrida se confirma sola, la planilla pisa los campos mapeados, no pisa el estado del CRM, no borra, y marca No disponibles las que desaparecen", async () => {
+  const { e, branchId } = await conStock("stock-sync");
+  const planilla = planillaFalsa(
+    ENCABEZADO_DE_PLANILLA +
+      "Y-1,Marca Ficticia,Modelo A,2020,10000,Disponible\r\n" +
+      "Y-2,Marca Ficticia,Modelo B,2019,9000,Disponible\r\n" +
+      "Y-3,Otra Marca,Modelo C,2018,8000,Disponible\r\n",
+  );
+  try {
+    const { batchId, syncId } = await crearSincronizada(e, branchId, true);
+    const sync = await prisma.importSync.findUniqueOrThrow({ where: { id: syncId } });
+    assert.equal(sync.intervalHours, 6);
+    assert.ok(sync.nextRunAt.getTime() > Date.now() + 5 * 3_600_000, "la próxima, en 6 h");
+    assert.equal(
+      (await prisma.importBatch.findUniqueOrThrow({ where: { id: batchId } })).syncId,
+      syncId,
+    );
+
+    // Todavía no toca: no corre nada.
+    assert.deepEqual(await procesarSincronizaciones(), {
+      LOTE_CREADO: 0,
+      FALLIDA: 0,
+      ANTERIOR_EN_CURSO: 0,
+    });
+
+    // En el CRM, Y-3 quedó reservada a mano.
+    await prisma.vehicle.update({
+      where: { id: (await unidad(e, "Y-3")).id },
+      data: { status: "RESERVED" },
+    });
+    // La planilla cambia: Y-1 sube de precio, Y-2 desaparece, Y-4 es nueva.
+    planilla.contenido =
+      ENCABEZADO_DE_PLANILLA +
+      "Y-1,Marca Ficticia,Modelo A,2020,12500,Disponible\r\n" +
+      "Y-3,Otra Marca,Modelo C,2018,8000,Disponible\r\n" +
+      "Y-4,Otra Marca,Modelo D,2021,15000,Disponible\r\n";
+    await vencer(syncId);
+    assert.equal((await correrYTerminar(e)).LOTE_CREADO, 1);
+
+    const corrida = await prisma.importBatch.findFirstOrThrow({
+      where: { organizationId: e.organizationId, syncId, originKind: "SYNC" },
+    });
+    assert.equal(corrida.status, "DONE", "se confirmó sola");
+    assert.deepEqual((corrida.counters as { sync: unknown }).sync, {
+      faltantes: 1,
+      marcadasNoDisponibles: 1,
+      sinMarcarPorFallidas: false,
+    });
+    assert.equal(
+      Number((await unidad(e, "Y-1")).priceListUsd),
+      12500,
+      "la planilla pisa (OVERWRITE)",
+    );
+    const y2 = await unidad(e, "Y-2");
+    assert.equal(y2.status, "UNAVAILABLE");
+    assert.equal(y2.deletedAt, null, "no se borra");
+    assert.equal((await unidad(e, "Y-3")).status, "RESERVED", "el estado del CRM no se pisa");
+    assert.equal(await prisma.vehicle.count({ where: { organizationId: e.organizationId } }), 4);
+
+    const estado = await prisma.importSync.findUniqueOrThrow({ where: { id: syncId } });
+    assert.equal(estado.lastStatus, "OK");
+    assert.equal(estado.lockedUntil, null);
+    // Corrió tarde: la próxima es desde ahora, una sola vez.
+    assert.ok(estado.nextRunAt.getTime() > Date.now() + 5 * 3_600_000);
+
+    // La lista de la pantalla.
+    const lista = (await (await enviar(e, "GET", "/syncs")).json()) as {
+      id: string;
+      lastStatus: string;
+      ultimaCorrida: { id: string };
+      config?: unknown;
+    }[];
+    assert.equal(lista.length, 1);
+    assert.equal(lista[0].ultimaCorrida.id, corrida.id);
+    assert.equal(lista[0].config, undefined);
+  } finally {
+    usarDescargadorDeSheetsParaTests(null);
+    await desmontarStock(e);
+  }
+});
+
+test("sincronización: con la casilla apagada las faltantes solo se informan; una columna mapeada que desaparece es una falla; a la tercera falla seguida se pausa sola; reanudar, pausar y borrar", async () => {
+  const { e, branchId } = await conStock("stock-sync-fallas");
+  const planilla = planillaFalsa(
+    ENCABEZADO_DE_PLANILLA +
+      "Z-1,Marca Ficticia,Modelo A,2020,10000,Disponible\r\n" +
+      "Z-2,Marca Ficticia,Modelo B,2019,9000,Disponible\r\n",
+  );
+  try {
+    const { syncId } = await crearSincronizada(e, branchId, false);
+    planilla.contenido =
+      ENCABEZADO_DE_PLANILLA + "Z-1,Marca Ficticia,Modelo A,2020,10000,Disponible\r\n";
+    await vencer(syncId);
+    await correrYTerminar(e);
+    const corrida = await prisma.importBatch.findFirstOrThrow({
+      where: { organizationId: e.organizationId, syncId, originKind: "SYNC" },
+    });
+    assert.deepEqual((corrida.counters as { sync: unknown }).sync, {
+      faltantes: 1,
+      marcadasNoDisponibles: 0,
+      sinMarcarPorFallidas: false,
+    });
+    assert.equal((await unidad(e, "Z-2")).status, "AVAILABLE");
+
+    // Alguien borró la columna Precio: falla, no se ignora.
+    planilla.contenido =
+      "Código,Marca,Modelo,Año,Estado\r\nZ-1,Marca Ficticia,Modelo A,2020,Disponible\r\n";
+    await vencer(syncId);
+    assert.equal((await procesarSincronizaciones()).FALLIDA, 1);
+    let estado = await prisma.importSync.findUniqueOrThrow({ where: { id: syncId } });
+    assert.equal(estado.lastStatus, "FAILED");
+    assert.match(estado.lastError ?? "", /faltan las columnas Precio/);
+    assert.equal(estado.consecutiveFailures, 1);
+    assert.equal(estado.pausedAt, null);
+
+    planilla.falla = "La planilla no está compartida con el enlace";
+    for (let i = 0; i < 2; i++) {
+      await vencer(syncId);
+      await procesarSincronizaciones();
+    }
+    estado = await prisma.importSync.findUniqueOrThrow({ where: { id: syncId } });
+    assert.equal(estado.consecutiveFailures, 3);
+    assert.equal(estado.pausedReason, "AUTO_FAILURES");
+    assert.ok(estado.pausedAt);
+    // Pausada, no corre aunque esté vencida.
+    await vencer(syncId);
+    const antes = planilla.pedidas;
+    await procesarSincronizaciones();
+    assert.equal(planilla.pedidas, antes);
+
+    // Reanudar: borra las fallas y corre en la próxima pasada.
+    planilla.falla = null;
+    planilla.contenido =
+      ENCABEZADO_DE_PLANILLA + "Z-1,Marca Ficticia,Modelo A,2020,10000,Disponible\r\n";
+    const reanudada = await enviar(e, "POST", `/syncs/${syncId}/resume`);
+    assert.equal(reanudada.status, 200);
+    assert.equal(
+      ((await reanudada.json()) as { consecutiveFailures: number }).consecutiveFailures,
+      0,
+    );
+    assert.equal((await procesarSincronizaciones()).LOTE_CREADO, 1);
+
+    // Mientras esa corrida no terminó, la siguiente no arranca otra.
+    await vencer(syncId);
+    assert.equal((await procesarSincronizaciones()).ANTERIOR_EN_CURSO, 1);
+    assert.equal(
+      (await prisma.importSync.findUniqueOrThrow({ where: { id: syncId } })).lockedUntil,
+      null,
+    );
+
+    assert.equal((await enviar(e, "POST", `/syncs/${syncId}/pause`)).status, 200);
+    assert.equal(
+      (await prisma.importSync.findUniqueOrThrow({ where: { id: syncId } })).pausedReason,
+      "MANUAL",
+    );
+    assert.equal((await enviar(e, "DELETE", `/syncs/${syncId}`)).status, 204);
+    assert.deepEqual(await (await enviar(e, "GET", "/syncs")).json(), []);
+    assert.equal((await enviar(e, "POST", `/syncs/${syncId}/resume`)).status, 404);
+  } finally {
+    usarDescargadorDeSheetsParaTests(null);
+    await desmontarStock(e);
+  }
+});
+
+test("sincronización: solo un lote de Sheets; dos workers no toman la misma, y un lock vencido se libera", async () => {
+  const { e, branchId } = await conStock("stock-sync-lock");
+  planillaFalsa(ENCABEZADO_DE_PLANILLA + "L-1,Marca Ficticia,Modelo A,2020,10000,Disponible\r\n");
+  try {
+    // Un lote de archivo no se sincroniza: 400, y el lote sigue sin confirmar.
+    const { batchId } = await importarStock(
+      e,
+      "Código;Marca;Modelo;Año\r\nA-1;Marca Ficticia;Modelo A;2020\r\n",
+      { sourceName: "Archivo" },
+      {
+        mapeo: { Código: "stockCode", Marca: "make", Modelo: "model", Año: "year" },
+        stock: { branchId, responsableId: e.vendedorId },
+      },
+    );
+    const r = await enviar(e, "POST", `/${batchId}/confirm`, { sincronizar: { intervalHours: 6 } });
+    assert.equal(r.status, 400);
+    assert.equal(
+      (await prisma.importBatch.findUniqueOrThrow({ where: { id: batchId } })).status,
+      "READY",
+    );
+    assert.equal(
+      (await enviar(e, "POST", `/${batchId}/confirm`, { sincronizar: { intervalHours: 0 } }))
+        .status,
+      400,
+    );
+
+    const { syncId } = await crearSincronizada(e, branchId, false);
+    await vencer(syncId);
+    const [a, b] = await Promise.all([reclamarSync(60_000), reclamarSync(60_000)]);
+    assert.equal([a, b].filter((x) => x?.id === syncId).length, 1, "una sola la toma");
+    // El proceso que la tomó murió: con el lock vencido y la corrida vencida,
+    // otro la toma.
+    await prisma.importSync.update({
+      where: { id: syncId },
+      data: { nextRunAt: new Date(Date.now() - 1_000), lockedUntil: new Date(Date.now() - 1_000) },
+    });
+    assert.equal((await reclamarSync(60_000))?.id, syncId);
+  } finally {
+    usarDescargadorDeSheetsParaTests(null);
+    await desmontarStock(e);
   }
 });

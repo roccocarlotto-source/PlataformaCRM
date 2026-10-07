@@ -126,6 +126,18 @@ export function InformeDelLote({
           {fotosConProblemas > 0 ? `, ${String(fotosConProblemas)} sin bajar` : ""}.
         </p>
       ) : null}
+      {lote.counters?.sync ? (
+        <p role="status">
+          {lote.counters.sync.faltantes === 0
+            ? "No falta ninguna unidad de la planilla."
+            : `${String(lote.counters.sync.faltantes)} unidades ya no están en la planilla` +
+              (lote.counters.sync.marcadasNoDisponibles > 0
+                ? `: ${String(lote.counters.sync.marcadasNoDisponibles)} pasaron a No disponible.`
+                : lote.counters.sync.sinMarcarPorFallidas
+                  ? ": no se marcaron porque la corrida tuvo filas fallidas."
+                  : ".")}
+        </p>
+      ) : null}
       {fallidas > 0 ? (
         <p className="ds-hint">
           El CSV de fallidas trae las columnas originales y el motivo de cada fila: se corrige y se

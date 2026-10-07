@@ -6,11 +6,13 @@ import {
   claimLoteParaAnalizar,
   claimLoteParaDeshacer,
   claimLoteTerminado,
+  confirmarFilas,
   resumenDeFilas,
   transicionarLote,
 } from "../repositories/importacion.repository";
 import { analizarLote } from "../services/importacionAnalisis.service";
 import { deshacerLote } from "../services/importacionDeshacer.service";
+import { marcarFaltantes } from "../services/importacionSync.service";
 import { describirError } from "../utils/backoff";
 
 // ---------------------------------------------------------------------------
@@ -54,6 +56,18 @@ async function analizarUno(resumen: ResumenDeLotes): Promise<boolean> {
         if (!lote) return false;
         tomado = { id: lote.id, organizationId: lote.organizationId };
         await analizarLote(lote, tx);
+        // Una corrida de una sincronización se confirma sola, sin vista
+        // previa (§7): en la misma transacción que la dejó READY.
+        if (lote.originKind === "SYNC") {
+          await transicionarLote(
+            lote.organizationId,
+            lote.id,
+            ["READY"],
+            { status: "RUNNING", confirmedAt: new Date() },
+            tx,
+          );
+          await confirmarFilas(lote.organizationId, lote.id, tx);
+        }
         return true;
       },
       { timeout: ANALISIS_TRANSACTION_TIMEOUT_MS },
@@ -104,6 +118,9 @@ async function terminarUno(resumen: ResumenDeLotes): Promise<boolean> {
     const lote = await claimLoteTerminado(tx);
     if (!lote) return false;
     const final = await resumenDeFilas(lote.organizationId, lote.id, tx);
+    // Una corrida de una sincronización: las unidades que ya no están en la
+    // planilla (§7).
+    const sync = await marcarFaltantes(lote, tx);
     const previos =
       lote.counters !== null && typeof lote.counters === "object" && !Array.isArray(lote.counters)
         ? lote.counters
@@ -115,7 +132,11 @@ async function terminarUno(resumen: ResumenDeLotes): Promise<boolean> {
       {
         status: "DONE",
         finishedAt: new Date(),
-        counters: { ...previos, final } as unknown as Prisma.InputJsonValue,
+        counters: {
+          ...previos,
+          final,
+          ...(sync ? { sync } : {}),
+        } as unknown as Prisma.InputJsonValue,
       },
       tx,
     );

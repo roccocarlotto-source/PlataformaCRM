@@ -32,9 +32,11 @@ const SEARCH_DEBOUNCE_MS = 300;
 // el mismo criterio que CompanySelect vive en features/company/: el feature
 // dueño del recurso.
 //
-// La búsqueda filtra status=AVAILABLE: vincular cualquier otra el backend la
-// rechaza con 409 (assertVehicleAvailable en opportunity.service.ts), así que
-// ofrecerla sería ofrecer un error. La unidad seleccionada, en cambio, se
+// La búsqueda filtra las libres, AVAILABLE y UNAVAILABLE ("No disponible", que
+// se reserva directo sin quedar ofrecible por el agente en el medio, decisión
+// del 07/10/2026): vincular cualquier otra el backend la rechaza con 409
+// (assertVehicleAvailable en opportunity.service.ts), así que ofrecerla sería
+// ofrecer un error. Una «No disponible» lleva su estado al lado. La unidad seleccionada, en cambio, se
 // resuelve SIN ese filtro: una oportunidad abierta tiene su unidad RESERVED y
 // una ganada la tiene SOLD o DELIVERED — es el caso normal, no una excepción — y tiene
 // que poder mostrarse igual, con su estado al lado.
@@ -64,7 +66,7 @@ export function VehicleSelect({
   }, [term]);
 
   const searchQuery = useVehicles(
-    { q: debouncedTerm || undefined, status: ["AVAILABLE"], pageSize: 20 },
+    { q: debouncedTerm || undefined, status: ["AVAILABLE", "UNAVAILABLE"], pageSize: 20 },
     { enabled: debouncedTerm.length > 0 },
   );
 
@@ -106,6 +108,12 @@ export function VehicleSelect({
       renderItem={(vehicle) => (
         <>
           {unitTitle(vehicle)} · {priceCell(vehicle)}
+          {vehicle.status === "UNAVAILABLE" ? (
+            <>
+              {" "}
+              <Badge variant={STATUS_BADGE_VARIANT.UNAVAILABLE}>{STATUS_LABELS.UNAVAILABLE}</Badge>
+            </>
+          ) : null}
         </>
       )}
       onSelect={(vehicle) => {

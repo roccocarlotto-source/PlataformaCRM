@@ -244,7 +244,13 @@ function planDeVehiculo(
   advertencias: string[],
 ): PlanDeFila {
   if (c.vendidaEnOrigen && !ajustes.stock?.importarVendidas) {
-    return { tipo: "SKIP", advertencias: [...advertencias, "Vendida en el origen: se omite"] };
+    // Con la unidad del CRM, si la hay: sigue en la planilla, así que una
+    // sincronización no la cuenta como faltante (importacionSync.service.ts).
+    return {
+      tipo: "SKIP",
+      advertencias: [...advertencias, "Vendida en el origen: se omite"],
+      existenteId: ctx.resolutor.vehiculoDe(c)?.existente.id,
+    };
   }
   const montos = montosEnDolares(c, moneda);
   if (!montos.ok) return { tipo: "FAIL", errores: [montos.error], advertencias };

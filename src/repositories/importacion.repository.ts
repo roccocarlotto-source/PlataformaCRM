@@ -48,6 +48,9 @@ export function createImportBatch(
     rowCount: number;
     config: Prisma.InputJsonValue;
     createdByUserId: string;
+    // Una corrida de una sincronización: entra ya configurada (ANALYZING).
+    syncId?: string;
+    status?: ImportBatchStatus;
   },
   db: Db = prisma,
 ): Promise<ImportBatch> {

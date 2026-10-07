@@ -60,7 +60,7 @@ describe("VehicleSelect", () => {
     expect(screen.queryByText("Quitar vínculo")).not.toBeInTheDocument();
   });
 
-  it("busca server-side al tipear (debounced) SOLO unidades disponibles: q, status=AVAILABLE y pageSize=20; cada resultado muestra unidad y precio", async () => {
+  it("busca server-side al tipear (debounced) SOLO unidades libres: q, status=AVAILABLE y UNAVAILABLE, y pageSize=20; cada resultado muestra unidad y precio", async () => {
     const captured: URL[] = [];
     server.use(searchHandler(captured));
     const user = userEvent.setup();
@@ -70,7 +70,7 @@ describe("VehicleSelect", () => {
 
     await waitFor(() => expect(captured.length).toBeGreaterThan(0));
     expect(captured[0].searchParams.get("q")).toBe("corolla");
-    expect(captured[0].searchParams.getAll("status")).toEqual(["AVAILABLE"]);
+    expect(captured[0].searchParams.getAll("status")).toEqual(["AVAILABLE", "UNAVAILABLE"]);
     expect(captured[0].searchParams.get("pageSize")).toBe("20");
 
     await waitFor(() =>

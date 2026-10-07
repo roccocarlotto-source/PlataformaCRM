@@ -15,6 +15,7 @@ import { TIPOS } from "./labels";
 import { PasoArchivo } from "./PasoArchivo";
 import { PasoMapeo } from "./PasoMapeo";
 import { PasoVistaPrevia } from "./PasoVistaPrevia";
+import { Sincronizaciones } from "./Sincronizaciones";
 import { useFilas, useLote, useLotes, useOpciones } from "./queries";
 import type { EstadoDelLote, Lote } from "./types";
 
@@ -225,6 +226,10 @@ export function ImportarDatosPage() {
                 }}
               />
             ) : null}
+            <Sincronizaciones
+              organizationId={organizationId}
+              onAbrirCorrida={(id) => ir({ batchId: id })}
+            />
             <ImportacionesAnteriores
               organizationId={organizationId}
               onAbrir={(lote) => ir({ batchId: lote.id })}
