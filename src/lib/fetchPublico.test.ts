@@ -146,6 +146,18 @@ test("fetchPublico: una redirección a la metadata de la nube se rechaza, y un b
   assert.match(bucle.message, /demasiadas redirecciones/);
 });
 
+test("fetchPublico: con hostPermitido, ni la primera URL ni una redirección pueden ir a otro host", async () => {
+  const soloOtro = { ...PARA_EL_SERVIDOR, hostPermitido: (h: string) => h === "docs.google.com" };
+  assert.match(
+    (await rechazo(fetchPublico(`${base}/foto`, soloOtro))).message,
+    /no se sigue a «localhost»/,
+  );
+  const soloLocal = { ...PARA_EL_SERVIDOR, hostPermitido: (h: string) => h === "localhost" };
+  assert.equal((await fetchPublico(`${base}/redirige`, soloLocal)).buffer.length, 11);
+  const afuera = await rechazo(fetchPublico(`${base}/redirige-afuera`, soloLocal));
+  assert.match(afuera.message, /no se sigue a «169\.254\.169\.254»/);
+});
+
 test("fetchPublico: el tope de bytes corta el stream, y el de tiempo corta una respuesta lenta", async () => {
   const grande = await rechazo(fetchPublico(`${base}/grande`, PARA_EL_SERVIDOR));
   assert.equal(grande.clase, "PERMANENTE");

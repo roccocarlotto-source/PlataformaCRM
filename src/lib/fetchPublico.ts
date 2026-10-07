@@ -111,6 +111,10 @@ export interface OpcionesDeDescarga {
   // Solo para tests, por lo mismo: el servidor de prueba escucha en un puerto
   // que no es el 80.
   cualquierPuerto?: boolean;
+  // A qué hosts se puede llegar, en la primera URL y en cada redirección (el
+  // link de Google Sheets solo sigue a hosts de Google). Sin esto, a cualquier
+  // host público.
+  hostPermitido?: (host: string) => boolean;
 }
 
 export interface Descarga {
@@ -121,7 +125,11 @@ export interface Descarga {
 
 const MAX_REDIRECCIONES = 3;
 
-function validarUrl(texto: string, cualquierPuerto = false): URL {
+function validarUrl(
+  texto: string,
+  cualquierPuerto = false,
+  hostPermitido?: (host: string) => boolean,
+): URL {
   let url: URL;
   try {
     url = new URL(texto);
@@ -136,6 +144,9 @@ function validarUrl(texto: string, cualquierPuerto = false): URL {
   }
   if (url.username !== "" || url.password !== "") {
     throw new DescargaRechazada("el link no puede llevar usuario ni contraseña", "PERMANENTE");
+  }
+  if (hostPermitido && !hostPermitido(url.hostname)) {
+    throw new DescargaRechazada(`no se sigue a «${url.hostname}»`, "PERMANENTE");
   }
   return url;
 }
@@ -250,7 +261,7 @@ export async function fetchPublico(texto: string, opciones: OpcionesDeDescarga):
   });
 
   const descargar = async (): Promise<Descarga> => {
-    let url = validarUrl(texto, opciones.cualquierPuerto);
+    let url = validarUrl(texto, opciones.cualquierPuerto, opciones.hostPermitido);
     for (let saltos = 0; ; saltos++) {
       const { respuesta, destruir: d } = await pedir(url, opciones, ipPermitida);
       destruir = d;
@@ -263,6 +274,7 @@ export async function fetchPublico(texto: string, opciones: OpcionesDeDescarga):
         url = validarUrl(
           new URL(respuesta.headers.location, url).toString(),
           opciones.cualquierPuerto,
+          opciones.hostPermitido,
         );
         continue;
       }

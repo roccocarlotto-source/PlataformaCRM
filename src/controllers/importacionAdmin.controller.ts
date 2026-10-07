@@ -6,6 +6,7 @@ import {
   listarFilasSchema,
   listarLotesSchema,
   subirImportacionSchema,
+  subirSheetsSchema,
 } from "../schemas/importacion.schema";
 import {
   cancelarImportacion,
@@ -20,6 +21,7 @@ import {
   obtenerImportacion,
   opcionesDeImportacion,
   subirImportacion,
+  subirLinkDeSheets,
 } from "../services/importacion.service";
 import { pedirDeshacer } from "../services/importacionDeshacer.service";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -68,6 +70,11 @@ export const subirHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     contenido: archivo.buffer,
   });
   res.status(201).json(resultado);
+});
+
+export const subirSheetsHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const pedido = parseOrThrow(subirSheetsSchema, req.body);
+  res.status(201).json(await subirLinkDeSheets(organizacionDelPath(req), req.auth.userId, pedido));
 });
 
 export const listarHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {

@@ -19,6 +19,7 @@ import { drenarPendientes } from "../workers/ingestionWorker";
 import { procesarFotosPendientes } from "../workers/importPhotoWorker";
 import { DescargaRechazada } from "../lib/fetchPublico";
 import { procesarFoto } from "../services/importacionFotos.service";
+import { usarDescargadorDeSheetsParaTests } from "../services/importacionSheets";
 import { subirFotoDeVehiculo, VEHICLE_PHOTO_BUCKET } from "../services/vehiclePhoto.service";
 import { procesarLotes } from "../workers/importBatchWorker";
 import {
@@ -34,6 +35,7 @@ import {
   obtenerHandler,
   opcionesHandler,
   subirHandler,
+  subirSheetsHandler,
 } from "./importacionAdmin.controller";
 
 // ---------------------------------------------------------------------------
@@ -67,6 +69,7 @@ before(async () => {
   const gate = [stubAuthenticate, requirePlatformAdmin];
   app.get(`${BASE}/options`, ...gate, opcionesHandler);
   app.post(BASE, ...gate, importUpload, subirHandler);
+  app.post(`${BASE}/sheets`, ...gate, subirSheetsHandler);
   app.get(`${BASE}/:batchId`, ...gate, obtenerHandler);
   app.put(`${BASE}/:batchId/config`, ...gate, configurarHandler);
   app.get(`${BASE}/:batchId/rows`, ...gate, filasHandler);
@@ -1394,6 +1397,86 @@ test("fotos y deshacer: las fotos que bajó la importación no salvan a la unida
     );
   } finally {
     await borrarFotosDeStorage(e.organizationId);
+    await desmontarStock(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Google Sheets por link (§4.2, decisión 3)
+// ---------------------------------------------------------------------------
+
+const LINK_DE_PLANILLA =
+  "https://docs.google.com/spreadsheets/d/1PlanillaFicticiaDePrueba_0123456789/edit#gid=42";
+
+test("sheets: solo stock; el link se valida, la planilla se lee como CSV con coma y queda guardada para sincronizar; si no está compartida, se dice", async () => {
+  const { e, branchId } = await conStock("stock-sheets");
+  const pedidas: unknown[] = [];
+  usarDescargadorDeSheetsParaTests(async (p) => {
+    pedidas.push(p);
+    return Buffer.from(
+      "Código,Marca,Modelo,Año\r\nS-1,Marca Ficticia,Modelo A,2020\r\nS-2,Otra Marca,Modelo B,2019\r\n",
+    );
+  });
+  try {
+    // Contactos, empresas e historial, no: tienen datos personales.
+    for (const entityType of ["CONTACT", "COMPANY", "ACTIVITY"]) {
+      const r = await enviar(e, "POST", "/sheets", {
+        entityType,
+        sourceName: "Planilla",
+        sheetUrl: LINK_DE_PLANILLA,
+      });
+      assert.equal(r.status, 400, entityType);
+      assert.match(
+        ((await r.json()) as { error: { message: string } }).error.message,
+        /solo para el stock/,
+      );
+    }
+    const otroHost = await enviar(e, "POST", "/sheets", {
+      entityType: "VEHICLE",
+      sourceName: "Planilla",
+      sheetUrl: "https://example.com/spreadsheets/d/1PlanillaFicticiaDePrueba_0123456789/edit",
+    });
+    assert.equal(otroHost.status, 400);
+    assert.equal(pedidas.length, 0, "no se pidió nada antes de validar");
+
+    const r = await enviar(e, "POST", "/sheets", {
+      entityType: "VEHICLE",
+      sourceName: "Planilla",
+      sheetUrl: LINK_DE_PLANILLA,
+    });
+    assert.equal(r.status, 201);
+    const subida = (await r.json()) as { lote: { id: string }; encabezados: string[] };
+    assert.deepEqual(subida.encabezados, ["Código", "Marca", "Modelo", "Año"]);
+    assert.deepEqual(pedidas, [{ sheetId: "1PlanillaFicticiaDePrueba_0123456789", gid: "42" }]);
+    const lote = await prisma.importBatch.findUniqueOrThrow({ where: { id: subida.lote.id } });
+    assert.equal(lote.originKind, "GOOGLE_SHEETS_LINK");
+    assert.deepEqual(
+      (lote.config as { archivo: { planilla: unknown } }).archivo.planilla,
+      pedidas[0],
+    );
+
+    await analizar(e, subida.lote.id, {
+      mapeo: { Código: "stockCode", Marca: "make", Modelo: "model", Año: "year" },
+      stock: { branchId, responsableId: e.vendedorId },
+    });
+    await confirmarYPromover(e, subida.lote.id);
+    assert.equal(await prisma.vehicle.count({ where: { organizationId: e.organizationId } }), 2);
+
+    usarDescargadorDeSheetsParaTests(async () => {
+      throw new AppError("La planilla no está compartida con el enlace", 400);
+    });
+    const privada = await enviar(e, "POST", "/sheets", {
+      entityType: "VEHICLE",
+      sourceName: "Otra",
+      sheetUrl: LINK_DE_PLANILLA,
+    });
+    assert.equal(privada.status, 400);
+    assert.match(
+      ((await privada.json()) as { error: { message: string } }).error.message,
+      /no está compartida/,
+    );
+  } finally {
+    usarDescargadorDeSheetsParaTests(null);
     await desmontarStock(e);
   }
 });

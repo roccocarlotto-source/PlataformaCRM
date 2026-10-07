@@ -557,6 +557,46 @@ describe("ImportarDatosPage", () => {
     expect(configs[0]).toMatchObject({ crearEmpresas: false });
   });
 
+  it("Google Sheets: solo aparece para el stock, manda el link a /sheets y muestra por qué no se pudo leer", async () => {
+    const pedidos: unknown[] = [];
+    server.use(
+      http.post(`${base}/sheets`, async ({ request }) => {
+        pedidos.push(await request.json());
+        return HttpResponse.json(
+          { error: { message: "La planilla no está compartida con el enlace" } },
+          { status: 400 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}`);
+    const tipo = await screen.findByRole("combobox", { name: "Qué se importa" });
+    await chooseSelectOption(user, tipo, "Contactos");
+    expect(screen.queryByRole("combobox", { name: "De dónde" })).not.toBeInTheDocument();
+    await chooseSelectOption(user, tipo, "Stock de vehículos");
+    await chooseSelectOption(
+      user,
+      screen.getByRole("combobox", { name: "De dónde" }),
+      "Un link de Google Sheets",
+    );
+    await user.type(screen.getByLabelText("Nombre del sistema de origen"), "Planilla");
+    await user.type(
+      screen.getByLabelText("Link de la planilla"),
+      "https://docs.google.com/spreadsheets/d/1PlanillaFicticia_0123456789/edit",
+    );
+    await user.click(screen.getByRole("button", { name: "Subir y continuar" }));
+    expect(
+      await screen.findByText(/No pudimos leer la planilla: La planilla no está compartida/),
+    ).toBeInTheDocument();
+    expect(pedidos).toEqual([
+      {
+        entityType: "VEHICLE",
+        sourceName: "Planilla",
+        sheetUrl: "https://docs.google.com/spreadsheets/d/1PlanillaFicticia_0123456789/edit",
+      },
+    ]);
+  });
+
   it("un archivo que el backend rechaza muestra el motivo, y no avanza", async () => {
     server.use(
       http.post(base, () =>
