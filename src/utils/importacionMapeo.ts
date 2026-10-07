@@ -482,22 +482,23 @@ function comparar(
     : { campo, actual, entrante, accion: "difiere" };
 }
 
-// LA ETAPA SOLO AVANZA (decisión 4). El orden de LIFECYCLE_STAGES alcanza para
-// LEAD < MQL < SQL < CUSTOMER. CHURNED queda afuera hasta que se responda P2
-// de docs/importacion-de-datos.md §13: con el orden del enum, un LEAD podría
-// "avanzar" a CHURNED y un CHURNED no volvería nunca a CUSTOMER, y ninguna de
-// las dos cosas está decidida. Mientras tanto, la importación no escribe
-// CHURNED ni cambia una etapa CHURNED: lo deja anotado.
-const ORDEN_DE_ETAPA: Record<LifecycleStage, number> = {
+// LA ETAPA SOLO AVANZA (decisión 4) en un contacto que ya existe, con este
+// orden: LEAD < MQL < SQL < CUSTOMER. CHURNED NO SIGUE EL ORDEN DEL ENUM
+// (decisión 24, P2 de docs/importacion-de-datos.md §13):
+//   - solo se pasa a CHURNED desde CUSTOMER (se perdió un cliente);
+//   - de CHURNED se puede volver a CUSTOMER (volvió a comprar);
+//   - cualquier otro cambio hacia o desde CHURNED se omite y queda anotado.
+// En un contacto NUEVO no se compara nada: se toma el valor del archivo,
+// CHURNED incluido (lo resuelve la promoción, no esta función).
+const ORDEN_DE_ETAPA: Record<Exclude<LifecycleStage, "CHURNED">, number> = {
   LEAD: 0,
   MQL: 1,
   SQL: 2,
   CUSTOMER: 3,
-  CHURNED: 4,
 };
 
-export const MOTIVO_CHURNED_PENDIENTE =
-  "la importación todavía no escribe ni cambia la etapa «Perdido» (CHURNED): queda como está";
+export const MOTIVO_CHURNED =
+  "a la etapa «Perdido» (CHURNED) solo se pasa desde Cliente, y desde ahí solo se vuelve a Cliente: el cambio se omitió";
 
 export function compararEtapa(
   actual: LifecycleStage | null,
@@ -505,16 +506,21 @@ export function compararEtapa(
 ): CambioPlaneado | null {
   if (entrante === undefined) return null;
   if (actual === entrante) return { campo: "lifecycleStage", actual, entrante, accion: "igual" };
-  if (entrante === "CHURNED" || actual === "CHURNED") {
-    return {
-      campo: "lifecycleStage",
-      actual,
-      entrante,
-      accion: "difiere_bloqueado",
-      motivo: MOTIVO_CHURNED_PENDIENTE,
-    };
-  }
   if (actual === null) return { campo: "lifecycleStage", actual, entrante, accion: "completar" };
+  if (entrante === "CHURNED" || actual === "CHURNED") {
+    const permitido =
+      (actual === "CUSTOMER" && entrante === "CHURNED") ||
+      (actual === "CHURNED" && entrante === "CUSTOMER");
+    return permitido
+      ? { campo: "lifecycleStage", actual, entrante, accion: "difiere" }
+      : {
+          campo: "lifecycleStage",
+          actual,
+          entrante,
+          accion: "difiere_bloqueado",
+          motivo: MOTIVO_CHURNED,
+        };
+  }
   return ORDEN_DE_ETAPA[entrante] > ORDEN_DE_ETAPA[actual]
     ? { campo: "lifecycleStage", actual, entrante, accion: "difiere" }
     : {

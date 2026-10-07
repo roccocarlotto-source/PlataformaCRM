@@ -12,7 +12,6 @@ import {
   claveDeNombreDeEmpresa,
   clavesDeContacto,
   clavesDeEmpresa,
-  MOTIVO_CHURNED_PENDIENTE,
   planearContacto,
   planearEmpresa,
   traducirFilaDeContacto,
@@ -326,17 +325,8 @@ async function escribirContacto(
     };
   }
 
-  // Nuevo. CHURNED no se escribe todavía (P2 de §13).
-  let lifecycleStage = c.lifecycleStage;
-  if (lifecycleStage === "CHURNED") {
-    notas.push({
-      tipo: "ignorado",
-      campo: "lifecycleStage",
-      entrante: "CHURNED",
-      motivo: MOTIVO_CHURNED_PENDIENTE,
-    });
-    lifecycleStage = undefined;
-  }
+  // Nuevo: la etapa del archivo tal cual, CHURNED incluido (decisión 24).
+  const lifecycleStage = c.lifecycleStage;
   refs.companyId = await resolverEmpresaDelContacto(
     evento,
     loteId,

@@ -213,13 +213,27 @@ test("plan: el email y el teléfono que identifican al contacto no se pisan nunc
   assert.deepEqual(cambiosAAplicar(cambios, "OVERWRITE"), []);
 });
 
-test("plan: la etapa solo avanza; CHURNED queda afuera hasta P2", () => {
+test("plan: la etapa solo avanza entre LEAD, MQL, SQL y CUSTOMER", () => {
   assert.equal(compararEtapa("LEAD", "CUSTOMER")?.accion, "difiere");
+  assert.equal(compararEtapa("MQL", "SQL")?.accion, "difiere");
   assert.equal(compararEtapa("CUSTOMER", "LEAD")?.accion, "difiere_bloqueado");
   assert.equal(compararEtapa("CUSTOMER", "CUSTOMER")?.accion, "igual");
-  assert.equal(compararEtapa("LEAD", "CHURNED")?.accion, "difiere_bloqueado");
-  assert.equal(compararEtapa("CHURNED", "CUSTOMER")?.accion, "difiere_bloqueado");
   assert.equal(compararEtapa("LEAD", undefined), null);
+});
+
+test("plan (decisión 24): a CHURNED solo desde CUSTOMER, de CHURNED solo a CUSTOMER; lo demás se omite con motivo", () => {
+  assert.equal(compararEtapa("CUSTOMER", "CHURNED")?.accion, "difiere");
+  assert.equal(compararEtapa("CHURNED", "CUSTOMER")?.accion, "difiere");
+  for (const [actual, entrante] of [
+    ["LEAD", "CHURNED"],
+    ["SQL", "CHURNED"],
+    ["CHURNED", "LEAD"],
+    ["CHURNED", "MQL"],
+  ] as const) {
+    const r = compararEtapa(actual, entrante);
+    assert.equal(r?.accion, "difiere_bloqueado", `${actual} -> ${entrante}`);
+    assert.match(r?.motivo ?? "", /solo se pasa desde Cliente/);
+  }
 });
 
 test("plan: las notas se agregan si no están; reimportar la misma nota no la duplica", () => {

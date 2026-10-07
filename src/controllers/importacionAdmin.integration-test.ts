@@ -598,3 +598,47 @@ test("un XLS y una celda de más de 10.000 caracteres se rechazan al subir, sin 
     await desmontar(e);
   }
 });
+
+test("CHURNED (decisión 24): un contacto nuevo toma la etapa del archivo; uno existente pasa de Cliente a Perdido con «pisar», y de Interesado a Perdido no", async () => {
+  const e = await montar("churned");
+  try {
+    const mapeo = { Id: "externalId", Nombre: "fullName", Etapa: "lifecycleStage" };
+    const etapas = { Cliente: "CUSTOMER", Interesado: "LEAD", Perdido: "CHURNED" };
+    const primera = await importarContactos(
+      e,
+      "Id;Nombre;Etapa\r\nK-1;Ana Pérez;Perdido\r\nK-2;Beto Gómez;Cliente\r\nK-3;Carla Díaz;Interesado\r\n",
+      { sourceName: "Planilla" },
+      { mapeo, etapas },
+    );
+    await confirmarYPromover(e, primera.batchId);
+    const etapa = async (firstName: string) =>
+      (
+        await prisma.contact.findFirstOrThrow({
+          where: { organizationId: e.organizationId, firstName },
+        })
+      ).lifecycleStage;
+    assert.equal(await etapa("Ana"), "CHURNED", "en un contacto nuevo, el valor del archivo");
+
+    const segunda = await importarContactos(
+      e,
+      "Id;Nombre;Etapa\r\nK-2;Beto Gómez;Perdido\r\nK-3;Carla Díaz;Perdido\r\n",
+      { sourceId: primera.subida.body.lote.sourceId },
+      { mapeo, etapas, duplicados: "OVERWRITE" },
+    );
+    const [beto, carla] = await filas(e, segunda.batchId);
+    const etapaDe = (f: FilaJson) =>
+      f.plan.cambios?.find((c) => c.campo === "lifecycleStage")?.accion;
+    assert.equal(etapaDe(beto), "difiere");
+    assert.equal(etapaDe(carla), "difiere_bloqueado");
+    await confirmarYPromover(e, segunda.batchId);
+    assert.equal(await etapa("Beto"), "CHURNED", "de Cliente a Perdido, sí");
+    assert.equal(await etapa("Carla"), "LEAD", "de Interesado a Perdido, no: se omite");
+    const notas = await prisma.ingestionEvent.findFirstOrThrow({
+      where: { organizationId: e.organizationId, batchId: segunda.batchId, rowNumber: 2 },
+      select: { promotionNotes: true },
+    });
+    assert.match(JSON.stringify(notas.promotionNotes), /lifecycleStage/);
+  } finally {
+    await desmontar(e);
+  }
+});
