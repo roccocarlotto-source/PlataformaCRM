@@ -27,6 +27,12 @@ export interface Contact {
   // B6: los campos personalizados, { key: valor }, validados por el backend
   // contra las definiciones de la organización. null/ausente = ninguno.
   customFields?: Record<string, unknown> | null;
+  // "Cliente desde": la fecha de alta en el sistema anterior, de una
+  // importación (docs/importacion-de-datos.md §2.5). Solo lectura. Un día del
+  // calendario ("YYYY-MM-DDT00:00:00.000Z"), no un instante.
+  customerSince?: string | null;
+  // Cuándo lo creó una importación; null si se cargó por otro camino.
+  importedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

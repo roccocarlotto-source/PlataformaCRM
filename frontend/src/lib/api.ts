@@ -177,6 +177,25 @@ async function handleResponse<T>(res: Response): Promise<T> {
 // Todo lo demás es igual que request(): mismo buildUrl, mismo token opcional,
 // mismo handleResponse.
 // ---------------------------------------------------------------------------
+// Un archivo que devuelve la API (los CSV del informe de una importación), con
+// el mismo token y el mismo manejo de errores que request(): un 4xx/5xx es un
+// ApiError con el mensaje del backend, no un CSV con el JSON del error adentro.
+export async function downloadFile(
+  path: string,
+  options: { getAccessToken?: GetAccessToken; signal?: AbortSignal } = {},
+): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = await options.getAccessToken?.();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(buildUrl(path), { headers, signal: options.signal });
+  if (!res.ok) {
+    if (res.status === 401) unauthorizedHandler?.();
+    const { message, details } = await extractError(res);
+    throw new ApiError(res.status, message, details);
+  }
+  return res.blob();
+}
+
 export async function uploadFile<T>(
   path: string,
   formData: FormData,

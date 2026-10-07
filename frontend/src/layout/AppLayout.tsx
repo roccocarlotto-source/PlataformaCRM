@@ -34,6 +34,7 @@ import {
   UserRound,
   Users,
   Zap,
+  Upload,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { Button } from "../design-system/Button";
@@ -493,6 +494,9 @@ export function AppLayout() {
               {/* B4: el gasto en el modelo por organización, últimos 30 días. */}
               <SidebarLink to="/admin/llm-usage" icon={Activity}>
                 Uso de IA
+              </SidebarLink>
+              <SidebarLink to="/admin/imports" icon={Upload}>
+                Importar datos
               </SidebarLink>
             </div>
           ) : null}

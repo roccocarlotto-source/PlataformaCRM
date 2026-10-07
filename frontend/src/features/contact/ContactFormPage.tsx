@@ -23,6 +23,14 @@ import type { ContactCustomFieldValue } from "../contactCustomField/types";
 import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
 import { useCreateContact, useUpdateContact } from "./mutations";
 import { useContact } from "./queries";
+
+// "Cliente desde" es un día del calendario guardado como medianoche UTC: se
+// muestra con la parte de fecha, sin pasarlo por la zona del navegador (que lo
+// correría al día anterior al oeste de Greenwich).
+function formatearDia(iso: string): string {
+  const [anio, mes, dia] = iso.slice(0, 10).split("-");
+  return `${dia}/${mes}/${anio}`;
+}
 import type { Contact, CreateContactInput, LifecycleStage } from "./types";
 import { useFormDraft } from "../../lib/useFormDraft";
 
@@ -316,6 +324,12 @@ export function ContactFormPage() {
                   onChange={(event) => setValues({ ...values, source: event.target.value })}
                 />
               </FormField>
+              {contactQuery.data?.customerSince ? (
+                <p className="ds-hint">
+                  Cliente desde el {formatearDia(contactQuery.data.customerSince)} (dato importado
+                  del sistema anterior).
+                </p>
+              ) : null}
               <Select
                 label="Etapa"
                 value={values.lifecycleStage}

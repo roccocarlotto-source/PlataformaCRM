@@ -39,6 +39,7 @@ import { AgentFacebookPagePage } from "../features/platformAdmin/AgentFacebookPa
 import { AgentModelPage } from "../features/platformAdmin/AgentModelPage";
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
 import { LlmUsagePage } from "../features/platformAdmin/LlmUsagePage";
+import { ImportarDatosPage } from "../features/importacion/ImportarDatosPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
 import { BranchFormPage } from "../features/branch/BranchFormPage";
@@ -378,6 +379,8 @@ export const router = createBrowserRouter([
               { path: "/admin/agents/model", element: <AgentModelPage /> },
               // B4: el gasto en el modelo por organización (GET /api/admin/llm-usage).
               { path: "/admin/llm-usage", element: <LlmUsagePage /> },
+              // Importación de datos para el alta de clientes (docs/importacion-de-datos.md).
+              { path: "/admin/imports", element: <ImportarDatosPage /> },
             ],
           },
         ],

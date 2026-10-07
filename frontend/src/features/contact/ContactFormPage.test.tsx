@@ -214,6 +214,30 @@ describe("ContactFormPage", () => {
     expect(patchedBody).toMatchObject({ firstName: "Editado", companyId: "co-1" });
   });
 
+  // «Cliente desde» (docs/importacion-de-datos.md §2.5): la fecha de alta en
+  // el sistema anterior, de solo lectura, como día del calendario (sin correrla
+  // por la zona del navegador). Sin el dato no aparece nada.
+  it("importación: «Cliente desde» se muestra como día del calendario; sin el dato no aparece", async () => {
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeContact({
+            id: params.id as string,
+            firstName: params.id === "ct1" ? "Importada" : "Manual",
+            customerSince: params.id === "ct1" ? "2021-03-14T00:00:00.000Z" : null,
+          }),
+        ),
+      ),
+    );
+    const { unmount } = renderForm("/contacts/ct1/edit");
+    expect(await screen.findByText(/Cliente desde el 14\/03\/2021/)).toBeInTheDocument();
+    unmount();
+    renderForm("/contacts/ct2/edit");
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Manual"));
+    expect(screen.queryByText(/Cliente desde/)).not.toBeInTheDocument();
+  });
+
   // B6: la tarjeta "Campos personalizados" con un input por definición de la
   // organización; el PATCH manda { key: valor } y null para lo que se vació.
   it("B6: la ficha muestra los campos personalizados por tipo y el PATCH manda los valores (null al vaciar)", async () => {

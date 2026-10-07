@@ -36,6 +36,11 @@
 //   OVERFLOW_EMAIL=admin@example.com npm run check:mobile-overflow [-- filtro]
 // El filtro es una regex sobre la ruta (ej. `-- "^/(|vouchers/scan)$"`).
 //
+// OVERFLOW_EXTRA: rutas con query string además de las del router, separadas
+// por coma, para medir los estados de una pantalla que dependen de la URL
+// (los pasos del asistente de importación: ?organizationId=…&batchId=…). El
+// filtro también se aplica a estas.
+//
 // Las rutas con parámetros (/companies/:id/edit…) no se recorren: comparten
 // el layout con su /new, que sí.
 // ---------------------------------------------------------------------------
@@ -60,7 +65,11 @@ if (!EMAIL) {
 function rutas() {
   const router = readFileSync(new URL("../src/app/router.tsx", import.meta.url), "utf8");
   const todas = [...router.matchAll(/path:\s*"([^"]+)"/g)].map((m) => m[1]);
-  return [...new Set(todas)].filter((r) => !r.includes(":") && r !== "*");
+  const extra = (process.env.OVERFLOW_EXTRA ?? "")
+    .split(",")
+    .map((r) => r.trim())
+    .filter(Boolean);
+  return [...new Set(todas)].filter((r) => !r.includes(":") && r !== "*").concat(extra);
 }
 
 // Las claves del stack local salen de `supabase status`, no se copian acá.
