@@ -87,7 +87,7 @@ export function ActivityListPage() {
   const [type, setType] = useState<ActivityType | "">("");
   const [companyId, setCompanyId] = useState<string | undefined>(undefined);
   const [confirmation, setConfirmation] = useState<ConfirmationFilter>("");
-  const [sortBy, setSortBy] = useState<ActivitySortBy>("createdAt");
+  const [sortBy, setSortBy] = useState<ActivitySortBy>("occurredAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
   // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
@@ -228,6 +228,7 @@ export function ActivityListPage() {
             label="Ordenar por"
             value={sortBy}
             options={[
+              { value: "occurredAt", label: "Fecha" },
               { value: "createdAt", label: "Fecha de creación" },
               { value: "updatedAt", label: "Última actualización" },
               { value: "dueDate", label: "Vencimiento" },

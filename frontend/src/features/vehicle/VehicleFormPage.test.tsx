@@ -576,7 +576,7 @@ describe("VehicleFormPage — galería", () => {
       ),
       http.post(`${baseUrl}/:id/photos`, () =>
         HttpResponse.json(
-          { error: { message: "Solo se admiten fotos JPEG o PNG" } },
+          { error: { message: "Solo se admiten fotos JPEG, PNG o WebP" } },
           { status: 415 },
         ),
       ),
@@ -595,7 +595,7 @@ describe("VehicleFormPage — galería", () => {
     });
     await user.upload(screen.getByLabelText("Subir foto"), file);
     await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Solo se admiten fotos JPEG o PNG"),
+      expect(screen.getByRole("alert")).toHaveTextContent("Solo se admiten fotos JPEG, PNG o WebP"),
     );
     expect(screen.getByLabelText("Marca")).toHaveValue("Toyota");
   });

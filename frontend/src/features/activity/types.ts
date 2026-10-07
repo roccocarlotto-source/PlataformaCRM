@@ -40,6 +40,9 @@ export interface Activity {
   // se mandan al backend: los calcula el service (ver `confirmed` abajo).
   confirmedAt: string | null;
   confirmedById: string | null;
+  // Cuándo pasó; createdAt es cuándo se cargó. Iguales salvo en el historial
+  // importado (docs/importacion-de-datos.md §5.3).
+  occurredAt: string;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -68,7 +71,8 @@ export interface ActivityListResponse {
   pagination: ActivityListPagination;
 }
 
-export type ActivitySortBy = "createdAt" | "updatedAt" | "dueDate" | "completedAt" | "subject";
+export type ActivitySortBy =
+  "occurredAt" | "createdAt" | "updatedAt" | "dueDate" | "completedAt" | "subject";
 export type SortOrder = "asc" | "desc";
 
 // Filtros reales de GET /api/activities (activity.controller.ts listQuerySchema)

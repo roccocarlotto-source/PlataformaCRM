@@ -4,6 +4,7 @@ import { after, before, test } from "node:test";
 import { listVehiclesHandler } from "../controllers/vehicle.controller";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { olvidarBucketsAseguradosParaTests } from "../lib/supabaseStorage";
 import { type DetectedImage } from "../utils/vehiclePhoto";
 import { updateVehicle } from "./vehicle.service";
 import {
@@ -41,6 +42,7 @@ import {
 
 const JPEG: DetectedImage = { mimeType: "image/jpeg", extension: "jpg" };
 const PNG: DetectedImage = { mimeType: "image/png", extension: "png" };
+const WEBP: DetectedImage = { mimeType: "image/webp", extension: "webp" };
 
 // Bytes con firma válida y un relleno distinto por foto, para poder
 // verificar que lo que se descarga es lo que se subió.
@@ -50,6 +52,15 @@ function jpegBytes(marca: string) {
 function pngBytes(marca: string) {
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from(marca),
+  ]);
+}
+
+function webpBytes(marca: string) {
+  return Buffer.concat([
+    Buffer.from("RIFF"),
+    Buffer.from([0x24, 0x00, 0x00, 0x00]),
+    Buffer.from("WEBPVP8 "),
     Buffer.from(marca),
   ]);
 }
@@ -136,6 +147,42 @@ test("subir: el bucket existe (privado) sin pasos manuales, el objeto queda en <
   const fila = await prisma.vehiclePhoto.findUniqueOrThrow({ where: { id: foto.id } });
   assert.equal(fila.storagePath, foto.storagePath);
   assert.equal(fila.storagePath.startsWith("http"), false);
+});
+
+test("WebP: un bucket creado antes, con solo JPEG y PNG, se alinea solo y la foto WebP se sube y se lee con su content-type", async () => {
+  // Así quedó el bucket en todo proyecto donde ya existía (producción
+  // incluida): sin WebP. Sin la alineación de ensureBucket, Storage
+  // rechazaría el objeto aunque el middleware lo deje pasar.
+  const storage = getSupabaseAdmin().storage;
+  await storage.updateBucket(VEHICLE_PHOTO_BUCKET.name, {
+    public: false,
+    fileSizeLimit: VEHICLE_PHOTO_BUCKET.fileSizeLimit,
+    allowedMimeTypes: ["image/jpeg", "image/png"],
+  });
+  olvidarBucketsAseguradosParaTests();
+
+  const v = await borrador(a);
+  const galeria = await uploadVehiclePhoto(a.organizationId, v.id, {
+    buffer: webpBytes("webp"),
+    image: WEBP,
+  });
+
+  const bucket = await storage.getBucket(VEHICLE_PHOTO_BUCKET.name);
+  assert.ok(bucket.data);
+  assert.deepEqual([...(bucket.data.allowed_mime_types ?? [])].sort(), [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ]);
+  assert.equal(bucket.data.public, false);
+
+  const [foto] = galeria;
+  assert.match(foto.storagePath, /.webp$/);
+  assert.ok(foto.url);
+  const res = await fetch(foto.url);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-type"), "image/webp");
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), webpBytes("webp"));
 });
 
 test("borrar: el objeto desaparece de Storage y la fila de la base; sin portada no queda si hay más fotos", async () => {
