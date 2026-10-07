@@ -38,6 +38,9 @@ const statusSchema = z.enum([
   "IN_TRANSIT",
   "SOLD",
   "DELIVERED",
+  // "No disponible" (migración 20261026120000): también a mano, con la misma
+  // guarda que AVAILABLE si una oportunidad retiene la unidad.
+  "UNAVAILABLE",
 ]);
 const bodyTypeSchema = z.enum([
   "SEDAN",

@@ -1,0 +1,6 @@
+Código;Marca;Modelo;Versión;Año;Km;Precio;Moneda;Costo;Estado;Color;Combustible;Caja;Patente;VIN
+S-1;Marca Ficticia;Modelo A;XEI;2020;45.000;18.500;USD;15.000;Disponible;Gris;Nafta;Manual;AAA 1234;
+S-2;Marca Ficticia;Modelo B;;2018;80.000;650.000;$;500.000;Disponible;Rojo;Nafta;Manual;AAB 2345;
+S-3;Otra Marca;Modelo C;;2022;0;30.000;USD;;Reservada;Blanco;Diésel;Automática;;VIN0000000000001
+S-4;Otra Marca;Modelo D;;2015;120.000;9.000;USD;;Vendido;;;;BBB 5678;
+S-5;;Modelo E;;2019;;;USD;;Disponible;;;;;

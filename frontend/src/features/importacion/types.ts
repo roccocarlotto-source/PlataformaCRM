@@ -5,7 +5,7 @@
 // docs/importacion-de-datos.md §8). Nada que el backend no devuelva.
 // ---------------------------------------------------------------------------
 
-export type TipoImportable = "CONTACT" | "COMPANY" | "ACTIVITY";
+export type TipoImportable = "CONTACT" | "COMPANY" | "ACTIVITY" | "VEHICLE";
 export type TipoDeHistorial = "NOTE" | "CALL" | "TASK";
 
 export type EstadoDelLote =
@@ -38,11 +38,26 @@ export interface Ajustes {
   crearEmpresas: boolean;
   // Solo en un lote de historial: quién figura como autor, el tipo cuando la
   // celda está vacía, y qué tipo es cada valor del origen.
+  stock?: AjustesDeStock;
   historial?: {
     autorId: string;
     tipoPorDefecto?: TipoDeHistorial;
     tipos: Record<string, TipoDeHistorial>;
   };
+}
+
+// Lo propio de un lote de stock (docs/importacion-de-datos.md §5.4).
+export interface AjustesDeStock {
+  branchId: string;
+  // Quién firma los cambios en el historial de la ficha (VehicleChangeLog).
+  responsableId: string;
+  condicionPorDefecto: "NEW" | "USED";
+  monedaPorDefecto: "USD" | "LOCAL";
+  importarVendidas: boolean;
+  estados: Record<string, string>;
+  condiciones: Record<string, "NEW" | "USED">;
+  combustibles: Record<string, string>;
+  transmisiones: Record<string, string>;
 }
 
 export interface ConfigDelLote {
@@ -98,7 +113,7 @@ export interface DetalleDelLote {
   resumen: ResumenDeFilas;
 }
 
-export type TipoDePlan = "CREATE" | "UPDATE" | "CONFLICT" | "UNCHANGED" | "FAIL";
+export type TipoDePlan = "CREATE" | "UPDATE" | "CONFLICT" | "UNCHANGED" | "SKIP" | "FAIL";
 export type AccionDeCampo = "completar" | "agregar" | "difiere" | "difiere_bloqueado" | "igual";
 
 export interface CambioPlaneado {
@@ -149,4 +164,5 @@ export interface OpcionesDeImportacion {
   usuarios: { id: string; email: string; fullName: string; rol: string }[];
   fuentes: { id: string; name: string; isActive: boolean }[];
   camposPersonalizados: CampoPersonalizado[];
+  sucursales?: { id: string; name: string }[];
 }

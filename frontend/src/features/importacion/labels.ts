@@ -16,6 +16,38 @@ export const TIPOS: { value: TipoImportable; label: string }[] = [
   { value: "COMPANY", label: "Empresas" },
   { value: "CONTACT", label: "Contactos" },
   { value: "ACTIVITY", label: "Historial (notas, llamadas y tareas)" },
+  { value: "VEHICLE", label: "Stock de vehículos" },
+];
+
+// Los valores del stock (docs/importacion-de-datos.md §5.4). Reservada entra
+// como «No disponible»; Vendida y Entregada, como vendidas (se omiten salvo la
+// casilla).
+export const ESTADOS_DE_STOCK = [
+  { value: "AVAILABLE", label: "Disponible" },
+  { value: "IN_PREPARATION", label: "En preparación" },
+  { value: "IN_TRANSIT", label: "En tránsito" },
+  { value: "UNAVAILABLE", label: "No disponible" },
+  { value: "RESERVED", label: "Reservada (entra como No disponible)" },
+  { value: "SOLD", label: "Vendida" },
+  { value: "DELIVERED", label: "Entregada (como vendida)" },
+];
+export const CONDICIONES: { value: "NEW" | "USED"; label: string }[] = [
+  { value: "NEW", label: "Nuevo (0 km)" },
+  { value: "USED", label: "Usado" },
+];
+export const COMBUSTIBLES = [
+  { value: "GASOLINE", label: "Nafta" },
+  { value: "DIESEL", label: "Diésel" },
+  { value: "HYBRID", label: "Híbrido" },
+  { value: "ELECTRIC", label: "Eléctrico" },
+  { value: "CNG", label: "GNC" },
+  { value: "GASOLINE_CNG", label: "Nafta y GNC" },
+];
+export const TRANSMISIONES = [
+  { value: "MANUAL", label: "Manual" },
+  { value: "AUTOMATIC", label: "Automática" },
+  { value: "AUTOMATIC_SEQUENTIAL", label: "Automática secuencial" },
+  { value: "CVT", label: "CVT" },
 ];
 
 export const TIPOS_DE_HISTORIAL: { value: TipoDeHistorial; label: string }[] = [
@@ -40,6 +72,28 @@ export const DESTINOS: Record<TipoImportable, Record<string, string>> = {
     vehicleRef: "Vehículo de interés (código o patente)",
     companyName: "Empresa (nombre)",
     customerSince: "Cliente desde",
+  },
+  VEHICLE: {
+    externalId: "Id en el sistema de origen",
+    stockCode: "Código de stock del origen",
+    make: "Marca",
+    model: "Modelo",
+    trim: "Versión",
+    year: "Año",
+    mileage: "Kilómetros",
+    condition: "Condición (nuevo o usado)",
+    price: "Precio",
+    currency: "Moneda",
+    priceUsd: "Precio en dólares",
+    priceLocal: "Precio en moneda local",
+    cost: "Costo",
+    minPrice: "Precio mínimo",
+    status: "Estado",
+    color: "Color",
+    fuelType: "Combustible",
+    transmission: "Caja",
+    licensePlate: "Patente",
+    vin: "VIN",
   },
   ACTIVITY: {
     externalId: "Id en el sistema de origen",
@@ -98,6 +152,11 @@ export function etiquetaDeCampo(
     ownerId: tipo === "CONTACT" ? "Vendedor" : "Responsable",
     companyId: "Empresa",
     vehicleOfInterestId: "Vehículo de interés",
+    priceListUsd: "Precio en dólares",
+    priceListLocal: "Precio en moneda local",
+    acquisitionCostUsd: "Costo (USD)",
+    minAcceptablePriceUsd: "Precio mínimo (USD)",
+    exteriorColor: "Color",
   };
   return resueltos[campo] ?? DESTINOS[tipo][campo] ?? campo;
 }
@@ -110,10 +169,18 @@ export const PLAN: Record<
   UPDATE: { label: "Se actualiza", variant: "info" },
   CONFLICT: { label: "Choca", variant: "danger" },
   UNCHANGED: { label: "Sin cambios", variant: "neutral" },
+  SKIP: { label: "Se omite", variant: "neutral" },
   FAIL: { label: "Falla", variant: "danger" },
 };
 
-export const ORDEN_DE_PLANES: TipoDePlan[] = ["CREATE", "UPDATE", "CONFLICT", "UNCHANGED", "FAIL"];
+export const ORDEN_DE_PLANES: TipoDePlan[] = [
+  "CREATE",
+  "UPDATE",
+  "CONFLICT",
+  "UNCHANGED",
+  "SKIP",
+  "FAIL",
+];
 
 export const ACCION: Record<AccionDeCampo, string> = {
   completar: "Se completa",

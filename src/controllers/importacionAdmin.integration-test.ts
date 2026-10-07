@@ -934,3 +934,274 @@ test("historial: el autor tiene que ser un usuario activo de la organización, y
     await desmontar(e).catch(() => undefined);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Stock de vehículos (§5.4; decisiones 8, 9, 12, 16 y la de las reservadas)
+// ---------------------------------------------------------------------------
+
+// "XTS" es el código ISO 4217 reservado para pruebas: la cotización que el
+// test carga no se mezcla con ninguna moneda real de exchange_rates.
+const MONEDA_DE_PRUEBA = "XTS";
+const COTIZACION_DE_PRUEBA = 40;
+
+const MAPEO_DE_STOCK = {
+  Código: "stockCode",
+  Marca: "make",
+  Modelo: "model",
+  Versión: "trim",
+  Año: "year",
+  Km: "mileage",
+  Precio: "price",
+  Moneda: "currency",
+  Costo: "cost",
+  Estado: "status",
+  Color: "color",
+  Combustible: "fuelType",
+  Caja: "transmission",
+  Patente: "licensePlate",
+  VIN: "vin",
+};
+
+async function conStock(etiqueta: string, conCotizacion = true) {
+  const e = await montar(etiqueta);
+  await prisma.organization.update({
+    where: { id: e.organizationId },
+    data: { preferredCurrency: MONEDA_DE_PRUEBA },
+  });
+  const sucursal = await prisma.branch.create({
+    data: {
+      organizationId: e.organizationId,
+      name: "Sucursal Ficticia",
+      timezone: "America/Montevideo",
+    },
+  });
+  if (conCotizacion) {
+    await prisma.exchangeRate.upsert({
+      where: {
+        baseCurrency_targetCurrency_rateDate: {
+          baseCurrency: "USD",
+          targetCurrency: MONEDA_DE_PRUEBA,
+          rateDate: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      },
+      create: {
+        baseCurrency: "USD",
+        targetCurrency: MONEDA_DE_PRUEBA,
+        rate: COTIZACION_DE_PRUEBA,
+        rateDate: new Date("2026-01-01T00:00:00.000Z"),
+        fetchedAt: new Date(),
+      },
+      update: { rate: COTIZACION_DE_PRUEBA },
+    });
+  } else {
+    await prisma.exchangeRate.deleteMany({ where: { targetCurrency: MONEDA_DE_PRUEBA } });
+  }
+  return { e, branchId: sucursal.id };
+}
+
+async function desmontarStock(e: Escenario) {
+  const where = { organizationId: e.organizationId };
+  await prisma.opportunity.deleteMany({ where });
+  await prisma.stage.deleteMany({ where });
+  await prisma.pipeline.deleteMany({ where });
+  await prisma.vehicleChangeLog.deleteMany({ where });
+  await prisma.ingestionEvent.deleteMany({ where });
+  await prisma.externalRecordLink.deleteMany({ where });
+  await prisma.importBatch.deleteMany({ where });
+  await prisma.contact.deleteMany({ where });
+  await prisma.knowledgeBaseEntry.deleteMany({ where });
+  await prisma.vehicle.deleteMany({ where });
+  await prisma.branch.deleteMany({ where });
+  await desmontar(e);
+}
+
+function ajustesDeStock(e: Escenario, branchId: string, extra: Record<string, unknown> = {}) {
+  return {
+    mapeo: MAPEO_DE_STOCK,
+    stock: {
+      branchId,
+      responsableId: e.vendedorId,
+      estados: { Disponible: "AVAILABLE", Reservada: "RESERVED", Vendido: "SOLD" },
+      combustibles: { Nafta: "GASOLINE", Diésel: "DIESEL" },
+      transmisiones: { Manual: "MANUAL", Automática: "AUTOMATIC" },
+      ...extra,
+    },
+  };
+}
+
+async function importarStock(
+  e: Escenario,
+  contenido: string,
+  campos: Record<string, string>,
+  ajustes: unknown,
+) {
+  const subida = await subir(e, contenido, { entityType: "VEHICLE", ...campos }, "stock.csv");
+  assert.equal(subida.status, 201, JSON.stringify(subida.body));
+  await analizar(e, subida.body.lote.id, ajustes);
+  return { batchId: subida.body.lote.id, sourceId: subida.body.lote.sourceId };
+}
+
+test("stock: unidades con código STK propio, código anterior en notas, precio por moneda, costo local a dólares, reservada como No disponible, vendida omitida, y el contacto encuentra su vehículo de interés", async () => {
+  const { e, branchId } = await conStock("stock");
+  try {
+    const { batchId } = await importarStock(
+      e,
+      await fixture("stock.csv"),
+      { sourceName: "Stock anterior" },
+      ajustesDeStock(e, branchId),
+    );
+    const lista = await filas(e, batchId);
+    assert.deepEqual(
+      lista.map((f) => f.plan.tipo),
+      ["CREATE", "CREATE", "CREATE", "SKIP", "FAIL"],
+    );
+    assert.match(lista[1].plan.advertencias.join(" "), /1 USD = 40 XTS/);
+    assert.match(lista[2].plan.advertencias.join(" "), /No disponible/);
+    assert.match((lista[4].plan.errores ?? []).join(" "), /Falta la marca/);
+
+    const final = await confirmarYPromover(e, batchId);
+    assert.deepEqual(final.resumen.porResultado, { CREATED: 3, SKIPPED: 1 });
+    assert.equal(final.resumen.porEstado.FAILED, 1);
+
+    const unidades = await prisma.vehicle.findMany({
+      where: { organizationId: e.organizationId },
+      orderBy: { internalCode: "asc" },
+    });
+    assert.equal(unidades.length, 3);
+    const [s1, s2, s3] = unidades;
+    assert.match(s1.internalCode, /^STK-/);
+    assert.equal(s1.internalNotes, "Código anterior: S-1");
+    assert.equal(Number(s1.priceListUsd), 18_500);
+    assert.equal(Number(s1.acquisitionCostUsd), 15_000);
+    assert.equal(s1.mileage, 45_000);
+    assert.equal(s1.licensePlate, "AAA 1234");
+    assert.equal(s1.fuelType, "GASOLINE");
+    assert.equal(s1.branchId, branchId);
+    assert.equal(s1.status, "AVAILABLE");
+    assert.equal(Number(s2.priceListLocal), 650_000);
+    assert.equal(s2.priceListUsd, null);
+    assert.equal(Number(s2.acquisitionCostUsd), 12_500, "500.000 XTS / 40");
+    assert.equal(s3.status, "UNAVAILABLE");
+    assert.equal(s3.transmission, "AUTOMATIC");
+
+    // Un contacto con vehículo de interés por el código del sistema anterior.
+    const contactos = await importarContactos(
+      e,
+      "Nombre;Mail;Auto\r\nAna Pérez;ana@example.com;S-1\r\n",
+      { sourceName: "Clientes" },
+      { mapeo: { Nombre: "fullName", Mail: "email", Auto: "vehicleRef" } },
+    );
+    await confirmarYPromover(e, contactos.batchId);
+    const ana = await prisma.contact.findFirstOrThrow({
+      where: { organizationId: e.organizationId },
+    });
+    assert.equal(ana.vehicleOfInterestId, s1.id);
+    assert.equal(ana.vehicleOfInterestSetBy, "HUMAN");
+
+    // Deshacer el stock: S-1 es el vehículo de interés de Ana, uso propio.
+    const deshecho = await deshacer(e, batchId);
+    assert.deepEqual(deshecho.lote.counters.deshacer.borrados, { VEHICLE: 2 });
+    assert.ok(deshecho.lote.counters.deshacer.omitidos.some((o) => o.id === s1.id));
+    const vivas = await prisma.vehicle.findMany({
+      where: { organizationId: e.organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    assert.deepEqual(
+      vivas.map((v) => v.id),
+      [s1.id],
+    );
+  } finally {
+    await desmontarStock(e);
+  }
+});
+
+test("stock: reimportar con «pisar» actualiza a nombre del responsable, sin pisar el estado de una unidad que retiene una oportunidad; con la casilla, la vendida entra como SOLD", async () => {
+  const { e, branchId } = await conStock("stock-pisar");
+  try {
+    const contenido = await fixture("stock.csv");
+    const primera = await importarStock(
+      e,
+      contenido,
+      { sourceName: "Stock" },
+      ajustesDeStock(e, branchId),
+    );
+    await confirmarYPromover(e, primera.batchId);
+    const s1 = await prisma.vehicle.findFirstOrThrow({
+      where: { organizationId: e.organizationId, licensePlate: "AAA 1234" },
+    });
+    // Una oportunidad abierta reserva S-1.
+    const pipeline = await prisma.pipeline.create({
+      data: { organizationId: e.organizationId, name: "Ventas" },
+    });
+    const stage = await prisma.stage.create({
+      data: { organizationId: e.organizationId, pipelineId: pipeline.id, name: "Nueva", order: 1 },
+    });
+    const cliente = await prisma.contact.create({
+      data: { organizationId: e.organizationId, firstName: "Cliente", lastName: "Ficticio" },
+    });
+    await prisma.opportunity.create({
+      data: {
+        organizationId: e.organizationId,
+        ownerId: e.vendedorId,
+        pipelineId: pipeline.id,
+        stageId: stage.id,
+        contactId: cliente.id,
+        vehicleId: s1.id,
+        title: "Reserva",
+      },
+    });
+    await prisma.vehicle.update({ where: { id: s1.id }, data: { status: "RESERVED" } });
+
+    const cambiado = contenido
+      .replace("18.500;USD;15.000;Disponible", "19.900;USD;15.000;Disponible")
+      .replace("Modelo B;;2018;80.000", "Modelo B;;2018;81.000");
+    const segunda = await importarStock(
+      e,
+      cambiado,
+      { sourceId: primera.sourceId },
+      { ...ajustesDeStock(e, branchId, { importarVendidas: true }), duplicados: "OVERWRITE" },
+    );
+    const plan = (await filas(e, segunda.batchId))[0].plan;
+    const estado = plan.cambios?.find((c) => c.campo === "status");
+    assert.equal(estado?.accion, "difiere_bloqueado", "el estado lo maneja el CRM");
+    const final = await confirmarYPromover(e, segunda.batchId);
+    assert.equal(final.resumen.porResultado.UPDATED, 2);
+    assert.equal(final.resumen.porResultado.CREATED, 1, "la vendida, con la casilla");
+
+    const despues = await prisma.vehicle.findUniqueOrThrow({ where: { id: s1.id } });
+    assert.equal(Number(despues.priceListUsd), 19_900);
+    assert.equal(despues.status, "RESERVED");
+    const historial = await prisma.vehicleChangeLog.findMany({ where: { vehicleId: s1.id } });
+    assert.ok(historial.length > 0);
+    assert.ok(
+      historial.every((h) => h.changedById === e.vendedorId),
+      "a nombre del responsable",
+    );
+    const vendida = await prisma.vehicle.findFirstOrThrow({
+      where: { organizationId: e.organizationId, licensePlate: "BBB 5678" },
+    });
+    assert.equal(vendida.status, "SOLD");
+    assert.equal(await prisma.vehicle.count({ where: { organizationId: e.organizationId } }), 4);
+  } finally {
+    await desmontarStock(e);
+  }
+});
+
+test("stock: sin cotización cargada, la fila con montos en moneda local falla con el motivo y el resto entra", async () => {
+  const { e, branchId } = await conStock("stock-sin-cotizacion", false);
+  try {
+    const { batchId } = await importarStock(
+      e,
+      await fixture("stock.csv"),
+      { sourceName: "Stock" },
+      ajustesDeStock(e, branchId),
+    );
+    const lista = await filas(e, batchId);
+    assert.equal(lista[1].plan.tipo, "FAIL");
+    assert.match((lista[1].plan.errores ?? []).join(" "), /no hay una cotización cargada/);
+    const final = await confirmarYPromover(e, batchId);
+    assert.equal(final.resumen.porResultado.CREATED, 2);
+  } finally {
+    await desmontarStock(e);
+  }
+});

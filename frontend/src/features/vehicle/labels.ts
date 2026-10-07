@@ -30,6 +30,7 @@ export const STATUS_LABELS: Record<VehicleStatus, string> = {
   IN_TRANSIT: "En tránsito",
   SOLD: "Vendido",
   DELIVERED: "Entregado",
+  UNAVAILABLE: "No disponible",
 };
 
 // El color del Badge lo decide este feature, no el componente (ver Badge.tsx):
@@ -42,6 +43,7 @@ export const STATUS_BADGE_VARIANT: Record<VehicleStatus, BadgeVariant> = {
   IN_TRANSIT: "neutral",
   SOLD: "neutral",
   DELIVERED: "neutral",
+  UNAVAILABLE: "neutral",
 };
 
 export const BODY_TYPE_LABELS: Record<VehicleBodyType, string> = {

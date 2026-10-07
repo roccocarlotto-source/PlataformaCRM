@@ -16,8 +16,10 @@
 export type VehicleCondition = "NEW" | "USED";
 // SOLD = vendida, pendiente de entregar; DELIVERED = entregada al cliente, el
 // cierre del ciclo (§40 de docs/frontend-cambios-pendientes.md).
+// UNAVAILABLE = "No disponible": sigue en el stock pero no se ofrece (el
+// agente solo ofrece AVAILABLE).
 export type VehicleStatus =
-  "AVAILABLE" | "RESERVED" | "IN_PREPARATION" | "IN_TRANSIT" | "SOLD" | "DELIVERED";
+  "AVAILABLE" | "RESERVED" | "IN_PREPARATION" | "IN_TRANSIT" | "SOLD" | "DELIVERED" | "UNAVAILABLE";
 export type VehicleBodyType =
   "SEDAN" | "HATCHBACK" | "SUV" | "PICKUP" | "COUPE" | "WAGON" | "VAN" | "UTILITY" | "MINIVAN";
 export type VehicleOrigin =

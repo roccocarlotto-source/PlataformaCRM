@@ -3,6 +3,11 @@ import { test } from "node:test";
 import { crearAjustesSchema } from "../schemas/importacion.schema";
 import type { DefinicionDeCampo } from "./camposPersonalizados";
 import {
+  aDolares,
+  clavesDeVehiculo,
+  interpretarMoneda,
+  planearVehiculo,
+  traducirFilaDeVehiculo,
   cambiosAAplicar,
   claveDeActividad,
   cuerpoDeActividad,
@@ -442,4 +447,158 @@ test("ajustes de historial: sin autor, sin contacto mapeado, o sin tipo (ni colu
     }).success,
     true,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Stock (§5.4)
+// ---------------------------------------------------------------------------
+
+function ajustesDeStockUnit(extra: Record<string, unknown> = {}) {
+  return crearAjustesSchema("VEHICLE").parse({
+    mapeo: {
+      Marca: "make",
+      Modelo: "model",
+      Año: "year",
+      Km: "mileage",
+      Precio: "price",
+      Moneda: "currency",
+      Costo: "cost",
+      Estado: "status",
+      Patente: "licensePlate",
+      Código: "stockCode",
+    },
+    stock: {
+      branchId: "11111111-1111-4111-8111-111111111111",
+      responsableId: "22222222-2222-4222-8222-222222222222",
+      estados: { Disponible: "AVAILABLE", Reservada: "RESERVED", Entregada: "DELIVERED" },
+      ...extra,
+    },
+  }) as AjustesDeImportacion;
+}
+
+const FILA_DE_STOCK = {
+  Marca: "Marca Ficticia",
+  Modelo: "Modelo A",
+  Año: "2020",
+  Km: "45.000",
+  Precio: "18.500",
+  Moneda: "USD",
+  Costo: "15.000",
+  Estado: "Disponible",
+  Patente: "aaa 1234",
+  Código: "S-1",
+};
+
+test("stock: precio por moneda (USD o local), km con miles, condición por defecto, patente en mayúsculas, claves", () => {
+  const r = traducirFilaDeVehiculo(FILA_DE_STOCK, ajustesDeStockUnit(), "UYU");
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  assert.equal(r.candidato.priceListUsd, 18_500);
+  assert.equal(r.candidato.priceListLocal, undefined);
+  assert.deepEqual(r.candidato.costo, { monto: 15_000, moneda: "USD" });
+  assert.equal(r.candidato.mileage, 45_000);
+  assert.equal(r.candidato.condition, "USED");
+  assert.equal(r.candidato.licensePlate, "AAA 1234");
+  assert.deepEqual(clavesDeVehiculo(r.candidato), ["codigo:S-1", "patente:AAA1234"]);
+
+  const local = traducirFilaDeVehiculo(
+    { ...FILA_DE_STOCK, Moneda: "uyu" },
+    ajustesDeStockUnit(),
+    "UYU",
+  );
+  assert.ok(local.ok);
+  if (local.ok) {
+    assert.equal(local.candidato.priceListLocal, 18_500);
+    assert.deepEqual(local.candidato.costo, { monto: 15_000, moneda: "LOCAL" });
+  }
+  assert.equal(
+    traducirFilaDeVehiculo({ ...FILA_DE_STOCK, Moneda: "EUR" }, ajustesDeStockUnit(), "UYU").ok,
+    false,
+  );
+});
+
+test("stock: reservada entra como No disponible con advertencia; entregada y vendida son vendidas", () => {
+  const reservada = traducirFilaDeVehiculo(
+    { ...FILA_DE_STOCK, Estado: "Reservada" },
+    ajustesDeStockUnit(),
+    null,
+  );
+  assert.ok(reservada.ok);
+  if (reservada.ok) {
+    assert.equal(reservada.candidato.status, "UNAVAILABLE");
+    assert.equal(reservada.candidato.vendidaEnOrigen, false);
+    assert.match(reservada.advertencias.join(" "), /No disponible/);
+  }
+  const entregada = traducirFilaDeVehiculo(
+    { ...FILA_DE_STOCK, Estado: "Entregada" },
+    ajustesDeStockUnit(),
+    null,
+  );
+  assert.ok(entregada.ok);
+  if (entregada.ok) {
+    assert.equal(entregada.candidato.vendidaEnOrigen, true);
+    assert.equal(entregada.candidato.status, "SOLD");
+  }
+});
+
+test("stock: sin marca, con un año fuera de rango o un precio negativo, la fila falla", () => {
+  assert.equal(
+    traducirFilaDeVehiculo({ ...FILA_DE_STOCK, Marca: "" }, ajustesDeStockUnit(), null).ok,
+    false,
+  );
+  assert.equal(
+    traducirFilaDeVehiculo({ ...FILA_DE_STOCK, Año: "1850" }, ajustesDeStockUnit(), null).ok,
+    false,
+  );
+  assert.equal(
+    traducirFilaDeVehiculo({ ...FILA_DE_STOCK, Precio: "-5" }, ajustesDeStockUnit(), null).ok,
+    false,
+  );
+});
+
+test("moneda y conversión: USD y la local por código, $ o pesos; a dólares redondeado al centavo", () => {
+  assert.deepEqual(interpretarMoneda("U$S", "LOCAL", "UYU"), { ok: true, valor: "USD" });
+  assert.deepEqual(interpretarMoneda("$", "USD", "UYU"), { ok: true, valor: "LOCAL" });
+  assert.deepEqual(interpretarMoneda("uyu", "USD", "UYU"), { ok: true, valor: "LOCAL" });
+  assert.deepEqual(interpretarMoneda("", "LOCAL", "UYU"), { ok: true, valor: "LOCAL" });
+  assert.equal(interpretarMoneda("EUR", "USD", "UYU").ok, false);
+  assert.equal(aDolares(500_000, 40), 12_500);
+  assert.equal(aDolares(100, 3), 33.33);
+});
+
+test("plan de stock: el estado de una unidad retenida o vendida por el CRM no se pisa; la patente que la identifica tampoco", () => {
+  const r = traducirFilaDeVehiculo(
+    { ...FILA_DE_STOCK, Patente: "ZZZ 9999" },
+    ajustesDeStockUnit(),
+    null,
+  );
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  const existente = {
+    id: "v1",
+    make: "Marca Ficticia",
+    model: "Modelo A",
+    trim: null,
+    year: 2020,
+    mileage: 40_000,
+    condition: "USED",
+    priceListUsd: 18_000,
+    priceListLocal: null,
+    acquisitionCostUsd: null,
+    minAcceptablePriceUsd: null,
+    status: "RESERVED",
+    exteriorColor: null,
+    fuelType: null,
+    transmission: null,
+    licensePlate: "AAA 1234",
+    vin: null,
+    retenida: true,
+  };
+  const cambios = planearVehiculo(r.candidato, existente, { costo: 15_000 }, "patente");
+  const por = Object.fromEntries(cambios.map((c) => [c.campo, c.accion]));
+  assert.equal(por.status, "difiere_bloqueado");
+  assert.equal(por.licensePlate, "difiere_bloqueado");
+  assert.equal(por.priceListUsd, "difiere");
+  assert.equal(por.acquisitionCostUsd, "completar");
+  assert.equal(por.mileage, "difiere");
 });

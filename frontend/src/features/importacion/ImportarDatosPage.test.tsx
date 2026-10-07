@@ -442,6 +442,89 @@ describe("ImportarDatosPage", () => {
     });
   });
 
+  it("stock: con una sola sucursal se elige sola, el responsable es el ADMIN más antiguo, y el PUT lleva stock con los estados", async () => {
+    const stock = (): Lote => ({
+      ...lote(),
+      entityType: "VEHICLE",
+      config: {
+        archivo: {
+          nombre: "stock.csv",
+          encabezados: ["Marca", "Modelo", "Año", "Estado"],
+          lectura: { separador: ";", codificacion: "utf-8" },
+        },
+        ajustes: null,
+      },
+    });
+    server.use(
+      http.get(`${base}/options`, () =>
+        HttpResponse.json({
+          usuarios: [
+            { id: "u-admin", email: "admin@example.com", fullName: "Admin Antiguo", rol: "ADMIN" },
+          ],
+          fuentes: [],
+          camposPersonalizados: [],
+          sucursales: [{ id: "b-1", name: "Sucursal Ficticia" }],
+        }),
+      ),
+      http.get(`${base}/${LOTE}`, () =>
+        HttpResponse.json({
+          lote: stock(),
+          resumen: { total: 1, porEstado: {}, porPlan: {}, porResultado: {} },
+        }),
+      ),
+      http.get(`${base}/${LOTE}/rows`, () =>
+        HttpResponse.json({
+          data: [
+            {
+              ...FILAS[0],
+              rawPayload: {
+                Marca: "Marca Ficticia",
+                Modelo: "Modelo A",
+                Año: 2020,
+                Estado: "Reservada",
+              },
+            },
+          ],
+          total: 1,
+          page: 1,
+          pageSize: 50,
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}&batchId=${LOTE}`);
+    expect(
+      await screen.findByRole("combobox", { name: "Sucursal de las unidades nuevas" }),
+    ).toHaveValue("Sucursal Ficticia");
+    expect(
+      screen.getByRole("combobox", { name: "Responsable de los cambios en las fichas" }),
+    ).toHaveValue("Admin Antiguo");
+    for (const [columna, destino] of [
+      ["Marca", "Marca"],
+      ["Modelo", "Modelo"],
+      ["Año", "Año"],
+      ["Estado", "Estado"],
+    ]) {
+      await chooseSelectOption(user, screen.getByRole("combobox", { name: columna }), destino);
+    }
+    await chooseSelectOption(
+      user,
+      await screen.findByRole("combobox", { name: "Reservada" }),
+      "Reservada (entra como No disponible)",
+    );
+    await user.click(screen.getByRole("button", { name: "Ver la vista previa" }));
+    await waitFor(() => expect(configs).toHaveLength(1));
+    expect(configs[0]).toMatchObject({
+      mapeo: { Marca: "make", Modelo: "model", Año: "year", Estado: "status" },
+      stock: {
+        branchId: "b-1",
+        responsableId: "u-admin",
+        importarVendidas: false,
+        estados: { Reservada: "RESERVED" },
+      },
+    });
+  });
+
   it("«No crear empresas» vuelve a mandar los ajustes con crearEmpresas: false", async () => {
     estado = "READY";
     const user = userEvent.setup();

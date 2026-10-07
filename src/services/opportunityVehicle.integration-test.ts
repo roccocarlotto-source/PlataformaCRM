@@ -344,6 +344,28 @@ test("ítem 153: volver a AVAILABLE a mano una unidad reservada o vendida es 409
   assert.equal(await estadoDe(vendida.id), "SOLD");
 });
 
+// "No disponible" (UNAVAILABLE): se elige también a mano (decisión del
+// 07/10/2026), con la misma guarda que AVAILABLE: no mientras una oportunidad
+// retiene la unidad. Libre, se pone y se saca.
+test("No disponible a mano: 409 con la unidad retenida por una oportunidad; libre, se pone y se saca", async () => {
+  const reservada = await borrador(e);
+  await oportunidad({ vehicleId: reservada.id });
+  assertAppError(
+    await capturar(() =>
+      updateVehicle(e.organizationId, e.userId, reservada.id, { status: "UNAVAILABLE" }),
+    ),
+    409,
+    UNIDAD_RETENIDA_POR_OPORTUNIDAD,
+  );
+  assert.equal(await estadoDe(reservada.id), "RESERVED");
+
+  const libre = await borrador(e);
+  await updateVehicle(e.organizationId, e.userId, libre.id, { status: "UNAVAILABLE" });
+  assert.equal(await estadoDe(libre.id), "UNAVAILABLE");
+  await updateVehicle(e.organizationId, e.userId, libre.id, { status: "AVAILABLE" });
+  assert.equal(await estadoDe(libre.id), "AVAILABLE");
+});
+
 test("ítem 153: los demás cambios a mano siguen permitidos, y liberada por la oportunidad vuelve a ser libre", async () => {
   const vehicle = await borrador(e);
   const opp = await oportunidad({ vehicleId: vehicle.id });

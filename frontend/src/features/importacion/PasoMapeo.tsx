@@ -6,11 +6,21 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { Select } from "../../design-system/Select";
 import { configurarLote } from "./api";
-import { DESTINOS, ETAPAS, POLITICAS, TIPOS_DE_HISTORIAL, opcionesDeDestino } from "./labels";
+import {
+  COMBUSTIBLES,
+  CONDICIONES,
+  DESTINOS,
+  ESTADOS_DE_STOCK,
+  ETAPAS,
+  POLITICAS,
+  TIPOS_DE_HISTORIAL,
+  TRANSMISIONES,
+  opcionesDeDestino,
+} from "./labels";
 import { importacionKeys } from "./queries";
 import type {
   Ajustes,
-  Etapa,
+  AjustesDeStock,
   FormatoDeFecha,
   Lote,
   OpcionesDeImportacion,
@@ -38,6 +48,76 @@ function lista(texto: string): string[] {
 
 function clave(texto: string): string {
   return texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+// Los valores distintos de la columna mapeada a `destino`, en la muestra.
+function valoresDeColumna(
+  mapeo: Record<string, string>,
+  destino: string,
+  muestra: Record<string, ValorDeCelda>[],
+): { columna: string | undefined; valores: string[] } {
+  const columna = Object.entries(mapeo).find(([, d]) => d === destino)?.[0];
+  if (!columna) return { columna, valores: [] };
+  const vistos = new Map<string, string>();
+  for (const fila of muestra) {
+    const v = fila[columna];
+    if (v === null || String(v).trim() === "") continue;
+    const t = String(v).trim();
+    if (!vistos.has(clave(t))) vistos.set(clave(t), t);
+  }
+  return { columna, valores: [...vistos.values()] };
+}
+
+// Solo los valores que aparecen en la muestra (los de otro archivo no sirven).
+function soloLosVistos<T>(mapa: Record<string, T>, valores: string[]): Record<string, T> {
+  return Object.fromEntries(Object.entries(mapa).filter(([valor]) => valores.includes(valor)));
+}
+
+// "Qué es cada valor del origen": un Select por valor distinto de la columna.
+// Lo usan la etapa, el tipo de actividad y, en el stock, el estado, la
+// condición, el combustible y la caja.
+function MapeoDeValores<T extends string>({
+  titulo,
+  columna,
+  valores,
+  opciones,
+  mapa,
+  sinAsignar,
+  onChange,
+}: {
+  titulo: string;
+  columna: string | undefined;
+  valores: string[];
+  opciones: { value: T; label: string }[];
+  mapa: Record<string, T>;
+  sinAsignar: string;
+  onChange: (mapa: Record<string, T>) => void;
+}) {
+  if (!columna || valores.length === 0) return null;
+  return (
+    <div className="ds-stack">
+      <p className="ds-hint">
+        {titulo} «{columna}».
+      </p>
+      <div className="ds-field-grid">
+        {valores.map((valor) => (
+          <Select
+            key={valor}
+            label={valor}
+            value={mapa[valor] ?? ""}
+            options={opciones}
+            emptyOption={{ label: sinAsignar }}
+            onChange={(elegido) => {
+              const nuevo = { ...mapa };
+              if (elegido === "") delete nuevo[valor];
+              else nuevo[valor] = elegido;
+              onChange(nuevo);
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function PasoMapeo({
@@ -70,49 +150,58 @@ export function PasoMapeo({
   const [no, setNo] = useState((previos?.formato.no ?? NO_POR_DEFECTO).join(", "));
   const [duplicados, setDuplicados] = useState<Politica>(previos?.duplicados ?? "FILL_EMPTY");
   const [crearEmpresas, setCrearEmpresas] = useState(previos?.crearEmpresas ?? true);
-  const [etapas, setEtapas] = useState<Record<string, Etapa>>(previos?.etapas ?? {});
-  // Historial: el autor por defecto es el ADMIN más antiguo (decisión 5); la
-  // lista viene ordenada por antigüedad.
-  const autorPorDefecto =
+  const [etapas, setEtapas] = useState(previos?.etapas ?? {});
+
+  // El usuario por defecto (autor del historial, responsable del stock) es el
+  // ADMIN más antiguo (decisión 5); la lista viene ordenada por antigüedad.
+  const usuarioPorDefecto =
     opciones.usuarios.find((u) => u.rol === "ADMIN")?.id ?? opciones.usuarios[0]?.id ?? "";
-  const [autorId, setAutorId] = useState(previos?.historial?.autorId ?? autorPorDefecto);
+  const opcionesDeUsuario = opciones.usuarios.map((u) => ({
+    value: u.id,
+    label: u.fullName,
+    subtitle: u.email,
+  }));
+
+  // Historial.
+  const [autorId, setAutorId] = useState(previos?.historial?.autorId ?? usuarioPorDefecto);
   const [tipoPorDefecto, setTipoPorDefecto] = useState<TipoDeHistorial | "">(
     previos?.historial?.tipoPorDefecto ?? "",
   );
-  const [tipos, setTipos] = useState<Record<string, TipoDeHistorial>>(
-    previos?.historial?.tipos ?? {},
+  const [tipos, setTipos] = useState(previos?.historial?.tipos ?? {});
+
+  // Stock.
+  const sucursales = opciones.sucursales ?? [];
+  const [stock, setStock] = useState<AjustesDeStock>(
+    previos?.stock ?? {
+      branchId: sucursales.length === 1 ? sucursales[0].id : "",
+      responsableId: usuarioPorDefecto,
+      condicionPorDefecto: "USED",
+      monedaPorDefecto: "USD",
+      importarVendidas: false,
+      estados: {},
+      condiciones: {},
+      combustibles: {},
+      transmisiones: {},
+    },
   );
+  const cambiarStock = (cambios: Partial<AjustesDeStock>) => setStock({ ...stock, ...cambios });
 
   const destinos = opcionesDeDestino(tipo, opciones.camposPersonalizados);
-
-  // Los valores distintos de la columna de etapa en la muestra: a cada uno se
-  // le asigna una etapa del CRM ("Cliente" -> CUSTOMER).
-  const columnaDeEtapa = Object.entries(mapeo).find(([, d]) => d === "lifecycleStage")?.[0];
-  const valoresDeEtapa = useMemo(() => {
-    if (!columnaDeEtapa) return [];
-    const vistos = new Map<string, string>();
-    for (const fila of muestra) {
-      const v = fila[columnaDeEtapa];
-      if (v === null || String(v).trim() === "") continue;
-      const t = String(v).trim();
-      if (!vistos.has(clave(t))) vistos.set(clave(t), t);
-    }
-    return [...vistos.values()];
-  }, [columnaDeEtapa, muestra]);
-
-  // Lo mismo para la columna de tipo del historial ("Llamada" -> CALL).
-  const columnaDeTipo = Object.entries(mapeo).find(([, d]) => d === "type")?.[0];
-  const valoresDeTipo = useMemo(() => {
-    if (!columnaDeTipo) return [];
-    const vistos = new Map<string, string>();
-    for (const fila of muestra) {
-      const v = fila[columnaDeTipo];
-      if (v === null || String(v).trim() === "") continue;
-      const t = String(v).trim();
-      if (!vistos.has(clave(t))) vistos.set(clave(t), t);
-    }
-    return [...vistos.values()];
-  }, [columnaDeTipo, muestra]);
+  const deEtapa = useMemo(
+    () => valoresDeColumna(mapeo, "lifecycleStage", muestra),
+    [mapeo, muestra],
+  );
+  const deTipo = useMemo(() => valoresDeColumna(mapeo, "type", muestra), [mapeo, muestra]);
+  const deEstado = useMemo(() => valoresDeColumna(mapeo, "status", muestra), [mapeo, muestra]);
+  const deCondicion = useMemo(
+    () => valoresDeColumna(mapeo, "condition", muestra),
+    [mapeo, muestra],
+  );
+  const deCombustible = useMemo(
+    () => valoresDeColumna(mapeo, "fuelType", muestra),
+    [mapeo, muestra],
+  );
+  const deCaja = useMemo(() => valoresDeColumna(mapeo, "transmission", muestra), [mapeo, muestra]);
 
   const queryClient = useQueryClient();
   const guardar = useMutation({
@@ -137,20 +226,29 @@ export function PasoMapeo({
   }
 
   const usados = new Set(Object.values(mapeo));
-  const faltaNombre =
+  const falta =
     tipo === "CONTACT"
       ? !usados.has("fullName") && !(usados.has("firstName") && usados.has("lastName"))
       : tipo === "ACTIVITY"
         ? !["contactExternalId", "contactEmail", "contactPhone"].some((d) => usados.has(d)) ||
           (!usados.has("type") && tipoPorDefecto === "") ||
           autorId === ""
-        : !usados.has("name");
+        : tipo === "VEHICLE"
+          ? !["make", "model", "year"].every((d) => usados.has(d)) ||
+            stock.branchId === "" ||
+            stock.responsableId === ""
+          : !usados.has("name");
+
+  const textoDeFalta: Record<TipoImportable, string> = {
+    CONTACT: `Falta elegir la columna de «${DESTINOS.CONTACT.fullName}», o las de «${DESTINOS.CONTACT.firstName}» y «${DESTINOS.CONTACT.lastName}».`,
+    ACTIVITY:
+      "Falta elegir a qué contacto va cada fila (id del origen, email o teléfono), el tipo (una columna o un tipo para todo el archivo) y el autor.",
+    VEHICLE: "Falta elegir las columnas de marca, modelo y año, la sucursal y el responsable.",
+    COMPANY: `Falta elegir la columna de «${DESTINOS.COMPANY.name}».`,
+  };
 
   function enviar(event: FormEvent) {
     event.preventDefault();
-    const etapasUsadas = Object.fromEntries(
-      Object.entries(etapas).filter(([valor]) => valoresDeEtapa.includes(valor)),
-    );
     guardar.mutate({
       mapeo,
       formato: {
@@ -160,7 +258,7 @@ export function PasoMapeo({
         no: lista(no),
         separadorDeOpciones: opcionesSep,
       },
-      etapas: etapasUsadas,
+      etapas: soloLosVistos(etapas, deEtapa.valores),
       duplicados,
       crearEmpresas,
       ...(tipo === "ACTIVITY"
@@ -168,9 +266,18 @@ export function PasoMapeo({
             historial: {
               autorId,
               ...(tipoPorDefecto ? { tipoPorDefecto } : {}),
-              tipos: Object.fromEntries(
-                Object.entries(tipos).filter(([valor]) => valoresDeTipo.includes(valor)),
-              ),
+              tipos: soloLosVistos(tipos, deTipo.valores),
+            },
+          }
+        : {}),
+      ...(tipo === "VEHICLE"
+        ? {
+            stock: {
+              ...stock,
+              estados: soloLosVistos(stock.estados, deEstado.valores),
+              condiciones: soloLosVistos(stock.condiciones, deCondicion.valores),
+              combustibles: soloLosVistos(stock.combustibles, deCombustible.valores),
+              transmisiones: soloLosVistos(stock.transmisiones, deCaja.valores),
             },
           }
         : {}),
@@ -197,13 +304,9 @@ export function PasoMapeo({
             </li>
           ))}
         </ol>
-        {faltaNombre ? (
+        {falta ? (
           <p className="ds-hint" role="status">
-            {tipo === "CONTACT"
-              ? `Falta elegir la columna de «${DESTINOS.CONTACT.fullName}», o las de «${DESTINOS.CONTACT.firstName}» y «${DESTINOS.CONTACT.lastName}».`
-              : tipo === "ACTIVITY"
-                ? "Falta elegir a qué contacto va cada fila (id del origen, email o teléfono), el tipo (una columna o un tipo para todo el archivo) y el autor."
-                : `Falta elegir la columna de «${DESTINOS.COMPANY.name}».`}
+            {textoDeFalta[tipo]}
           </p>
         ) : null}
       </Card>
@@ -214,11 +317,7 @@ export function PasoMapeo({
             <Select
               label="Autor de las actividades"
               value={autorId}
-              options={opciones.usuarios.map((u) => ({
-                value: u.id,
-                label: u.fullName,
-                subtitle: u.email,
-              }))}
+              options={opcionesDeUsuario}
               emptyOption={{ label: "Elegir…" }}
               onChange={setAutorId}
             />
@@ -235,25 +334,98 @@ export function PasoMapeo({
             tareas hechas quedan completadas y confirmadas; las vencidas sin hacer, abiertas y
             asignadas a este autor.
           </p>
-          {valoresDeTipo.length > 0 ? (
-            <div className="ds-field-grid">
-              {valoresDeTipo.map((valor) => (
-                <Select
-                  key={valor}
-                  label={valor}
-                  value={tipos[valor] ?? ""}
-                  options={TIPOS_DE_HISTORIAL}
-                  emptyOption={{ label: "Sin asignar" }}
-                  onChange={(t) => {
-                    const nuevo = { ...tipos };
-                    if (t === "") delete nuevo[valor];
-                    else nuevo[valor] = t;
-                    setTipos(nuevo);
-                  }}
-                />
-              ))}
-            </div>
-          ) : null}
+          <MapeoDeValores
+            titulo="Qué tipo es cada valor de"
+            columna={deTipo.columna}
+            valores={deTipo.valores}
+            opciones={TIPOS_DE_HISTORIAL}
+            mapa={tipos}
+            sinAsignar="Sin asignar"
+            onChange={setTipos}
+          />
+        </Card>
+      ) : null}
+
+      {tipo === "VEHICLE" ? (
+        <Card heading="Stock">
+          <div className="ds-field-grid">
+            <Select
+              label="Sucursal de las unidades nuevas"
+              value={stock.branchId}
+              options={sucursales.map((s) => ({ value: s.id, label: s.name }))}
+              emptyOption={{ label: "Elegir…" }}
+              onChange={(branchId) => cambiarStock({ branchId })}
+            />
+            <Select
+              label="Responsable de los cambios en las fichas"
+              value={stock.responsableId}
+              options={opcionesDeUsuario}
+              emptyOption={{ label: "Elegir…" }}
+              onChange={(responsableId) => cambiarStock({ responsableId })}
+            />
+            <Select
+              label="Condición si la fila no la trae"
+              value={stock.condicionPorDefecto}
+              options={CONDICIONES}
+              onChange={(v) => v && cambiarStock({ condicionPorDefecto: v })}
+            />
+            <Select
+              label="Moneda de los montos sin moneda"
+              value={stock.monedaPorDefecto}
+              options={[
+                { value: "USD", label: "Dólares" },
+                { value: "LOCAL", label: "Moneda local" },
+              ]}
+              onChange={(v) => v && cambiarStock({ monedaPorDefecto: v })}
+            />
+            <FormField label="Importar también las vendidas (historial)">
+              <input
+                type="checkbox"
+                checked={stock.importarVendidas}
+                onChange={(e) => cambiarStock({ importarVendidas: e.target.checked })}
+              />
+            </FormField>
+          </div>
+          <p className="ds-hint">
+            Las reservadas en el origen entran como «No disponible». El costo y el precio mínimo en
+            moneda local se pasan a dólares con la cotización vigente, que la vista previa muestra.
+          </p>
+          <MapeoDeValores
+            titulo="Qué estado es cada valor de"
+            columna={deEstado.columna}
+            valores={deEstado.valores}
+            opciones={ESTADOS_DE_STOCK}
+            mapa={stock.estados}
+            sinAsignar="Sin asignar (la fila falla)"
+            onChange={(estados) => cambiarStock({ estados })}
+          />
+          <MapeoDeValores
+            titulo="Qué condición es cada valor de"
+            columna={deCondicion.columna}
+            valores={deCondicion.valores}
+            opciones={CONDICIONES}
+            mapa={stock.condiciones}
+            sinAsignar="Sin asignar (la fila falla)"
+            onChange={(condiciones) => cambiarStock({ condiciones })}
+          />
+          <MapeoDeValores
+            titulo="Qué combustible es cada valor de"
+            columna={deCombustible.columna}
+            valores={deCombustible.valores}
+            opciones={COMBUSTIBLES}
+            mapa={stock.combustibles}
+            sinAsignar="Sin asignar (la fila falla)"
+            onChange={(combustibles) => cambiarStock({ combustibles })}
+          />
+          <MapeoDeValores
+            titulo="Qué caja es cada valor de"
+            columna={deCaja.columna}
+            valores={deCaja.valores}
+            opciones={TRANSMISIONES}
+            mapa={stock.transmisiones}
+            sinAsignar="Sin asignar (la fila falla)"
+            onChange={(transmisiones) => cambiarStock({ transmisiones })}
+          />
         </Card>
       ) : null}
 
@@ -296,28 +468,15 @@ export function PasoMapeo({
             <input type="text" value={no} onChange={(e) => setNo(e.target.value)} />
           </FormField>
         </div>
-        {valoresDeEtapa.length > 0 ? (
-          <div className="ds-stack">
-            <p className="ds-hint">Qué etapa del CRM es cada valor de «{columnaDeEtapa}».</p>
-            <div className="ds-field-grid">
-              {valoresDeEtapa.map((valor) => (
-                <Select
-                  key={valor}
-                  label={valor}
-                  value={etapas[valor] ?? ""}
-                  options={ETAPAS}
-                  emptyOption={{ label: "Sin asignar (la fila falla)" }}
-                  onChange={(etapa) => {
-                    const nuevo = { ...etapas };
-                    if (etapa === "") delete nuevo[valor];
-                    else nuevo[valor] = etapa;
-                    setEtapas(nuevo);
-                  }}
-                />
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <MapeoDeValores
+          titulo="Qué etapa del CRM es cada valor de"
+          columna={deEtapa.columna}
+          valores={deEtapa.valores}
+          opciones={ETAPAS}
+          mapa={etapas}
+          sinAsignar="Sin asignar (la fila falla)"
+          onChange={setEtapas}
+        />
       </Card>
 
       <Card heading="Duplicados">
@@ -328,8 +487,10 @@ export function PasoMapeo({
           onChange={(v) => v && setDuplicados(v)}
         />
         <p className="ds-hint">
-          Nunca se pisan el email ni el teléfono que identifican a un contacto, y la etapa no
-          retrocede. En la vista previa se puede cambiar fila por fila.
+          {tipo === "VEHICLE"
+            ? "La patente o el VIN que identifican a la unidad no se pisan, y el estado que maneja el CRM (reservada, vendida) tampoco."
+            : "Nunca se pisan el email ni el teléfono que identifican a un contacto, y la etapa no retrocede."}{" "}
+          En la vista previa se puede cambiar fila por fila.
         </p>
         {tipo === "CONTACT" ? (
           <FormField label="Crear las empresas que no existen">
@@ -349,7 +510,7 @@ export function PasoMapeo({
         </ErrorState>
       ) : null}
       <div className="ds-card-actions">
-        <Button type="submit" disabled={faltaNombre} loading={guardar.isPending}>
+        <Button type="submit" disabled={falta} loading={guardar.isPending}>
           Ver la vista previa
         </Button>
         {onCancelar ? (
