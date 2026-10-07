@@ -61,7 +61,7 @@ async function subir(form: FormData) {
   return { status: res.status, json: (await res.json()) as Record<string, unknown> };
 }
 
-test("camino feliz: JPEG y PNG pasan, con el tipo detectado por firma y los campos de texto en body", async () => {
+test("camino feliz: JPEG, PNG y WebP pasan, con el tipo detectado por firma y los campos de texto en body", async () => {
   const form = new FormData();
   form.append(
     "photo",
@@ -85,6 +85,19 @@ test("camino feliz: JPEG y PNG pasan, con el tipo detectado por firma y los camp
   const png = await subir(formPng);
   assert.equal(png.status, 200);
   assert.deepEqual(png.json.detected, { mimeType: "image/png", extension: "png" });
+
+  const formWebp = new FormData();
+  formWebp.append(
+    "photo",
+    archivo(
+      Buffer.concat([Buffer.from("RIFF"), Buffer.from([0x24, 0, 0, 0]), Buffer.from("WEBPVP8 ")]),
+      "image/webp",
+    ),
+    "z.webp",
+  );
+  const webp = await subir(formWebp);
+  assert.equal(webp.status, 200);
+  assert.deepEqual(webp.json.detected, { mimeType: "image/webp", extension: "webp" });
 });
 
 test("tipo declarado no admitido: 415 desde el fileFilter, nunca 500", async () => {
@@ -92,7 +105,7 @@ test("tipo declarado no admitido: 415 desde el fileFilter, nunca 500", async () 
   form.append("photo", archivo(Buffer.from("%PDF-1.4"), "application/pdf"), "doc.pdf");
   const res = await subir(form);
   assert.equal(res.status, 415);
-  assert.match(String((res.json.error as { message: string }).message), /JPEG o PNG/);
+  assert.match(String((res.json.error as { message: string }).message), /JPEG, PNG o WebP/);
 });
 
 test("declara image/png pero los bytes no son PNG (ni JPEG): 415 por la firma", async () => {

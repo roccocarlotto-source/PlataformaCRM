@@ -126,9 +126,13 @@ test("la ruta en Storage es <organizationId>/<vehicleId>/<uuid>.<ext>, con la ex
   assert.notEqual(ruta, buildStoragePath("org-1", "veh-2", "png"));
 });
 
-test("bucket privado con nombre fijo, límite de 5 MB y solo JPEG/PNG; URLs firmadas de una hora", () => {
+test("bucket privado con nombre fijo, límite de 5 MB y solo JPEG, PNG y WebP; URLs firmadas de una hora", () => {
   assert.equal(VEHICLE_PHOTO_BUCKET.name, "vehicle-photos");
   assert.equal(VEHICLE_PHOTO_BUCKET.fileSizeLimit, 5 * 1024 * 1024);
-  assert.deepEqual(VEHICLE_PHOTO_BUCKET.allowedMimeTypes, ["image/jpeg", "image/png"]);
+  assert.deepEqual(VEHICLE_PHOTO_BUCKET.allowedMimeTypes, [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ]);
   assert.equal(VEHICLE_PHOTO_URL_TTL_SECONDS, 3600);
 });

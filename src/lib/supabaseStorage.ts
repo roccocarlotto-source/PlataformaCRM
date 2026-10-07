@@ -36,7 +36,18 @@ function storageError(accion: string, detalle: string): AppError {
 // creyendo que el bucket no existe hasta que se reinicie).
 const bucketsAsegurados = new Map<string, Promise<void>>();
 
-// Idempotente: getBucket y, solo si no existe, createBucket. NO se deja como
+// Solo para tests: que el próximo ensureBucket vuelva a mirar Storage (el test
+// que arranca de un bucket con la configuración vieja lo necesita).
+export function olvidarBucketsAseguradosParaTests(): void {
+  bucketsAsegurados.clear();
+}
+
+// Idempotente: getBucket y, solo si no existe, createBucket. Si existe pero
+// con OTRO tamaño máximo o tipos admitidos que el spec, se alinea con
+// updateBucket: el spec del código es la fuente de verdad. Sin esto, sumar un
+// tipo al spec (WebP en las fotos de vehículos, 06/10/2026) andaría en un
+// proyecto nuevo y fallaría en uno donde el bucket ya estaba creado, que es
+// justo producción. Nunca lo vuelve público. NO se deja como
 // paso manual del dashboard — docs/supabase-setup.md documenta cómo terminan
 // los pasos manuales sin registrar en este proyecto. Una carrera entre dos
 // procesos (dos instancias del backend arrancando a la vez) la resuelve el
@@ -60,6 +71,20 @@ async function ensureBucketOnce(spec: BucketSpec): Promise<void> {
 
   const existente = await storage.getBucket(spec.name);
   if (existente.data) {
+    if (bucketAlineado(existente.data, spec)) {
+      return;
+    }
+    const actualizado = await storage.updateBucket(spec.name, {
+      public: false,
+      fileSizeLimit: spec.fileSizeLimit,
+      allowedMimeTypes: spec.allowedMimeTypes,
+    });
+    if (actualizado.error) {
+      throw storageError(
+        `no se pudo actualizar la configuración del bucket "${spec.name}"`,
+        actualizado.error.message,
+      );
+    }
     return;
   }
   // getBucket responde error también cuando el bucket no existe (404): la
@@ -75,6 +100,25 @@ async function ensureBucketOnce(spec: BucketSpec): Promise<void> {
       `${creado.error.message} (getBucket: ${existente.error?.message ?? "sin detalle"})`,
     );
   }
+}
+
+// El bucket guardado ya tiene el tamaño y los tipos del spec (en cualquier
+// orden) y es privado. Exportada para el test unitario.
+export function bucketAlineado(
+  guardado: {
+    public: boolean;
+    file_size_limit?: number | null;
+    allowed_mime_types?: string[] | null;
+  },
+  spec: BucketSpec,
+): boolean {
+  const tipos = guardado.allowed_mime_types ?? [];
+  return (
+    !guardado.public &&
+    guardado.file_size_limit === spec.fileSizeLimit &&
+    tipos.length === spec.allowedMimeTypes.length &&
+    spec.allowedMimeTypes.every((t) => tipos.includes(t))
+  );
 }
 
 // upsert: false — la ruta lleva un uuid generado por el service, así que una

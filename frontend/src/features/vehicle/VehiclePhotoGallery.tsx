@@ -120,7 +120,7 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
   return (
     <div className="ds-stack">
       <p className="ds-hint">
-        {photos.length === 1 ? "1 foto" : `${photos.length} fotos`}. Se admiten JPEG y PNG; la
+        {photos.length === 1 ? "1 foto" : `${photos.length} fotos`}. Se admiten JPEG, PNG y WebP; la
         primera foto que se sube queda como portada.
       </p>
       <div className="ds-card-actions">
@@ -130,7 +130,7 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
             estado propio. */}
         <FileInputButton
           label="Subir foto"
-          accept="image/jpeg,image/png"
+          accept="image/jpeg,image/png,image/webp"
           disabled={isBusy}
           loading={uploadMutation.isPending}
           selectedFileName={

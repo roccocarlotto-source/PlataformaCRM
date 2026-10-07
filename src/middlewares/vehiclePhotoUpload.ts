@@ -13,7 +13,7 @@ import {
 // las mismas tres decisiones —multer, memoryStorage, límite real acá porque
 // express.json() no toca un multipart— y dos diferencias propias de una foto:
 //
-//   1. fileFilter por tipo. Solo JPEG y PNG. multer NO dispara LIMIT_FILE_SIZE
+//   1. fileFilter por tipo. Solo JPEG, PNG y WebP. multer NO dispara LIMIT_FILE_SIZE
 //      ni ningún MulterError cuando el fileFilter rechaza: entrega al callback
 //      el error que el propio filtro le pasó. Por eso el filtro construye
 //      directamente el AppError (415) y la traducción de abajo lo deja pasar
@@ -29,7 +29,7 @@ import {
 
 const CAMPO_ARCHIVO = "photo";
 
-const TIPO_NO_ADMITIDO = "Solo se admiten fotos JPEG o PNG";
+const TIPO_NO_ADMITIDO = "Solo se admiten fotos JPEG, PNG o WebP";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -70,7 +70,7 @@ export function vehiclePhotoUpload(req: Request, res: Response, next: NextFuncti
       }
       const detected = detectImageType(req.file.buffer);
       if (!detected) {
-        // El cliente declaró image/jpeg o image/png y los bytes dicen otra
+        // El cliente declaró un tipo admitido y los bytes dicen otra
         // cosa: mismo 415 que el fileFilter, es el mismo problema.
         next(new AppError(TIPO_NO_ADMITIDO, 415));
         return;
