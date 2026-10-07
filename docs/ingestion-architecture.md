@@ -190,6 +190,19 @@ lead, que es el caso normal, no el borde.
 - Contactos sin email no se deduplican automáticamente. Se promueven
   como nuevos y se marcan para revisión manual.
 
+**Excepciones del asistente de importación** *(decisión de Rocco del
+2026-10-06; detalle en §9.14 y en `docs/importacion-de-datos.md`).* Valen
+solo para el asistente de Plataforma → Importar datos. El webhook y
+`POST /api/imports` siguen con las reglas de arriba, sin cambios:
+
+- **Idempotencia por registro.** En el asistente, la garantía de que subir dos
+  veces no duplica vive en `external_record_links`, con su único en la base,
+  y no en el único `(sourceId, externalId)` de los eventos.
+- **"Pisar" como elección explícita.** El platform admin puede elegir, en la
+  vista previa, que un valor del archivo reemplace al del CRM. Se guarda el
+  antes y el después por fila. Dos cosas no se pisan nunca: el email y el
+  teléfono que identifican al contacto, y la etapa, que solo avanza.
+
 **Alcance de "nunca sobrescribir en silencio"** *(aclaración de
 2026-08-28, al implementar el borrado a pedido).* La regla gobierna el
 **flujo normal de promoción**: ninguna ingesta puede pisar un dato del
@@ -792,3 +805,50 @@ Esto es documentación de un comportamiento existente, no un cambio: lo fija
 contenido **distinto** bajo el mismo `X-External-Id` y afirma el `202`,
 `duplicate: true` y el mismo `id` del evento que ya estaba — exactamente el
 escenario de esta nota.
+
+### 9.14 El asistente de importación: idempotencia por registro y "pisar"
+
+*(2026-10-06, aprobado por Rocco sobre el PR #428. Diseño completo en
+`docs/importacion-de-datos.md`.)*
+
+Esta nota registra las dos excepciones a §4 que introduce el asistente de
+importación para el alta de clientes (Plataforma → Importar datos, solo
+platform admin). **No cambian el webhook ni `POST /api/imports`**: esos dos
+caminos siguen con §4 y §9.13 tal como están, y sus tests no cambian.
+
+**1. Idempotencia por registro, no por evento.** §4 apoya la idempotencia en
+el único parcial `(sourceId, externalId)`. Para un archivo, el `externalId` es
+el hash de `{ fila, datos }` (§9.13). Eso evita duplicar contactos con email,
+pero no alcanza para lo que el alta necesita: un contacto sin email, una
+empresa, un vehículo o una nota no tienen upsert natural, y "volver a subir el
+archivo corregido actualiza" exige que una fila **cambiada** encuentre lo que
+creó la primera vez.
+
+En el asistente:
+
+- cada lote trae sus propias filas, con `externalId = sha256(batchId, fila)`.
+  Por eso el informe de una re-subida muestra todo lo que trajo, y la rareza de
+  §9.9 no aplica a este camino;
+- la garantía de no duplicar pasa a `external_record_links`, con único
+  `(organization_id, source_id, entity_type, external_key)` en la base. Es la
+  misma filosofía de §4 y §9.4 —la garantía va en los datos, no en el código—,
+  aplicada al registro en vez de al evento;
+- la deduplicación de contactos de §4 y §9.5 sigue igual por debajo: sin
+  vínculo, se busca por `lower(email)` y por teléfono normalizado bajo el lock
+  de la organización, y se vincula lo que se encuentre.
+
+**2. "Pisar" como elección explícita del platform admin.** §4 dice que, si
+ambos tienen valor y difieren, se conserva el del CRM. Esa regla protege del
+flujo **automático**: un formulario que llega solo no puede pisar lo que cargó
+una persona. En el asistente, pisar es una elección explícita del platform
+admin en la vista previa, en general o por fila, sobre filas que ve. El antes
+y el después de cada campo se guardan por fila (`ingestion_events.changes`),
+así que no es una sobrescritura en silencio. Por defecto se sigue completando
+lo vacío sin pisar, que es §4.
+
+Dos cosas **no se pisan nunca**, ni con "Pisar":
+
+- el email y el teléfono que ya identifican al contacto;
+- la etapa (`lifecycleStage`), que solo puede avanzar, nunca retroceder. Es la
+  regla de §4, extendida: el asistente sí puede subir la etapa, mientras que la
+  ingesta automática no la escribe nunca.
