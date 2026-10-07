@@ -183,13 +183,16 @@ export function IngestionEventListPage() {
 
             "Orden" va inline y NO usa SortOrderSelect: es el único de los trece
             listados cuyos rótulos no son "Descendente"/"Ascendente" — acá lo
-            que se ordena es siempre una fecha y se dice así. */}
+            que se ordena es siempre una fecha y se dice así. "Más recientes" y
+            no "Más recientes primero": la píldora del filtro tiene el ancho fijo
+            de todas (10rem) y el texto largo se cortaba en "…"; con "Orden"
+            adelante, "primero" ya se entiende. */}
           <Select
             label="Orden"
             value={sortOrder}
             options={[
-              { value: "desc", label: "Más recientes primero" },
-              { value: "asc", label: "Más antiguos primero" },
+              { value: "desc", label: "Más recientes" },
+              { value: "asc", label: "Más antiguos" },
             ]}
             onChange={(value) => {
               if (value) setSortOrder(value);

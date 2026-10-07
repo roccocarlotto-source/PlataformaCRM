@@ -129,12 +129,133 @@ textarea {
 
 /* Checkbox/radio no son "controles de 40px": sin la altura ni el ancho
    forzados, que los dejaría deformes. */
-input[type="checkbox"],
 input[type="radio"] {
   display: inline-block;
   width: auto;
   height: auto;
   margin-top: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Casilla del design system. Es el <input type="checkbox"> nativo con
+   appearance: none y dibujado acá, no un div que lo imite: sigue siendo el
+   mismo control para el teclado (Tab, Espacio), el lector de pantalla
+   (rol, nombre por su <label>, estado marcado/mixto/deshabilitado) y los
+   formularios. Antes cada navegador dibujaba el suyo: 13px casi negro en
+   Chromium, del color del sistema en Safari, y 20px solo en la lista de
+   selección múltiple de los campos personalizados.
+
+   - Marcada (y mixta, :indeterminate): fondo --color-accent, el mismo de
+     los botones primarios y los radios, en los dos temas (los tokens ya
+     cambian solos en oscuro).
+   - Sin marcar: borde --color-text-faint y no --color-border: el borde de
+     los inputs es casi blanco sobre blanco, y una casilla vacía tiene que
+     distinguirse de la superficie (contraste 3:1 de un componente, WCAG
+     1.4.11) porque no hay texto adentro que la delate.
+   - El tilde es un ::before recortado con clip-path y pintado con
+     --color-accent-contrast: sigue al tema sin un SVG por color.
+   - Foco: el outline base de input:focus-visible (más arriba).
+   - Deshabilitada: la misma opacidad que button:disabled.
+   - 18px en escritorio y 22px en el celular, con el área de toque
+     agrandada a 44px por un ::after transparente (Apple HIG / WCAG 2.5.5);
+     tocar el pseudo-elemento es tocar el input.
+
+   .ds-task-check (Mis tareas) es la variante circular de "completar" y
+   pisa forma y tamaño con su propia regla (input.ds-task-check, misma
+   especificidad y más abajo).
+   --------------------------------------------------------------------------- */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--color-text-faint);
+  border-radius: 4px;
+  background: var(--color-surface);
+  vertical-align: middle;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+input[type="checkbox"]::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: var(--color-accent-contrast);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  transform: scale(0);
+  transition: transform 120ms ease;
+}
+
+input[type="checkbox"]:hover:not(:disabled) {
+  border-color: var(--color-text-muted);
+}
+
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+input[type="checkbox"]:checked:hover:not(:disabled),
+input[type="checkbox"]:indeterminate:hover:not(:disabled) {
+  border-color: var(--color-accent-hover);
+  background: var(--color-accent-hover);
+}
+
+input[type="checkbox"]:checked::before {
+  transform: scale(1);
+}
+
+/* Mixta (la de "seleccionar todo" con algunas elegidas): una raya. */
+input[type="checkbox"]:indeterminate::before {
+  height: 2px;
+  clip-path: none;
+  transform: scale(1);
+}
+
+input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  input[type="checkbox"],
+  input[type="checkbox"]::before {
+    transition: none;
+  }
+}
+
+@media (max-width: 767px) {
+  input[type="checkbox"] {
+    position: relative;
+    width: 22px;
+    height: 22px;
+  }
+
+  input[type="checkbox"]::before {
+    width: 12px;
+    height: 12px;
+  }
+
+  input[type="checkbox"]:indeterminate::before {
+    height: 2px;
+  }
+
+  input[type="checkbox"]::after {
+    content: "";
+    position: absolute;
+    inset: -11px;
+  }
 }
 
 input:focus-visible,
@@ -588,10 +709,10 @@ fieldset.ds-field {
    un teléfono, y no en la fila de botones de abajo: la casilla pertenece a la
    foto, no a la botonera.
 
-   El tamaño va forzado porque la regla base (input[type="checkbox"] con
-   width/height auto) deja el checkbox nativo en 13px, demasiado chico para
-   apuntarle encima de una imagen. El box-shadow es el "papel" blanco que lo
-   despega de una foto clara u oscura sin dibujar un recuadro aparte. */
+   Forma, tamaño y colores son los de la casilla del design system (regla
+   base de input[type="checkbox"]); acá solo va la posición y el
+   box-shadow, el "papel" que la despega de una foto clara u oscura sin
+   dibujar un recuadro aparte. */
 .ds-photo-pick {
   position: relative;
 }
@@ -600,13 +721,6 @@ fieldset.ds-field {
   position: absolute;
   top: var(--space-2);
   right: var(--space-2);
-  width: 20px;
-  height: 20px;
-  margin: 0;
-  cursor: pointer;
-  accent-color: var(--color-accent);
-  background: var(--color-surface);
-  border-radius: var(--radius-sm);
   box-shadow: 0 0 0 3px var(--color-surface);
 }
 
@@ -1015,12 +1129,14 @@ fieldset.ds-field {
   color: inherit;
 }
 
-/* El control adentro de la píldora va sin su propio borde ni fondo. */
-.ds-filters label input,
+/* El control adentro de la píldora va sin su propio borde ni fondo. Salvo
+   una casilla ("Solo consignación" en Stock, las opciones de MultiSelect):
+   esa conserva el dibujo del design system. */
+.ds-filters label input:not([type="checkbox"]),
 .ds-filters label select,
 .ds-filters div:has(> label[for]) > input,
 .ds-filters div:has(> label[for]) > select,
-.ds-board-toolbar label input,
+.ds-board-toolbar label input:not([type="checkbox"]),
 .ds-board-toolbar label select,
 .ds-board-toolbar div:has(> label[for]) > input,
 .ds-board-toolbar div:has(> label[for]) > select {
@@ -1168,15 +1284,6 @@ fieldset.ds-field {
   color: inherit;
 }
 
-/* Checkbox en una píldora ("Solo consignación" en Stock): conserva su
-   tamaño natural en vez de estirarse como el input de texto. */
-.ds-filters label input[type="checkbox"],
-.ds-board-toolbar label input[type="checkbox"] {
-  flex: none;
-  width: auto;
-  height: auto;
-}
-
 /* El MultiSelect de la barra (Estado en Stock) con el mismo ancho que un
    Select y el chevron pegado al borde derecho, como el de los demás: antes
    el chevron iba pegado al texto y la píldora quedaba más corta. */
@@ -1274,8 +1381,8 @@ fieldset.ds-field {
 /* Cada opción es un <label> con su checkbox. Dentro de .ds-filters, la regla
    genérica ".ds-filters label" convertiría cada uno en una píldora (borde,
    40px de alto, fondo): estos selectores son más específicos y la deshacen.
-   El checkbox recupera su tamaño natural, que ".ds-filters label input"
-   también pisaba con flex: 1 1 auto. */
+   El checkbox es la casilla del design system tal cual (la regla genérica
+   de la píldora excluye las casillas). */
 .ds-multiselect .ds-multiselect-option {
   display: flex;
   align-items: center;
@@ -1294,13 +1401,6 @@ fieldset.ds-field {
 
 .ds-multiselect .ds-multiselect-option:hover {
   background: var(--color-surface-muted);
-}
-
-.ds-multiselect .ds-multiselect-option input {
-  flex: 0 0 auto;
-  width: auto;
-  height: auto;
-  margin: 0;
 }
 
 /* Buscador arriba de los checkboxes. Es un input suelto dentro de la lista
@@ -2388,8 +2488,8 @@ fieldset.ds-field {
    <fieldset> con el rótulo del campo como <legend> y un <label> por opción.
    No lleva .ds-field a propósito: ".ds-field:has(input[type=checkbox])" pone
    el campo entero en fila, que es lo que quiere UNA casilla, no una lista.
-   Cada fila mide --control-height (40px) y la casilla 20px: se toca con el
-   dedo igual que un input. */
+   Cada fila mide --control-height (40px): se toca con el dedo igual que un
+   input. La casilla es la del design system (regla base). */
 .ds-check-list {
   border: 0;
   min-inline-size: 0;
@@ -2404,13 +2504,6 @@ fieldset.ds-field {
   min-height: var(--control-height);
   margin: 0;
   cursor: pointer;
-}
-
-.ds-check-option input[type="checkbox"] {
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  margin: 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -3762,7 +3855,7 @@ a.ds-button--secondary:hover {
 /* Checkbox circular, sin marcar: tildarlo completa la tarea y la fila pasa
    al bloque "Esperando confirmación" (sin checkbox, ver abajo), así que
    nunca se ve el estado "marcado". */
-.ds-task-check {
+input.ds-task-check {
   appearance: none;
   width: 18px;
   height: 18px;
@@ -3774,7 +3867,7 @@ a.ds-button--secondary:hover {
   cursor: pointer;
 }
 
-.ds-task-check:hover {
+input.ds-task-check:hover {
   border-color: var(--color-text-muted);
 }
 
@@ -3895,9 +3988,17 @@ a.ds-button--secondary:hover {
   margin-bottom: 0;
 }
 
+/* Adentro de la grilla el ancho lo pone la celda, no el tope de 32rem de
+   un campo suelto. Va también para los envoltorios que llevan ese tope
+   (.ds-select de Select, .ds-field-row de Monto + Moneda): sin ellos un
+   Select a todo el ancho ("Tipo" en Nueva actividad, "Rol" en Nueva
+   invitación) quedaba en 512px mientras los inputs de arriba y de abajo
+   llegaban al borde. */
 .ds-field-grid input,
 .ds-field-grid select,
-.ds-field-grid textarea {
+.ds-field-grid textarea,
+.ds-field-grid .ds-select,
+.ds-field-grid .ds-field-row {
   max-width: none;
 }
 
