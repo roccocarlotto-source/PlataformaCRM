@@ -4,7 +4,7 @@
 // IngestionEvent). No se agrega ningún campo que el backend no devuelva o no
 // acepte.
 
-// Las cinco variantes del enum de Prisma. DUPLICATE está declarado pero ningún
+// Las variantes del enum de Prisma. DUPLICATE está declarado pero ningún
 // código lo escribe nunca —los duplicados no crean fila— así que filtrar por él
 // devuelve una página vacía. Se acepta igual: restringir el tipo a los tres
 // "reales" haría divergir el contrato HTTP del enum de la base.
@@ -13,7 +13,12 @@
 // de estado de esas filas salía vacía; se agregó con su etiqueta. No está en
 // ESTADOS (las opciones del filtro): sumarlo es una opción nueva del filtro, no
 // un arreglo visual, y queda para cuando se decida.
-export type IngestionStatus = "PENDING" | "PROCESSED" | "FAILED" | "DUPLICATE" | "DEAD_LETTER";
+//
+// STAGED (importación de datos, docs/importacion-de-datos.md §2.4): una fila
+// del asistente de Plataforma → Importar datos que todavía no se confirmó. Con
+// etiqueta por lo mismo que DEAD_LETTER, y tampoco en ESTADOS.
+export type IngestionStatus =
+  "STAGED" | "PENDING" | "PROCESSED" | "FAILED" | "DUPLICATE" | "DEAD_LETTER";
 
 export const ESTADOS: readonly IngestionStatus[] = [
   "PENDING",
@@ -23,6 +28,7 @@ export const ESTADOS: readonly IngestionStatus[] = [
 ] as const;
 
 export const ETIQUETA_DE_ESTADO: Record<IngestionStatus, string> = {
+  STAGED: "Sin confirmar",
   PENDING: "Pendiente",
   PROCESSED: "Procesado",
   FAILED: "Fallido",
@@ -36,6 +42,7 @@ export const VARIANTE_DE_ESTADO: Record<
   IngestionStatus,
   "neutral" | "info" | "success" | "danger"
 > = {
+  STAGED: "neutral",
   PENDING: "info",
   PROCESSED: "success",
   FAILED: "danger",

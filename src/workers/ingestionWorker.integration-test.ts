@@ -328,3 +328,39 @@ test("V-9: un PENDING cuya fuente fue RETIRADA (deletedAt) después de creado no
     await desmontar(escenario);
   }
 });
+
+// ---------------------------------------------------------------------------
+// STAGED (migración 20261026120000, docs/importacion-de-datos.md §2.4): una
+// fila del asistente de importación que todavía no se confirmó. El worker NO
+// la reclama —claimNextPendingEvent pide PENDING— y confirmar el lote es
+// pasarla a PENDING. Es la garantía de que nada del asistente se promueve
+// antes de que el admin vea la vista previa.
+// ---------------------------------------------------------------------------
+
+test("STAGED: una fila sin confirmar no se reclama nunca; pasada a PENDING (confirmar el lote), se promueve", async () => {
+  const escenario = await montar("staged");
+  try {
+    const id = await crearEvento(escenario, payloadValido());
+    await prisma.ingestionEvent.update({ where: { id }, data: { status: "STAGED" } });
+
+    const resumen = await drenarPendientes({ organizationId: escenario.organizationId });
+    assert.deepEqual(resumen, { procesados: 0, fallidos: 0, pospuestos: 0, muertos: 0 });
+    const sinConfirmar = await leer(id);
+    assert.equal(sinConfirmar.status, "STAGED");
+    assert.equal(sinConfirmar.attempts, 0);
+    assert.equal(sinConfirmar.promotedContactId, null);
+    assert.equal(
+      await prisma.contact.count({ where: { organizationId: escenario.organizationId } }),
+      0,
+    );
+
+    await prisma.ingestionEvent.update({ where: { id }, data: { status: "PENDING" } });
+    const segunda = await drenarPendientes({ organizationId: escenario.organizationId });
+    assert.equal(segunda.procesados, 1);
+    const fila = await leer(id);
+    assert.equal(fila.status, "PROCESSED");
+    assert.ok(fila.promotedContactId);
+  } finally {
+    await desmontar(escenario);
+  }
+});

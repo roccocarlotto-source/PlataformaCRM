@@ -106,7 +106,13 @@ enum SourceType {
 // fallo, sin gastar reintentos); DEAD_LETTER es "esto SÍ podría haber servido,
 // pero un error de sistema se repitió hasta agotar attempts". Colapsarlos
 // haría indistinguible un dato malo de un bug nuestro.
+//
+// STAGED (migración 20261026120000, importación de datos): una fila del
+// asistente de Plataforma → Importar datos que todavía no se confirmó. El
+// worker NO la reclama (claimNextPendingEvent pide PENDING); confirmar el
+// lote la pasa a PENDING. Ver docs/importacion-de-datos.md §2.4.
 enum IngestionStatus {
+  STAGED
   PENDING
   PROCESSED
   FAILED
@@ -478,6 +484,12 @@ enum VehicleBodyType {
 // "vendida, pendiente de entregar" (la oportunidad ganó) y DELIVERED es el
 // cierre real del ciclo de vida de la unidad, al que solo se llega con
 // "Confirmar entrega" (delivery.service.ts).
+//
+// UNAVAILABLE (migración 20261026120000): "No disponible". La unidad sigue en
+// el stock pero no se ofrece: el agente solo ofrece AVAILABLE, y
+// visibleInListing no alcanzaba porque el agente no lo mira. La usa la
+// importación (y la sincronización con una planilla) para las unidades que
+// desaparecen del origen. Ver docs/importacion-de-datos.md §5.4.
 enum VehicleStatus {
   AVAILABLE
   RESERVED
@@ -485,6 +497,7 @@ enum VehicleStatus {
   IN_TRANSIT
   SOLD
   DELIVERED
+  UNAVAILABLE
 }
 
 // Entrega física de la unidad al cliente (§40). PENDING nace sola cuando la
@@ -708,22 +721,26 @@ model Organization {
   // como todas las demás.
   knowledgeBaseEntries     KnowledgeBaseEntry[]
 
-  qrCodes                  QrCode[]
-  qrFollowUps              QrFollowUp[]
+  qrCodes                       QrCode[]
+  qrFollowUps                   QrFollowUp[]
   // Cupones de descuento de un solo uso (ítem 176), y los agendados para
   // mandarse por WhatsApp (ítem 177).
-  discountVouchers         DiscountVoucher[]
-  discountVoucherFollowUps DiscountVoucherFollowUp[]
+  discountVouchers              DiscountVoucher[]
+  discountVoucherFollowUps      DiscountVoucherFollowUp[]
   // El agente de IA de uso interno (ítem 179) — a lo sumo uno — y su historial.
-  internalAgents           InternalAgent[]
-  internalAgentMessages    InternalAgentMessage[]
+  internalAgents                InternalAgent[]
+  internalAgentMessages         InternalAgentMessage[]
   // El consumo del modelo por turno del agente (B4, migración 20261023120000).
-  llmTurnUsages            LlmTurnUsage[]
+  llmTurnUsages                 LlmTurnUsage[]
   // Campos personalizados de contactos (B6, migración 20261024120000).
   contactCustomFieldDefinitions ContactCustomFieldDefinition[]
+  importBatches                 ImportBatch[]
+  externalRecordLinks           ExternalRecordLink[]
+  vehiclePhotoImports           VehiclePhotoImport[]
+  importSyncs                   ImportSync[]
   // La plantilla de WhatsApp con la que salen sus seguimientos (ítem 160).
   // Una activa a la vez; las borradas quedan como historial.
-  whatsappTemplates        WhatsappTemplate[]
+  whatsappTemplates             WhatsappTemplate[]
 
   vehicles          Vehicle[]
   vehiclePhotos     VehiclePhoto[]
@@ -975,6 +992,15 @@ model Contact {
   // CustomFieldDefinition por organización (tipo/opciones/validación) y se
   // formaliza cuando un segundo vertical real lo necesite, no antes.
   customFields          Json?        @map("custom_fields")
+
+  // Importación de datos (migración 20261026120000, docs/importacion-de-datos.md
+  // §2.5). customerSince es "Cliente desde": la fecha de alta en el sistema de
+  // origen, un día del calendario como stockEnteredAt, visible en la ficha.
+  // createdAt sigue siendo cuándo entró a ESTE CRM. importedAt marca a los
+  // que CREÓ una importación (no a los que solo actualizó): toda métrica de
+  // "contactos nuevos" filtra importedAt IS NULL.
+  customerSince DateTime? @map("customer_since") @db.Date
+  importedAt    DateTime? @map("imported_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
@@ -1339,8 +1365,11 @@ model Source {
 
   organization Organization @relation(fields: [organizationId], references: [id])
 
-  apiKeys         ApiKey[]
-  ingestionEvents IngestionEvent[]
+  apiKeys             ApiKey[]
+  importBatches       ImportBatch[]
+  externalRecordLinks ExternalRecordLink[]
+  importSyncs         ImportSync[]
+  ingestionEvents     IngestionEvent[]
 
   // Sin @@index([organizationId]) suelto: un btree sobre (organization_id,
   // created_at) ya sirve cualquier WHERE organization_id = ?, así que el
@@ -1486,8 +1515,29 @@ model IngestionEvent {
   // null para siempre. Los contadores de §5 se derivan con un GROUP BY sobre
   // esta columna, no se persisten aparte — ver la migración 20260825160000.
   batchId           String?         @map("batch_id") @db.Uuid
-  createdAt         DateTime        @default(now()) @map("created_at")
-  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  // Asistente de importación (migración 20261026120000,
+  // docs/importacion-de-datos.md §2.4). Todas null en el webhook y en
+  // POST /api/imports. batch_id sigue SIN FK: los lotes viejos no tienen fila
+  // en import_batches. rowNumber: la fila del archivo (1 = la primera de
+  // datos), para el informe y el CSV de fallidas. plan: lo que la vista
+  // previa calculó (crear / actualizar / choque / falla y por qué). decision:
+  // la que eligió el admin para ESTA fila, si no es la general del lote.
+  // outcome + promotedEntity*: qué pasó al promover, para cualquier tipo de
+  // dato (promotedContactId sigue para los contactos: lo usan el borrado a
+  // pedido y unir contactos). changes: [{ campo, antes, despues }] de lo que
+  // la promoción cambió en un registro existente; el borrado a pedido lo
+  // redacta.
+  rowNumber          Int?               @map("row_number")
+  plan               Json?
+  decision           ImportRowDecision?
+  outcome            ImportRowOutcome?
+  promotedEntityType ImportEntityType?  @map("promoted_entity_type")
+  promotedEntityId   String?            @map("promoted_entity_id") @db.Uuid
+  changes            Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   organization    Organization @relation(fields: [organizationId], references: [id])
   source          Source       @relation(fields: [organizationId, sourceId], references: [organizationId, id])
@@ -2979,15 +3029,15 @@ model ContactCustomFieldDefinition {
   id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
 
-  key   String                 @db.VarChar(60)
-  label String                 @db.VarChar(100)
-  type  ContactCustomFieldType
+  key           String                 @db.VarChar(60)
+  label         String                 @db.VarChar(100)
+  type          ContactCustomFieldType
   // Las opciones de un SELECT, como lista de strings; [] en los demás tipos.
-  options Json @default("[]")
+  options       Json                   @default("[]")
   // Si el agente de IA puede escribirlo (leerlos puede todos).
-  agentEditable Boolean @default(false) @map("agent_editable")
+  agentEditable Boolean                @default(false) @map("agent_editable")
   // Orden en la ficha; se asigna al crear.
-  position Int @default(0)
+  position      Int                    @default(0)
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -3590,6 +3640,7 @@ model Vehicle {
   // (organization_id, source_vehicle_id), y quien lo garantiza es ese
   // @@unique, no la cardinalidad declarada acá.
   knowledgeBaseEntries KnowledgeBaseEntry[]
+  photoImports         VehiclePhotoImport[]
 
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3): photos,
   // change log, opportunities.vehicle_id, quotes.vehicle_id y
@@ -4174,4 +4225,249 @@ model InternalAgentMessage {
   // Leer un hilo ordenado: la ventana del turno y el GET paginado.
   @@index([internalAgentId, userId, createdAt])
   @@map("internal_agent_messages")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Importación de datos para el alta de clientes (migración 20261026120000).
+// Diseño completo en docs/importacion-de-datos.md; las excepciones a §4 de
+// docs/ingestion-architecture.md, en su §9.14.
+//
+// Lo usa el asistente de Plataforma → Importar datos (solo platform admin).
+// El webhook y POST /api/imports no lo tocan. Las filas siguen aterrizando en
+// ingestion_events (staging, §1); estas tablas agregan el lote como entidad,
+// la identidad del registro de origen, la cola de fotos y la sincronización
+// del stock desde una planilla.
+//
+// Sin CHECK ni índices parciales, a propósito, como las últimas tablas: las
+// reglas (interval_hours >= 1, topes de fotos) viven en los services, y cada
+// CHECK o índice parcial entraría en los contadores de verify:schema.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum ImportEntityType {
+  COMPANY
+  CONTACT
+  ACTIVITY
+  VEHICLE
+}
+
+// De dónde salieron las filas del lote. SYNC = una corrida de una
+// ImportSync, que se confirma sola.
+enum ImportOriginKind {
+  FILE
+  GOOGLE_SHEETS_LINK
+  SYNC
+}
+
+// STAGED (filas subidas, sin configurar) -> ANALYZING (calculando la vista
+// previa) -> READY (vista previa lista) -> RUNNING (confirmado, el worker
+// promueve) -> DONE. CANCELLED: descartado antes de confirmar (o vencido sin
+// confirmar). UNDOING -> UNDONE: deshacer lo creado (§8.3).
+enum ImportBatchStatus {
+  STAGED
+  ANALYZING
+  READY
+  RUNNING
+  DONE
+  CANCELLED
+  UNDOING
+  UNDONE
+}
+
+// Qué hacer con una fila que choca con un registro existente (§8.2).
+enum ImportRowDecision {
+  FILL_EMPTY
+  OVERWRITE
+  SKIP
+}
+
+enum ImportRowOutcome {
+  CREATED
+  UPDATED
+  UNCHANGED
+  SKIPPED
+}
+
+enum VehiclePhotoImportStatus {
+  PENDING
+  DONE
+  FAILED
+  SKIPPED
+}
+
+enum ImportSyncRunStatus {
+  OK
+  FAILED
+}
+
+enum ImportSyncPauseReason {
+  MANUAL
+  AUTO_FAILURES
+}
+
+// ---------------------------------------------------------------------------
+// ImportBatch — una importación del asistente (§2.1). ingestion_events.batch_id
+// apunta acá por valor, sin FK (los lotes viejos no tienen fila).
+//
+// createdByUserId / undoneByUserId: el platform admin, que NO es miembro de
+// la organización; por eso sin FK compuesta a users (no hay fila de users en
+// esta organización para él). Es el registro de quién importó.
+//
+// config: mapeo, ajustes de formato, columna de clave externa, política de
+// duplicados, sucursal, autor elegido. counters: materializados al terminar
+// (creados, actualizados, sin cambios, omitidos, fallidos), para que el
+// resultado sobreviva a la purga de las filas (§9.4).
+// ---------------------------------------------------------------------------
+model ImportBatch {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String            @map("organization_id") @db.Uuid
+  sourceId        String            @map("source_id") @db.Uuid
+  syncId          String?           @map("sync_id") @db.Uuid
+  entityType      ImportEntityType  @map("entity_type")
+  originKind      ImportOriginKind  @map("origin_kind")
+  status          ImportBatchStatus @default(STAGED)
+  fileName        String?           @map("file_name") @db.VarChar(255)
+  fileSha256      String?           @map("file_sha256") @db.VarChar(64)
+  fileBytes       Int?              @map("file_bytes")
+  rowCount        Int               @default(0) @map("row_count")
+  config          Json              @default("{}")
+  counters        Json?
+  errorMessage    String?           @map("error_message")
+  createdByUserId String            @map("created_by_user_id") @db.Uuid
+  confirmedAt     DateTime?         @map("confirmed_at")
+  finishedAt      DateTime?         @map("finished_at")
+  undoneAt        DateTime?         @map("undone_at")
+  undoneByUserId  String?           @map("undone_by_user_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  source       Source       @relation(fields: [organizationId, sourceId], references: [organizationId, id])
+  sync         ImportSync?  @relation(fields: [organizationId, syncId], references: [organizationId, id], onDelete: NoAction)
+
+  createdLinks ExternalRecordLink[]
+  photoImports VehiclePhotoImport[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
+  @@index([organizationId, syncId])
+  @@map("import_batches")
+}
+
+// ---------------------------------------------------------------------------
+// ExternalRecordLink — la identidad de un registro del sistema de origen
+// (§2.2): (fuente, tipo, clave externa) -> el registro de este CRM. Es lo que
+// hace que volver a subir un archivo actualice en vez de duplicar; el único
+// está en la base, no en el código (§9.14 de ingestion-architecture.md).
+//
+// entityId SIN FK: apunta a companies, contacts, activities o vehicles según
+// entityType. Esas cuatro tablas usan soft delete, así que el id no
+// desaparece; un vínculo a un registro borrado se ignora al buscar.
+// createdByBatchId: el lote que CREÓ el registro (null si ya existía y el
+// lote solo lo vinculó); es lo que deshace un lote.
+// ---------------------------------------------------------------------------
+model ExternalRecordLink {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String           @map("organization_id") @db.Uuid
+  sourceId         String           @map("source_id") @db.Uuid
+  entityType       ImportEntityType @map("entity_type")
+  externalKey      String           @map("external_key") @db.VarChar(255)
+  entityId         String           @map("entity_id") @db.Uuid
+  createdByBatchId String?          @map("created_by_batch_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  source         Source       @relation(fields: [organizationId, sourceId], references: [organizationId, id])
+  createdByBatch ImportBatch? @relation(fields: [organizationId, createdByBatchId], references: [organizationId, id], onDelete: NoAction)
+
+  @@unique([organizationId, sourceId, entityType, externalKey])
+  // Del registro a sus vínculos: seguir un contacto unido, deshacer.
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, createdByBatchId])
+  @@map("external_record_links")
+}
+
+// ---------------------------------------------------------------------------
+// VehiclePhotoImport — la cola de fotos a descargar de un lote de stock (§6).
+// La promoción del vehículo encola y termina; un worker aparte descarga, para
+// no tener una transacción abierta mientras se baja una foto.
+//
+// El único (organización, vehículo, hash de la URL) es lo que evita bajar dos
+// veces la misma foto al reimportar o sincronizar. vehiclePhotoId SIN FK: una
+// foto se puede borrar a mano (vehicle_photos no tiene soft delete) y esta
+// fila tiene que sobrevivir como registro de lo que se bajó.
+// ---------------------------------------------------------------------------
+model VehiclePhotoImport {
+  id             String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String                   @map("organization_id") @db.Uuid
+  batchId        String                   @map("batch_id") @db.Uuid
+  vehicleId      String                   @map("vehicle_id") @db.Uuid
+  url            String                   @db.VarChar(2048)
+  urlSha256      String                   @map("url_sha256") @db.VarChar(64)
+  position       Int
+  status         VehiclePhotoImportStatus @default(PENDING)
+  attempts       Int                      @default(0)
+  nextAttemptAt  DateTime?                @map("next_attempt_at")
+  error          String?
+  bytes          Int?
+  vehiclePhotoId String?                  @map("vehicle_photo_id") @db.Uuid
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  batch        ImportBatch  @relation(fields: [organizationId, batchId], references: [organizationId, id])
+  vehicle      Vehicle      @relation(fields: [organizationId, vehicleId], references: [organizationId, id])
+
+  @@unique([organizationId, vehicleId, urlSha256])
+  @@index([organizationId, batchId])
+  // El reclamo del worker: los PENDING cuyo próximo intento ya venció.
+  @@index([status, nextAttemptAt])
+  @@map("vehicle_photo_imports")
+}
+
+// ---------------------------------------------------------------------------
+// ImportSync — sincronización del stock desde una planilla de Google Sheets
+// (§7). Cada corrida es un ImportBatch con originKind = SYNC y syncId.
+//
+// UNA SOLA INSTANCIA (G-04/G-09 de las auditorías locales): nada de esto vive
+// en memoria. El reclamo es un UPDATE condicional sobre nextRunAt y
+// lockedUntil con FOR UPDATE SKIP LOCKED, así que dos procesos no corren la
+// misma sincronización, y uno que muere a mitad la libera al vencer
+// lockedUntil. Reiniciar el proceso no resetea fallas ni pausas.
+//
+// createdByUserId: el platform admin, sin FK (ver ImportBatch).
+// ---------------------------------------------------------------------------
+model ImportSync {
+  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId         String                 @map("organization_id") @db.Uuid
+  sourceId               String                 @map("source_id") @db.Uuid
+  createdByUserId        String                 @map("created_by_user_id") @db.Uuid
+  sheetId                String                 @map("sheet_id") @db.VarChar(200)
+  sheetGid               String                 @map("sheet_gid") @db.VarChar(50)
+  config                 Json                   @default("{}")
+  intervalHours          Int                    @map("interval_hours")
+  markMissingUnavailable Boolean                @default(false) @map("mark_missing_unavailable")
+  nextRunAt              DateTime               @map("next_run_at")
+  lockedUntil            DateTime?              @map("locked_until")
+  lastRunAt              DateTime?              @map("last_run_at")
+  lastStatus             ImportSyncRunStatus?   @map("last_status")
+  lastError              String?                @map("last_error")
+  consecutiveFailures    Int                    @default(0) @map("consecutive_failures")
+  pausedAt               DateTime?              @map("paused_at")
+  pausedReason           ImportSyncPauseReason? @map("paused_reason")
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+  deletedAt              DateTime?              @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  source       Source       @relation(fields: [organizationId, sourceId], references: [organizationId, id])
+
+  batches ImportBatch[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, createdAt])
+  // El reclamo del worker.
+  @@index([nextRunAt])
+  @@map("import_syncs")
 }
