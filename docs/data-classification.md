@@ -273,6 +273,17 @@ consecuencia es explícita: la retención se cumple si alguien corre el
 comando. Está escrito acá para que la brecha sea visible y no una
 suposición.
 
+**Las filas `STAGED` del asistente de importación: 7 días.** Son las filas
+de un archivo que se subió en Plataforma → Importar datos y nunca se
+confirmó (`docs/importacion-de-datos.md` §9.4): una copia de datos
+personales del cliente que nadie importó. Si el lote lleva más de 7 días
+desde `created_at` en `STAGED` o `READY`, sus filas `STAGED` se borran
+físicamente y el lote pasa a `CANCELLED` con el motivo. El lote queda
+como registro (quién subió qué y cuándo) sin las filas. Corre en la misma
+ejecución de `npm run purge:ingestion-events`, que también lo cuenta con
+`--dry-run`. Un lote confirmado no entra: sus filas siguen la regla de los
+90 días.
+
 **Los otros modelos no tienen política de retención**, y es un hueco
 declarado, no un olvido: `Contact`, `Activity` y `Opportunity` se
 retienen indefinidamente porque son el CRM. Definir una política de

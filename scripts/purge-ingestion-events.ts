@@ -6,6 +6,12 @@ import {
   fechaDeCorteDeRetencion,
   purgeIngestionEvents,
 } from "../src/repositories/ingestionEvent.repository";
+import {
+  contarSinConfirmarVencidos,
+  corteDeSinConfirmar,
+  descartarSinConfirmarVencidos,
+  DIAS_PARA_DESCARTAR_SIN_CONFIRMAR,
+} from "../src/repositories/importacion.repository";
 
 // ---------------------------------------------------------------------------
 // Purga de retención de `ingestion_events` — hallazgo D2-3 de
@@ -52,9 +58,21 @@ async function main() {
   console.log(`  Modo:     ${dryRun ? "DRY-RUN (no borra nada)" : "BORRADO REAL"}`);
   console.log("");
 
+  // Las importaciones del asistente que nunca se confirmaron
+  // (docs/importacion-de-datos.md §9.4): sus filas STAGED, a los 7 días.
+  const corteSinConfirmar = corteDeSinConfirmar();
+  console.log(
+    `  Sin confirmar: ${String(DIAS_PARA_DESCARTAR_SIN_CONFIRMAR)} días (filas STAGED de un lote del asistente), created_at < ${corteSinConfirmar.toISOString()}`,
+  );
+  console.log("");
+
   if (dryRun) {
     const alcanzados = await countIngestionEventsPurgables(corte);
-    console.log(`${String(alcanzados)} evento(s) serían borrados. No se borró nada.`);
+    const sinConfirmar = await contarSinConfirmarVencidos(corteSinConfirmar);
+    console.log(`${String(alcanzados)} evento(s) serían borrados.`);
+    console.log(
+      `${String(sinConfirmar.filas)} fila(s) sin confirmar de ${String(sinConfirmar.lotes)} importación(es) serían borradas. No se borró nada.`,
+    );
     return;
   }
 
@@ -65,6 +83,10 @@ async function main() {
   // también es información — significa que no había nada vencido, no que el
   // script no corrió.
   console.log(`${String(count)} evento(s) borrados.`);
+  const sinConfirmar = await descartarSinConfirmarVencidos(corteSinConfirmar);
+  console.log(
+    `${String(sinConfirmar.filas)} fila(s) sin confirmar borradas; ${String(sinConfirmar.lotes)} importación(es) descartadas.`,
+  );
 }
 
 main()

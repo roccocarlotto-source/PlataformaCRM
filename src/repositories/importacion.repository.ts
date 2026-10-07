@@ -312,6 +312,78 @@ export function borrarFilasSinConfirmar(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Purga de lo que nunca se confirmó (docs/importacion-de-datos.md §9.4 y
+// docs/data-classification.md §5.1): las filas STAGED de un lote que lleva
+// más de 7 días sin confirmar se borran y el lote pasa a CANCELLED, con el
+// motivo. Es una copia de datos personales del cliente que nadie importó. La
+// corre purge:ingestion-events, con la misma ejecución manual.
+//
+// Primero el lote (CAS sobre su estado): un lote que se está confirmando en
+// ese momento ya no está en STAGED/READY y no se toca. Después, solo las
+// filas STAGED de los lotes que se cancelaron acá.
+// ---------------------------------------------------------------------------
+
+export const DIAS_PARA_DESCARTAR_SIN_CONFIRMAR = 7;
+export const MOTIVO_DESCARTADO_SIN_CONFIRMAR = `Se descartó sola: no se confirmó en ${String(DIAS_PARA_DESCARTAR_SIN_CONFIRMAR)} días`;
+
+export function corteDeSinConfirmar(ahora: Date = new Date()): Date {
+  const corte = new Date(ahora);
+  corte.setUTCDate(corte.getUTCDate() - DIAS_PARA_DESCARTAR_SIN_CONFIRMAR);
+  return corte;
+}
+
+function lotesSinConfirmarWhere(corte: Date, scope: { organizationId?: string }) {
+  return {
+    status: { in: ["STAGED", "READY"] as ImportBatchStatus[] },
+    createdAt: { lt: corte },
+    ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
+  };
+}
+
+// Para --dry-run.
+export async function contarSinConfirmarVencidos(
+  corte: Date,
+  scope: { organizationId?: string } = {},
+  db: Db = prisma,
+) {
+  const lotes = await db.importBatch.findMany({
+    where: lotesSinConfirmarWhere(corte, scope),
+    select: { id: true },
+  });
+  const filas = await db.ingestionEvent.count({
+    where: { batchId: { in: lotes.map((l) => l.id) }, status: IngestionStatus.STAGED },
+  });
+  return { lotes: lotes.length, filas };
+}
+
+export async function descartarSinConfirmarVencidos(
+  corte: Date,
+  scope: { organizationId?: string } = {},
+): Promise<{ lotes: number; filas: number }> {
+  const candidatos = await prisma.importBatch.findMany({
+    where: lotesSinConfirmarWhere(corte, scope),
+    select: { id: true, organizationId: true },
+  });
+  let lotes = 0;
+  let filas = 0;
+  for (const c of candidatos) {
+    await prisma.$transaction(async (tx) => {
+      const cas = await transicionarLote(
+        c.organizationId,
+        c.id,
+        ["STAGED", "READY"],
+        { status: "CANCELLED", errorMessage: MOTIVO_DESCARTADO_SIN_CONFIRMAR },
+        tx,
+      );
+      if (cas.count === 0) return;
+      lotes++;
+      filas += (await borrarFilasSinConfirmar(c.organizationId, c.id, tx)).count;
+    });
+  }
+  return { lotes, filas };
+}
+
 export interface ResumenDeFilas {
   total: number;
   porEstado: Record<string, number>;
