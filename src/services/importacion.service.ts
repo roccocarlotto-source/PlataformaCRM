@@ -1,16 +1,13 @@
-import { createHash } from "node:crypto";
 import { Prisma, SourceType, type ImportBatch, type ImportRowDecision } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { findActiveContactCustomFieldDefinitions } from "../repositories/contactCustomFieldDefinition.repository";
 import {
   borrarFilasSinConfirmar,
   confirmarFilas,
-  createImportBatch,
   decidirFilas,
   filasConCambios,
   filasFallidas,
   findImportBatch,
-  insertarFilasStaged,
   listarFilasDelLote,
   listImportBatches,
   resumenDeFilas,
@@ -41,6 +38,15 @@ import {
 } from "../utils/spreadsheet";
 import { parseOrThrow } from "../utils/validation";
 import { aDefinicionDeCampo } from "./contactCustomFieldDefinition.service";
+import { crearLoteConFilas } from "./importacionLote";
+import { crearSincronizacionDesdeLote, type PedidoDeSincronizar } from "./importacionSync.service";
+import {
+  borrarSync,
+  findSync,
+  listarSyncs,
+  pausarSync,
+  reanudarSync,
+} from "../repositories/importSync.repository";
 import { leerPlanilla, parsearLinkDeSheets, type PlanillaDeSheets } from "./importacionSheets";
 
 // ---------------------------------------------------------------------------
@@ -214,31 +220,20 @@ async function crearLote(
             tx,
           )
         ).id;
-      const creado = await createImportBatch(
+      return crearLoteConFilas(
         {
           organizationId,
           sourceId,
           entityType: pedido.entityType,
           originKind: origen.originKind,
-          fileName: origen.nombre.slice(0, 255),
-          fileSha256: createHash("sha256").update(origen.contenido).digest("hex"),
-          fileBytes: origen.contenido.length,
-          rowCount: parseado.filas.length,
+          nombre: origen.nombre,
+          contenido: origen.contenido,
+          parseado,
           config: config as unknown as Prisma.InputJsonValue,
           createdByUserId: userId,
         },
         tx,
       );
-      await insertarFilasStaged(
-        {
-          organizationId,
-          sourceId,
-          batchId: creado.id,
-          filas: parseado.filas.map((rawPayload, i) => ({ rowNumber: i + 1, rawPayload })),
-        },
-        tx,
-      );
-      return creado;
     },
     { timeout: IMPORT_BATCH_TRANSACTION_TIMEOUT_MS },
   );
@@ -403,7 +398,11 @@ const DEPENDE_DE: Partial<Record<string, string[]>> = {
   CONTACT: ["COMPANY", "VEHICLE"],
 };
 
-export async function confirmarImportacion(organizationId: string, batchId: string) {
+export async function confirmarImportacion(
+  organizationId: string,
+  batchId: string,
+  sincronizar?: PedidoDeSincronizar,
+) {
   const lote = await exigirLote(organizationId, batchId);
   const previos = DEPENDE_DE[lote.entityType] ?? [];
   if (previos.length > 0) {
@@ -433,7 +432,9 @@ export async function confirmarImportacion(organizationId: string, batchId: stri
       throw new AppError("Solo se confirma una importación con la vista previa lista", 409);
     }
     const filas = await confirmarFilas(organizationId, batchId, tx);
-    return { confirmadas: filas.count };
+    // "Mantener sincronizado" (§7): solo un lote de stock de Google Sheets.
+    const sync = sincronizar ? await crearSincronizacionDesdeLote(lote, sincronizar, tx) : null;
+    return { confirmadas: filas.count, syncId: sync?.id ?? null };
   });
 }
 
@@ -541,4 +542,41 @@ export async function opcionesDeImportacion(organizationId: string) {
     camposPersonalizados: campos,
     sucursales,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sincronizaciones (§7)
+// ---------------------------------------------------------------------------
+
+export async function listarSincronizaciones(organizationId: string) {
+  await exigirOrganizacion(organizationId);
+  // Sin config: el mapeo y los ajustes no hacen falta en la lista.
+  return (await listarSyncs(organizationId)).map((sync) => ({
+    id: sync.id,
+    source: sync.source,
+    intervalHours: sync.intervalHours,
+    markMissingUnavailable: sync.markMissingUnavailable,
+    nextRunAt: sync.nextRunAt,
+    lastRunAt: sync.lastRunAt,
+    lastStatus: sync.lastStatus,
+    lastError: sync.lastError,
+    consecutiveFailures: sync.consecutiveFailures,
+    pausedAt: sync.pausedAt,
+    pausedReason: sync.pausedReason,
+    createdAt: sync.createdAt,
+    ultimaCorrida: sync.batches[0] ?? null,
+  }));
+}
+
+export async function cambiarSincronizacion(
+  organizationId: string,
+  syncId: string,
+  accion: "pausar" | "reanudar" | "borrar",
+) {
+  if (!(await findSync(organizationId, syncId))) {
+    throw new AppError("Sincronización no encontrada", 404);
+  }
+  const hacer = { pausar: pausarSync, reanudar: reanudarSync, borrar: borrarSync }[accion];
+  await hacer(organizationId, syncId);
+  return accion === "borrar" ? null : findSync(organizationId, syncId);
 }
