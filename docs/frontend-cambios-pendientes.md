@@ -8686,6 +8686,7 @@ Deploy normal del backend y del frontend, sin migración. Con el frontend viejo 
 | `src/utils/whatsappTemplateText.ts`, `src/services/whatsappTemplate.service.ts` | variables por acción |
 | `src/services/contact.service.ts`, `contact.controller.ts`, `agentTools.service.ts`, `agentOrchestration.service.ts` | `marcarSinInteres`/`quitarSinInteres`, el PATCH, la tool y el aviso del prompt |
 | `src/config/env.ts`, `src/server.ts` | las variables y el arranque de los workers |
+| `src/services/contactMerge.service.ts`, `frontend/src/features/contact/merge.ts` | la unión mueve también los seguimientos de consultas (`FKS_A_CONTACTS`) |
 | `frontend/src/features/automation/` | `catalog.ts`, `AutomationFormPage.tsx`, `MensajeDeWhatsappCard.tsx`, `whatsappPreview.ts` |
 | `frontend/src/features/agent/tools.ts`, `frontend/src/features/contact/ContactFormPage.tsx`, `types.ts` | el espejo de la tool; la marca en la ficha |
 | `docs/automations-architecture.md`, `docs/ai-agent-architecture.md` | el trigger, la acción y la tool |

@@ -77,12 +77,14 @@ async function eventosDeOportunidad(opportunityId: string) {
 
 test("registrarAutomatizaciones deja un handler por trigger conocido y las acciones del catálogo", () => {
   assert.deepEqual(handlers.tiposRegistrados(), [
+    "contact.inquiry_stalled",
     TRIGGER_OPPORTUNITY_STALE,
     TRIGGER_OPPORTUNITY_WON,
   ]);
   assert.deepEqual(acciones.tiposRegistrados(), [
     "activity.create_follow_up",
     "agent.draft_follow_up",
+    "inquiry.follow_up",
     "opportunity.send_discount_voucher",
     "opportunity.send_qr_followup",
   ]);
