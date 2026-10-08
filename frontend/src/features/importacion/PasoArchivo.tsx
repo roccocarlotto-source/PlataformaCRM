@@ -80,8 +80,7 @@ export function PasoArchivo({
           onChange={setTipo}
         />
         <p className="ds-hint">
-          Primero las empresas y el stock, después los contactos y por último el historial: así cada
-          uno encuentra a lo que se refiere.
+          Primero empresas y stock, después contactos, por último historial.
         </p>
         <Select
           label="Sistema de origen"
@@ -104,10 +103,7 @@ export function PasoArchivo({
             />
           </FormField>
         ) : null}
-        <p className="ds-hint">
-          Volver a subir un archivo del mismo sistema de origen actualiza lo que ya se importó, sin
-          duplicar.
-        </p>
+        <p className="ds-hint">Volver a subir del mismo origen actualiza sin duplicar.</p>
         {tipo === "VEHICLE" ? (
           <Select
             label="De dónde"
@@ -127,10 +123,7 @@ export function PasoArchivo({
                 onChange={(event) => setLink(event.target.value)}
               />
             </FormField>
-            <p className="ds-hint">
-              La planilla tiene que estar compartida como «Cualquier persona con el enlace puede
-              ver». Se lee la pestaña del link.
-            </p>
+            <p className="ds-hint">Compartida como «Cualquier persona con el enlace puede ver».</p>
           </>
         ) : (
           <>

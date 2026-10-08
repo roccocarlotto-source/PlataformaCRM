@@ -323,7 +323,7 @@ describe("OrganizationSettingsPage — zona horaria", () => {
       ]),
     );
     expect(
-      screen.getByText("Se usa para calcular hoy, esta semana y este mes en el dashboard."),
+      screen.getByText("Define hoy, esta semana y este mes en el dashboard."),
     ).toBeInTheDocument();
   });
 

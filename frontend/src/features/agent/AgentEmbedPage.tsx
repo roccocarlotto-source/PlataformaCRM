@@ -216,10 +216,7 @@ export function AgentEmbedPage() {
       <div className="ds-stack">
         <Card heading="1. Dominios permitidos">
           <div className="ds-stack">
-            <p className="ds-hint">
-              El widget solo se puede usar desde estos dominios. Es a propósito: un token filtrado
-              no sirve de nada si el sitio donde se pega no está en la lista.
-            </p>
+            <p className="ds-hint">El chat solo funciona desde estos dominios.</p>
 
             {origenes.length > 0 ? (
               <ul className="ds-chip-list" aria-label="Dominios permitidos">
@@ -274,10 +271,7 @@ export function AgentEmbedPage() {
             {addError !== null ? <ErrorState>{addError}</ErrorState> : null}
 
             <p className="ds-hint">
-              Solo el dominio, sin ninguna ruta después: <code>https://tusitio.com</code>, no{" "}
-              <code>https://tusitio.com/contacto</code>. Si el sitio usa un subdominio (
-              <code>https://www.tusitio.com</code>), agregalo también: para el navegador son dos
-              orígenes distintos.
+              Solo el dominio, con <code>https://</code> y sin ruta.
             </p>
 
             <Button
@@ -304,10 +298,7 @@ export function AgentEmbedPage() {
 
         <Card heading="2. Tokens de embed">
           <div className="ds-stack">
-            <p className="ds-hint">
-              El token identifica a este agente en el código que se pega en el sitio. Se muestra una
-              sola vez, al generarlo: después solo queda su prefijo, para saber cuál es cuál.
-            </p>
+            <p className="ds-hint">Se muestra una sola vez, al generarlo.</p>
 
             <Button
               variant="primary"
@@ -330,9 +321,8 @@ export function AgentEmbedPage() {
             {tokenEnClaro !== null ? (
               <div>
                 <Notice tone="warning">
-                  Esta es la única vez que vas a poder ver este token. No se guarda en ningún lado:
-                  si lo perdés, hay que revocarlo y generar otro. El código del paso 3 ya lo tiene
-                  puesto.
+                  Esta es la única vez que vas a ver este token: si lo perdés, hay que revocarlo y
+                  generar otro.
                 </Notice>
                 <label className="ds-field">
                   <span className="ds-field-label">Token</span>
@@ -459,10 +449,7 @@ export function AgentEmbedPage() {
 
             {tokenEnClaro === null ? (
               <p className="ds-hint">
-                El código lleva un marcador en lugar del token porque un token solo se puede ver en
-                el momento de generarlo. Generá uno nuevo en el paso 2 y el código de abajo se
-                completa solo, o reemplazá <code>{PLACEHOLDER_TOKEN}</code> a mano por el que tengas
-                guardado.
+                Reemplazá <code>{PLACEHOLDER_TOKEN}</code> por tu token, o generá uno nuevo.
               </p>
             ) : null}
 
@@ -471,8 +458,7 @@ export function AgentEmbedPage() {
             <CopyButton text={snippet} label="Copiar código" />
 
             <p className="ds-hint">
-              Va pegado antes de <code>&lt;/body&gt;</code> en todas las páginas donde tenga que
-              aparecer el chat.
+              Pegalo antes de <code>&lt;/body&gt;</code> en cada página del sitio.
             </p>
           </div>
         </Card>

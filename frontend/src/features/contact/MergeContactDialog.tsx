@@ -102,8 +102,8 @@ export function MergeContactDialog({
       <div className="ds-stack">
         <p className="ds-hint">
           {seUne
-            ? "Esta consulta se une al contacto que elijas, que es el que queda; la consulta se da de baja y todo lo suyo pasa a ese contacto."
-            : "Este contacto es el que queda. El que elijas se da de baja y todo lo suyo pasa acá."}
+            ? "La consulta se da de baja y todo lo suyo pasa al contacto elegido."
+            : "El contacto elegido se da de baja y todo lo suyo pasa acá."}
         </p>
         <ContactSelect
           id="merge-contact-other"

@@ -288,8 +288,8 @@ export function PasoMapeo({
     <form className="ds-stack" onSubmit={enviar}>
       <Card heading="Columnas">
         <p className="ds-hint">
-          A qué campo va cada columna de «{lote.config.archivo.nombre ?? "el archivo"}». Las que
-          quedan en «Ignorar columna» no se importan.
+          Columnas de «{lote.config.archivo.nombre ?? "el archivo"}». Las que quedan en «Ignorar{" "}
+          columna» no se importan.
         </p>
         <ol className="ds-mapping-rows">
           {encabezados.map((encabezado) => (
@@ -330,9 +330,7 @@ export function PasoMapeo({
             />
           </div>
           <p className="ds-hint">
-            El autor que trae el archivo, si lo trae, se agrega al texto («Autor original: …»). Las
-            tareas hechas quedan completadas y confirmadas; las vencidas sin hacer, abiertas y
-            asignadas a este autor.
+            Las tareas hechas quedan completadas; las vencidas, abiertas y asignadas al autor.
           </p>
           <MapeoDeValores
             titulo="Qué tipo es cada valor de"
@@ -387,8 +385,7 @@ export function PasoMapeo({
             </FormField>
           </div>
           <p className="ds-hint">
-            Las reservadas en el origen entran como «No disponible». El costo y el precio mínimo en
-            moneda local se pasan a dólares con la cotización vigente, que la vista previa muestra.
+            Las reservadas entran como «No disponible»; los importes locales se pasan a dólares.
           </p>
           <MapeoDeValores
             titulo="Qué estado es cada valor de"
@@ -486,12 +483,7 @@ export function PasoMapeo({
           options={POLITICAS}
           onChange={(v) => v && setDuplicados(v)}
         />
-        <p className="ds-hint">
-          {tipo === "VEHICLE"
-            ? "La patente o el VIN que identifican a la unidad no se pisan, y el estado que maneja el CRM (reservada, vendida) tampoco."
-            : "Nunca se pisan el email ni el teléfono que identifican a un contacto, y la etapa no retrocede."}{" "}
-          En la vista previa se puede cambiar fila por fila.
-        </p>
+        <p className="ds-hint">En la vista previa se puede cambiar fila por fila.</p>
         {tipo === "CONTACT" ? (
           <FormField label="Crear las empresas que no existen">
             <input

@@ -139,8 +139,8 @@ export function OrganizationSettingsPage() {
         <Card heading="Moneda">
           <div className="ds-stack">
             <p className="ds-hint">
-              Configuración de {settings.name}. La moneda de preferencia es la principal de la
-              operación; la alternativa, la segunda en la que se muestran precios.
+              Configuración de {settings.name}. La alternativa es la segunda moneda en la que se
+              muestran precios.
             </p>
             <div className="ds-field-grid">
               <CurrencySelect
@@ -202,17 +202,12 @@ export function OrganizationSettingsPage() {
               }}
             />
           </div>
-          <p className="ds-hint">
-            Se usa para calcular hoy, esta semana y este mes en el dashboard.
-          </p>
+          <p className="ds-hint">Define hoy, esta semana y este mes en el dashboard.</p>
         </Card>
 
         <Card heading="Cotización vigente">
           {settings.exchangeRates.length === 0 ? (
-            <p className="ds-hint">
-              Todavía no hay cotización cargada. Se actualiza automáticamente una vez por día cuando
-              hay una moneda distinta de USD configurada.
-            </p>
+            <p className="ds-hint">Todavía no hay cotización cargada.</p>
           ) : (
             <ul className="ds-stack" aria-label="Cotizaciones vigentes">
               {settings.exchangeRates.map((rate) => (

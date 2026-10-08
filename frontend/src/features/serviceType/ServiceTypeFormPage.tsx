@@ -192,7 +192,7 @@ export function ServiceTypeFormPage() {
             />
             <p className="ds-hint ds-field-grid--full">
               {values.branchId
-                ? "La persona, sala o clase que atiende este servicio. Solo se ofrecen los recursos de la sucursal elegida."
+                ? "Solo recursos de la sucursal elegida."
                 : "Elegí primero la sucursal: el recurso tiene que ser de la misma."}
             </p>
 
@@ -220,8 +220,7 @@ export function ServiceTypeFormPage() {
               />
             </FormField>
             <p className="ds-hint ds-field-grid--full">
-              Cuántas personas pueden reservar el mismo turno. 1 es un turno exclusivo (una
-              consulta); más de 1, una clase con cupo. Si lo dejás vacío al crearlo, queda en 1.
+              1 es un turno exclusivo; más de 1, una clase con cupo.
             </p>
           </div>
         </Card>

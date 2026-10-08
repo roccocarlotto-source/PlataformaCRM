@@ -25,8 +25,7 @@ export function MetaConnectionSection() {
   return (
     <Card heading="Facebook e Instagram">
       <p className="ds-hint">
-        Con la página de Facebook conectada, los agentes que la tengan asignada contestan por
-        Messenger y, si la página tiene una cuenta de Instagram vinculada, por Instagram.
+        Con la página conectada, los agentes contestan por Messenger e Instagram.
       </p>
 
       {connectionQuery.isLoading ? <LoadingState /> : null}

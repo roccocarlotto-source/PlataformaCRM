@@ -474,8 +474,7 @@ export function AgentFormPage() {
             />
             {isEditMode ? (
               <p className="ds-hint ds-field-grid--full">
-                La sucursal no se puede cambiar: las conversaciones que este agente ya atendió
-                quedaron registradas con ella. Si necesitás otra sucursal, creá un agente nuevo.
+                No se puede cambiar. Para otra sucursal, creá un agente nuevo.
               </p>
             ) : null}
 
@@ -499,9 +498,7 @@ export function AgentFormPage() {
             </FormField>
 
             <p className="ds-hint ds-field-grid--full">
-              El objetivo es un resumen corto para esta pantalla, no el prompt del agente: lo que el
-              modelo lee son las instrucciones de abajo. El tono es informativo y se compone dentro
-              de ellas.
+              Resumen para esta pantalla; el agente lee las instrucciones.
             </p>
 
             <FormField label="Avisar al cliente si nadie responde en (minutos)">
@@ -519,12 +516,7 @@ export function AgentFormPage() {
               />
             </FormField>
 
-            <p className="ds-hint ds-field-grid--full">
-              Si el agente deriva la conversación a una persona y nadie del equipo le escribe al
-              cliente en estos minutos, le llega solo un aviso de que no hay nadie disponible (con
-              el horario de la sucursal si está cerrada), la conversación vuelve al agente y queda
-              la tarea para contactarlo. Vacío o 0: no se avisa.
-            </p>
+            <p className="ds-hint ds-field-grid--full">Vacío o 0: no se avisa.</p>
 
             <div className="ds-field-grid--full">
               <FormField label="Mensaje cuando no hay nadie disponible">
@@ -541,11 +533,7 @@ export function AgentFormPage() {
             </div>
 
             <p className="ds-hint ds-field-grid--full">
-              Es lo que le llega al cliente con ese aviso, y también al tocar "Devolver al agente"
-              sin haberle respondido. Vacío: el texto de siempre (el de ejemplo). No escribas el
-              horario: si la sucursal está cerrada, al final se agrega solo cuándo atiende el equipo
-              y cuándo le van a escribir (por ejemplo, "Te vamos a escribir mañana a partir de las
-              9").
+              Le llega al cliente. No escribas el horario: se agrega solo.
             </p>
 
             <div className="ds-field-grid--full">
@@ -577,10 +565,7 @@ export function AgentFormPage() {
               </FormField>
             </div>
             <p className="ds-hint ds-field-grid--full">
-              Es lo que el modelo lee antes de cada conversación: qué hace el negocio, qué tiene que
-              lograr el agente y cómo tiene que hablar. Incluí también, con tus palabras, los temas
-              que no puede tocar, las promesas que no puede hacer y cuándo tiene que derivar la
-              conversación a una persona.
+              Lo que el agente lee antes de cada conversación.
             </p>
           </div>
         </Card>
@@ -623,9 +608,9 @@ export function AgentFormPage() {
 
             <p className="ds-hint ds-field-grid--full">
               {!puedeElegirModelo
-                ? "Lo elige el equipo de la plataforma. Si este agente necesita otro modelo, pedíselo."
+                ? "Lo elige el equipo de la plataforma."
                 : isEditMode
-                  ? "El nombre del modelo tal cual lo publica el proveedor. Un modelo inexistente no falla acá: falla al usarlo, con el error del proveedor."
+                  ? "El nombre del modelo tal cual lo publica el proveedor."
                   : "Si lo dejás vacío, se usa el modelo por defecto."}
             </p>
           </div>
@@ -654,9 +639,7 @@ export function AgentFormPage() {
             />
 
             <p className="ds-hint ds-field-grid--full">
-              Habilitar una acción es condición necesaria pero no suficiente: antes de ejecutarla,
-              cada acción vuelve a pasar por las reglas del agente de abajo. Sin canales, el agente
-              no atiende por ningún lado.
+              Sin canales, el agente no atiende por ningún lado.
             </p>
 
             {avisoDeAccionesSinGuardarElNombre(values.enabledTools) ? (
@@ -679,11 +662,7 @@ export function AgentFormPage() {
               />
             </FormField>
 
-            <p className="ds-hint ds-field-grid--full">
-              Lo configura el equipo de la plataforma. Es el «Phone number ID» de Meta con el que
-              sabemos a qué agente le corresponde cada mensaje que llega por WhatsApp. Si este
-              agente tiene que atender por WhatsApp, pedíselo al equipo de la plataforma.
-            </p>
+            <p className="ds-hint ds-field-grid--full">Lo asigna el equipo de la plataforma.</p>
           </div>
         </Card>
 
@@ -701,14 +680,7 @@ export function AgentFormPage() {
               </FormField>
             </div>
             <p className="ds-hint ds-field-grid--full">
-              Escribilo con tus palabras: qué acciones no puede ejecutar nunca (aunque estén
-              habilitadas arriba), qué datos no puede modificar y qué tiene que saber antes de
-              ejecutar una acción. Esto no es una instrucción más para el modelo: es lo que el
-              sistema verifica con código antes de dejar pasar cada acción, así que el agente no lo
-              puede saltear. Lo demás —los temas de los que no querés que hable, las promesas que no
-              puede hacer y cuándo tiene que derivar a una persona— va en Instrucciones. Al guardar
-              te mostramos qué entendimos, para que lo confirmes. Si lo dejás vacío, el agente no
-              tiene ninguna restricción además de los permisos de arriba.
+              El sistema las hace cumplir antes de cada acción.
             </p>
           </div>
         </Card>
@@ -752,10 +724,7 @@ export function AgentFormPage() {
             disabled: isSubmitting,
           }}
         >
-          <p className="ds-hint">
-            Así va a quedar configurado el agente. Si algo no es lo que quisiste decir, volvé a
-            editar el texto.
-          </p>
+          <p className="ds-hint">Si algo no es lo que quisiste decir, volvé a editar.</p>
           <ul>
             {resumirGuardrails(guardrailsDelPanel, agentToolOptions(values.enabledTools)).map(
               (linea) => (

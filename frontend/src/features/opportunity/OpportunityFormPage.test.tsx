@@ -175,7 +175,7 @@ function vehicleHandlers(selectedStatus: "AVAILABLE" | "RESERVED" = "RESERVED") 
 }
 
 const VEHICLE_PLACEHOLDER = "Buscar disponible por marca, modelo, patente, VIN o código…";
-const PRICE_HINT = /Se completa con el precio de la unidad al guardar/;
+const PRICE_HINT = /Vacío: se completa con el precio de la unidad/;
 
 function renderForm(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -308,9 +308,7 @@ export function KnowledgeBaseFormPage() {
                 pasar; con eso alcanza para decidir. */}
             {entryQuery.data?.sourceVehicleId != null ? (
               <p className="ds-hint ds-field-grid--full">
-                Esta entrada la generó la sincronización del stock a partir de una unidad. Podés
-                editarla, pero la próxima vez que sincronices el stock de esa sucursal se va a
-                reescribir con los datos del vehículo.
+                Generada por la sincronización del stock: se reescribe al sincronizar de nuevo.
               </p>
             ) : null}
 
@@ -320,8 +318,7 @@ export function KnowledgeBaseFormPage() {
                 grilla, y metido adentro de otro <div> se come el aire del
                 campo de arriba. */}
             <p className="ds-hint ds-field-grid--full">
-              El título identifica la entrada en esta lista y encabeza su bloque cuando el agente la
-              lee. Conviene una entrada por tema: horarios, formas de pago, política de cancelación.
+              Una entrada por tema: horarios, formas de pago, cancelaciones.
             </p>
 
             <div className="ds-field-grid--full">
@@ -335,8 +332,7 @@ export function KnowledgeBaseFormPage() {
             </div>
 
             <p className="ds-hint ds-field-grid--full">
-              Si la desactivás, sale del prompt sin borrarse — por ejemplo, una promoción de
-              temporada que después vas a querer reactivar.
+              Desactivada, el agente deja de leerla sin borrarse.
             </p>
           </div>
         </Card>
@@ -357,10 +353,8 @@ export function KnowledgeBaseFormPage() {
               </FormField>
             </div>
             <p className="ds-hint ds-field-grid--full">
-              Se suma tal cual al prompt de todos los agentes de esa sucursal, sin traducción ni
-              confirmación. Escribilo como se lo contarías a alguien que recién entra a trabajar.
-              Hasta {MAX_CONTENT.toLocaleString("es-UY")} caracteres por entrada. Si ya lo tenés en
-              un documento, podés subirlo acá abajo en vez de escribirlo.
+              Lo leen tal cual los agentes de esa sucursal. Hasta{" "}
+              {MAX_CONTENT.toLocaleString("es-UY")} caracteres.
             </p>
 
             {/* Suelto adentro de la misma Card que el textarea, y no en una
@@ -384,9 +378,7 @@ export function KnowledgeBaseFormPage() {
               {extrayendo ? (
                 <InlineLoading>Extrayendo texto…</InlineLoading>
               ) : (
-                "Se lee el texto del documento y se pega acá arriba; el archivo no se guarda. " +
-                "Un PDF escaneado (una foto del papel, sin texto seleccionable) no sirve: ese hay " +
-                "que copiarlo a mano."
+                "Se pega el texto acá arriba; el archivo no se guarda."
               )}
             </p>
             {truncado ? (

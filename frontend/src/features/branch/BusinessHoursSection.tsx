@@ -124,16 +124,10 @@ export function BusinessHoursSection({ branchId }: BusinessHoursSectionProps) {
   return (
     <Card heading="Horario de atención">
       <div className="ds-stack">
-        <p className="ds-hint">
-          Los mensajes automáticos (reseñas, cupones) solo se envían dentro de este horario. El
-          agente responde a los clientes a cualquier hora.
-        </p>
+        <p className="ds-hint">Los mensajes automáticos solo salen dentro de este horario.</p>
 
         {datos.configured ? null : (
-          <p className="ds-hint">
-            Esta sucursal usa el horario por defecto: lunes a sábado de 9:00 a 20:00. Cargar uno
-            propio es opcional.
-          </p>
+          <p className="ds-hint">Usa el horario por defecto: lunes a sábado de 9:00 a 20:00.</p>
         )}
 
         <WorkingHoursEditor value={horario} onChange={cambiar} disabled={isSaving} />

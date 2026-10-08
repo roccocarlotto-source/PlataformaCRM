@@ -427,7 +427,7 @@ describe("BranchFormPage — vendedor por defecto", () => {
 
     expect(await screen.findByLabelText("Vendedor por defecto")).toBeInTheDocument();
     expect(
-      screen.getByText(/Se usa cuando el agente de IA necesita asignar un vendedor/),
+      screen.getByText(/A quien el agente asigna los contactos sin vendedor/),
     ).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Nombre"), "Casa Central");
@@ -937,8 +937,7 @@ describe("BranchFormPage — Google Calendar", () => {
 // vuelta al default con [].
 // ---------------------------------------------------------------------------
 
-const TEXTO_DE_AYUDA_HORARIO =
-  "Los mensajes automáticos (reseñas, cupones) solo se envían dentro de este horario. El agente responde a los clientes a cualquier hora.";
+const TEXTO_DE_AYUDA_HORARIO = "Los mensajes automáticos solo salen dentro de este horario.";
 
 interface FranjaDePrueba {
   weekday: string;
@@ -972,9 +971,7 @@ describe("BranchFormPage — Horario de atención", () => {
     renderForm("/branches/b1/edit", sucursalB1());
 
     expect(
-      await screen.findByText(
-        "Esta sucursal usa el horario por defecto: lunes a sábado de 9:00 a 20:00. Cargar uno propio es opcional.",
-      ),
+      await screen.findByText("Usa el horario por defecto: lunes a sábado de 9:00 a 20:00."),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Lunes, franja 1: desde")).toHaveValue("09:00");
     expect(screen.getByLabelText("Sábado, franja 1: hasta")).toHaveValue("20:00");
@@ -1010,7 +1007,7 @@ describe("BranchFormPage — Horario de atención", () => {
     const hasta = await screen.findByLabelText("Lunes, franja 1: hasta");
     expect(hasta).toHaveValue("13:00");
     // Ya tiene horario propio: no se muestra el aviso del default.
-    expect(screen.queryByText(/usa el horario por defecto/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/horario por defecto: lunes a sábado/)).not.toBeInTheDocument();
 
     await user.clear(hasta);
     await user.type(hasta, "14:00");
@@ -1077,7 +1074,7 @@ describe("BranchFormPage — Horario de atención", () => {
 
     expect(confirmSpy).toHaveBeenCalled();
     await waitFor(() => expect(body).toEqual({ businessHours: [] }));
-    expect(await screen.findByText(/usa el horario por defecto/)).toBeInTheDocument();
+    expect(await screen.findByText(/horario por defecto: lunes a sábado/)).toBeInTheDocument();
     expect(screen.getByText("La sucursal volvió al horario por defecto.")).toBeInTheDocument();
     // El editor se re-siembra con el default: el domingo ya no atiende.
     expect(screen.queryByLabelText("Domingo, franja 1: desde")).not.toBeInTheDocument();

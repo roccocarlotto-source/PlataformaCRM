@@ -16,102 +16,89 @@ import type { MultiSelectOption } from "../../design-system/MultiSelect";
 // (toolsHabilitadas filtra por intersección); uno que falte acá deja una tool
 // real sin forma de habilitarse desde la pantalla.
 //
-// Las descripciones son LAS MISMAS que lee el modelo, copiadas textual del
-// catálogo, no un resumen: lo que la tool hace de verdad es lo que dice esa
-// descripción, y un ADMIN que decide si habilitarla merece leer eso y no una
-// paráfrasis que envejece por otro lado. El `label` sí es propio — un nombre
-// corto en castellano para el botón cerrado del selector.
+// El `subtitle` es UNA LÍNEA para el selector, no la descripción que lee el
+// modelo: esa vive solo en el catálogo del backend, y la explicación completa
+// de qué hace cada acción y cuándo la usa el agente está en la guía de uso
+// (docs/guia-de-uso/08-agentes-de-ia.md, «Acciones habilitadas»). Si cambia
+// la descripción de una tool en el backend, hay que revisar las dos cosas.
+// El `label` es el nombre corto en castellano para el botón del selector.
 // ---------------------------------------------------------------------------
 
 export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
   {
     value: "create_opportunity",
     label: "Crear oportunidad",
-    subtitle:
-      "Crea una oportunidad de venta para el contacto de esta conversación, asignada al vendedor del contacto en la primera etapa del pipeline por defecto. Se llama SOLO cuando el cliente toma la iniciativa de avanzar, y eso es exactamente una de estas cosas (es el `motivo`, obligatorio): pide un test drive; quiere reservar o señar; pide financiación o una cotización formal; quiere coordinar una visita para ver la unidad; ofrece su auto en permuta para tasar; pide que lo contacte un vendedor. NO la llames ante una consulta de información: preguntar el precio, los kilómetros, las fotos, la disponibilidad o las características de un vehículo no es tomar la iniciativa, y tampoco lo son un «me interesa mucho la Hilux SRV», un «qué lindo» o un «lo voy a pensar»; ahí contestás y el interés queda anotado en la ficha del contacto, sin crear ninguna oportunidad. Antes de llamarla necesitás el nombre Y el apellido del cliente: si el CRM no los tiene, o tiene solo uno, pedíselos en ese momento, guardalos con update_lead y recién después llamala; si faltan, esta herramienta no registra nada. El motivo queda como una nota en la oportunidad. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true y le anota el motivo nuevo. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
+    subtitle: "Crea una oportunidad cuando el cliente toma la iniciativa de avanzar.",
   },
   {
     value: "update_opportunity",
     label: "Modificar oportunidad",
-    subtitle:
-      "Modifica la oportunidad abierta del contacto de esta conversación: título, monto, moneda o vehículo, o la marca como perdida con el motivo del cliente. No puede ganarla, reabrirla ni moverla de etapa: eso lo hace una persona del equipo. No permite cambiar el vendedor ni el pipeline.",
+    subtitle: "Cambia título, monto, moneda o vehículo, o la marca como perdida.",
   },
   {
     // Ítem 175: la única tool que saca una unidad del stock. Ningún agente la
     // trae habilitada; la prende el negocio acá si quiere que su agente reserve.
     value: "reserve_vehicle",
     label: "Reservar unidad",
-    subtitle:
-      "Reserva una unidad del stock para el contacto de esta conversación, vinculándola a su oportunidad abierta. Esto SACA LA UNIDAD DEL STOCK para cualquier otro cliente hasta que el equipo la libere. Usala SOLO cuando el cliente confirmó que quiere avanzar con ESA unidad puntual («quiero reservar la Hilux SRV», «apartámela», «vamos con esa»); NO ante un «¿tenés esa camioneta?», una pregunta de precio o un «me interesa»: eso se contesta y no se registra en ninguna parte más que en la ficha del contacto. Si el contacto no tiene una oportunidad abierta, primero llamá a create_opportunity con motivo RESERVA_O_SENA. Hasta que esta tool no devuelva un resultado exitoso, la unidad NO está reservada y no se lo podés confirmar al cliente. Si la unidad ya no está disponible, se te va a avisar: no la presentes como disponible. No cambia una unidad que ya esté reservada por otra.",
+    subtitle: "Reserva una unidad del stock: la saca para otros clientes.",
   },
   {
     value: "get_availability",
     label: "Consultar disponibilidad",
-    subtitle:
-      "Consulta los turnos disponibles de un recurso (persona, sala o clase) para un servicio, en un rango de fechas. Devuelve los horarios libres con inicio y fin. Usala antes de reservar.",
+    subtitle: "Consulta los turnos libres de un recurso.",
   },
   {
     value: "create_booking",
     label: "Reservar turno",
-    subtitle:
-      "Reserva un turno para el contacto de esta conversación en un recurso y servicio, a partir de un horario. El horario tiene que ser uno de los que devolvió get_availability. El fin lo determina la duración del servicio.",
+    subtitle: "Reserva un turno para el contacto.",
   },
   {
     value: "create_lead",
     label: "Calificar el lead",
-    subtitle:
-      "Registra la calificación inicial del contacto de esta conversación como lead: puntaje, intención, servicio de interés, urgencia, presupuesto, zona y notas. Usala la primera vez que reunís datos de calificación en la conversación. Todos los campos son opcionales; mandá los que conozcas.",
+    subtitle: "Registra la calificación inicial del contacto.",
   },
   {
     value: "update_lead",
     label: "Actualizar la calificación",
-    subtitle:
-      "Actualiza la calificación del contacto de esta conversación cuando aparece información nueva o cambia algo (subió el presupuesto, cambió la urgencia, surgió una duda). Las notas se agregan a las anteriores. Todos los campos son opcionales; mandá solo lo que cambió.",
+    subtitle: "Actualiza la calificación; guarda nombre y apellido.",
   },
   {
     // B6: los campos personalizados de contactos. El agente lee todos; con
     // esta tool escribe solo los marcados "editable por el agente".
     value: "update_contact_custom_fields",
     label: "Guardar campos personalizados",
-    subtitle:
-      "Guarda en la ficha del contacto de esta conversación los campos personalizados que el negocio definió y que vos podés modificar (están listados en tus instrucciones, con su clave y el formato del valor). Usala en el turno en que el contacto te da ese dato. Mandá solo los campos que cambian, por su clave; null borra el valor. Un campo que no está en tu lista, o un valor que no respeta el formato, se rechaza entero: corregí y volvé a llamar.",
+    subtitle: "Completa los campos personalizados editables por el agente.",
   },
   {
     value: "get_payment_info",
     label: "Compartir datos de cobro",
-    subtitle:
-      "Devuelve el link de pago y/o los datos para transferencia bancaria configurados por la sucursal. Usala cuando el cliente concretamente quiere pagar o señar, o pide el link de pago o los datos de la cuenta (CBU, alias, número de cuenta). Si solo pregunta en general qué métodos de pago aceptan, respondé con los nombres de los métodos disponibles (transferencia bancaria / link de pago) sin compartir todavía el link ni los datos de la cuenta; si ya la llamaste antes en la conversación, no hace falta volver a llamarla para eso. Si no hay ningún medio de pago configurado, decíselo al cliente: no inventes uno.",
+    subtitle: "Comparte el link de pago o los datos de transferencia.",
   },
   {
     value: "get_contact_info",
     label: "Ver datos del contacto",
-    subtitle:
-      "Devuelve los datos que el CRM tiene cargados del contacto de esta conversación (nombre, apellido, email, teléfono). Usala para saber si ya tenés el nombre de la persona antes de preguntárselo de nuevo, o antes de derivar, para que la persona que retome tenga contexto.",
+    subtitle: "Consulta los datos que ya tiene el contacto.",
   },
   {
     value: "search_vehicles",
     label: "Buscar vehículos en stock",
-    subtitle:
-      'Busca vehículos disponibles en stock que están publicados para mostrar a clientes. REGLA PRINCIPAL: cada filtro que mandes tiene que poder señalarse en las palabras del cliente. Si el cliente no lo dijo, NO lo mandes — nunca lo completes con un valor que te parezca razonable. Un filtro de más esconde autos que sí hay, y le terminás diciendo al cliente que no hay stock cuando sí hay. Ejemplo: si el cliente solo dice "algo de menos de 30 mil dólares", mandá únicamente priceMaxUsd: 30000, sin carrocería, transmisión, combustible, condición ni kilometraje. Si no dio ningún dato, llamala sin filtros. Filtros disponibles: precio en USD, marca, modelo, año, tipo de carrocería, 0 km o usado, transmisión, combustible, color, kilometraje máximo, financiación, permuta, y un texto libre para cualquier otra cosa (equipamiento, versión, algo de la descripción). Devuelve como máximo 10 resultados y el total. Los resultados vienen ordenados de más barato a más caro (los de precio a consultar, sin precio de lista, van al final). Ejemplo: si preguntan cuál es el más barato, llamala con los filtros que el cliente haya dado (o sin filtros si no dio ninguno) y contestá con el primero de la lista — no hace falta pedir más datos para eso. Para el más caro, el último con precio de la lista lo es solo si total es 10 o menos; si total es mayor, la lista trae solo los 10 más baratos y el más caro no está en ella: no afirmes cuál es. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o con ciertas características.',
+    subtitle: "Busca unidades publicadas con los filtros que dio el cliente.",
   },
   {
     value: "get_service_types",
     label: "Ver tipos de servicio",
-    subtitle:
-      "Lista los tipos de servicio disponibles en esta sucursal, con su duración y el recurso al que pertenecen. Usala antes de get_availability para saber qué resourceId y serviceTypeId corresponden al servicio que pide el cliente — no inventes esos UUID, salen siempre de acá.",
+    subtitle: "Lista los servicios de la sucursal.",
   },
   {
     // Ítem 185: la marca "sin interés". Ningún agente la trae habilitada.
     value: "mark_no_interest",
     label: "Marcar sin interés",
-    subtitle:
-      "Marca al contacto de esta conversación como «sin interés» cuando dice CLARAMENTE que no quiere seguir: «no gracias», «ya compré en otro lado», «no me interesa», «no me escribas más», «dejá de mandarme mensajes». Desde ese momento ningún seguimiento automático le vuelve a escribir, y el vendedor lo ve en la ficha. Mandá en motivo lo que dijo, en pocas palabras y sin inventar. NO la uses ante un «lo voy a pensar», un «después te aviso», una pregunta o un silencio: eso no es falta de interés. Después de marcarlo, despedite con cortesía y no insistas con ofertas; si más adelante pide algo, atendelo normalmente.",
+    subtitle: "Marca «sin interés» cuando el cliente dice que no quiere seguir.",
   },
   {
     value: "get_contact_activities",
     label: "Ver tareas pendientes del contacto",
-    subtitle:
-      "Lista las próximas tareas o actividades pendientes que el equipo ya tiene agendadas para el contacto de esta conversación (llamados de seguimiento, recordatorios). Usala antes de prometer un seguimiento o derivar, para no duplicar algo que ya está agendado.",
+    subtitle: "Lista las tareas pendientes del contacto.",
   },
 ];
 
@@ -160,7 +147,7 @@ export function avisoDeAccionesSinGuardarElNombre(enabledTools: string[]): strin
     return null;
   }
   const nombres = exigen.map((tool) => `«${toolLabel(tool)}»`).join(", ");
-  return `${nombres} ${exigen.length === 1 ? "exige" : "exigen"} el nombre y el apellido del cliente antes de actuar, y el agente los guarda con «${toolLabel("update_lead")}» o «${toolLabel("create_lead")}». Sin una de las dos habilitadas, el agente va a pedir el nombre pero no va a poder guardarlo, y esas acciones nunca se van a ejecutar.`;
+  return `${nombres} ${exigen.length === 1 ? "exige" : "exigen"} el nombre del cliente: habilitá «${toolLabel("update_lead")}» o «${toolLabel("create_lead")}» para que pueda guardarlo.`;
 }
 
 export function agentToolOptions(selected: string[]): MultiSelectOption<string>[] {

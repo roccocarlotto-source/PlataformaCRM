@@ -94,10 +94,7 @@ export function OrganizationMetaConnectionCard({
 
   return (
     <Card heading="Facebook e Instagram de la organización">
-      <p className="ds-hint">
-        Conectar te lleva a Facebook con tu cuenta y vuelve a esta pantalla. En la pantalla de Meta
-        elegí una sola página: la del cliente, compartida con el portfolio de la plataforma.
-      </p>
+      <p className="ds-hint">Te lleva a Facebook y vuelve acá. Elegí solo la página del cliente.</p>
 
       {completeMutation.isPending ? (
         <p className="ds-hint" role="status">

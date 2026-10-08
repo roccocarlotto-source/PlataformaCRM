@@ -419,8 +419,8 @@ export function ContactFormPage() {
                   <p className="ds-hint">
                     {contactQuery.data?.vehicleOfInterestSetBy === "AGENT" &&
                     values.vehicleOfInterestId === contactQuery.data.vehicleOfInterestId
-                      ? "La anotó el agente por lo que habló el cliente. Si la cambiás o la elegís vos, el agente ya no la toca."
-                      : "La unidad del stock que le interesa. No la reserva: sigue disponible para otros clientes."}
+                      ? "La anotó el agente; si la cambiás, ya no la toca."
+                      : "No la reserva: sigue disponible para otros."}
                   </p>
                 </div>
               ) : null}

@@ -54,8 +54,7 @@ export function ContactCustomFieldListPage() {
 
       <div className="ds-list-card">
         <p className="ds-hint">
-          Datos propios del negocio que se cargan en la ficha de cada contacto. El agente de IA los
-          lee todos y escribe solo los marcados «editable por el agente». Hasta{" "}
+          El agente los lee todos y escribe solo los marcados «editable por el agente». Hasta{" "}
           {MAX_CAMPOS_POR_ORGANIZACION} campos
           {fieldsQuery.isSuccess ? ` (${String(campos.length)} en uso)` : ""}.
         </p>

@@ -344,7 +344,7 @@ describe("AutomationFormPage — Oportunidad sin movimiento + borrador con IA (�
       "Redactar seguimiento con IA",
     ]);
     expect(screen.queryByLabelText("Título de la tarea")).not.toBeInTheDocument();
-    expect(screen.getByText(/La IA redacta un mensaje breve/)).toBeInTheDocument();
+    expect(screen.getByText(/lo revisa y envía el vendedor/)).toBeInTheDocument();
   });
 
   it("manda el POST con triggerConfig { daysWithoutActivity } como número y actionConfig vacío", async () => {
@@ -514,7 +514,7 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
     const unidad = screen.getByLabelText("Unidad");
     expect(unidad).toHaveValue("Horas");
     expect(await listSelectOptions(user, unidad)).toEqual(["Minutos", "Horas", "Días"]);
-    expect(screen.getByText(/se revisan cada 5 minutos/)).toBeInTheDocument();
+    expect(screen.getByText(/hasta 30 días de espera/)).toBeInTheDocument();
   });
 
   it("sin ningún QR, avisa dónde crearlo en vez de un desplegable vacío", async () => {
@@ -952,7 +952,7 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
     renderForm("/automations/new");
     await chooseSelectOption(user, screen.getByLabelText("Acción"), "Enviar QR por WhatsApp");
 
-    expect(screen.getByText(/se manda a WhatsApp para que lo apruebe/)).toBeInTheDocument();
+    expect(screen.getByText(/se manda a aprobar a WhatsApp/)).toBeInTheDocument();
     expect(screen.getByLabelText("Texto del mensaje")).toHaveValue(
       textoInicial("opportunity.send_qr_followup", "LINK"),
     );

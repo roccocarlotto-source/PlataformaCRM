@@ -203,8 +203,7 @@ export function SourceFormPage() {
               />
               {isEditMode ? (
                 <p className="ds-hint ds-field-grid--full">
-                  El tipo no se puede cambiar: una integración de webhook no se convierte en una
-                  importación de archivo. Si necesitás otro tipo, creá una fuente nueva.
+                  No se puede cambiar: para otro tipo, creá una fuente nueva.
                 </p>
               ) : null}
 

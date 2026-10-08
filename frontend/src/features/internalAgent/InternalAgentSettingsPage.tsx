@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
@@ -122,9 +121,7 @@ export function InternalAgentSettingsPage() {
       <PageHeader help={AYUDA.agenteInternoConfig} title="Agente interno" />
       <div className="ds-stack">
         <p className="ds-hint">
-          Es el asistente de IA del equipo, no el que habla con los clientes: lo usan los
-          administradores y los usuarios a los que les habilites el acceso en{" "}
-          <Link to="/users">Usuarios</Link>, desde el <Link to="/internal-agent">chat</Link>.
+          El asistente del equipo, no el que habla con los clientes.
           {agente ? null : " Todavía no está configurado: completá el formulario para crearlo."}
         </p>
 
@@ -150,8 +147,7 @@ export function InternalAgentSettingsPage() {
               </FormField>
             </div>
             <p className="ds-hint ds-field-grid--full">
-              Es lo que el modelo lee antes de cada respuesta: qué es el negocio, cómo tiene que
-              contestar y qué no tiene que hacer.
+              Lo que el agente lee antes de cada respuesta.
             </p>
           </div>
         </Card>
@@ -181,8 +177,8 @@ export function InternalAgentSettingsPage() {
             </FormField>
             <p className="ds-hint ds-field-grid--full">
               {puedeElegirModelo
-                ? "El nombre del modelo tal cual lo publica el proveedor. Si lo dejás vacío, se usa el modelo por defecto."
-                : "Lo elige el equipo de la plataforma. Si necesitás otro modelo, pedíselo."}
+                ? "Vacío: el modelo por defecto."
+                : "Lo elige el equipo de la plataforma."}
             </p>
           </div>
         </Card>
@@ -198,10 +194,7 @@ export function InternalAgentSettingsPage() {
               emptyLabel="Ninguna"
               onChange={(enabledTools) => setValues({ ...values, enabledTools })}
             />
-            <p className="ds-hint ds-field-grid--full">
-              Sin acciones, el agente solo conversa. Las tareas que cree quedan asignadas a quien se
-              las pidió.
-            </p>
+            <p className="ds-hint ds-field-grid--full">Sin acciones, el agente solo conversa.</p>
           </div>
         </Card>
 

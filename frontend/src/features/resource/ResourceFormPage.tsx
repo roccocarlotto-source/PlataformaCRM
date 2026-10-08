@@ -209,25 +209,17 @@ export function ResourceFormPage() {
             />
             {isEditMode ? (
               <p className="ds-hint ds-field-grid--full">
-                Un recurso no se cambia de sucursal. Si quedó en la equivocada, creá uno nuevo en la
-                correcta.
+                No se cambia de sucursal: creá uno nuevo en la correcta.
               </p>
             ) : (
-              <p className="ds-hint ds-field-grid--full">
-                Una persona, una sala o una clase: lo que se reserva. El horario en que atiende se
-                carga después de crearlo.
-              </p>
+              <p className="ds-hint ds-field-grid--full">El horario se carga después de crearlo.</p>
             )}
           </div>
         </Card>
 
         {isEditMode ? (
           <Card heading="Horario laboral">
-            <p className="ds-hint">
-              En qué días y horas se puede reservar este recurso, en la zona horaria de su sucursal.
-              Un día puede tener varias franjas (por ejemplo, mañana y tarde). Sin ninguna franja,
-              el recurso no atiende y no se le ofrecen turnos.
-            </p>
+            <p className="ds-hint">Sin ninguna franja, no se ofrecen turnos.</p>
             <WorkingHoursEditor
               value={values.horario}
               onChange={(horario) => setValues({ ...values, horario })}

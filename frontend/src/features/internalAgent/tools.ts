@@ -12,24 +12,22 @@ import type { MultiSelectOption } from "../../design-system/MultiSelect";
 // modelo (toolsHabilitadasInternas filtra por intersección); uno de menos deja
 // una tool real sin forma de habilitarse desde la pantalla.
 //
-// Las descripciones son LAS MISMAS que lee el modelo, copiadas textual de las
-// `definition.description` del catálogo (la de get_agenda con
-// MAX_DIAS_DE_RANGO = 62 ya resuelto), no una paráfrasis. El `label` sí es
-// propio.
+// El `subtitle` es UNA LÍNEA para el selector, no la descripción que lee el
+// modelo (esa vive en el catálogo del backend); la explicación completa está
+// en docs/guia-de-uso/08-agentes-de-ia.md, «Agente interno del equipo». El
+// `label` es propio.
 // ---------------------------------------------------------------------------
 
 export const INTERNAL_AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
   {
     value: "create_internal_task",
     label: "Crear tarea",
-    subtitle:
-      "Crea una tarea en el CRM, ligada a un contacto y/o a una oportunidad que YA existen, y asignada a la persona que te la pide. Mandá `contacto` (nombre y apellido o email) u `oportunidad` (su título), o los dos; con los dos, la oportunidad se busca entre las de ese contacto. Si la persona no dijo a quién o a qué va ligada, preguntale antes de llamarla. Si dijo una fecha límite, mandala en `fechaLimite`.",
+    subtitle: "Crea una tarea ligada a un contacto u oportunidad, asignada a quien la pide.",
   },
   {
     value: "get_agenda",
     label: "Ver agenda",
-    subtitle:
-      "Lista los turnos agendados de la organización en un rango de fechas, opcionalmente de una sola sucursal. Devuelve fecha, hora (en la zona de cada sucursal), contacto, servicio, sucursal y estado de cada turno. Sin `hasta` se miran las 24 horas siguientes a `desde`; el rango máximo es de 62 días. Si la agenda viene vacía, decilo tal cual: no inventes turnos.",
+    subtitle: "Lista los turnos agendados en un rango de fechas.",
   },
 ];
 

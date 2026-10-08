@@ -132,7 +132,7 @@ describe("InternalAgentSettingsPage", () => {
     await user.click(screen.getByLabelText("Acciones habilitadas", { selector: "button" }));
     // La descripción es la que lee el modelo, textual del catálogo.
     expect(
-      screen.getByText(/Crea una tarea en el CRM, ligada a un contacto y\/o a una oportunidad/),
+      screen.getByText(/Crea una tarea ligada a un contacto u oportunidad/),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Crear tarea" }));
     await user.keyboard("{Escape}");

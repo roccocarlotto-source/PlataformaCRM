@@ -772,9 +772,9 @@ export function VehicleFormPage() {
                 cotización: sin ella no pasa nada que explicar. */}
             {exchangeRate ? (
               <p className="ds-hint ds-field-grid--full">
-                Al completar uno de los dos precios de lista, el otro se calcula con la cotización
-                vigente ({formatExchangeRate(exchangeRate)}, del {formatDate(exchangeRate.rateDate)}
-                ) y se puede corregir a mano.
+                El otro precio se calcula con la cotización vigente (
+                {formatExchangeRate(exchangeRate)}, del {formatDate(exchangeRate.rateDate)}) y se
+                puede corregir.
               </p>
             ) : null}
             <FormField label={fieldLabel("minAcceptablePriceUsd")}>

@@ -139,15 +139,10 @@ export function InformeDelLote({
         </p>
       ) : null}
       {fallidas > 0 ? (
-        <p className="ds-hint">
-          El CSV de fallidas trae las columnas originales y el motivo de cada fila: se corrige y se
-          vuelve a subir con el mismo sistema de origen.
-        </p>
+        <p className="ds-hint">Trae el motivo de cada fila: corregí y volvé a subir.</p>
       ) : null}
       {actualizadas > 0 ? (
-        <p className="ds-hint">
-          Lo actualizado no se deshace: el CSV de cambios trae el antes y el después de cada campo.
-        </p>
+        <p className="ds-hint">Lo actualizado no se deshace: el CSV trae el antes y el después.</p>
       ) : null}
       {deshecho ? (
         <div className="ds-stack">

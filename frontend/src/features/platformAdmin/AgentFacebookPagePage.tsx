@@ -187,9 +187,7 @@ export function AgentFacebookPagePage() {
                   />
                 </FormField>
                 <p className="ds-hint ds-field-grid--full">
-                  Es el ID numérico que Meta muestra para la página, no su nombre ni su URL: solo
-                  dígitos. Vacío libera la página del agente. Si otro agente ya la tiene, hay que
-                  liberarla primero.
+                  El ID numérico de la página, no su nombre. Vacío la libera.
                 </p>
               </div>
             </Card>

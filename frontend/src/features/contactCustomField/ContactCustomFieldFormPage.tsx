@@ -305,19 +305,12 @@ export function ContactCustomFieldFormPage() {
           </div>
           {isEditMode && puedeCambiarDeTipo ? (
             <p className="ds-hint">
-              El tipo solo se puede cambiar entre «Lista de opciones» y «Selección múltiple». A
-              selección múltiple, cada contacto conserva su opción; a lista, solo si ningún contacto
-              tiene más de una opción elegida.
+              Solo se puede cambiar entre lista de opciones y selección múltiple.
             </p>
           ) : isEditMode ? (
-            <p className="ds-hint">
-              El tipo no se puede cambiar: los contactos ya tienen valores de ese tipo. Para
-              cambiarlo, eliminá el campo y creá otro.
-            </p>
+            <p className="ds-hint">No se puede cambiar: los contactos ya tienen valores.</p>
           ) : (
-            <p className="ds-hint">
-              La clave del campo (la que usa el agente) sale de la etiqueta y no cambia después.
-            </p>
+            <p className="ds-hint">La clave (la que usa el agente) no cambia después.</p>
           )}
         </Card>
 

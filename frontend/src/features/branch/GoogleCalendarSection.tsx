@@ -86,8 +86,7 @@ export function GoogleCalendarSection({
     <Card heading="Google Calendar">
       <div className="ds-stack">
         <p className="ds-hint">
-          Con Google Calendar conectado, las reservas de esta sucursal se reflejan en ese calendario
-          y los eventos que ya tenga ocupan esos horarios. Se aplica al momento, sin tocar Guardar.
+          Las reservas se reflejan en ese calendario y sus eventos ocupan horarios.
         </p>
 
         {resultadoDelCallback?.conectado ? (
