@@ -28,7 +28,7 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
     value: "create_opportunity",
     label: "Crear oportunidad",
     subtitle:
-      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala cuando el contacto muestra intención concreta de compra o contratación. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true, y es sobre esa que tenés que seguir. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
+      "Crea una oportunidad de venta para el contacto de esta conversación, asignada al vendedor del contacto en la primera etapa del pipeline por defecto. Se llama SOLO cuando el cliente toma la iniciativa de avanzar, y eso es exactamente una de estas cosas (es el `motivo`, obligatorio): pide un test drive; quiere reservar o señar; pide financiación o una cotización formal; quiere coordinar una visita para ver la unidad; ofrece su auto en permuta para tasar; pide que lo contacte un vendedor. NO la llames ante una consulta de información: preguntar el precio, los kilómetros, las fotos, la disponibilidad o las características de un vehículo no es tomar la iniciativa, y tampoco lo son un «me interesa mucho la Hilux SRV», un «qué lindo» o un «lo voy a pensar»; ahí contestás y el interés queda anotado en la ficha del contacto, sin crear ninguna oportunidad. Antes de llamarla necesitás el nombre Y el apellido del cliente: si el CRM no los tiene, o tiene solo uno, pedíselos en ese momento, guardalos con update_lead y recién después llamala; si faltan, esta herramienta no registra nada. El motivo queda como una nota en la oportunidad. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true y le anota el motivo nuevo. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
   },
   {
     value: "update_opportunity",
@@ -42,7 +42,7 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
     value: "reserve_vehicle",
     label: "Reservar unidad",
     subtitle:
-      "Reserva una unidad del stock para el contacto de esta conversación, vinculándola a su oportunidad abierta. Esto SACA LA UNIDAD DEL STOCK para cualquier otro cliente hasta que el equipo la libere. Usala SOLO cuando el cliente confirmó que quiere avanzar con ESA unidad puntual («quiero reservar la Hilux SRV», «apartámela», «vamos con esa»); NO ante un «¿tenés esa camioneta?», una pregunta de precio o un «me interesa»: para registrar interés está create_opportunity. Si el contacto no tiene una oportunidad abierta, primero llamá a create_opportunity. Hasta que esta tool no devuelva un resultado exitoso, la unidad NO está reservada y no se lo podés confirmar al cliente. Si la unidad ya no está disponible, se te va a avisar: no la presentes como disponible. No cambia una unidad que ya esté reservada por otra.",
+      "Reserva una unidad del stock para el contacto de esta conversación, vinculándola a su oportunidad abierta. Esto SACA LA UNIDAD DEL STOCK para cualquier otro cliente hasta que el equipo la libere. Usala SOLO cuando el cliente confirmó que quiere avanzar con ESA unidad puntual («quiero reservar la Hilux SRV», «apartámela», «vamos con esa»); NO ante un «¿tenés esa camioneta?», una pregunta de precio o un «me interesa»: eso se contesta y no se registra en ninguna parte más que en la ficha del contacto. Si el contacto no tiene una oportunidad abierta, primero llamá a create_opportunity con motivo RESERVA_O_SENA. Hasta que esta tool no devuelva un resultado exitoso, la unidad NO está reservada y no se lo podés confirmar al cliente. Si la unidad ya no está disponible, se te va a avisar: no la presentes como disponible. No cambia una unidad que ya esté reservada por otra.",
   },
   {
     value: "get_availability",
@@ -131,6 +131,29 @@ export const REQUEST_HUMAN_HANDOFF_TOOL_NAME = "request_human_handoff";
 export function toolLabel(name: string): string {
   if (name === REQUEST_HUMAN_HANDOFF_TOOL_NAME) return "Derivar a una persona";
   return AGENT_TOOL_OPTIONS.find((option) => option.value === name)?.label ?? name;
+}
+
+// Las acciones que, antes de ejecutarse, exigen el nombre y el apellido del
+// cliente (y por el widget web un teléfono o un email): el backend las frena
+// con un "pedíselo y guardalo con update_lead" (datosQueFaltanParaActuar en
+// agentTools.service.ts). Guardar el nombre es cosa de create_lead o
+// update_lead, así que un agente con una de estas y ninguna de aquellas nunca
+// va a poder crear una oportunidad ni reservar: el aviso lo dice en la
+// pantalla, que es donde se decide.
+export const TOOLS_QUE_EXIGEN_EL_NOMBRE = [
+  "create_opportunity",
+  "create_booking",
+  "reserve_vehicle",
+];
+export const TOOLS_QUE_GUARDAN_EL_NOMBRE = ["create_lead", "update_lead"];
+
+export function avisoDeAccionesSinGuardarElNombre(enabledTools: string[]): string | null {
+  const exigen = TOOLS_QUE_EXIGEN_EL_NOMBRE.filter((tool) => enabledTools.includes(tool));
+  if (exigen.length === 0 || TOOLS_QUE_GUARDAN_EL_NOMBRE.some((t) => enabledTools.includes(t))) {
+    return null;
+  }
+  const nombres = exigen.map((tool) => `«${toolLabel(tool)}»`).join(", ");
+  return `${nombres} ${exigen.length === 1 ? "exige" : "exigen"} el nombre y el apellido del cliente antes de actuar, y el agente los guarda con «${toolLabel("update_lead")}» o «${toolLabel("create_lead")}». Sin una de las dos habilitadas, el agente va a pedir el nombre pero no va a poder guardarlo, y esas acciones nunca se van a ejecutar.`;
 }
 
 export function agentToolOptions(selected: string[]): MultiSelectOption<string>[] {

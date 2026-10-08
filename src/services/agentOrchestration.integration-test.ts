@@ -426,6 +426,7 @@ test("create_opportunity permitida: la oportunidad existe con contacto, vendedor
   try {
     const doble = doblarProveedor([
       pideTool("call_1", "create_opportunity", {
+        motivo: "TEST_DRIVE",
         title: "Corte de pelo",
         amount: 1500,
         currency: "uyu",
@@ -485,7 +486,7 @@ test("una tool prohibida por accionesProhibidas NO se ejecuta y el modelo recibe
   });
   try {
     const doble = doblarProveedor([
-      pideTool("call_1", "create_opportunity", { title: "x" }),
+      pideTool("call_1", "create_opportunity", { motivo: "TEST_DRIVE", title: "x" }),
       texto("Entiendo, no puedo hacer eso ahora."),
     ]);
 
@@ -515,7 +516,7 @@ test("una tool que no está en enabledTools se rechaza aunque exista en el catá
   const e = await montar("no-habilitada", { enabledTools: ["get_availability"] });
   try {
     const doble = doblarProveedor([
-      pideTool("call_1", "create_opportunity", { title: "x" }),
+      pideTool("call_1", "create_opportunity", { motivo: "TEST_DRIVE", title: "x" }),
       texto("ok"),
     ]);
     const resultado = await turno(e, "hola", doble.proveedor);
@@ -643,7 +644,9 @@ test("agotar MAX_TOOL_ROUNDS_PER_TURN deriva a humano con el cierre fijo, y el a
   const e = await montar("handoff", { guardrails: { accionesProhibidas: ["create_opportunity"] } });
   try {
     // El modelo insiste con la misma acción prohibida, siempre.
-    const doble = doblarProveedor([pideTool("call_x", "create_opportunity", { title: "x" })]);
+    const doble = doblarProveedor([
+      pideTool("call_x", "create_opportunity", { motivo: "TEST_DRIVE", title: "x" }),
+    ]);
 
     const resultado = await turno(e, "Dale, creala igual", doble.proveedor);
 
@@ -724,7 +727,7 @@ test("contacto sin vendedor y sucursal sin vendedor por defecto: create_opportun
   const e = await montar("sin-vendedor", { conVendedor: false });
   try {
     const doble = doblarProveedor([
-      pideTool("call_1", "create_opportunity", { title: "x" }),
+      pideTool("call_1", "create_opportunity", { motivo: "TEST_DRIVE", title: "x" }),
       texto("Voy a pedir que un vendedor te contacte."),
     ]);
 
@@ -754,7 +757,10 @@ test("contacto sin vendedor pero sucursal CON vendedor por defecto: la oportunid
   const e = await montar("default-owner", { conVendedor: false, conVendedorPorDefecto: true });
   try {
     const doble = doblarProveedor([
-      pideTool("call_1", "create_opportunity", { title: "Quiere una Corolla" }),
+      pideTool("call_1", "create_opportunity", {
+        motivo: "TEST_DRIVE",
+        title: "Quiere una Corolla",
+      }),
       texto("Listo, te armé la oportunidad."),
     ]);
 
@@ -787,7 +793,7 @@ test("sin pipeline por defecto: create_opportunity devuelve el error al modelo",
   const e = await montar("sin-pipeline", { conPipeline: false });
   try {
     const doble = doblarProveedor([
-      pideTool("call_1", "create_opportunity", { title: "x" }),
+      pideTool("call_1", "create_opportunity", { motivo: "TEST_DRIVE", title: "x" }),
       texto("ok"),
     ]);
     const resultado = await turno(e, "Quiero comprar", doble.proveedor);
@@ -960,7 +966,7 @@ test("F3: create_opportunity y create_booking en la misma conversación — la r
   try {
     const serviceType = await agendaDeLunes(e);
     const doble = doblarProveedor([
-      pideTool("c1", "create_opportunity", { title: "Test drive del Civic" }),
+      pideTool("c1", "create_opportunity", { motivo: "TEST_DRIVE", title: "Test drive del Civic" }),
       pideTool("c2", "create_booking", {
         serviceTypeId: serviceType.id,
         startsAt: LUNES_9_LOCAL,
@@ -1564,7 +1570,9 @@ test("el tope de rondas comparte ejecutarHandoff: ahora también crea la Activit
     guardrails: { accionesProhibidas: ["create_opportunity"] },
   });
   try {
-    const doble = doblarProveedor([pideTool("call_x", "create_opportunity", { title: "x" })]);
+    const doble = doblarProveedor([
+      pideTool("call_x", "create_opportunity", { motivo: "TEST_DRIVE", title: "x" }),
+    ]);
 
     const resultado = await turno(e, "Dale, creala igual", doble.proveedor);
 
@@ -2096,7 +2104,12 @@ test("texto + tool en la ronda 1: la respuesta es la de la ronda 2, redactada co
   const e = await montar("texto-y-tool");
   try {
     const doble = doblarProveedor([
-      pideTool("call_1", "create_opportunity", { title: "Quiere un auto" }, FRASE_DE_TRANSITO),
+      pideTool(
+        "call_1",
+        "create_opportunity",
+        { motivo: "TEST_DRIVE", title: "Quiere un auto" },
+        FRASE_DE_TRANSITO,
+      ),
       texto("Listo, ya registré tu consulta."),
     ]);
 
@@ -2137,8 +2150,18 @@ test("texto + tool en dos rondas seguidas: sigue hasta la primera ronda de solo 
   const e = await montar("texto-y-tool-dos-rondas");
   try {
     const doble = doblarProveedor([
-      pideTool("c1", "create_opportunity", { title: "Auto" }, "Dame un momento…"),
-      pideTool("c2", "create_opportunity", { title: "Auto" }, "Reviso una cosa más…"),
+      pideTool(
+        "c1",
+        "create_opportunity",
+        { motivo: "TEST_DRIVE", title: "Auto" },
+        "Dame un momento…",
+      ),
+      pideTool(
+        "c2",
+        "create_opportunity",
+        { motivo: "TEST_DRIVE", title: "Auto" },
+        "Reviso una cosa más…",
+      ),
       texto("Tu consulta ya está registrada."),
     ]);
 
@@ -2160,7 +2183,12 @@ test("texto + tool en TODAS las rondas: el tope de rondas sigue siendo la red de
   const e = await montar("texto-y-tool-siempre");
   try {
     const doble = doblarProveedor([
-      pideTool("c", "create_opportunity", { title: "Auto" }, FRASE_DE_TRANSITO),
+      pideTool(
+        "c",
+        "create_opportunity",
+        { motivo: "TEST_DRIVE", title: "Auto" },
+        FRASE_DE_TRANSITO,
+      ),
     ]);
 
     const resultado = await turno(e, "Quiero un auto", doble.proveedor);
@@ -2195,7 +2223,11 @@ test("handoff + texto en la ronda 1: sigue cortando de inmediato, con ese texto"
       {
         text: "Te paso con alguien del equipo.",
         toolCalls: [
-          { id: "c1", name: "create_opportunity", arguments: { title: "Auto" } },
+          {
+            id: "c1",
+            name: "create_opportunity",
+            arguments: { motivo: "TEST_DRIVE", title: "Auto" },
+          },
           { id: "h1", name: REQUEST_HUMAN_HANDOFF_TOOL_NAME, arguments: { reason: "pide" } },
         ],
       },
@@ -2270,7 +2302,9 @@ test("ítem 94: la guarda tampoco pisa el cierre fijo de una derivación", async
     guardrails: { accionesProhibidas: ["create_opportunity"] },
   });
   try {
-    const doble = doblarProveedor([pideTool("call_x", "create_opportunity", { title: "x" })]);
+    const doble = doblarProveedor([
+      pideTool("call_x", "create_opportunity", { motivo: "TEST_DRIVE", title: "x" }),
+    ]);
     const resultado = await turno(e, "Dale, creala igual", doble.proveedor);
     assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
     assert.equal(resultado.handoff, true);
@@ -2934,7 +2968,7 @@ test("FABLE-B-02: al agotar las rondas con tools que salieron bien, el modelo re
     const CIERRE = "Ya te dejé anotada la consulta por el auto. Alguien del equipo te escribe.";
     const doble = doblarProveedor([
       ...Array.from({ length: MAX_TOOL_ROUNDS_PER_TURN }, (_, i) =>
-        pideTool(`c${String(i)}`, "create_opportunity", { title: "Auto" }),
+        pideTool(`c${String(i)}`, "create_opportunity", { motivo: "TEST_DRIVE", title: "Auto" }),
       ),
       texto(CIERRE),
     ]);
@@ -2952,7 +2986,11 @@ test("FABLE-B-02: al agotar las rondas con tools que salieron bien, el modelo re
     assert.equal(resultado.respuesta, CIERRE);
     // Sigue siendo una derivación: el turno no terminó solo.
     assert.equal(resultado.handoff, true);
-    const [tarea] = await prisma.activity.findMany({ where: { organizationId: e.organizationId } });
+    // Solo la tarea de la derivación: la nota del motivo de la oportunidad
+    // (08/10/2026) también es una Activity.
+    const [tarea] = await prisma.activity.findMany({
+      where: { organizationId: e.organizationId, type: "TASK" },
+    });
     assert.equal(tarea.body, MOTIVO_TOPE_DE_RONDAS);
   } finally {
     await desmontar(e);
@@ -2964,7 +3002,9 @@ test("FABLE-B-02: si el turno no logró nada, el cierre sigue siendo el de siemp
     guardrails: { accionesProhibidas: ["create_opportunity"] },
   });
   try {
-    const doble = doblarProveedor([pideTool("c", "create_opportunity", { title: "x" })]);
+    const doble = doblarProveedor([
+      pideTool("c", "create_opportunity", { motivo: "TEST_DRIVE", title: "x" }),
+    ]);
 
     const resultado = await turno(e, "Dale, creala igual", doble.proveedor);
 
@@ -2984,7 +3024,9 @@ test("FABLE-B-02: el proveedor se cae DESPUÉS de una tool que salió bien -> el
       complete() {
         llamadas++;
         if (llamadas === 1) {
-          return Promise.resolve(pideTool("c1", "create_opportunity", { title: "Auto" }));
+          return Promise.resolve(
+            pideTool("c1", "create_opportunity", { motivo: "TEST_DRIVE", title: "Auto" }),
+          );
         }
         return Promise.reject(new LlmProviderError("OpenRouter no respondió"));
       },
@@ -3072,7 +3114,7 @@ test("D3: por el widget, un visitante anónimo no puede reservar hasta dar nombr
     const r1 = await turno(e, "Reservame un test drive para el lunes", primero.proveedor);
 
     assert.equal(r1.toolCalls[0].result?.ok, false);
-    assert.match(errorDe(r1.toolCalls[0]), /el nombre y un teléfono o un email/);
+    assert.match(errorDe(r1.toolCalls[0]), /el nombre y el apellido y un teléfono o un email/);
     assert.equal(await prisma.booking.count({ where: { organizationId: e.organizationId } }), 0);
     // El modelo no recibe "Visitante caa2c873" como si fuera el nombre.
     assert.doesNotMatch(primero.requests[0].systemPrompt, /Visitante/);
@@ -3115,13 +3157,13 @@ test("D3: por el widget, create_opportunity de un visitante anónimo no crea nad
   try {
     await volverAnonimo(e);
     const anonimo = doblarProveedor([
-      pideTool("c1", "create_opportunity", { title: "Interés en un Civic" }),
+      pideTool("c1", "create_opportunity", { motivo: "TEST_DRIVE", title: "Interés en un Civic" }),
       texto("¿Me decís tu nombre y un teléfono o email?"),
     ]);
     const r1 = await turno(e, "Me interesa el Civic", anonimo.proveedor);
 
     assert.equal(r1.toolCalls[0].result?.ok, false);
-    assert.match(errorDe(r1.toolCalls[0]), /el nombre y un teléfono o un email/);
+    assert.match(errorDe(r1.toolCalls[0]), /el nombre y el apellido y un teléfono o un email/);
     assert.equal(
       await prisma.opportunity.count({ where: { organizationId: e.organizationId } }),
       0,
@@ -3132,7 +3174,7 @@ test("D3: por el widget, create_opportunity de un visitante anónimo no crea nad
       data: { firstName: "Diego", lastName: "Ramírez", email: "diego@example.test" },
     });
     const identificado = doblarProveedor([
-      pideTool("c2", "create_opportunity", { title: "Interés en un Civic" }),
+      pideTool("c2", "create_opportunity", { motivo: "TEST_DRIVE", title: "Interés en un Civic" }),
       texto("Listo, quedó registrado."),
     ]);
     const r2 = await turno(e, "Soy Diego, diego@example.test", identificado.proveedor);
@@ -3308,6 +3350,119 @@ test("cupones: el agente recibe en cada turno los cupones del contacto, y solo l
     assert.doesNotMatch(prompt, /Cupón de otra persona/);
     // El agente sigue sin ninguna tool de cupones: es solo contexto.
     assert.ok(doble.requests[0].tools.every((t) => !/voucher|cupon/i.test(t.name)));
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ===========================================================================
+// Decisión de Rocco (08/10/2026): oportunidades solo con iniciativa del
+// cliente, y el nombre en ese momento — el recorrido completo por WhatsApp.
+// ===========================================================================
+
+// El contacto del escenario tal como lo deja el webhook de WhatsApp con un
+// perfil de una sola palabra: nombre de pila, sin apellido, fuente WhatsApp.
+async function conPerfilDeWhatsapp(e: Escenario) {
+  await prisma.contact.update({
+    where: { id: e.contactId },
+    data: {
+      firstName: "Martín",
+      lastName: "",
+      email: null,
+      phone: "+59899123456",
+      source: "WhatsApp",
+    },
+  });
+}
+
+function turnoPorWhatsapp(e: Escenario, texto: string, proveedor: LlmProvider) {
+  return runAgentTurn(
+    {
+      organizationId: e.organizationId,
+      agentId: e.agentId,
+      contactId: e.contactId,
+      channel: "WHATSAPP",
+      texto,
+    },
+    { llmProvider: proveedor },
+  );
+}
+
+test("08/10/2026: una consulta de precio no crea oportunidad ni pide el nombre; el test drive pide el apellido, y con «Martín Pérez» crea con su motivo", async () => {
+  const e = await montar("iniciativa", {
+    enabledTools: ["search_vehicles", "create_opportunity", "update_lead"],
+    channels: ["WHATSAPP"],
+  });
+  try {
+    await conPerfilDeWhatsapp(e);
+
+    // Turno 1: una consulta. El modelo busca y contesta; nada más.
+    const consulta = doblarProveedor([
+      pideTool("c1", "search_vehicles", { make: "Toyota" }),
+      texto("Por ahora no tengo Toyota en stock. ¿Querés que te avise?"),
+    ]);
+    const r1 = await turnoPorWhatsapp(e, "¿Cuánto sale la Hilux?", consulta.proveedor);
+    assert.equal(r1.toolCalls[0].result?.ok, true, JSON.stringify(r1.toolCalls[0]));
+    assert.equal(
+      await prisma.opportunity.count({ where: { organizationId: e.organizationId } }),
+      0,
+    );
+    // El prompt le dice qué es iniciativa, que una consulta no lo es, y que
+    // tiene solo el nombre de pila.
+    const prompt = consulta.requests[0].systemPrompt;
+    assert.match(prompt, /toma la iniciativa de avanzar/);
+    assert.match(prompt, /ante una consulta de información no le pidas el nombre/);
+    assert.match(prompt, /nombre: Martín/);
+    assert.match(prompt, /sin apellido/);
+
+    // Turno 2: iniciativa. La tool frena hasta tener el apellido.
+    const testDrive = doblarProveedor([
+      pideTool("c2", "create_opportunity", {
+        title: "Test drive de la Hilux",
+        motivo: "TEST_DRIVE",
+      }),
+      texto("Dale. Para coordinarlo, ¿me decís tu nombre y apellido?"),
+    ]);
+    const r2 = await turnoPorWhatsapp(e, "Quiero hacer un test drive", testDrive.proveedor);
+    assert.equal(r2.toolCalls[0].result?.ok, false);
+    assert.match(errorDe(r2.toolCalls[0]), /hace falta el apellido del cliente/);
+    assert.equal(
+      await prisma.opportunity.count({ where: { organizationId: e.organizationId } }),
+      0,
+    );
+
+    // Turno 3: dice cómo se llama. update_lead reemplaza el perfil incompleto y
+    // la oportunidad sale, con el motivo como nota.
+    const seNombra = doblarProveedor([
+      pideTool("c3", "update_lead", { firstName: "Martín", lastName: "Pérez" }),
+      pideTool("c4", "create_opportunity", {
+        title: "Test drive de la Hilux",
+        motivo: "TEST_DRIVE",
+      }),
+      texto("Listo Martín, un vendedor te contacta para coordinar el test drive."),
+    ]);
+    const r3 = await turnoPorWhatsapp(e, "Martín Pérez", seNombra.proveedor);
+    assert.equal(r3.toolCalls[0].result?.ok, true, JSON.stringify(r3.toolCalls[0]));
+    assert.equal(r3.toolCalls[1].result?.ok, true, JSON.stringify(r3.toolCalls[1]));
+    const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contacto.firstName, "Martín");
+    assert.equal(contacto.lastName, "Pérez");
+    const [opp] = await prisma.opportunity.findMany({
+      where: { organizationId: e.organizationId },
+    });
+    assert.ok(opp, "la oportunidad existe");
+    const nota = await prisma.activity.findFirst({
+      where: { opportunityId: opp.id, type: "NOTE" },
+    });
+    assert.match(nota?.subject ?? "", /el cliente pide un test drive/);
+    assert.equal(nota?.contactId, e.contactId);
+    assert.equal(nota?.authorId, e.ownerId);
+
+    // Turno 4: el agente ya tiene el nombre completo.
+    const despues = doblarProveedor([texto("¡De nada, Martín!")]);
+    await turnoPorWhatsapp(e, "Gracias", despues.proveedor);
+    assert.match(despues.requests[0].systemPrompt, /nombre: Martín Pérez/);
+    assert.doesNotMatch(despues.requests[0].systemPrompt, /sin apellido/);
   } finally {
     await desmontar(e);
   }

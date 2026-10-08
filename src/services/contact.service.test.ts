@@ -162,6 +162,57 @@ test("un nombre ya cargado NO se pisa desde el chat, y se avisa cuál no se apli
   assert.deepEqual(ignorados, ["firstName", "lastName"]);
 });
 
+// Decisión de Rocco (08/10/2026): antes de una oportunidad o una reserva hace
+// falta nombre y apellido, y lo que la persona dice tiene que poder entrar
+// cuando el nombre está incompleto — sin pisar lo que escribió una persona.
+test("08/10/2026: un perfil de WhatsApp incompleto se reemplaza entero por lo que dice la persona", () => {
+  const perfil = { firstName: "Juancho", lastName: "🚗", email: null, source: "WhatsApp" };
+  const { aplica, ignorados } = identidadAplicable(perfil, {
+    firstName: "Juan",
+    lastName: "Pérez",
+  });
+  assert.deepEqual(aplica, { firstName: "Juan", lastName: "Pérez" });
+  assert.deepEqual(ignorados, []);
+
+  // "Martín" solo, de Instagram: igual.
+  const unaPalabra = { firstName: "Martín", lastName: "", email: null, source: "Instagram" };
+  assert.deepEqual(identidadAplicable(unaPalabra, { lastName: "Pérez" }).aplica, {
+    lastName: "Pérez",
+  });
+
+  // Un perfil COMPLETO de WhatsApp ya es un nombre: no se pisa.
+  const completo = identidadAplicable(
+    { firstName: "Martín", lastName: "Pérez", email: null, source: "WhatsApp" },
+    { firstName: "Juan", lastName: "Gómez" },
+  );
+  assert.deepEqual(completo.aplica, {});
+  assert.deepEqual(completo.ignorados, ["firstName", "lastName"]);
+});
+
+test("08/10/2026: un nombre incompleto que cargó una persona solo se completa, nunca se pisa", () => {
+  // Un vendedor cargó "Ana" sin apellido (sin fuente de canal): el apellido
+  // que dice la persona entra, el nombre que escribió el vendedor queda.
+  const ana = { firstName: "Ana", lastName: "", email: null, source: null };
+  const { aplica, ignorados } = identidadAplicable(ana, {
+    firstName: "Carla",
+    lastName: "Gómez",
+  });
+  assert.deepEqual(aplica, { lastName: "Gómez" });
+  assert.deepEqual(ignorados, ["firstName"]);
+
+  // Importado con su propia fuente: lo mismo.
+  assert.deepEqual(
+    identidadAplicable({ ...ana, source: "Importación Excel" }, { lastName: "Gómez" }).aplica,
+    { lastName: "Gómez" },
+  );
+  // Un nombre sin letras (".") sí se puede escribir aunque no venga de un canal.
+  assert.deepEqual(
+    identidadAplicable({ firstName: ".", lastName: "Pérez", email: null }, { firstName: "Ana" })
+      .aplica,
+    { firstName: "Ana" },
+  );
+});
+
 test("el mail se completa si falta y nunca se reemplaza", () => {
   // Es por dónde el negocio le escribe al cliente: pisarlo con uno mal
   // transcripto rompe el contacto sin que nadie se entere.

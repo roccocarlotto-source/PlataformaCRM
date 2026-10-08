@@ -61,3 +61,45 @@ export function esNombreProvisorio(contacto: {
   }
   return nombre === WIDGET_CONTACT_FIRST_NAME && SUFIJO_DEL_VISITANTE.test(apellido);
 }
+
+// ---------------------------------------------------------------------------
+// NOMBRE COMPLETO = nombre y apellido con letras (decisión de Rocco,
+// 08/10/2026). Es lo que hace falta antes de crear una oportunidad o una
+// reserva (agentTools.service.ts) y lo que el chat puede completar
+// (contact.service.ts). Cuenta como incompleto:
+//   - un nombre provisorio (esNombreProvisorio);
+//   - un perfil de WhatsApp de una sola palabra o sin letras: "Martín",
+//     "Juancho 🚗", ".".
+// Un perfil que ya trae nombre y apellido ("Martín Pérez") está completo y no
+// se vuelve a preguntar.
+// ---------------------------------------------------------------------------
+
+export function tieneLetras(valor: string | null | undefined): boolean {
+  return /\p{L}/u.test(valor ?? "");
+}
+
+export function tieneNombreCompleto(contacto: {
+  firstName: string;
+  lastName: string | null;
+}): boolean {
+  return (
+    !esNombreProvisorio(contacto) &&
+    tieneLetras(contacto.firstName) &&
+    tieneLetras(contacto.lastName)
+  );
+}
+
+// Contact.source de los contactos que un canal crea a partir del perfil de la
+// persona: ahí el nombre lo puso el canal, no una persona del negocio, y si
+// está incompleto el chat lo puede reemplazar. Las mismas constantes que
+// escriben whatsappContact.service.ts y metaContact.service.ts; viven acá por
+// lo mismo que las de arriba.
+export const WHATSAPP_CONTACT_SOURCE = "WhatsApp";
+export const FUENTES_CON_NOMBRE_DE_PERFIL: readonly string[] = [
+  WHATSAPP_CONTACT_SOURCE,
+  ...NOMBRES_DE_META,
+];
+
+export function vieneDeUnPerfilDeCanal(source: string | null | undefined): boolean {
+  return source !== null && source !== undefined && FUENTES_CON_NOMBRE_DE_PERFIL.includes(source);
+}

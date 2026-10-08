@@ -37,7 +37,12 @@ import {
 } from "../utils/camposPersonalizados";
 import { definicionesParaValidar } from "./contactCustomFieldDefinition.service";
 import { resolveOwnerId } from "./ownership.service";
-import { esNombreProvisorio } from "../utils/nombreProvisorio";
+import {
+  esNombreProvisorio,
+  tieneLetras,
+  tieneNombreCompleto,
+  vieneDeUnPerfilDeCanal,
+} from "../utils/nombreProvisorio";
 
 export interface ListContactsParams {
   page: number;
@@ -669,6 +674,31 @@ export function nombreEsUnMarcador(contacto: { firstName: string; lastName: stri
   return esNombreProvisorio(contacto);
 }
 
+// Decisión de Rocco (08/10/2026): antes de una oportunidad o una reserva hace
+// falta nombre Y apellido (tieneNombreCompleto), y el agente los pide en ese
+// momento. Para que eso no se trabe, lo que el cliente dice tiene que poder
+// entrar cuando el nombre está incompleto, sin pisar lo que escribió una
+// persona:
+//   - un nombre PROVISORIO se reemplaza entero, como siempre;
+//   - un nombre INCOMPLETO que puso el CANAL desde el perfil de la persona
+//     ("Martín", "Juancho 🚗": Contact.source es WhatsApp, Messenger o
+//     Instagram) también se reemplaza entero — el perfil es un apodo, no un
+//     dato cargado por el negocio;
+//   - en cualquier otro caso (un vendedor o una importación lo cargaron), solo
+//     se COMPLETA lo que falta: una parte sin letras se puede escribir, una
+//     parte con letras nunca se pisa. "Ana" sin apellido + "Ana Gómez" queda
+//     "Ana Gómez"; "Ana Pérez" + "Carla Gómez" no cambia nada.
+export function nombreReemplazableDesdeElChat(contacto: {
+  firstName: string;
+  lastName: string | null;
+  source?: string | null;
+}): boolean {
+  return (
+    nombreEsUnMarcador(contacto) ||
+    (!tieneNombreCompleto(contacto) && vieneDeUnPerfilDeCanal(contacto.source))
+  );
+}
+
 //
 // EL TELÉFONO, igual que el mail: solo si está vacío. Es por donde el negocio
 // llama o le escribe por WhatsApp; uno ya cargado no se pisa desde el chat. La
@@ -680,17 +710,18 @@ export function identidadAplicable(
     lastName: string | null;
     email: string | null;
     phone?: string | null;
+    source?: string | null;
   },
   input: Pick<QualifyLeadInput, "firstName" | "lastName" | "email" | "phone">,
 ): { aplica: UpdateLeadQualificationData; ignorados: string[] } {
   const aplica: UpdateLeadQualificationData = {};
   const ignorados: string[] = [];
 
-  const puedeNombre = nombreEsUnMarcador(contacto);
+  const puedeNombre = nombreReemplazableDesdeElChat(contacto);
   for (const campo of ["firstName", "lastName"] as const) {
     const valor = input[campo]?.trim();
     if (valor === undefined || valor.length === 0) continue;
-    if (puedeNombre) aplica[campo] = valor;
+    if (puedeNombre || !tieneLetras(contacto[campo])) aplica[campo] = valor;
     else ignorados.push(campo);
   }
 

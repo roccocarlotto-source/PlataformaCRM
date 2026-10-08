@@ -40,7 +40,11 @@ import {
   type AtencionFueraDeHorario,
 } from "../utils/fueraDeHorario";
 import { crearLimitadorDeTurnos, cupoDeTurnosPorDefecto } from "../utils/limitadorDeTurnos";
-import { esNombreProvisorio } from "../utils/nombreProvisorio";
+import {
+  CONSULTAS_QUE_NO_SON_INICIATIVA,
+  enumerarIniciativas,
+} from "../utils/iniciativaDelCliente";
+import { esNombreProvisorio, tieneNombreCompleto } from "../utils/nombreProvisorio";
 import { isoEnZona } from "../utils/timezone";
 import { createActivity } from "./activity.service";
 import { puedeEjecutarTool, type DatosDisponibles } from "./agentPermissions.service";
@@ -430,6 +434,23 @@ export const INSTRUCCION_SIN_AUTORIDAD_COMERCIAL =
 // que para el cliente es lo mismo que un sí.
 export const INSTRUCCION_SOLO_LO_QUE_TE_CONSTA =
   'Cuando el cliente pregunte si este negocio ofrece, acepta, cubre o hace algo —una garantía y su plazo, un seguro, una gestoría o un trámite, un envío, un medio de pago, un horario, otra sucursal, cualquier servicio—, fijate primero si alguna de tus herramientas puede traer ese dato. Si puede, usala y contestá por lo que devolvió, caso por caso, nunca de memoria ni en general: si un auto acepta permuta o tiene financiación, por ejemplo, es un dato de CADA UNIDAD que te devuelve la búsqueda de stock, así que ahí no se contesta "sí, aceptamos" ni "sí, damos" —se busca y se contesta por las unidades que de verdad lo tienen. Si ninguna herramienta lo trae y tampoco figura en estas instrucciones ni en la información del negocio de más arriba, entonces NO LO SABÉS, y una respuesta inventada es cara en los dos sentidos: un "sí" compromete al negocio con algo que capaz no hace, y un "no" le hace perder un cliente por algo que capaz sí hace. Fijate bien en el segundo, que es el que se escapa: contestar "no hacemos envíos" o "no ofrecemos ese servicio" cuando nadie te dijo que no los hacen es exactamente tan inventado como contestar que sí, aunque suene más prudente. En ese caso decí exactamente eso —que ese punto te lo confirma una persona del equipo—, seguí con lo que sí podés resolver y derivá si hace falta. No completes con lo que suele hacer el rubro, no inventes plazos ni coberturas, no descartes el pedido por tu cuenta, y no sigas la conversación como si ya estuviera confirmado: no pidas datos ni coordines nada para algo que no sabés si el negocio ofrece, porque para el cliente eso vale como un sí. Nada de esto te limita para hablar del rubro en general, que podés hacerlo con normalidad.';
+
+// Instrucción fija de la decisión de Rocco del 08/10/2026: UNA OPORTUNIDAD O
+// UNA RESERVA SOLO CON INICIATIVA DEL CLIENTE, Y EL NOMBRE EN ESE MOMENTO.
+//
+// Dos cosas pasaban en producción. El agente creaba una oportunidad porque el
+// cliente preguntó por un vehículo —precio, kilómetros, fotos— y el pipeline
+// se llenaba de "interés" que nadie pidió atender. Y nunca preguntaba cómo se
+// llamaba la persona: Rocco quedó en el CRM como "Messenger …08366039"
+// después de pedir un test drive.
+//
+// La lista de iniciativas es la de utils/iniciativaDelCliente.ts, la misma
+// que exige create_opportunity como `motivo`. El candado de verdad está en
+// las tools (datosQueFaltanParaActuar en agentTools.service.ts): esta
+// instrucción existe para que el modelo pida el nombre en el momento justo
+// —cuando hay iniciativa— y NO ante una consulta de información, que es lo
+// que una validación sola no puede decirle.
+export const INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA = `Una oportunidad de venta (create_opportunity) y una reserva (create_booking, reserve_vehicle) se registran SOLO cuando el cliente toma la iniciativa de avanzar, y eso es exactamente una de estas cosas: ${enumerarIniciativas()}. Tené claro que ${CONSULTAS_QUE_NO_SON_INICIATIVA} NO es tomar la iniciativa, y que tampoco lo son un «me interesa» o un «qué lindo»: ahí contestás, y lo que busca y la unidad que le interesa quedan anotados en su ficha, sin crear ninguna oportunidad. Cuando aparece una de esas iniciativas, fijate si tenés el nombre Y el apellido de la persona: si el CRM no los tiene, o tiene solo uno, pedíselos en ese momento —nombre y apellido, con naturalidad, como parte de lo que necesitás para avanzar—, guardalos con update_lead y recién después registrá la oportunidad o la reserva. Si el CRM ya tiene nombre y apellido, no se los vuelvas a pedir. Y ante una consulta de información no le pidas el nombre: no hace falta para contestar.`;
 
 // La etiqueta con la que se le presenta al modelo lo que escribió el cliente
 // (ítem 97). Vive acá arriba porque INSTRUCCION_IDENTIDAD_INMUTABLE la nombra.
@@ -828,7 +849,17 @@ export function bloqueDeContacto(
       : "De la persona con la que estás hablando el CRM todavía no tiene ningún dato cargado (ni nombre, ni email, ni teléfono). Si lo necesitás para avanzar, podés preguntárselo.";
   }
 
-  return `Datos que el CRM YA tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(datos.join(", "))}\nNo se los vuelvas a pedir: usalos. ${nombre === null ? "Su nombre no está cargado: si lo necesitás, ahí sí preguntáselo." : "Llamala por su nombre cuando sea natural hacerlo."}${reservados ? ` ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}` : ""}`;
+  // Un nombre de pila solo ("Martín", de un perfil de WhatsApp) sirve para
+  // saludar, pero no para registrar una oportunidad o una reserva
+  // (tieneNombreCompleto): el modelo tiene que saber que ahí le falta el
+  // apellido, y pedirlo recién cuando haya iniciativa.
+  const sobreElNombre =
+    nombre === null
+      ? "Su nombre no está cargado: si lo necesitás, ahí sí preguntáselo."
+      : tieneNombreCompleto(contact)
+        ? "Llamala por su nombre cuando sea natural hacerlo."
+        : "Tenés solo su nombre de pila, sin apellido: llamala por su nombre, y pedile nombre y apellido completos únicamente cuando vayas a registrar una oportunidad o una reserva.";
+  return `Datos que el CRM YA tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(datos.join(", "))}\nNo se los vuelvas a pedir: usalos. ${sobreElNombre}${reservados ? ` ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}` : ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,6 +1170,11 @@ export function armarSystemPrompt(
   // arriba cubren lo que el agente HACE; esta cubre lo que el agente AFIRMA
   // sobre el negocio cuando nadie se lo dijo.
   partes.push(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA);
+
+  // 08/10/2026: cuándo registrar una oportunidad o una reserva, y el nombre
+  // en ese momento. Después de las cuatro de arriba porque es de la misma
+  // familia —qué hacer con las herramientas— y antes de la de derivación.
+  partes.push(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA);
 
   const condiciones = listaDeGuardrails(agent.guardrails, "condicionesDeDerivacion");
   // El tercer disparador fijo es del ítem 110. Caso real: ante "son todos unos

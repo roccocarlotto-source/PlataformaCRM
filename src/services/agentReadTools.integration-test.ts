@@ -19,6 +19,7 @@ import { createPipeline } from "./pipeline.service";
 import { createResource } from "./resource.service";
 import { createServiceType } from "./serviceType.service";
 import { createStage } from "./stage.service";
+import { asuntoDeLaNotaDeMotivo, INICIATIVAS_DEL_CLIENTE } from "../utils/iniciativaDelCliente";
 import { isoEnZona } from "../utils/timezone";
 import { borrador, desmontar, montar, type Escenario } from "./vehicle.test-helper";
 
@@ -182,7 +183,11 @@ test("create_opportunity: sin ninguna abierta crea una, con reused en false", as
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
 
-  const data = await datosDe<ResultadoOportunidad>("create_opportunity", { title: "Corolla" }, ctx);
+  const data = await datosDe<ResultadoOportunidad>(
+    "create_opportunity",
+    { motivo: "TEST_DRIVE", title: "Corolla" },
+    ctx,
+  );
 
   assert.equal(data.reused, false);
   assert.equal(data.stage, "Nuevo");
@@ -195,7 +200,7 @@ test("create_opportunity: con una OPEN del contacto devuelve esa y no crea ningu
 
   const primera = await datosDe<ResultadoOportunidad>(
     "create_opportunity",
-    { title: "Consulta sobre vehículo de menos de 30 mil dólares" },
+    { motivo: "TEST_DRIVE", title: "Consulta sobre vehículo de menos de 30 mil dólares" },
     ctx,
   );
   const antes = await prisma.opportunity.count({ where: { organizationId: a.organizationId } });
@@ -203,7 +208,12 @@ test("create_opportunity: con una OPEN del contacto devuelve esa y no crea ningu
   // El caso real del ítem: el mismo pedido otra vez, con un título casi igual.
   const segunda = await datosDe<ResultadoOportunidad>(
     "create_opportunity",
-    { title: "Consulta por vehículo de menos de 30 mil dólares", amount: 30_000, currency: "USD" },
+    {
+      motivo: "TEST_DRIVE",
+      title: "Consulta por vehículo de menos de 30 mil dólares",
+      amount: 30_000,
+      currency: "USD",
+    },
     ctx,
   );
 
@@ -226,7 +236,7 @@ test("create_opportunity: con dos OPEN preexistentes devuelve la más reciente",
 
   const data = await datosDe<ResultadoOportunidad>(
     "create_opportunity",
-    { title: "Otra más" },
+    { motivo: "TEST_DRIVE", title: "Otra más" },
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
 
@@ -243,7 +253,7 @@ test("create_opportunity: una WON o LOST del contacto no cuenta — crea una nue
 
   const data = await datosDe<ResultadoOportunidad>(
     "create_opportunity",
-    { title: "Segunda compra" },
+    { motivo: "TEST_DRIVE", title: "Segunda compra" },
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
 
@@ -268,7 +278,7 @@ test("create_opportunity: reutilizar no toca el vendedor del contacto aunque no 
 
   const data = await datosDe<ResultadoOportunidad>(
     "create_opportunity",
-    { title: "x" },
+    { motivo: "TEST_DRIVE", title: "x" },
     contextoDe(a.organizationId, contacto.id, sucursal.id),
   );
 
@@ -1246,7 +1256,9 @@ test("un servicio que no existe devuelve la lista de los que sí, para corregirs
     });
     const ctx = contextoDe(
       propio.organizationId,
-      "00000000-0000-4000-8000-000000000003",
+      // Un contacto real con nombre y apellido: desde el 08/10/2026 reservar
+      // exige la identidad antes de resolver el servicio.
+      (await nuevoContacto(propio)).id,
       propio.branchId,
     );
     const r = await ejecutar(
@@ -1259,6 +1271,8 @@ test("un servicio que no existe devuelve la lista de los que sí, para corregirs
     assert.match(error, /No existe ningún servicio llamado "Lavado premium"/);
     assert.match(error, /"Test drive"/, "tiene que listar los reales para que se corrija");
   } finally {
+    // El contacto creado arriba, antes de los usuarios de la organización.
+    await prisma.contact.deleteMany({ where: { organizationId: propio.organizationId } });
     await desmontarConAgenda(propio);
   }
 });
@@ -1271,7 +1285,9 @@ test("sin nombre ni id, el error dice las dos formas de indicarlo", async () => 
   const r = await ejecutar(
     "create_booking",
     { startsAt: "2026-09-28T10:00:00-03:00" },
-    contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", sucursal.id),
+    // Un contacto real con nombre y apellido (08/10/2026): la identidad va
+    // antes que el servicio.
+    contextoDe(a.organizationId, (await nuevoContacto(a)).id, sucursal.id),
   );
   assert.equal(r.ok, false);
   assert.match(r.ok === false ? r.error : "", /servicio.*serviceTypeId/s);
@@ -1290,7 +1306,7 @@ test("create_opportunity con `vehiculo` vincula la unidad y completa el monto", 
 
   const data = await datosDe<{ opportunityId: string; unidad?: string }>(
     "create_opportunity",
-    { title: "Interés en Hilux", vehiculo: "Hilux SRV" },
+    { motivo: "TEST_DRIVE", title: "Interés en Hilux", vehiculo: "Hilux SRV" },
     ctx,
   );
 
@@ -1329,7 +1345,7 @@ test("B1: update_opportunity con `vehiculo` también anota la unidad como vehíc
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const { opportunityId } = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Consulta" },
+    { motivo: "TEST_DRIVE", title: "Consulta" },
     ctx,
   );
   assert.equal(
@@ -1383,7 +1399,7 @@ test("F2: create_opportunity nombra la unidad en el título y avisa que es de in
     nota: string;
   }>(
     "create_opportunity",
-    { title: "Consulta por camioneta", vehiculo: "Hilux SRV" },
+    { motivo: "TEST_DRIVE", title: "Consulta por camioneta", vehiculo: "Hilux SRV" },
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
 
@@ -1405,7 +1421,11 @@ test("F2: si el título ya nombra la unidad (en otro orden o con otras mayúscul
   const contacto = await nuevoContacto(a);
   const data = await datosDe<{ title: string }>(
     "create_opportunity",
-    { title: "Interés en la toyota hilux 2022 SRV 4X4", vehiculo: "Hilux SRV" },
+    {
+      motivo: "TEST_DRIVE",
+      title: "Interés en la toyota hilux 2022 SRV 4X4",
+      vehiculo: "Hilux SRV",
+    },
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
   assert.equal(data.title, "Interés en la toyota hilux 2022 SRV 4X4");
@@ -1415,7 +1435,7 @@ test("F2: el reuso sobre una oportunidad con OTRA unidad ya reservada no la pisa
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const reservada = await ranger("F2 reservada");
-  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Interés en Ranger" }, ctx);
   await datosDe("reserve_vehicle", { vehiculo: "Ranger F2 reservada" }, ctx);
   const antes = await prisma.opportunity.findFirstOrThrow({
     where: { contactId: contacto.id, status: "OPEN" },
@@ -1427,7 +1447,11 @@ test("F2: el reuso sobre una oportunidad con OTRA unidad ya reservada no la pisa
     actualizada: boolean;
     unidadReservada: string;
     nota?: string;
-  }>("create_opportunity", { title: "Ahora la Hilux", vehiculo: "Hilux DX" }, ctx);
+  }>(
+    "create_opportunity",
+    { motivo: "TEST_DRIVE", title: "Ahora la Hilux", vehiculo: "Hilux DX" },
+    ctx,
+  );
 
   assert.equal(r.opportunityId, antes.id);
   assert.equal(r.reused, true);
@@ -1447,12 +1471,12 @@ test("F2: el reuso nombrando la MISMA unidad reservada la devuelve tal cual, sin
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   await ranger("F2 misma");
-  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Interés en Ranger" }, ctx);
   await datosDe("reserve_vehicle", { vehiculo: "Ranger F2 misma" }, ctx);
 
   const r = await datosDe<{ actualizada: boolean; unidadReservada: string; nota?: string }>(
     "create_opportunity",
-    { title: "Ranger", vehiculo: "Ranger F2 misma" },
+    { motivo: "TEST_DRIVE", title: "Ranger", vehiculo: "Ranger F2 misma" },
     ctx,
   );
   assert.equal(r.actualizada, false);
@@ -1466,7 +1490,7 @@ test("un monto explícito del modelo GANA sobre el precio de lista", async () =>
   const contacto = await nuevoContacto(a);
   const data = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Contraoferta", vehiculo: "Hilux SRV", amount: 30_000 },
+    { motivo: "TEST_DRIVE", title: "Contraoferta", vehiculo: "Hilux SRV", amount: 30_000 },
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
   const guardada = await prisma.opportunity.findUniqueOrThrow({
@@ -1482,7 +1506,7 @@ test("un texto ambiguo pide desambiguar en vez de elegir una unidad", async () =
   const contacto = await nuevoContacto(a);
   const r = await ejecutar(
     "create_opportunity",
-    { title: "x", vehiculo: "Hilux" },
+    { motivo: "TEST_DRIVE", title: "x", vehiculo: "Hilux" },
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
   assert.equal(r.ok, false);
@@ -1500,7 +1524,7 @@ test("NO se puede vincular una unidad que el agente no tiene derecho a mencionar
   const contacto = await nuevoContacto(a);
   const r = await ejecutar(
     "create_opportunity",
-    { title: "x", vehiculo: "Corolla Reservada" },
+    { motivo: "TEST_DRIVE", title: "x", vehiculo: "Corolla Reservada" },
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
   assert.equal(r.ok, false);
@@ -1512,7 +1536,7 @@ test("update_opportunity con `vehiculo` cambia la unidad y reajusta el monto", a
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const creada = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Interés", vehiculo: "Hilux SRV" },
+    { motivo: "TEST_DRIVE", title: "Interés", vehiculo: "Hilux SRV" },
     ctx,
   );
 
@@ -1546,7 +1570,7 @@ test("update_opportunity SIN opportunityId toma la oportunidad abierta del conta
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const creada = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Interés en Hilux", vehiculo: "Hilux SRV" },
+    { motivo: "TEST_DRIVE", title: "Interés en Hilux", vehiculo: "Hilux SRV" },
     ctx,
   );
 
@@ -1569,7 +1593,11 @@ test("update_opportunity: un opportunityId inventado dice que se vuelva a llamar
   // que no tenía nada que ver con el error.
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
-  await datosDe("create_opportunity", { title: "Interés", vehiculo: "Hilux SRV" }, ctx);
+  await datosDe(
+    "create_opportunity",
+    { motivo: "TEST_DRIVE", title: "Interés", vehiculo: "Hilux SRV" },
+    ctx,
+  );
 
   const r = await ejecutar(
     "update_opportunity",
@@ -1592,7 +1620,7 @@ test("update_opportunity: el id de OTRO contacto tampoco se toca", async () => {
   const otroCtx = contextoDe(a.organizationId, otro.id, a.branchId);
   const delOtro = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Del otro contacto" },
+    { motivo: "TEST_DRIVE", title: "Del otro contacto" },
     otroCtx,
   );
 
@@ -1619,7 +1647,7 @@ test("create_opportunity que reusa APLICA el auto nuevo en vez de descartarlo", 
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const primera = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Interés en Hilux SRV", vehiculo: "Hilux SRV" },
+    { motivo: "TEST_DRIVE", title: "Interés en Hilux SRV", vehiculo: "Hilux SRV" },
     ctx,
   );
 
@@ -1630,7 +1658,11 @@ test("create_opportunity que reusa APLICA el auto nuevo en vez de descartarlo", 
     reused: boolean;
     actualizada: boolean;
     unidad: string;
-  }>("create_opportunity", { title: "Interés en Hilux DX", vehiculo: "Hilux DX" }, ctx);
+  }>(
+    "create_opportunity",
+    { motivo: "TEST_DRIVE", title: "Interés en Hilux DX", vehiculo: "Hilux DX" },
+    ctx,
+  );
 
   // Sigue siendo una sola oportunidad abierta (ítem 84)...
   assert.equal(segunda.opportunityId, primera.opportunityId);
@@ -1659,13 +1691,13 @@ test("create_opportunity que reusa SIN vehículo no toca nada, y lo dice", async
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const primera = await datosDe<{ title: string }>(
     "create_opportunity",
-    { title: "Interés en Hilux SRV", vehiculo: "Hilux SRV" },
+    { motivo: "TEST_DRIVE", title: "Interés en Hilux SRV", vehiculo: "Hilux SRV" },
     ctx,
   );
 
   const segunda = await datosDe<{ title: string; amount: string; actualizada: boolean }>(
     "create_opportunity",
-    { title: "Otra consulta" },
+    { motivo: "TEST_DRIVE", title: "Otra consulta" },
     ctx,
   );
 
@@ -2133,7 +2165,7 @@ test("create_opportunity se para en la primera etapa ABIERTA, no en la primera (
 
     const data = await datosDe<{ opportunityId: string; stage: string }>(
       "create_opportunity",
-      { title: "Interés en Hilux" },
+      { motivo: "TEST_DRIVE", title: "Interés en Hilux" },
       contextoDe(propio.organizationId, contacto.id, propio.branchId),
     );
 
@@ -2145,6 +2177,8 @@ test("create_opportunity se para en la primera etapa ABIERTA, no en la primera (
     assert.notEqual(guardada.stageId, ganado.id);
     assert.equal(guardada.status, "OPEN", "y nacer abierta, que es lo que de verdad es");
   } finally {
+    // La nota del motivo (08/10/2026) cuelga de la oportunidad: primero ella.
+    await prisma.activity.deleteMany({ where: { organizationId: propio.organizationId } });
     await prisma.opportunity.deleteMany({ where: { organizationId: propio.organizationId } });
     await prisma.contact.deleteMany({ where: { organizationId: propio.organizationId } });
     await prisma.stage.deleteMany({ where: { organizationId: propio.organizationId } });
@@ -2171,7 +2205,7 @@ test("ítem 128: update_opportunity con WON se rechaza y la base no cambia", asy
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const { opportunityId } = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Hilux" },
+    { motivo: "TEST_DRIVE", title: "Hilux" },
     ctx,
   );
   const antes = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
@@ -2194,7 +2228,7 @@ test("ítem 128: update_opportunity con stageId se rechaza y la etapa no cambia"
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const { opportunityId } = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Hilux" },
+    { motivo: "TEST_DRIVE", title: "Hilux" },
     ctx,
   );
   const otraEtapa = await createStage(a.organizationId, {
@@ -2214,6 +2248,8 @@ test("ítem 128: update_opportunity con stageId se rechaza y la etapa no cambia"
     assert.equal(despues.stageId, primeraEtapaId);
     assert.equal(despues.title, "Hilux", "tampoco se aplicó el resto del cambio");
   } finally {
+    // La nota del motivo (08/10/2026) cuelga de la oportunidad: primero ella.
+    await prisma.activity.deleteMany({ where: { opportunityId } });
     await prisma.opportunity.deleteMany({ where: { id: opportunityId } });
     await prisma.stage.deleteMany({ where: { id: otraEtapa.id } });
   }
@@ -2229,7 +2265,7 @@ test("una oportunidad PERDIDA ya no la ve update_opportunity (ítem 124)", async
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
 
-  await datosDe("create_opportunity", { title: "Ranger" }, ctx);
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Ranger" }, ctx);
   await datosDe("update_opportunity", { status: "LOST", lostReason: "Precio" }, ctx);
 
   // Desde el ítem 128 el agente tampoco podría reabrirla ni ganarla: eso lo
@@ -2250,7 +2286,7 @@ test("update_opportunity: perder SÍ guarda el motivo (ítems 124 y 128)", async
 
   const { opportunityId } = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Amarok" },
+    { motivo: "TEST_DRIVE", title: "Amarok" },
     ctx,
   );
   const r = await datosDe<{ status: string; lostReason: string | null }>(
@@ -2293,7 +2329,7 @@ test("reserve_vehicle vincula la unidad a la oportunidad abierta y la deja RESER
   const v = await ranger("Reserva OK");
   const { opportunityId } = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "Interés en Ranger" },
+    { motivo: "TEST_DRIVE", title: "Interés en Ranger" },
     ctx,
   );
 
@@ -2322,7 +2358,7 @@ test("reserve_vehicle vincula la unidad a la oportunidad abierta y la deja RESER
   // Y efectivamente sale del stock: otro cliente ya no puede reservarla.
   const otro = await nuevoContacto(a);
   const otroCtx = contextoDe(a.organizationId, otro.id, a.branchId);
-  await datosDe("create_opportunity", { title: "Otro interesado" }, otroCtx);
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Otro interesado" }, otroCtx);
   const r2 = await ejecutar("reserve_vehicle", { vehiculo: "Ranger Reserva OK" }, otroCtx);
   assert.equal(r2.ok, false);
 });
@@ -2342,7 +2378,7 @@ test("B-17: reservada una unidad a consultar, ninguna tool de oportunidad le dev
     priceListUsd: 61_000,
     priceOnRequest: true,
   });
-  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Interés en Ranger" }, ctx);
   await datosDe("reserve_vehicle", { vehiculo: "Ranger B17 Consultar" }, ctx);
 
   const fila = await prisma.opportunity.findFirstOrThrow({
@@ -2352,12 +2388,12 @@ test("B-17: reservada una unidad a consultar, ninguna tool de oportunidad le dev
 
   const reuso = await datosDe<Record<string, unknown>>(
     "create_opportunity",
-    { title: "Interés en Ranger" },
+    { motivo: "TEST_DRIVE", title: "Interés en Ranger" },
     ctx,
   );
   const reusoConUnidad = await datosDe<Record<string, unknown>>(
     "create_opportunity",
-    { title: "Interés", vehiculo: "Ranger B17 Consultar" },
+    { motivo: "TEST_DRIVE", title: "Interés", vehiculo: "Ranger B17 Consultar" },
     ctx,
   );
   const actualizada = await datosDe<Record<string, unknown>>(
@@ -2385,12 +2421,12 @@ test("B-17: una unidad que solo publica precio en moneda local no filtra su prec
     priceListUsd: 52_000,
     publicationCurrency: "LOCAL_ONLY",
   });
-  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Interés en Ranger" }, ctx);
   await datosDe("reserve_vehicle", { vehiculo: "Ranger B17 Solo Local" }, ctx);
 
   const reuso = await datosDe<Record<string, unknown>>(
     "create_opportunity",
-    { title: "Interés en Ranger" },
+    { motivo: "TEST_DRIVE", title: "Interés en Ranger" },
     ctx,
   );
   assert.equal(reuso.amount, null);
@@ -2401,12 +2437,12 @@ test("B-17: con una unidad de precio publicado, el monto sigue viajando", async 
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   await ranger("B17 Publicada");
-  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Interés en Ranger" }, ctx);
   await datosDe("reserve_vehicle", { vehiculo: "Ranger B17 Publicada" }, ctx);
 
   const reuso = await datosDe<Record<string, unknown>>(
     "create_opportunity",
-    { title: "Interés en Ranger" },
+    { motivo: "TEST_DRIVE", title: "Interés en Ranger" },
     ctx,
   );
   assert.equal(Number(reuso.amount), 45_000);
@@ -2421,7 +2457,7 @@ test("reserve_vehicle pedida de nuevo sobre la misma unidad es idempotente, no u
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const v = await ranger("Idempotente");
-  await datosDe("create_opportunity", { title: "Ranger" }, ctx);
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Ranger" }, ctx);
   await datosDe("reserve_vehicle", { vehiculo: "Ranger Idempotente" }, ctx);
 
   const r = await datosDe<{ vehicleId: string; yaEstabaReservada: boolean }>(
@@ -2438,7 +2474,7 @@ test("reserve_vehicle no cambia una unidad ya reservada por otra: eso lo decide 
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const primera = await ranger("Primera");
   const segunda = await ranger("Segunda");
-  await datosDe("create_opportunity", { title: "Ranger" }, ctx);
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Ranger" }, ctx);
   await datosDe("reserve_vehicle", { vehiculo: "Ranger Primera" }, ctx);
 
   const r = await ejecutar("reserve_vehicle", { vehiculo: "Ranger Segunda" }, ctx);
@@ -2479,7 +2515,7 @@ test("reserve_vehicle con un vehículo inexistente, ambiguo o no publicado no re
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
   const { opportunityId } = await datosDe<{ opportunityId: string }>(
     "create_opportunity",
-    { title: "x" },
+    { motivo: "TEST_DRIVE", title: "x" },
     ctx,
   );
 
@@ -2515,7 +2551,7 @@ test("reserve_vehicle: dos clientes a la vez por la misma unidad — gana uno, e
   for (let i = 0; i < 2; i++) {
     const contacto = await nuevoContacto(a);
     const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
-    await datosDe("create_opportunity", { title: `Ranger ${i}` }, ctx);
+    await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: `Ranger ${i}` }, ctx);
     contextos.push(ctx);
   }
 
@@ -2654,7 +2690,7 @@ test("FABLE-I-06 / B2: la oportunidad que crea el agente lleva el origen de su c
     });
     const data = await datosDe<{ opportunityId: string }>(
       "create_opportunity",
-      { title: `Interés por ${channel}` },
+      { motivo: "TEST_DRIVE", title: `Interés por ${channel}` },
       contextoDe(a.organizationId, contacto.id, a.branchId, channel),
     );
     const fila = await prisma.opportunity.findUniqueOrThrow({ where: { id: data.opportunityId } });
@@ -2666,4 +2702,251 @@ test("FABLE-I-06 / B2: la oportunidad que crea el agente lleva el origen de su c
   // B2 (migración 20261022120000): antes quedaban en null.
   assert.equal(await origenPor("MESSENGER"), "MESSENGER");
   assert.equal(await origenPor("INSTAGRAM"), "INSTAGRAM");
+});
+
+// ---------------------------------------------------------------------------
+// Decisión de Rocco (08/10/2026): oportunidades solo con iniciativa del
+// cliente, y el nombre en ese momento. El candado vive en las tools
+// (datosQueFaltanParaActuar) y vale para todos los canales; el motivo es
+// obligatorio y queda como nota (Activity NOTE) en la oportunidad.
+// ---------------------------------------------------------------------------
+
+type ResultadoConMotivo = {
+  opportunityId: string;
+  reused: boolean;
+  motivo: string;
+  motivoRegistrado: boolean;
+};
+
+type IdentidadGuardada = {
+  firstName: string;
+  lastName: string | null;
+  noSeActualizo?: string[];
+};
+
+function errorDe(r: ResultadoDeTool): string {
+  return r.ok ? "" : r.error;
+}
+
+// Un contacto tal como lo deja un canal a partir del perfil de la persona.
+function contactoDePerfil(
+  e: Escenario,
+  datos: { firstName: string; lastName: string; source: string },
+) {
+  return prisma.contact.create({
+    data: { organizationId: e.organizationId, ownerId: e.userId, ...datos },
+  });
+}
+
+test("08/10/2026: con nombre provisorio, create_opportunity no crea nada y pide nombre y apellido, en cualquier canal", async () => {
+  const provisorio = await contactoDePerfil(a, {
+    firstName: "Messenger",
+    lastName: "…08366039",
+    source: "Messenger",
+  });
+  const ctx = contextoDe(a.organizationId, provisorio.id, a.branchId, "MESSENGER");
+  const r = await ejecutar(
+    "create_opportunity",
+    { title: "Test drive", motivo: "TEST_DRIVE" },
+    ctx,
+  );
+  assert.equal(r.ok, false);
+  assert.match(errorDe(r), /hace falta el nombre y el apellido del cliente/);
+  assert.match(errorDe(r), /update_lead/);
+  assert.doesNotMatch(errorDe(r), /teléfono o un email/, "por Messenger no se pide contacto");
+  assert.equal(await prisma.opportunity.count({ where: { contactId: provisorio.id } }), 0);
+});
+
+test("08/10/2026: WhatsApp con solo el nombre de pila pide el apellido; update_lead lo guarda y recién ahí crea, con el motivo como nota", async () => {
+  const martin = await contactoDePerfil(a, {
+    firstName: "Martín",
+    lastName: "",
+    source: "WhatsApp",
+  });
+  const ctx = contextoDe(a.organizationId, martin.id, a.branchId, "WHATSAPP");
+
+  const bloqueado = await ejecutar(
+    "create_opportunity",
+    { title: "Test drive de la Hilux", motivo: "TEST_DRIVE" },
+    ctx,
+  );
+  assert.equal(bloqueado.ok, false);
+  assert.match(errorDe(bloqueado), /hace falta el apellido del cliente/);
+  assert.equal(await prisma.opportunity.count({ where: { contactId: martin.id } }), 0);
+
+  // El perfil de WhatsApp incompleto se reemplaza por lo que dice la persona.
+  const lead = await datosDe<IdentidadGuardada>(
+    "update_lead",
+    { firstName: "Martín", lastName: "Pérez" },
+    ctx,
+  );
+  assert.equal(lead.lastName, "Pérez");
+  assert.equal(lead.noSeActualizo, undefined);
+
+  const data = await datosDe<ResultadoConMotivo>(
+    "create_opportunity",
+    { title: "Test drive de la Hilux", motivo: "TEST_DRIVE" },
+    ctx,
+  );
+  assert.equal(data.reused, false);
+  assert.equal(data.motivo, INICIATIVAS_DEL_CLIENTE.TEST_DRIVE);
+  assert.equal(data.motivoRegistrado, true);
+
+  // La nota: en la oportunidad y en el contacto, con el vendedor como autor.
+  const notas = await prisma.activity.findMany({
+    where: { opportunityId: data.opportunityId, type: "NOTE" },
+  });
+  assert.equal(notas.length, 1);
+  assert.equal(notas[0].subject, asuntoDeLaNotaDeMotivo("TEST_DRIVE"));
+  assert.equal(notas[0].contactId, martin.id);
+  assert.equal(notas[0].authorId, a.userId);
+  assert.match(notas[0].body ?? "", /WhatsApp/);
+});
+
+test("08/10/2026: un perfil de WhatsApp con nombre y apellido no pide nada", async () => {
+  const completo = await contactoDePerfil(a, {
+    firstName: "Martín",
+    lastName: "Pérez",
+    source: "WhatsApp",
+  });
+  const ctx = contextoDe(a.organizationId, completo.id, a.branchId, "WHATSAPP");
+  const data = await datosDe<ResultadoConMotivo>(
+    "create_opportunity",
+    { title: "Quiere señar la Hilux", motivo: "RESERVA_O_SENA" },
+    ctx,
+  );
+  assert.equal(data.motivo, INICIATIVAS_DEL_CLIENTE.RESERVA_O_SENA);
+  assert.equal(data.motivoRegistrado, true);
+});
+
+test("08/10/2026: una consulta de información no exige el nombre ni crea nada", async () => {
+  // search_vehicles con un contacto provisorio contesta igual, y después no
+  // hay ninguna oportunidad. Que el modelo NO llame a create_opportunity lo
+  // cubren la descripción y el prompt; lo que el backend garantiza es que la
+  // consulta no se frena por el nombre.
+  const provisorio = await contactoDePerfil(a, {
+    firstName: "WhatsApp",
+    lastName: "+59899000111",
+    source: "WhatsApp",
+  });
+  const ctx = contextoDe(a.organizationId, provisorio.id, a.branchId, "WHATSAPP");
+  const r = await ejecutar("search_vehicles", { make: "Toyota" }, ctx);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.doesNotMatch(JSON.stringify(r), /apellido/);
+  assert.equal(await prisma.opportunity.count({ where: { contactId: provisorio.id } }), 0);
+});
+
+test("08/10/2026: en el reuso se anota el motivo nuevo; el mismo motivo seguido no se repite", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const primera = await datosDe<ResultadoConMotivo>(
+    "create_opportunity",
+    { title: "Hilux", motivo: "TEST_DRIVE" },
+    ctx,
+  );
+  const repetida = await datosDe<ResultadoConMotivo>(
+    "create_opportunity",
+    { title: "Hilux", motivo: "TEST_DRIVE" },
+    ctx,
+  );
+  assert.equal(repetida.reused, true);
+  assert.equal(repetida.opportunityId, primera.opportunityId);
+  assert.equal(repetida.motivoRegistrado, true);
+  const otra = await datosDe<ResultadoConMotivo>(
+    "create_opportunity",
+    { title: "Hilux", motivo: "FINANCIACION_O_COTIZACION" },
+    ctx,
+  );
+  assert.equal(otra.reused, true);
+  assert.equal(otra.motivo, INICIATIVAS_DEL_CLIENTE.FINANCIACION_O_COTIZACION);
+
+  const notas = await prisma.activity.findMany({
+    where: { opportunityId: primera.opportunityId, type: "NOTE" },
+  });
+  assert.deepEqual(
+    notas.map((n) => n.subject).sort(),
+    [
+      asuntoDeLaNotaDeMotivo("TEST_DRIVE"),
+      asuntoDeLaNotaDeMotivo("FINANCIACION_O_COTIZACION"),
+    ].sort(),
+  );
+});
+
+test("08/10/2026: create_booking y reserve_vehicle también exigen nombre y apellido, en cualquier canal", async () => {
+  const martin = await contactoDePerfil(a, {
+    firstName: "Juancho",
+    lastName: "🚗",
+    source: "WhatsApp",
+  });
+  const ctx = contextoDe(a.organizationId, martin.id, a.branchId, "WHATSAPP");
+
+  const reserva = await ejecutar(
+    "create_booking",
+    { servicio: "Test drive", startsAt: "2026-09-07T12:00:00Z" },
+    ctx,
+  );
+  assert.equal(reserva.ok, false);
+  assert.match(errorDe(reserva), /hace falta el apellido del cliente/);
+  assert.equal(await prisma.booking.count({ where: { contactId: martin.id } }), 0);
+
+  const unidad = await ejecutar("reserve_vehicle", { vehiculo: "Hilux SRV" }, ctx);
+  assert.equal(unidad.ok, false);
+  assert.match(errorDe(unidad), /hace falta el apellido del cliente/);
+  const hilux = await prisma.vehicle.findUniqueOrThrow({ where: { id: hiluxSrv } });
+  assert.equal(hilux.status, "AVAILABLE");
+});
+
+test("08/10/2026: por WEB sigue haciendo falta además un teléfono o un email (D3)", async () => {
+  const sinContacto = await nuevoContacto(a); // Ana Pérez, sin email ni teléfono
+  const ctx = contextoDe(a.organizationId, sinContacto.id, a.branchId, "WEB");
+  const r = await ejecutar("create_opportunity", { title: "Visita", motivo: "VISITA" }, ctx);
+  assert.equal(r.ok, false);
+  assert.match(errorDe(r), /hace falta un teléfono o un email del cliente/);
+  assert.doesNotMatch(errorDe(r), /apellido/);
+
+  await prisma.contact.update({
+    where: { id: sinContacto.id },
+    data: { email: `web-${randomUUID().slice(0, 8)}@example.test` },
+  });
+  const data = await datosDe<ResultadoConMotivo>(
+    "create_opportunity",
+    { title: "Visita", motivo: "VISITA" },
+    ctx,
+  );
+  assert.equal(data.motivo, INICIATIVAS_DEL_CLIENTE.VISITA);
+});
+
+test("08/10/2026: un nombre que cargó un vendedor no se pisa desde el chat; uno incompleto solo se completa", async () => {
+  // Cargado completo, sin fuente de canal: nada cambia.
+  const cargado = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, cargado.id, a.branchId, "WHATSAPP");
+  const r = await datosDe<IdentidadGuardada>(
+    "update_lead",
+    { firstName: "Carla", lastName: "Gómez" },
+    ctx,
+  );
+  assert.equal(r.firstName, "Ana");
+  assert.equal(r.lastName, "Pérez");
+  assert.deepEqual(r.noSeActualizo, ["firstName", "lastName"]);
+
+  // Cargado solo el nombre: el apellido entra, el nombre no se toca.
+  const soloNombre = await prisma.contact.create({
+    data: { organizationId: a.organizationId, ownerId: a.userId, firstName: "Ana", lastName: "" },
+  });
+  const ctx2 = contextoDe(a.organizationId, soloNombre.id, a.branchId, "WHATSAPP");
+  const r2 = await datosDe<IdentidadGuardada>(
+    "update_lead",
+    { firstName: "Carla", lastName: "Gómez" },
+    ctx2,
+  );
+  assert.equal(r2.firstName, "Ana");
+  assert.equal(r2.lastName, "Gómez");
+  assert.deepEqual(r2.noSeActualizo, ["firstName"]);
+  // Y con eso ya puede registrar una oportunidad.
+  const data = await datosDe<ResultadoConMotivo>(
+    "create_opportunity",
+    { title: "Permuta", motivo: "PERMUTA" },
+    ctx2,
+  );
+  assert.equal(data.motivo, INICIATIVAS_DEL_CLIENTE.PERMUTA);
 });

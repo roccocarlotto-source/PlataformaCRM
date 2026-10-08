@@ -274,6 +274,20 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    la tool devuelve `{ ok: false }` diciéndole que eso lo hace el equipo, sin
 >    tocar la oportunidad; el schema es `.strict()`, así que cualquier otra
 >    clave de más es un error de argumentos en vez de descartarse en silencio.
+>
+>    **Actualización 08/10/2026 (ítem 183 de
+>    `docs/frontend-cambios-pendientes.md`):** `create_opportunity` exige
+>    `motivo`, un enum con las seis iniciativas del cliente que justifican una
+>    oportunidad (`src/utils/iniciativaDelCliente.ts`: test drive, reserva o
+>    seña, financiación o cotización, visita, permuta, contacto con un
+>    vendedor). Una consulta de información (precio, kilómetros, fotos,
+>    disponibilidad, características) no crea oportunidad. El motivo queda
+>    como una `Activity` NOTE colgada de la oportunidad y del contacto. Y
+>    antes de crear una oportunidad o reservar (`create_booking`,
+>    `reserve_vehicle`), en TODOS los canales, el contacto tiene que tener
+>    nombre y apellido con letras; si no, la tool devuelve `{ ok: false }` y
+>    manda a pedirlo y guardarlo con `update_lead`. Por WEB se sigue exigiendo
+>    además un teléfono o un email (D3).
 > 3. **Alcance del handoff en este PR — NO es el mecanismo completo de esta
 >    sección.** Lo único que implementa 2b es una red de seguridad
 >    determinística: si el loop de tool-calling de un turno supera
