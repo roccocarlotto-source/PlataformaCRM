@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { MapPin, Plus } from "lucide-react";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -61,6 +62,7 @@ export function BranchListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.sucursales}
         title="Sucursales"
         actions={
           <>

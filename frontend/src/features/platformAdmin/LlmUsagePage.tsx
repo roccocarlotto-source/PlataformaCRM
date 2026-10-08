@@ -1,4 +1,5 @@
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Card } from "../../design-system/Card";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -20,7 +21,7 @@ export function LlmUsagePage() {
 
   return (
     <>
-      <PageHeader title="Uso de IA" />
+      <PageHeader help={AYUDA.usoDeIa} title="Uso de IA" />
       <Card heading="Gasto por organización">
         {usageQuery.isLoading ? <LoadingState /> : null}
         {usageQuery.isError ? (

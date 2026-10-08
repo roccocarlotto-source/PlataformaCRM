@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ListChecks, Plus } from "lucide-react";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -39,6 +40,7 @@ export function ContactCustomFieldListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.camposDeContacto}
         title="Campos de contacto"
         actions={
           alTope ? null : (

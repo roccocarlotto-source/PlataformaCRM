@@ -13,6 +13,7 @@ import {
 import { useAuth } from "../../auth/AuthContext";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Button } from "../../design-system/Button";
 import { DetailList } from "../../design-system/DetailList";
@@ -151,6 +152,7 @@ export function QrListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.qr}
         title="Códigos QR"
         actions={
           isAdmin ? (

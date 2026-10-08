@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -271,7 +272,11 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
     <div className="ds-form">
       {/* Dentro del pop up no va: el Modal ya pone el título y el cierre. */}
       {esPopup ? null : (
-        <PageHeader title="Conversación" back={{ to: "/conversations", label: "Conversaciones" }} />
+        <PageHeader
+          help={AYUDA.conversacion}
+          title="Conversación"
+          back={{ to: "/conversations", label: "Conversaciones" }}
+        />
       )}
 
       <div className="ds-stack">

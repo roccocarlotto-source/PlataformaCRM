@@ -93,6 +93,18 @@ de Prisma y exporta `CORS_ORIGIN` para `npm test`.
 
 ---
 
+## Guía de uso
+
+`docs/guia-de-uso/` es la guía de uso que se muestra en la app (pantalla
+Ayuda e ícono "?" de cada pantalla); se incluye en el build del frontend.
+**Todo PR que cambia lo que ve o hace un usuario actualiza la sección
+correspondiente de `docs/guia-de-uso/` en el mismo PR.** Convenciones de
+archivos, anclas y redacción en `docs/guia-de-uso/README.md`. La plantilla de
+PR tiene la casilla, y el CI avisa (sin fallar) cuando un PR toca
+`frontend/src/features/` sin tocar la guía.
+
+---
+
 ## Documentación sensible
 
 El repo `roccocarlotto-source/PlataformaCRM` es **público** y va a seguir así.

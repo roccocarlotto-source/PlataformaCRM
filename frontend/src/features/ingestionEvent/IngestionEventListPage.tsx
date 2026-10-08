@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Badge } from "../../design-system/Badge";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -142,7 +143,7 @@ export function IngestionEventListPage() {
 
   return (
     <div>
-      <PageHeader title="Eventos de ingesta" />
+      <PageHeader help={AYUDA.eventosDeIngesta} title="Eventos de ingesta" />
 
       {/* El batchId no tiene control para tipearlo: es un filtro de "llegué acá
           desde un link", no algo que alguien escriba. Pero si está aplicado hay

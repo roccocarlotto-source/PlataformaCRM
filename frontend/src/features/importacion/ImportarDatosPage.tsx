@@ -7,6 +7,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Notice } from "../../design-system/Notice";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Select } from "../../design-system/Select";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { usePlatformOrganizations } from "../platformAdmin/queries";
@@ -175,6 +176,7 @@ export function ImportarDatosPage() {
   return (
     <div className="ds-form">
       <PageHeader
+        help={AYUDA.importarDatos}
         title="Importar datos"
         subtitle="Contactos y empresas de otro sistema, para el alta de un cliente"
       />

@@ -63,6 +63,7 @@ import { ServiceTypeFormPage } from "../features/serviceType/ServiceTypeFormPage
 import { ServiceTypeListPage } from "../features/serviceType/ServiceTypeListPage";
 import { ContactCustomFieldFormPage } from "../features/contactCustomField/ContactCustomFieldFormPage";
 import { ContactCustomFieldListPage } from "../features/contactCustomField/ContactCustomFieldListPage";
+import { GuiaPage } from "../features/guia/GuiaPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -105,6 +106,12 @@ export const router = createBrowserRouter([
           // (POST /api/vouchers/:id/redeem) no restringe por rol; cualquier
           // usuario de la organización puede canjear.
           { path: "/vouchers/scan", element: <VoucherScanPage /> },
+          // Guía de uso (features/guia): índice y una sección por slug. Para
+          // los dos roles; la sección "Plataforma" la filtra la propia
+          // pantalla por isPlatformAdmin (no hay nada que proteger: es
+          // documentación, y el markdown entero viaja en el bundle igual).
+          { path: "/ayuda", element: <GuiaPage /> },
+          { path: "/ayuda/:seccion", element: <GuiaPage /> },
           // M8: "/" deja de ser un placeholder — es el Dashboard real,
           // primera pantalla útil tras login/aceptación de invitación (ambos
           // ya redirigen acá, ver LoginPage/AcceptInvitationPage).

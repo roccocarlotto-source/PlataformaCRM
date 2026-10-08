@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
 import { CheckSquare, Plus } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -207,6 +208,7 @@ export function MyTasksPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.misTareas}
         title="Mis tareas"
         subtitle="Actividades asignadas a vos, con o sin vencimiento."
         actions={

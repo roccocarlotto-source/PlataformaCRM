@@ -11,6 +11,7 @@ import {
   Car,
   CheckSquare,
   ChevronRight,
+  CircleQuestionMark,
   Clock,
   Coins,
   Columns3,
@@ -500,6 +501,14 @@ export function AppLayout() {
               </SidebarLink>
             </div>
           ) : null}
+          {/* Ayuda: la guía de uso (features/guia). Último ítem del nav, para
+              los dos roles, fuera de toda sección: no pertenece a ningún
+              módulo, es sobre todos. */}
+          <div className="ds-sidebar-group ds-sidebar-group--ayuda">
+            <SidebarLink to="/ayuda" icon={CircleQuestionMark}>
+              Ayuda
+            </SidebarLink>
+          </div>
         </nav>
         <div className="ds-sidebar-account">
           {/* Selector de tema (§31): en el pie de la sidebar, arriba de la

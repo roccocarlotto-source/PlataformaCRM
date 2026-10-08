@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -157,7 +158,10 @@ export function CompanyFormPage() {
   // nueva, fuera de este restyle.
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title={isEditMode ? "Editar empresa" : "Nueva empresa"} />
+      <PageHeader
+        help={AYUDA.empresaForm}
+        title={isEditMode ? "Editar empresa" : "Nueva empresa"}
+      />
       <div className="ds-stack">
         <Card heading="Datos de la empresa">
           <div className="ds-field-grid">

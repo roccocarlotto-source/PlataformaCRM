@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -133,7 +134,7 @@ export function OrganizationSettingsPage() {
   // lectura: la carga el worker diario, no se edita desde acá.
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title="Organización" />
+      <PageHeader help={AYUDA.organizacion} title="Organización" />
       <div className="ds-stack">
         <Card heading="Moneda">
           <div className="ds-stack">

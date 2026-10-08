@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -73,6 +74,7 @@ export function InvitationListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.invitaciones}
         title="Invitaciones"
         actions={
           <>

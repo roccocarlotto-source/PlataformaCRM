@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { CurrencyInput } from "../../design-system/CurrencyInput";
@@ -654,7 +655,7 @@ export function VehicleFormPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title={isEditMode ? "Editar unidad" : "Nueva unidad"} />
+      <PageHeader help={AYUDA.unidadForm} title={isEditMode ? "Editar unidad" : "Nueva unidad"} />
       {tradeInOpportunityId ? (
         <TradeInOpportunityNote opportunityId={tradeInOpportunityId} pending />
       ) : vehicle?.tradeInOpportunityId ? (

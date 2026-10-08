@@ -4,6 +4,7 @@ import { Building2, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { DetailList } from "../../design-system/DetailList";
@@ -87,6 +88,7 @@ export function CompanyListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.empresas}
         title="Empresas"
         actions={
           isAdmin ? (

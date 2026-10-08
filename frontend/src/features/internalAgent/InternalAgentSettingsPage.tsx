@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -118,7 +119,7 @@ export function InternalAgentSettingsPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title="Agente interno" />
+      <PageHeader help={AYUDA.agenteInternoConfig} title="Agente interno" />
       <div className="ds-stack">
         <p className="ds-hint">
           Es el asistente de IA del equipo, no el que habla con los clientes: lo usan los

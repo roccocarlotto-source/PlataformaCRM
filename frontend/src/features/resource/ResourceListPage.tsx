@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Plus, Shapes } from "lucide-react";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -77,6 +78,7 @@ export function ResourceListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.recursos}
         title="Recursos"
         actions={
           <>

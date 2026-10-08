@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -129,7 +130,7 @@ export function VoucherScanPage() {
   if (canjear.isPending || resultado !== null) {
     return (
       <div className="ds-voucher-scan">
-        <PageHeader title="Canjear cupón" />
+        <PageHeader help={AYUDA.canjearCupon} title="Canjear cupón" />
         <div className="ds-voucher-scan-body">
           {resultado === null ? (
             <LoadingState>Canjeando…</LoadingState>
@@ -158,7 +159,7 @@ export function VoucherScanPage() {
 
   return (
     <div className="ds-voucher-scan">
-      <PageHeader title="Canjear cupón" />
+      <PageHeader help={AYUDA.canjearCupon} title="Canjear cupón" />
       <div className="ds-voucher-scan-body">
         {sinCamara === null ? (
           <>

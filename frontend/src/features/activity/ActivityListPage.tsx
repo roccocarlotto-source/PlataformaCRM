@@ -5,6 +5,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { DetailList } from "../../design-system/DetailList";
@@ -159,6 +160,7 @@ export function ActivityListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.actividades}
         title="Actividades"
         actions={
           isAdmin ? (

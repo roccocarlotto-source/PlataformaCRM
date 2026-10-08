@@ -4,6 +4,7 @@ import { Car, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge } from "../../design-system/Badge";
@@ -117,6 +118,7 @@ export function VehicleListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.stock}
         title="Stock de vehículos"
         actions={
           isAdmin ? (

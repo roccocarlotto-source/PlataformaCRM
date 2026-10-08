@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarRegistro } from "../../auth/permisos";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { CurrencyInput } from "../../design-system/CurrencyInput";
@@ -502,6 +503,7 @@ export function OpportunityFormPage() {
     <>
       <form onSubmit={handleSubmit} className="ds-form">
         <PageHeader
+          help={AYUDA.oportunidadForm}
           title={isEditMode ? "Editar oportunidad" : "Nueva oportunidad"}
           actions={
             // "Crear cupón" a mano: el cupón es del contacto de la venta, así

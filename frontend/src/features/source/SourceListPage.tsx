@@ -5,6 +5,7 @@ import { Badge } from "../../design-system/Badge";
 import { formatDateOnly } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -96,6 +97,7 @@ export function SourceListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.fuentes}
         title="Fuentes de ingesta"
         actions={
           <>
