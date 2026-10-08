@@ -13,6 +13,7 @@ import {
   closeConversation as closeConversationRepo,
   countOpenConversationsOf,
 } from "../repositories/conversation.repository";
+import { cancelPendingInquiryFollowUpsOfContact } from "../repositories/inquiryFollowUp.repository";
 import {
   countUnidentifiedInquiries,
   findOpenConversationIdsOf,
@@ -436,6 +437,10 @@ export interface UpdateContactInput {
   // Se validan contra las definiciones de la organización y se MEZCLAN con
   // los que el contacto ya tiene (los que no vienen quedan como están).
   customFields?: Record<string, unknown>;
+  // La marca "sin interés" (ítem 185), a mano desde la ficha: true la pone
+  // (con la nota, si viene), false la quita. Ausente, no se toca.
+  noInterest?: boolean;
+  noInterestNote?: string | null;
 }
 
 // B6: los valores de los campos personalizados que quedan después de aplicar
@@ -475,7 +480,7 @@ export async function updateContact(
     tieneTelefono(input.phone) ? findDefaultPhoneCountryCode(organizationId) : null,
   ]);
 
-  const { vehicleOfInterestId, customFields, ...resto } = input;
+  const { vehicleOfInterestId, customFields, noInterest, noInterestNote, ...resto } = input;
   const data: UpdateContactData = { ...resto };
   Object.assign(
     data,
@@ -518,18 +523,75 @@ export async function updateContact(
     data.email = input.email === null ? null : normalizeEmail(input.email);
   }
 
-  try {
-    const result = await conTelefonoUnico(organizationId, data.phone, id, (db) =>
-      updateContactRepo(id, organizationId, data, db),
-    );
-    if (result.count === 0) {
-      throw new AppError("Contacto no encontrado", 404);
+  // Un PATCH que trae solo la marca no tiene nada más que escribir.
+  if (Object.keys(data).length > 0) {
+    try {
+      const result = await conTelefonoUnico(organizationId, data.phone, id, (db) =>
+        updateContactRepo(id, organizationId, data, db),
+      );
+      if (result.count === 0) {
+        throw new AppError("Contacto no encontrado", 404);
+      }
+    } catch (err) {
+      rethrowAsConflict(err);
     }
-  } catch (err) {
-    rethrowAsConflict(err);
+  }
+
+  if (noInterest === true) {
+    await marcarSinInteres(organizationId, id, noInterestNote ?? null);
+  } else if (noInterest === false) {
+    await quitarSinInteres(organizationId, id);
   }
 
   return getContactById(organizationId, id);
+}
+
+// ---------------------------------------------------------------------------
+// "SIN INTERÉS" (ítem 185). El cliente dijo claramente que no quiere seguir
+// ("no gracias", "ya compré", "no me escribas más"). La pone el agente con la
+// tool mark_no_interest o una persona desde la ficha; se quita a mano. Mientras
+// está, el barrido de consultas sin avance no lo toma y el worker cancela lo
+// que ya estaba agendado — y por las dudas se cancela acá también, en la
+// misma transacción, para no depender de la relectura del worker.
+// ---------------------------------------------------------------------------
+export const NOTA_SIN_INTERES_MAX = 200;
+export const MOTIVO_SEGUIMIENTO_CANCELADO_SIN_INTERES = "El contacto se marcó sin interés";
+
+export async function marcarSinInteres(
+  organizationId: string,
+  id: string,
+  nota: string | null,
+  ahora: Date = new Date(),
+): Promise<void> {
+  const notaRecortada = nota?.trim().slice(0, NOTA_SIN_INTERES_MAX) || null;
+  const result = await prisma.$transaction(async (tx) => {
+    const marcado = await tx.contact.updateMany({
+      where: { id, organizationId, deletedAt: null },
+      data: { noInterestAt: ahora, noInterestNote: notaRecortada },
+    });
+    if (marcado.count === 1) {
+      await cancelPendingInquiryFollowUpsOfContact(
+        organizationId,
+        id,
+        MOTIVO_SEGUIMIENTO_CANCELADO_SIN_INTERES,
+        tx,
+      );
+    }
+    return marcado;
+  });
+  if (result.count === 0) {
+    throw new AppError("Contacto no encontrado", 404);
+  }
+}
+
+export async function quitarSinInteres(organizationId: string, id: string): Promise<void> {
+  const result = await prisma.contact.updateMany({
+    where: { id, organizationId, deletedAt: null },
+    data: { noInterestAt: null, noInterestNote: null },
+  });
+  if (result.count === 0) {
+    throw new AppError("Contacto no encontrado", 404);
+  }
 }
 
 // ---------------------------------------------------------------------------

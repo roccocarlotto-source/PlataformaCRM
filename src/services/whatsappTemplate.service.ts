@@ -19,15 +19,18 @@ import {
 import { AppError } from "../utils/AppError";
 import { contenidoDelQr, qrPng, type TipoDeQr } from "../utils/qrImage";
 import {
-  EJEMPLO_LINK,
-  EJEMPLO_NOMBRE,
   TOKEN_LINK,
+  VARIABLES_DE_CONSULTA,
+  ejemplosDelCuerpo,
   formatoLlevaImagen,
   formatoLlevaLink,
   textoParaMeta,
   validarTextoDePlantilla,
+  variablesDeSeguimiento,
   type FormatoDeMensaje,
+  type VariableDePlantilla,
 } from "../utils/whatsappTemplateText";
+import { ACTION_INQUIRY_FOLLOW_UP } from "./automationActions/inquiryFollowUp";
 import { mensajeDeLaRegla } from "./automationActions/mensajeDeWhatsapp";
 import { ACTION_SEND_DISCOUNT_VOUCHER } from "./automationActions/sendDiscountVoucherFollowup";
 import { ACTION_SEND_QR_FOLLOWUP } from "./automationActions/sendQrFollowup";
@@ -223,16 +226,35 @@ const QR_DE_LA_ACCION: Record<string, TipoDeQr> = {
 //   developers.facebook.com/documentation/business-messaging/whatsapp/templates/template-categorization
 //   (sección Utility templates > Feedback surveys).
 // Solo afecta las altas nuevas: las plantillas ya creadas no se tocan.
+// - Seguimiento de una consulta (ítem 185): es un mensaje comercial para
+//   retomar una venta, MARKETING por definición de Meta.
 const CATEGORIA_DE_LA_ACCION: Record<string, CategoriaDePlantilla> = {
   [ACTION_SEND_QR_FOLLOWUP]: "MARKETING",
   [ACTION_SEND_DISCOUNT_VOUCHER]: "MARKETING",
+  [ACTION_INQUIRY_FOLLOW_UP]: "MARKETING",
 };
 
 export function categoriaDeLaAccion(actionType: string): CategoriaDePlantilla {
   return CATEGORIA_DE_LA_ACCION[actionType] ?? "MARKETING";
 }
 
-export const ACCIONES_CON_PLANTILLA: readonly string[] = Object.keys(QR_DE_LA_ACCION);
+// Más el seguimiento de consultas (ítem 185), que manda solo texto (sin
+// imagen) con sus propias variables.
+export const ACCIONES_CON_PLANTILLA: readonly string[] = [
+  ...Object.keys(QR_DE_LA_ACCION),
+  ACTION_INQUIRY_FOLLOW_UP,
+];
+
+// Las variables de la plantilla de cada acción (utils/whatsappTemplateText.ts):
+// {saludo} y {vehiculo} para el seguimiento de consultas; {nombre} y, si el
+// formato lleva link, {link} para el QR y el cupón.
+export function variablesDeLaAccion(
+  actionType: string,
+  formato: FormatoDeMensaje,
+): readonly VariableDePlantilla[] {
+  if (actionType === ACTION_INQUIRY_FOLLOW_UP) return VARIABLES_DE_CONSULTA;
+  return variablesDeSeguimiento(formatoLlevaLink(formato));
+}
 
 export function esAccionConPlantilla(actionType: string): boolean {
   return ACCIONES_CON_PLANTILLA.includes(actionType);
@@ -241,6 +263,7 @@ export function esAccionConPlantilla(actionType: string): boolean {
 const PREFIJO_DEL_NOMBRE: Record<string, string> = {
   [ACTION_SEND_QR_FOLLOWUP]: "seguimiento_qr",
   [ACTION_SEND_DISCOUNT_VOUCHER]: "cupon_descuento",
+  [ACTION_INQUIRY_FOLLOW_UP]: "seguimiento_consulta",
 };
 
 // Minúsculas, números y guion bajo (regla de Meta), único en el WABA
@@ -463,6 +486,7 @@ async function crearVersionNueva(
   organizationId: string,
   regla: { id: string; actionType: string },
   deseada: PlantillaDeseada,
+  variables: readonly VariableDePlantilla[],
   language: string,
   conexion: { wabaId: string; accessToken: string },
   deps: DepsDePlantillas,
@@ -517,9 +541,7 @@ async function crearVersionNueva(
       language,
       category: categoriaDeLaAccion(regla.actionType),
       bodyText: textoParaMeta(deseada.bodyText),
-      bodyExamples: deseada.bodyText.includes(TOKEN_LINK)
-        ? [EJEMPLO_NOMBRE, EJEMPLO_LINK]
-        : [EJEMPLO_NOMBRE],
+      bodyExamples: ejemplosDelCuerpo(deseada.bodyText, variables),
       ...(headerImageHandle ? { headerImageHandle } : {}),
     });
   } catch (err) {
@@ -559,9 +581,8 @@ export async function sincronizarPlantillaDeLaRegla(
       // Una regla vieja sin messageText cuyo formato nuevo no admite su texto
       // (pasar a "solo imagen" con un {link} heredado): se dice, no se manda.
       const { formato } = mensajeDeLaRegla(regla.actionConfig);
-      const problema = validarTextoDePlantilla(deseada.bodyText, {
-        conLink: formatoLlevaLink(formato),
-      });
+      const variables = variablesDeLaAccion(regla.actionType, formato);
+      const problema = validarTextoDePlantilla(deseada.bodyText, { variables });
       if (problema) throw new AppError(problema, 400);
 
       const conexion = leerConexion(deps);
@@ -570,7 +591,15 @@ export async function sincronizarPlantillaDeLaRegla(
       }
       if (decision.accion === "CREAR") {
         const language = par.aprobada?.language ?? par.candidata?.language ?? IDIOMA_POR_DEFECTO;
-        await crearVersionNueva(organizationId, regla, deseada, language, conexion, deps);
+        await crearVersionNueva(
+          organizationId,
+          regla,
+          deseada,
+          variables,
+          language,
+          conexion,
+          deps,
+        );
       }
     }
   } catch (err) {

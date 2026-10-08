@@ -15,6 +15,7 @@ import { MensajeDeWhatsappCard } from "./MensajeDeWhatsappCard";
 import {
   ACTION_CREATE_FOLLOW_UP,
   ACTION_DRAFT_FOLLOW_UP,
+  ACTION_INQUIRY_FOLLOW_UP,
   ACTION_SEND_DISCOUNT_VOUCHER,
   ACTION_SEND_QR_FOLLOWUP,
   CONFIG_DE_ACCION,
@@ -22,15 +23,20 @@ import {
   DEFAULT_ACTION,
   DEFAULT_TRIGGER,
   INTERVALO_DE_LOS_ENVIOS_MINUTOS,
+  MAX_DAYS_SINCE_LAST_MESSAGE,
   MAX_DAYS_UNTIL_DUE,
   MAX_DAYS_WITHOUT_ACTIVITY,
+  MAX_FOLLOW_UPS,
   MAX_EXPIRES_IN_DAYS,
   MAX_NOTES,
   MAX_SUBJECT,
   MAX_VOUCHER_LABEL,
+  MIN_DAYS_SINCE_LAST_MESSAGE,
   MIN_DAYS_UNTIL_DUE,
   MIN_DAYS_WITHOUT_ACTIVITY,
   MIN_EXPIRES_IN_DAYS,
+  MIN_FOLLOW_UPS,
+  TRIGGER_CONTACT_INQUIRY_STALLED,
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPTIONS,
   UNIDAD_DE_DEMORA_OPTIONS,
@@ -189,6 +195,44 @@ function CamposDelTrigger({
           </p>
         </>
       );
+    case TRIGGER_CONTACT_INQUIRY_STALLED:
+      return (
+        <>
+          <FormField label={<span className="ds-required">Días sin respuesta</span>}>
+            <input
+              type="number"
+              min={MIN_DAYS_SINCE_LAST_MESSAGE}
+              max={MAX_DAYS_SINCE_LAST_MESSAGE}
+              step={1}
+              value={values.daysSinceLastMessage ?? ""}
+              onChange={(event) =>
+                onChange({ ...values, daysSinceLastMessage: event.target.value })
+              }
+              disabled={disabled}
+              required
+            />
+          </FormField>
+          <FormField label={<span className="ds-required">Seguimientos como máximo</span>}>
+            <input
+              type="number"
+              min={MIN_FOLLOW_UPS}
+              max={MAX_FOLLOW_UPS}
+              step={1}
+              value={values.maxFollowUps ?? ""}
+              onChange={(event) => onChange({ ...values, maxFollowUps: event.target.value })}
+              disabled={disabled}
+              required
+            />
+          </FormField>
+          <p className="ds-hint ds-field-grid--full">
+            Se dispara con los contactos —identificados o no— que escribieron por algún canal y
+            llevan esa cantidad de días sin responder, sin una oportunidad abierta y sin la marca
+            «sin interés». Se revisa una vez por día. El máximo es cuántos seguimientos se hacen por
+            cada vez que el cliente escribe: si responde, la cuenta arranca de cero. Solo puede
+            haber una regla activa con este evento.
+          </p>
+        </>
+      );
     default:
       return null;
   }
@@ -325,6 +369,17 @@ function CamposDeLaAccion({
           de la oportunidad y su última conversación si la hay, y lo deja como una tarea para el
           dueño de la oportunidad que vence ese mismo día. El mensaje no se le manda a nadie: lo
           revisa y lo envía el vendedor.
+        </p>
+      );
+    case ACTION_INQUIRY_FOLLOW_UP:
+      // Sin campos propios además del mensaje (la tarjeta de abajo).
+      return (
+        <p className="ds-hint ds-field-grid--full">
+          Por WhatsApp se le manda al cliente el mensaje de abajo, dentro del horario de la sucursal
+          (si escribió hace menos de 24 horas, el agente redacta uno con el contexto de la
+          conversación). Por Messenger, Instagram o el sitio web, o si una persona ya está
+          atendiendo la conversación, se crea una tarea para el vendedor asignado con el resumen de
+          lo que preguntó. Si el cliente responde, el agente sigue la conversación.
         </p>
       );
     case ACTION_SEND_QR_FOLLOWUP:

@@ -17,8 +17,10 @@ import {
   CONFIG_DE_TRIGGER,
   TRIGGERS_CONOCIDOS,
   TRIGGERS_DE_REGLA_UNICA,
+  TRIGGER_CONTACT_INQUIRY_STALLED,
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPPORTUNITY_WON,
+  configDeConsultaSinAvanceSchema,
   configDeOportunidadEstancadaSchema,
   configDeOportunidadGanadaSchema,
   esTriggerConocido,
@@ -77,10 +79,14 @@ test("dos registros creados con la factory no comparten estado", () => {
 // Catálogo de triggers
 // ---------------------------------------------------------------------------
 
-test("el catálogo de triggers hoy tiene exactamente opportunity.won y opportunity.stale", () => {
-  assert.deepEqual([...TRIGGERS_CONOCIDOS], ["opportunity.won", "opportunity.stale"]);
+test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunity.stale y contact.inquiry_stalled", () => {
+  assert.deepEqual(
+    [...TRIGGERS_CONOCIDOS],
+    ["opportunity.won", "opportunity.stale", "contact.inquiry_stalled"],
+  );
   assert.equal(esTriggerConocido("opportunity.won"), true);
   assert.equal(esTriggerConocido("opportunity.stale"), true);
+  assert.equal(esTriggerConocido("contact.inquiry_stalled"), true);
   assert.equal(esTriggerConocido("booking.reminder"), false);
 });
 
@@ -121,8 +127,36 @@ test("opportunity.stale exige daysWithoutActivity entero entre 0 y 365 — sin d
   }
 });
 
-test("opportunity.stale es de regla única por organización; opportunity.won no", () => {
-  assert.deepEqual([...TRIGGERS_DE_REGLA_UNICA], [TRIGGER_OPPORTUNITY_STALE]);
+test("opportunity.stale y contact.inquiry_stalled son de regla única por organización; opportunity.won no", () => {
+  assert.deepEqual(
+    [...TRIGGERS_DE_REGLA_UNICA],
+    [TRIGGER_OPPORTUNITY_STALE, TRIGGER_CONTACT_INQUIRY_STALLED],
+  );
+});
+
+test("contact.inquiry_stalled (ítem 185): 3 días y 1 seguimiento por defecto; enteros en rango", () => {
+  assert.deepEqual(configDeConsultaSinAvanceSchema.parse({}), {
+    daysSinceLastMessage: 3,
+    maxFollowUps: 1,
+  });
+  assert.deepEqual(
+    configDeConsultaSinAvanceSchema.parse({ daysSinceLastMessage: 0, maxFollowUps: 3 }),
+    {
+      daysSinceLastMessage: 0,
+      maxFollowUps: 3,
+    },
+  );
+  assert.equal(
+    configDeConsultaSinAvanceSchema.safeParse({ daysSinceLastMessage: -1 }).success,
+    false,
+  );
+  assert.equal(
+    configDeConsultaSinAvanceSchema.safeParse({ daysSinceLastMessage: 2.5 }).success,
+    false,
+  );
+  assert.equal(configDeConsultaSinAvanceSchema.safeParse({ maxFollowUps: 0 }).success, false);
+  assert.equal(configDeConsultaSinAvanceSchema.safeParse({ maxFollowUps: 21 }).success, false);
+  assert.equal(CONFIG_DE_TRIGGER[TRIGGER_CONTACT_INQUIRY_STALLED], configDeConsultaSinAvanceSchema);
 });
 
 test("accionAdmiteTrigger: sin `triggers` admite cualquiera; con `triggers`, solo esos", () => {

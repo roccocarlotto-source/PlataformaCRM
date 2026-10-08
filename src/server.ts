@@ -13,6 +13,8 @@ import { iniciarWorkerDeOportunidadesEstancadas } from "./workers/opportunitySta
 import { iniciarWorkerDeOutbox } from "./workers/outboxWorker";
 import { iniciarWorkerDeSeguimientosQr } from "./workers/qrFollowUpWorker";
 import { iniciarWorkerDeCupones } from "./workers/discountVoucherFollowUpWorker";
+import { iniciarWorkerDeConsultasSinAvance } from "./workers/inquiryStalledWorker";
+import { iniciarWorkerDeSeguimientosDeConsultas } from "./workers/inquiryFollowUpWorker";
 import { iniciarWorkerDeAvisoSinRespuesta } from "./workers/avisoSinRespuestaWorker";
 import { iniciarWorkerDeLotesDeImportacion } from "./workers/importBatchWorker";
 import { iniciarWorkerDeFotosImportadas } from "./workers/importPhotoWorker";
@@ -108,6 +110,16 @@ const detenerWorkerDeSeguimientosQr = arrancarWorkers ? iniciarWorkerDeSeguimien
 // opportunity.send_discount_voucher agendó.
 const detenerWorkerDeCupones = arrancarWorkers ? iniciarWorkerDeCupones() : sinWorker;
 
+// Seguimiento automático de consultas estancadas (ítem 185): el barrido
+// diario que emite contact.inquiry_stalled y el worker que manda por WhatsApp
+// lo que la acción agendó, detrás de la misma guarda que el de cupones.
+const detenerWorkerDeConsultasSinAvance = arrancarWorkers
+  ? iniciarWorkerDeConsultasSinAvance()
+  : sinWorker;
+const detenerWorkerDeSeguimientosDeConsultas = arrancarWorkers
+  ? iniciarWorkerDeSeguimientosDeConsultas()
+  : sinWorker;
+
 // El aviso automático si nadie responde a una derivación, detrás de la misma
 // guarda: cada conversación que toma es un WhatsApp a un cliente real.
 const detenerWorkerDeAvisoSinRespuesta = arrancarWorkers
@@ -162,6 +174,8 @@ const shutdown = crearShutdown({
       detenerWorkerDeFotosImportadas(),
       detenerWorkerDeSincronizaciones(),
       detenerWorkerDeCupones(),
+      detenerWorkerDeConsultasSinAvance(),
+      detenerWorkerDeSeguimientosDeConsultas(),
       detenerWorkerDeAvisoSinRespuesta(),
     ]);
   },

@@ -372,6 +372,24 @@ enum DiscountVoucherFollowUpStatus {
   CANCELLED
 }
 
+// Estado de un seguimiento automático de consulta (ítem 185), el mismo juego
+// que DiscountVoucherFollowUpStatus y por el mismo motivo un enum propio.
+enum InquiryFollowUpStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+// Cómo se hace el seguimiento (ítem 185): un WhatsApp al cliente que manda el
+// worker (plantilla aprobada o, dentro de las 24 h, texto libre del agente), o
+// una tarea para el vendedor (Messenger, Instagram, widget, o una conversación
+// que atiende una persona).
+enum InquiryFollowUpKind {
+  WHATSAPP
+  TASK
+}
+
 // Estado de la plantilla de WhatsApp de una organización (ítem 160), tal cual
 // lo decide Meta — el CRM no aprueba nada, lo lee (del webhook
 // message_template_status_update o del refresh a mano).
@@ -727,6 +745,7 @@ model Organization {
   // mandarse por WhatsApp (ítem 177).
   discountVouchers              DiscountVoucher[]
   discountVoucherFollowUps      DiscountVoucherFollowUp[]
+  inquiryFollowUps              InquiryFollowUp[]
   // El agente de IA de uso interno (ítem 179) — a lo sumo uno — y su historial.
   internalAgents                InternalAgent[]
   internalAgentMessages         InternalAgentMessage[]
@@ -1002,6 +1021,14 @@ model Contact {
   customerSince DateTime? @map("customer_since") @db.Date
   importedAt    DateTime? @map("imported_at")
 
+  // "Sin interés" (ítem 185, migración 20261029120000): el cliente dijo que no
+  // le interesa ("no gracias", "ya compré", "no me escribas más"). La pone el
+  // agente con mark_no_interest o una persona desde la ficha, y se quita a
+  // mano. Mientras está, ningún seguimiento automático le escribe. La nota es
+  // lo que dijo, para que el vendedor lo vea.
+  noInterestAt   DateTime? @map("no_interest_at")
+  noInterestNote String?   @map("no_interest_note") @db.VarChar(200)
+
   organization Organization @relation(fields: [organizationId], references: [id])
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   owner        User?        @relation("ContactOwner", fields: [organizationId, ownerId], references: [organizationId, id], onDelete: NoAction)
@@ -1016,6 +1043,7 @@ model Contact {
   // mandarle (ítem 177).
   discountVouchers         DiscountVoucher[]
   discountVoucherFollowUps DiscountVoucherFollowUp[]
+  inquiryFollowUps         InquiryFollowUp[]
   // Su id en Instagram/Messenger (ítem 169). WhatsApp no pasa por acá: se
   // resuelve por `phone`.
   channelIdentities        ContactChannelIdentity[]
@@ -1686,6 +1714,7 @@ model Automation {
   // Los cupones que emitió esta regla (ítem 176) y los que agendó (ítem 177).
   discountVouchers         DiscountVoucher[]
   discountVoucherFollowUps DiscountVoucherFollowUp[]
+  inquiryFollowUps         InquiryFollowUp[]
   // La plantilla de WhatsApp con que manda esta regla (ítem 181).
   whatsappTemplates        WhatsappTemplate[]
 
@@ -1872,6 +1901,7 @@ model Branch {
   // Los cupones agendados que salen por el número de WhatsApp de esta
   // sucursal (ítem 177).
   discountVoucherFollowUps DiscountVoucherFollowUp[]
+  inquiryFollowUps         InquiryFollowUp[]
   // Los cupones creados a mano con esta sucursal (de su número salen).
   discountVouchers         DiscountVoucher[]
 
@@ -2528,7 +2558,9 @@ model Conversation {
   // Nullable, y por eso NO ACTION, igual que assignedUser.
   briefEditedBy User?        @relation("ConversationBriefEditor", fields: [organizationId, briefEditedByUserId], references: [organizationId, id], onDelete: NoAction)
 
-  messages Message[]
+  messages         Message[]
+  // Los seguimientos automáticos agendados sobre esta conversación (ítem 185).
+  inquiryFollowUps InquiryFollowUp[]
 
   // El UNIQUE que habilita la FK compuesta de messages (C-3).
   @@unique([organizationId, id])
@@ -3252,6 +3284,76 @@ model DiscountVoucherFollowUp {
   @@index([organizationId, branchId])
   @@index([organizationId, discountVoucherId])
   @@map("discount_voucher_follow_ups")
+}
+
+// ---------------------------------------------------------------------------
+// Seguimiento automático de una consulta estancada (ítem 185 de
+// docs/frontend-cambios-pendientes.md; migración 20261029120000). La acción
+// inquiry.follow_up del motor de automatizaciones deja una fila por cada
+// seguimiento que decide hacer sobre un contacto que escribió y se quedó
+// callado: por WhatsApp la manda el worker (src/workers/inquiryFollowUpWorker
+// .ts) respetando el horario de la sucursal; por los otros canales la tarea
+// se crea en el acto y la fila nace SENT.
+//
+// LA TABLA ES TAMBIÉN EL CONTADOR: "no más de N seguimientos" se cuenta sobre
+// las filas PENDING/SENT posteriores al último mensaje del cliente
+// (findStalledInquiries), sin columna aparte en contacts.
+//
+// IDEMPOTENTE POR (regla, contacto, evento del outbox): el barrido emite un
+// evento por contacto y día, y la reentrega de ese evento choca contra el
+// UNIQUE y no agenda otro (mismo criterio que discount_voucher_follow_ups,
+// con el evento en lugar de la oportunidad porque un contacto puede recibir
+// más de un seguimiento a lo largo del tiempo). outbox_event_id no lleva FK,
+// igual que automation_executions: los eventos se purgan a los 90 días.
+// ---------------------------------------------------------------------------
+model InquiryFollowUp {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  automationId   String              @map("automation_id") @db.Uuid
+  contactId      String              @map("contact_id") @db.Uuid
+  // La conversación por la que escribió por última vez: donde se anota el
+  // WhatsApp enviado, y cuyo canal decide el tipo de seguimiento.
+  conversationId String              @map("conversation_id") @db.Uuid
+  // La sucursal de la conversación: su horario de atención y su número.
+  branchId       String              @map("branch_id") @db.Uuid
+  channel        ConversationChannel
+  outboxEventId  String              @map("outbox_event_id") @db.Uuid
+
+  kind          InquiryFollowUpKind
+  // El último mensaje del cliente al agendar. Si al mandar hay uno posterior,
+  // la persona ya respondió y el seguimiento se cancela.
+  lastInboundAt DateTime            @map("last_inbound_at")
+
+  // Mismas columnas y mismo significado que en DiscountVoucherFollowUp.
+  scheduledFor  DateTime              @map("scheduled_for")
+  nextAttemptAt DateTime              @map("next_attempt_at")
+  status        InquiryFollowUpStatus @default(PENDING)
+  attempts      Int                   @default(0)
+  lastError     String?               @map("last_error")
+  sentAt        DateTime?             @map("sent_at")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  // Las cuatro NOT NULL -> RESTRICT (regla de 20260821140200), igual que en
+  // DiscountVoucherFollowUp. Conversation no tiene soft delete ni se borra.
+  automation   Automation   @relation(fields: [organizationId, automationId], references: [organizationId, id])
+  contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  conversation Conversation @relation(fields: [organizationId, conversationId], references: [organizationId, id])
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+
+  // A lo sumo un agendado por (regla, contacto, evento). Con nombre propio:
+  // el que deriva Prisma supera los 63 caracteres de Postgres.
+  @@unique([organizationId, automationId, contactId, outboxEventId], map: "inquiry_follow_ups_automation_contact_event_key")
+  // El contador y la memoria del barrido: los seguimientos de un contacto en
+  // orden. Cubre también el lado referenciante de la FK a contacts.
+  @@index([organizationId, contactId, createdAt])
+  @@index([organizationId, createdAt])
+  // Los lados referenciantes de las otras FKs compuestas (el de automations lo
+  // cubre el UNIQUE, que empieza por (organization_id, automation_id)).
+  @@index([organizationId, conversationId])
+  @@index([organizationId, branchId])
+  @@map("inquiry_follow_ups")
 }
 
 // ---------------------------------------------------------------------------

@@ -101,6 +101,13 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
       "Lista los tipos de servicio disponibles en esta sucursal, con su duración y el recurso al que pertenecen. Usala antes de get_availability para saber qué resourceId y serviceTypeId corresponden al servicio que pide el cliente — no inventes esos UUID, salen siempre de acá.",
   },
   {
+    // Ítem 185: la marca "sin interés". Ningún agente la trae habilitada.
+    value: "mark_no_interest",
+    label: "Marcar sin interés",
+    subtitle:
+      "Marca al contacto de esta conversación como «sin interés» cuando dice CLARAMENTE que no quiere seguir: «no gracias», «ya compré en otro lado», «no me interesa», «no me escribas más», «dejá de mandarme mensajes». Desde ese momento ningún seguimiento automático le vuelve a escribir, y el vendedor lo ve en la ficha. Mandá en motivo lo que dijo, en pocas palabras y sin inventar. NO la uses ante un «lo voy a pensar», un «después te aviso», una pregunta o un silencio: eso no es falta de interés. Después de marcarlo, despedite con cortesía y no insistas con ofertas; si más adelante pide algo, atendelo normalmente.",
+  },
+  {
     value: "get_contact_activities",
     label: "Ver tareas pendientes del contacto",
     subtitle:

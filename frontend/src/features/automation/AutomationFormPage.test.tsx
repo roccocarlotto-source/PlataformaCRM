@@ -89,6 +89,7 @@ describe("AutomationFormPage — creación", () => {
     expect(await listSelectOptions(user, screen.getByLabelText("Evento"))).toEqual([
       "Oportunidad ganada",
       "Oportunidad sin movimiento",
+      "Consulta sin avance",
     ]);
   });
 

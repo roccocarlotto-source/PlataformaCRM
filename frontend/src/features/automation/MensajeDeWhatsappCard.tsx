@@ -11,19 +11,13 @@ import {
   ESTADOS_DE_APROBACION,
   FORMATOS_DE_MENSAJE,
   formatoLlevaImagen,
-  formatoLlevaLink,
+  mensajeDeLaAccion,
   textoParaFormato,
   type ConfigDraft,
 } from "./catalog";
 import { useRefreshWhatsappApproval } from "./mutations";
 import type { WhatsappApproval } from "./types";
-import {
-  EJEMPLO_LINK,
-  TOKEN_LINK,
-  TOKEN_NOMBRE,
-  insertarToken,
-  previewDePlantilla,
-} from "./whatsappPreview";
+import { EJEMPLO_LINK, insertarToken, previewDePlantilla } from "./whatsappPreview";
 
 // El estado de aprobación de WhatsApp de la regla: UNA línea, el de la versión
 // más nueva del mensaje. La plantilla de Meta no aparece por ningún lado: el
@@ -139,7 +133,9 @@ export function MensajeDeWhatsappCard({
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formato = values.whatsappFormat ?? "LINK";
-  const conLink = formatoLlevaLink(formato);
+  // Qué variables lleva este mensaje y si elige formato (ítem 185: el
+  // seguimiento de una consulta es solo texto, con {saludo} y {vehiculo}).
+  const mensaje = mensajeDeLaAccion(actionType, formato);
 
   function insertar(token: string) {
     const textarea = textareaRef.current;
@@ -159,37 +155,40 @@ export function MensajeDeWhatsappCard({
     <Card heading="Mensaje de WhatsApp">
       <div className="ds-field-grid">
         {/* Radios en tarjeta, como el canal de QrSendDialog: la ayuda va como
-            HERMANA del <label> para no entrar en el nombre accesible. */}
-        <div className="ds-field ds-field-grid--full">
-          <span className="ds-field-label">Formato</span>
-          <div className="ds-radio-cards" role="radiogroup" aria-label="Formato del mensaje">
-            {FORMATOS_DE_MENSAJE.map((opcion) => (
-              <div className="ds-radio-card" key={opcion.value}>
-                <label>
-                  <input
-                    type="radio"
-                    name="automation-whatsapp-format"
-                    checked={formato === opcion.value}
-                    onChange={() =>
-                      onChange({
-                        ...values,
-                        whatsappFormat: opcion.value,
-                        messageText: textoParaFormato(
-                          actionType,
-                          values.messageText ?? "",
-                          opcion.value,
-                        ),
-                      })
-                    }
-                    disabled={disabled}
-                  />{" "}
-                  {opcion.label}
-                </label>
-                <p className="ds-radio-card-hint">{opcion.subtitle}</p>
-              </div>
-            ))}
+            HERMANA del <label> para no entrar en el nombre accesible. Solo en
+            las acciones que eligen formato. */}
+        {mensaje.conFormato ? (
+          <div className="ds-field ds-field-grid--full">
+            <span className="ds-field-label">Formato</span>
+            <div className="ds-radio-cards" role="radiogroup" aria-label="Formato del mensaje">
+              {FORMATOS_DE_MENSAJE.map((opcion) => (
+                <div className="ds-radio-card" key={opcion.value}>
+                  <label>
+                    <input
+                      type="radio"
+                      name="automation-whatsapp-format"
+                      checked={formato === opcion.value}
+                      onChange={() =>
+                        onChange({
+                          ...values,
+                          whatsappFormat: opcion.value,
+                          messageText: textoParaFormato(
+                            actionType,
+                            values.messageText ?? "",
+                            opcion.value,
+                          ),
+                        })
+                      }
+                      disabled={disabled}
+                    />{" "}
+                    {opcion.label}
+                  </label>
+                  <p className="ds-radio-card-hint">{opcion.subtitle}</p>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : null}
 
         <div className="ds-field-grid--full">
           <FormField label={<span className="ds-required">Texto del mensaje</span>}>
@@ -204,19 +203,22 @@ export function MensajeDeWhatsappCard({
           </FormField>
         </div>
         <div className="ds-field-grid--full">
-          <Button onClick={() => insertar(TOKEN_NOMBRE)} disabled={disabled}>
-            Insertar {TOKEN_NOMBRE}
-          </Button>{" "}
-          {conLink ? (
-            <Button onClick={() => insertar(TOKEN_LINK)} disabled={disabled}>
-              Insertar {TOKEN_LINK}
-            </Button>
-          ) : null}
+          {mensaje.variables.map((variable) => (
+            <span key={variable.token}>
+              <Button onClick={() => insertar(variable.token)} disabled={disabled}>
+                Insertar {variable.token}
+              </Button>{" "}
+            </span>
+          ))}
         </div>
         <p className="ds-hint ds-field-grid--full">
-          Escribí {TOKEN_NOMBRE} donde va el nombre del cliente
-          {conLink ? ` y ${TOKEN_LINK} donde va el link, después del nombre` : ""}. Ninguno puede ir
-          al principio ni al final del texto (regla de WhatsApp).
+          {mensaje.variables
+            .map(
+              (variable) =>
+                `Escribí ${variable.token} donde va ${variable.ayuda}${variable.obligatoria ? "" : " (opcional)"}`,
+            )
+            .join("; ")}
+          . Ninguna variable puede ir al principio ni al final del texto (regla de WhatsApp).
         </p>
 
         <div className="ds-field-grid--full">

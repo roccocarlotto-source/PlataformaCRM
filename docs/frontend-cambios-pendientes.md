@@ -8646,3 +8646,52 @@ Deploy normal, sin migración. Los agentes que hoy tienen `create_opportunity`, 
 ### Cómo se aplica
 
 Deploy normal del backend y del frontend, sin migración. Con el frontend viejo y el backend nuevo no cambia nada (sin `vista` el listado es el de siempre); con el frontend nuevo y el backend viejo, la pestaña de consultas devolvería el listado entero hasta que el backend se despliegue.
+
+---
+
+## 185. Seguimiento automático de consultas estancadas y la marca «sin interés»
+
+**Estado:** hecho (08/10/2026). **Con migración** (`20261029120000_seguimiento_de_consultas`): el PR queda abierto hasta que Rocco lo autorice. Pedido de Rocco (08/10/2026).
+
+**Qué pasaba.** Alguien consultaba el precio de una unidad por WhatsApp, el agente contestaba, y la persona no volvía a escribir. Nadie la retomaba: la consulta quedaba en Contactos (desde el ítem 184, en la pestaña de consultas sin identificar) y moría ahí. Y si el cliente decía «ya compré en otro lado», el CRM no tenía cómo enterarse para no volver a escribirle.
+
+**Qué se hace.**
+
+1. **Tool `mark_no_interest`** del agente (`agentTools.service.ts`). Cuando el cliente dice claramente que no le interesa («no gracias», «ya compré», «no me escribas más»), el agente la llama con lo que dijo; `marcarSinInteres` (`contact.service.ts`) deja `Contact.noInterestAt` y `noInterestNote`, y cancela los seguimientos agendados. La ficha muestra la marca (badge, fecha, nota) y un botón para ponerla o quitarla a mano (`PATCH /api/contacts/:id { noInterest }`); el bloque `<datos_del_crm>` del prompt la avisa para que el agente no insista. Ningún agente la trae habilitada: se prende en su pantalla, con el espejo de siempre en `frontend/src/features/agent/tools.ts`.
+2. **Trigger `contact.inquiry_stalled`** («Consulta sin avance», `automationTriggers.ts`), de regla única por organización, con `daysSinceLastMessage` (3 por defecto) y `maxFollowUps` (1 por defecto). Lo produce un barrido diario (`src/workers/inquiryStalledWorker.ts`, calcado del de oportunidades estancadas, con la misma ventana anti-repetición sobre el outbox). Califica un contacto —identificado o no— cuyo último mensaje es de hace X días o más, sin oportunidad abierta, sin la marca «sin interés», sin un seguimiento pendiente ni uno de hace menos de X días, y con menos de N seguimientos desde su último mensaje (`findStalledInquiries`, `inquiryFollowUp.repository.ts`). Si el cliente vuelve a escribir, la cuenta arranca de cero. Los X días se cuentan también desde el último seguimiento: con N=2 el segundo no sale al día siguiente del primero.
+3. **Acción `inquiry.follow_up`** («Retomar la consulta», `automationActions/inquiryFollowUp.ts`), con `messageText`. Relee el contacto (borrado, sin interés, con oportunidad abierta o que ya respondió: no hace nada) y decide por el canal:
+   - **WhatsApp**: agenda una fila en `inquiry_follow_ups` que `src/workers/inquiryFollowUpWorker.ts` (calcado del de cupones) manda dentro del horario de la sucursal: la **plantilla MARKETING de la regla**, que se crea sola al guardarla como las del QR y el cupón, con las variables `{saludo}` y `{vehiculo}`; dentro de las 24 h del último mensaje del cliente, un **texto libre del agente** con el contexto de la conversación (`inquiryFollowUpDraft.service.ts`), que en la práctica solo pasa con X=0. Lo enviado queda en la conversación como Automatización (como el cupón), y si el cliente responde, el agente sigue con ese contexto.
+   - **Messenger, Instagram, widget**, o una conversación **atendida por una persona** (derivada y con un mensaje humano después del agente; decisión de Rocco, 08/10/2026): una **tarea** para quien la atiende, o el vendedor asignado, o el ADMIN activo más antiguo, con el resumen de lo que preguntó (los últimos tres mensajes del cliente, el vehículo de interés y hace cuántos días no responde). Se crea en el acto, en la misma transacción que la fila (que nace `SENT`: la tabla es también el contador).
+   - Idempotente por (regla, contacto, evento del outbox): `AccionAEjecutar` lleva ahora `outboxEventId`.
+4. **El saludo** (decisión de Rocco, 08/10/2026): nunca un nombre provisorio ni vacío. Como Meta no acepta un parámetro vacío, la variable es el saludo entero y no el nombre: «Hola Martín» con el nombre real o el del perfil de WhatsApp (que es lo que el canal carga como nombre), «Hola» a secas si no hay (`saludoParaElCliente`). El texto por defecto es «¡{saludo}! Te escribimos por tu consulta sobre {vehiculo}. ¿Seguís interesado? Si querés, te ayudamos a coordinar una visita o un test drive.». `{vehiculo}` es opcional: la unidad de interés, o lo último que buscó (`leadServiceOfInterest`), o «el vehículo que consultaste».
+5. **Variables por acción** en `utils/whatsappTemplateText.ts`: cada acción declara las suyas (`VariableDePlantilla`); las reglas de Meta (orden, ni al principio ni al final, una vez cada obligatoria) y la traducción a `{{n}}` por orden de aparición valen para todas. El QR y el cupón siguen con `{nombre}` y `{link}` sin cambios. `MensajeDeWhatsappCard` muestra las variables de la acción y oculta el formato en la que no lleva imagen.
+6. **Migración.** `contacts.no_interest_at` y `no_interest_note`; tabla `inquiry_follow_ups` (el molde de `discount_voucher_follow_ups`, con la conversación en lugar de la oportunidad y el evento del outbox en el UNIQUE), con su RLS, las filas 5, 16 y 17 del diagnóstico de esquema y H-01. Dos workers nuevos en `server.ts`, detrás de `workersHabilitados()`, con sus variables `INQUIRY_STALLED_*` e `INQUIRY_FOLLOWUP_*` (mismos defaults que las de oportunidades estancadas y cupones; ninguna hace falta para arrancar).
+
+**Tests.** Integración (`automationInquiryStalled.integration-test.ts`, todo real salvo Meta, el horario y el modelo): consulta de precio y silencio de X días → plantilla con el saludo y el vehículo, anotada como Automatización, y sin segundo envío con N=1; sin nombre real → «Hola», y texto libre solo dentro de las 24 h; marcado sin interés → nada, y lo agendado se cancela; con oportunidad abierta → nada (cerrada, sí); tope de N con la cuenta que arranca de cero si responde; Messenger → tarea con el resumen; WhatsApp atendido por una persona → tarea; fuera de horario → espera sin gastar el intento; otra organización no se toca. Unitarios: la acción con dependencias dobladas, el saludo y los motivos de cancelación del worker, las variables de plantilla, el schema del trigger, el catálogo de tools (catorce) y el de triggers; frontend: catálogo (trigger, acción, validación del mensaje), formulario de automatizaciones, ficha del contacto (badge y PATCH).
+
+**Verificación.** Backend `typecheck`, `lint`, `format:check`, `build`; unitarios 1882/1882; contra el Supabase local: el test de integración nuevo (9/9), `tenant-isolation` (87/87) y `rlsTodasLasTablas`; `migrate:deploy` + `verify:schema` 14/14 y `prisma migrate diff` sin drift. Frontend `typecheck`, `lint`, `build` y la suite completa.
+
+**Archivos.**
+
+| Dónde | Qué |
+|---|---|
+| `prisma/schema.prisma`, `prisma/migrations/20261029120000_seguimiento_de_consultas/` | `Contact.noInterestAt/noInterestNote`; `InquiryFollowUp` y sus enums |
+| `docs/auditoria-2026-08-21-diagnostico.sql`, `scripts/verify-schema.ts` | filas 5, 16 (80 → 84 FKs) y 17 |
+| `src/services/automationTriggers.ts` | `contact.inquiry_stalled`, su config (con defaults) y la regla única |
+| `src/repositories/inquiryFollowUp.repository.ts` | nuevo: el barrido, la cola y las transiciones |
+| `src/repositories/outboxEvent.repository.ts` | `findPayloadIdsWithEventSince` (generaliza la memoria del barrido) |
+| `src/workers/inquiryStalledWorker.ts`, `src/workers/inquiryFollowUpWorker.ts` | nuevos: el barrido y el envío |
+| `src/services/automationActions/inquiryFollowUp.ts`, `src/services/inquiryFollowUpDraft.service.ts` | nuevos: la acción y el texto libre |
+| `src/services/automationActions.ts`, `automationDispatch.service.ts`, `automationRegistrations.ts` | `outboxEventId` en la acción; la acción en el catálogo |
+| `src/utils/whatsappTemplateText.ts`, `src/services/whatsappTemplate.service.ts` | variables por acción |
+| `src/services/contact.service.ts`, `contact.controller.ts`, `agentTools.service.ts`, `agentOrchestration.service.ts` | `marcarSinInteres`/`quitarSinInteres`, el PATCH, la tool y el aviso del prompt |
+| `src/config/env.ts`, `src/server.ts` | las variables y el arranque de los workers |
+| `frontend/src/features/automation/` | `catalog.ts`, `AutomationFormPage.tsx`, `MensajeDeWhatsappCard.tsx`, `whatsappPreview.ts` |
+| `frontend/src/features/agent/tools.ts`, `frontend/src/features/contact/ContactFormPage.tsx`, `types.ts` | el espejo de la tool; la marca en la ficha |
+| `docs/automations-architecture.md`, `docs/ai-agent-architecture.md` | el trigger, la acción y la tool |
+
+### Cómo se aplica
+
+1. `npm run migrate:deploy` + `npm run verify:schema` con la imagen nueva del backend: la migración solo agrega (dos columnas nullable y una tabla), así que la imagen vieja sigue funcionando sobre el esquema nuevo, pero la nueva no arranca sin él (`inquiry_follow_ups`).
+2. Deploy del frontend. Sin variables nuevas obligatorias: los dos workers arrancan con sus defaults (barrido cada 24 h, envío cada 5 min), igual que los de oportunidades estancadas y cupones.
+3. La regla se crea desde Administración → Automatizaciones (evento «Consulta sin avance», acción «Retomar la consulta»): al guardarla se manda la plantilla a Meta, y hasta que esté aprobada no sale ningún WhatsApp (las tareas de los otros canales sí). Habilitar `mark_no_interest` en el agente desde su pantalla. No se corrieron evaluaciones pagas del agente: que el modelo marque «sin interés» solo cuando corresponde es prompt, y se mide en la próxima prueba en vivo.

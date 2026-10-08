@@ -37,8 +37,17 @@ import { z } from "zod";
 
 export const TRIGGER_OPPORTUNITY_WON = "opportunity.won";
 export const TRIGGER_OPPORTUNITY_STALE = "opportunity.stale";
+// Consulta sin avance (ítem 185): un contacto que escribió y lleva X días
+// callado, sin oportunidad abierta y sin la marca "sin interés". Un ESTADO,
+// como opportunity.stale: lo produce el barrido diario de
+// src/workers/inquiryStalledWorker.ts.
+export const TRIGGER_CONTACT_INQUIRY_STALLED = "contact.inquiry_stalled";
 
-export const TRIGGERS_CONOCIDOS = [TRIGGER_OPPORTUNITY_WON, TRIGGER_OPPORTUNITY_STALE] as const;
+export const TRIGGERS_CONOCIDOS = [
+  TRIGGER_OPPORTUNITY_WON,
+  TRIGGER_OPPORTUNITY_STALE,
+  TRIGGER_CONTACT_INQUIRY_STALLED,
+] as const;
 
 export type TriggerType = (typeof TRIGGERS_CONOCIDOS)[number];
 
@@ -79,6 +88,33 @@ export const configDeOportunidadEstancadaSchema = z.object({
 
 export type ConfigDeOportunidadEstancada = z.infer<typeof configDeOportunidadEstancadaSchema>;
 
+// Consulta sin avance (ítem 185). Los dos con default, a diferencia de los
+// otros triggers: son los valores que Rocco fijó para el caso típico (3 días
+// y un solo seguimiento), y una regla creada por API sin config tiene que
+// hacer lo razonable. El 0 vale para probarla a mano; el tope de 365 es de
+// cordura. maxFollowUps cuenta los seguimientos posteriores al último mensaje
+// del cliente (ver findStalledInquiries).
+export const DIAS_SIN_RESPUESTA_POR_DEFECTO = 3;
+export const MAX_SEGUIMIENTOS_POR_DEFECTO = 1;
+export const MAX_SEGUIMIENTOS_TOPE = 20;
+
+export const configDeConsultaSinAvanceSchema = z.object({
+  daysSinceLastMessage: z
+    .number({ invalid_type_error: "daysSinceLastMessage debe ser un número entero" })
+    .int("daysSinceLastMessage debe ser un número entero")
+    .min(0, "daysSinceLastMessage no puede ser negativo")
+    .max(365, "daysSinceLastMessage no puede superar los 365 días")
+    .default(DIAS_SIN_RESPUESTA_POR_DEFECTO),
+  maxFollowUps: z
+    .number({ invalid_type_error: "maxFollowUps debe ser un número entero" })
+    .int("maxFollowUps debe ser un número entero")
+    .min(1, "maxFollowUps tiene que ser al menos 1")
+    .max(MAX_SEGUIMIENTOS_TOPE, `maxFollowUps no puede superar ${String(MAX_SEGUIMIENTOS_TOPE)}`)
+    .default(MAX_SEGUIMIENTOS_POR_DEFECTO),
+});
+
+export type ConfigDeConsultaSinAvance = z.infer<typeof configDeConsultaSinAvanceSchema>;
+
 export type EsquemaDeTrigger = z.ZodType<Record<string, unknown>, z.ZodTypeDef, unknown>;
 
 // Un Record sobre TriggerType y no un Map: si alguien suma un trigger a
@@ -86,6 +122,7 @@ export type EsquemaDeTrigger = z.ZodType<Record<string, unknown>, z.ZodTypeDef, 
 export const CONFIG_DE_TRIGGER: Record<TriggerType, EsquemaDeTrigger> = {
   [TRIGGER_OPPORTUNITY_WON]: configDeOportunidadGanadaSchema,
   [TRIGGER_OPPORTUNITY_STALE]: configDeOportunidadEstancadaSchema,
+  [TRIGGER_CONTACT_INQUIRY_STALLED]: configDeConsultaSinAvanceSchema,
 };
 
 // ---------------------------------------------------------------------------
@@ -99,4 +136,9 @@ export const CONFIG_DE_TRIGGER: Record<TriggerType, EsquemaDeTrigger> = {
 // además saldrían dos borradores por cada estancamiento. Una regla por
 // organización hace que daysWithoutActivity diga exactamente lo que dice.
 // ---------------------------------------------------------------------------
-export const TRIGGERS_DE_REGLA_UNICA: readonly TriggerType[] = [TRIGGER_OPPORTUNITY_STALE];
+// contact.inquiry_stalled también: el evento lleva un contacto y el barrido
+// usa UN umbral de días y UN tope por organización, por lo mismo.
+export const TRIGGERS_DE_REGLA_UNICA: readonly TriggerType[] = [
+  TRIGGER_OPPORTUNITY_STALE,
+  TRIGGER_CONTACT_INQUIRY_STALLED,
+];

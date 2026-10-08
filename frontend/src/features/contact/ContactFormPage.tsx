@@ -16,6 +16,8 @@ import { MergeContactDialog } from "./MergeContactDialog";
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "../vehicle/labels";
 import { VehicleSelect } from "../vehicle/VehicleSelect";
 import { Badge } from "../../design-system/Badge";
+import { formatDateOnly } from "../../design-system/detailFormat";
+import { useConfirm } from "../../design-system/useConfirm";
 import { ContactVouchersSection } from "../voucher/ContactVouchersSection";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { ContactCustomFieldsCard } from "../contactCustomField/ContactCustomFieldsCard";
@@ -173,6 +175,7 @@ export function ContactFormPage() {
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
   const { me } = useAuth();
+  const confirm = useConfirm();
 
   const contactQuery = useContact(isEditMode ? id : undefined);
   const createContactMutation = useCreateContact();
@@ -195,6 +198,23 @@ export function ContactFormPage() {
   const [unido, setUnido] = useState<string | null>(null);
 
   const isSubmitting = createContactMutation.isPending || updateContactMutation.isPending;
+
+  // Una mutación aparte de la del formulario: la marca no pasa por "Guardar"
+  // ni mezcla su error con el del resto de la ficha.
+  const marcandoSinInteres = useUpdateContact(id ?? "");
+
+  async function handleSinInteres(marcar: boolean) {
+    if (
+      marcar &&
+      !(await confirm(
+        "¿Marcar este contacto como «sin interés»? Ningún seguimiento automático le va a escribir hasta que se quite la marca.",
+        { confirmLabel: "Marcar" },
+      ))
+    ) {
+      return;
+    }
+    marcandoSinInteres.mutate({ noInterest: marcar });
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -256,6 +276,19 @@ export function ContactFormPage() {
                 <Button type="button" onClick={() => setCreandoCupon(true)}>
                   Crear cupón
                 </Button>
+                {/* La marca "sin interés" (ítem 185): la pone o la quita quien
+                    puede editar el contacto (D2). Sin nota desde acá: la nota
+                    es lo que el cliente le dijo al agente. */}
+                {!soloLectura && contactQuery.data ? (
+                  <Button
+                    type="button"
+                    onClick={() => void handleSinInteres(!contactQuery.data?.noInterestAt)}
+                    disabled={marcandoSinInteres.isPending}
+                    loading={marcandoSinInteres.isPending}
+                  >
+                    {contactQuery.data.noInterestAt ? "Quitar «sin interés»" : "Marcar sin interés"}
+                  </Button>
+                ) : null}
                 {/* Unir sigue siendo de ADMIN (D2). */}
                 {esAdmin(me) ? (
                   <Button type="button" onClick={() => setUniendo(true)}>
@@ -266,6 +299,22 @@ export function ContactFormPage() {
             ) : undefined
           }
         />
+        {contactQuery.data?.noInterestAt ? (
+          <p className="ds-hint" role="status">
+            <Badge variant="danger">Sin interés</Badge> desde el{" "}
+            {formatDateOnly(contactQuery.data.noInterestAt)}
+            {contactQuery.data.noInterestNote ? ` · «${contactQuery.data.noInterestNote}»` : ""}.
+            Ningún seguimiento automático le vuelve a escribir mientras tenga la marca.
+          </p>
+        ) : null}
+        {marcandoSinInteres.isError ? (
+          <ErrorState>
+            No pudimos cambiar la marca
+            {marcandoSinInteres.error instanceof Error
+              ? `: ${marcandoSinInteres.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
         {unido ? (
           <p className="ds-hint" role="status">
             {unido}

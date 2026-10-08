@@ -824,10 +824,17 @@ export function bloqueDeContacto(
     lastName: string | null;
     email: string | null;
     phone: string | null;
+    // La marca "sin interés" (ítem 185): el agente tiene que saberlo para no
+    // insistir, y para no volver a marcarlo.
+    noInterestAt?: Date | null;
+    noInterestNote?: string | null;
   } & CalificacionEnElPrompt,
   canal?: ConversationChannel,
 ): string {
   const reservados = canal === "WEB";
+  const sinInteres = contact.noInterestAt
+    ? ` Esta persona está marcada SIN INTERÉS desde el ${contact.noInterestAt.toISOString().slice(0, 10)}${contact.noInterestNote ? ` (dijo: «${contact.noInterestNote}»)` : ""}: no le ofrezcas nada ni insistas; si pide algo, atendelo con normalidad.`
+    : "";
   const nombre = nombreUsableDelContacto(contact);
   const datos: string[] = [];
   if (nombre !== null) {
@@ -844,9 +851,12 @@ export function bloqueDeContacto(
   if (datos.length === 0) {
     // Sin ningún dato real, decirlo explícito es mejor que callar: el modelo
     // sabe que puede preguntar el nombre sin estar repitiendo una pregunta.
-    return reservados
-      ? `De la persona con la que estás hablando el CRM todavía no tiene el nombre cargado. Si lo necesitás para avanzar, podés preguntárselo. ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}`
-      : "De la persona con la que estás hablando el CRM todavía no tiene ningún dato cargado (ni nombre, ni email, ni teléfono). Si lo necesitás para avanzar, podés preguntárselo.";
+    return (
+      (reservados
+        ? `De la persona con la que estás hablando el CRM todavía no tiene el nombre cargado. Si lo necesitás para avanzar, podés preguntárselo. ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}`
+        : "De la persona con la que estás hablando el CRM todavía no tiene ningún dato cargado (ni nombre, ni email, ni teléfono). Si lo necesitás para avanzar, podés preguntárselo.") +
+      sinInteres
+    );
   }
 
   // Un nombre de pila solo ("Martín", de un perfil de WhatsApp) sirve para
@@ -859,7 +869,7 @@ export function bloqueDeContacto(
       : tieneNombreCompleto(contact)
         ? "Llamala por su nombre cuando sea natural hacerlo."
         : "Tenés solo su nombre de pila, sin apellido: llamala por su nombre, y pedile nombre y apellido completos únicamente cuando vayas a registrar una oportunidad o una reserva.";
-  return `Datos que el CRM YA tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(datos.join(", "))}\nNo se los vuelvas a pedir: usalos. ${sobreElNombre}${reservados ? ` ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}` : ""}`;
+  return `Datos que el CRM YA tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(datos.join(", "))}\nNo se los vuelvas a pedir: usalos. ${sobreElNombre}${reservados ? ` ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}` : ""}${sinInteres}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -101,6 +101,14 @@ export const updateContactSchema = z
     companyId: z.string().uuid("companyId inválido").nullable().optional(),
     // El vehículo de interés, desde la ficha. null lo quita.
     vehicleOfInterestId: z.string().uuid("vehicleOfInterestId inválido").nullable().optional(),
+    // La marca "sin interés" (ítem 185): true la pone, false la quita.
+    noInterest: z.boolean().optional(),
+    noInterestNote: z
+      .string()
+      .trim()
+      .max(200, "noInterestNote no puede superar los 200 caracteres")
+      .nullable()
+      .optional(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {

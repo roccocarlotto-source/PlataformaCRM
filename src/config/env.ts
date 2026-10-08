@@ -556,6 +556,49 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(5 * 60 * 1000),
+  // -------------------------------------------------------------------------
+  // Seguimiento automático de consultas estancadas (ítem 185 de
+  // docs/frontend-cambios-pendientes.md). Dos workers: el barrido diario que
+  // produce el trigger contact.inquiry_stalled
+  // (src/workers/inquiryStalledWorker.ts; las mismas dos variables que
+  // OPPORTUNITY_STALE_*) y el que manda por WhatsApp lo que la acción
+  // inquiry.follow_up agendó (src/workers/inquiryFollowUpWorker.ts; las
+  // mismas siete que DISCOUNT_VOUCHER_FOLLOWUP_*, con los mismos defaults).
+  INQUIRY_STALLED_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  INQUIRY_STALLED_WORKER_POLL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(24 * 60 * 60 * 1000),
+  INQUIRY_FOLLOWUP_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  INQUIRY_FOLLOWUP_WORKER_POLL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
+  INQUIRY_FOLLOWUP_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(20),
+  INQUIRY_FOLLOWUP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  INQUIRY_FOLLOWUP_BACKOFF_BASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 1000),
+  INQUIRY_FOLLOWUP_BACKOFF_MAX_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30 * 60 * 1000),
+  INQUIRY_FOLLOWUP_LEASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
   // El link del cupón NO tiene variable propia: lo arma buildVoucherPublicUrl
   // (src/utils/voucherPublicUrl.ts, ítem 178) con QR_PUBLIC_BASE_URL, más abajo.
 
