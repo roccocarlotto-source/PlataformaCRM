@@ -117,6 +117,11 @@ import {
   markDiscountVoucherFollowUpSent,
 } from "./discountVoucherFollowUp.repository";
 import {
+  markInquiryFollowUpCancelled,
+  markInquiryFollowUpFailed,
+  markInquiryFollowUpSent,
+} from "./inquiryFollowUp.repository";
+import {
   setWhatsappTemplateMetaId,
   setWhatsappTemplateStatus,
   softDeleteWhatsappTemplate,
@@ -1443,6 +1448,7 @@ interface FixtureNuevos {
   campoY: string;
   voucherY: string;
   voucherFollowUpY: string;
+  inquiryFollowUpY: string;
   templateY: string;
   vehicleY: string;
   photoY: string;
@@ -1691,6 +1697,24 @@ before(async () => {
       attempts: 1,
     },
   });
+  // Seguimiento de consulta (ítem 185): cuelga de la regla, el contacto, la
+  // conversación y la sucursal de Y.
+  const inquiryFollowUpY = await prisma.inquiryFollowUp.create({
+    data: {
+      organizationId: org,
+      automationId: automationY.id,
+      contactId: contactY.id,
+      conversationId: conversationY.id,
+      branchId: branchY.id,
+      channel: "WHATSAPP",
+      outboxEventId: randomUUID(),
+      kind: "WHATSAPP",
+      lastInboundAt: new Date(),
+      scheduledFor: futuro,
+      nextAttemptAt: futuro,
+      attempts: 1,
+    },
+  });
   const templateY = await prisma.whatsappTemplate.create({
     data: {
       organizationId: org,
@@ -1817,6 +1841,7 @@ before(async () => {
     campoY: campoY.id,
     voucherY: voucherY.id,
     voucherFollowUpY: voucherFollowUpY.id,
+    inquiryFollowUpY: inquiryFollowUpY.id,
     templateY: templateY.id,
     vehicleY: vehicleY.id,
     photoY: photoY.id,
@@ -1847,6 +1872,7 @@ after(async () => {
   await prisma.knowledgeBaseEntry.deleteMany(w);
   await prisma.vehicle.deleteMany(w);
   await prisma.whatsappTemplate.deleteMany(w);
+  await prisma.inquiryFollowUp.deleteMany(w);
   await prisma.discountVoucherFollowUp.deleteMany(w);
   await prisma.discountVoucher.deleteMany(w);
   await prisma.qrFollowUp.deleteMany(w);
@@ -1894,6 +1920,8 @@ const leerY = {
   voucher: () => prisma.discountVoucher.findUniqueOrThrow({ where: { id: nx.voucherY } }),
   voucherFollowUp: () =>
     prisma.discountVoucherFollowUp.findUniqueOrThrow({ where: { id: nx.voucherFollowUpY } }),
+  inquiryFollowUp: () =>
+    prisma.inquiryFollowUp.findUniqueOrThrow({ where: { id: nx.inquiryFollowUpY } }),
   template: () => prisma.whatsappTemplate.findUniqueOrThrow({ where: { id: nx.templateY } }),
   vehicle: () => prisma.vehicle.findUniqueOrThrow({ where: { id: nx.vehicleY } }),
   photo: () => prisma.vehiclePhoto.findUniqueOrThrow({ where: { id: nx.photoY } }),
@@ -2208,6 +2236,25 @@ test("H-01 DiscountVoucherFollowUp: las tres transiciones con la organización d
     leerY.voucherFollowUp,
     () => markDiscountVoucherFollowUpFailed(r, "hijacked"),
     "markDiscountVoucherFollowUpFailed",
+  );
+});
+
+test("H-01 InquiryFollowUp: las tres transiciones con la organización de X no tocan el de Y", async () => {
+  const r = reclamoCruzado(nx.inquiryFollowUpY);
+  await assertCrossTenantWriteNoOp(
+    leerY.inquiryFollowUp,
+    () => markInquiryFollowUpSent(r, new Date()),
+    "markInquiryFollowUpSent",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.inquiryFollowUp,
+    () => markInquiryFollowUpCancelled(r, "hijacked"),
+    "markInquiryFollowUpCancelled",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.inquiryFollowUp,
+    () => markInquiryFollowUpFailed(r, "hijacked"),
+    "markInquiryFollowUpFailed",
   );
 });
 

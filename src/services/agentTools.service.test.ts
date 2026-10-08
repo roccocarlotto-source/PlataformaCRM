@@ -73,7 +73,7 @@ async function rechazoDe(nombre: string, args: Record<string, unknown>): Promise
 // Forma del catálogo
 // ---------------------------------------------------------------------------
 
-test("el catálogo tiene exactamente las trece tools (pasos 2b y 3, ítems 74, 85, 175 y B6), con su nombre como clave", () => {
+test("el catálogo tiene exactamente las catorce tools (pasos 2b y 3, ítems 74, 85, 175, B6 y 185), con su nombre como clave", () => {
   assert.deepEqual([...CATALOGO_DE_TOOLS.keys()].sort(), [
     "create_booking",
     "create_lead",
@@ -83,6 +83,7 @@ test("el catálogo tiene exactamente las trece tools (pasos 2b y 3, ítems 74, 8
     "get_contact_info",
     "get_payment_info",
     "get_service_types",
+    "mark_no_interest",
     "reserve_vehicle",
     "search_vehicles",
     "update_contact_custom_fields",

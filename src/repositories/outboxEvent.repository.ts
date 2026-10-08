@@ -259,19 +259,30 @@ export function purgeOutboxEvents(corte: Date, scope: PurgaOutboxScope = {}, db:
 // propio outbox, sin columna nueva. Sirve el índice (organization_id,
 // created_at); el filtro por tipo y el payload se evalúan sobre las pocas
 // filas de la ventana.
-export async function findOpportunityIdsWithEventSince(
+export function findOpportunityIdsWithEventSince(
   organizationId: string,
   eventType: string,
   desde: Date,
   db: Db = prisma,
 ): Promise<Set<string>> {
-  const filas = await db.$queryRaw<{ opportunityId: string | null }[]>`
-    SELECT DISTINCT payload->>'opportunityId' AS "opportunityId"
+  return findPayloadIdsWithEventSince(organizationId, eventType, "opportunityId", desde, db);
+}
+
+// La misma memoria para cualquier barrido: los valores de `clave` del payload
+// ("opportunityId" para opportunity.stale, "contactId" para
+// contact.inquiry_stalled, ítem 185) de los eventos de ese tipo desde `desde`.
+export async function findPayloadIdsWithEventSince(
+  organizationId: string,
+  eventType: string,
+  clave: "opportunityId" | "contactId",
+  desde: Date,
+  db: Db = prisma,
+): Promise<Set<string>> {
+  const filas = await db.$queryRaw<{ id: string | null }[]>`
+    SELECT DISTINCT payload->>${clave} AS "id"
     FROM outbox_events
     WHERE organization_id = ${organizationId}::uuid
       AND event_type = ${eventType}
       AND created_at >= ${desde}`;
-  return new Set(
-    filas.map((f) => f.opportunityId).filter((id): id is string => typeof id === "string"),
-  );
+  return new Set(filas.map((f) => f.id).filter((id): id is string => typeof id === "string"));
 }

@@ -35,6 +35,12 @@ export interface AccionAEjecutar {
   config: Record<string, unknown>;
   // El payload del OutboxEvent, tal como lo emitió el service de negocio.
   payload: Record<string, unknown>;
+  // El id del OutboxEvent (ítem 185): la idempotencia de una acción cuyo
+  // efecto se puede repetir legítimamente sobre la misma entidad a lo largo
+  // del tiempo (inquiry.follow_up agenda a lo sumo un seguimiento por
+  // (regla, contacto, EVENTO), no por contacto). Opcional por lo mismo que
+  // signal: solo lo lee quien lo necesita.
+  outboxEventId?: string;
   // La señal de EventoAEntregar (M-14), que se aborta cuando vence
   // OUTBOX_HANDLER_TIMEOUT_MS. Opcional: solo le sirve a la acción que tiene
   // algo cancelable adentro —hoy, agent.draft_follow_up y su llamada al LLM

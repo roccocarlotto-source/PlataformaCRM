@@ -9,14 +9,29 @@
 
 export const TOKEN_NOMBRE = "{nombre}";
 export const TOKEN_LINK = "{link}";
+// Las del seguimiento de una consulta (ítem 185): el saludo entero ("Hola
+// Ana", o "Hola" si no hay nombre) y el vehículo que consultó.
+export const TOKEN_SALUDO = "{saludo}";
+export const TOKEN_VEHICULO = "{vehiculo}";
 
 // Los mismos ejemplos que el backend manda a Meta con el alta.
 export const EJEMPLO_NOMBRE = "Ana";
 export const EJEMPLO_LINK = "https://g.page/r/ejemplo/review";
+export const EJEMPLO_SALUDO = "Hola Ana";
+export const EJEMPLO_VEHICULO = "Toyota Hilux SRV 2022";
 
 // `link`: el ejemplo de lo que va en {link} (el del cupón no es el del QR).
 export function previewDePlantilla(texto: string, link: string = EJEMPLO_LINK): string {
-  return texto.trim().split(TOKEN_NOMBRE).join(EJEMPLO_NOMBRE).split(TOKEN_LINK).join(link);
+  return texto
+    .trim()
+    .split(TOKEN_NOMBRE)
+    .join(EJEMPLO_NOMBRE)
+    .split(TOKEN_LINK)
+    .join(link)
+    .split(TOKEN_SALUDO)
+    .join(EJEMPLO_SALUDO)
+    .split(TOKEN_VEHICULO)
+    .join(EJEMPLO_VEHICULO);
 }
 
 // Inserta un token donde está el cursor (o reemplaza la selección). Devuelve

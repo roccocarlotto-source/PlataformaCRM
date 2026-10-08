@@ -112,6 +112,8 @@ test("varias reglas activas para el mismo trigger disparan todas, cada una con s
     automationId: reglaA.id,
     config: CONFIG,
     payload: { opportunityId: "opp-1" },
+    // El id del evento (ítem 185): la idempotencia de inquiry.follow_up.
+    outboxEventId: evento.id,
     // La señal del outbox llega tal cual a la acción (ítem 166).
     signal: evento.signal,
   });

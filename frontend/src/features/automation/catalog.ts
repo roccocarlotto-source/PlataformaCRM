@@ -1,7 +1,7 @@
 import type { BadgeVariant } from "../../design-system/Badge";
 import type { SelectOption } from "../../design-system/Select";
 import type { WhatsappApproval, WhatsappFormat } from "./types";
-import { TOKEN_LINK, TOKEN_NOMBRE } from "./whatsappPreview";
+import { TOKEN_LINK, TOKEN_NOMBRE, TOKEN_SALUDO, TOKEN_VEHICULO } from "./whatsappPreview";
 
 // ---------------------------------------------------------------------------
 // Catálogo de triggers y acciones del motor de automatizaciones, del lado del
@@ -37,9 +37,11 @@ import { TOKEN_LINK, TOKEN_NOMBRE } from "./whatsappPreview";
 // Triggers
 // ---------------------------------------------------------------------------
 
-// Espejo de TRIGGER_OPPORTUNITY_WON y TRIGGER_OPPORTUNITY_STALE.
+// Espejo de TRIGGER_OPPORTUNITY_WON, TRIGGER_OPPORTUNITY_STALE y
+// TRIGGER_CONTACT_INQUIRY_STALLED (ítem 185).
 export const TRIGGER_OPPORTUNITY_WON = "opportunity.won";
 export const TRIGGER_OPPORTUNITY_STALE = "opportunity.stale";
+export const TRIGGER_CONTACT_INQUIRY_STALLED = "contact.inquiry_stalled";
 
 export const TRIGGER_OPTIONS: SelectOption<string>[] = [
   {
@@ -51,6 +53,11 @@ export const TRIGGER_OPTIONS: SelectOption<string>[] = [
     value: TRIGGER_OPPORTUNITY_STALE,
     label: "Oportunidad sin movimiento",
     subtitle: "Cuando una oportunidad abierta lleva varios días sin cambios",
+  },
+  {
+    value: TRIGGER_CONTACT_INQUIRY_STALLED,
+    label: "Consulta sin avance",
+    subtitle: "Cuando alguien consultó y lleva varios días sin responder",
   },
 ];
 
@@ -67,11 +74,13 @@ export function triggerLabel(value: string): string {
 // ---------------------------------------------------------------------------
 
 // Espejo de ACTION_CREATE_FOLLOW_UP, ACTION_DRAFT_FOLLOW_UP,
-// ACTION_SEND_QR_FOLLOWUP y ACTION_SEND_DISCOUNT_VOUCHER.
+// ACTION_SEND_QR_FOLLOWUP, ACTION_SEND_DISCOUNT_VOUCHER y
+// ACTION_INQUIRY_FOLLOW_UP (ítem 185).
 export const ACTION_CREATE_FOLLOW_UP = "activity.create_follow_up";
 export const ACTION_DRAFT_FOLLOW_UP = "agent.draft_follow_up";
 export const ACTION_SEND_QR_FOLLOWUP = "opportunity.send_qr_followup";
 export const ACTION_SEND_DISCOUNT_VOUCHER = "opportunity.send_discount_voucher";
+export const ACTION_INQUIRY_FOLLOW_UP = "inquiry.follow_up";
 
 export const ACTION_OPTIONS: SelectOption<string>[] = [
   {
@@ -93,6 +102,12 @@ export const ACTION_OPTIONS: SelectOption<string>[] = [
     value: ACTION_SEND_DISCOUNT_VOUCHER,
     label: "Enviar cupón de descuento",
     subtitle: "Un WhatsApp al cliente con un cupón de un solo uso, unas horas después",
+  },
+  {
+    value: ACTION_INQUIRY_FOLLOW_UP,
+    label: "Retomar la consulta",
+    subtitle:
+      "Un WhatsApp al cliente; por Messenger, Instagram o el sitio web, una tarea para el vendedor",
   },
 ];
 
@@ -116,6 +131,7 @@ export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
     ACTION_SEND_DISCOUNT_VOUCHER,
   ],
   [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
+  [TRIGGER_CONTACT_INQUIRY_STALLED]: [ACTION_INQUIRY_FOLLOW_UP],
 };
 
 // Las acciones que el selector ofrece para un trigger. Un trigger que este
@@ -362,10 +378,65 @@ const TEXTO_INICIAL: Record<string, { conLink: string; sinLink: string }> = {
   },
 };
 
+// El del seguimiento de una consulta (ítem 185), espejo de TEXTO_POR_DEFECTO
+// de src/services/automationActions/inquiryFollowUp.ts. Sin formato ni link.
+export const TEXTO_INICIAL_DE_CONSULTA =
+  "¡{saludo}! Te escribimos por tu consulta sobre {vehiculo}. ¿Seguís interesado? Si querés, te ayudamos a coordinar una visita o un test drive.";
+
 export function textoInicial(actionType: string, formato: string): string {
+  if (actionType === ACTION_INQUIRY_FOLLOW_UP) return TEXTO_INICIAL_DE_CONSULTA;
   const textos = TEXTO_INICIAL[actionType];
   if (!textos) return "";
   return formatoLlevaLink(formato) ? textos.conLink : textos.sinLink;
+}
+
+// ---------------------------------------------------------------------------
+// Qué variables lleva el mensaje de cada acción, para la tarjeta del mensaje
+// (MensajeDeWhatsappCard): el QR y el cupón, {nombre} y {link} según el
+// formato; el seguimiento de una consulta, {saludo} y {vehiculo}, sin formato
+// (es solo texto). Espejo de variablesDeLaAccion en
+// src/services/whatsappTemplate.service.ts.
+// ---------------------------------------------------------------------------
+export interface VariableDelMensaje {
+  token: string;
+  // Lo que se le dice al negocio que va ahí.
+  ayuda: string;
+  obligatoria: boolean;
+}
+
+export interface MensajeDeLaAccion {
+  // Si la regla elige entre solo link, solo imagen o las dos.
+  conFormato: boolean;
+  variables: VariableDelMensaje[];
+}
+
+export function mensajeDeLaAccion(actionType: string, formato: string): MensajeDeLaAccion {
+  if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
+    return {
+      conFormato: false,
+      variables: [
+        {
+          token: TOKEN_SALUDO,
+          ayuda: "el saludo con el nombre del cliente («Hola Ana»), o «Hola» a secas si no lo dio",
+          obligatoria: true,
+        },
+        {
+          token: TOKEN_VEHICULO,
+          ayuda: "el vehículo que consultó, o «el vehículo que consultaste» si no se sabe",
+          obligatoria: false,
+        },
+      ],
+    };
+  }
+  return {
+    conFormato: true,
+    variables: [
+      { token: TOKEN_NOMBRE, ayuda: "el nombre del cliente", obligatoria: true },
+      ...(formatoLlevaLink(formato)
+        ? [{ token: TOKEN_LINK, ayuda: "el link, después del nombre", obligatoria: true }]
+        : []),
+    ],
+  };
 }
 
 // Al cambiar de formato: si el texto sigue siendo uno de los iniciales (o está
@@ -403,6 +474,40 @@ export function validarMensaje(draft: ConfigDraft): string | null {
   }
   return null;
 }
+
+// El mensaje del seguimiento de una consulta (ítem 185): {saludo} una vez,
+// {vehiculo} a lo sumo una, en ese orden, y ninguna otra variable. El resto
+// de las reglas de Meta (no empezar ni terminar con una variable, el largo)
+// las valida el backend con su 400.
+export function validarMensajeDeConsulta(draft: ConfigDraft): string | null {
+  const texto = (draft.messageText ?? "").trim();
+  if (texto === "") return "Escribí el texto del mensaje de WhatsApp.";
+  if (contar(texto, TOKEN_SALUDO) !== 1) {
+    return `El mensaje tiene que incluir ${TOKEN_SALUDO} una vez: ahí va el saludo con el nombre del cliente, o «Hola» si no lo dio.`;
+  }
+  if (contar(texto, TOKEN_VEHICULO) > 1) {
+    return `El mensaje no puede incluir ${TOKEN_VEHICULO} más de una vez.`;
+  }
+  if (contar(texto, TOKEN_NOMBRE) > 0 || contar(texto, TOKEN_LINK) > 0) {
+    return `En este mensaje solo valen ${TOKEN_SALUDO} y ${TOKEN_VEHICULO}.`;
+  }
+  if (
+    texto.includes(TOKEN_VEHICULO) &&
+    texto.indexOf(TOKEN_SALUDO) > texto.indexOf(TOKEN_VEHICULO)
+  ) {
+    return `${TOKEN_SALUDO} tiene que ir antes que ${TOKEN_VEHICULO}.`;
+  }
+  return null;
+}
+
+const configDeSeguimientoDeConsulta: ConfigDeAccion = {
+  draftVacio: () => ({ messageText: TEXTO_INICIAL_DE_CONSULTA }),
+  draftDesde: (config) => ({
+    messageText: typeof config.messageText === "string" ? config.messageText : "",
+  }),
+  validar: validarMensajeDeConsulta,
+  aPayload: (draft) => ({ messageText: (draft.messageText ?? "").trim() }),
+};
 
 function mensajeVacio(actionType: string): ConfigDraft {
   return { whatsappFormat: "LINK", messageText: textoInicial(actionType, "LINK") };
@@ -526,12 +631,18 @@ export const CONFIG_DE_ACCION: Record<string, ConfigDeAccion> = {
   [ACTION_DRAFT_FOLLOW_UP]: configVacia,
   [ACTION_SEND_QR_FOLLOWUP]: configDeSeguimientoQr,
   [ACTION_SEND_DISCOUNT_VOUCHER]: configDeCupon,
+  [ACTION_INQUIRY_FOLLOW_UP]: configDeSeguimientoDeConsulta,
 };
 
 // Las acciones que mandan un WhatsApp con plantilla: su formulario muestra el
-// formato, el texto, la vista previa y el estado de aprobación.
+// texto, la vista previa y el estado de aprobación (y el formato, en las que
+// llevan imagen).
 export function accionConMensajeDeWhatsapp(actionType: string): boolean {
-  return actionType === ACTION_SEND_QR_FOLLOWUP || actionType === ACTION_SEND_DISCOUNT_VOUCHER;
+  return (
+    actionType === ACTION_SEND_QR_FOLLOWUP ||
+    actionType === ACTION_SEND_DISCOUNT_VOUCHER ||
+    actionType === ACTION_INQUIRY_FOLLOW_UP
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -577,9 +688,64 @@ const configDeEstancada: ConfigDeTrigger = {
   aPayload: (draft) => ({ daysWithoutActivity: Number(draft.daysWithoutActivity) }),
 };
 
+// Los topes y defaults de configDeConsultaSinAvanceSchema
+// (src/services/automationTriggers.ts).
+export const MIN_DAYS_SINCE_LAST_MESSAGE = 0;
+export const MAX_DAYS_SINCE_LAST_MESSAGE = 365;
+export const DEFAULT_DAYS_SINCE_LAST_MESSAGE = 3;
+export const MIN_FOLLOW_UPS = 1;
+export const MAX_FOLLOW_UPS = 20;
+export const DEFAULT_MAX_FOLLOW_UPS = 1;
+
+const configDeConsultaSinAvance: ConfigDeTrigger = {
+  draftVacio: () => ({
+    daysSinceLastMessage: String(DEFAULT_DAYS_SINCE_LAST_MESSAGE),
+    maxFollowUps: String(DEFAULT_MAX_FOLLOW_UPS),
+  }),
+
+  draftDesde: (config) => ({
+    daysSinceLastMessage:
+      typeof config.daysSinceLastMessage === "number"
+        ? String(config.daysSinceLastMessage)
+        : String(DEFAULT_DAYS_SINCE_LAST_MESSAGE),
+    maxFollowUps:
+      typeof config.maxFollowUps === "number"
+        ? String(config.maxFollowUps)
+        : String(DEFAULT_MAX_FOLLOW_UPS),
+  }),
+
+  validar: (draft) => {
+    const dias = Number((draft.daysSinceLastMessage ?? "").trim());
+    if (
+      (draft.daysSinceLastMessage ?? "").trim() === "" ||
+      !Number.isInteger(dias) ||
+      dias < MIN_DAYS_SINCE_LAST_MESSAGE ||
+      dias > MAX_DAYS_SINCE_LAST_MESSAGE
+    ) {
+      return `Los días sin respuesta tienen que ser un número entero entre ${MIN_DAYS_SINCE_LAST_MESSAGE} y ${MAX_DAYS_SINCE_LAST_MESSAGE}.`;
+    }
+    const max = Number((draft.maxFollowUps ?? "").trim());
+    if (
+      (draft.maxFollowUps ?? "").trim() === "" ||
+      !Number.isInteger(max) ||
+      max < MIN_FOLLOW_UPS ||
+      max > MAX_FOLLOW_UPS
+    ) {
+      return `La cantidad máxima de seguimientos tiene que ser un número entero entre ${MIN_FOLLOW_UPS} y ${MAX_FOLLOW_UPS}.`;
+    }
+    return null;
+  },
+
+  aPayload: (draft) => ({
+    daysSinceLastMessage: Number(draft.daysSinceLastMessage),
+    maxFollowUps: Number(draft.maxFollowUps),
+  }),
+};
+
 export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
   [TRIGGER_OPPORTUNITY_WON]: configVacia,
   [TRIGGER_OPPORTUNITY_STALE]: configDeEstancada,
+  [TRIGGER_CONTACT_INQUIRY_STALLED]: configDeConsultaSinAvance,
 };
 
 // El default del formulario: la PRIMERA entrada de cada catálogo, no un valor

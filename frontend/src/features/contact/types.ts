@@ -34,6 +34,9 @@ export interface Contact {
   customerSince?: string | null;
   // Cuándo lo creó una importación; null si se cargó por otro camino.
   importedAt?: string | null;
+  // "Sin interés" (ítem 185): desde cuándo, y lo que dijo. null = sin marca.
+  noInterestAt?: string | null;
+  noInterestNote?: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -142,4 +145,7 @@ export interface CreateContactInput {
 // El vehículo de interés solo se edita desde la ficha (PATCH): null lo quita.
 export type UpdateContactInput = Partial<CreateContactInput> & {
   vehicleOfInterestId?: string | null;
+  // La marca "sin interés" (ítem 185): true la pone, false la quita.
+  noInterest?: boolean;
+  noInterestNote?: string | null;
 };

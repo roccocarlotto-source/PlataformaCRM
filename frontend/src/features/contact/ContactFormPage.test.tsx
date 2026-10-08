@@ -738,3 +738,61 @@ describe("ContactFormPage", () => {
     expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
   });
 });
+
+// Ítem 185: la marca "sin interés" se ve en la ficha y se pone o se quita a
+// mano con un PATCH propio (noInterest), sin pasar por Guardar.
+describe("ContactFormPage — sin interés (ítem 185)", () => {
+  it("con la marca muestra el badge con la fecha y la nota, y «Quitar» manda noInterest: false", async () => {
+    let patchedBody: unknown;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () =>
+        HttpResponse.json(
+          makeContact({
+            id: "ct1",
+            noInterestAt: "2026-10-08T15:00:00.000Z",
+            noInterestNote: "ya compró en otro lado",
+          }),
+        ),
+      ),
+      http.patch(`${contactsUrl}/:id`, async ({ request }) => {
+        patchedBody = await request.json();
+        return HttpResponse.json(makeContact({ id: "ct1", noInterestAt: null }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit");
+
+    const aviso = await screen.findByRole("status");
+    expect(within(aviso).getByText("Sin interés")).toBeInTheDocument();
+    expect(aviso).toHaveTextContent("«ya compró en otro lado»");
+    expect(aviso).toHaveTextContent(new Date("2026-10-08T15:00:00.000Z").toLocaleDateString());
+
+    await user.click(screen.getByRole("button", { name: "Quitar «sin interés»" }));
+    await waitFor(() => expect(patchedBody).toEqual({ noInterest: false }));
+  });
+
+  it("sin la marca, «Marcar sin interés» confirma y manda noInterest: true", async () => {
+    let patchedBody: unknown;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () => HttpResponse.json(makeContact({ id: "ct1" }))),
+      http.patch(`${contactsUrl}/:id`, async ({ request }) => {
+        patchedBody = await request.json();
+        return HttpResponse.json(
+          makeContact({ id: "ct1", noInterestAt: "2026-10-08T15:00:00.000Z" }),
+        );
+      }),
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit");
+
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
+    expect(screen.queryByText("Sin interés")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Marcar sin interés" }));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/sin interés/));
+    await waitFor(() => expect(patchedBody).toEqual({ noInterest: true }));
+    confirmSpy.mockRestore();
+  });
+});

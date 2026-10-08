@@ -58,6 +58,7 @@ import {
   camposPersonalizadosParaGuardar,
   getContactById,
   qualifyLead,
+  marcarSinInteres,
 } from "./contact.service";
 import type { LlmToolDefinition } from "./llmProvider.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
@@ -2824,6 +2825,65 @@ const getContactActivitiesTool: ToolDelAgente = {
 };
 
 // ---------------------------------------------------------------------------
+// mark_no_interest (ítem 185 de docs/frontend-cambios-pendientes.md)
+//
+// El cliente dijo claramente que no quiere seguir. La marca queda en el
+// contacto (noInterestAt + lo que dijo), se ve en la ficha, se quita a mano, y
+// mientras está ningún seguimiento automático le vuelve a escribir
+// (inquiryStalledWorker la filtra y el worker de envío cancela lo agendado).
+// El modelo NO decide qué pasa con los seguimientos: solo registra lo que la
+// persona dijo; el resto es código (marcarSinInteres).
+// ---------------------------------------------------------------------------
+export const NOMBRE_TOOL_SIN_INTERES = "mark_no_interest";
+
+export const DESCRIPCION_DE_MARK_NO_INTEREST =
+  "Marca al contacto de esta conversación como «sin interés» cuando dice CLARAMENTE que no quiere seguir: «no gracias», «ya compré en otro lado», «no me interesa», «no me escribas más», «dejá de mandarme mensajes». Desde ese momento ningún seguimiento automático le vuelve a escribir, y el vendedor lo ve en la ficha. Mandá en motivo lo que dijo, en pocas palabras y sin inventar. NO la uses ante un «lo voy a pensar», un «después te aviso», una pregunta o un silencio: eso no es falta de interés. Después de marcarlo, despedite con cortesía y no insistas con ofertas; si más adelante pide algo, atendelo normalmente.";
+
+export const QUE_HACER_TRAS_MARCAR_SIN_INTERES =
+  "Despedite con cortesía, sin ofrecerle nada más ni insistir. Si más adelante pide algo, atendelo normalmente.";
+
+const markNoInterestArgs = z
+  .object({
+    motivo: z
+      .string({ required_error: "motivo es requerido" })
+      .trim()
+      .min(1, "motivo es requerido")
+      .max(200, "motivo no puede superar los 200 caracteres"),
+  })
+  .strict();
+
+const markNoInterestTool: ToolDelAgente = {
+  definition: {
+    name: NOMBRE_TOOL_SIN_INTERES,
+    description: DESCRIPCION_DE_MARK_NO_INTEREST,
+    parameters: {
+      type: "object",
+      properties: {
+        motivo: {
+          type: "string",
+          description:
+            "Lo que dijo el cliente, en pocas palabras: «ya compró otro auto», «no quiere que le escriban más».",
+        },
+      },
+      required: ["motivo"],
+      additionalProperties: false,
+    },
+  },
+
+  ejecutar(args, contexto) {
+    const validacion = validarArgs(markNoInterestArgs, args);
+    if (!validacion.ok) {
+      return Promise.resolve(validacion.resultado);
+    }
+    const { motivo } = validacion.value;
+    return conErroresDeNegocio(async () => {
+      await marcarSinInteres(contexto.organizationId, contexto.conversation.contactId, motivo);
+      return exito({ marcado: true, motivo, queHacer: QUE_HACER_TRAS_MARCAR_SIN_INTERES });
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
 // El catálogo
 // ---------------------------------------------------------------------------
 
@@ -2842,6 +2902,7 @@ export const CATALOGO_DE_TOOLS: ReadonlyMap<string, ToolDelAgente> = new Map(
     searchVehiclesTool,
     getServiceTypesTool,
     getContactActivitiesTool,
+    markNoInterestTool,
   ].map((tool) => [tool.definition.name, tool]),
 );
 

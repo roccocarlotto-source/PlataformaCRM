@@ -120,6 +120,9 @@ export async function desmontar(...escenarios: Escenario[]) {
     // La plantilla de WhatsApp de cada regla (ítems 160 y 181): sus FKs a
     // organizations y a automations son RESTRICT, así que va antes que la regla.
     await prisma.whatsappTemplate.deleteMany({ where });
+    // Los seguimientos de consultas (ítem 185): FKs RESTRICT a la regla, el
+    // contacto, la conversación y la sucursal.
+    await prisma.inquiryFollowUp.deleteMany({ where });
     await prisma.automationExecution.deleteMany({ where });
     await prisma.automation.deleteMany({ where });
     await prisma.activity.deleteMany({ where });
@@ -131,6 +134,9 @@ export async function desmontar(...escenarios: Escenario[]) {
     await prisma.conversation.deleteMany({ where });
     await prisma.agent.deleteMany({ where });
     await prisma.contact.deleteMany({ where });
+    // Las unidades del stock (el vehículo de interés del ítem 185): después
+    // de los contactos, que las apuntan, y antes de la sucursal.
+    await prisma.vehicle.deleteMany({ where });
     await prisma.qrCode.deleteMany({ where });
     await prisma.branch.deleteMany({ where });
     await prisma.stage.deleteMany({ where });

@@ -3,6 +3,7 @@ import {
   ACCIONES_POR_TRIGGER,
   ACTION_CREATE_FOLLOW_UP,
   ACTION_DRAFT_FOLLOW_UP,
+  ACTION_INQUIRY_FOLLOW_UP,
   ACTION_OPTIONS,
   ACTION_SEND_DISCOUNT_VOUCHER,
   ACTION_SEND_QR_FOLLOWUP,
@@ -12,9 +13,13 @@ import {
   DEFAULT_TRIGGER,
   MAX_DELAY_MINUTES,
   MAX_NOTES,
+  TRIGGER_CONTACT_INQUIRY_STALLED,
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPPORTUNITY_WON,
   TRIGGER_OPTIONS,
+  TEXTO_INICIAL_DE_CONSULTA,
+  mensajeDeLaAccion,
+  validarMensajeDeConsulta,
   accionConMensajeDeWhatsapp,
   accionesParaTrigger,
   actionLabel,
@@ -61,7 +66,7 @@ describe("catálogo de triggers y acciones", () => {
     }
   });
 
-  it("espejo de la compatibilidad del backend: ganada -> tarea, QR o cupón, sin movimiento -> borrador con IA", () => {
+  it("espejo de la compatibilidad del backend: ganada -> tarea, QR o cupón; sin movimiento -> borrador con IA; consulta sin avance -> retomar la consulta", () => {
     expect(ACCIONES_POR_TRIGGER).toEqual({
       [TRIGGER_OPPORTUNITY_WON]: [
         ACTION_CREATE_FOLLOW_UP,
@@ -69,6 +74,7 @@ describe("catálogo de triggers y acciones", () => {
         ACTION_SEND_DISCOUNT_VOUCHER,
       ],
       [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
+      [TRIGGER_CONTACT_INQUIRY_STALLED]: [ACTION_INQUIRY_FOLLOW_UP],
     });
     // Un trigger que el espejo no conoce no restringe: decide el backend.
     expect(accionesParaTrigger("booking.reminder")).toEqual(ACTION_OPTIONS);
@@ -403,5 +409,68 @@ describe("el mensaje de WhatsApp (formato y texto)", () => {
     expect(formatoLlevaImagen("LINK_AND_IMAGE")).toBe(true);
     expect(accionConMensajeDeWhatsapp(ACTION_SEND_QR_FOLLOWUP)).toBe(true);
     expect(accionConMensajeDeWhatsapp(ACTION_CREATE_FOLLOW_UP)).toBe(false);
+  });
+});
+
+// Ítem 185: el trigger "Consulta sin avance" y la acción "Retomar la consulta".
+describe("contact.inquiry_stalled e inquiry.follow_up (ítem 185)", () => {
+  const trigger = CONFIG_DE_TRIGGER[TRIGGER_CONTACT_INQUIRY_STALLED];
+  const accion = CONFIG_DE_ACCION[ACTION_INQUIRY_FOLLOW_UP];
+
+  it("el trigger arranca con 3 días y 1 seguimiento, lee lo guardado y viaja como números", () => {
+    expect(trigger.draftVacio()).toEqual({ daysSinceLastMessage: "3", maxFollowUps: "1" });
+    expect(trigger.draftDesde({ daysSinceLastMessage: 7, maxFollowUps: 2 })).toEqual({
+      daysSinceLastMessage: "7",
+      maxFollowUps: "2",
+    });
+    expect(trigger.aPayload({ daysSinceLastMessage: "7", maxFollowUps: "2" })).toEqual({
+      daysSinceLastMessage: 7,
+      maxFollowUps: 2,
+    });
+    expect(trigger.validar({ daysSinceLastMessage: "0", maxFollowUps: "1" })).toBeNull();
+    expect(trigger.validar({ daysSinceLastMessage: "", maxFollowUps: "1" })).toMatch(
+      /días sin respuesta/,
+    );
+    expect(trigger.validar({ daysSinceLastMessage: "366", maxFollowUps: "1" })).toMatch(
+      /entre 0 y 365/,
+    );
+    expect(trigger.validar({ daysSinceLastMessage: "3", maxFollowUps: "0" })).toMatch(
+      /entre 1 y 20/,
+    );
+    expect(trigger.validar({ daysSinceLastMessage: "3", maxFollowUps: "1.5" })).toMatch(/entero/);
+  });
+
+  it("la acción arranca con el texto por defecto, sin formato, con {saludo} y {vehiculo}", () => {
+    expect(accion.draftVacio()).toEqual({ messageText: TEXTO_INICIAL_DE_CONSULTA });
+    expect(accion.aPayload({ messageText: "  ¡{saludo}! ¿Seguís?  " })).toEqual({
+      messageText: "¡{saludo}! ¿Seguís?",
+    });
+    const mensaje = mensajeDeLaAccion(ACTION_INQUIRY_FOLLOW_UP, "LINK");
+    expect(mensaje.conFormato).toBe(false);
+    expect(mensaje.variables.map((v) => v.token)).toEqual(["{saludo}", "{vehiculo}"]);
+    expect(
+      mensajeDeLaAccion(ACTION_SEND_QR_FOLLOWUP, "LINK").variables.map((v) => v.token),
+    ).toEqual(["{nombre}", "{link}"]);
+    expect(
+      mensajeDeLaAccion(ACTION_SEND_QR_FOLLOWUP, "IMAGE").variables.map((v) => v.token),
+    ).toEqual(["{nombre}"]);
+  });
+
+  it("valida el mensaje: {saludo} una vez, {vehiculo} a lo sumo una y después, y ningún {nombre}/{link}", () => {
+    expect(validarMensajeDeConsulta({ messageText: TEXTO_INICIAL_DE_CONSULTA })).toBeNull();
+    expect(validarMensajeDeConsulta({ messageText: "¡{saludo}! ¿Seguís?" })).toBeNull();
+    expect(validarMensajeDeConsulta({ messageText: "" })).toMatch(/Escribí el texto/);
+    expect(validarMensajeDeConsulta({ messageText: "¿Seguís interesado en {vehiculo}?" })).toMatch(
+      /incluir {saludo} una vez/,
+    );
+    expect(
+      validarMensajeDeConsulta({ messageText: "¡{saludo}! {vehiculo} y {vehiculo}." }),
+    ).toMatch(/más de una vez/);
+    expect(validarMensajeDeConsulta({ messageText: "¡{saludo}! Hola {nombre}." })).toMatch(
+      /solo valen/,
+    );
+    expect(validarMensajeDeConsulta({ messageText: "Por {vehiculo}. ¡{saludo}!" })).toMatch(
+      /antes que/,
+    );
   });
 });

@@ -31,6 +31,7 @@ import { appendLeadNotes, getContactById, mergeLeadAiData } from "./contact.serv
 //   discount_voucher_follow_ups.contact_id   cupones agendados
 //   discount_vouchers.contact_id             cupones
 //   ingestion_events.promoted_contact_id     eventos de ingesta
+//   inquiry_follow_ups.contact_id            seguimientos de consultas (ítem 185)
 //   opportunities.contact_id                 oportunidades (y con ellas
 //                                            cotizaciones, pagos, entregas y
 //                                            permutas, que cuelgan de la
@@ -71,6 +72,7 @@ export const FKS_A_CONTACTS = [
   "discount_voucher_follow_ups.contact_id",
   "discount_vouchers.contact_id",
   "ingestion_events.promoted_contact_id",
+  "inquiry_follow_ups.contact_id",
   "opportunities.contact_id",
   "qr_follow_ups.contact_id",
 ] as const;
@@ -390,6 +392,7 @@ export async function contarRelaciones(
     eventos,
     oportunidades,
     seguimientosQr,
+    seguimientosDeConsultas,
     unidos,
   ] = await Promise.all([
     db.activity.count({ where: { ...w, deletedAt: null } }),
@@ -401,6 +404,7 @@ export async function contarRelaciones(
     db.ingestionEvent.count({ where: { organizationId, promotedContactId: contactId } }),
     db.opportunity.count({ where: { ...w, deletedAt: null } }),
     db.qrFollowUp.count({ where: w }),
+    db.inquiryFollowUp.count({ where: w }),
     db.contact.count({ where: { organizationId, mergedIntoId: contactId } }),
   ]);
   return {
@@ -413,6 +417,7 @@ export async function contarRelaciones(
     eventos,
     oportunidades,
     seguimientosQr,
+    seguimientosDeConsultas,
     unidos,
   };
 }
@@ -524,6 +529,8 @@ export async function unirContactos(
         ).count,
         oportunidades: (await tx.opportunity.updateMany({ where: de, data: a })).count,
         seguimientosQr: (await tx.qrFollowUp.updateMany({ where: de, data: a })).count,
+        seguimientosDeConsultas: (await tx.inquiryFollowUp.updateMany({ where: de, data: a }))
+          .count,
         unidos: (
           await tx.contact.updateMany({
             where: { organizationId, mergedIntoId: absorbedId },

@@ -257,7 +257,10 @@ from (
       -- 20261026120000): las cuatro tablas con organization_id propio y la
       -- política uniforme.
       ('import_batches'), ('external_record_links'), ('vehicle_photo_imports'),
-      ('import_syncs')
+      ('import_syncs'),
+      -- Seguimiento automático de consultas estancadas (ítem 185, migración
+      -- 20261029120000): organization_id propio y la política uniforme.
+      ('inquiry_follow_ups')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -949,7 +952,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 80 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 84 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -973,7 +976,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 80 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 84 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1153,7 +1156,16 @@ from (
     -- la plantilla cuelga de la AUTOMATIZACIÓN que manda con ella. Una FK
     -- bien formada hacia agents (el otro "configurador" de mensajes, también
     -- con UNIQUE (organization_id, id)) pasaría la fila 14 entera.
-    ('whatsapp_templates_organization_id_automation_id_fkey|whatsapp_templates(organization_id,automation_id)->automations(organization_id,id)')
+    ('whatsapp_templates_organization_id_automation_id_fkey|whatsapp_templates(organization_id,automation_id)->automations(organization_id,id)'),
+    -- Seguimiento automático de consultas (ítem 185, migración 20261029120000):
+    -- el mismo molde que discount_voucher_follow_ups con la conversación en
+    -- lugar de la oportunidad. conversation_id es el candidato de esta tabla:
+    -- una FK bien formada hacia messages (que también tiene UNIQUE
+    -- (organization_id, id)) pasaría la fila 14 entera.
+    ('inquiry_follow_ups_organization_id_automation_id_fkey|inquiry_follow_ups(organization_id,automation_id)->automations(organization_id,id)'),
+    ('inquiry_follow_ups_organization_id_branch_id_fkey|inquiry_follow_ups(organization_id,branch_id)->branches(organization_id,id)'),
+    ('inquiry_follow_ups_organization_id_contact_id_fkey|inquiry_follow_ups(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('inquiry_follow_ups_organization_id_conversation_id_fkey|inquiry_follow_ups(organization_id,conversation_id)->conversations(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
@@ -1203,6 +1215,10 @@ from (
     -- agendados. Mismo molde que qr_follow_ups_claimable_idx.
     ('discount_voucher_follow_ups_claimable_idx',
      'CREATE INDEX discount_voucher_follow_ups_claimable_idx ON public.discount_voucher_follow_ups USING btree (next_attempt_at) WHERE (status = ''PENDING''::"DiscountVoucherFollowUpStatus")'),
+    -- Ítem 185 (migración 20261029120000): la cola de seguimientos de
+    -- consultas por WhatsApp. Mismo molde.
+    ('inquiry_follow_ups_claimable_idx',
+     'CREATE INDEX inquiry_follow_ups_claimable_idx ON public.inquiry_follow_ups USING btree (next_attempt_at) WHERE (status = ''PENDING''::"InquiryFollowUpStatus")'),
     ('agent_inbound_jobs_claimable_idx',
      'CREATE INDEX agent_inbound_jobs_claimable_idx ON public.agent_inbound_jobs USING btree (COALESCE(next_attempt_at, created_at)) WHERE (status = ANY (ARRAY[''PENDING''::"AgentInboundJobStatus", ''PROCESSING''::"AgentInboundJobStatus"]))'),
     -- B-14 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): los índices de las COLAS. Si se
