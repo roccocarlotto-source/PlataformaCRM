@@ -69,8 +69,7 @@ export function Sincronizaciones({
   return (
     <Card heading="Sincronizaciones">
       <p className="ds-hint">
-        Los campos mapeados se actualizan desde la planilla en cada sincronización. El estado que
-        maneja el CRM (reservada, vendida, con una oportunidad) no se pisa, y nada se borra.
+        En cada sincronización se actualizan los campos mapeados; nada se borra.
       </p>
       <ul className="ds-stack">
         {syncs.data.map((s) => {

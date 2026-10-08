@@ -106,9 +106,6 @@ export function ConversationBriefCard({ conversation }: ConversationBriefCardPro
               disabled={enCurso}
             />
           </label>
-          <p className="ds-hint">
-            Vaciá el texto y guardá para borrar el resumen y poder generarlo de nuevo.
-          </p>
           <div className="ds-card-actions">
             <Button onClick={cancelarEdicion} disabled={enCurso}>
               Cancelar

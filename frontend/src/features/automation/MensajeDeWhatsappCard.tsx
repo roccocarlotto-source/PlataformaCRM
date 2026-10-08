@@ -36,8 +36,7 @@ function AprobacionDeWhatsapp({
   if (!approval || !automationId) {
     return (
       <p className="ds-hint">
-        Al guardar la regla, el mensaje se manda a WhatsApp para que lo apruebe. Suele tardar de
-        unos minutos a un día; hasta entonces no se le manda nada a nadie.
+        Al guardar se manda a aprobar a WhatsApp; puede tardar hasta un día.
       </p>
     );
   }

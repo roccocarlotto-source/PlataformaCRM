@@ -70,8 +70,7 @@ function ModeloDeAgenteCard() {
             />
           </FormField>
           <p className="ds-hint ds-field-grid--full">
-            El nombre del modelo tal cual lo publica OpenRouter. Un modelo inexistente no falla acá:
-            falla al usarlo, y el agente deriva a una persona.
+            Tal cual lo publica OpenRouter; uno inexistente falla al usarlo.
           </p>
         </div>
         {error ? <ErrorState>{error}</ErrorState> : null}
@@ -161,10 +160,6 @@ export function AgentModelPage() {
     <div className="ds-form">
       <PageHeader help={AYUDA.modeloDeIa} title="Modelo de IA" />
       <div className="ds-stack">
-        <p className="ds-hint">
-          El modelo lo elige la plataforma: todas las organizaciones usan la misma clave del
-          proveedor. Un agente nuevo nace con el modelo por defecto del servidor.
-        </p>
         <ModeloDeAgenteCard />
         <ModeloDeAgenteInternoCard />
       </div>

@@ -416,25 +416,19 @@ describe("AgentFormPage — creación", () => {
     server.use(mockBranches());
     renderForm("/agents/new");
 
-    const hint = screen.getByText(/Es lo que el modelo lee antes de cada conversación/);
-    expect(hint).toHaveTextContent(/temas que no puede tocar/);
-    expect(hint).toHaveTextContent(/promesas que no puede hacer/);
-    expect(hint).toHaveTextContent(/derivar la conversación a una persona/);
+    // El detalle (temas, promesas, cuándo derivar) vive en la guía de uso.
+    expect(screen.getByText(/Lo que el agente lee antes de cada conversación/)).toBeInTheDocument();
   });
 
   it("Reglas del agente habla solo de los tres candados de código, y dice que son código", async () => {
     server.use(mockBranches());
     renderForm("/agents/new");
 
-    const hint = screen.getByText(/Escribilo con tus palabras/);
-    expect(hint).toHaveTextContent(/acciones no puede ejecutar nunca/);
-    expect(hint).toHaveTextContent(/datos no puede modificar/);
-    expect(hint).toHaveTextContent(/antes de ejecutar una acción/);
-    // La diferencia real con Instrucciones, dicha con todas las letras: es lo
-    // único que justifica que esto viva en un campo aparte.
-    expect(hint).toHaveTextContent(/el sistema verifica con código/);
-    // Y lo otro no se pide acá: se dice dónde va.
-    expect(hint).toHaveTextContent(/va en Instrucciones/);
+    // Los tres candados se explican en la guía de uso; la pantalla dice solo
+    // que el sistema los hace cumplir.
+    expect(
+      screen.getByText(/El sistema las hace cumplir antes de cada acción/),
+    ).toBeInTheDocument();
 
     const placeholder =
       screen.getByLabelText("Reglas del agente").getAttribute("placeholder") ?? "";
@@ -446,7 +440,7 @@ describe("AgentFormPage — creación", () => {
     expect(placeholder).not.toMatch(/derivá/);
   });
 
-  it("las tools muestran la descripción completa que lee el modelo, no solo el nombre", async () => {
+  it("las tools muestran una línea de descripción, no solo el nombre", async () => {
     server.use(mockBranches());
     const user = userEvent.setup();
     renderForm("/agents/new");
@@ -457,7 +451,7 @@ describe("AgentFormPage — creación", () => {
     // va como aria-describedby), y la descripción está visible en la lista.
     expect(screen.getByRole("checkbox", { name: "Crear oportunidad" })).toBeInTheDocument();
     expect(
-      screen.getByText(/Crea una oportunidad de venta para el contacto de esta conversación/),
+      screen.getByText(/Crea una oportunidad cuando el cliente toma la iniciativa/),
     ).toBeInTheDocument();
   });
 
@@ -468,7 +462,7 @@ describe("AgentFormPage — creación", () => {
     server.use(mockBranches());
     const user = userEvent.setup();
     renderForm("/agents/new");
-    const aviso = /exige el nombre y el apellido del cliente/;
+    const aviso = /exige el nombre del cliente/;
 
     expect(screen.queryByText(aviso)).not.toBeInTheDocument();
     await user.click(screen.getByLabelText("Acciones habilitadas", { selector: "button" }));
@@ -699,7 +693,7 @@ describe("AgentFormPage — edición", () => {
     expect(sucursal).toHaveValue("Sucursal Chuy");
     expect(sucursal).toBeDisabled();
     expect(
-      screen.getByText(/La sucursal no se puede cambiar: las conversaciones/),
+      screen.getByText(/No se puede cambiar\. Para otra sucursal, creá un agente nuevo/),
     ).toBeInTheDocument();
   });
 
@@ -839,7 +833,7 @@ describe("AgentFormPage — edición", () => {
 
     const texto = await screen.findByLabelText("Mensaje cuando no hay nadie disponible");
     expect(texto).toHaveValue("Ahora no hay nadie, te escribimos enseguida.");
-    expect(screen.getByText(/se agrega solo cuándo atiende el equipo/)).toBeInTheDocument();
+    expect(screen.getByText(/No escribas el horario: se agrega solo/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(bodies[0].unansweredHandoffNoticeText).toBe(
@@ -864,7 +858,7 @@ describe("AgentFormPage — edición", () => {
     const campo = await screen.findByLabelText("ID del número de WhatsApp");
     expect(campo).toHaveValue("106540352242922");
     expect(campo).toBeDisabled();
-    expect(screen.getByText(/Lo configura el equipo de la plataforma/)).toBeInTheDocument();
+    expect(screen.getByText(/Lo asigna el equipo de la plataforma/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
@@ -920,7 +914,7 @@ describe("AgentFormPage — edición", () => {
     await user.click(screen.getByLabelText("Acciones habilitadas", { selector: "button" }));
     const reservar = screen.getByRole("checkbox", { name: "Reservar unidad" });
     expect(reservar).not.toBeChecked();
-    expect(screen.getByText(/SACA LA UNIDAD DEL STOCK/)).toBeInTheDocument();
+    expect(screen.getByText(/la saca para otros clientes/)).toBeInTheDocument();
     await user.click(reservar);
     await user.keyboard("{Escape}");
 

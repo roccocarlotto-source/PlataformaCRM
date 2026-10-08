@@ -47,7 +47,7 @@ const agentUrl = `${env.apiUrl}/api/agents/ag1`;
 const testMessageUrl = `${agentUrl}/test-message`;
 const contactsUrl = `${env.apiUrl}/api/contacts`;
 
-const ADVERTENCIA = /Esto no es un entorno de prueba aislado/;
+const ADVERTENCIA = /No es una prueba aislada/;
 
 function mockAgent(overrides: Partial<Agent> = {}) {
   return http.get(agentUrl, () => HttpResponse.json(makeAgent(overrides)));

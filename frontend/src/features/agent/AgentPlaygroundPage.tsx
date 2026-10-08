@@ -243,9 +243,8 @@ export function AgentPlaygroundPage() {
           datos reales, y que un lector de pantalla la anuncie antes que el
           resto es exactamente lo que se busca. */}
       <Notice tone="warning">
-        Esto no es un entorno de prueba aislado: los mensajes generan una conversación real con el
-        contacto que elijas, y si el agente tiene herramientas habilitadas puede crear
-        oportunidades, calificar al lead o derivar la conversación a un vendedor de verdad.
+        No es una prueba aislada: la conversación es real y el agente puede crear oportunidades,
+        reservar o derivar.
       </Notice>
 
       {sinCanales ? (
@@ -300,9 +299,8 @@ export function AgentPlaygroundPage() {
           <Card heading="Conversación">
             <div className="ds-stack">
               <p className="ds-hint">
-                Escribís <strong>como el contacto</strong>, no como vos. Lo que se ve acá es solo lo
-                que pasó desde que abriste esta pantalla; el hilo completo, con lo de sesiones
-                anteriores, está en <Link to="/conversations">Conversaciones</Link>.
+                Escribís <strong>como el contacto</strong>, no como vos. El hilo completo está en{" "}
+                <Link to="/conversations">Conversaciones</Link>.
               </p>
 
               {entradas.length === 0 ? (

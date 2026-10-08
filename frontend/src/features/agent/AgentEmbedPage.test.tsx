@@ -320,7 +320,7 @@ describe("AgentEmbedPage — tokens de embed", () => {
 
     // El token en claro, en su cuadro, con la advertencia de que es la única vez.
     expect(await screen.findByLabelText("Token")).toHaveValue(TOKEN_EN_CLARO);
-    expect(screen.getByText(/única vez que vas a poder ver este token/)).toBeInTheDocument();
+    expect(screen.getByText(/única vez que vas a ver este token/)).toBeInTheDocument();
 
     // La lista refetcheada trae la fila nueva, pero con el PREFIJO: el token
     // en claro no está en esa respuesta ni puede estarlo.
@@ -559,9 +559,7 @@ describe("AgentEmbedPage — código para instalar", () => {
     expect(codigo).toContain('data-embed-token="PEGÁ_ACÁ_TU_TOKEN"');
     // El prefijo NO sirve para autenticar: ponerlo acá sugeriría que sí.
     expect(codigo).not.toContain("embed_abc123");
-    expect(
-      screen.getByText(/un token solo se puede ver en el momento de generarlo/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/por tu token, o generá uno nuevo/)).toBeInTheDocument();
   });
 
   it("el token recién generado entra solo en el snippet", async () => {

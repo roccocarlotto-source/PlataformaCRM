@@ -515,9 +515,6 @@ export function OpportunityFormPage() {
             ) : undefined
           }
         />
-        {isEditMode || isClosed(values.status) ? null : (
-          <p className="ds-hint">Se crea abierta en la etapa elegida del embudo.</p>
-        )}
         <div className="ds-stack">
           <Card heading="Oportunidad">
             <div className="ds-field-grid">
@@ -603,10 +600,7 @@ export function OpportunityFormPage() {
                   bug. Desaparece apenas se tipea algo en cualquiera de los
                   dos: ahí ya es un monto explícito. */}
                 {hasNewVehicle && !values.amount && !values.currency ? (
-                  <p className="ds-hint">
-                    Se completa con el precio de la unidad al guardar, salvo que cargues un monto
-                    acá.
-                  </p>
+                  <p className="ds-hint">Vacío: se completa con el precio de la unidad.</p>
                 ) : null}
               </div>
               {/* Fecha estimada + "Fecha desconocida" (ítem 18.C) comparten la
@@ -735,10 +729,7 @@ export function OpportunityFormPage() {
                       }
                     />
                   </FormField>
-                  <p className="ds-hint ds-field-grid--full">
-                    Entidad vacía para financiación propia. Los importes van en la moneda de la
-                    oportunidad.
-                  </p>
+                  <p className="ds-hint ds-field-grid--full">Entidad vacía: financiación propia.</p>
                 </>
               ) : null}
             </div>
@@ -812,8 +803,7 @@ export function OpportunityFormPage() {
           <div>
             {isClosed(values.status) ? null : (
               <p className="ds-hint">
-                Para cerrarla como ganada o perdida, elegí una etapa marcada así en el proceso de
-                venta, o movela en el embudo.
+                Para cerrarla, elegí una etapa de cierre o movela en el embudo.
               </p>
             )}
             <RequiredFieldsHint />

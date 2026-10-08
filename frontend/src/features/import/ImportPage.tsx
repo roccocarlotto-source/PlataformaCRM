@@ -192,10 +192,7 @@ export function ImportPage() {
                 ]}
               />
 
-              <Notice>
-                Las filas se procesan en segundo plano: entran pendientes y se promueven a contactos
-                después. Actualizá el estado para ver cómo va.
-              </Notice>
+              <Notice>Se procesan en segundo plano: actualizá el estado para ver cómo va.</Notice>
 
               {/* Las dos vistas se complementan en vez de competir: acá viven los
                   contadores agregados del lote (un GROUP BY barato), allá la cola

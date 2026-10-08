@@ -9,9 +9,9 @@ import { avisoDeAccionesSinGuardarElNombre } from "./tools";
 describe("avisoDeAccionesSinGuardarElNombre", () => {
   it("avisa cuando hay una acción que exige el nombre y ninguna que lo guarde", () => {
     const aviso = avisoDeAccionesSinGuardarElNombre(["create_opportunity", "search_vehicles"]);
-    expect(aviso).toMatch(/«Crear oportunidad» exige el nombre y el apellido/);
+    expect(aviso).toMatch(/«Crear oportunidad» exige el nombre del cliente/);
     expect(aviso).toMatch(/«Actualizar la calificación» o «Calificar el lead»/);
-    expect(aviso).toMatch(/nunca se van a ejecutar/);
+    expect(aviso).toMatch(/para que pueda guardarlo/);
   });
 
   it("nombra todas las acciones que lo exigen, en el orden del catálogo", () => {

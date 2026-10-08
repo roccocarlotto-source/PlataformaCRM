@@ -45,11 +45,7 @@ export function FieldMappingEditor({ rows, onChange, disabled }: FieldMappingEdi
   return (
     <fieldset className="ds-field">
       <legend className="ds-field-label">Mapeo de columnas</legend>
-      <p className="ds-hint">
-        Solo para fuentes de tipo Importación de archivo. Cada fila dice qué columna del archivo
-        corresponde a qué campo del contacto. Sin filas, el archivo se lee con los nombres de campo
-        tal cual (firstName, lastName, email…).
-      </p>
+      <p className="ds-hint">Solo para importación de archivo: qué columna va a qué campo.</p>
 
       {rows.length === 0 ? (
         <EmptyState>No hay columnas mapeadas.</EmptyState>

@@ -846,7 +846,7 @@ describe("KnowledgeBaseFormPage — quitar el archivo elegido (ítem 67)", () =>
 // Ítem 70 — el aviso de una entrada generada por la sincronización del stock.
 // ---------------------------------------------------------------------------
 describe("KnowledgeBaseFormPage — entrada generada desde el Stock", () => {
-  const AVISO = /Esta entrada la generó la sincronización del stock/;
+  const AVISO = /Generada por la sincronización del stock/;
 
   it("editando una entrada generada avisa que la próxima sincronización la reescribe", async () => {
     server.use(

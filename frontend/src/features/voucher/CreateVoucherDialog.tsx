@@ -223,9 +223,7 @@ function VoucherResult({ voucher, onClose }: { voucher: Voucher; onClose: () => 
           </p>
         ) : null}
         {estado.data?.disponible && !enviado ? (
-          <p className="ds-hint">
-            Sale por WhatsApp como mensaje tuyo, con el link, y queda en la conversación.
-          </p>
+          <p className="ds-hint">Sale por WhatsApp como mensaje tuyo y queda en la conversación.</p>
         ) : null}
         {enviado?.deliveryStatus === "FAILED" ? (
           <ErrorState>

@@ -111,8 +111,7 @@ export function AgentWhatsappNumberPage() {
               />
             </FormField>
             <p className="ds-hint ds-field-grid--full">
-              Es el «Phone number ID» que muestra Meta, no el teléfono: solo dígitos. Vacío libera
-              el número del agente. Si otro agente ya lo tiene, hay que liberarlo primero.
+              El «Phone number ID» de Meta, no el teléfono. Vacío lo libera.
             </p>
           </div>
         </Card>

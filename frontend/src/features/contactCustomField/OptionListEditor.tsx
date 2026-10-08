@@ -233,9 +233,7 @@ export function OptionListEditor({
       </Button>
 
       <p className="ds-hint ds-option-hint">
-        {alcanzoElTope
-          ? `Llegaste al máximo de ${MAX_OPCIONES} opciones.`
-          : "Una opción por fila. Enter pasa a la siguiente; si pegás una lista separada por comas o renglones, se reparte sola. Las filas vacías no se guardan."}
+        {alcanzoElTope ? `Llegaste al máximo de ${MAX_OPCIONES} opciones.` : "Una opción por fila."}
       </p>
       <p className="ds-sr-only" role="status">
         {aviso}

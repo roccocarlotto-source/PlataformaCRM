@@ -175,7 +175,9 @@ describe("SourceFormPage — edición", () => {
     const tipo = screen.getByLabelText("Tipo");
     expect(tipo).toBeDisabled();
     expect(tipo).toHaveValue("Importación de archivo");
-    expect(screen.getByText(/El tipo no se puede cambiar/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/No se puede cambiar: para otro tipo, creá una fuente nueva/),
+    ).toBeInTheDocument();
   });
 
   it("carga el mapeo persistido como filas y el PATCH no manda type", async () => {

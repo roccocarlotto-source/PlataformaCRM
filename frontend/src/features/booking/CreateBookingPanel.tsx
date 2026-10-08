@@ -157,9 +157,7 @@ export function CreateBookingPanel({
               />
             </FormField>
             <p className="ds-hint">
-              Este turno queda fuera del horario de trabajo del recurso o no coincide con sus
-              turnos. Como administrador podés reservarlo igual; lo que no se saltea es el cupo: si
-              se pisa con otra reserva, se rechaza.
+              Fuera de horario. Como administrador podés reservar igual; el cupo no se saltea.
             </p>
           </>
         ) : null}

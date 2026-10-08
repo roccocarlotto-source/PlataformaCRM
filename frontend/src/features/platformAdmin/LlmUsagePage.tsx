@@ -33,8 +33,7 @@ export function LlmUsagePage() {
         {usageQuery.isSuccess ? (
           <>
             <p className="ds-hint">
-              Últimos {usageQuery.data.dias} días, una fila por turno del agente. El costo es el que
-              informa el proveedor; «—» cuando no lo informó.
+              Últimos {usageQuery.data.dias} días, una fila por turno. «—»: costo no informado.
             </p>
             {usageQuery.data.organizaciones.length === 0 ? (
               <EmptyState>No hay organizaciones vigentes.</EmptyState>

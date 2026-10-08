@@ -196,9 +196,7 @@ export function BranchFormPage() {
               emptyOptionLabel="Sin vendedor por defecto"
             />
             <p className="ds-hint ds-field-grid--full">
-              Se usa cuando el agente de IA necesita asignar un vendedor a un contacto que todavía
-              no tiene uno. El contacto queda asignado a esta persona, que se puede cambiar después
-              como cualquier otro.
+              A quien el agente asigna los contactos sin vendedor.
             </p>
           </div>
         </Card>
@@ -231,8 +229,7 @@ export function BranchFormPage() {
               </FormField>
             </div>
             <p className="ds-hint ds-field-grid--full">
-              El agente de IA comparte el link o los datos de la cuenta cuando el cliente quiere
-              pagar. Si solo pregunta qué medios de pago aceptan, nombra los que estén cargados.
+              El agente se los comparte al cliente que quiere pagar.
             </p>
           </div>
         </Card>

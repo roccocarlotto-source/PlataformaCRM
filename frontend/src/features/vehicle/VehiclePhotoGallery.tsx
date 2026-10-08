@@ -120,8 +120,8 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
   return (
     <div className="ds-stack">
       <p className="ds-hint">
-        {photos.length === 1 ? "1 foto" : `${photos.length} fotos`}. Se admiten JPEG, PNG y WebP; la
-        primera foto que se sube queda como portada.
+        {photos.length === 1 ? "1 foto" : `${photos.length} fotos`}. JPEG, PNG o WebP; la primera
+        queda como portada.
       </p>
       <div className="ds-card-actions">
         {/* El nombre al lado del botón dura lo que dura la subida: cuando

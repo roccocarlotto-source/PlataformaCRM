@@ -23,7 +23,6 @@ import {
   CONFIG_DE_TRIGGER,
   DEFAULT_ACTION,
   DEFAULT_TRIGGER,
-  INTERVALO_DE_LOS_ENVIOS_MINUTOS,
   MAX_DAYS_SINCE_LAST_MESSAGE,
   MAX_DAYS_UNTIL_DUE,
   MAX_DAYS_WITHOUT_ACTIVITY,
@@ -190,9 +189,7 @@ function CamposDelTrigger({
             />
           </FormField>
           <p className="ds-hint ds-field-grid--full">
-            Se dispara con las oportunidades abiertas que no tuvieron ningún cambio en esa cantidad
-            de días. Se revisa una vez por día, y cada oportunidad dispara una sola vez hasta que
-            vuelva a tener movimiento. Solo puede haber una regla activa con este evento.
+            Se revisa una vez por día. Solo una regla activa con este evento.
           </p>
         </>
       );
@@ -226,11 +223,7 @@ function CamposDelTrigger({
             />
           </FormField>
           <p className="ds-hint ds-field-grid--full">
-            Se dispara con los contactos —identificados o no— que escribieron por algún canal y
-            llevan esa cantidad de días sin responder, sin una oportunidad abierta y sin la marca
-            «sin interés». Se revisa una vez por día. El máximo es cuántos seguimientos se hacen por
-            cada vez que el cliente escribe: si responde, la cuenta arranca de cero. Solo puede
-            haber una regla activa con este evento.
+            Se revisa una vez por día. Solo una regla activa con este evento.
           </p>
         </>
       );
@@ -355,10 +348,8 @@ function CamposDeLaAccion({
             </FormField>
           </div>
           <p className="ds-hint ds-field-grid--full">
-            La tarea se crea asignada al dueño de la oportunidad, con ese título y venciendo en esa
-            cantidad de días contados desde que se dispara. Entre {MIN_DAYS_UNTIL_DUE} y{" "}
-            {MAX_DAYS_UNTIL_DUE}; con {MIN_DAYS_UNTIL_DUE} vence el mismo día. Las notas son
-            opcionales: si las cargás, quedan en el campo "Notas" de la tarea creada.
+            Asignada al dueño de la oportunidad; vence a los días indicados ({MIN_DAYS_UNTIL_DUE} a{" "}
+            {MAX_DAYS_UNTIL_DUE}).
           </p>
         </>
       );
@@ -366,21 +357,14 @@ function CamposDeLaAccion({
       // Sin campos propios: su único parámetro es del trigger.
       return (
         <p className="ds-hint ds-field-grid--full">
-          La IA redacta un mensaje breve para retomar el contacto con el cliente, usando los datos
-          de la oportunidad y su última conversación si la hay, y lo deja como una tarea para el
-          dueño de la oportunidad que vence ese mismo día. El mensaje no se le manda a nadie: lo
-          revisa y lo envía el vendedor.
+          El mensaje no se manda: lo revisa y envía el vendedor.
         </p>
       );
     case ACTION_INQUIRY_FOLLOW_UP:
       // Sin campos propios además del mensaje (la tarjeta de abajo).
       return (
         <p className="ds-hint ds-field-grid--full">
-          Por WhatsApp se le manda al cliente el mensaje de abajo, dentro del horario de la sucursal
-          (si escribió hace menos de 24 horas, el agente redacta uno con el contexto de la
-          conversación). Por Messenger, Instagram o el sitio web, o si una persona ya está
-          atendiendo la conversación, se crea una tarea para el vendedor asignado con el resumen de
-          lo que preguntó. Si el cliente responde, el agente sigue la conversación.
+          Por WhatsApp le llega al cliente; por otros canales, tarea para el vendedor.
         </p>
       );
     case ACTION_SEND_QR_FOLLOWUP:
@@ -404,11 +388,8 @@ function CamposDeLaAccion({
             disabled={disabled}
           />
           <p className="ds-hint ds-field-grid--full">
-            Cuando la oportunidad se gana, se agenda un WhatsApp al contacto con el QR elegido, que
-            sale pasada esa espera (hasta 30 días; con 0 sale apenas se gana). Los envíos agendados
-            se revisan cada {INTERVALO_DE_LOS_ENVIOS_MINUTOS} minutos, así que puede salir hasta{" "}
-            {INTERVALO_DE_LOS_ENVIOS_MINUTOS} minutos después. Se manda desde el número de WhatsApp
-            de la sucursal del QR. Si para entonces la oportunidad ya no está ganada, no se manda.
+            Le llega al cliente por WhatsApp cuando la oportunidad se gana (hasta 30 días de
+            espera).
           </p>
         </>
       );
@@ -456,11 +437,7 @@ function CamposDeLaAccion({
             />
           </FormField>
           <p className="ds-hint ds-field-grid--full">
-            Cuando la oportunidad se gana, se agenda un WhatsApp al contacto con un cupón de un solo
-            uso, que sale pasada esa espera desde el número de WhatsApp de la sucursal (puede salir
-            hasta {INTERVALO_DE_LOS_ENVIOS_MINUTOS} minutos después: los envíos agendados se revisan
-            cada {INTERVALO_DE_LOS_ENVIOS_MINUTOS} minutos). El cupón nace al mandarse y vence a los
-            días indicados. Se canjea escaneando su QR en "Canjear cupón".
+            Le llega al cliente por WhatsApp; cupón de un solo uso.
           </p>
         </>
       );
@@ -469,8 +446,7 @@ function CamposDeLaAccion({
       // todavía no. No se inventa un editor de JSON crudo: se dice qué pasa.
       return (
         <p className="ds-hint ds-field-grid--full">
-          Esta acción todavía no se puede configurar desde esta pantalla. Su configuración actual se
-          conserva tal cual mientras no se guarde la regla.
+          No se puede configurar desde esta pantalla; se conserva al guardar.
         </p>
       );
   }
@@ -615,10 +591,6 @@ export function AutomationFormPage() {
               />
             </FormField>
 
-            <p className="ds-hint ds-field-grid--full">
-              El nombre es para vos: identifica la regla en esta lista y no lo ve nadie más.
-            </p>
-
             <div className="ds-field-grid--full">
               <FormField label="Activa">
                 <input
@@ -630,8 +602,7 @@ export function AutomationFormPage() {
             </div>
 
             <p className="ds-hint ds-field-grid--full">
-              Si la desactivás, deja de ejecutarse sin borrarse — por ejemplo, para pausarla unos
-              días y volver a prenderla después.
+              Desactivada, deja de ejecutarse sin borrarse.
             </p>
           </div>
         </Card>
@@ -677,10 +648,6 @@ export function AutomationFormPage() {
               onChange={(triggerConfig) => setValues({ ...values, triggerConfig })}
               disabled={isSubmitting}
             />
-            <p className="ds-hint ds-field-grid--full">
-              El evento que dispara la regla. El otro caso previsto —recordatorio de turno por
-              WhatsApp— todavía no está disponible.
-            </p>
           </div>
         </Card>
 

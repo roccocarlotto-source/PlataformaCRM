@@ -79,10 +79,7 @@ export function SugerirMapeoDesdeArchivo({ onSugerir, disabled }: SugerirMapeoDe
           setError(null);
         }}
       />
-      <p className="ds-hint">
-        Se leen solo los nombres de las columnas. El archivo no se importa y no se guarda: las filas
-        sugeridas quedan editables y se persisten recién al guardar la fuente.
-      </p>
+      <p className="ds-hint">Solo se leen los encabezados; el archivo no se importa.</p>
 
       <Button
         disabled={disabled || cargando}

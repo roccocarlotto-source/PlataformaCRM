@@ -620,9 +620,7 @@ describe("ImportarDatosPage", () => {
     renderPage(`/admin/imports?organizationId=${ORG}&batchId=${LOTE}`);
     await user.click(await screen.findByLabelText("Mantener sincronizado con la planilla"));
     expect(
-      screen.getByText(
-        /Los campos mapeados se actualizan desde la planilla en cada sincronización/,
-      ),
+      screen.getByText(/En cada sincronización se actualizan los campos mapeados/),
     ).toBeInTheDocument();
     const horas = screen.getByLabelText(/Cada cuántas horas/);
     await user.clear(horas);
