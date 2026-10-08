@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   createContactHandler,
   deleteContactHandler,
+  descartarConsultaHandler,
   erasePersonalDataHandler,
   getContactHandler,
   listContactsHandler,
@@ -45,6 +46,16 @@ contactRouter.delete(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   deleteContactHandler,
+);
+
+// Descartar una consulta sin identificar (ítem 184): la baja de DELETE, pero
+// cerrando antes sus conversaciones abiertas. Mismos controles que DELETE.
+contactRouter.post(
+  "/contacts/:id/descartar",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  descartarConsultaHandler,
 );
 
 // Borrado de datos personales a pedido (D2-4). ADMIN-only y con el mismo

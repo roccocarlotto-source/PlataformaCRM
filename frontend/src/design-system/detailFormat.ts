@@ -58,3 +58,24 @@ export function formatShortDateTime(iso: string | null, now: Date = new Date()):
     ? `${diaMes} ${hora}`
     : `${diaMes}/${date.getFullYear()} ${hora}`;
 }
+
+// "Hace cuánto" pasó algo, para una celda que mide el tiempo transcurrido y
+// no el momento ("hace 5 min", "hace 3 h", "hace 2 días"): la columna
+// "Escribió" de Consultas sin identificar (ítem 184). La fecha exacta va en el
+// title de la celda (formatDateTime), como con formatShortDateTime. Redondea
+// hacia abajo salvo en los minutos, y nunca dice "hace 0": lo de hace menos de
+// un minuto es "recién". `now` es parámetro por lo mismo que arriba.
+export function formatRelativeTime(iso: string | null, now: Date = new Date()): string {
+  if (!iso) return "";
+  const minutos = Math.round((now.getTime() - new Date(iso).getTime()) / 60_000);
+  if (minutos < 1) return "recién";
+  if (minutos < 60) return `hace ${minutos} min`;
+  const horas = Math.floor(minutos / 60);
+  if (horas < 24) return `hace ${horas} h`;
+  const dias = Math.floor(horas / 24);
+  if (dias < 30) return dias === 1 ? "hace 1 día" : `hace ${dias} días`;
+  const meses = Math.floor(dias / 30);
+  if (meses < 12) return meses === 1 ? "hace 1 mes" : `hace ${meses} meses`;
+  const anios = Math.floor(dias / 365);
+  return anios <= 1 ? "hace 1 año" : `hace ${anios} años`;
+}

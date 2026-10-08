@@ -25,22 +25,40 @@ import {
 //      mover al contacto que queda.
 //   3. "Unir", con ConfirmDialog: no se puede deshacer desde la pantalla.
 // El contacto de esta ficha es el que QUEDA; el otro se da de baja.
+//
+// DOS MODOS (ítem 184). Desde la ficha, `modo="queda"`: este contacto queda y
+// se elige el duplicado que se le une. Desde Consultas sin identificar,
+// `modo="seUne"`: esta consulta es la que se une a un contacto existente, que
+// es el que se elige y el que queda. El backend es el mismo (:id es el que
+// queda); acá solo cambia cuál de los dos ids es cuál.
 // ---------------------------------------------------------------------------
 
 export interface MergeContactDialogProps {
   contactId: string;
+  modo?: "queda" | "seUne";
   onClose: () => void;
   onMerged: (resultado: ResultadoDeLaUnion) => void;
 }
 
-export function MergeContactDialog({ contactId, onClose, onMerged }: MergeContactDialogProps) {
+export function MergeContactDialog({
+  contactId,
+  modo = "queda",
+  onClose,
+  onMerged,
+}: MergeContactDialogProps) {
   const confirm = useConfirm();
   const [otroId, setOtroId] = useState<string | undefined>(undefined);
   // Solo lo que el usuario cambió; el resto es el default del backend. Se
   // vacía al elegir otro duplicado.
   const [cambios, setCambios] = useState<Partial<Elecciones>>({});
-  const preview = useMergePreview(contactId, otroId);
-  const unir = useMergeContacts(contactId);
+  const seUne = modo === "seUne";
+  // El que queda y el que se une, según el modo. Sin elegir todavía, el
+  // propio contacto ocupa los dos lugares: useMergePreview no consulta hasta
+  // que haya dos distintos, y useMergeContacts solo se usa al unir.
+  const keptId = seUne ? (otroId ?? contactId) : contactId;
+  const absorbedId = seUne ? contactId : otroId;
+  const preview = useMergePreview(keptId, absorbedId);
+  const unir = useMergeContacts(keptId);
   const elecciones: Elecciones | null = preview.data
     ? { ...preview.data.defaults, ...cambios }
     : null;
@@ -54,7 +72,7 @@ export function MergeContactDialog({ contactId, onClose, onMerged }: MergeContac
   const vista = preview.data;
 
   async function handleUnir() {
-    if (!vista || !elecciones || !otroId) return;
+    if (!vista || !elecciones || !otroId || !absorbedId) return;
     const nombre = `${vista.absorbed.firstName} ${vista.absorbed.lastName}`.trim();
     // La advertencia dice QUÉ se mueve (conversaciones, cupones, tareas,
     // oportunidades…) y qué se corta, no solo que "todo pasa acá".
@@ -63,14 +81,14 @@ export function MergeContactDialog({ contactId, onClose, onMerged }: MergeContac
       danger: true,
     });
     if (!ok) return;
-    unir.mutate({ absorbedId: otroId, fields: elecciones }, { onSuccess: onMerged });
+    unir.mutate({ absorbedId, fields: elecciones }, { onSuccess: onMerged });
   }
 
   const aMover = vista ? Object.entries(vista.aMover).filter(([, n]) => n > 0) : [];
 
   return (
     <Modal
-      title="Unir con otro contacto"
+      title={seUne ? "Unir con un contacto existente" : "Unir con otro contacto"}
       onClose={onClose}
       closeLabel="Cancelar"
       primaryAction={{
@@ -83,11 +101,13 @@ export function MergeContactDialog({ contactId, onClose, onMerged }: MergeContac
     >
       <div className="ds-stack">
         <p className="ds-hint">
-          Este contacto es el que queda. El que elijas se da de baja y todo lo suyo pasa acá.
+          {seUne
+            ? "Esta consulta se une al contacto que elijas, que es el que queda; la consulta se da de baja y todo lo suyo pasa a ese contacto."
+            : "Este contacto es el que queda. El que elijas se da de baja y todo lo suyo pasa acá."}
         </p>
         <ContactSelect
           id="merge-contact-other"
-          label="Contacto duplicado"
+          label={seUne ? "Contacto existente" : "Contacto duplicado"}
           value={otroId}
           onChange={elegirOtro}
         />
@@ -125,9 +145,15 @@ export function MergeContactDialog({ contactId, onClose, onMerged }: MergeContac
                           name={`merge-${campo}`}
                           checked={elecciones[campo] === lado}
                           onChange={() => setCambios({ ...cambios, [campo]: lado })}
-                          aria-label={`${ETIQUETA_DEL_CAMPO[campo]}: ${lado === "kept" ? "este contacto" : "el duplicado"}`}
+                          aria-label={`${ETIQUETA_DEL_CAMPO[campo]}: ${lado === "kept" ? (seUne ? "el contacto existente" : "este contacto") : seUne ? "esta consulta" : "el duplicado"}`}
                         />{" "}
-                        {lado === "kept" ? "Este: " : "Duplicado: "}
+                        {lado === "kept"
+                          ? seUne
+                            ? "Existente: "
+                            : "Este: "
+                          : seUne
+                            ? "Esta consulta: "
+                            : "Duplicado: "}
                         {valor || "—"}
                       </label>
                     );

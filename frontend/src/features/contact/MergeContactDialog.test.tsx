@@ -184,3 +184,68 @@ describe("advertenciaDeLaUnion", () => {
     expect(texto).toMatch(/No se puede deshacer desde la pantalla/);
   });
 });
+
+// Ítem 184: desde Consultas sin identificar la consulta es la que SE UNE a un
+// contacto existente, que es el que se elige y el que queda. Mismo backend,
+// con los ids al revés: :id es el elegido, absorbedId la consulta.
+describe("MergeContactDialog modo seUne", () => {
+  function setupSeUne(onPost: (body: unknown) => void = () => {}) {
+    server.use(
+      http.get(contactsUrl, () =>
+        HttpResponse.json({
+          data: [makeContact({ id: "k", firstName: "Ana", lastName: "Pérez" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${contactsUrl}/k`, () =>
+        HttpResponse.json(makeContact({ id: "k", firstName: "Ana", lastName: "Pérez" })),
+      ),
+      http.get(`${contactsUrl}/k/merge-preview`, ({ request }) => {
+        expect(new URL(request.url).searchParams.get("with")).toBe("d");
+        return HttpResponse.json(vista());
+      }),
+      http.post(`${contactsUrl}/k/merge`, async ({ request }) => {
+        onPost(await request.json());
+        return HttpResponse.json({
+          contactId: "k",
+          absorbedId: "d",
+          movidos: { conversaciones: 2 },
+          conversacionesCerradas: 0,
+        });
+      }),
+    );
+    const onMerged = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MergeContactDialog contactId="d" modo="seUne" onClose={vi.fn()} onMerged={onMerged} />
+      </QueryClientProvider>,
+    );
+    return onMerged;
+  }
+
+  it("el elegido queda y la consulta se une: la vista previa y el POST van al elegido", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let body: { absorbedId: string; fields: Elecciones } | undefined;
+    const user = userEvent.setup();
+    const onMerged = setupSeUne((b) => (body = b as typeof body));
+
+    expect(
+      screen.getByRole("dialog", { name: "Unir con un contacto existente" }),
+    ).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("Buscar por nombre o email…"), "ana");
+    await user.click(await screen.findByText("Ana Pérez"));
+
+    expect(
+      await screen.findByRole("group", { name: "Qué valor queda en cada campo" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Nombre: el contacto existente")).toBeChecked();
+    expect(screen.getByLabelText("Email: esta consulta")).toBeChecked();
+    expect(screen.getByText(/Esta consulta: Acme/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Unir" }));
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body?.absorbedId).toBe("d");
+    await waitFor(() => expect(onMerged).toHaveBeenCalled());
+  });
+});

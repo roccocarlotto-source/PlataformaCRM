@@ -10,6 +10,9 @@ export interface ContactFilters {
   ownerId?: string;
   lifecycleStage?: LifecycleStage;
   source?: string;
+  // La vista "Clientes" (ítem 184): deja afuera estos ids, los de las
+  // consultas sin identificar (consultasSinIdentificar.repository.ts).
+  excludeIds?: string[];
 }
 
 export type ContactSortBy = "firstName" | "lastName" | "createdAt" | "lifecycleStage";
@@ -45,6 +48,9 @@ function buildWhere(organizationId: string, filters: ContactFilters): Prisma.Con
     ...(filters.ownerId ? { ownerId: filters.ownerId } : {}),
     ...(filters.lifecycleStage ? { lifecycleStage: filters.lifecycleStage } : {}),
     ...(filters.source ? { source: filters.source } : {}),
+    ...(filters.excludeIds && filters.excludeIds.length > 0
+      ? { id: { notIn: filters.excludeIds } }
+      : {}),
   };
 }
 
@@ -92,6 +98,19 @@ export function findManyContacts(
     orderBy: buildOrderBy(sort.sortBy, sort.sortOrder),
     skip: pagination.skip,
     take: pagination.take,
+    include: { vehicleOfInterest: { select: vehicleOfInterestSelect } },
+  });
+}
+
+// Las filas de una página de "Consultas sin identificar" (ítem 184), con el
+// mismo include que el listado. El orden lo da quien llama (viene de la
+// consulta cruda que eligió los ids).
+export function findContactsByIds(organizationId: string, ids: string[], db: Db = prisma) {
+  if (ids.length === 0) {
+    return Promise.resolve([]);
+  }
+  return db.contact.findMany({
+    where: { organizationId, deletedAt: null, id: { in: ids } },
     include: { vehicleOfInterest: { select: vehicleOfInterestSelect } },
   });
 }

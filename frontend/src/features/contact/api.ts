@@ -4,6 +4,7 @@ import type {
   Contact,
   ContactListQuery,
   ContactListResponse,
+  ConsultasListResponse,
   CreateContactInput,
   UpdateContactInput,
 } from "./types";
@@ -19,6 +20,8 @@ function buildListQueryString(query: ContactListQuery): string {
   if (query.companyId) params.set("companyId", query.companyId);
   if (query.ownerId) params.set("ownerId", query.ownerId);
   if (query.lifecycleStage) params.set("lifecycleStage", query.lifecycleStage);
+  if (query.vista) params.set("vista", query.vista);
+  if (query.channel) params.set("channel", query.channel);
   if (query.sortBy) params.set("sortBy", query.sortBy);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   const queryString = params.toString();
@@ -32,6 +35,26 @@ export function listContacts(
   return request<ContactListResponse>(`/contacts${buildListQueryString(query)}`, {
     getAccessToken,
     signal,
+  });
+}
+
+// La pestaña "Consultas sin identificar" (ítem 184): el mismo endpoint con
+// vista=consultas, cuyas filas traen además la última conversación.
+export function listConsultasSinIdentificar(
+  query: Omit<ContactListQuery, "vista">,
+  signal?: AbortSignal,
+): Promise<ConsultasListResponse> {
+  return request<ConsultasListResponse>(
+    `/contacts${buildListQueryString({ ...query, vista: "consultas" })}`,
+    { getAccessToken, signal },
+  );
+}
+
+// Descartar una consulta sin identificar: POST /api/contacts/:id/descartar.
+export function descartarConsulta(id: string): Promise<void> {
+  return request<void>(`/contacts/${encodeURIComponent(id)}/descartar`, {
+    method: "POST",
+    getAccessToken,
   });
 }
 

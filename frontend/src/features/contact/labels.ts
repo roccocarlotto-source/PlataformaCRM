@@ -1,4 +1,4 @@
-import type { LifecycleStage } from "./types";
+import type { LifecycleStage, VehicleOfInterestSummary } from "./types";
 
 // ---------------------------------------------------------------------------
 // Rótulos en español de las etapas del ciclo de vida de Contact. Mismo
@@ -31,3 +31,12 @@ export const LIFECYCLE_STAGE_LABELS: Record<LifecycleStage, string> = {
 // Orden de las opciones = orden de las claves del mapa (el orden natural del
 // embudo). Agregar un valor al mapa es agregar la opción en form y filtro.
 export const LIFECYCLE_STAGES = Object.keys(LIFECYCLE_STAGE_LABELS) as LifecycleStage[];
+
+// La misma forma que "Vehículo de interés" del detalle de Clientes: marca,
+// modelo, año y versión.
+export function etiquetaDelVehiculo(vehiculo: VehicleOfInterestSummary | null | undefined): string {
+  if (!vehiculo) return "";
+  return [vehiculo.make, vehiculo.model, String(vehiculo.year), vehiculo.trim]
+    .filter(Boolean)
+    .join(" ");
+}

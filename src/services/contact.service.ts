@@ -1,9 +1,25 @@
-import { Prisma, type LeadUrgency, type LifecycleStage } from "@prisma/client";
+import {
+  Prisma,
+  type ConversationChannel,
+  type LeadUrgency,
+  type LifecycleStage,
+} from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 import { normalizarTelefono, soloDigitos, TELEFONO_NO_NORMALIZABLE } from "../lib/telefono";
+import { cancelPendingInboundJobsOfConversation } from "../repositories/agentInboundJob.repository";
 import { countConfirmedBookingsOf } from "../repositories/booking.repository";
 import { findCompanyById } from "../repositories/company.repository";
-import { countOpenConversationsOf } from "../repositories/conversation.repository";
+import {
+  closeConversation as closeConversationRepo,
+  countOpenConversationsOf,
+} from "../repositories/conversation.repository";
+import {
+  countUnidentifiedInquiries,
+  findOpenConversationIdsOf,
+  findUnidentifiedContactIds,
+  findUnidentifiedInquiries,
+  isUnidentifiedContact,
+} from "../repositories/consultasSinIdentificar.repository";
 import {
   countContacts,
   createContact as createContactRepo,
@@ -11,6 +27,7 @@ import {
   erasePersonalDataFromContact,
   existsOtherContactWithPhone,
   findContactByIdIncludingDeleted,
+  findContactsByIds,
   findContactWithVehicleOfInterest,
   setVehicleOfInterestFromAgent,
   findManyContacts,
@@ -44,6 +61,11 @@ import {
   vieneDeUnPerfilDeCanal,
 } from "../utils/nombreProvisorio";
 
+// Las dos pestañas de Contactos (ítem 184). Sin `vista`, el listado es el de
+// siempre, con todos los contactos: el selector de contacto de oportunidades
+// y la unión siguen encontrando a cualquiera.
+export type VistaDeContactos = "clientes" | "consultas";
+
 export interface ListContactsParams {
   page: number;
   pageSize: number;
@@ -55,28 +77,119 @@ export interface ListContactsParams {
   ownerId?: string;
   lifecycleStage?: LifecycleStage;
   source?: string;
+  vista?: VistaDeContactos;
+  // Solo con vista=consultas: el canal de la última conversación.
+  channel?: ConversationChannel;
   sortBy: ContactSortBy;
   sortOrder: SortOrder;
 }
 
+function paginacion(page: number, pageSize: number, total: number) {
+  return { page, pageSize, total, totalPages: total === 0 ? 0 : Math.ceil(total / pageSize) };
+}
+
 export async function listContacts(organizationId: string, params: ListContactsParams) {
-  const { page, pageSize, sortBy, sortOrder, ...filters } = params;
+  const { page, pageSize, sortBy, sortOrder, vista, channel, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
-  const [data, total] = await Promise.all([
-    findManyContacts(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
-    countContacts(organizationId, filters),
-  ]);
-
-  return {
-    data,
-    pagination: {
+  if (vista === "consultas") {
+    return listarConsultasSinIdentificar(organizationId, {
       page,
       pageSize,
-      total,
-      totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
-    },
-  };
+      search: filters.search,
+      ownerId: filters.ownerId,
+      channel,
+    });
+  }
+
+  // "Clientes" = todos menos las consultas sin identificar. Una consulta
+  // previa (dos viajes) y no un predicado en el where: Prisma no puede
+  // expresar la regla, y la lista excluida es chica (findUnidentifiedContactIds).
+  const excludeIds =
+    vista === "clientes" ? await findUnidentifiedContactIds(organizationId) : undefined;
+  const filtros = { ...filters, ...(excludeIds ? { excludeIds } : {}) };
+
+  const [data, total] = await Promise.all([
+    findManyContacts(organizationId, filtros, { skip, take: pageSize }, { sortBy, sortOrder }),
+    countContacts(organizationId, filtros),
+  ]);
+
+  return { data, pagination: paginacion(page, pageSize, total) };
+}
+
+export interface ListarConsultasParams {
+  page: number;
+  pageSize: number;
+  search?: string;
+  ownerId?: string;
+  channel?: ConversationChannel;
+}
+
+// La pestaña "Consultas sin identificar": cada fila es el contacto de siempre
+// (con el resumen del vehículo de interés, como en Clientes) más su última
+// conversación. El orden —de quien escribió más recientemente a quien escribió
+// hace más— lo decide la consulta cruda; acá solo se vuelve a armar.
+export async function listarConsultasSinIdentificar(
+  organizationId: string,
+  params: ListarConsultasParams,
+) {
+  const { page, pageSize, ...filters } = params;
+  const skip = (page - 1) * pageSize;
+
+  const [filas, total] = await Promise.all([
+    findUnidentifiedInquiries(organizationId, filters, { skip, take: pageSize }),
+    countUnidentifiedInquiries(organizationId, filters),
+  ]);
+
+  const contactos = await findContactsByIds(
+    organizationId,
+    filas.map((fila) => fila.contactId),
+  );
+  const porId = new Map(contactos.map((contacto) => [contacto.id, contacto]));
+
+  const data = filas.flatMap((fila) => {
+    const contacto = porId.get(fila.contactId);
+    // Se borró entre las dos consultas: ya no está en la pestaña.
+    return contacto ? [{ ...contacto, ultimaConsulta: fila.ultimaConsulta }] : [];
+  });
+
+  return { data, pagination: paginacion(page, pageSize, total) };
+}
+
+export const CONTACTO_NO_ES_CONSULTA =
+  "Este contacto no es una consulta sin identificar: dalo de baja desde su ficha";
+
+// Descartar una consulta (ítem 184): la baja de siempre (soft delete,
+// reversible) pero cerrando antes sus conversaciones abiertas, que es lo que
+// el RESTRICT de deleteContact exigiría hacer a mano desde la bandeja, una
+// por una. Solo para lo que se ve en la pestaña: un contacto identificado
+// sigue el camino de deleteContact, con sus chequeos. Si la persona vuelve a
+// escribir, entra como un contacto nuevo, igual que después de cualquier
+// baja. Las reservas confirmadas frenan igual que en deleteContact; una
+// oportunidad abierta no puede haber (no sería una consulta).
+export async function descartarConsulta(organizationId: string, id: string) {
+  await getContactById(organizationId, id);
+  if (!(await isUnidentifiedContact(id, organizationId))) {
+    throw new AppError(CONTACTO_NO_ES_CONSULTA, 409);
+  }
+  if ((await countConfirmedBookingsOf({ contactId: id }, organizationId)) > 0) {
+    throw new AppError(CONTACTO_CON_RESERVAS_CONFIRMADAS, 409);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const abiertas = await findOpenConversationIdsOf(id, organizationId, tx);
+    for (const conversacion of abiertas) {
+      // El mismo par que closeConversation (conversation.service.ts): la
+      // conversación cerrada y sus turnos pendientes cancelados, para que el
+      // agente no le conteste a un contacto dado de baja.
+      await closeConversationRepo(conversacion.id, organizationId, tx);
+      await cancelPendingInboundJobsOfConversation(organizationId, conversacion.id, tx);
+    }
+    const result = await softDeleteContact(id, organizationId, tx);
+    if (result.count === 0) {
+      throw new AppError("Contacto no encontrado", 404);
+    }
+  });
 }
 
 // La ficha: el contacto con el resumen de su vehículo de interés (la unidad
