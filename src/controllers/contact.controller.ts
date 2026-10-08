@@ -11,6 +11,7 @@ import { logAccesoADatosPersonales } from "../lib/accessLog";
 import {
   createContact,
   deleteContact,
+  descartarConsulta,
   erasePersonalData,
   getContactById,
   listContacts,
@@ -122,6 +123,11 @@ export const listContactsQuerySchema = z.object({
   ownerId: z.string().uuid("ownerId inválido").optional(),
   lifecycleStage: lifecycleStageSchema.optional(),
   source: z.string().trim().min(1).optional(),
+  // Las dos pestañas de Contactos (ítem 184). Sin `vista`, todos: es lo que
+  // siguen pidiendo el selector de contacto y la unión.
+  vista: z.enum(["clientes", "consultas"]).optional(),
+  // Solo tiene efecto con vista=consultas: el canal de la última conversación.
+  channel: z.enum(["WHATSAPP", "WEB", "INSTAGRAM", "MESSENGER"]).optional(),
   sortBy: z.enum(["firstName", "lastName", "createdAt", "lifecycleStage"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
@@ -172,6 +178,18 @@ export const deleteContactHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     await deleteContact(req.auth.organizationId, id);
+    res.status(204).send();
+  },
+);
+
+// POST /api/contacts/:id/descartar (ítem 184): la baja de una consulta sin
+// identificar, cerrando sus conversaciones. Ruta propia y no DELETE por lo
+// mismo que erase-personal-data: hace algo más que el DELETE (cierra lo
+// abierto) y solo vale para lo que se ve en esa pestaña (409 si no).
+export const descartarConsultaHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(idParamSchema, req.params.id);
+    await descartarConsulta(req.auth.organizationId, id);
     res.status(204).send();
   },
 );

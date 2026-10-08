@@ -95,3 +95,23 @@ test("B-21: pageSize por encima de 100 se sigue rechazando", () => {
   assert.equal(listContactsQuerySchema.safeParse({ pageSize: "101" }).success, false);
   assert.equal(listContactsQuerySchema.safeParse({ pageSize: "100" }).success, true);
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 184: las dos pestañas de Contactos viajan como `vista`, y el canal de
+// la última conversación como `channel`. Sin `vista`, el listado de siempre.
+// ---------------------------------------------------------------------------
+
+test("184: vista admite clientes y consultas, channel los cuatro canales, y nada más", () => {
+  for (const vista of ["clientes", "consultas"]) {
+    const resultado = listContactsQuerySchema.safeParse({ vista });
+    assert.equal(resultado.success, true);
+    assert.equal(resultado.success && resultado.data.vista, vista);
+  }
+  assert.equal(listContactsQuerySchema.safeParse({ vista: "todos" }).success, false);
+  for (const channel of ["WHATSAPP", "WEB", "INSTAGRAM", "MESSENGER"]) {
+    assert.equal(listContactsQuerySchema.safeParse({ channel }).success, true);
+  }
+  assert.equal(listContactsQuerySchema.safeParse({ channel: "SMS" }).success, false);
+  const sinVista = listContactsQuerySchema.safeParse({});
+  assert.equal(sinVista.success && sinVista.data.vista, undefined);
+});

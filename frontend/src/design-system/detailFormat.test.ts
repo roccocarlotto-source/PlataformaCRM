@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDateOnly, formatShortDateTime } from "./detailFormat";
+import { formatDateOnly, formatShortDateTime, formatRelativeTime } from "./detailFormat";
 
 // Fechas armadas con el constructor local (año, mes, día, hora, minuto) y no
 // con ISO en UTC: formatShortDateTime trabaja en la hora local del navegador,
@@ -47,5 +47,29 @@ describe("formatDateOnly", () => {
 
   it("null → vacío, para que DetailList lo muestre como dato vacío", () => {
     expect(formatDateOnly(null)).toBe("");
+  });
+});
+
+describe("formatRelativeTime", () => {
+  const now = new Date(2026, 9, 8, 15, 0, 0);
+  const hace = (ms: number) => new Date(now.getTime() - ms).toISOString();
+
+  it.each([
+    [hace(20_000), "recién"],
+    [hace(5 * 60_000), "hace 5 min"],
+    [hace(59 * 60_000), "hace 59 min"],
+    [hace(60 * 60_000), "hace 1 h"],
+    [hace(23 * 3_600_000 + 59 * 60_000), "hace 23 h"],
+    [hace(24 * 3_600_000), "hace 1 día"],
+    [hace(2 * 24 * 3_600_000 + 3_600_000), "hace 2 días"],
+    [hace(45 * 24 * 3_600_000), "hace 1 mes"],
+    [hace(400 * 24 * 3_600_000), "hace 1 año"],
+    [hace(800 * 24 * 3_600_000), "hace 2 años"],
+  ])("%s → %s", (iso, esperado) => {
+    expect(formatRelativeTime(iso, now)).toBe(esperado);
+  });
+
+  it("null → vacío", () => {
+    expect(formatRelativeTime(null, now)).toBe("");
   });
 });

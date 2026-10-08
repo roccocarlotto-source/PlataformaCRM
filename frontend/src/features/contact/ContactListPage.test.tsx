@@ -664,3 +664,68 @@ describe("ContactListPage", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
+
+// Ítem 184: las dos pestañas. Clientes pide vista=clientes; la otra pestaña
+// va en la URL (?vista=consultas) y monta el listado de consultas.
+describe("ContactListPage — pestañas", () => {
+  it("Clientes pide vista=clientes y la pestaña de consultas cambia la URL y pide vista=consultas", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const captured: URL[] = [];
+    server.use(
+      usersHandler(),
+      http.get(contactsUrl, ({ request }) => {
+        const url = new URL(request.url);
+        captured.push(url);
+        return HttpResponse.json(
+          url.searchParams.get("vista") === "consultas"
+            ? { data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }
+            : {
+                data: [makeContact({ firstName: "Juana", lastName: "Pérez" })],
+                pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+              },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
+    expect(captured[0]?.searchParams.get("vista")).toBe("clientes");
+    expect(screen.getByRole("tab", { name: "Clientes" })).toHaveAttribute("aria-selected", "true");
+
+    await user.click(screen.getByRole("tab", { name: "Consultas sin identificar" }));
+    expect(await screen.findByText("No hay consultas sin identificar")).toBeInTheDocument();
+    expect(captured.at(-1)?.searchParams.get("vista")).toBe("consultas");
+    expect(screen.queryByText("Juana Pérez")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Consultas sin identificar" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("con ?vista=consultas en la URL abre directamente esa pestaña", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const captured: URL[] = [];
+    server.use(
+      usersHandler(),
+      http.get(contactsUrl, ({ request }) => {
+        captured.push(new URL(request.url));
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+        });
+      }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/contacts?vista=consultas"]}>
+          <ContactListPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("No hay consultas sin identificar")).toBeInTheDocument();
+    expect(captured.every((url) => url.searchParams.get("vista") === "consultas")).toBe(true);
+  });
+});

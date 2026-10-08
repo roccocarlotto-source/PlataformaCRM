@@ -755,3 +755,39 @@ describe("ActivityFormPage — campos obligatorios", () => {
     expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
   });
 });
+
+// Ítem 184: "Crear tarea de seguimiento" desde Consultas sin identificar
+// llega con ?contactId=: la tarea nace como Tarea y colgada de ese contacto.
+describe("ActivityFormPage — ?contactId", () => {
+  it("create: ?contactId preselecciona el contacto y el tipo Tarea, y viajan en el payload", async () => {
+    server.use(
+      ...baseHandlers(),
+      http.get(`${contactsUrl}/ct9`, () =>
+        HttpResponse.json(makeContact({ id: "ct9", firstName: "WhatsApp", lastName: "+598991" })),
+      ),
+    );
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      http.post(activitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeActivity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/activities/new?contactId=ct9");
+
+    expect(await screen.findByLabelText("Tipo")).toHaveValue("Tarea");
+    expect(await screen.findByText(/Seleccionado: WhatsApp \+598991/)).toBeInTheDocument();
+    expect(screen.getByText("Quitar contacto")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Asunto"), "Llamar por la Hilux");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de actividades")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({
+      type: "TASK",
+      subject: "Llamar por la Hilux",
+      contactId: "ct9",
+    });
+  });
+});

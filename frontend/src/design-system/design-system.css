@@ -5313,6 +5313,53 @@ button.ds-calendar-slot:focus-visible {
   color: var(--color-text-muted);
 }
 
+/* ---------------------------------------------------------------------------
+   Tabs (design-system/Tabs.tsx) — las pestañas de una pantalla (nacieron con
+   las dos vistas de Contactos, ítem 184). Una fila con línea inferior; la
+   elegida lleva la línea en el color de acento y el texto pleno. En un
+   celular la fila se desliza de costado (overflow-x) en vez de desbordar la
+   página o partir las etiquetas. Debajo suele venir una .ds-list-card, que
+   ya trae su propio margen superior.
+   --------------------------------------------------------------------------- */
+.ds-tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+}
+
+.ds-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.ds-tab:hover {
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+}
+
+.ds-tab[aria-selected="true"] {
+  color: var(--color-text);
+  font-weight: 600;
+  border-bottom-color: var(--color-accent);
+}
+
+.ds-tab:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
 @media print {
   body * {
     visibility: hidden;

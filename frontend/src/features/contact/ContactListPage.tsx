@@ -1,6 +1,6 @@
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "../vehicle/labels";
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Plus, Users } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { puedeEditarRegistro } from "../../auth/permisos";
@@ -19,15 +19,29 @@ import { PhoneNumber } from "../../design-system/PhoneNumber";
 import { Select } from "../../design-system/Select";
 import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
+import { Tabs } from "../../design-system/Tabs";
 import { CompanySelect } from "../company/CompanySelect";
 import { useOwnerNames } from "../opportunity/relationResolution";
 import { useCompaniesByIds } from "./companyResolution";
+import { ConsultasSinIdentificarTab } from "./ConsultasSinIdentificarTab";
 import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
 import { useDeleteContact } from "./mutations";
 import { useContacts } from "./queries";
-import type { ContactSortBy, LifecycleStage, SortOrder } from "./types";
+import type { ContactSortBy, LifecycleStage, SortOrder, VistaDeContactos } from "./types";
 
 const PAGE_SIZE = 20;
+
+// Las dos pestañas (ítem 184). La elegida va en la URL (?vista=consultas)
+// para que se pueda enlazar, volver atrás y medir en el chequeo de desborde
+// móvil; cualquier otro valor, o ninguno, es Clientes.
+const VISTAS: { value: VistaDeContactos; label: string }[] = [
+  { value: "clientes", label: "Clientes" },
+  { value: "consultas", label: "Consultas sin identificar" },
+];
+
+function vistaDeLaUrl(valor: string | null): VistaDeContactos {
+  return valor === "consultas" ? "consultas" : "clientes";
+}
 
 // Mapeo cerrado decidido en la Fase 1 del rediseño (ver design-system/Badge.tsx):
 // lifecycleStage es un enum fijo sin campo de color en el schema, así que el
@@ -51,6 +65,9 @@ export function ContactListPage() {
   // resolver un ownerId a nombre necesita GET /api/users, que es ADMIN-only.
   const isAdmin = me?.role === "ADMIN";
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const vista = vistaDeLaUrl(searchParams.get("vista"));
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [lifecycleStage, setLifecycleStage] = useState<LifecycleStage | "">("");
@@ -61,15 +78,22 @@ export function ContactListPage() {
   // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
   const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
-  const contactsQuery = useContacts({
-    page,
-    pageSize: PAGE_SIZE,
-    search: search || undefined,
-    lifecycleStage: lifecycleStage || undefined,
-    companyId,
-    sortBy,
-    sortOrder,
-  });
+  // vista=clientes deja afuera las consultas sin identificar (ítem 184). Con
+  // la otra pestaña abierta esta query no se dispara: la pestaña tiene la
+  // suya.
+  const contactsQuery = useContacts(
+    {
+      page,
+      pageSize: PAGE_SIZE,
+      search: search || undefined,
+      lifecycleStage: lifecycleStage || undefined,
+      companyId,
+      vista: "clientes",
+      sortBy,
+      sortOrder,
+    },
+    { enabled: vista === "clientes" },
+  );
 
   // Solo los companyId de los Contacts visibles en esta página — nunca
   // "todas las Companies". Deduplicado dentro de useCompaniesByIds.
@@ -134,123 +158,135 @@ export function ContactListPage() {
         }
       />
 
+      <Tabs
+        label="Vistas de contactos"
+        value={vista}
+        options={VISTAS}
+        onChange={(nueva) => {
+          setSearchParams(nueva === "clientes" ? {} : { vista: nueva });
+        }}
+      />
+
+      {vista === "consultas" ? <ConsultasSinIdentificarTab /> : null}
+
       {/* Filtros inline, mismo patrón que CompanyListPage. El diseño los
           colapsa detrás de un botón "Filtrar"; ese panel es un patrón de
           interacción nuevo que no existe en ningún módulo y queda fuera de
           esta migración a propósito. */}
-      <div className="ds-list-card">
-        <h2 className="ds-filters-title">Filtros</h2>
-        <div className="ds-filters">
-          <label>
-            {/* Solo para lectores de pantalla: el placeholder ya dice "Buscar…" y el
+      {vista === "clientes" ? (
+        <div className="ds-list-card">
+          <h2 className="ds-filters-title">Filtros</h2>
+          <div className="ds-filters">
+            <label>
+              {/* Solo para lectores de pantalla: el placeholder ya dice "Buscar…" y el
                 rótulo visible lo repetía (docs/frontend-cambios-pendientes.md §4.b). */}
-            <span className="ds-sr-only">Buscar</span>
-            <input
-              type="search"
-              placeholder="Buscar por nombre o email"
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
+              <span className="ds-sr-only">Buscar</span>
+              <input
+                type="search"
+                placeholder="Buscar por nombre o email"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </label>
+            <Select
+              label="Etapa"
+              value={lifecycleStage}
+              options={LIFECYCLE_STAGES.map((stage) => ({
+                value: stage,
+                label: LIFECYCLE_STAGE_LABELS[stage],
+              }))}
+              emptyOption={{ label: "Todas" }}
+              onChange={(value) => {
+                setLifecycleStage(value);
                 setPage(1);
               }}
             />
-          </label>
-          <Select
-            label="Etapa"
-            value={lifecycleStage}
-            options={LIFECYCLE_STAGES.map((stage) => ({
-              value: stage,
-              label: LIFECYCLE_STAGE_LABELS[stage],
-            }))}
-            emptyOption={{ label: "Todas" }}
-            onChange={(value) => {
-              setLifecycleStage(value);
-              setPage(1);
-            }}
-          />
-          <CompanySelect
-            id="contact-filter-company"
-            label="Empresa"
-            value={companyId}
-            onChange={(id) => {
-              setCompanyId(id);
-              setPage(1);
-            }}
-            // Limpiar el filtro es seguro acá: es estado local del listado,
-            // sin ninguna implicancia de "limpiar a null" contra el backend
-            // (a diferencia de ContactFormPage).
-            onClear={() => {
-              setCompanyId(undefined);
-              setPage(1);
-            }}
-            clearLabel="Quitar filtro de empresa"
-          />
-          <Select
-            label="Ordenar por"
-            value={sortBy}
-            options={[
-              { value: "createdAt", label: "Fecha de creación" },
-              { value: "firstName", label: "Nombre" },
-              { value: "lastName", label: "Apellido" },
-              { value: "lifecycleStage", label: "Etapa" },
-            ]}
-            onChange={(value) => {
-              if (value) setSortBy(value);
-            }}
-          />
-          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
-        </div>
+            <CompanySelect
+              id="contact-filter-company"
+              label="Empresa"
+              value={companyId}
+              onChange={(id) => {
+                setCompanyId(id);
+                setPage(1);
+              }}
+              // Limpiar el filtro es seguro acá: es estado local del listado,
+              // sin ninguna implicancia de "limpiar a null" contra el backend
+              // (a diferencia de ContactFormPage).
+              onClear={() => {
+                setCompanyId(undefined);
+                setPage(1);
+              }}
+              clearLabel="Quitar filtro de empresa"
+            />
+            <Select
+              label="Ordenar por"
+              value={sortBy}
+              options={[
+                { value: "createdAt", label: "Fecha de creación" },
+                { value: "firstName", label: "Nombre" },
+                { value: "lastName", label: "Apellido" },
+                { value: "lifecycleStage", label: "Etapa" },
+              ]}
+              onChange={(value) => {
+                if (value) setSortBy(value);
+              }}
+            />
+            <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
+          </div>
 
-        {contactsQuery.isLoading ? <LoadingState variant="rows" /> : null}
+          {contactsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
-        {contactsQuery.isError ? (
-          <ErrorState>
-            No pudimos cargar los contactos
-            {contactsQuery.error instanceof Error ? `: ${contactsQuery.error.message}` : "."}
-          </ErrorState>
-        ) : null}
+          {contactsQuery.isError ? (
+            <ErrorState>
+              No pudimos cargar los contactos
+              {contactsQuery.error instanceof Error ? `: ${contactsQuery.error.message}` : "."}
+            </ErrorState>
+          ) : null}
 
-        {deleteContactMutation.isError ? (
-          <ErrorState>
-            No pudimos eliminar el contacto
-            {deleteContactMutation.error instanceof Error
-              ? `: ${deleteContactMutation.error.message}`
-              : "."}
-          </ErrorState>
-        ) : null}
+          {deleteContactMutation.isError ? (
+            <ErrorState>
+              No pudimos eliminar el contacto
+              {deleteContactMutation.error instanceof Error
+                ? `: ${deleteContactMutation.error.message}`
+                : "."}
+            </ErrorState>
+          ) : null}
 
-        {contactsQuery.isSuccess && contactsQuery.data.data.length === 0 ? (
-          <EmptyState title="No hay contactos para mostrar" icon={Users} />
-        ) : null}
+          {contactsQuery.isSuccess && contactsQuery.data.data.length === 0 ? (
+            <EmptyState title="No hay contactos para mostrar" icon={Users} />
+          ) : null}
 
-        {/* Columnas en el orden de la pantalla "Contactos" del diseño. Teléfono
+          {/* Columnas en el orden de la pantalla "Contactos" del diseño. Teléfono
           y Origen ya existían en Contact y en el formulario; solo faltaban en
           el listado. Los tests ubican celdas por el texto de su <th>, no por
           índice, así que reordenar no los rompe. */}
-        {contactsQuery.isSuccess && contactsQuery.data.data.length > 0 ? (
-          <Table>
-            <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Empresa</th>
-                <th>Email</th>
-                <th>Teléfono</th>
-                <th>Etapa</th>
-                <th>Origen</th>
-                {isAdmin ? <th>Asignado</th> : null}
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {contactsQuery.data.data.map((contact) => {
-                const fullName = `${contact.firstName} ${contact.lastName}`;
-                // Sin nombre no hay avatar: un círculo con "—" adentro no
-                // representa a nadie.
-                const ownerName = nombreDeAsignado(contact.ownerId);
-                return (
-                  <tr key={contact.id}>
-                    <td>
-                      {/* decorative: el nombre completo ya está al lado, el
+          {contactsQuery.isSuccess && contactsQuery.data.data.length > 0 ? (
+            <Table>
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Empresa</th>
+                  <th>Email</th>
+                  <th>Teléfono</th>
+                  <th>Etapa</th>
+                  <th>Origen</th>
+                  {isAdmin ? <th>Asignado</th> : null}
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {contactsQuery.data.data.map((contact) => {
+                  const fullName = `${contact.firstName} ${contact.lastName}`;
+                  // Sin nombre no hay avatar: un círculo con "—" adentro no
+                  // representa a nadie.
+                  const ownerName = nombreDeAsignado(contact.ownerId);
+                  return (
+                    <tr key={contact.id}>
+                      <td>
+                        {/* decorative: el nombre completo ya está al lado, el
                         avatar no tiene que anunciarse dos veces.
                         El nombre abre la ficha, para TODOS los roles: quien
                         no puede editarlo (D2) la ve en solo lectura, que es
@@ -258,76 +294,77 @@ export function ContactListPage() {
                         nombre y no un onClick en la fila: se tabula, se abre
                         en otra pestaña y no pelea con seleccionar el email o
                         el teléfono para copiarlos. */}
-                      <span className="ds-person">
-                        <Avatar name={fullName} size="sm" decorative />
-                        <Link to={`/contacts/${contact.id}/edit`}>{fullName}</Link>
-                      </span>
-                    </td>
-                    <td>{nombreDeEmpresa(contact.companyId)}</td>
-                    <td>{contact.email ?? ""}</td>
-                    <td>
-                      <PhoneNumber value={contact.phone} />
-                    </td>
-                    <td>
-                      <Badge variant={LIFECYCLE_BADGE_VARIANT[contact.lifecycleStage]}>
-                        {LIFECYCLE_STAGE_LABELS[contact.lifecycleStage]}
-                      </Badge>
-                    </td>
-                    <td>{contact.source ?? ""}</td>
-                    {isAdmin ? (
-                      <td>
-                        {ownerName ? (
-                          <span className="ds-person">
-                            <Avatar name={ownerName} size="sm" decorative />
-                            <span>{ownerName}</span>
-                          </span>
-                        ) : (
-                          "—"
-                        )}
+                        <span className="ds-person">
+                          <Avatar name={fullName} size="sm" decorative />
+                          <Link to={`/contacts/${contact.id}/edit`}>{fullName}</Link>
+                        </span>
                       </td>
-                    ) : null}
-                    <td>
-                      <ActionsMenu
-                        actions={[
-                          // Primero "Ver detalle": la acción de consulta,
-                          // antes que las de escritura (§28).
-                          {
-                            label: "Ver detalle",
-                            onClick: () => setDetalleAbierto(contact.id),
-                          },
-                          // D2: editar, quien lo tiene asignado o un ADMIN;
-                          // eliminar, solo un ADMIN.
-                          ...(puedeEditarRegistro(me, contact)
-                            ? [{ label: "Editar", to: `/contacts/${contact.id}/edit` }]
-                            : []),
-                          ...(isAdmin
-                            ? [
-                                {
-                                  label: "Eliminar",
-                                  onClick: () => handleDelete(contact.id),
-                                  destructive: true,
-                                },
-                              ]
-                            : []),
-                        ]}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </Table>
-        ) : null}
+                      <td>{nombreDeEmpresa(contact.companyId)}</td>
+                      <td>{contact.email ?? ""}</td>
+                      <td>
+                        <PhoneNumber value={contact.phone} />
+                      </td>
+                      <td>
+                        <Badge variant={LIFECYCLE_BADGE_VARIANT[contact.lifecycleStage]}>
+                          {LIFECYCLE_STAGE_LABELS[contact.lifecycleStage]}
+                        </Badge>
+                      </td>
+                      <td>{contact.source ?? ""}</td>
+                      {isAdmin ? (
+                        <td>
+                          {ownerName ? (
+                            <span className="ds-person">
+                              <Avatar name={ownerName} size="sm" decorative />
+                              <span>{ownerName}</span>
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      ) : null}
+                      <td>
+                        <ActionsMenu
+                          actions={[
+                            // Primero "Ver detalle": la acción de consulta,
+                            // antes que las de escritura (§28).
+                            {
+                              label: "Ver detalle",
+                              onClick: () => setDetalleAbierto(contact.id),
+                            },
+                            // D2: editar, quien lo tiene asignado o un ADMIN;
+                            // eliminar, solo un ADMIN.
+                            ...(puedeEditarRegistro(me, contact)
+                              ? [{ label: "Editar", to: `/contacts/${contact.id}/edit` }]
+                              : []),
+                            ...(isAdmin
+                              ? [
+                                  {
+                                    label: "Eliminar",
+                                    onClick: () => handleDelete(contact.id),
+                                    destructive: true,
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          ) : null}
 
-        {contactsQuery.isSuccess ? (
-          <Pagination
-            page={page}
-            totalPages={contactsQuery.data.pagination.totalPages}
-            onPrevious={() => setPage((current) => current - 1)}
-            onNext={() => setPage((current) => current + 1)}
-          />
-        ) : null}
-      </div>
+          {contactsQuery.isSuccess ? (
+            <Pagination
+              page={page}
+              totalPages={contactsQuery.data.pagination.totalPages}
+              onPrevious={() => setPage((current) => current - 1)}
+              onNext={() => setPage((current) => current + 1)}
+            />
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Los mismos campos que ContactFormPage, en solo lectura, con la
           empresa, la etapa (mismo Badge) y el asignado resueltos igual que

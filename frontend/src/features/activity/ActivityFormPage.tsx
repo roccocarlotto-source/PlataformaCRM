@@ -174,12 +174,17 @@ export function ActivityFormPage() {
   // pipelineId/stageId en OpportunityFormPage): sigue editable, y un id
   // inexistente lo rechaza el backend como siempre. En edición se ignora.
   // Un USER no elige: nace asignada a sí mismo (B-18).
+  // "Crear tarea de seguimiento" de Consultas sin identificar (ítem 184)
+  // llega con ?contactId=: la tarea nace colgada de ese contacto y como TASK,
+  // con el mismo criterio (valor inicial, editable, el backend valida).
   const [searchParams] = useSearchParams();
+  const contactIdInicial = searchParams.get("contactId");
   const initialValues: ActivityFormValues = isEditMode
     ? EMPTY_FORM
     : {
         ...EMPTY_FORM,
         assigneeId: isAdmin ? searchParams.get("assigneeId") : (me?.id ?? null),
+        ...(contactIdInicial ? { contactId: contactIdInicial, type: "TASK" as const } : {}),
       };
 
   const [values, setValues] = useFormDraft<ActivityFormValues>(

@@ -1,3 +1,4 @@
+import type { ConversationChannel } from "../agent/types";
 import type { VehicleStatus } from "../vehicle/types";
 // Reconstruido desde el contrato real del backend (src/controllers/contact.controller.ts,
 // src/services/contact.service.ts, prisma/schema.prisma modelo Contact). No se
@@ -78,8 +79,38 @@ export interface ContactListQuery {
   companyId?: string;
   ownerId?: string;
   lifecycleStage?: LifecycleStage;
+  // Las dos pestañas de Contactos (ítem 184). Sin vista, todos: es lo que
+  // siguen pidiendo ContactSelect y la unión.
+  vista?: VistaDeContactos;
+  // Solo con vista=consultas: el canal de la última conversación.
+  channel?: ConversationChannel;
   sortBy?: ContactSortBy;
   sortOrder?: SortOrder;
+}
+
+export type VistaDeContactos = "clientes" | "consultas";
+
+// Lo que la pestaña "Consultas sin identificar" muestra además del contacto:
+// su última conversación (contact.service.ts, listarConsultasSinIdentificar).
+export interface UltimaConsulta {
+  conversationId: string;
+  channel: ConversationChannel;
+  // El último mensaje del cliente, ya recortado por el backend; null si la
+  // conversación no tiene ninguno.
+  ultimoMensaje: string | null;
+  // Cuándo escribió por última vez.
+  ultimoMensajeAt: string;
+}
+
+export interface ContactConConsulta extends Contact {
+  // null para una consulta sin conversación (cargada por la ingesta con un
+  // nombre vacío).
+  ultimaConsulta: UltimaConsulta | null;
+}
+
+export interface ConsultasListResponse {
+  data: ContactConConsulta[];
+  pagination: ContactListPagination;
 }
 
 // companyId/ownerId: opcionales, tipados como `string` (nunca `string | null`)

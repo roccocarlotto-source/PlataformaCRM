@@ -8609,3 +8609,40 @@ Deploy normal del backend y del frontend, juntos: con el backend nuevo y el fron
 ### Cómo se aplica
 
 Deploy normal, sin migración. Los agentes que hoy tienen `create_opportunity`, `create_booking` o `reserve_vehicle` sin `create_lead` ni `update_lead` van a ver el aviso en su pantalla y, hasta habilitar una de las dos, no van a poder crear oportunidades ni reservar para un contacto sin nombre completo: conviene revisarlos al desplegar. No se corrieron evaluaciones pagas del agente: que el modelo pida el nombre en el momento justo y no ante una consulta es prompt, y se mide en la próxima prueba en vivo.
+
+---
+
+## 184. Contactos en dos pestañas: "Clientes" y "Consultas sin identificar"
+
+**Estado:** hecho (08/10/2026). Sin migración. Pedido de Rocco (08/10/2026).
+
+**Qué pasaba.** El listado de Contactos mezclaba a los clientes con lo que entra por los canales antes de que la persona diga quién es: "WhatsApp +598…", "Visitante caa2c873", "Messenger …08366039". Un vendedor que abría Contactos para buscar a un cliente se encontraba con decenas de consultas provisorias, y una consulta que quedó sin atender no se distinguía de nada.
+
+**Qué se hace.**
+
+1. **Dos pestañas** en Contactos (`design-system/Tabs.tsx`, componente nuevo: tablist con flechas, Inicio y Fin). "Clientes" es el listado de siempre; "Consultas sin identificar" es la pestaña nueva. La elegida va en la URL (`/contacts?vista=consultas`) para enlazarla, volver atrás y medirla en `check:mobile-overflow`.
+2. **"Sin identificar" es un filtro calculado, sin columna nueva.** `GET /api/contacts?vista=clientes|consultas`. La regla es la del ítem 183 (`utils/nombreProvisorio.ts`: nombre provisorio, o nombre o apellido sin letras) más "ninguna oportunidad no borrada", escrita en SQL en `src/repositories/consultasSinIdentificar.repository.ts` (`predicadoSinIdentificar`), que interpola las mismas constantes que el TS. Un test de integración pasa una lista de nombres por las dos escrituras y exige que coincidan. Cuando la persona da su nombre (`update_lead`, la ficha) o se le crea una oportunidad, pasa sola a Clientes. **Sin `vista`, el listado devuelve todos**, así que el selector de contacto de oportunidades, la unión y el agente interno siguen encontrando a cualquiera; ninguna métrica cuenta contactos por este endpoint.
+3. **Las filas de la pestaña** traen, además del contacto, su última conversación (`ultimaConsulta`: canal, id para abrirla, el último mensaje del cliente recortado a 160 caracteres y cuándo escribió), con dos `LATERAL` sobre los índices que ya existen, y se ordenan de quien escribió más recientemente a quien escribió hace más (una consulta sin conversación va al final). Columnas: Consulta (el nombre provisorio, que abre la ficha), Canal, Último mensaje (a dos líneas por CSS), Escribió (`formatRelativeTime`, nuevo en `detailFormat.ts`: "hace 3 h"), Vehículo de interés, Vendedor (solo ADMIN, como la columna Asignado de Clientes). Filtros en la barra de siempre: buscar (nombre, email o teléfono), canal y vendedor (ADMIN).
+4. **Acciones por fila.** Abrir la conversación (`/conversations/:id`), asignar vendedor (`AsignarVendedorDialog`, el PATCH de `ownerId` de la ficha), crear tarea de seguimiento (`/activities/new?contactId=`: `ActivityFormPage` toma el contacto y el tipo Tarea como valores iniciales, igual que `?assigneeId`), unir con un contacto existente (`MergeContactDialog` con `modo="seUne"`: la consulta es la que se une y se elige el contacto que queda; mismo backend con los ids al revés) y descartar. D2: un USER ve solo abrir la conversación y crear la tarea.
+5. **Descartar** es `POST /api/contacts/:id/descartar` (ADMIN): la baja de siempre (soft delete, reversible) cerrando antes las conversaciones abiertas y cancelando sus turnos pendientes, en una transacción. Solo vale para lo que se ve en la pestaña: un contacto identificado da 409 y se da de baja desde su ficha, con los chequeos de `deleteContact`. Si la persona vuelve a escribir, entra como una consulta nueva (igual que después de cualquier baja).
+
+**Tests.** Backend: `consultasSinIdentificar.integration-test.ts` (paridad SQL/TS con 18 nombres, las dos vistas y el orden, el pase a Clientes por nombre y por oportunidad, descartar con sus 409/404 y otra organización), `contact.controller.test.ts` (el schema de `vista` y `channel`). Frontend: `Tabs.test.tsx`, `detailFormat.test.ts`, `ConsultasSinIdentificarTab.test.tsx` (columnas, filtros, acciones por rol, descartar, asignar), `ContactListPage.test.tsx` (pestañas y URL), `MergeContactDialog.test.tsx` (modo seUne), `ActivityFormPage.test.tsx` (`?contactId`).
+
+**Verificación.** Backend `typecheck`, `lint`, `format:check`, `build` limpios y unitarios 1863/1863; el test de integración nuevo contra el Supabase local. Frontend `typecheck`, `lint` (solo la advertencia preexistente de `Sincronizaciones.tsx`), `build` limpios y 2113/2113. `check:mobile-overflow` sobre `/contacts` y `/contacts?vista=consultas` a 375 y 390 px: sin desborde.
+
+**Archivos.**
+
+| Dónde | Qué |
+|---|---|
+| `src/repositories/consultasSinIdentificar.repository.ts` | nuevo: el predicado SQL, los ids a excluir, la página de consultas con su última conversación, el conteo |
+| `src/repositories/contact.repository.ts` | `excludeIds` en los filtros; `findContactsByIds` |
+| `src/services/contact.service.ts` | `vista` y `channel` en `listContacts`; `listarConsultasSinIdentificar`; `descartarConsulta` |
+| `src/controllers/contact.controller.ts`, `src/routes/contact.routes.ts` | `vista`/`channel` en la query; `POST /contacts/:id/descartar` |
+| `frontend/src/design-system/Tabs.tsx` (+ test), `design-system.css` | el componente de pestañas |
+| `frontend/src/design-system/detailFormat.ts` | `formatRelativeTime` |
+| `frontend/src/features/contact/` | `ConsultasSinIdentificarTab.tsx` (+ test), `AsignarVendedorDialog.tsx`, `ContactListPage.tsx` (pestañas), `MergeContactDialog.tsx` (modo), `types.ts`, `api.ts`, `mutations.ts`, `labels.ts` |
+| `frontend/src/features/activity/ActivityFormPage.tsx` | `?contactId` |
+
+### Cómo se aplica
+
+Deploy normal del backend y del frontend, sin migración. Con el frontend viejo y el backend nuevo no cambia nada (sin `vista` el listado es el de siempre); con el frontend nuevo y el backend viejo, la pestaña de consultas devolvería el listado entero hasta que el backend se despliegue.
