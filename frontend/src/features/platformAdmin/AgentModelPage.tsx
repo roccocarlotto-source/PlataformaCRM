@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -158,7 +159,7 @@ function ModeloDeAgenteInternoCard() {
 export function AgentModelPage() {
   return (
     <div className="ds-form">
-      <PageHeader title="Modelo de IA" />
+      <PageHeader help={AYUDA.modeloDeIa} title="Modelo de IA" />
       <div className="ds-stack">
         <p className="ds-hint">
           El modelo lo elige la plataforma: todas las organizaciones usan la misma clave del

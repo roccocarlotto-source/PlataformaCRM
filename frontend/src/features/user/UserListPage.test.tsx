@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
+import { MemoryRouter } from "react-router-dom";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeUser } from "../../test/userFixtures";
@@ -43,9 +44,12 @@ const usersUrl = `${env.apiUrl}/api/users`;
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // MemoryRouter: el "?" del encabezado (PageHeader.help) es un <Link>.
   render(
     <QueryClientProvider client={queryClient}>
-      <UserListPage />
+      <MemoryRouter>
+        <UserListPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   return queryClient;

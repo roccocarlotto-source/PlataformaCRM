@@ -4,6 +4,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { Columns3, Plus } from "lucide-react";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -108,6 +109,7 @@ export function StageListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.etapas}
         title={<>Etapas de {pipeline.name}</>}
         back={{ to: "/pipelines", label: "Procesos de venta" }}
         actions={

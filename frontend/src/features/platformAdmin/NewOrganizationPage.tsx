@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -58,7 +59,7 @@ export function NewOrganizationPage() {
   if (created) {
     return (
       <div className="ds-form">
-        <PageHeader title="Organización creada" />
+        <PageHeader help={AYUDA.nuevaOrganizacion} title="Organización creada" />
         <div className="ds-stack">
           <Card heading={created.organization.name}>
             <p>
@@ -81,7 +82,7 @@ export function NewOrganizationPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title="Nueva organización" />
+      <PageHeader help={AYUDA.nuevaOrganizacion} title="Nueva organización" />
       <div className="ds-stack">
         <Card heading="Organización">
           <div className="ds-field-grid">

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarRegistro } from "../../auth/permisos";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -269,6 +270,7 @@ export function ContactFormPage() {
     <>
       <form onSubmit={handleSubmit} className="ds-form">
         <PageHeader
+          help={AYUDA.contactoForm}
           title={isEditMode ? "Editar contacto" : "Nuevo contacto"}
           actions={
             isEditMode && id ? (

@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Notice } from "../../design-system/Notice";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -226,6 +227,7 @@ export function AgentPlaygroundPage() {
   return (
     <div className="ds-form">
       <PageHeader
+        help={AYUDA.probarAgente}
         title="Probar el agente"
         back={{ to: "/agents", label: "Agentes de IA" }}
         subtitle={

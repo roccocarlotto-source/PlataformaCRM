@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -169,7 +170,10 @@ export function ResourceFormPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title={isEditMode ? "Editar recurso" : "Nuevo recurso"} />
+      <PageHeader
+        help={AYUDA.recursoForm}
+        title={isEditMode ? "Editar recurso" : "Nuevo recurso"}
+      />
       <div className="ds-stack">
         <Card heading="Datos del recurso">
           <div className="ds-field-grid">

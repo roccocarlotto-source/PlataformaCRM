@@ -5,6 +5,7 @@ import { Badge } from "../../design-system/Badge";
 import { formatDateOnly, formatDateTime } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -157,7 +158,7 @@ export function ApiKeyListPage() {
 
   return (
     <div>
-      <PageHeader title="Claves de ingesta" />
+      <PageHeader help={AYUDA.clavesDeIngesta} title="Claves de ingesta" />
 
       {/* CREACIÓN SIN PANTALLA APARTE: es un solo campo. Un formulario en su
           propia ruta sería una pantalla entera para elegir una fuente. Va sin

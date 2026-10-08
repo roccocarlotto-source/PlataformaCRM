@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -125,7 +126,7 @@ export function BookingCalendarPage() {
 
   return (
     <div>
-      <PageHeader title="Calendario" />
+      <PageHeader help={AYUDA.calendario} title="Calendario" />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

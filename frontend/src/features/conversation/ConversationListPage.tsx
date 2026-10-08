@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MessagesSquare } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -92,7 +93,7 @@ export function ConversationListPage() {
 
   return (
     <div>
-      <PageHeader title="Conversaciones" />
+      <PageHeader help={AYUDA.conversaciones} title="Conversaciones" />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

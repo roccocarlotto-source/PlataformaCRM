@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -160,7 +161,7 @@ export function SourceFormPage() {
   // arriba). Los subcomponentes no cambian: solo el contenedor alrededor.
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title={isEditMode ? "Editar fuente" : "Nueva fuente"} />
+      <PageHeader help={AYUDA.fuenteForm} title={isEditMode ? "Editar fuente" : "Nueva fuente"} />
       <div className="ds-stack">
         <Card heading="Datos de la fuente">
           <div className="ds-stack">

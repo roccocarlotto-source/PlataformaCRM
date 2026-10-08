@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -101,7 +102,7 @@ export function AgentFacebookPagePage() {
 
   return (
     <div className="ds-form">
-      <PageHeader title="Página de Facebook" />
+      <PageHeader help={AYUDA.paginaDeFacebook} title="Página de Facebook" />
       <div className="ds-stack">
         <Card heading="Organización">
           {organizationsQuery.isLoading ? <LoadingState /> : null}

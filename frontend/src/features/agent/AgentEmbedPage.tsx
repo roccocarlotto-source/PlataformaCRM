@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Notice } from "../../design-system/Notice";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -202,6 +203,7 @@ export function AgentEmbedPage() {
   return (
     <div className="ds-form">
       <PageHeader
+        help={AYUDA.instalarWidget}
         title="Instalar el widget en un sitio"
         back={{ to: "/agents", label: "Agentes de IA" }}
         subtitle={

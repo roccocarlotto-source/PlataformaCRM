@@ -5360,6 +5360,281 @@ button.ds-calendar-slot:focus-visible {
   outline-offset: -2px;
 }
 
+/* ---------------------------------------------------------------------------
+   Guía de uso — features/guia/GuiaPage.tsx. Índice con buscador, y la
+   sección como prosa renderizada del markdown (.ds-guia-prose). Todo con los
+   tokens: claro y oscuro salen solos. El ancho de lectura se acota a ~70
+   caracteres; el resto de la app no tiene texto corrido largo.
+   El "?" del encabezado (.ds-page-help) vive al lado del h1 de PageHeader.
+   --------------------------------------------------------------------------- */
+.ds-page-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ds-page-title h1 {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.ds-page-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  color: var(--color-text-faint);
+}
+
+.ds-page-help:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-accent);
+}
+
+.ds-page-help:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.ds-guia {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  max-width: 72ch;
+}
+
+.ds-guia-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-height);
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-faint);
+}
+
+.ds-guia-search:focus-within {
+  border-color: var(--color-focus-ring);
+  box-shadow: 0 0 0 1px var(--color-focus-ring);
+}
+
+.ds-guia-search input,
+.ds-guia-search input:focus {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.ds-guia-index,
+.ds-guia-index-topics,
+.ds-guia-toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ds-guia-index {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.ds-guia-index-section {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.ds-guia-index-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.ds-guia-index-title:hover {
+  color: var(--color-accent);
+}
+
+.ds-guia-index-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.ds-guia-index-topics a,
+.ds-guia-toc a {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.ds-guia-index-topics a:hover,
+.ds-guia-toc a:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.ds-guia-toc {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.ds-guia-toc ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+
+.ds-guia-prose {
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.ds-guia-prose h2 {
+  margin: var(--space-6) 0 var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  /* Que el scroll al ancla deje aire arriba, sobre todo bajo la topbar del
+     celular. */
+  scroll-margin-top: 72px;
+}
+
+.ds-guia-prose h2:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.ds-guia-prose h3 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  scroll-margin-top: 72px;
+}
+
+.ds-guia-prose p,
+.ds-guia-prose ul,
+.ds-guia-prose ol {
+  margin: 0 0 var(--space-3);
+}
+
+.ds-guia-prose ul,
+.ds-guia-prose ol {
+  padding-left: var(--space-5);
+}
+
+.ds-guia-prose li {
+  margin-bottom: var(--space-1);
+}
+
+.ds-guia-prose li > ul,
+.ds-guia-prose li > ol {
+  margin-top: var(--space-1);
+  margin-bottom: 0;
+}
+
+.ds-guia-prose a {
+  color: var(--color-accent);
+}
+
+.ds-guia-prose blockquote {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-warning-soft);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.ds-guia-prose blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.ds-guia-prose code {
+  padding: 1px 5px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.ds-guia-prose pre {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  overflow-x: auto;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ds-guia-prose pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.ds-guia-prose table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 var(--space-3);
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.ds-guia-prose th,
+.ds-guia-prose td {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ds-guia-prose th {
+  background: var(--color-surface-sunken);
+  font-weight: 600;
+}
+
+.ds-guia-prose hr {
+  margin: var(--space-5) 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 767px) {
+  .ds-guia-prose {
+    padding: var(--space-4);
+  }
+}
+
 @media print {
   body * {
     visibility: hidden;

@@ -1,4 +1,5 @@
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { useState } from "react";
 import type { OpportunityRevenueGranularity } from "../opportunity/types";
 import { VehicleSummaryCards } from "../vehicle/VehicleSummaryCards";
@@ -51,6 +52,7 @@ export function DashboardPage() {
       {/* La misma clase que los listados para "título + acción a la derecha"
           (CompanyListPage y el resto): el selector es un control de página. */}
       <PageHeader
+        help={AYUDA.dashboard}
         title="Dashboard"
         actions={
           <>

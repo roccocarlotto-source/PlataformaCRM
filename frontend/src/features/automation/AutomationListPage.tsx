@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Plus, Zap } from "lucide-react";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -72,6 +73,7 @@ export function AutomationListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.automatizaciones}
         title="Automatizaciones"
         actions={
           <>

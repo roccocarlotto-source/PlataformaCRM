@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Notice } from "../../design-system/Notice";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -265,7 +266,10 @@ export function KnowledgeBaseFormPage() {
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title={isEditMode ? "Editar entrada" : "Nueva entrada"} />
+      <PageHeader
+        help={AYUDA.entradaForm}
+        title={isEditMode ? "Editar entrada" : "Nueva entrada"}
+      />
       <div className="ds-stack">
         <Card heading="Datos de la entrada">
           <div className="ds-field-grid">

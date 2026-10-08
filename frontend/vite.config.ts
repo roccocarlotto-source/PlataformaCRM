@@ -7,6 +7,15 @@ import react from "@vitejs/plugin-react";
 // hace falta un vitest.config.ts separado.
 export default defineConfig({
   plugins: [react()],
+  // La guía de uso (features/guia/secciones.ts) importa los markdown de
+  // docs/guia-de-uso/, fuera de frontend/. En el build Vite los lee sin más;
+  // el dev server, en cambio, solo sirve archivos de la lista `allow`, que
+  // por defecto es este paquete. Solo esa carpeta, no todo el repo.
+  server: {
+    fs: {
+      allow: [".", "../docs/guia-de-uso"],
+    },
+  },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],

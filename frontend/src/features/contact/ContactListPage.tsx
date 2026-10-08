@@ -6,6 +6,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { puedeEditarRegistro } from "../../auth/permisos";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
@@ -149,6 +150,7 @@ export function ContactListPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.contactos}
         title="Contactos"
         actions={
           <Link to="/contacts/new" className="ds-link-button">

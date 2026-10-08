@@ -206,6 +206,37 @@ jobs:
         working-directory: frontend
 
   # ---------------------------------------------------------------------------
+  # AVISO, NO BLOQUEANTE: la guía de uso (docs/guia-de-uso/) se mantiene en el
+  # mismo PR que cambia una pantalla (regla de CLAUDE.md). Este job solo deja
+  # una annotation de warning cuando el PR toca frontend/src/features/ y no
+  # toca la guía; quien decide si aplicaba es la persona que revisa, con la
+  # casilla de la plantilla de PR. Nunca falla: no todo cambio de pantalla
+  # cambia lo que ve un usuario.
+  # ---------------------------------------------------------------------------
+  guia-de-uso:
+    name: Guía de uso — aviso si cambió una pantalla sin tocar la guía
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Hace falta la base del PR para el diff; el checkout por defecto
+          # trae un solo commit.
+          fetch-depth: 0
+
+      - name: Comparar lo que toca el PR
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          archivos=$(git diff --name-only "$BASE" "$HEAD")
+          if echo "$archivos" | grep -q '^frontend/src/features/' && ! echo "$archivos" | grep -q '^docs/guia-de-uso/'; then
+            echo "::warning title=Guía de uso::Este PR toca frontend/src/features/ y no toca docs/guia-de-uso/. Si cambia lo que ve o hace un usuario, actualizá la sección correspondiente de la guía en este mismo PR."
+          else
+            echo "OK: el PR no toca pantallas, o también toca la guía."
+          fi
+
+  # ---------------------------------------------------------------------------
   # Job aparte, no un paso más del job `backend`, por dos razones:
   #   1. Perfil de ejecución distinto — este levanta Docker y tarda minutos;
   #      `backend` da su veredicto en menos de un minuto. Separados corren en

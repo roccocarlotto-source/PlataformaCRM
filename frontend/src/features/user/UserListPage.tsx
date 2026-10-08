@@ -3,6 +3,7 @@ import { UserCog } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { DetailList } from "../../design-system/DetailList";
@@ -217,7 +218,7 @@ export function UserListPage() {
     <div>
       {/* Sin acción a la derecha: no hay ruta de creación de usuarios (entran
           por invitación). */}
-      <PageHeader title="Usuarios" />
+      <PageHeader help={AYUDA.usuarios} title="Usuarios" />
 
       {/* Filtros, estados, tabla y paginación en la misma tarjeta que el
           resto de los listados (.ds-list-card). */}

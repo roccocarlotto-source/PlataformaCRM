@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -263,7 +264,10 @@ export function ActivityFormPage() {
   // que un asterisco ahí mentiría.
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <PageHeader title={isEditMode ? "Editar actividad" : "Nueva actividad"} />
+      <PageHeader
+        help={AYUDA.actividadForm}
+        title={isEditMode ? "Editar actividad" : "Nueva actividad"}
+      />
       <div className="ds-stack">
         <Card heading="Datos de la actividad">
           <div className="ds-field-grid">

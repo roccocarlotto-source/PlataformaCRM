@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -121,7 +122,7 @@ export function BookingListPage() {
 
   return (
     <div>
-      <PageHeader title="Reservas" />
+      <PageHeader help={AYUDA.reservas} title="Reservas" />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>
