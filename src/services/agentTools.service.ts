@@ -32,7 +32,16 @@ import {
 } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
 import { buscarPorMarcaYModelo, idsDelMismoModelo } from "../utils/busquedaDeVehiculo";
-import { esNombreProvisorio } from "../utils/nombreProvisorio";
+import {
+  asuntoDeLaNotaDeMotivo,
+  CONSULTAS_QUE_NO_SON_INICIATIVA,
+  enumerarIniciativas,
+  INICIATIVAS_DEL_CLIENTE,
+  MOTIVOS_DE_OPORTUNIDAD,
+  PREFIJO_NOTA_DE_MOTIVO,
+  type IniciativaDelCliente,
+} from "../utils/iniciativaDelCliente";
+import { esNombreProvisorio, tieneLetras } from "../utils/nombreProvisorio";
 import { isoEnZona } from "../utils/timezone";
 import {
   BODY_TYPE_LABELS,
@@ -41,6 +50,7 @@ import {
   TRANSMISSION_LABELS,
 } from "../utils/vehicleLabels";
 import { currencySchema } from "../utils/validation";
+import { createActivity } from "./activity.service";
 import { MAX_DIAS_DE_RANGO, obtenerDisponibilidad } from "./availability.service";
 import { createBooking, relojDeReservas } from "./booking.service";
 import {
@@ -99,39 +109,54 @@ export interface ContextoDeEjecucionDeTool {
 }
 
 // ---------------------------------------------------------------------------
-// D3 (decisión de Rocco, 05/10/2026; FABLE-B-02 y OPUS-A-06, docs-privados,
-// local): EN EL CANAL WEB, ANTES DE RESERVAR O CREAR UNA OPORTUNIDAD, HACEN
-// FALTA EL NOMBRE Y UN TELÉFONO O UN EMAIL.
+// QUÉ HACE FALTA DEL CLIENTE ANTES DE RESERVAR O CREAR UNA OPORTUNIDAD.
 //
-// El visitante del widget es anónimo: cualquiera, con cualquier sessionId.
-// Antes podía pedir "reservame cuatro test drives para mañana" sin decir quién
-// era y el agente los reservaba: agenda bloqueada y nadie a quien llamar.
+// EN TODOS LOS CANALES, EL NOMBRE Y EL APELLIDO (decisión de Rocco,
+// 08/10/2026). Rocco quedó en el CRM como "Messenger …08366039" después de
+// pedir un test drive: el agente nunca preguntó cómo se llamaba. Un nombre
+// completo es nombre y apellido con letras (tieneNombreCompleto): un
+// provisorio, un perfil de WhatsApp de una sola palabra ("Martín") o sin
+// letras ("Juancho 🚗", ".") no alcanzan. Si el perfil ya trae nombre y
+// apellido, no se pregunta. Y ante una consulta de información no se pide
+// nada: esto corre solo en las tools que actúan.
+//
+// EN EL CANAL WEB, ADEMÁS, UN TELÉFONO O UN EMAIL (D3, decisión de Rocco,
+// 05/10/2026; FABLE-B-02 y OPUS-A-06, docs-privados, local). El visitante del
+// widget es anónimo: cualquiera, con cualquier sessionId. Antes podía pedir
+// "reservame cuatro test drives para mañana" sin decir quién era y el agente
+// los reservaba: agenda bloqueada y nadie a quien llamar. Solo WEB: por
+// WhatsApp, Messenger e Instagram la persona ya llega atada a una cuenta suya
+// por la que el negocio le puede contestar.
 //
 // SE VALIDA ACÁ, EN LA TOOL, y no en el prompt: una instrucción el modelo la
 // puede saltear; un resultado ok: false no. El modelo lee qué falta, se lo
-// pide al cliente, lo guarda con update_lead y vuelve a intentar.
-//
-// Solo WEB: por WhatsApp, Messenger e Instagram la persona ya llega atada a
-// una cuenta suya por la que el negocio le puede contestar.
+// pide al cliente, lo guarda con update_lead y vuelve a intentar. Si
+// update_lead no está habilitada, la pantalla del agente lo avisa (frontend,
+// AgentFormPage): la exigencia no tiene cómo cumplirse.
 // ---------------------------------------------------------------------------
-export function datosQueFaltanParaActuarPorWeb(contacto: {
-  firstName: string;
-  lastName: string | null;
-  email: string | null;
-  phone: string | null;
-}): string[] {
+export function datosQueFaltanParaActuar(
+  contacto: {
+    firstName: string;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+  },
+  canal: ConversationChannel,
+): string[] {
   const faltan: string[] = [];
-  if (esNombreProvisorio(contacto)) {
-    faltan.push("el nombre");
+  if (esNombreProvisorio(contacto) || !tieneLetras(contacto.firstName)) {
+    faltan.push("el nombre y el apellido");
+  } else if (!tieneLetras(contacto.lastName)) {
+    faltan.push("el apellido");
   }
   const tiene = (valor: string | null) => valor !== null && valor.trim().length > 0;
-  if (!tiene(contacto.email) && !tiene(contacto.phone)) {
+  if (canal === ConversationChannel.WEB && !tiene(contacto.email) && !tiene(contacto.phone)) {
     faltan.push("un teléfono o un email");
   }
   return faltan;
 }
 
-export function mensajeFaltanDatosPorWeb(faltan: string[]): string {
+export function mensajeFaltanDatos(faltan: string[]): string {
   return `Todavía no se puede: antes de reservar o registrar la oportunidad hace falta ${faltan.join(" y ")} del cliente. Pedíselo, guardalo con update_lead (firstName, lastName, phone, email) y recién después volvé a llamar a esta herramienta. No le digas que quedó reservado ni registrado: todavía no se hizo nada.`;
 }
 
@@ -146,18 +171,15 @@ export const NOTA_DATOS_RESERVADOS_EN_WEB =
 
 // null = se puede seguir. Lee el contacto vigente: el update_lead de la misma
 // ronda ya quedó guardado.
-async function bloqueoPorIdentidadEnWeb(
+async function bloqueoPorIdentidad(
   contexto: ContextoDeEjecucionDeTool,
 ): Promise<ResultadoDeTool | null> {
-  if (contexto.conversation.channel !== ConversationChannel.WEB) {
-    return null;
-  }
   const contacto = await findContactById(contexto.conversation.contactId, contexto.organizationId);
   if (!contacto) {
     return fallo("El contacto de esta conversación ya no existe");
   }
-  const faltan = datosQueFaltanParaActuarPorWeb(contacto);
-  return faltan.length > 0 ? fallo(mensajeFaltanDatosPorWeb(faltan)) : null;
+  const faltan = datosQueFaltanParaActuar(contacto, contexto.conversation.channel);
+  return faltan.length > 0 ? fallo(mensajeFaltanDatos(faltan)) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -522,11 +544,69 @@ async function resolverVehiculo(
 
 const createOpportunityArgs = z.object({
   title: z.string().trim().min(1, "title es requerido").max(255),
+  // Decisión de Rocco (08/10/2026): OBLIGATORIO, y uno de la lista de
+  // utils/iniciativaDelCliente.ts. Es lo que hace que una oportunidad exista
+  // solo con iniciativa del cliente: sin un motivo de la lista, el argumento
+  // no valida, y el modelo no puede inventar uno porque es un enum.
+  motivo: z.enum(MOTIVOS_DE_OPORTUNIDAD, {
+    errorMap: () => ({
+      message: `motivo es requerido y tiene que ser uno de: ${MOTIVOS_DE_OPORTUNIDAD.join(", ")}`,
+    }),
+  }),
   amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
   currency: vacioComoAusente(currencySchema),
   // Ítem 107: por texto, no por id (mismo criterio que `servicio` en el 106).
   vehiculo: textoOpcional(255),
 });
+
+// ---------------------------------------------------------------------------
+// El motivo queda EN LA OPORTUNIDAD, como una nota (Activity NOTE colgada de la
+// oportunidad y del contacto, con el vendedor como autor): sin migración, y es
+// lo que el vendedor ve en Actividades. En el reuso (ítem 84) también se anota,
+// porque es una iniciativa nueva sobre la misma venta; si la última nota de
+// motivo ya dice lo mismo, no se repite. Si la nota no se puede guardar, la
+// oportunidad queda igual y el modelo se entera por `motivoRegistrado`.
+// ---------------------------------------------------------------------------
+
+const CANAL_EN_PROSA: Record<ConversationChannel, string> = {
+  WEB: "el widget web",
+  WHATSAPP: "WhatsApp",
+  MESSENGER: "Messenger",
+  INSTAGRAM: "Instagram",
+};
+
+async function anotarMotivoEnLaOportunidad(
+  oportunidad: { id: string; ownerId: string },
+  motivo: IniciativaDelCliente,
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<boolean> {
+  const subject = asuntoDeLaNotaDeMotivo(motivo);
+  try {
+    const [ultima] = await findManyActivities(
+      contexto.organizationId,
+      { opportunityId: oportunidad.id, type: "NOTE", search: PREFIJO_NOTA_DE_MOTIVO },
+      { skip: 0, take: 1 },
+      { sortBy: "createdAt", sortOrder: "desc" },
+    );
+    if (ultima && ultima.subject === subject) {
+      return true;
+    }
+    await createActivity(contexto.organizationId, oportunidad.ownerId, {
+      type: "NOTE",
+      subject,
+      body: `Lo registró el agente de IA desde la conversación por ${CANAL_EN_PROSA[contexto.conversation.channel]}.`,
+      contactId: contexto.conversation.contactId,
+      opportunityId: oportunidad.id,
+    });
+    return true;
+  } catch (err) {
+    logger.warn(
+      { err, organizationId: contexto.organizationId, opportunityId: oportunidad.id, motivo },
+      "No se pudo guardar la nota con el motivo de la oportunidad",
+    );
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // F2 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) — la unidad de interés NO se vincula.
@@ -600,17 +680,33 @@ export const MENSAJE_PIPELINE_SIN_ETAPAS =
 export const MENSAJE_PIPELINE_SIN_ETAPA_ABIERTA =
   "No se puede crear la oportunidad: el pipeline por defecto no tiene ninguna etapa abierta (todas marcan ganado o perdido). Es un problema de configuración del negocio, no algo que el cliente hizo mal ni algo que puedas arreglar reintentando: seguí la conversación normalmente y NO le menciones nada de esto.";
 
+// La descripción, con la lista de iniciativas y lo que NO lo es, tomadas del
+// único lugar donde viven (utils/iniciativaDelCliente.ts). Exportada porque el
+// frontend la espeja a mano (frontend/src/features/agent/tools.ts) y los tests
+// comprueban que diga lo mismo que el prompt.
+export const DESCRIPCION_DE_CREATE_OPPORTUNITY = `Crea una oportunidad de venta para el contacto de esta conversación, asignada al vendedor del contacto en la primera etapa del pipeline por defecto. Se llama SOLO cuando el cliente toma la iniciativa de avanzar, y eso es exactamente una de estas cosas (es el \`motivo\`, obligatorio): ${enumerarIniciativas()}. NO la llames ante una consulta de información: ${CONSULTAS_QUE_NO_SON_INICIATIVA} no es tomar la iniciativa, y tampoco lo son un «me interesa mucho la Hilux SRV», un «qué lindo» o un «lo voy a pensar»; ahí contestás y el interés queda anotado en la ficha del contacto (la búsqueda guarda lo que busca y update_lead anota la unidad de interés), sin crear ninguna oportunidad. Antes de llamarla necesitás el nombre Y el apellido del cliente: si el CRM no los tiene, o tiene solo uno, pedíselos en ese momento, guardalos con update_lead (firstName y lastName) y recién después llamala; si faltan, esta herramienta no registra nada y te lo dice. Cuando hay iniciativa y tenés el nombre, llamala en ese mismo turno y sin pedirle permiso: registrar la oportunidad no compromete al cliente a nada ni cierra ninguna venta, es lo que hace que un vendedor lo vea y lo atienda. Si la conversación es por un vehículo concreto, mandá \`vehiculo\` con su marca y modelo: el monto se completa con su precio de lista, que es lo que el equipo de ventas necesita ver en el pipeline, y la unidad queda nombrada en el título; registrar la oportunidad NO la reserva. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true y le anota el motivo nuevo, y es sobre esa que tenés que seguir. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.`;
+
 const createOpportunityTool: ToolDelAgente = {
   definition: {
     name: "create_opportunity",
-    description:
-      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala apenas el contacto muestra intención concreta de compra o contratación, en ese mismo turno y sin pedirle permiso ni más datos. Frases que YA son intención concreta y con las que corresponde llamarla: «me interesa mucho la Hilux SRV, ¿cómo seguimos?», «quiero avanzar con la Amarok», «me la llevo», «¿qué necesito para comprarla?». Registrar el interés no compromete al cliente a nada ni cierra ninguna venta: es lo que hace que un vendedor lo vea y lo atienda. No es algo que haya que consultarle. Si la conversación es por un vehículo concreto, mandá `vehiculo` con su marca y modelo: el monto se completa con su precio de lista, que es lo que el equipo de ventas necesita ver en el pipeline, y la unidad queda nombrada en el título; registrar el interés NO la reserva. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true, y es sobre esa que tenés que seguir. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
+    description: DESCRIPCION_DE_CREATE_OPPORTUNITY,
     parameters: {
       type: "object",
       properties: {
         title: {
           type: "string",
           description: "Título corto de la oportunidad (qué quiere el contacto).",
+        },
+        motivo: {
+          type: "string",
+          enum: MOTIVOS_DE_OPORTUNIDAD,
+          description: `OBLIGATORIO: la iniciativa que tomó el cliente, la que justifica esta oportunidad. ${Object.entries(
+            INICIATIVAS_DEL_CLIENTE,
+          )
+            .map(([clave, etiqueta]) => `${clave} = ${etiqueta}`)
+            .join(
+              "; ",
+            )}. Si lo que hizo el cliente no es ninguna de estas, NO llames a esta herramienta.`,
         },
         vehiculo: {
           type: "string",
@@ -628,7 +724,7 @@ const createOpportunityTool: ToolDelAgente = {
             "Moneda del monto, código ISO 4217 de 3 letras (USD, UYU, ARS). Solo si hay monto.",
         },
       },
-      required: ["title"],
+      required: ["title", "motivo"],
       additionalProperties: false,
     },
   },
@@ -648,12 +744,11 @@ const createOpportunityTool: ToolDelAgente = {
       if (!contact) {
         return fallo("El contacto de esta conversación ya no existe");
       }
-      // D3: en el canal web, primero la identidad.
-      if (contexto.conversation.channel === ConversationChannel.WEB) {
-        const faltan = datosQueFaltanParaActuarPorWeb(contact);
-        if (faltan.length > 0) {
-          return fallo(mensajeFaltanDatosPorWeb(faltan));
-        }
+      // Primero la identidad: nombre y apellido en todos los canales, y por
+      // WEB además un teléfono o un email (D3). Ver datosQueFaltanParaActuar.
+      const faltan = datosQueFaltanParaActuar(contact, contexto.conversation.channel);
+      if (faltan.length > 0) {
+        return fallo(mensajeFaltanDatos(faltan));
       }
 
       // Ítem 84: una sola oportunidad OPEN por contacto desde el agente. Si ya
@@ -753,6 +848,7 @@ const createOpportunityTool: ToolDelAgente = {
             : existente;
 
         const etapa = await findStageById(vigente.stageId, contexto.organizationId);
+        const motivoRegistrado = await anotarMotivoEnLaOportunidad(vigente, input.motivo, contexto);
         return exito({
           opportunityId: vigente.id,
           title: vigente.title,
@@ -760,6 +856,8 @@ const createOpportunityTool: ToolDelAgente = {
           status: vigente.status,
           stage: etapa?.name ?? null,
           reused: true,
+          motivo: INICIATIVAS_DEL_CLIENTE[input.motivo],
+          motivoRegistrado,
           // Para que el modelo pueda contar lo que de verdad pasó: si es false,
           // la oportunidad quedó como estaba y no registró nada nuevo.
           actualizada: Object.keys(cambios).length > 0,
@@ -853,11 +951,19 @@ const createOpportunityTool: ToolDelAgente = {
         leadSource: ORIGEN_POR_CANAL[contexto.conversation.channel],
       });
 
+      const motivoRegistrado = await anotarMotivoEnLaOportunidad(
+        opportunity,
+        input.motivo,
+        contexto,
+      );
+
       return exito({
         opportunityId: opportunity.id,
         title: opportunity.title,
         ...(await montoParaElModelo(opportunity, contexto)),
         status: opportunity.status,
+        motivo: INICIATIVAS_DEL_CLIENTE[input.motivo],
+        motivoRegistrado,
         ...(unidad === undefined
           ? {}
           : { unidad, unidadReservada: false, nota: NOTA_UNIDAD_DE_INTERES }),
@@ -999,7 +1105,7 @@ async function resolverOportunidad(
       ok: false,
       resultado: exitoVacio(
         { opportunityId: null },
-        `${MENSAJE_SIN_OPORTUNIDAD_ABIERTA} Si el contacto mostró interés concreto, usá create_opportunity.`,
+        `${MENSAJE_SIN_OPORTUNIDAD_ABIERTA} Si el cliente tomó la iniciativa de avanzar (${enumerarIniciativas()}), usá create_opportunity con su motivo; si solo consultó información, no hay nada que registrar.`,
       ),
     };
   }
@@ -1154,7 +1260,7 @@ const reserveVehicleTool: ToolDelAgente = {
   definition: {
     name: "reserve_vehicle",
     description:
-      "Reserva una unidad del stock para el contacto de esta conversación, vinculándola a su oportunidad abierta. Esto SACA LA UNIDAD DEL STOCK para cualquier otro cliente hasta que el equipo la libere. Usala SOLO cuando el cliente confirmó que quiere avanzar con ESA unidad puntual («quiero reservar la Hilux SRV», «apartámela», «vamos con esa»); NO ante un «¿tenés esa camioneta?», una pregunta de precio o un «me interesa»: para registrar interés está create_opportunity. Si el contacto no tiene una oportunidad abierta, primero llamá a create_opportunity. Hasta que esta tool no devuelva un resultado exitoso, la unidad NO está reservada y no se lo podés confirmar al cliente. Si la unidad ya no está disponible, se te va a avisar: no la presentes como disponible. No cambia una unidad que ya esté reservada por otra.",
+      "Reserva una unidad del stock para el contacto de esta conversación, vinculándola a su oportunidad abierta. Esto SACA LA UNIDAD DEL STOCK para cualquier otro cliente hasta que el equipo la libere. Usala SOLO cuando el cliente confirmó que quiere avanzar con ESA unidad puntual («quiero reservar la Hilux SRV», «apartámela», «vamos con esa»); NO ante un «¿tenés esa camioneta?», una pregunta de precio o un «me interesa»: eso se contesta y no se registra en ninguna parte más que en la ficha del contacto. Si el contacto no tiene una oportunidad abierta, primero llamá a create_opportunity con motivo RESERVA_O_SENA. Hasta que esta tool no devuelva un resultado exitoso, la unidad NO está reservada y no se lo podés confirmar al cliente. Si la unidad ya no está disponible, se te va a avisar: no la presentes como disponible. No cambia una unidad que ya esté reservada por otra.",
     parameters: {
       type: "object",
       properties: {
@@ -1182,8 +1288,9 @@ const reserveVehicleTool: ToolDelAgente = {
     const { vehiculo, opportunityId } = validacion.value;
 
     return conErroresDeNegocio(async () => {
-      // D3: en el canal web, primero la identidad.
-      const bloqueo = await bloqueoPorIdentidadEnWeb(contexto);
+      // Primero la identidad: nombre y apellido en todos los canales, y por
+      // WEB además un teléfono o un email (D3). Ver datosQueFaltanParaActuar.
+      const bloqueo = await bloqueoPorIdentidad(contexto);
       if (bloqueo) {
         return bloqueo;
       }
@@ -1591,8 +1698,9 @@ const createBookingTool: ToolDelAgente = {
     const input = validacion.value;
 
     return conErroresDeNegocio(async () => {
-      // D3: en el canal web, primero la identidad.
-      const bloqueo = await bloqueoPorIdentidadEnWeb(contexto);
+      // Primero la identidad: nombre y apellido en todos los canales, y por
+      // WEB además un teléfono o un email (D3). Ver datosQueFaltanParaActuar.
+      const bloqueo = await bloqueoPorIdentidad(contexto);
       if (bloqueo) {
         return bloqueo;
       }

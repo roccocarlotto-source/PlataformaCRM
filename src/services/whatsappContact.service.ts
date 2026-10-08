@@ -1,5 +1,8 @@
 import { partirNombreDePerfil } from "../utils/nombreDePerfil";
-import { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME } from "../utils/nombreProvisorio";
+import {
+  WHATSAPP_CONTACT_FALLBACK_FIRST_NAME,
+  WHATSAPP_CONTACT_SOURCE,
+} from "../utils/nombreProvisorio";
 import {
   createContact,
   findContactById,
@@ -26,13 +29,13 @@ import { normalizarTelefono, soloDigitos } from "../lib/telefono";
 // lento, corre afuera.
 // ---------------------------------------------------------------------------
 
-export const WHATSAPP_CONTACT_SOURCE = "WhatsApp";
-
-// El fallback cuando Meta no manda profile.name (la persona no configuró
-// nombre, o su privacidad lo oculta).
-// La constante vive en utils/nombreProvisorio.ts, junto a cómo se reconoce
-// el marcador; se reexporta para los que ya la importan de acá.
-export { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME };
+// Las dos constantes viven en utils/nombreProvisorio.ts, junto a cómo se
+// reconoce el marcador y qué fuentes traen el nombre del perfil; se reexportan
+// para los que ya las importan de acá.
+//   - WHATSAPP_CONTACT_SOURCE: lo que queda en Contact.source.
+//   - WHATSAPP_CONTACT_FALLBACK_FIRST_NAME: el fallback cuando Meta no manda
+//     profile.name (la persona no configuró nombre, o su privacidad lo oculta).
+export { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME, WHATSAPP_CONTACT_SOURCE };
 
 // El nombre de perfil partido en nombre y apellido (partirNombreDePerfil).
 // Sin nombre, "WhatsApp +<número>", para que el contacto sea reconocible en

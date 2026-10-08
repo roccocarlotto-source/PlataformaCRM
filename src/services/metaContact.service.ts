@@ -48,11 +48,10 @@ import {
 
 export type CanalMeta = typeof ConversationChannel.INSTAGRAM | typeof ConversationChannel.MESSENGER;
 
-// Lo que queda en Contact.source, igual que WHATSAPP_CONTACT_SOURCE.
-export const META_CONTACT_SOURCE: Record<CanalMeta, string> = {
-  INSTAGRAM: "Instagram",
-  MESSENGER: "Messenger",
-};
+// Lo que queda en Contact.source, igual que WHATSAPP_CONTACT_SOURCE: el nombre
+// del canal, el mismo que lleva el contacto genérico como nombre. Es una de
+// las FUENTES_CON_NOMBRE_DE_PERFIL de utils/nombreProvisorio.ts.
+export const META_CONTACT_SOURCE: Record<CanalMeta, string> = META_CONTACT_FIRST_NAMES;
 
 // Cuántos caracteres del final del PSID/IGSID van en el apellido: los
 // suficientes para distinguir dos contactos en el listado, sin volcar un id de

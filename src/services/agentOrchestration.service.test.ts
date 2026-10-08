@@ -41,8 +41,13 @@ import {
   cierreFijoDelTurno,
   toolsExitosasDelTurno,
   type ToolCallDelTurno,
+  INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA,
 } from "./agentOrchestration.service";
 import { logger } from "../lib/logger";
+import {
+  CONSULTAS_QUE_NO_SON_INICIATIVA,
+  INICIATIVAS_DEL_CLIENTE,
+} from "../utils/iniciativaDelCliente";
 import type { DefinicionDeCampo } from "../utils/camposPersonalizados";
 import { isoEnZona } from "../utils/timezone";
 import { CATALOGO_DE_TOOLS, type ToolDelAgente } from "./agentTools.service";
@@ -1001,6 +1006,60 @@ test("bloqueDeContacto sin ningún dato lo dice explícito", () => {
   const bloque = bloqueDeContacto({ firstName: ".", lastName: "", email: null, phone: null });
   assert.match(bloque, /todavía no tiene ningún dato cargado/);
   assert.match(bloque, /podés preguntárselo/);
+});
+
+// ---------------------------------------------------------------------------
+// Decisión de Rocco (08/10/2026): oportunidades solo con iniciativa del
+// cliente, y el nombre en ese momento.
+// ---------------------------------------------------------------------------
+
+test("08/10/2026: bloqueDeContacto con solo el nombre de pila avisa que falta el apellido, y que se pide solo con iniciativa", () => {
+  const bloque = bloqueDeContacto({
+    firstName: "Martín",
+    lastName: "",
+    email: null,
+    phone: "+59899123456",
+  });
+  assert.match(bloque, /nombre: Martín/);
+  assert.match(bloque, /sin apellido/);
+  assert.match(bloque, /únicamente cuando vayas a registrar una oportunidad o una reserva/);
+  // Con nombre y apellido no hay nada que pedir.
+  const completo = bloqueDeContacto(CONTACTO_BASE);
+  assert.doesNotMatch(completo, /sin apellido/);
+  assert.match(completo, /Llamala por su nombre/);
+  // Un apellido sin letras cuenta como que no está.
+  assert.match(
+    bloqueDeContacto({ firstName: "Juancho", lastName: "🚗", email: null, phone: null }),
+    /sin apellido/,
+  );
+});
+
+test("08/10/2026: la instrucción de iniciativa es fija, va con las de herramientas y nombra las seis iniciativas", () => {
+  const prompt = armarSystemPrompt({ ...BASE, guardrails: {} });
+  const posicion = prompt.indexOf(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA);
+  assert.ok(posicion > 0, "la instrucción está en el prompt");
+  assert.ok(
+    posicion > prompt.indexOf(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA),
+    "va después de la del ítem 108, es de la misma familia",
+  );
+  assert.ok(
+    posicion < prompt.indexOf(REQUEST_HUMAN_HANDOFF_TOOL_NAME),
+    "y antes de la de derivación",
+  );
+  // La misma lista que exige create_opportunity (utils/iniciativaDelCliente).
+  for (const etiqueta of Object.values(INICIATIVAS_DEL_CLIENTE)) {
+    assert.ok(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA.includes(etiqueta), etiqueta);
+  }
+  assert.ok(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA.includes(CONSULTAS_QUE_NO_SON_INICIATIVA));
+  // Lo que una validación sola no puede decirle al modelo: cuándo pedir el
+  // nombre y cuándo no.
+  assert.match(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA, /nombre Y el apellido/);
+  assert.match(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA, /guardalos con update_lead/);
+  assert.match(
+    INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA,
+    /ante una consulta de información no le pidas el nombre/,
+  );
+  assert.match(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA, /no se los vuelvas a pedir/);
 });
 
 // FABLE-A-02 (B3): por WEB el email y el teléfono guardados no van al prompt.

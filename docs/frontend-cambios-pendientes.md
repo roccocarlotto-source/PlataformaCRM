@@ -8573,3 +8573,39 @@ Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo
 ### Cómo se aplica
 
 Deploy normal del backend y del frontend, juntos: con el backend nuevo y el frontend viejo, el botón "Conectar" de Organización respondería 404; con el backend viejo y el frontend nuevo, la pantalla de plataforma. Nada que cambiar en el panel de Meta ni en variables de entorno.
+
+---
+
+## 183. Oportunidades solo con iniciativa real del cliente, y el nombre en ese momento
+
+**Estado:** hecho (08/10/2026). Sin migración. Decisión de Rocco (08/10/2026).
+
+**Qué pasaba.** Dos cosas, vistas en vivo. El agente creaba una oportunidad porque el cliente preguntó por un vehículo (precio, kilómetros, fotos), y el pipeline se llenaba de "interés" que nadie había pedido atender. Y si el contacto tenía un nombre provisorio ("Messenger …123", "Visitante xxxx"), el agente no preguntaba nunca cómo se llamaba: Rocco quedó en el CRM como "Messenger …08366039" después de pedir un test drive.
+
+**Qué se hace.**
+
+1. **Una sola lista de iniciativas** (`src/utils/iniciativaDelCliente.ts`): pide un test drive; quiere reservar o señar; pide financiación o una cotización formal; quiere coordinar una visita para ver la unidad; ofrece su auto en permuta para tasar; pide que lo contacte un vendedor. Preguntar el precio, los kilómetros, las fotos, la disponibilidad o las características NO es iniciativa: el agente responde y el interés queda en la ficha como hasta ahora (#355 guarda lo que busca, #421 anota la unidad de interés), sin crear nada. De esa lista salen el enum de la tool, la instrucción del prompt y la nota de la oportunidad.
+2. **El backend lo exige.** `create_opportunity` recibe `motivo`, obligatorio y enum con esa lista: sin uno de la lista el argumento no valida, y el modelo no puede inventar uno. El motivo queda **en la oportunidad como una nota**: una `Activity` de tipo NOTE colgada de la oportunidad y del contacto, con el vendedor como autor ("Motivo de la oportunidad: el cliente pide un test drive"), que es lo que el vendedor ve en Actividades. En el reuso (ítem 84) también se anota, porque es una iniciativa nueva sobre la misma venta; si la última nota de motivo ya dice lo mismo, no se repite. Si la nota falla, la oportunidad queda igual y el modelo se entera por `motivoRegistrado: false`. La descripción de la tool (`DESCRIPCION_DE_CREATE_OPPORTUNITY`) y la instrucción fija nueva del prompt (`INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA`) dicen que no se llama ante una consulta de información; «me interesa mucho la Hilux SRV» pasó de ser el ejemplo de cuándo llamarla al de cuándo no. Las dos frases que mandaban a `create_opportunity` "para registrar interés" (`reserve_vehicle`, `update_opportunity` sin abierta) ya no lo hacen.
+3. **El nombre, en ese momento.** Nombre completo = nombre y apellido con letras (`tieneNombreCompleto` en `utils/nombreProvisorio.ts`). Cuenta como incompleto un nombre provisorio (`esNombreProvisorio`) y un perfil de WhatsApp de una sola palabra o sin letras ("Martín", "Juancho 🚗", "."). Un perfil que ya trae nombre y apellido no se vuelve a preguntar. El bloque `<datos_del_crm>` del prompt avisa cuando tiene solo el nombre de pila, y la instrucción dice que se pide únicamente cuando hay iniciativa, nunca ante una consulta.
+4. **Validación en el backend**, en todos los canales. `create_opportunity`, `create_booking` y `reserve_vehicle` devuelven `ok: false` si el nombre no está completo (`datosQueFaltanParaActuar`, que reemplaza a `datosQueFaltanParaActuarPorWeb`), con el mensaje de siempre: pedíselo, guardalo con `update_lead` y volvé a intentar. Falta "el nombre y el apellido" (provisorio o nombre sin letras) o solo "el apellido" (nombre de pila sin apellido). El teléfono o email siguen siendo exigencia solo de WEB (D3).
+5. **Reemplazo de nombres** (`nombreReemplazableDesdeElChat` en `contact.service.ts`). Lo que dice la persona reemplaza entero un nombre provisorio o un nombre incompleto que puso un canal desde el perfil (`Contact.source` WhatsApp, Messenger o Instagram: `FUENTES_CON_NOMBRE_DE_PERFIL`). Nunca pisa uno cargado por un vendedor o importado: ahí solo se completa lo que falta (una parte sin letras se puede escribir, una parte con letras no). "Ana" sin apellido cargada por un vendedor + "Carla Gómez" queda "Ana Gómez".
+6. **`update_lead` no habilitada.** La exigencia del punto 4 solo se puede cumplir con `create_lead` o `update_lead`. Se eligió el aviso en la configuración: la pantalla del agente muestra un aviso cuando hay habilitada una acción que exige el nombre y ninguna que lo guarde (`avisoDeAccionesSinGuardarElNombre` en `frontend/src/features/agent/tools.ts`). No se habilita nada a escondidas.
+
+**Tests.** Unitarios: `nombreProvisorio.test.ts` (nombre completo, fuentes de canal), `contact.service.test.ts` (perfil incompleto se reemplaza; cargado por una persona solo se completa), `agentTools.service.test.ts` (motivo obligatorio y enum, descripción con las seis y lo que no es, qué falta por canal), `agentOrchestration.service.test.ts` (instrucción fija y bloque del contacto sin apellido), `tools.test.ts` y `AgentFormPage.test.tsx` (aviso). Integración: `agentReadTools.integration-test.ts` (provisorio bloquea en cualquier canal; "Martín" pide apellido y con "Martín Pérez" crea con su nota; perfil completo no pide nada; una consulta no exige nombre; reuso anota el motivo nuevo sin repetir; `create_booking` y `reserve_vehicle` también exigen; WEB sigue exigiendo contacto; un vendedor que cargó el nombre no se pisa) y `agentOrchestration.integration-test.ts` (el recorrido completo por WhatsApp: consulta de precio sin oportunidad, test drive pide el apellido, "Martín Pérez" crea con su motivo).
+
+**Archivos.**
+
+| Dónde | Qué |
+|---|---|
+| `src/utils/iniciativaDelCliente.ts` | nuevo: la lista, el enum, la nota |
+| `src/utils/nombreProvisorio.ts` | `tieneNombreCompleto`, `tieneLetras`, `FUENTES_CON_NOMBRE_DE_PERFIL`, `vieneDeUnPerfilDeCanal`; `WHATSAPP_CONTACT_SOURCE` vive acá |
+| `src/services/agentTools.service.ts` | `datosQueFaltanParaActuar` para todos los canales; `motivo` y su nota; descripciones |
+| `src/services/agentOrchestration.service.ts` | `INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA`; `bloqueDeContacto` avisa del apellido |
+| `src/services/contact.service.ts` | `nombreReemplazableDesdeElChat`; `identidadAplicable` completa lo que falta |
+| `src/services/whatsappContact.service.ts`, `metaContact.service.ts` | las fuentes salen de `nombreProvisorio.ts` |
+| `frontend/src/features/agent/tools.ts`, `AgentFormPage.tsx` | descripciones espejadas; aviso de acciones sin cómo guardar el nombre |
+| `docs/ai-agent-architecture.md` | nota fechada bajo §6 |
+
+### Cómo se aplica
+
+Deploy normal, sin migración. Los agentes que hoy tienen `create_opportunity`, `create_booking` o `reserve_vehicle` sin `create_lead` ni `update_lead` van a ver el aviso en su pantalla y, hasta habilitar una de las dos, no van a poder crear oportunidades ni reservar para un contacto sin nombre completo: conviene revisarlos al desplegar. No se corrieron evaluaciones pagas del agente: que el modelo pida el nombre en el momento justo y no ante una consulta es prompt, y se mide en la próxima prueba en vivo.

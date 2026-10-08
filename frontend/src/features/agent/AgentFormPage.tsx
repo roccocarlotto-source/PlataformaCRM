@@ -19,7 +19,7 @@ import { formatGuardrails, resumirDescartes, resumirGuardrails } from "./guardra
 import { CHANNEL_OPTIONS, DEFAULT_MODEL_PROVIDER, MODEL_PROVIDER_OPTIONS } from "./labels";
 import { useCreateAgent, useUpdateAgent } from "./mutations";
 import { useAgent } from "./queries";
-import { agentToolOptions } from "./tools";
+import { agentToolOptions, avisoDeAccionesSinGuardarElNombre } from "./tools";
 import type {
   Agent,
   ConversationChannel,
@@ -657,6 +657,12 @@ export function AgentFormPage() {
               cada acción vuelve a pasar por las reglas del agente de abajo. Sin canales, el agente
               no atiende por ningún lado.
             </p>
+
+            {avisoDeAccionesSinGuardarElNombre(values.enabledTools) ? (
+              <p className="ds-hint ds-field-grid--full" role="alert">
+                {avisoDeAccionesSinGuardarElNombre(values.enabledTools)}
+              </p>
+            ) : null}
 
             {/* Solo lectura desde el ítem 127 (A-01): el número lo asigna el
                 platform admin y el formulario ya no lo manda. Mismo patrón

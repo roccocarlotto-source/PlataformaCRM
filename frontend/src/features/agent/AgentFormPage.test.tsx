@@ -461,6 +461,24 @@ describe("AgentFormPage — creación", () => {
     ).toBeInTheDocument();
   });
 
+  // Decisión de Rocco (08/10/2026): crear una oportunidad o reservar exige el
+  // nombre y el apellido, que el agente solo guarda con create_lead o
+  // update_lead. Sin una de las dos, la exigencia no tiene cómo cumplirse.
+  it("avisa cuando una acción exige el nombre y ninguna lo puede guardar, y deja de avisar al habilitar una", async () => {
+    server.use(mockBranches());
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    const aviso = /exige el nombre y el apellido del cliente/;
+
+    expect(screen.queryByText(aviso)).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText("Acciones habilitadas", { selector: "button" }));
+    await user.click(screen.getByRole("checkbox", { name: "Crear oportunidad" }));
+    expect(screen.getByText(aviso)).toHaveTextContent(/«Crear oportunidad»/);
+
+    await user.click(screen.getByRole("checkbox", { name: "Actualizar la calificación" }));
+    expect(screen.queryByText(aviso)).not.toBeInTheDocument();
+  });
+
   it("las tools viajan en el orden del catálogo, no en el de los clicks", async () => {
     const bodies: Record<string, unknown>[] = [];
     server.use(

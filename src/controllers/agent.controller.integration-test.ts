@@ -771,7 +771,12 @@ test("POST /api/agents/:id/test-message — la derivación llega por HTTP con st
   });
   const contacto = await crearContacto(orgA.id);
   const doble = proveedorGuionado([
-    { text: null, toolCalls: [{ id: "c", name: "create_opportunity", arguments: { title: "x" } }] },
+    {
+      text: null,
+      toolCalls: [
+        { id: "c", name: "create_opportunity", arguments: { motivo: "TEST_DRIVE", title: "x" } },
+      ],
+    },
   ]);
   setLlmProviderForTests(doble.proveedor);
   try {

@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  datosQueFaltanParaActuarPorWeb,
-  mensajeFaltanDatosPorWeb,
+  CONSULTAS_QUE_NO_SON_INICIATIVA,
+  INICIATIVAS_DEL_CLIENTE,
+  MOTIVOS_DE_OPORTUNIDAD,
+  asuntoDeLaNotaDeMotivo,
+} from "../utils/iniciativaDelCliente";
+import {
+  datosQueFaltanParaActuar,
+  mensajeFaltanDatos,
+  DESCRIPCION_DE_CREATE_OPPORTUNITY,
   CATALOGO_DE_TOOLS,
   MENSAJE_CIERRE_LO_HACE_UNA_PERSONA,
   MENSAJE_MOTIVO_SIN_PERDIDA,
@@ -169,13 +176,76 @@ test("reserve_vehicle rechaza args inválidos antes de tocar la base, como error
 // Validación de argumentos — antes de tocar la base
 // ---------------------------------------------------------------------------
 
-test("create_opportunity: title es requerido; amount negativo y currency inválida se rechazan", async () => {
+test("create_opportunity: title y motivo son requeridos; amount negativo y currency inválida se rechazan", async () => {
   assert.match(await rechazoDe("create_opportunity", {}), /title/);
-  assert.match(await rechazoDe("create_opportunity", { title: "x", amount: -1 }), /amount/);
-  assert.match(
-    await rechazoDe("create_opportunity", { title: "x", currency: "pesos" }),
-    /currency/,
+  const base = { title: "x", motivo: "TEST_DRIVE" };
+  assert.match(await rechazoDe("create_opportunity", { ...base, amount: -1 }), /amount/);
+  assert.match(await rechazoDe("create_opportunity", { ...base, currency: "pesos" }), /currency/);
+});
+
+// Decisión de Rocco (08/10/2026): una oportunidad solo con iniciativa del
+// cliente. El motivo es obligatorio y es un enum: el modelo no puede inventar
+// uno, y sin uno de la lista no se crea nada.
+test("08/10/2026: motivo es obligatorio y tiene que ser una iniciativa de la lista", async () => {
+  assert.match(await rechazoDe("create_opportunity", { title: "x" }), /motivo/);
+  const inventado = await rechazoDe("create_opportunity", { title: "x", motivo: "ME_INTERESA" });
+  assert.match(inventado, /motivo/);
+  assert.match(inventado, /TEST_DRIVE/, "el rechazo lista los motivos válidos");
+  assert.match(await rechazoDe("create_opportunity", { title: "x", motivo: "" }), /motivo/);
+});
+
+test("08/10/2026: el JSON Schema de create_opportunity exige motivo y lo ofrece como enum con la lista", () => {
+  const parametros = CATALOGO_DE_TOOLS.get("create_opportunity")!.definition.parameters as {
+    required: string[];
+    properties: Record<string, { enum?: string[]; description: string }>;
+  };
+  assert.deepEqual(parametros.required, ["title", "motivo"]);
+  assert.deepEqual(parametros.properties.motivo.enum, MOTIVOS_DE_OPORTUNIDAD);
+  for (const [clave, etiqueta] of Object.entries(INICIATIVAS_DEL_CLIENTE)) {
+    assert.ok(
+      parametros.properties.motivo.description.includes(`${clave} = ${etiqueta}`),
+      `el motivo ${clave} está explicado en el parámetro`,
+    );
+  }
+});
+
+test("08/10/2026: la lista de iniciativas es una sola: tool, enum y nota salen de utils/iniciativaDelCliente", () => {
+  assert.deepEqual(MOTIVOS_DE_OPORTUNIDAD, [
+    "TEST_DRIVE",
+    "RESERVA_O_SENA",
+    "FINANCIACION_O_COTIZACION",
+    "VISITA",
+    "PERMUTA",
+    "CONTACTO_CON_VENDEDOR",
+  ]);
+  assert.equal(
+    asuntoDeLaNotaDeMotivo("TEST_DRIVE"),
+    "Motivo de la oportunidad: el cliente pide un test drive",
   );
+  for (const etiqueta of Object.values(INICIATIVAS_DEL_CLIENTE)) {
+    assert.ok(
+      DESCRIPCION_DE_CREATE_OPPORTUNITY.includes(etiqueta),
+      `la descripción nombra la iniciativa "${etiqueta}"`,
+    );
+  }
+  assert.equal(
+    CATALOGO_DE_TOOLS.get("create_opportunity")!.definition.description,
+    DESCRIPCION_DE_CREATE_OPPORTUNITY,
+  );
+});
+
+test("08/10/2026: la descripción dice qué NO es iniciativa, y que el nombre y el apellido van antes", () => {
+  assert.ok(DESCRIPCION_DE_CREATE_OPPORTUNITY.includes(CONSULTAS_QUE_NO_SON_INICIATIVA));
+  assert.match(DESCRIPCION_DE_CREATE_OPPORTUNITY, /NO la llames ante una consulta de información/);
+  assert.match(DESCRIPCION_DE_CREATE_OPPORTUNITY, /sin crear ninguna oportunidad/);
+  assert.match(DESCRIPCION_DE_CREATE_OPPORTUNITY, /nombre Y el apellido/);
+  assert.match(DESCRIPCION_DE_CREATE_OPPORTUNITY, /guardalos con update_lead/);
+  // Las otras dos que mandaban a create_opportunity "para registrar interés"
+  // ya no lo hacen: reserve_vehicle pide el motivo de reserva, y
+  // update_opportunity sin abierta habla de iniciativa, no de interés.
+  const reservar = CATALOGO_DE_TOOLS.get("reserve_vehicle")!.definition.description;
+  assert.match(reservar, /create_opportunity con motivo RESERVA_O_SENA/);
+  assert.doesNotMatch(reservar, /para registrar interés está create_opportunity/);
 });
 
 test("update_opportunity: opportunityId ya no es obligatorio, pero sí un campo a modificar", async () => {
@@ -557,7 +627,9 @@ test("ítem 113: las dos descripciones dicen que NO se repregunte antes de actua
 
   const crear = CATALOGO_DE_TOOLS.get("create_opportunity")!.definition.description;
   assert.match(crear, /en ese mismo turno y sin pedirle permiso/);
-  assert.match(crear, /me interesa mucho la Hilux SRV/);
+  // 08/10/2026: «me interesa mucho la Hilux SRV» pasó de ser el ejemplo de
+  // cuándo llamarla al ejemplo de cuándo NO: el interés solo no es iniciativa.
+  assert.match(crear, /tampoco lo son un «me interesa mucho la Hilux SRV»/);
   // Y el porqué, que es lo que desarma la duda del modelo: registrar no
   // compromete a nadie, así que no hay nada que consultarle al cliente.
   assert.match(crear, /no compromete al cliente a nada/);
@@ -898,31 +970,76 @@ test("precioOcultoParaElModelo: a consultar siempre; si no, según la moneda que
 });
 
 // ---------------------------------------------------------------------------
-// D3 (docs-privados, local): en el canal web, antes de reservar o crear una
-// oportunidad, hacen falta el nombre y un teléfono o un email.
+// Qué hace falta antes de reservar o crear una oportunidad: nombre y apellido
+// en todos los canales (08/10/2026) y, por WEB, además un teléfono o un email
+// (D3, docs-privados, local).
 // ---------------------------------------------------------------------------
 
 test("D3: a un visitante anónimo le faltan el nombre y una forma de contacto", () => {
   const anonimo = { firstName: "Visitante", lastName: "caa2c873", email: null, phone: null };
-  assert.deepEqual(datosQueFaltanParaActuarPorWeb(anonimo), [
-    "el nombre",
+  assert.deepEqual(datosQueFaltanParaActuar(anonimo, "WEB"), [
+    "el nombre y el apellido",
     "un teléfono o un email",
   ]);
-  assert.match(mensajeFaltanDatosPorWeb(datosQueFaltanParaActuarPorWeb(anonimo)), /update_lead/);
+  assert.match(mensajeFaltanDatos(datosQueFaltanParaActuar(anonimo, "WEB")), /update_lead/);
 });
 
-test("D3: con nombre y un teléfono O un email no falta nada", () => {
+test("D3: con nombre y un teléfono O un email no falta nada por WEB", () => {
   const base = { firstName: "Diego", lastName: "Ramírez", email: null, phone: null };
-  assert.deepEqual(datosQueFaltanParaActuarPorWeb({ ...base, phone: "+59899123456" }), []);
-  assert.deepEqual(datosQueFaltanParaActuarPorWeb({ ...base, email: "d@example.test" }), []);
-  assert.deepEqual(datosQueFaltanParaActuarPorWeb(base), ["un teléfono o un email"]);
+  assert.deepEqual(datosQueFaltanParaActuar({ ...base, phone: "+59899123456" }, "WEB"), []);
+  assert.deepEqual(datosQueFaltanParaActuar({ ...base, email: "d@example.test" }, "WEB"), []);
+  assert.deepEqual(datosQueFaltanParaActuar(base, "WEB"), ["un teléfono o un email"]);
   assert.deepEqual(
-    datosQueFaltanParaActuarPorWeb({
-      firstName: "Visitante",
-      lastName: "caa2c873",
-      email: "d@example.test",
-      phone: "  ",
-    }),
-    ["el nombre"],
+    datosQueFaltanParaActuar(
+      { firstName: "Visitante", lastName: "caa2c873", email: "d@example.test", phone: "  " },
+      "WEB",
+    ),
+    ["el nombre y el apellido"],
   );
+});
+
+test("08/10/2026: por WhatsApp, Messenger e Instagram hace falta nombre y apellido, y nada más", () => {
+  const sinContacto = { email: null, phone: null };
+  // Provisorio: las dos cosas.
+  assert.deepEqual(
+    datosQueFaltanParaActuar(
+      { firstName: "Messenger", lastName: "…08366039", ...sinContacto },
+      "MESSENGER",
+    ),
+    ["el nombre y el apellido"],
+  );
+  assert.deepEqual(
+    datosQueFaltanParaActuar({ firstName: ".", lastName: "", ...sinContacto }, "WHATSAPP"),
+    ["el nombre y el apellido"],
+  );
+  // Perfil de una palabra o sin letras en el apellido: solo el apellido.
+  assert.deepEqual(
+    datosQueFaltanParaActuar({ firstName: "Martín", lastName: "", ...sinContacto }, "WHATSAPP"),
+    ["el apellido"],
+  );
+  assert.deepEqual(
+    datosQueFaltanParaActuar({ firstName: "Juancho", lastName: "🚗", ...sinContacto }, "WHATSAPP"),
+    ["el apellido"],
+  );
+  // Perfil completo: nada, aunque no haya teléfono ni email.
+  assert.deepEqual(
+    datosQueFaltanParaActuar(
+      { firstName: "Martín", lastName: "Pérez", ...sinContacto },
+      "WHATSAPP",
+    ),
+    [],
+  );
+  assert.deepEqual(
+    datosQueFaltanParaActuar(
+      { firstName: "Martín", lastName: "Pérez", ...sinContacto },
+      "INSTAGRAM",
+    ),
+    [],
+  );
+  // El mensaje manda a pedirlo, guardarlo y volver, sin confirmar nada.
+  const mensaje = mensajeFaltanDatos(["el apellido"]);
+  assert.match(mensaje, /hace falta el apellido del cliente/);
+  assert.match(mensaje, /guardalo con update_lead/);
+  assert.match(mensaje, /volvé a llamar a esta herramienta/);
+  assert.match(mensaje, /No le digas que quedó reservado ni registrado/);
 });
