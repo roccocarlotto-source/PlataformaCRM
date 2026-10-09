@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import {
   MODULOS,
+  PROCESO_DE_VENTA_FIJO,
   RUTAS_POR_MODULO,
   modulosDe,
   motivoDeExclusion,
   type Modulo,
 } from "../config/ediciones";
 import { prisma } from "../lib/prisma";
+import { createProcesoDeVentaFijo } from "../repositories/organization.repository";
 import { CAMPO_NO_INCLUIDO, MODULO_NO_INCLUIDO } from "../middlewares/moduloDeLaEdicion";
 import {
   borrarOrgDePrueba,
@@ -417,4 +419,122 @@ test("subir de edición (PR 4): un usuario ESENCIAL bloqueado en /quotes deja de
     await prisma.platformAdmin.deleteMany({ where: { userId: completa.authIds[0] } });
     await borrarOrgDePrueba(aSubir);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Paso B (docs/ediciones.md §10): crear oportunidades sin proceso de venta.
+// Obligatorio por §5.4: en ESENCIAL se crea sin pipelineId ni stageId y nace
+// en "En curso" del proceso fijo; esos dos campos dan 400 CAMPO_NO_INCLUIDO.
+// COMPLETA no cambia: sin pipelineId sigue siendo 400 de validación.
+// ---------------------------------------------------------------------------
+
+test("ESENCIAL crea una oportunidad sin pipelineId ni stageId: nace en «En curso» del proceso fijo", async () => {
+  const org = await crearOrgDePrueba("ediciones", "ESENCIAL", "AUTOMOTORA", 1);
+  try {
+    await createProcesoDeVentaFijo(org.id, prisma);
+    const contacto = await prisma.contact.create({
+      data: { organizationId: org.id, firstName: "Ana", lastName: "Pérez" },
+    });
+
+    const creada = await pedir(org, "POST", "/api/opportunities", {
+      title: "Hilux SRV 2021",
+      contactId: contacto.id,
+    });
+    assert.equal(creada.status, 201, JSON.stringify(creada.json));
+    const fila = await prisma.opportunity.findUniqueOrThrow({
+      where: { id: creada.json.id as string },
+      include: { stage: true, pipeline: true },
+    });
+    assert.equal(fila.status, "OPEN");
+    assert.equal(fila.stage.name, "En curso");
+    assert.equal(fila.pipeline.name, PROCESO_DE_VENTA_FIJO.name);
+
+    // Nace vendida si el cuerpo lo pide (ítem 154): la etapa ganada del fijo.
+    const vendida = await pedir(org, "POST", "/api/opportunities", {
+      title: "Corolla 2020",
+      contactId: contacto.id,
+      status: "WON",
+    });
+    assert.equal(vendida.status, 201, JSON.stringify(vendida.json));
+    const filaVendida = await prisma.opportunity.findUniqueOrThrow({
+      where: { id: vendida.json.id as string },
+      include: { stage: true },
+    });
+    assert.equal(filaVendida.stage.name, "Vendida");
+
+    const perdida = await pedir(org, "POST", "/api/opportunities", {
+      title: "Etios 2019",
+      contactId: contacto.id,
+      status: "LOST",
+      lostReason: "Compró en otro lado",
+    });
+    assert.equal(perdida.status, 201, JSON.stringify(perdida.json));
+    const filaPerdida = await prisma.opportunity.findUniqueOrThrow({
+      where: { id: perdida.json.id as string },
+      include: { stage: true },
+    });
+    assert.equal(filaPerdida.stage.name, "Perdida");
+
+    // pipelineId y stageId son de procesos_de_venta: 400 CAMPO_NO_INCLUIDO.
+    for (const [metodo, path, campo] of [
+      ["POST", "/api/opportunities", "pipelineId"],
+      ["POST", "/api/opportunities", "stageId"],
+      ["PATCH", `/api/opportunities/${fila.id}`, "stageId"],
+    ] as const) {
+      const r = await pedir(org, metodo, path, {
+        title: "x",
+        contactId: contacto.id,
+        [campo]: fila.stageId,
+      });
+      assert.equal(r.status, 400, `${metodo} ${path} con ${campo}`);
+      assert.equal(r.json.error?.code, CAMPO_NO_INCLUIDO);
+      assert.equal(r.json.error?.campo, campo);
+    }
+  } finally {
+    await borrarOrgDePrueba(org);
+  }
+});
+
+test("ESENCIAL sin su proceso de venta: 409 claro, sin crear nada", async () => {
+  const org = await crearOrgDePrueba("ediciones", "ESENCIAL", "AUTOMOTORA", 1);
+  try {
+    const contacto = await prisma.contact.create({
+      data: { organizationId: org.id, firstName: "Ana", lastName: "Pérez" },
+    });
+    const r = await pedir(org, "POST", "/api/opportunities", {
+      title: "Hilux",
+      contactId: contacto.id,
+    });
+    assert.equal(r.status, 409);
+    assert.match(String(r.json.error?.message), /no tiene su proceso de venta/);
+    assert.equal(await prisma.opportunity.count({ where: { organizationId: org.id } }), 0);
+  } finally {
+    await borrarOrgDePrueba(org);
+  }
+});
+
+test("COMPLETA no cambia: sin pipelineId es 400 de validación; con pipelineId y stageId crea como siempre", async () => {
+  const contacto = await prisma.contact.create({
+    data: { organizationId: completa.id, firstName: "Ana", lastName: "Pérez" },
+  });
+  const sinProceso = await pedir(completa, "POST", "/api/opportunities", {
+    title: "Hilux",
+    contactId: contacto.id,
+  });
+  assert.equal(sinProceso.status, 400);
+  assert.notEqual(sinProceso.json.error?.code, CAMPO_NO_INCLUIDO);
+
+  const pipeline = await prisma.pipeline.create({
+    data: { organizationId: completa.id, name: `Propio ${randomUUID().slice(0, 8)}` },
+  });
+  const etapa = await prisma.stage.create({
+    data: { organizationId: completa.id, pipelineId: pipeline.id, name: "Nuevo", order: 1 },
+  });
+  const conProceso = await pedir(completa, "POST", "/api/opportunities", {
+    title: "Hilux",
+    contactId: contacto.id,
+    pipelineId: pipeline.id,
+    stageId: etapa.id,
+  });
+  assert.equal(conProceso.status, 201, JSON.stringify(conProceso.json));
 });

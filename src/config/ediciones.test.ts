@@ -327,12 +327,32 @@ test("ESENCIAL: un campo excluido con valor → 400 CAMPO_NO_INCLUIDO; null o au
     ),
     undefined,
   );
-  // pipelineId/stageId todavía no se bloquean: son del PR 5.
+  // pipelineId/stageId son de procesos_de_venta (paso B): en ESENCIAL, 400.
+  const conProceso = errorDe(() =>
+    exigirModuloDeLaEdicion(
+      pedido("POST", "/opportunities", { pipelineId: "33333333-3333-3333-3333-333333333333" }),
+      auth("ESENCIAL"),
+    ),
+  );
+  assert.deepEqual(conProceso?.details, {
+    code: CAMPO_NO_INCLUIDO,
+    campo: "pipelineId",
+    modulo: "procesos_de_venta",
+    motivo: "EDICION",
+  });
+  const conEtapa = errorDe(() =>
+    exigirModuloDeLaEdicion(
+      pedido("PATCH", "/opportunities/:id", { stageId: "33333333-3333-3333-3333-333333333333" }),
+      auth("ESENCIAL"),
+    ),
+  );
+  assert.equal(conEtapa?.statusCode, 400);
+  // En COMPLETA, como siempre.
   assert.equal(
     errorDe(() =>
       exigirModuloDeLaEdicion(
         pedido("POST", "/opportunities", { pipelineId: "33333333-3333-3333-3333-333333333333" }),
-        auth("ESENCIAL"),
+        auth("COMPLETA"),
       ),
     ),
     undefined,
