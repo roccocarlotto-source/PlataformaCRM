@@ -376,7 +376,7 @@ test("ESENCIAL: una oportunidad se marca Vendida y Perdida sin llamar a /pipelin
 });
 
 test("subir de edición (PR 4): un usuario ESENCIAL bloqueado en /quotes deja de estarlo con el mismo token", async () => {
-  const aSubir = await crearOrg("ESENCIAL");
+  const aSubir = await crearOrgDePrueba("ediciones", "ESENCIAL", "AUTOMOTORA", USUARIOS_POR_ORG);
   // El platform admin: un usuario de la organización COMPLETA en la allowlist.
   await prisma.platformAdmin.create({ data: { userId: completa.authIds[0] } });
   try {
@@ -415,8 +415,6 @@ test("subir de edición (PR 4): un usuario ESENCIAL bloqueado en /quotes deja de
     assert.equal(bajar.status, 409);
   } finally {
     await prisma.platformAdmin.deleteMany({ where: { userId: completa.authIds[0] } });
-    await prisma.user.deleteMany({ where: { organizationId: aSubir.id } });
-    await prisma.organization.delete({ where: { id: aSubir.id } });
-    for (const id of aSubir.authIds) await getSupabaseAdmin().auth.admin.deleteUser(id);
+    await borrarOrgDePrueba(aSubir);
   }
 });
