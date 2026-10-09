@@ -86,7 +86,8 @@ enum AgentParticipation {
 
 model Agent {
   // ...
-  participation            AgentParticipation? // null = "sin elegir" (solo ESENCIAL)
+  participation            AgentParticipation? // null = "sin elegir" (solo ESENCIAL); sin DEFAULT: lo completa un trigger
+  participationChosenAt    DateTime?           // cuándo un ADMIN eligió o cambió el nivel; solo lo escribe el service
   onlyOutsideBusinessHours Boolean @default(false) // solo con PRIMER_CONTACTO
 }
 ```
@@ -103,14 +104,31 @@ activo.**
 
 | Dónde | Qué pasa |
 |---|---|
-| **Migración** | La columna nace nullable y **sin `DEFAULT`**. Un `UPDATE agents SET participation = 'AUTONOMA'` deja a todos los agentes existentes como están hoy: todas sus organizaciones son COMPLETA. |
-| **Base** | CHECK `agents_activo_requiere_nivel_check`: `NOT is_active OR participation IS NOT NULL`. Va en la migración y en `prisma/sql/manual_constraints.sql`, como el resto de los CHECK. Es la última defensa si algún camino (un script o una ruta futura) se saltea el service. |
-| **Crear, COMPLETA** | Sin `participation` en el cuerpo, el service guarda `AUTONOMA`. Se comporta como hoy. |
-| **Crear, ESENCIAL** | `participation` es opcional. Si no viene, el agente se guarda con `null` e **inactivo**. Si el cuerpo pide `isActive: true` sin nivel, responde 400 `NIVEL_DE_IA_SIN_ELEGIR`. Así el ADMIN puede armar el agente de a poco (instrucciones, base de conocimiento) antes de decidir. |
+| **Migración** | `participation` nace nullable y **sin `DEFAULT` en la columna**. Que en ESENCIAL un agente nazca sin nivel no depende del service: lo garantiza el trigger de abajo, por cualquier camino de creación. Un `UPDATE agents SET participation = 'AUTONOMA'` deja a todos los agentes existentes como están hoy (todas sus organizaciones son COMPLETA). `participation_chosen_at` nace nullable y **no se rellena**: los agentes existentes quedan en `null`. |
+| **Base: trigger** | `agents_nivel_por_defecto`, `BEFORE INSERT ON agents`: si `participation` viene `null` y la organización es **COMPLETA**, la completa con `AUTONOMA`; si es **ESENCIAL**, la deja `null`. Va en la migración y en `prisma/sql/manual_constraints.sql`, donde viven los triggers. Así los 26 archivos que hoy crean agentes directo con Prisma (tests en organizaciones COMPLETA, dos scripts, el repository) siguen andando sin cambios. Solo actúa al insertar: cambiar la edición después no toca a los agentes. |
+| **Base: CHECK** | `agents_activo_requiere_nivel_check`: `NOT is_active OR participation IS NOT NULL`. Va **solo en la migración**: desde B-15 los CHECK ya no viven en `manual_constraints.sql`. Como `is_active` tiene `@default(true)`, un agente de ESENCIAL creado sin nivel por un camino que no pase por el service **falla al insertar** en lugar de quedar activo y sin nivel. |
+| **Crear, COMPLETA** | Sin `participation` en el cuerpo, la completa el trigger con `AUTONOMA`. Se comporta como hoy. |
+| **Crear, ESENCIAL** | `participation` es opcional. Si no viene, el service guarda el agente **inactivo** (`isActive: false` explícito) y el trigger lo deja en `null`. Si el cuerpo pide `isActive: true` sin nivel, responde 400 `NIVEL_DE_IA_SIN_ELEGIR`. Así el ADMIN puede armar el agente de a poco (instrucciones, base de conocimiento) antes de decidir. |
 | **Editar** | Activar con el nivel en `null` → 400 `NIVEL_DE_IA_SIN_ELEGIR`. Un nivel elegido se puede cambiar, pero no volver a `null` (400): "sin elegir" es un estado inicial, no una opción. |
-| **Loop del agente** | `participation = null` se trata como "no atiende": `derivarEntranteSinAgente`, sin modelo. Con el CHECK no debería pasar nunca; si pasa, gana el lado seguro (deriva) y no el de más IA. |
-| **Asignaciones de plataforma** | Asignar el número de WhatsApp o la página de Facebook (`/admin/agents/...`) no activa el agente ni toca el nivel. |
-| **Upgrade ESENCIAL → COMPLETA** | Los agentes conservan su nivel. Los que estaban en `null` **siguen en `null` e inactivos**: subir de edición no puede subir la IA sin que nadie lo decida. El formulario de COMPLETA los muestra igual que el de ESENCIAL hasta que se elija. |
+| **`participation_chosen_at`** | Lo escribe **solo el service de agentes**, con `now()`, cuando un ADMIN elige o cambia el nivel (en crear o editar, en cualquier edición). Ninguna otra ruta lo toca: ni scripts, ni seeds, ni importación, ni las asignaciones de plataforma. |
+| **Loop del agente** | `participation = null` se trata como "no atiende": `derivarEntranteSinAgente`, sin modelo. Con el CHECK no debería pasar nunca en un agente activo; si pasa, gana el lado seguro (deriva) y no el de más IA. En ESENCIAL, además, hace falta `participation_chosen_at` (ver "Pendiente del PR 6" abajo). |
+| **Asignaciones de plataforma** | Asignar el número de WhatsApp o la página de Facebook (`/admin/agents/...`) no activa el agente ni toca el nivel ni `participation_chosen_at`. |
+| **Upgrade ESENCIAL → COMPLETA** | Los agentes conservan su nivel y su `participation_chosen_at` (el upgrade no toca esa columna). Los que estaban en `null` **siguen en `null` e inactivos**: subir de edición no puede subir la IA sin que nadie lo decida. El formulario de COMPLETA los muestra igual que el de ESENCIAL hasta que se elija. |
+
+**Pendiente del PR 6: el filtro mira la edición además del nivel.** Que un
+agente de ESENCIAL tenga nivel no alcanza para que responda; tiene que constar
+que un ADMIN lo eligió. La regla que decide si el agente atiende un turno es:
+
+- **COMPLETA:** decide `participation`. No mira `participation_chosen_at`, así
+  los agentes existentes (con `chosen_at` en `null`) y los tests no se ven
+  afectados.
+- **ESENCIAL:** decide `participation` **solo si `participation_chosen_at` no
+  es `null`**. Un nivel escrito sin `chosen_at` (por un script, un seed, un
+  `UPDATE` a mano o un bug que escriba `AUTONOMA`) se trata como "sin elegir":
+  el agente no responde y deriva con `derivarEntranteSinAgente`.
+
+El trigger impide el accidente más probable (un INSERT que no dice nada). Este
+filtro cubre el resto: una escritura explícita de un nivel que nadie eligió.
 
 **Cómo se ve en el formulario** (`AgentFormPage`):
 
@@ -614,14 +632,36 @@ original se comporte exactamente como hoy.
    - el gate de horario;
    - el tope de respuestas de PRIMER_CONTACTO;
    - que SOLO_SEGUIMIENTO no llame al proveedor;
-   - que `participation = null` derive sin llamar al proveedor.
-4. **Nivel sin elegir** (integración, contra la base real):
-   - crear en ESENCIAL sin nivel → inactivo; con `isActive: true` y sin
-     nivel → 400 `NIVEL_DE_IA_SIN_ELEGIR`;
-   - activar sin nivel → 400, y volver un nivel a `null` → 400;
-   - crear en COMPLETA sin nivel → AUTONOMA;
-   - el CHECK rechaza un `UPDATE` directo que deje activo un agente sin nivel;
-   - el upgrade a COMPLETA no le pone nivel a un agente que no lo tenía.
+   - que `participation = null` derive sin llamar al proveedor;
+   - (PR 6) en ESENCIAL, un nivel escrito **sin** `participation_chosen_at`
+     → el agente no responde y deriva; **con** `chosen_at` → responde según el
+     nivel. En COMPLETA, el mismo agente sin `chosen_at` responde como hoy.
+4. **Nivel sin elegir**, en dos partes:
+   - **PR 2 (base, por cualquier camino):** el test inserta agentes
+     **directo con Prisma**, sin pasar por el service, porque así son los
+     caminos que no son el service.
+     - en una organización ESENCIAL, un insert sin nivel e inactivo queda
+       con `participation = null`; el mismo insert con `is_active` en su
+       default (`true`) **falla** por el CHECK;
+     - en COMPLETA, el insert sin nivel queda en `AUTONOMA` (trigger);
+     - el CHECK rechaza un `UPDATE` directo que deje activo un agente sin
+       nivel;
+     - cambiar la edición de la organización no cambia el nivel de sus
+       agentes (el trigger es solo de INSERT).
+     - Hoy, los caminos de creación en producción son
+       `createAgent` de `agent.service.ts` (que llama al de
+       `agent.repository.ts`; lo usan la API y `scripts/seed-dev-data.ts`), `scripts/eval-agente-real.ts` y
+       `scripts/smoke-qr-followup-whatsapp.ts` (estos dos con
+       `prisma.agent.create`). La importación no crea agentes. El PR 2
+       lista en su descripción cuáles cubre el test: todos llegan a la
+       base como un INSERT en `agents`, que es lo que el trigger y el CHECK
+       ven.
+   - **PR 6 (service):** crear en ESENCIAL sin nivel → inactivo; con
+     `isActive: true` y sin nivel → 400 `NIVEL_DE_IA_SIN_ELEGIR`; activar sin
+     nivel → 400; volver un nivel a `null` → 400; elegir o cambiar el nivel
+     escribe `participation_chosen_at` y las asignaciones de plataforma no;
+     el upgrade a COMPLETA no le pone nivel a un agente que no lo tenía ni
+     toca `chosen_at`.
 5. **Automatizaciones:** crear una regla con trigger o acción fuera de la
    edición da 400, y el despachador salta una regla que quedó fuera.
 
@@ -817,11 +857,11 @@ fija que empezó a fallar el 2026-10-09 y deja en rojo el CI de cualquier PR.
 |---|---|---|---|---|
 | 0 | `chore: borrar archivos vacíos de la raíz` | — | Bajo | `${clave}`, `=` y `opportunityId` entraron por error con #446. Independiente de todo lo demás. |
 | 1 | `docs: diseño de ediciones` (#449) | — | Nulo | Solo `docs/ediciones.md`. |
-| 2 | `feat(ediciones): columnas edition y participation` 🗄 | Sí | **Bajo-medio** | `organizations.edition` con default `COMPLETA`, sin backfill. `agents.participation` nullable y **sin default**, con un `UPDATE` que deja `AUTONOMA` a todos los agentes existentes (D3). `agents.only_outside_business_hours` con default `false`. CHECK `agents_activo_requiere_nivel_check`, en la migración y en `manual_constraints.sql`. Más lo que pidan `verify:schema` y el diagnóstico. El riesgo sube de "bajo" por el `UPDATE` y el CHECK: si el `UPDATE` no cubriera algún agente activo, el CHECK haría fallar la migración (que es lo correcto: falla entera, no deja datos a medias). Ningún código lee las columnas todavía. |
+| 2 | `feat(ediciones): columnas edition y participation` 🗄 | Sí | **Bajo-medio** | `organizations.edition` con default `COMPLETA`, sin backfill. `agents.participation` nullable y **sin DEFAULT en la columna**, con un `UPDATE` que deja `AUTONOMA` a todos los agentes existentes. `agents.participation_chosen_at` nullable, sin relleno. `agents.only_outside_business_hours` con default `false`. Trigger `agents_nivel_por_defecto` (BEFORE INSERT: `AUTONOMA` si viene `null` y la organización es COMPLETA), en la migración y en `manual_constraints.sql`. CHECK `agents_activo_requiere_nivel_check`, solo en la migración (B-15). Más lo que pidan `verify:schema` y el diagnóstico. Test de integración de la parte "PR 2" de §5.4 punto 4, con la lista de caminos de creación cubiertos en la descripción del PR. El riesgo sube de "bajo" por el `UPDATE`, el trigger y el CHECK: si el `UPDATE` no cubriera algún agente activo, el CHECK haría fallar la migración entera (que es lo correcto: no deja datos a medias). Ningún código de la app lee las columnas todavía, y gracias al trigger ningún insert existente cambia de comportamiento. |
 | 3 | `feat(ediciones): catálogo de módulos y gate central` | — | **Medio-alto** | `ediciones.ts`, `edition` en `AuthContext`, `gateDeEdicion`, `authenticate` idempotente, refinaciones zod por campo, `edition` y `modulos` en `/me`, test "toda ruta clasificada", suite `ediciones.integration-test.ts` y slugs. Toca cada request: el test de clasificación y el de COMPLETA sin cambios son la red. Depende de 2 aplicado. |
 | 4 | `feat(plataforma): elegir y subir la edición` | — | Medio | `edition` en el alta, con el proceso fijo para ESENCIAL en la misma transacción. `PATCH .../edition` solo hacia arriba y `vaciar()` de la caché. Pantallas de Plataforma y sección 14 de la guía. |
 | 5 | `feat(oportunidades): versión mínima en ESENCIAL` | — | Medio | Status→etapa con el proceso fijo, lista y formulario simples, entrega creada y oculta (D7), sección 04 de la guía. |
-| 6 | `feat(agente): nivel de participación (a, c, d)` | — | **Medio-alto** | Reglas del "nivel sin elegir" en el service de agentes (D3) y bloque "Cuánto hace la IA" en el formulario. Gate de horario, tope fijo de 2 respuestas (D12), filtro de tools en los dos lugares, pausa al derivar en PRIMER_CONTACTO, SOLO_SEGUIMIENTO y `null` sin modelo, widget web, seguimiento de consultas con plantilla (§4.5, D9). Sección 08 de la guía. Es la parte más delicada del agente: tests del loop por nivel. |
+| 6 | `feat(agente): nivel de participación (a, c, d)` | — | **Medio-alto** | Reglas del "nivel sin elegir" en el service de agentes (D3), escritura de `participation_chosen_at` solo al elegir o cambiar el nivel, y bloque "Cuánto hace la IA" en el formulario. **Filtro por edición y nivel**: en ESENCIAL el agente atiende solo con `participation_chosen_at` no `null`; en COMPLETA esa columna no se mira (§1.2, "Pendiente del PR 6"). Gate de horario, tope fijo de 2 respuestas (D12), filtro de tools en los dos lugares, pausa al derivar en PRIMER_CONTACTO, SOLO_SEGUIMIENTO y `null` sin modelo, widget web, seguimiento de consultas con plantilla (§4.5, D9). Sección 08 de la guía. Es la parte más delicada del agente: tests del loop por nivel, incluido el de `chosen_at`. |
 | 7 | `feat(ediciones): menú, pantallas y guía por edición` | — | Medio | `useModulo`, `ModuloRoute`, menú, contactos sin empresa, stock sin permuta, catálogo de automatizaciones, filtro de la guía y test de `AYUDA`. |
 | 8 | `feat(dashboard): dashboard de atención` | — | Bajo | Endpoint y pantalla de §6.4. |
 | 9 | `feat(importacion): sin empresas en ESENCIAL` | — | Bajo | Rechazo de la entidad y aviso en la vista previa. |
@@ -848,7 +888,7 @@ este documento.
 |---|---|---|---|
 | D1 | Nombre de la edición simple | **`ESENCIAL`**. Descartados: `CLASICA`, `ATENCION`. | §1.1 |
 | D2 | Dónde vive el nivel de IA | **Por agente.** Descartado: por organización. | §1.2, §4.4 |
-| D3 | Nivel por defecto de un agente nuevo en ESENCIAL | **Sin valor por defecto.** Hay que elegirlo; sin nivel el agente no se puede activar (lo valida el backend y lo respalda un CHECK). En COMPLETA, AUTONOMA. | §1.2 "Nivel sin elegir", §5.4 |
+| D3 | Nivel por defecto de un agente nuevo en ESENCIAL | **Sin valor por defecto.** Hay que elegirlo; sin nivel el agente no se puede activar. Lo valida el service y lo respalda la base: un trigger completa `AUTONOMA` solo en COMPLETA, y un CHECK impide un agente activo sin nivel. En ESENCIAL, el agente responde solo si consta que un ADMIN eligió el nivel (`participation_chosen_at`). En COMPLETA, AUTONOMA. Ajustado el 2026-10-09 al preparar el PR 2: un `DEFAULT` en la columna habría dejado con nivel a cualquier agente de ESENCIAL creado sin pasar por el service, y sin `DEFAULT` ni trigger fallaban los inserts existentes. | §1.2 "Nivel sin elegir", §5.4, §10 |
 | D4 | Borradores con aprobación (b) | **Fase 2.** Ahora solo a, c y d. | §4.4, §10 |
 | D5 | Campos personalizados en ESENCIAL | **Incluidos.** | §2, §2.3, §6.1 |
 | D6 | Agente interno en ESENCIAL | **Incluido**, activado por usuario como hoy (`canUseInternalAgent`). | §2, §2.4 |
