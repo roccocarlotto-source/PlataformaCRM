@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { http, HttpResponse } from "msw";
+import { server } from "../test/msw/server";
+import { env } from "../config/env";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./AppLayout";
@@ -46,16 +50,21 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 // sidebar naveguen y el pathname cambie: de eso depende qué sección arranca
 // desplegada (ítem 79). `outlet` es lo que se renderiza en el <Outlet />.
 function renderLayout(initialPath = "/", outlet: ReactNode = null) {
+  // El menú pregunta las ediciones disponibles si es platform admin
+  // (docs/ediciones.md §7): hace falta un QueryClient.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <ThemeProvider>
-      <MemoryRouter initialEntries={[initialPath]}>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route path="*" element={outlet} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    </ThemeProvider>,
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <MemoryRouter initialEntries={[initialPath]}>
+          <Routes>
+            <Route element={<AppLayout />}>
+              <Route path="*" element={outlet} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </ThemeProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -523,6 +532,57 @@ describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () =>
     const base = mockAuth(role);
     return { ...base, me: { ...base.me!, isPlatformAdmin: true } };
   }
+
+  const editionsUrl = `${env.apiUrl}/api/admin/organizations/editions`;
+  // Lo de hoy: el backend ofrece solo COMPLETA (ESENCIAL_HABILITADA en false).
+  beforeEach(() => {
+    server.use(http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA"] })));
+  });
+
+  it("'Organizaciones' no aparece mientras el backend no ofrezca ESENCIAL", async () => {
+    let pidio = false;
+    server.use(
+      http.get(editionsUrl, () => {
+        pidio = true;
+        return HttpResponse.json({ editions: ["COMPLETA"] });
+      }),
+    );
+    useAuthMock.mockReturnValue(mockPlatformAdmin("ADMIN"));
+    renderLayout();
+
+    await waitFor(() => expect(pidio).toBe(true));
+    expect(screen.getByRole("link", { name: "Nueva organización" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Organizaciones" })).not.toBeInTheDocument();
+  });
+
+  it("'Organizaciones' aparece cuando el backend ofrece ESENCIAL", async () => {
+    server.use(
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+    );
+    useAuthMock.mockReturnValue(mockPlatformAdmin("ADMIN"));
+    renderLayout();
+
+    expect(await screen.findByRole("link", { name: "Organizaciones" })).toHaveAttribute(
+      "href",
+      "/admin/organizations",
+    );
+  });
+
+  it("quien no es platform admin no pregunta las ediciones", async () => {
+    let pidio = false;
+    server.use(
+      http.get(editionsUrl, () => {
+        pidio = true;
+        return HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] });
+      }),
+    );
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(pidio).toBe(false);
+    expect(screen.queryByRole("link", { name: "Organizaciones" })).not.toBeInTheDocument();
+  });
 
   it("un platform admin ve 'Nueva organización', aunque su rol en su organización sea USER", () => {
     useAuthMock.mockReturnValue(mockPlatformAdmin("USER"));

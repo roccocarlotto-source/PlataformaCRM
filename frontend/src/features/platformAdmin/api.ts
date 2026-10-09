@@ -15,6 +15,7 @@ import type {
   LlmUsageSummary,
   MetaAuthorization,
   MetaConnectionPendiente,
+  OrganizationEdition,
   PlatformOrganization,
 } from "./types";
 
@@ -29,6 +30,18 @@ export function createOrganization(
     body: input,
     getAccessToken,
   });
+}
+
+// Subir una organización de edición (docs/ediciones.md §1.1): solo de
+// ESENCIAL a COMPLETA; bajar es un 409 del backend.
+export function changeOrganizationEdition(
+  organizationId: string,
+  edition: OrganizationEdition,
+): Promise<{ id: string; edition: OrganizationEdition }> {
+  return request<{ id: string; edition: OrganizationEdition }>(
+    `/admin/organizations/${encodeURIComponent(organizationId)}/edition`,
+    { method: "PATCH", body: { edition }, getAccessToken },
+  );
 }
 
 // Las ediciones que se pueden elegir hoy en el alta (docs/ediciones.md §10,

@@ -38,6 +38,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { useEsencialOfrecida } from "../features/platformAdmin/queries";
 import { Button } from "../design-system/Button";
 import { ErrorState } from "../design-system/ErrorState";
 import { ThemeToggle } from "../design-system/ThemeToggle";
@@ -208,6 +209,10 @@ export function AppLayout() {
   // gatea por la allowlist global (isPlatformAdmin de /me), no por el rol —
   // mismo criterio de renderizado condicional que el grupo Administración.
   const isPlatformAdmin = me?.isPlatformAdmin === true;
+  // Ediciones (docs/ediciones.md §7): "Organizaciones" (con "Pasar a edición
+  // completa") aparece recién cuando el backend ofrece ESENCIAL. Solo se
+  // pregunta si es platform admin.
+  const esencialOfrecida = useEsencialOfrecida({ enabled: isPlatformAdmin }).ofrecida;
   // Ítem 180: el chat con el agente interno. Un ADMIN siempre (el backend ya
   // manda canUseInternalAgent true para él, pero no depende de eso); un USER
   // solo si un ADMIN lo habilitó.
@@ -483,6 +488,11 @@ export function AppLayout() {
               <SidebarLink to="/admin/organizations/new" icon={Building}>
                 Nueva organización
               </SidebarLink>
+              {esencialOfrecida ? (
+                <SidebarLink to="/admin/organizations" icon={Building2}>
+                  Organizaciones
+                </SidebarLink>
+              ) : null}
               <SidebarLink to="/admin/agents/whatsapp-number" icon={MessageCircle}>
                 Número de WhatsApp
               </SidebarLink>
