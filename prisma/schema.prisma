@@ -254,6 +254,15 @@ enum OrganizationEdition {
   ESENCIAL
 }
 
+// Rubro de la organización: de qué producto se trata (docs/rubros.md §1.1).
+// Qué módulos tiene, qué palabras usan la pantalla y el agente, y qué reglas
+// extra valen. Se combina con la edición por intersección (§0.4). No confundir
+// con Company.industry, que es texto libre sobre una empresa cliente.
+enum OrganizationIndustry {
+  AUTOMOTORA
+  CLINICA
+}
+
 // Cuánto hace el agente de IA con el cliente (docs/ediciones.md §1.2 y §4),
 // en las dos ediciones. BORRADOR (la IA redacta y una persona aprueba) es la
 // fase 2 y se agrega con su propia migración: un valor que el backend no sabe
@@ -720,6 +729,11 @@ model Organization {
   // que ya existían quedan como estaban. La lee el trigger
   // agents_nivel_por_defecto (manual_constraints.sql) al insertar un agente.
   edition OrganizationEdition @default(COMPLETA)
+
+  // Rubro (docs/rubros.md §1.1). Default AUTOMOTORA, sin backfill: todas las
+  // organizaciones que ya existían son automotoras. Ningún código la lee
+  // todavía; el gate del rubro es el PR R2.
+  industry OrganizationIndustry @default(AUTOMOTORA)
 
   users         User[]
   companies     Company[]
