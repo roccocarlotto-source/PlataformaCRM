@@ -1,8 +1,9 @@
 # Rubros: AUTOMOTORA y CLINICA
 
 > Documento de diseño. Estado: **decidido, sin código**. Fecha: 2026-10-09.
-> Las preguntas abiertas de la primera versión se cerraron el mismo día y están
-> en §16 como decisiones (D1–D15). Lo que quedó abierto, más poco, está en §17.
+> Las preguntas abiertas se cerraron el mismo día en dos rondas y están en §16
+> como decisiones: D1–D15 (primera ronda) y D16–D21 (segunda). No queda ninguna
+> pregunta abierta (§17).
 > Nada de lo descrito acá existe todavía. Las referencias `archivo:línea` son al
 > código de `master` en el merge de #452 (`9876b16`) y sirven para ubicar dónde
 > se tocaría. `src/config/ediciones.ts` todavía no existe: es el PR 3 de
@@ -10,7 +11,7 @@
 > Todos los nombres de personas, clínicas y prestaciones de este documento son
 > inventados.
 > **Numeración:** las decisiones de partida de Rocco son **B1–B11** (§0.2), las
-> decisiones sobre las preguntas son **D1–D15** (§16) y los PR son **R0–R19**
+> decisiones sobre las preguntas son **D1–D21** (§16) y los PR son **R0–R21**
 > (§15). Las de `docs/ediciones.md` se citan como "ediciones D3".
 
 ## 0. Por qué
@@ -118,7 +119,9 @@ model Organization {
 - **Quién lo cambia (D1):** solo el platform admin, con
   `PATCH /api/admin/organizations/:organizationId/industry`, y **solo mientras
   la organización no tenga datos de negocio** (contactos, turnos,
-  conversaciones, vehículos). Si los tiene, responde 409. Cambiar a CLINICA crea
+  conversaciones, vehículos) **ni usuarios con un rol que el rubro nuevo no
+  admite** (USER al pasar a CLINICA, Recepción al pasar a AUTOMOTORA, §11.1).
+  Si los tiene, responde 409. Cambiar a CLINICA crea
   las filas de configuración de clínica en la misma transacción. Cambiar a
   AUTOMOTORA las deja, sin uso.
 - **Caché de autenticación:** igual que la edición, el rubro viaja en
@@ -265,13 +268,13 @@ La columna "Con ESENCIAL" dice qué queda al combinarla con la tabla de edicione
 | Base de conocimiento | ✅ | ✅ | Con el tipo `INDICACIONES` (§5.4). **Sin `sync-vehicles`**. |
 | Conversaciones | ✅ | ✅ | |
 | Contactos ("Pacientes" / "Consultas sin identificar") | ✅ | ✅ | Sin "Vehículo de interés". |
-| Usuarios, invitaciones | ✅ | ✅ | Con el rol Recepción (§11). |
+| Usuarios, invitaciones | ✅ | ✅ | Roles ADMIN y Recepción (sin USER), y sedes por usuario (§11). |
 | Sucursales ("sedes"), horarios | ✅ | ✅ | Más la configuración de recordatorios de la sede. |
 | Agenda | ✅ **núcleo** | ✅ | |
 | **Agenda de clínica** (`agenda_clinica`) | ✅ | ✅ | §4: varios profesionales por prestación, bloqueos, sobreturnos, reprogramar, atendido / no vino, un calendario de Google por profesional. **Solo CLINICA en la v1.** |
 | **Recordatorios de turno** (`recordatorios_de_turno`) | ✅ | ✅ | §6. **Solo CLINICA en la v1 (D13).** |
 | **Post-turno** (`post_turno`) | ✅ | ✅ | §7: QR de reseña y control. |
-| **Recepción** (`recepcion`) | ✅ | ✅ | §11. |
+| **Recepción** (`recepcion`) | ✅ | ✅ | §11: el rol y los usuarios por sede (`UserBranch`). |
 | Tareas (actividades) | ✅ | ✅ | |
 | Seguimiento de consultas (#446) | ✅ con el filtro de turnos | ✅ | §9. |
 | Cupones | ✅ manual | ✅ | El cupón manual (`POST /api/vouchers`) acepta un contacto sin oportunidad. Cupón automático después del turno: fuera de la v1. |
@@ -306,9 +309,9 @@ Consecuencias:
   ve siempre "no tiene". Por eso las clínicas suman el filtro por turnos (§9).
 - **COMPLETA + CLINICA** tampoco tiene procesos de venta, cotizaciones, pagos ni
   entregas. Una clínica en COMPLETA conserva lo que COMPLETA cambia del agente
-  (nivel AUTONOMA por defecto). Que COMPLETA aporte algo propio a una clínica
-  (presupuestos de tratamiento, paquetes de sesiones) queda para cuando un
-  cliente lo pida (§17, A5).
+  (nivel AUTONOMA por defecto). Presupuestos de tratamiento y paquetes de
+  sesiones quedan para una fase posterior, con su propio documento de diseño
+  (D20, §15.1).
 
 ---
 
@@ -494,9 +497,11 @@ Con Google conectado, `obtenerDisponibilidad` consulta el `freebusy` del
 calendario. En una clínica con tres profesionales, cada turno vuelve "ocupado"
 ese horario para los tres.
 
-**Para las automotoras no se cambia nada.** Una automotora con más de un
+**Para las automotoras no se cambia nada (D17).** Una automotora con más de un
 recurso tiene el mismo problema, pero arreglarlo cambiaría su comportamiento
-(§0.3). Es una decisión aparte (§17, A2).
+(§0.3), y ninguna lo reportó. El `freebusy` de las automotoras queda como está.
+Si algún día se arregla, será con su propio diseño y su propio PR, fuera de
+este plan.
 
 #### Scopes: verificados contra Google y contra el código
 
@@ -589,8 +594,10 @@ model GoogleCalendarChannel {
    `calendarId` de la conexión y los cuatro valores del canal **tal como
    están**. Los canales vivos en Google siguen siendo los mismos: mismo
    `channelId`, mismo `resourceId` de Google, mismo vencimiento.
-3. Las columnas viejas **quedan en el schema, sin uso**. Borrarlas es otro PR,
-   que no se mergea por iniciativa propia (§17, A3).
+3. Las columnas viejas **quedan en el schema, sin uso**. Se borran después
+   (D18), en un PR posterior (R21 🗄), cuando R7 lleve un tiempo en producción
+   sin problemas. Ese PR **no se mergea por iniciativa propia**: es un borrado
+   de columnas.
 4. El webhook (`googleCalendarWebhook.controller.ts`) y `procesarNotificacion`
    buscan por `channelId` en la tabla nueva (hoy `findConnectionByChannelId`).
    El token firmado (`organizationId`, `branchId`, `channelId`) no cambia de
@@ -630,8 +637,13 @@ las automotoras. **El comportamiento es el mismo**, y lo prueban los tests de
 - **Cancelación inversa:** cada calendario tiene su canal. Un evento borrado en
   Google llega por el canal de **ese** calendario y se busca el `Booking` por
   `googleEventId` (único por organización, migración `20260902140000`), como
-  hoy. Un evento **movido** en Google se registra y además crea una tarea para
-  recepción (§17, A1).
+  hoy.
+- **Evento movido en Google (D16):** no se aplica. Se registra (como hoy, con
+  el `bookingId` y los dos horarios) y se crea una **tarea para recepción** de la
+  sede del turno (§11.4): "El turno de {paciente} se movió en Google al {dia}
+  {hora}. En la plataforma sigue el {dia} {hora}: reprogramalo o avisale al
+  paciente". El turno no cambia hasta que una persona lo reprograme. La tarea
+  lleva el `branchId` del turno, así la ve la recepción de esa sede (§11.5).
 - **Cambiar el calendario de un profesional:** se detiene el canal viejo
   (`channels.stop`) y se crea el nuevo. Los turnos ya creados conservan su
   `googleCalendarId`.
@@ -669,7 +681,7 @@ las automotoras. **El comportamiento es el mismo**, y lo prueban los tests de
   `CONFIRMED` de organizaciones CLINICA cuyo `endsAt` pasó hace más de 3 h.
   Hasta ese momento, recepción puede marcar "No vino". **El worker filtra por
   rubro:** un turno de una automotora nunca cambia de estado solo.
-- Columnas aditivas `Booking.completedAt` y `completedBy` (`USER` \| `AUTO`).
+- Columnas aditivas `Booking.completedAt` y `completedBy` (`PERSONA` \| `AUTO`).
 - **Eventos al outbox, solo en CLINICA:** `booking.created`, `booking.cancelled`,
   `booking.rescheduled` y `booking.completed`. Los turnos de una automotora no
   emiten nada, como hoy (`booking.service.ts:39-42`); emitir sin handlers los
@@ -1226,7 +1238,13 @@ y las decisiones de diseño que salgan vuelven a este documento.
 
 ---
 
-## 11. Rol Recepción (D15)
+## 11. Roles de una clínica: ADMIN y Recepción (D15, D19, D21)
+
+**En una clínica no hay USER (D21).** Los profesionales no son usuarios: son
+recursos de la agenda (§4.2). Las personas que entran al sistema son quienes lo
+administran (ADMIN) y quienes atienden la recepción (Recepción). El rol USER
+sigue existiendo porque lo usan las automotoras, y para ellas no se borra ni
+cambia nada.
 
 ### 11.1 Cómo se modela
 
@@ -1242,38 +1260,74 @@ son el tipo `RoleName = "ADMIN" | "USER"` con `KNOWN_ROLES` e `isRoleName`
 - **Código:** `RoleName` suma `"RECEPCION"` y `KNOWN_ROLES` también. El orden
   importa: primero se despliega el código que conoce el rol, después se aplica la
   migración. Antes de eso nadie puede tenerlo asignado.
-- **Solo en CLINICA.** Asignar `RECEPCION` en una automotora (invitación o cambio
-  de rol) responde 400 `ROL_NO_DISPONIBLE_EN_EL_RUBRO`. El rol es del módulo
-  `recepcion`, así que `modulosDe` lo decide.
-- **Quién lo asigna:** el ADMIN de la clínica, en Usuarios (cambio de rol) e
-  Invitaciones (rol del invitado). El platform admin no lo necesita: el alta crea
+- **Qué rol admite cada rubro**, en `src/config/ediciones.ts` junto a los
+  módulos (`ROLES_POR_RUBRO`):
+
+  | Rubro | Roles | Asignar otro rol |
+  |---|---|---|
+  | AUTOMOTORA | ADMIN, USER (como hoy) | `RECEPCION` → 400 `ROL_NO_DISPONIBLE_EN_EL_RUBRO` |
+  | CLINICA | ADMIN, RECEPCION | `USER` → 400 `ROL_NO_DISPONIBLE_EN_EL_RUBRO` |
+
+  Lo validan las invitaciones y el cambio de rol de un usuario, en el backend. El
+  selector de rol de la pantalla muestra solo los dos roles del rubro.
+- **Quién asigna:** el ADMIN de la clínica, en Usuarios (cambio de rol y sedes) e
+  Invitaciones (rol y sedes del invitado). El alta de la organización crea
   siempre un ADMIN.
-- Los usuarios no tienen sucursal: un usuario de Recepción ve **todas** las sedes
-  de la clínica (§17, A4).
+- **Cambio de rubro (D1):** el 409 de §1.1 cubre también a los usuarios con un
+  rol que el rubro nuevo no admite.
 
-### 11.2 Qué puede hacer
+### 11.2 Qué puede hacer cada rol en una clínica
 
-Recepción es un **USER con permisos operativos sobre la agenda, los pacientes,
-las conversaciones y las tareas**. No configura nada.
+Recepción tiene **permisos operativos sobre la agenda, los pacientes, las
+conversaciones y las tareas, dentro de sus sedes** (§11.5). No configura nada.
+ADMIN ve y hace todo, en todas las sedes, sin importar las sedes que tenga
+asignadas.
 
-| Pantalla | ADMIN | Recepción | USER |
-|---|---|---|---|
-| **Agenda:** ver turnos de todos los profesionales | ✅ | ✅ | ✅ |
-| Crear y cancelar | ✅ | ✅ | ✅ (como hoy) |
-| Reprogramar | ✅ | ✅ | ✅ propuesto (§17, A6) |
-| Atendido / No vino | ✅ | ✅ | ❌ |
-| Sobreturno (si el profesional lo permite) | ✅ | ✅ | ❌ |
-| `force` (fuera de horario) | ✅ | ❌ | ❌ |
-| Bloqueos de un profesional | ✅ | ✅ | ❌ |
-| Profesionales, prestaciones, horarios, calendario de Google | ✅ | ❌ | ❌ |
-| **Pacientes:** ver todos | ✅ | ✅ | ✅ |
-| Editar cualquier paciente | ✅ | ✅ | Solo los suyos (`permisosDelVendedor.ts`) |
-| Borrar, borrado de datos personales, unir, importar | ✅ | ❌ | ❌ |
-| **Conversaciones:** responder y devolver al agente en cualquiera | ✅ | ✅ | Solo las asignadas (`conversationReply.service.ts:133`) |
-| **Tareas:** ver todas | ✅ | ✅ | Solo las propias (`activity.service.ts:82-90`) |
-| Completar y editar cualquiera; asignarse una | ✅ | ✅ | Solo las propias |
-| Asignarle una tarea a otra persona | ✅ | ❌ | ❌ |
-| Usuarios, invitaciones, agente, automatizaciones, base de conocimiento, organización, sedes | ✅ | ❌ | ❌ |
+| Pantalla | ADMIN | Recepción |
+|---|---|---|
+| **Agenda:** ver turnos | ✅ todas las sedes | ✅ de sus sedes |
+| Crear, cancelar y reprogramar turnos | ✅ | ✅ en profesionales de sus sedes |
+| Atendido / No vino | ✅ | ✅ de sus sedes |
+| Sobreturno (si el profesional lo permite) | ✅ | ✅ de sus sedes |
+| `force` (fuera de horario) | ✅ | ❌ |
+| Bloqueos de un profesional | ✅ | ✅ de sus sedes |
+| Profesionales, prestaciones, horarios, calendario de Google | ✅ | ❌ |
+| **Pacientes:** ver | ✅ todos | ✅ todos (ver "solo lo suyo" abajo) |
+| Crear y editar | ✅ | ✅ cualquiera |
+| Borrar, borrado de datos personales, unir, importar | ✅ | ❌ |
+| **Conversaciones:** ver, responder y devolver al agente | ✅ todas | ✅ las de sus sedes |
+| Cerrar | ✅ | ✅ las de sus sedes |
+| **Tareas:** ver | ✅ todas | ✅ las suyas y las de sus sedes |
+| Completar y editar | ✅ | ✅ las que ve |
+| Asignarse una tarea | ✅ | ✅ las que ve |
+| Asignarle una tarea a otra persona | ✅ | ❌ |
+| Usuarios, invitaciones, agente, automatizaciones, base de conocimiento, organización, sedes | ✅ | ❌ |
+
+**Cómo se aplica "solo lo suyo" a Recepción.** En las automotoras, un USER solo
+edita lo que tiene asignado (`permisosDelVendedor.ts`), solo responde las
+conversaciones asignadas (`conversationReply.service.ts:133`) y solo ve sus
+tareas (`activity.service.ts:82-90`). Esas reglas existen porque el vendedor es
+dueño de sus clientes. En una clínica nadie es dueño de un paciente, así que
+**para Recepción el límite no es "lo asignado" sino "sus sedes"**:
+
+- **Pacientes: todos, sin dueño.** `Contact` no tiene sede: un paciente puede
+  atenderse en más de una, y darle sede al contacto sería sucursalizar el CRM
+  entero, que booking-architecture §3 dejó como una decisión aparte y grande.
+  Recepción ve y edita cualquier paciente, porque necesita buscarlo para darle
+  un turno. `ownerId` no se usa para limitar nada en una clínica.
+- **Conversaciones: las de sus sedes.** `Conversation.branchId` ya existe
+  (`docs/ai-agent-architecture.md` §3). Recepción ve y responde cualquier
+  conversación de sus sedes, esté asignada o no. Que la conversación esté
+  asignada a otra persona no la bloquea: es un equipo atendiendo una misma
+  recepción.
+- **Tareas: las suyas y las de sus sedes.** Columna aditiva
+  `Activity.branchId` (nullable). La escriben solo los flujos de clínica: las
+  tareas que nacen de un turno o de una conversación (sin respuesta al
+  recordatorio, cancelación por botón, turno movido en Google, derivaciones) la
+  llevan con la sede del turno o de la conversación. Recepción ve las tareas
+  **asignadas a sí misma** más las que tienen un `branchId` de sus sedes. Una
+  tarea sin `branchId` (una tarea manual que un ADMIN cargó sobre un paciente) la
+  ve solo si está asignada a esa persona.
 
 ### 11.3 Cómo se implementa sin tocar a ADMIN ni a USER
 
@@ -1281,46 +1335,107 @@ Hoy hay 16 chequeos `role === "ADMIN"` sueltos (en `activity.service.ts`,
 `permisosDelVendedor.ts`, `conversationReply.service.ts`, `booking.service.ts`,
 `contact.controller.ts`, `opportunity.controller.ts`, `me.controller.ts`,
 `avisoSinRespuesta.service.ts`, `discountVoucherManual.service.ts` y
-`requireInternalAgentAccess.ts`).
+`requireInternalAgentAccess.ts`). Todos son binarios: ADMIN o "el otro rol", y
+"el otro rol" hoy es siempre USER.
 
 - **Un solo lugar nuevo:** `src/services/permisos.ts`, con
-  `puede(actor, capacidad)` y una tabla rol → capacidades. Las capacidades salen
-  de la tabla de §11.2 (`ver_todas_las_tareas`, `editar_cualquier_contacto`,
-  `responder_cualquier_conversacion`, `marcar_atendido`, `crear_sobreturno`,
-  `bloquear_profesional`…).
-- **Se reemplazan solo los chequeos donde Recepción difiere de USER:** tareas,
-  edición de contactos, respuesta en conversaciones y los de agenda. Para ADMIN
-  y USER, `puede` devuelve exactamente lo que devolvía el `if`. Los otros
-  chequeos (`force`, cupones, agente interno, oportunidades) quedan como están:
-  Recepción cae en el lado de USER.
-- **Rutas:** las que llevan `authorize("ADMIN")` siguen así; Recepción recibe 403.
-  Las rutas nuevas de agenda de clínica que habilitan a Recepción declaran
-  `authorize("ADMIN", "RECEPCION")`.
-- **`/me`** devuelve el rol. El frontend suma `useRol()` y el menú de clínica
-  muestra a Recepción: Agenda, Turnos, Pacientes, Conversaciones, Tareas.
+  `puede(actor, capacidad, recurso?)` y una tabla rol → capacidades. Las
+  capacidades salen de la tabla de §11.2 (`ver_tareas`, `editar_contacto`,
+  `responder_conversacion`, `marcar_atendido`, `crear_sobreturno`,
+  `bloquear_profesional`…). Cuando la capacidad depende de la sede, `puede`
+  recibe el recurso y mira `sedesDelActor` (§11.5).
+- **Se reemplazan los chequeos donde Recepción no puede caer en el lado de
+  USER:** tareas, edición de contactos, respuesta en conversaciones y los de
+  agenda. Para **ADMIN y USER**, `puede` devuelve exactamente lo que devolvía el
+  `if`, con la misma regla de "solo lo suyo" de hoy. Los otros chequeos
+  (`force`, cupones, agente interno, oportunidades) quedan como están y
+  Recepción cae en el lado de "no ADMIN", que en esos casos es lo correcto.
+- **Rutas:** las que llevan `authorize("ADMIN")` siguen así; Recepción recibe
+  403. Las rutas de agenda de clínica que habilitan a Recepción declaran
+  `authorize("ADMIN", "RECEPCION")`. Las rutas de hoy que no tienen `authorize`
+  (contactos, conversaciones, turnos, tareas) siguen sin tenerlo: el límite de
+  sede lo pone `puede`, adentro del service.
+- **Fuera de sede, 404:** un turno, una conversación o una tarea de otra sede
+  pedido por id responde 404, como hoy una tarea ajena para un USER (ítem 25 de
+  `frontend-cambios-pendientes.md`). No se confirma que exista.
+- **`/me`** devuelve el rol y las sedes. El frontend suma `useRol()`. El menú de
+  clínica le muestra a Recepción: Agenda, Turnos, Pacientes, Conversaciones,
+  Tareas.
 
 **Tests de autorización:**
 
-- Unitario de `permisos.ts`: la tabla completa para los tres roles. **ADMIN y
-  USER dan lo mismo que el código de hoy** para cada capacidad que existía.
-- Rutas: recorre `RUTAS_POR_MODULO` y, para cada ruta con `authorize("ADMIN")`,
-  un usuario Recepción recibe 403, salvo la lista explícita de §11.2.
-- Integración: una clínica con ADMIN, USER y RECEPCION, cada uno contra las
-  pantallas de §11.2. En una automotora, asignar `RECEPCION` da 400. Los tests de
-  autorización existentes de ADMIN y USER pasan sin cambios.
+- **Unitario de `permisos.ts`:** la tabla completa. **ADMIN y USER (automotora)
+  dan lo mismo que el código de hoy** para cada capacidad que existía. ADMIN y
+  Recepción (clínica), con y sin sede, dan lo de §11.2.
+- **Rutas:** recorre `RUTAS_POR_MODULO` y, para cada ruta con
+  `authorize("ADMIN")`, un usuario Recepción recibe 403, salvo la lista explícita
+  de §11.2.
+- **Integración de clínica:** una clínica con dos sedes, un ADMIN, una Recepción
+  de la sede 1, una de las dos sedes y una sin sedes, cada una contra las
+  pantallas de §11.2 (incluidos los 404 fuera de sede). **No hay USER en la
+  clínica:** invitar o pasar a alguien a USER da 400.
+- **Automotora:** asignar `RECEPCION` da 400, y los tests de autorización
+  existentes de ADMIN y USER pasan sin cambios (suite "automotora sin cambios",
+  §14.1).
 
-### 11.4 A quién van los avisos con el rol
+### 11.4 A quién van los avisos
 
 Las tareas de recepción (sin respuesta al recordatorio, cancelación por botón,
-turno movido en Google, derivaciones de la clínica) se asignan así:
+turno movido en Google, derivaciones de la clínica) llevan el `branchId` de la
+sede y se asignan así:
 
-1. al "Responsable por defecto" de la sede, si tiene el rol Recepción;
-2. si no, al usuario de Recepción con menos tareas abiertas;
-3. si no hay ninguno, al "Responsable por defecto" o al ADMIN más antiguo (la
-   transición de §6.5).
+1. al "Responsable por defecto" de la sede, si tiene el rol Recepción y esa
+   sede asignada;
+2. si no, al usuario de Recepción **de esa sede** con menos tareas abiertas;
+3. si la sede no tiene nadie de Recepción, al "Responsable por defecto" o al
+   ADMIN más antiguo (la transición de §6.5).
 
-Como Recepción ve todas las tareas, cualquier usuario de Recepción puede tomar
-una asignada a otro. No hace falta una columna de "cola" en `activities`.
+Como Recepción ve las tareas de sus sedes, cualquier persona de Recepción de esa
+sede puede tomar una asignada a otra. No hace falta una columna de "cola".
+
+### 11.5 Usuarios por sede (D19)
+
+```prisma
+model UserBranch {
+  organizationId String
+  userId         String
+  branchId       String
+  createdAt      DateTime @default(now())
+  @@id([userId, branchId])
+  // FKs compuestas (organizationId, userId) y (organizationId, branchId)
+}
+
+model InvitationBranch {
+  organizationId String
+  invitationId   String
+  branchId       String
+  @@id([invitationId, branchId])
+}
+```
+
+- **Solo lo usan las clínicas.** Una automotora no tiene filas, y su código no
+  las lee: `sedesDelActor(actor)` devuelve **"todas"** para cualquier usuario de
+  una automotora y para cualquier ADMIN. Para una automotora el resultado es
+  exactamente el de hoy, y lo fija un caso de la suite "automotora sin cambios"
+  (§14.1).
+- **Para Recepción** devuelve el conjunto de sedes de `UserBranch`, sin las sedes
+  borradas.
+- **Asignación:** el ADMIN de la clínica elige las sedes en el formulario del
+  usuario y al invitar. Una invitación de Recepción **exige al menos una sede**
+  (400 si no trae ninguna). Las sedes de la invitación se copian a `UserBranch`
+  al aceptar, en la misma transacción que crea el usuario. ADMIN no necesita
+  sedes y el formulario no las pide.
+- **Usuario de Recepción sin sedes:** solo pasa si se le sacaron todas o si se
+  borraron. Puede entrar y ver pacientes (que no tienen sede), y ve las tareas
+  asignadas a sí misma. La agenda, las conversaciones y las demás tareas están
+  vacías, con el aviso "No tenés sedes asignadas. Pedile a un administrador que
+  te asigne una". No recibe avisos nuevos (§11.4, punto 2).
+- **Caché:** las sedes viajan en `AuthContext` (se agregan al `SELECT` de
+  `findUserForAuth` solo para usuarios de clínica). Cambiar las sedes de un
+  usuario llama a `vaciar()` para ese usuario, como el cambio de edición.
+- **Borrar una sede** no borra las filas de `UserBranch`. `sedesDelActor` ignora
+  las sedes borradas.
+- Son tablas nuevas: RLS, H-01, fila 5 del diagnóstico.
 
 ---
 
@@ -1377,8 +1492,10 @@ automotoras, y qué lo garantiza:
 | Canales de Google en `GoogleCalendarChannel` | Varios calendarios por conexión | Migración que copia; webhook y renovación iguales; sin reconectar |
 | Scopes por rubro en la URL de OAuth | Solo las clínicas listan calendarios | URL de automotora idéntica |
 | Botones opcionales y payload en el webhook de WhatsApp | Recordatorio con confirmación | Cuerpo de las plantillas sin botones idéntico; un botón sin `BookingMessage` sigue el camino de hoy |
-| `permisos.ts` | Rol Recepción | Tabla de ADMIN y USER igual al código de hoy |
-| Columnas aditivas (`Booking`, `Resource`, `ServiceType`, `KnowledgeBaseEntry`, `Contact`) | Datos operativos del turno | Nullable o con default que reproduce hoy; solo las escribe código de clínicas |
+| `permisos.ts` | Roles de clínica (ADMIN y Recepción) | Tabla de ADMIN y USER igual al código de hoy |
+| Roles por rubro | En una clínica no hay USER; en una automotora no hay Recepción | Las automotoras siguen con ADMIN y USER; asignar Recepción da 400 |
+| `sedesDelActor` y sedes en `AuthContext` | Usuarios por sede | Devuelve "todas" para cualquier usuario de una automotora; sin filas de `UserBranch` |
+| Columnas aditivas (`Booking`, `Resource`, `ServiceType`, `KnowledgeBaseEntry`, `Contact`, `Activity.branchId`) | Datos operativos del turno y sede de las tareas | Nullable o con default que reproduce hoy; solo las escribe código de clínicas |
 | Menú y marca por configuración | Producto aparte y marca futura | Snapshot del menú de automotora |
 
 ---
@@ -1411,7 +1528,13 @@ PR que toca el núcleo le agrega su caso**:
   botón de una automotora sigue llegando al agente como texto.
 - El catálogo de automatizaciones de una automotora es el de hoy.
 - Los chequeos de permisos de ADMIN y USER dan lo mismo que antes.
-- En una automotora, asignar `RECEPCION` da 400.
+- En una automotora, asignar `RECEPCION` da 400, y ADMIN y USER se siguen
+  pudiendo asignar como hoy.
+- **Sedes:** en una automotora con dos sucursales, un USER sigue viendo los
+  turnos, las conversaciones y las tareas que ve hoy (las mismas reglas de "solo
+  lo suyo"), sin ninguna fila de `UserBranch`; `sedesDelActor` devuelve "todas".
+- Las tareas que crean los flujos compartidos (derivación del agente, aviso sin
+  respuesta) en una automotora no llevan `branchId`.
 - Frontend: snapshot del menú y de los textos de una sesión AUTOMOTORA.
 
 ### 14.2 Resto
@@ -1423,7 +1546,7 @@ PR que toca el núcleo le agrega su caso**:
    `motivo` del 403.
 3. **Aislamiento:** cada tabla nueva (`ClinicSettings`, `ClinicBranchSettings`,
    `ServiceTypeResource`, `ResourceTimeOff`, `GoogleCalendarChannel`,
-   `BookingMessage`) entra a H-01, RLS (`rlsTodasLasTablas.test.ts`) y la fila 5
+   `BookingMessage`, `UserBranch`, `InvitationBranch`) entra a H-01, RLS (`rlsTodasLasTablas.test.ts`) y la fila 5
    del diagnóstico. `BookingMessage` tiene FK a `contacts`: entra a
    `contactMerge`.
 4. **Agenda de clínica:** varios profesionales, elección del libre, sobreturnos,
@@ -1444,7 +1567,11 @@ PR que toca el núcleo le agrega su caso**:
    funcionamiento con SOLO_SEGUIMIENTO.
 9. **Post-turno:** `booking.completed` agenda el QR y el control; un "No vino"
    posterior los cancela; el control se cancela si ya hay un turno futuro.
-10. **Recepción:** §11.3.
+10. **Roles y sedes:** §11.3 (ADMIN y Recepción en la clínica, con y sin sedes;
+    USER rechazado) y §11.5 (asignación, invitación sin sedes, sede borrada,
+    caché).
+11. **Turno movido en Google:** se registra, el turno no cambia y se crea una
+    sola tarea con el `branchId` del turno (D16).
 
 ---
 
@@ -1474,7 +1601,7 @@ rubro va después del PR 3 de ediciones, que crea `ediciones.ts` y
 | R9 | `feat(clinicas): reprogramar` | — | Medio | §4.7, con Google como en §4.6. | R8 |
 | R10 | `feat(clinicas): atendido, no vino y eventos del turno` 🗄 | Sí | Medio | `completedAt`, `completedBy`, rutas, cierre automático, eventos `booking.*` solo en CLINICA. | R9 |
 | R11 | `feat(clinicas): tools de turnos` | — | Medio | `get_contact_bookings`, `reschedule_booking`, `cancel_booking`, versiones de clínica de las tools de agenda, textos del rubro en el prompt (§3.2). | R10, R4 |
-| R12 | `feat(clinicas): rol Recepción` 🗄 | Sí | **Medio-alto** | Fila `RECEPCION` en `roles` (migración y seed), `RoleName`, `permisos.ts`, reemplazo de los chequeos de §11.3, invitaciones y usuarios, menú, tests de autorización. Toca permisos de todo el sistema: la tabla de ADMIN y USER sin cambios es la red. | R2 |
+| R12 | `feat(clinicas): rol Recepción` 🗄 | Sí | **Medio-alto** | Fila `RECEPCION` en `roles` (migración y seed), `RoleName`, `ROLES_POR_RUBRO` (USER → 400 en clínicas, Recepción → 400 en automotoras), `permisos.ts`, reemplazo de los chequeos de §11.3, invitaciones y usuarios con el selector de dos roles, menú, tests de autorización. Toca permisos de todo el sistema: la tabla de ADMIN y USER sin cambios es la red. Hasta R20, Recepción ve todas las sedes. | R2 |
 | R13 | `feat(clinicas): recordatorio con confirmación` 🗄 | Sí | **Medio-alto** | `BookingMessage` (`REMINDER`), `patientConfirmedAt`, trigger y acción de clínica, plantilla `UTILITY` con botones, payload en el webhook, políticas de turno tardío (D8), tarea sin respuesta (con la transición de §6.5 si R12 no está). | R10 |
 | R14 | `feat(clinicas): QR y control después del turno` 🗄 | Sí | Medio | Valores `REVIEW_QR` y `CONTROL` del enum, `ServiceType.followUpAfterDays`, acciones de clínica, catálogo de §7.3. | R13 |
 | R15 | `feat(clinicas): seguimiento de consultas con turnos` | — | Bajo | Filtro de turnos, texto y variables, y "siempre plantilla", **solo CLINICA** (§9.1). | R10 |
@@ -1482,17 +1609,21 @@ rubro va después del PR 3 de ediciones, que crea `ediciones.ts` y
 | R17 | `feat(clinicas): menú, pantallas, marca y guía` | — | Medio | Menú por rubro, `useVocabulario`, marca por configuración (§0.3), pantallas de `features/clinica/`, `docs/guia-de-uso/clinicas/`, snapshot de la automotora. | R3 (y crece con cada PR) |
 | R18 | `feat(clinicas): indicaciones en la base de conocimiento` 🗄 | Sí | Bajo | `KnowledgeBaseEntry.kind` (D5). | R4 |
 | R19 | `feat(clinicas): Clínica Demo` | — | Bajo | §12. | Lo que se quiera mostrar |
+| R20 | `feat(clinicas): usuarios por sede` 🗄 | Sí | **Medio-alto** | `UserBranch`, `InvitationBranch`, `Activity.branchId` (aditiva), `sedesDelActor` y sedes en `AuthContext`, límite por sede en agenda, conversaciones y tareas (§11.2, §11.5), sedes en el formulario del usuario y en la invitación, avisos por sede (§11.4), tests de autorización con sedes y el caso de la suite "automotora sin cambios". Se numera al final para no renumerar el plan, pero va **inmediatamente después de R12** (ver el orden). | R12 |
+| R21 | `chore(google): borrar las columnas de canal de google_calendar_connections` 🗄 | Sí | Bajo | D18. Borra `channel_id`, `channel_resource_id`, `channel_expiration` y `sync_token` de `google_calendar_connections`. **Se abre después de un tiempo con R7 en producción sin problemas, y no se mergea por iniciativa propia** (borrado de columnas). | R7 en producción |
 
 **Orden:**
 
 1. R0 cuando sea.
 2. Después del despliegue de #453: R1 → (autorización y aplicación) → R2,
    cuando esté ediciones PR 3.
-3. R3, R4, R7 y R12 en paralelo (no dependen entre sí).
+3. R3, R4, R7 y R12 en paralelo (no dependen entre sí). R20 apenas se mergee
+   R12, antes de R13: los avisos de recepción de R13 ya salen por sede.
 4. R5 → R6 y R8 → R9 → R10.
 5. R11, R13 y R15.
 6. R14, R16 y R18.
 7. R19.
+8. R21 cuando R7 lleve un tiempo en producción.
 
 R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la marca.
 
@@ -1504,12 +1635,29 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
 
 Hasta R3 nadie puede crear una organización CLINICA: todo lo anterior es inerte.
 
+### 15.1 Fase posterior: presupuestos de tratamiento y paquetes de sesiones (D20)
+
+**Qué problema resuelven.** Muchos tratamientos estéticos no son un turno
+suelto: son un plan ("6 sesiones de depilación láser", "3 peelings con un mes
+entre cada uno") con un presupuesto que la clínica da antes de empezar, que el
+paciente acepta o no, y que se va consumiendo sesión por sesión. Hoy no hay
+dónde registrar ese presupuesto, cuántas sesiones quedan, ni avisar cuando el
+paquete se termina.
+
+**Por qué quedan afuera.** Es una funcionalidad grande: toca precios y
+condiciones comerciales que ve el paciente, el vínculo entre turnos y un plan, y
+probablemente lo que COMPLETA aporta a una clínica (§2.1). No hace falta para el
+primer cliente: la v1 resuelve la agenda, los recordatorios y el post-turno, que
+es lo que la clínica usa todos los días. Va **después de R19**, con su propio
+documento de diseño, y no se diseña acá.
+
 ---
 
 ## 16. Decisiones
 
-Tomadas por Rocco el 2026-10-09 sobre las preguntas P1–P15 de la primera
-versión de este documento.
+Tomadas por Rocco el 2026-10-09, en dos rondas: D1–D15 sobre las preguntas
+P1–P15 de la primera versión de este documento, y D16–D21 sobre las preguntas
+A1–A6 de la segunda.
 
 | # | Pregunta | Decisión | Dónde se aplica |
 |---|---|---|---|
@@ -1528,6 +1676,12 @@ versión de este documento.
 | D13 | ¿Recordatorios también para automotoras? | **Solo clínicas en la v1.** | §2, §6 |
 | D14 | Clínica Demo | **Endpoint del platform admin** con datos inventados. Rocco la limpia después de cobrarle al primer cliente. | §12 |
 | D15 | ¿Quién es recepción? | **Rol nuevo "Recepción".** Mientras no exista, los avisos van al "Responsable por defecto" de la sede. | §6.5, §11 |
+| D16 | Un turno movido directamente en Google, en una clínica | **Se registra y se crea una tarea para recepción** de la sede del turno. El turno no cambia. | §4.6 |
+| D17 | El `freebusy` de la sucursal se resta de todos los recursos en las automotoras con más de un recurso | **No se toca** (regla de §0.3). | §4.6 |
+| D18 | Columnas de canal viejas de `google_calendar_connections` | **Se borran en un PR posterior** (R21), después de un tiempo con R7 en producción. No se mergea por iniciativa propia. | §4.6, R21 |
+| D19 | ¿Recepción ve todas las sedes? | **No: usuarios por sede** (`UserBranch`, con migración). Solo en clínicas; en las automotoras no cambia nada. | §11.2, §11.5, R20 |
+| D20 | ¿Qué agrega COMPLETA a una clínica? | **Presupuestos de tratamiento y paquetes de sesiones, como fase posterior a R19**, con su propio documento de diseño. No entran para el primer cliente. | §2.1, §15.1 |
+| D21 | ¿USER puede reprogramar? | **En una clínica no hay USER.** Los roles de una clínica son ADMIN y Recepción. Recepción crea, cancela y reprograma turnos, marca atendido / no vino, carga sobreturnos y bloquea profesionales. Asignar USER en una clínica da 400; USER sigue igual en las automotoras. | §11 |
 
 Además, sobre el PR del seguimiento de consultas (R13 en la versión anterior,
 R15 ahora): **el filtro por turno futuro queda solo para clínicas**, sin cambiar a
@@ -1537,14 +1691,8 @@ las automotoras (§9.1).
 
 ## 17. Preguntas abiertas
 
-| # | Pregunta | Opciones | Recomendada |
-|---|---|---|---|
-| A1 | Un turno **movido** directamente en Google, en una clínica | A. Se registra y se crea una tarea para recepción. B. Se aplica con la función de reprogramar si el horario nuevo es válido, y si no, tarea. | **A** en la v1: mover sin que el paciente lo sepa no sirve, y alguien tiene que avisarle igual. |
-| A2 | El `freebusy` de la sucursal se resta de todos los recursos también en las **automotoras** con más de un recurso | A. Dejarlo como está (regla de §0.3) y decidirlo aparte. B. Arreglarlo para todos con la misma tabla de canales. | **A**: hoy ninguna automotora lo reportó, y arreglarlo cambia su comportamiento. |
-| A3 | Borrar las columnas de canal de `google_calendar_connections` después de R7 | A. Un PR posterior, después de un tiempo con R7 en producción. B. Dejarlas. | **A**, sin mergear por iniciativa propia (borrado de columnas). |
-| A4 | Recepción ve todas las sedes | A. Sí, en la v1 (las clínicas iniciales son de una o dos sedes). B. Usuarios por sede (`UserBranch`), con migración. | **A**. |
-| A5 | ¿Qué agrega COMPLETA a una clínica? | A. Nada propio en la v1 (solo el nivel AUTONOMA por defecto). B. Presupuestos de tratamiento o paquetes de sesiones. | **A**, hasta que un cliente lo pida. Es una decisión comercial más que técnica. |
-| A6 | ¿USER puede reprogramar? | A. Sí, como crear y cancelar. B. Solo ADMIN y Recepción. | **A**: hoy USER ya crea y cancela. |
+**No queda ninguna.** Las A1–A6 de la versión anterior se cerraron como D16–D21
+(§16).
 
 ### 17.1 Choques con `docs/ediciones.md`
 
