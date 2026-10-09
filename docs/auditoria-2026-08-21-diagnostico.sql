@@ -570,7 +570,12 @@ from (
     -- Cupón creado a mano (migración 20261018120000): sale de una regla o de
     -- una persona.
     ('discount_vouchers_origin_check', 'discount_vouchers',
-     'CHECK (automation_id IS NOT NULL OR created_by_user_id IS NOT NULL)')
+     'CHECK (automation_id IS NOT NULL OR created_by_user_id IS NOT NULL)'),
+    -- Ediciones (migración 20261030120000, docs/ediciones.md §1.2): un agente
+    -- activo tiene nivel de participación de la IA. Transcripto de
+    -- pg_get_constraintdef.
+    ('agents_activo_requiere_nivel_check', 'agents',
+     'CHECK (NOT is_active OR participation IS NOT NULL)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -587,7 +592,8 @@ from (
 
   union all
 
-  -- V-2 ─ Los 2 triggers de sincronización de email, por DEFINICIÓN.
+  -- V-2 ─ Los triggers (los 2 de sincronización de email y el del nivel por
+  -- defecto de un agente, migración 20261030120000), por DEFINICIÓN.
   --
   -- Antes se buscaba tgname en pg_trigger, SIN filtrar por tabla: un trigger con
   -- ese nombre en cualquier relación de cualquier esquema contaba como presente.
@@ -595,14 +601,16 @@ from (
   -- invocada, ni la cláusula WHEN — cambiar el BEFORE por un AFTER rompe la
   -- sincronización de email y pasaba igual.
   select 9,
-    'V-2 · Triggers de email que faltan o cambiaron de definición',
+    'V-2 · Triggers que faltan o cambiaron de definición',
     coalesce(string_agg(e.nombre || ' → ' || coalesce(a.def, 'FALTA'), ' ;; ' order by e.nombre), 'ninguno'),
     'ninguno'
   from (values
     ('trg_set_user_email_from_auth', 'public.users',
      'CREATE TRIGGER trg_set_user_email_from_auth BEFORE INSERT OR UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION set_user_email_from_auth()'),
     ('trg_propagate_auth_email_change', 'auth.users',
-     'CREATE TRIGGER trg_propagate_auth_email_change AFTER UPDATE OF email ON auth.users FOR EACH ROW WHEN (old.email IS DISTINCT FROM new.email) EXECUTE FUNCTION propagate_auth_email_change()')
+     'CREATE TRIGGER trg_propagate_auth_email_change AFTER UPDATE OF email ON auth.users FOR EACH ROW WHEN (old.email IS DISTINCT FROM new.email) EXECUTE FUNCTION propagate_auth_email_change()'),
+    ('trg_agents_nivel_por_defecto', 'public.agents',
+     'CREATE TRIGGER trg_agents_nivel_por_defecto BEFORE INSERT ON public.agents FOR EACH ROW EXECUTE FUNCTION agents_nivel_por_defecto()')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_triggerdef(t.oid) as def

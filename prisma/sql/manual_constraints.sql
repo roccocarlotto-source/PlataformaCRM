@@ -117,3 +117,38 @@ create unique index if not exists stages_pipeline_name_unique
 create unique index if not exists invitations_org_email_pending_unique
   on public.invitations (organization_id, email)
   where status = 'PENDING';
+
+-- ---------------------------------------------------------------------------
+-- 3. Nivel de participación por defecto de un agente, según la edición
+--
+--    Lo creó 20261030120000_ediciones_columnas (docs/ediciones.md §1.2,
+--    "Nivel sin elegir"). agents.participation no tiene DEFAULT a propósito:
+--    al insertar un agente sin nivel, si la organización es COMPLETA queda
+--    AUTONOMA (como se comportaba todo agente antes de las ediciones); si es
+--    ESENCIAL queda NULL, "sin elegir", por cualquier camino de creación. El
+--    CHECK agents_activo_requiere_nivel_check (en la migración, B-15) impide
+--    que un agente sin nivel quede activo. Solo INSERT: cambiar la edición
+--    después no toca a los agentes existentes.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.agents_nivel_por_defecto()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.participation is null
+     and (select o.edition from public.organizations o where o.id = new.organization_id) = 'COMPLETA' then
+    new.participation := 'AUTONOMA';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_agents_nivel_por_defecto on public.agents;
+
+create trigger trg_agents_nivel_por_defecto
+before insert on public.agents
+for each row
+execute function public.agents_nivel_por_defecto();
