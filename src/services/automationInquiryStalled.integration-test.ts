@@ -42,7 +42,16 @@ import { crearRegistroDeHandlers, type RegistroDeHandlers } from "./outboxHandle
 // ---------------------------------------------------------------------------
 
 const DIA = 24 * 60 * 60 * 1000;
-const AHORA = new Date("2026-10-08T15:00:00.000Z");
+const HORA = 60 * 60 * 1000;
+// El reloj simulado tiene que quedar pegado al reloj REAL: el reclamo de la
+// cola compara next_attempt_at y last_inbound_at con now() de Postgres, no con
+// `ahora`. Con una fecha fija, a las pocas horas la "próxima apertura" del test
+// de fuera de horario (AHORA + 16 h) ya era pasado para la base y la fila se
+// volvía a reclamar en el mismo drenaje. El comienzo de la hora en curso
+// cumple las dos cosas que los tests necesitan: no es futuro para la base y
+// AHORA + 16 h todavía no llegó. El barrido mide intervalos (ahora - días),
+// no la hora del día, así que no importa cuál sea.
+const AHORA = new Date(Math.floor(Date.now() / HORA) * HORA);
 
 let acciones: RegistroDeAcciones;
 let handlers: RegistroDeHandlers;
