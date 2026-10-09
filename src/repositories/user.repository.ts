@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { OrganizationEdition, Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // Única consulta que resuelve la identidad de negocio de un usuario
@@ -16,7 +16,9 @@ import { prisma, type Db } from "../lib/prisma";
 // caché), así que un usuario desactivado, removido o con el rol cambiado se
 // ve en el request siguiente, igual que antes. Y trae exactamente lo que
 // resolveAuthContext mira: los estados del usuario, el deletedAt de la
-// organización y el nombre del rol.
+// organización y el nombre del rol. Y la edición de la organización
+// (docs/ediciones.md §5.2): viaja en el mismo JOIN, así el gate de módulos no
+// suma ninguna consulta.
 export interface UsuarioParaAuth {
   id: string;
   organizationId: string;
@@ -24,7 +26,7 @@ export interface UsuarioParaAuth {
   fullName: string;
   isActive: boolean;
   deletedAt: Date | null;
-  organization: { deletedAt: Date | null };
+  organization: { deletedAt: Date | null; edition: OrganizationEdition };
   role: { name: string };
 }
 
@@ -36,6 +38,7 @@ interface FilaUsuarioParaAuth {
   is_active: boolean;
   deleted_at: Date | null;
   organization_deleted_at: Date | null;
+  organization_edition: OrganizationEdition;
   role_name: string;
 }
 
@@ -43,6 +46,7 @@ export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth |
   const filas = await prisma.$queryRaw<FilaUsuarioParaAuth[]>`
     SELECT u.id, u.organization_id, u.email, u.full_name, u.is_active, u.deleted_at,
            o.deleted_at AS organization_deleted_at,
+           o.edition::text AS organization_edition,
            r.name AS role_name
     FROM users u
     JOIN organizations o ON o.id = u.organization_id
@@ -57,7 +61,7 @@ export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth |
     fullName: fila.full_name,
     isActive: fila.is_active,
     deletedAt: fila.deleted_at,
-    organization: { deletedAt: fila.organization_deleted_at },
+    organization: { deletedAt: fila.organization_deleted_at, edition: fila.organization_edition },
     role: { name: fila.role_name },
   };
 }

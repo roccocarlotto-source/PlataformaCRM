@@ -716,6 +716,7 @@ function mountBusinessWrite(app: express.Express, max: number) {
         role: "ADMIN",
         email: `${userId}@example.test`,
         fullName: "Test User",
+        edition: "COMPLETA",
       } satisfies AuthContext;
       next();
     },
@@ -804,6 +805,7 @@ function mountPreviewAndBusinessWrite(app: express.Express, previewMax: number, 
       role: "ADMIN",
       email: `${userId}@example.test`,
       fullName: "Test User",
+      edition: "COMPLETA",
     } satisfies AuthContext;
     next();
   };

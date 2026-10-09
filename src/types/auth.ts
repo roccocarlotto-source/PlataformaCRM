@@ -1,3 +1,4 @@
+import type { OrganizationEdition } from "@prisma/client";
 import type { Request } from "express";
 
 // Catálogo de roles soportado hoy. Coincide con los valores esperados en la
@@ -28,6 +29,10 @@ export interface AuthContext {
   role: RoleName;
   email: string;
   fullName: string;
+  // La edición de la organización (docs/ediciones.md §1.1), leída de la base
+  // en el mismo JOIN que la organización: nunca viene del cliente. La usa el
+  // gate de módulos (middlewares/moduloDeLaEdicion.ts).
+  edition: OrganizationEdition;
 }
 
 // Para controllers que corren después de `authenticate`: `auth` ya no es

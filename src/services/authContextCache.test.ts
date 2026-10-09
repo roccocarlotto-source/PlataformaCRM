@@ -14,6 +14,7 @@ const contexto = (userId: string, role: AuthContext["role"] = "USER"): AuthConte
   role,
   email: `${userId}@example.test`,
   fullName: "Ana Pérez",
+  edition: "COMPLETA",
 });
 
 test("dentro del TTL devuelve lo guardado; vencido, nada (y hay que volver a la base)", () => {

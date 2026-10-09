@@ -205,6 +205,7 @@ test("GET /api/admin/llm-usage: platform admin -> 200 con el gasto por organizac
     role: "ADMIN",
     email: "admin@example.test",
     fullName: "Admin",
+    edition: "COMPLETA",
   };
   assert.equal((await fetch(`${baseUrl}/api/admin/llm-usage`)).status, 403);
 

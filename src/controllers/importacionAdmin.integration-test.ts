@@ -165,6 +165,7 @@ async function montar(etiqueta: string): Promise<Escenario> {
     role: "ADMIN",
     email: "plataforma@example.test",
     fullName: "Plataforma",
+    edition: "COMPLETA",
   };
   return {
     organizationId: org.id,

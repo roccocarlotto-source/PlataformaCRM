@@ -88,7 +88,14 @@ function comoUsuario(
   organizationId: string,
   role: "ADMIN" | "USER" = "ADMIN",
 ): AuthContext {
-  return { userId, organizationId, role, email: `${userId}@example.test`, fullName: "Test" };
+  return {
+    userId,
+    organizationId,
+    role,
+    email: `${userId}@example.test`,
+    fullName: "Test",
+    edition: "COMPLETA",
+  };
 }
 
 function post(body: unknown) {
