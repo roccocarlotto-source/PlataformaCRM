@@ -2928,6 +2928,40 @@ export function toolsHabilitadas(
   return resultado;
 }
 
+// Las tools con los argumentos que el rubro no admite recortados de los dos
+// lados (docs/rubros.md §8.2: en una clínica, create_lead y update_lead sin
+// notes ni aiData): la definición no los ofrece al modelo, y si igual los
+// manda, la tool no los recibe. Una tool sin campos recortados es el mismo
+// objeto: en AUTOMOTORA no cambia nada.
+export function toolsSinCampos(
+  tools: ToolDelAgente[],
+  camposFuera: Readonly<Record<string, readonly string[]>>,
+): ToolDelAgente[] {
+  return tools.map((tool) => {
+    const fuera = camposFuera[tool.definition.name];
+    if (!fuera || fuera.length === 0) return tool;
+    const sinFuera = <T>(registro: Record<string, T>): Record<string, T> =>
+      Object.fromEntries(Object.entries(registro).filter(([clave]) => !fuera.includes(clave)));
+    const parameters = tool.definition.parameters as {
+      properties?: Record<string, unknown>;
+      required?: string[];
+    };
+    return {
+      definition: {
+        ...tool.definition,
+        parameters: {
+          ...tool.definition.parameters,
+          ...(parameters.properties ? { properties: sinFuera(parameters.properties) } : {}),
+          ...(parameters.required
+            ? { required: parameters.required.filter((c) => !fuera.includes(c)) }
+            : {}),
+        },
+      },
+      ejecutar: (args, contexto) => tool.ejecutar(sinFuera(args), contexto),
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Canonización del nombre que manda el modelo (ítem 90)
 // ---------------------------------------------------------------------------

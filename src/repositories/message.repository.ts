@@ -98,6 +98,22 @@ export async function humanSpokeLast(
   return ultimo?.senderType === "HUMAN";
 }
 
+// El último saliente del agente en el hilo, con su toolCalls: el silencio de
+// después de una derivación por una regla del rubro (docs/rubros.md §5.3) se
+// lee de su marca. El hilo entero, no la ventana de contexto, por lo mismo que
+// humanSpokeLast.
+export function findLastAgentMessage(
+  conversationId: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.message.findFirst({
+    where: { conversationId, organizationId, senderType: "AGENT" },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { id: true, toolCalls: true },
+  });
+}
+
 // ¿Una persona del negocio escribió en este hilo desde `desde`? Es la guarda
 // de la carrera del turno del agente (responderEnLaConversacion): el gate de
 // humanSpokeLast se lee al EMPEZAR el turno, y esto se pregunta al TERMINAR,
