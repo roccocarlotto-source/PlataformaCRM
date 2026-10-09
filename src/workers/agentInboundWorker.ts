@@ -486,12 +486,28 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
       // Antes el job terminaba FAILED y el mensaje quedaba sin marcar; ahora
       // la conversación pasa a una persona, igual que si hubiera llegado con
       // el agente ya apagado.
+      //
+      // Con `responder`: si el rubro tiene una regla que contesta igual (la
+      // urgencia de una clínica, docs/rubros.md §5.3; el webhook encola por
+      // eso aunque el agente no atienda), la respuesta fija vuelve como
+      // saliente y se manda por el camino de siempre, abajo. En AUTOMOTORA
+      // vuelve null y todo queda como antes.
       const agenteDelJob = await findAgentById(clave.agentId, organizationId);
       if (agenteDelJob && !agenteAtiendeElCanal(agenteDelJob, clave.channel)) {
-        await derivarEntranteSinAgente({ organizationId, conversationId: conversacion.id });
-        await markAgentInboundJobDone(job);
-        return "respondido";
+        const { salienteId: fija } = await derivarEntranteSinAgente({
+          organizationId,
+          conversationId: conversacion.id,
+          responder: true,
+        });
+        if (fija === null) {
+          await markAgentInboundJobDone(job);
+          return "respondido";
+        }
+        await atarRespuestaAlJob(job, fija);
+        salienteId = fija;
       }
+    }
+    if (salienteId === null) {
       const { agent, contact } = await cargarAgenteYContacto(
         organizationId,
         clave.agentId,

@@ -57,6 +57,8 @@ function dobles(
     // conectada en ORG.
     conexionDeLaPagina?: { pageId: string; organizationId: string } | null;
     yaProcesados?: string[];
+    // El rubro contesta aunque el agente no atienda (una clínica).
+    respondeSinAgente?: boolean;
     falloAlRegistrar?: (mid: string) => unknown;
     // El registro reconoce el texto como de un saliente del CRM.
     ecoEsPropio?: boolean;
@@ -127,6 +129,8 @@ function dobles(
     derivarEntranteSinAgente: async ({ conversationId }) => {
       estado.derivadas.push(conversationId);
     },
+    // Una automotora: sin agente, no contesta (docs/rubros.md §5.3).
+    respondeSinAgente: async () => opciones.respondeSinAgente ?? false,
     appId: () => APP_DEL_CRM,
     // Un cliente conocido: el que ya le escribió al negocio.
     findContactIdByExternalIdentity: async ({ externalId }) =>
@@ -391,6 +395,29 @@ test("OPUS-I-01: agente apagado o sin el canal -> el entrante se guarda SIN job 
     assert.equal(estado.jobs.length, 0, caso.nombre);
     assert.deepEqual(estado.derivadas, ["conv-m_1"], caso.nombre);
   }
+});
+
+test("rubros §5.3: con el agente apagado, si el rubro contesta igual (clínica), el entrante se encola y no se deriva desde el webhook", async () => {
+  const { deps, estado } = dobles({
+    agente: {
+      id: "agente-1",
+      organizationId: ORG,
+      branchId: "sucursal-1",
+      isActive: false,
+      channels: ["MESSENGER"],
+    },
+    respondeSinAgente: true,
+  });
+  const resumen = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [evento({ mid: "m_1", text: "no puedo respirar" })]),
+    deps,
+  );
+  // El worker decide: la urgencia la contesta él (derivarEntranteSinAgente
+  // con responder); cualquier otra cosa la deriva como siempre.
+  assert.equal(resumen.encolado, 1);
+  assert.equal(resumen.derivado, 0);
+  assert.equal(estado.jobs.length, 1);
+  assert.deepEqual(estado.derivadas, []);
 });
 
 test("OPUS-I-01: la reentrega de un entrante de un agente apagado es duplicado y vuelve a pedir la derivación (por si la primera se cortó antes)", async () => {

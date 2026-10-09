@@ -21,6 +21,7 @@ import {
   agenteAtiendeElCanal,
   derivarEntranteSinAgente,
   registrarEntrante,
+  respondeSinAgente,
   type RegistrarEntranteInput,
 } from "./agentOrchestration.service";
 import {
@@ -226,7 +227,11 @@ export interface DepsDelWebhookMeta {
   derivarEntranteSinAgente: (entrada: {
     organizationId: string;
     conversationId: string;
-  }) => Promise<void>;
+  }) => Promise<unknown>;
+  // Si el rubro de la organización contesta aunque el agente no atienda (la
+  // urgencia de una clínica, docs/rubros.md §5.3): entonces el entrante se
+  // encola igual y el worker decide. Solo se pregunta con el agente apagado.
+  respondeSinAgente: (organizationId: string) => Promise<boolean>;
   // OPUS-B-01: los ecos. El id de esta app en Meta (META_APP_ID), para
   // descartar los de lo que mandó el CRM; el contacto de un cliente SIN
   // crearlo (un eco no da de alta a nadie); y el registro de la respuesta.
@@ -251,6 +256,7 @@ export const depsDelWebhookMetaReales: DepsDelWebhookMeta = {
   registrarEntrante,
   createAgentInboundJob,
   derivarEntranteSinAgente,
+  respondeSinAgente,
   appId: () => env.META_APP_ID,
   findContactIdByExternalIdentity: (identidad) => findContactIdByExternalIdentity(identidad),
   registrarRespuestaDesdeLaBandejaDeMeta: (input) => registrarRespuestaDesdeLaBandejaDeMeta(input),
@@ -315,12 +321,16 @@ async function procesarMensaje(
   //    job, y la conversación queda para una persona (paso 6).
   const atiende = agenteAtiendeElCanal(agent, mensaje.channel);
   const organizationId = agent.organizationId;
+  // Se encola con el agente atendiendo, y también sin él si el rubro contesta
+  // igual (la urgencia de una clínica, docs/rubros.md §5.3): el worker es el
+  // que puede mandar la respuesta fija. En AUTOMOTORA, encola === atiende.
+  const encola = atiende || (await deps.respondeSinAgente(organizationId));
 
   // 3. Dedup: Meta reintentando una entrega ya procesada. Atajo del caso
   //    común; la garantía real es el UNIQUE, más abajo.
   const yaGuardado = await deps.findMessageByExternalId(organizationId, mensaje.mid);
   if (yaGuardado) {
-    if (!atiende) {
+    if (!encola) {
       await deps.derivarEntranteSinAgente({
         organizationId,
         conversationId: yaGuardado.conversationId,
@@ -368,8 +378,8 @@ async function procesarMensaje(
         externalThreadId: mensaje.senderId,
         externalMessageId: mensaje.mid,
       },
-      // Sin job cuando el agente no atiende: no hay turno que correr.
-      atiende
+      // Sin job cuando nadie va a contestar: no hay turno que correr.
+      encola
         ? {
             enLaMismaTransaccion: (tx, entrante) =>
               deps.createAgentInboundJob(
@@ -398,7 +408,7 @@ async function procesarMensaje(
     throw err;
   }
 
-  if (atiende) {
+  if (encola) {
     return "encolado";
   }
 
