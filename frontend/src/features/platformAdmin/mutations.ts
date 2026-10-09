@@ -6,6 +6,7 @@ import {
   assignFacebookPage,
   assignInternalAgentModel,
   assignWhatsappNumber,
+  changeOrganizationEdition,
   completeOrganizationMetaConnection,
   createOrganization,
   disconnectOrganizationMetaConnection,
@@ -27,6 +28,18 @@ export function useCreateOrganization() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateOrganizationInput) => createOrganization(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
+    },
+  });
+}
+
+// Pasar una organización a la edición completa: el listado se recarga para
+// mostrar la edición nueva.
+export function useChangeOrganizationEdition() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (organizationId: string) => changeOrganizationEdition(organizationId, "COMPLETA"),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
     },

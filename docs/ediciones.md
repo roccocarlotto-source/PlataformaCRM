@@ -942,6 +942,34 @@ fija que empezó a fallar el 2026-10-09 y deja en rojo el CI de cualquier PR.
 **Hasta que esté el PR 4 nadie puede crear una organización ESENCIAL.** Antes
 de eso, todo lo que se mergea es inerte para las organizaciones existentes.
 
+### Camino a habilitar ESENCIAL (acordado el 2026-10-09)
+
+Después del PR 4 se verificó que hoy una organización ESENCIAL no es usable:
+
+- **No puede crear agentes activos.** `POST /api/agents` sin `isActive` da
+  500, porque el CHECK rechaza el agente activo sin nivel. Y la API descarta
+  `participation`.
+- **Nada aplica el nivel de IA.** Ningún código fuera de los tests lee
+  `participation` ni la edición en el agente.
+
+Por eso el PR 5 se partió, y `ESENCIAL_HABILITADA` pasa a `true` **solo en el
+último paso**. Todos los demás la dejan en `false`, ninguno lleva migración, y
+cada uno deja a COMPLETA igual que hoy:
+
+| Paso | PR | Contenido |
+|---|---|---|
+| A | `feat(plataforma): pantalla Organizaciones` | **Hecho.** Plataforma → Organizaciones con la edición y "Pasar a edición completa" (confirmación, sobre el `PATCH` del PR 4). Se muestra recién cuando el backend ofrece ESENCIAL: hasta H, el platform admin no ve nada nuevo. |
+| B | `feat(oportunidades): crear sin proceso de venta en ESENCIAL` | Parte backend del PR 5: `pipelineId`/`stageId` opcionales en ESENCIAL y en `CAMPOS_POR_RUTA`, con el test obligatorio de §5.4. |
+| C | `feat(agente): nivel de IA en la API y el formulario` | Parte 1 del PR 6: `participation`, `onlyOutsideBusinessHours`, reglas del "nivel sin elegir" con 400 en vez de 500, `participation_chosen_at`, selector y guía 08. |
+| D | `feat(agente): el loop respeta la edición y el nivel` | Parte 2 del PR 6. **Su diseño se muestra y se aprueba antes de escribir código.** |
+| E | `feat(ediciones): menú, pantallas y guía por edición` | PR 7, con la lista y el formulario simples de oportunidades del PR 5. |
+| F | `feat(dashboard): dashboard de atención` | PR 8: sin él, el dashboard de ESENCIAL queda roto (403). |
+| G | `feat(importacion): sin empresas en ESENCIAL` | PR 9. |
+| H | `feat(ediciones): habilitar ESENCIAL` | `ESENCIAL_HABILITADA = true` y la línea del test que fija su valor. Secciones **14 y 04** de la guía, con el ancla de "Organizaciones" y su `help` (`AYUDA`) en la pantalla. Test de punta a punta. **Antes de H** se escribe y se aprueba un plan de prueba de punta a punta con una organización ESENCIAL de prueba creada por el platform admin. |
+
+Antes de cada PR se repite `gh pr list --state open` por si apareció otro que
+toque los mismos archivos (hay trabajo de rubros en paralelo).
+
 **Fuera de este plan (fase 2, D4):** `feat(agente): borradores con aprobación
 (b)` 🗄, con riesgo alto (§4.2 b). Se arma cuando haya un pedido concreto.
 Lleva su propia migración: el valor `BORRADOR` del enum y el estado de
