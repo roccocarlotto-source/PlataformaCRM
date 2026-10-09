@@ -6,6 +6,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { useCreateOrganization } from "./mutations";
+import { NOMBRE_DE_EDICION } from "./ediciones";
 import { useEdicionesDisponibles } from "./queries";
 import type { CreateOrganizationResponse, OrganizationEdition } from "./types";
 
@@ -21,11 +22,6 @@ const EMPTY_FORM: NewOrganizationFormValues = {
   adminFullName: "",
   adminEmail: "",
   edition: "",
-};
-
-const NOMBRE_DE_EDICION: Record<OrganizationEdition, string> = {
-  COMPLETA: "Completa",
-  ESENCIAL: "Esencial",
 };
 
 // Alta de una organización nueva (cliente/automotora) con su primer ADMIN —

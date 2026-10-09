@@ -41,6 +41,7 @@ import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsapp
 import { LlmUsagePage } from "../features/platformAdmin/LlmUsagePage";
 import { ImportarDatosPage } from "../features/importacion/ImportarDatosPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
+import { OrganizationsPage } from "../features/platformAdmin/OrganizationsPage";
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
 import { BranchFormPage } from "../features/branch/BranchFormPage";
 import { BranchListPage } from "../features/branch/BranchListPage";
@@ -375,6 +376,10 @@ export const router = createBrowserRouter([
             element: <PlatformAdminRoute />,
             children: [
               { path: "/admin/organizations/new", element: <NewOrganizationPage /> },
+              // Ediciones (docs/ediciones.md §7): la lista con la edición de cada
+              // organización y "Pasar a edición completa". Se muestra recién
+              // cuando el backend ofrece ESENCIAL.
+              { path: "/admin/organizations", element: <OrganizationsPage /> },
               // Ítem 127: el número de WhatsApp de un agente lo asigna solo el
               // platform admin (PUT /api/admin/agents/:agentId/whatsapp-phone-number).
               { path: "/admin/agents/whatsapp-number", element: <AgentWhatsappNumberPage /> },
