@@ -1,6 +1,8 @@
 # Ediciones: COMPLETA y ESENCIAL
 
-> Documento de diseño. Estado: **propuesta, sin código**. Fecha: 2026-10-09.
+> Documento de diseño. Estado: **aprobado, sin código**. Fecha: 2026-10-09.
+> Las preguntas abiertas se cerraron el mismo día y están en §11 como
+> decisiones (D1–D12).
 > Nada de lo descrito acá existe todavía; las referencias `archivo:línea` son al
 > código de `master` en el merge de #448 y sirven para ubicar dónde se tocaría.
 
@@ -46,8 +48,7 @@ model Organization {
 
 - **Nombre del valor: `ESENCIAL`.** No dice "solo agentes" ni "lite": describe
   un producto con lo esencial de una automotora (atención, contactos, stock,
-  agenda) y deja la IA como algo que se regula, no como el centro. Alternativas
-  en la pregunta abierta P1.
+  agenda) y deja la IA como algo que se regula, no como el centro (D1).
 - **Existentes:** la migración agrega la columna con `DEFAULT 'COMPLETA'`, así
   que todas las organizaciones actuales quedan en `COMPLETA` sin backfill.
 - **Quién la elige:** el platform admin, en **Plataforma → Nueva
@@ -73,25 +74,59 @@ model Organization {
 
 ### 1.2 Nivel de participación de la IA
 
-Va en `Agent`, no en `Organization` (ver §4 y la pregunta P2):
+Va en `Agent`, no en `Organization` (ver §4 y D2):
 
 ```prisma
 enum AgentParticipation {
   AUTONOMA          // (a) responde sola, como hoy
   PRIMER_CONTACTO   // (c) toma datos y deriva rápido; opcionalmente solo fuera de horario
   SOLO_SEGUIMIENTO  // (d) no conversa con el cliente; deriva todo a una persona
-  BORRADOR          // (b) redacta y una persona aprueba (fase 2, ver §4.4)
+  // BORRADOR       // (b) fase 2 (D4): se agrega con su propia migración
 }
 
 model Agent {
   // ...
-  participation          AgentParticipation @default(AUTONOMA)
-  onlyOutsideBusinessHours Boolean          @default(false) // solo con PRIMER_CONTACTO
+  participation            AgentParticipation? // null = "sin elegir" (solo ESENCIAL)
+  onlyOutsideBusinessHours Boolean @default(false) // solo con PRIMER_CONTACTO
 }
 ```
 
 `BORRADOR` se agrega recién en la fase 2. Un valor de enum que el backend
 todavía no sabe ejecutar es una trampa.
+
+#### Nivel sin elegir (D3)
+
+En ESENCIAL **no hay valor por defecto**: el nivel lo elige el ADMIN. Por eso
+la columna admite `null`, que significa "todavía no se eligió". Una regla
+sostiene todo lo demás: **un agente sin nivel elegido no puede estar
+activo.**
+
+| Dónde | Qué pasa |
+|---|---|
+| **Migración** | La columna nace nullable y **sin `DEFAULT`**. Un `UPDATE agents SET participation = 'AUTONOMA'` deja a todos los agentes existentes como están hoy: todas sus organizaciones son COMPLETA. |
+| **Base** | CHECK `agents_activo_requiere_nivel_check`: `NOT is_active OR participation IS NOT NULL`. Va en la migración y en `prisma/sql/manual_constraints.sql`, como el resto de los CHECK. Es la última defensa si algún camino (un script o una ruta futura) se saltea el service. |
+| **Crear, COMPLETA** | Sin `participation` en el cuerpo, el service guarda `AUTONOMA`. Se comporta como hoy. |
+| **Crear, ESENCIAL** | `participation` es opcional. Si no viene, el agente se guarda con `null` e **inactivo**. Si el cuerpo pide `isActive: true` sin nivel, responde 400 `NIVEL_DE_IA_SIN_ELEGIR`. Así el ADMIN puede armar el agente de a poco (instrucciones, base de conocimiento) antes de decidir. |
+| **Editar** | Activar con el nivel en `null` → 400 `NIVEL_DE_IA_SIN_ELEGIR`. Un nivel elegido se puede cambiar, pero no volver a `null` (400): "sin elegir" es un estado inicial, no una opción. |
+| **Loop del agente** | `participation = null` se trata como "no atiende": `derivarEntranteSinAgente`, sin modelo. Con el CHECK no debería pasar nunca; si pasa, gana el lado seguro (deriva) y no el de más IA. |
+| **Asignaciones de plataforma** | Asignar el número de WhatsApp o la página de Facebook (`/admin/agents/...`) no activa el agente ni toca el nivel. |
+| **Upgrade ESENCIAL → COMPLETA** | Los agentes conservan su nivel. Los que estaban en `null` **siguen en `null` e inactivos**: subir de edición no puede subir la IA sin que nadie lo decida. El formulario de COMPLETA los muestra igual que el de ESENCIAL hasta que se elija. |
+
+**Cómo se ve en el formulario** (`AgentFormPage`):
+
+- **Bloque "Cuánto hace la IA"**, arriba de las instrucciones. Tiene tres
+  opciones con una línea cada una, más el interruptor "Solo fuera del horario
+  de la sucursal", que aparece únicamente con "Primer contacto".
+  - En **ESENCIAL** ninguna opción viene marcada y el bloque lleva la marca de
+    obligatorio para activar.
+  - En **COMPLETA** viene marcada **"Responde sola"** (AUTONOMA).
+- **Interruptor "Activo"**: deshabilitado mientras no haya nivel, con la línea
+  "Elegí cuánto hace la IA para poder activarlo". **Guardar** sí se puede: el
+  agente queda inactivo.
+- **Lista de agentes**: un agente sin nivel muestra la etiqueta
+  "Sin nivel de IA · inactivo".
+- Si igual llega un 400 `NIVEL_DE_IA_SIN_ELEGIR` (otra pestaña, un dato
+  viejo), se muestra junto al bloque, no como un error genérico.
 
 ---
 
@@ -123,9 +158,9 @@ todavía no sabe ejecutar es una trampa.
 | Permutas | ❌ | |
 | Financiación (columnas de la oportunidad) | ❌ | |
 | Empresas | ❌ | No es inseparable de contactos (§2.2). |
-| Campos personalizados | ✅ recomendado | Dudoso, analizado en §2.3. |
-| Agente interno | ✅ opt-in, recomendado | Dudoso, analizado en §2.4. |
-| Fuentes / API keys / eventos de ingesta (webhook de landing) | ✅ recomendado | No estaba en la lista; ver P8. |
+| Campos personalizados | ✅ | Decidido (D5), ver §2.3. |
+| Agente interno | ✅ opt-in por usuario | Decidido (D6), ver §2.4. |
+| Fuentes / API keys / eventos de ingesta (webhook de landing) | ✅ | Decidido (D8). |
 
 ### 2.1 Oportunidades mínimas (opción B)
 
@@ -172,12 +207,12 @@ Sin kanban, sin selector de proceso ni etapa.
 `:760-762`) y la unidad queda SOLD hasta que se confirma la entrega. En
 `ESENCIAL` no hay entregas:
 
-- **Recomendado:** se sigue creando la `Delivery`, que queda oculta. Así no
+- **Decidido (D7):** se sigue creando la `Delivery`, que queda oculta. Así no
   se bifurca el código de dominio por edición, y si hay upgrade las entregas
   pendientes aparecen como tales. La unidad queda "Vendida" en el stock, que
   es lo que la automotora espera ver.
-- **Alternativa:** no crearla en `ESENCIAL`. Es más prolijo para los datos,
-  pero mete una rama por edición dentro de una transacción de dominio. Ver P7.
+- **Alternativa descartada:** no crearla en `ESENCIAL`. Es más prolijo para los datos,
+  pero mete una rama por edición dentro de una transacción de dominio.
 
 ### 2.2 Empresas: no son inseparables de contactos
 
@@ -197,7 +232,7 @@ Sin kanban, sin selector de proceso ni etapa.
 
 **Conclusión:** empresas queda fuera de `ESENCIAL`.
 
-### 2.3 Campos personalizados (dudoso)
+### 2.3 Campos personalizados (decidido: incluidos, D5)
 
 Solo existen para contactos (`ContactCustomFieldDefinition`,
 `schema.prisma:3067-3106`). El agente los lee en el prompt
@@ -206,11 +241,11 @@ Solo existen para contactos (`ContactCustomFieldDefinition`,
 
 | Opción | A favor | En contra |
 |---|---|---|
-| **A. Incluir completo (recomendada)** | Es la forma de adaptar el contacto sin sumar módulos ("¿tiene auto para entregar?", "forma de pago preferida"). Ya está hecho y es contact-céntrico. | Una pantalla más de configuración. |
+| **A. Incluir completo (decidida, D5)** | Es la forma de adaptar el contacto sin sumar módulos ("¿tiene auto para entregar?", "forma de pago preferida"). Ya está hecho y es contact-céntrico. | Una pantalla más de configuración. |
 | B. Incluir sin `agentEditable` | Menos IA tocando datos. | El nivel de participación ya regula eso (§4). Duplica el control. |
 | C. Excluir | Más simple. | Pierde la flexibilidad justo en la edición que no tiene oportunidades ricas. |
 
-### 2.4 Agente interno (dudoso)
+### 2.4 Agente interno (decidido: incluido, D6)
 
 Es un asistente para el **personal**, no para el cliente. Crea tareas
 (`create_internal_task`) y lee la agenda (`get_agenda`), dos módulos que
@@ -219,7 +254,7 @@ están en `ESENCIAL`. Ya es opt-in por usuario (`canUseInternalAgent`,
 
 | Opción | A favor | En contra |
 |---|---|---|
-| **A. Incluir, opt-in como hoy (recomendada)** | El rechazo a la IA es del comprador, no necesariamente del vendedor. Cero costo extra. | Una entrada más en el menú (solo para quien tiene permiso). |
+| **A. Incluir, opt-in como hoy (decidida, D6)** | El rechazo a la IA es del comprador, no necesariamente del vendedor. Cero costo extra. | Una entrada más en el menú (solo para quien tiene permiso). |
 | B. Excluir | Edición "sin IA para el personal". | Le saca algo útil a quien lo quiera, y la decisión ya se toma por usuario. |
 
 `resolverOportunidadPorTexto` sigue funcionando con las oportunidades
@@ -417,10 +452,10 @@ pausa y el widget.
 | SOLO_SEGUIMIENTO (d) | No | No | `participation` | Bajo |
 | BORRADOR (b) | Solo lo que una persona aprueba | No | Estado de borrador en `messages` | Alto |
 
-### 4.4 Recomendación
+### 4.4 Decisión
 
-**Mínimo para esta edición: (a), (c) y (d)** en un mismo enum. (b) queda como
-fase 2, con su propio PR de migración.
+**Esta etapa incluye (a), (c) y (d)**, en un mismo enum (D4). (b) queda para
+la fase 2, con su propio PR de migración.
 
 - (c) y (d) reusan piezas que ya existen y están probadas
   (`derivarEntranteSinAgente`, el horario de la sucursal,
@@ -429,11 +464,15 @@ fase 2, con su propio PR de migración.
   mejor hacerlo cuando una automotora real pida aprobar mensajes, y no
   especulativamente.
 
-**Default para un agente nuevo de una organización ESENCIAL:**
-PRIMER_CONTACTO. Los agentes de organizaciones COMPLETA siguen en AUTONOMA.
-Ver P3.
+**Agente nuevo en ESENCIAL: sin valor por defecto** (D3). El ADMIN elige el
+nivel, y mientras no lo haga el agente no se puede activar (§1.2, "Nivel sin
+elegir"). En COMPLETA, los agentes siguen en AUTONOMA.
 
-**Por agente y no por organización** (P2): el nivel convive con `channels` e
+**Tope de PRIMER_CONTACTO: 2 respuestas, fijo en el código** (D12), como una
+constante `MAX_RESPUESTAS_PRIMER_CONTACTO` en `agentOrchestration.service.ts`,
+junto a `MAX_TOOL_ROUNDS_PER_TURN`.
+
+**Por agente y no por organización** (D2): el nivel convive con `channels` e
 `isActive`, que ya son por agente, y permite combinaciones razonables, como el
 widget web en AUTONOMA a las 3 de la mañana y WhatsApp en PRIMER_CONTACTO.
 
@@ -443,9 +482,10 @@ widget web en AUTONOMA a las 3 de la mañana y WhatsApp en PRIMER_CONTACTO.
 |---|---|
 | AUTONOMA | Como hoy: texto libre de la IA dentro de la ventana de 24 h y plantilla fuera. |
 | PRIMER_CONTACTO, SOLO_SEGUIMIENTO | **Siempre la plantilla aprobada**, aun con la ventana abierta. Lo decide `inquiryFollowUpWorker.ts` antes de `generarTexto`, leyendo el nivel del agente del canal. |
+| Sin agente en el canal, agente inactivo o nivel sin elegir | **Plantilla aprobada.** El texto libre sale solo con un agente AUTONOMA activo; cualquier otro caso es el lado de menos IA. |
 | BORRADOR (fase 2) | Tarea con el texto sugerido (como `agent.draft_follow_up`), sin envío automático. |
 
-Ver P9.
+Decidido en D9.
 
 ---
 
@@ -498,7 +538,7 @@ request que pase por ese router.
 3. **Respuesta:** **403** con `code: "MODULO_NO_INCLUIDO"` y el nombre del
    módulo. El frontend lo usa para mostrar "Disponible en la edición
    completa", y no oculta nada que no sea público (el repo es público y los
-   módulos son conocidos). Ver P10.
+   módulos son conocidos). Ver D10.
 4. **Rutas públicas o sin organización** (`/api/public`, webhooks, `/qr/resolve`,
    `/vouchers/resolve`, onboarding, `/admin/...`) se clasifican como `comun` o
    `plataforma`. Las de `/admin/organizations/:organizationId/...` aplican la
@@ -537,7 +577,7 @@ mano.
 
 `get_payment_info` del agente lee `Branch.paymentLinkUrl` y los datos de
 transferencia de la sucursal; no usa el módulo de pagos. Se mantiene en
-ESENCIAL (P11).
+ESENCIAL (D11).
 
 En `COMPLETA` no se bloquea nada. El catálogo garantiza que la edición
 original se comporte exactamente como hoy.
@@ -573,8 +613,16 @@ original se comporte exactamente como hoy.
      tool no permitida se rechace;
    - el gate de horario;
    - el tope de respuestas de PRIMER_CONTACTO;
-   - que SOLO_SEGUIMIENTO no llame al proveedor.
-4. **Automatizaciones:** crear una regla con trigger o acción fuera de la
+   - que SOLO_SEGUIMIENTO no llame al proveedor;
+   - que `participation = null` derive sin llamar al proveedor.
+4. **Nivel sin elegir** (integración, contra la base real):
+   - crear en ESENCIAL sin nivel → inactivo; con `isActive: true` y sin
+     nivel → 400 `NIVEL_DE_IA_SIN_ELEGIR`;
+   - activar sin nivel → 400, y volver un nivel a `null` → 400;
+   - crear en COMPLETA sin nivel → AUTONOMA;
+   - el CHECK rechaza un `UPDATE` directo que deje activo un agente sin nivel;
+   - el upgrade a COMPLETA no le pone nivel a un agente que no lo tenía.
+5. **Automatizaciones:** crear una regla con trigger o acción fuera de la
    edición da 400, y el despachador salta una regla que quedó fuera.
 
 ---
@@ -593,8 +641,8 @@ participación**.
 |---|---|---|---|---|
 | `search_vehicles`, `get_service_types`, `get_availability`, `get_contact_info`, `get_contact_activities` | ✅ | ✅ | ✅ | — (no hay turno) |
 | `create_lead`, `update_lead` | ✅ | ✅ | ✅ | — |
-| `update_contact_custom_fields` | ✅ | ✅ si entra el módulo (P5) | ✅ | — |
-| `get_payment_info` | ✅ | ✅ (P11) | ✅ | — |
+| `update_contact_custom_fields` | ✅ | ✅ (D5) | ✅ | — |
+| `get_payment_info` | ✅ | ✅ (D11) | ✅ | — |
 | `create_opportunity`, `update_opportunity` | ✅ | ✅ (proceso fijo) | ❌ | — |
 | `reserve_vehicle`, `create_booking` | ✅ | ✅ | ❌ | — |
 | `mark_no_interest` | ✅ | ✅ | ❌ | — |
@@ -617,7 +665,7 @@ participación**.
 | `INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA` (#444) | Va solo si `create_opportunity` queda habilitada después del filtro. |
 | `INSTRUCCION_SIN_AUTORIDAD_COMERCIAL` | Igual en las dos ediciones. |
 | Bloque de contacto | Sin cambios. La marca SIN INTERÉS (#446) sigue. |
-| Campos personalizados | Según P5. |
+| Campos personalizados | Incluidos (D5): sin cambios. |
 | Instrucción de rol del nivel | Nueva: corta para PRIMER_CONTACTO y BORRADOR. SOLO_SEGUIMIENTO no arma prompt. |
 | Fuera de horario | Igual. Con `onlyOutsideBusinessHours` el agente solo corre fuera de horario, así que la frase de derivación ya es la de "fuera de horario". |
 
@@ -689,7 +737,7 @@ En COMPLETA se puede sumar después como una tarjeta más.
 | Oportunidades | Lista simple (sin kanban). Formulario: contacto, título, vehículo, monto/moneda, estado, motivo de pérdida, asignado. Sin `QuoteSection`, `DeliverySection`, `TradeInSection`, `PaymentSection`, financiación, empresa, proceso ni etapa (`OpportunityFormPage.tsx:531-555`, `:692`, `:828-831`). `CreateVoucherDialog` queda. |
 | Contactos | Sin filtro, columna ni selector de empresa. |
 | Stock | Sin `TradeInSection`. |
-| Agente | Selector **"Cuánto hace la IA"** (nivel), con el interruptor "solo fuera de horario". Solo las tools posibles. Disponible en las dos ediciones. |
+| Agente | Selector **"Cuánto hace la IA"** (nivel), con el interruptor "solo fuera de horario". Sin opción marcada en ESENCIAL y "Activo" deshabilitado hasta elegir (§1.2). Solo las tools posibles. Disponible en las dos ediciones. |
 | Automatizaciones | Catálogo filtrado (§8). |
 | Organización | La edición como dato de solo lectura. |
 | Plataforma → Nueva organización | Selector de edición obligatorio (`NewOrganizationPage.tsx:90-122`). |
@@ -762,61 +810,51 @@ regla de la guía.
 
 Los PR con 🗄 llevan migración y **quedan abiertos hasta que se autoricen a mano**.
 
+Requisito previo, ya abierto: **#450**, que arregla un test de #446 con fecha
+fija que empezó a fallar el 2026-10-09 y deja en rojo el CI de cualquier PR.
+
 | # | PR | Migración | Riesgo | Contenido |
 |---|---|---|---|---|
 | 0 | `chore: borrar archivos vacíos de la raíz` | — | Bajo | `${clave}`, `=` y `opportunityId` entraron por error con #446. Independiente de todo lo demás. |
-| 1 | `docs: diseño de ediciones` (este) | — | Nulo | Solo `docs/ediciones.md`. |
-| 2 | `feat(ediciones): columna edition y participation` 🗄 | Sí | Bajo | Enums y columnas con default (`COMPLETA`, `AUTONOMA`, `false`). Aditivo y sin backfill. Ningún código lee las columnas todavía; el PR incluye lo que pidan `verify:schema` y el diagnóstico para columnas nuevas. |
+| 1 | `docs: diseño de ediciones` (#449) | — | Nulo | Solo `docs/ediciones.md`. |
+| 2 | `feat(ediciones): columnas edition y participation` 🗄 | Sí | **Bajo-medio** | `organizations.edition` con default `COMPLETA`, sin backfill. `agents.participation` nullable y **sin default**, con un `UPDATE` que deja `AUTONOMA` a todos los agentes existentes (D3). `agents.only_outside_business_hours` con default `false`. CHECK `agents_activo_requiere_nivel_check`, en la migración y en `manual_constraints.sql`. Más lo que pidan `verify:schema` y el diagnóstico. El riesgo sube de "bajo" por el `UPDATE` y el CHECK: si el `UPDATE` no cubriera algún agente activo, el CHECK haría fallar la migración (que es lo correcto: falla entera, no deja datos a medias). Ningún código lee las columnas todavía. |
 | 3 | `feat(ediciones): catálogo de módulos y gate central` | — | **Medio-alto** | `ediciones.ts`, `edition` en `AuthContext`, `gateDeEdicion`, `authenticate` idempotente, refinaciones zod por campo, `edition` y `modulos` en `/me`, test "toda ruta clasificada", suite `ediciones.integration-test.ts` y slugs. Toca cada request: el test de clasificación y el de COMPLETA sin cambios son la red. Depende de 2 aplicado. |
 | 4 | `feat(plataforma): elegir y subir la edición` | — | Medio | `edition` en el alta, con el proceso fijo para ESENCIAL en la misma transacción. `PATCH .../edition` solo hacia arriba y `vaciar()` de la caché. Pantallas de Plataforma y sección 14 de la guía. |
-| 5 | `feat(oportunidades): versión mínima en ESENCIAL` | — | Medio | Status→etapa con el proceso fijo, lista y formulario simples, sección 04 de la guía. |
-| 6 | `feat(agente): nivel de participación (a, c, d)` | — | **Medio-alto** | Gate de horario, tope de respuestas, filtro de tools en los dos lugares, pausa al derivar en PRIMER_CONTACTO, SOLO_SEGUIMIENTO sin modelo, widget web, seguimiento con plantilla (§4.5). Selector en el formulario y sección 08 de la guía. Es la parte más delicada del agente: tests del loop por nivel. |
+| 5 | `feat(oportunidades): versión mínima en ESENCIAL` | — | Medio | Status→etapa con el proceso fijo, lista y formulario simples, entrega creada y oculta (D7), sección 04 de la guía. |
+| 6 | `feat(agente): nivel de participación (a, c, d)` | — | **Medio-alto** | Reglas del "nivel sin elegir" en el service de agentes (D3) y bloque "Cuánto hace la IA" en el formulario. Gate de horario, tope fijo de 2 respuestas (D12), filtro de tools en los dos lugares, pausa al derivar en PRIMER_CONTACTO, SOLO_SEGUIMIENTO y `null` sin modelo, widget web, seguimiento de consultas con plantilla (§4.5, D9). Sección 08 de la guía. Es la parte más delicada del agente: tests del loop por nivel. |
 | 7 | `feat(ediciones): menú, pantallas y guía por edición` | — | Medio | `useModulo`, `ModuloRoute`, menú, contactos sin empresa, stock sin permuta, catálogo de automatizaciones, filtro de la guía y test de `AYUDA`. |
 | 8 | `feat(dashboard): dashboard de atención` | — | Bajo | Endpoint y pantalla de §6.4. |
 | 9 | `feat(importacion): sin empresas en ESENCIAL` | — | Bajo | Rechazo de la entidad y aviso en la vista previa. |
-| 10 | `feat(agente): borradores con aprobación (b)` 🗄 | Sí | **Alto** | Fase 2, cuando haya un pedido concreto. §4.2 (b). |
 
-**Orden:** 0 y 1 cuando sea. 2 → (autorización) → 3 → 4 → 5, 6 y 7 en ese
-orden (6 puede ir en paralelo con 5) → 8 y 9 → 10 más adelante.
+**Orden:** #450, 0 y 1 cuando sea. 2 → (autorización y aplicación) → 3 → 4 → 5,
+6 y 7 en ese orden (6 puede ir en paralelo con 5) → 8 y 9.
 
 **Hasta que esté el PR 4 nadie puede crear una organización ESENCIAL.** Antes
 de eso, todo lo que se mergea es inerte para las organizaciones existentes.
 
+**Fuera de este plan (fase 2, D4):** `feat(agente): borradores con aprobación
+(b)` 🗄, con riesgo alto (§4.2 b). Se arma cuando haya un pedido concreto.
+Lleva su propia migración: el valor `BORRADOR` del enum y el estado de
+borrador en `messages`.
+
 ---
 
-## 11. Preguntas abiertas
+## 11. Decisiones
 
-Cada una con opciones; la **recomendada** va primero.
+Tomadas el 2026-10-09 sobre las preguntas abiertas de la primera versión de
+este documento.
 
-- **P1. Nombre de la edición simple.** **`ESENCIAL`** / `CLASICA` (sugiere
-  "a la antigua", con poca IA) / `ATENCION` (describe el foco, pero suena
-  raro como plan). → **ESENCIAL.**
-- **P2. ¿Dónde vive el nivel de participación?** **Por agente** (convive con
-  canales; permite distinto nivel en web y WhatsApp) / por organización (más
-  simple de explicar, pero un solo nivel para todo). → **Por agente.**
-- **P3. Nivel por defecto de un agente nuevo en ESENCIAL.**
-  **PRIMER_CONTACTO** / AUTONOMA (como en COMPLETA) / sin default, con
-  elección obligatoria en el formulario. → **PRIMER_CONTACTO**, por lo que dijo
-  el referente.
-- **P4. ¿BORRADOR (b) entra en esta etapa?** **No, fase 2 con su propia
-  migración** / sí, junto con c y d. → **Fase 2.**
-- **P5. Campos personalizados en ESENCIAL.** **Incluir completo** / incluir
-  sin `agentEditable` / excluir. → **Incluir.**
-- **P6. Agente interno en ESENCIAL.** **Incluir, opt-in por usuario como hoy**
-  / excluir. → **Incluir.**
-- **P7. Al marcar Vendida con una unidad, ¿se crea la entrega oculta?**
-  **Sí, igual que hoy y oculta** (sin ramas en el dominio; el upgrade la
-  muestra) / no crearla en ESENCIAL. → **Crearla.**
-- **P8. Webhook de landing, fuentes y API keys en ESENCIAL.** **Incluir** (es
-  una vía de entrada de consultas, sin IA) / excluir. → **Incluir.**
-- **P9. Seguimiento automático de consultas con niveles bajos de IA.**
-  **Siempre la plantilla aprobada** / texto libre de la IA como hoy / tarea
-  con borrador para una persona. → **Plantilla.**
-- **P10. Respuesta a una ruta de un módulo excluido.** **403
-  `MODULO_NO_INCLUIDO`** / 404 (oculta que existe). → **403.**
-- **P11. `get_payment_info` (link de pago y datos de transferencia de la
-  sucursal) en ESENCIAL.** **Incluir** (es dato de la sucursal, no el módulo
-  de pagos) / excluir. → **Incluir.**
-- **P12. Tope de respuestas de PRIMER_CONTACTO.** **2 respuestas, fijo en
-  código** / configurable por agente (columna más) / 1. → **2, fijo**; se hace
-  configurable si alguien lo pide.
+| # | Pregunta | Decisión | Dónde se aplica |
+|---|---|---|---|
+| D1 | Nombre de la edición simple | **`ESENCIAL`**. Descartados: `CLASICA`, `ATENCION`. | §1.1 |
+| D2 | Dónde vive el nivel de IA | **Por agente.** Descartado: por organización. | §1.2, §4.4 |
+| D3 | Nivel por defecto de un agente nuevo en ESENCIAL | **Sin valor por defecto.** Hay que elegirlo; sin nivel el agente no se puede activar (lo valida el backend y lo respalda un CHECK). En COMPLETA, AUTONOMA. | §1.2 "Nivel sin elegir", §5.4 |
+| D4 | Borradores con aprobación (b) | **Fase 2.** Ahora solo a, c y d. | §4.4, §10 |
+| D5 | Campos personalizados en ESENCIAL | **Incluidos.** | §2, §2.3, §6.1 |
+| D6 | Agente interno en ESENCIAL | **Incluido**, activado por usuario como hoy (`canUseInternalAgent`). | §2, §2.4 |
+| D7 | Entrega al marcar Vendida con una unidad vinculada | **Se crea igual y queda oculta.** | §2.1 |
+| D8 | Webhook de landing, fuentes y API keys en ESENCIAL | **Incluidos.** | §2 |
+| D9 | Seguimiento de consultas con niveles bajos de IA | **Siempre la plantilla aprobada.** Texto libre solo con un agente AUTONOMA activo. | §4.5 |
+| D10 | Respuesta a una ruta de un módulo excluido | **403 `MODULO_NO_INCLUIDO`.** | §5.2 |
+| D11 | `get_payment_info` en ESENCIAL | **Incluida.** | §5.3, §6.1 |
+| D12 | Tope de respuestas de PRIMER_CONTACTO | **2, fijo en el código.** | §4.2 (c), §4.4 |
