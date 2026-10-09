@@ -12,6 +12,7 @@ import {
   agenteAtiendeElCanal,
   derivarEntranteSinAgente,
   registrarEntrante,
+  respondeSinAgente,
 } from "./agentOrchestration.service";
 import { aplicarEstadosRetenidos, retenerEstado } from "./estadosDeEntregaRetenidos.service";
 import { resolveWhatsappContact } from "./whatsappContact.service";
@@ -472,12 +473,16 @@ async function procesarMensaje(
   if (mensaje.texto.trim().length === 0) {
     return "ignorado";
   }
+  // Se encola con el agente atendiendo, y también sin él si el rubro contesta
+  // igual (la urgencia de una clínica, docs/rubros.md §5.3): el worker es el
+  // que puede mandar la respuesta fija. En AUTOMOTORA, encola === atiende.
+  const encola = atiende || (await respondeSinAgente(organizationId));
 
   // 2. Dedup: Meta reintentando una entrega ya procesada. Es el atajo del
   //    caso común; la garantía real es el UNIQUE, más abajo.
   const yaGuardado = await findMessageByExternalId(organizationId, mensaje.wamid);
   if (yaGuardado) {
-    if (!atiende) {
+    if (!encola) {
       await derivarEntranteSinAgente({
         organizationId,
         conversationId: yaGuardado.conversationId,
@@ -508,8 +513,8 @@ async function procesarMensaje(
         externalThreadId: mensaje.waId,
         externalMessageId: mensaje.wamid,
       },
-      // Sin job cuando el agente no atiende: no hay turno que correr.
-      atiende
+      // Sin job cuando nadie va a contestar: no hay turno que correr.
+      encola
         ? {
             enLaMismaTransaccion: (tx, entrante) =>
               createAgentInboundJob(
@@ -546,7 +551,7 @@ async function procesarMensaje(
     throw err;
   }
 
-  if (atiende) {
+  if (encola) {
     return "encolado";
   }
 

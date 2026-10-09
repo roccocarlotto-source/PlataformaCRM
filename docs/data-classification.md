@@ -151,6 +151,39 @@ de datos personales (§5.2) no alcanza el texto libre.** Quien escribe el
 nombre de un lead en el cuerpo de una actividad lo pone fuera del alcance
 de las garantías de este documento.
 
+### 2.6 Organizaciones de rubro CLINICA — datos de salud
+
+En una clínica (`Organization.industry = CLINICA`, `docs/rubros.md`) lo que
+escribe un paciente puede ser un dato de salud, y no hay forma de evitar que lo
+escriba. Por eso estos campos son **Regulated por naturaleza** en una
+organización CLINICA, aunque en una automotora sigan como dicen §2.2 y §2.5:
+
+| Modelo · campo | Clase en CLINICA | Nota |
+|---|---|---|
+| `Message.content` | **Regulated por naturaleza** | Es la transcripción de la conversación: inevitable. Es el único lugar donde el sistema guarda a propósito lo que el paciente contó |
+| `Message.toolCalls` | **Regulated por naturaleza** | La auditoría de un guardrail guarda la respuesta del modelo que se bloqueó (`respuestaBloqueada`), que puede mencionar el síntoma |
+| `Activity.subject`, `Activity.body` | **Regulated por naturaleza** | Una persona puede escribir ahí lo que quiera (§2.5) |
+| `Conversation.brief` | **Regulated por naturaleza** | El resumen de una derivación que no es por salud igual puede mencionar un síntoma |
+| `Contact.leadNotes`, `Contact.leadAiData` | **Regulated por naturaleza** | Los puede escribir una persona desde el CRM |
+
+**Lo que el sistema hace para que el dato de salud no salga de la
+conversación** (guardrails de salud, `docs/rubros.md` §5.3 y §8.2; código en
+`src/clinicas/guardrailsDeSalud.ts` y `src/clinicas/reglasDeClinica.ts`):
+
+- el agente no escribe texto libre sobre el paciente: `create_lead` y
+  `update_lead` no ofrecen ni reciben `notes` ni `aiData`;
+- una derivación por urgencia o por consulta clínica crea una tarea con
+  asunto y cuerpo **fijos** ("Consulta clínica: ver la conversación") y
+  **sin brief**;
+- una derivación que pide el modelo con un motivo clínico también usa el
+  cuerpo fijo, no el `reason` del modelo.
+
+**Lo que no se puede impedir, y queda escrito como límite:** lo que escribe una
+persona del negocio (actividades, notas del contacto, campos personalizados) y
+el brief de una derivación que no es por salud. La pantalla de campos
+personalizados de una clínica avisa que no se carguen datos de salud
+(`docs/rubros.md` §8.2, con su PR de pantallas).
+
 ---
 
 ## 3. Por dónde salen del servidor

@@ -160,13 +160,14 @@ export async function findDefaultPhoneCountryCode(
 
 // ---------------------------------------------------------------------------
 // La edición y el rubro de una organización, para lo que no pasa por HTTP y no
-// tiene AuthContext: el turno del agente de clientes (docs/rubros.md §5.1).
+// tiene AuthContext: el turno del agente de clientes (docs/rubros.md §5.1 y
+// §5.3; el nombre va en los mensajes fijos de los guardrails de salud).
 // findUniqueOrThrow: el agente que la pide es de esa organización (FK), así
 // que si no existe es un error, no un "sin rubro".
 export function findEdicionYRubro(organizationId: string, db: Db = prisma) {
   return db.organization.findUniqueOrThrow({
     where: { id: organizationId },
-    select: { edition: true, industry: true },
+    select: { name: true, edition: true, industry: true },
   });
 }
 

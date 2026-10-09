@@ -1,5 +1,7 @@
+import type { OpportunityStatus } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { modulosDe } from "../config/ediciones";
 import {
   createOpportunity,
   deleteOpportunity,
@@ -7,6 +9,7 @@ import {
   getOpportunityById,
   getRevenueSeries,
   listOpportunities,
+  procesoDeVentaPorDefecto,
   updateOpportunity,
 } from "../services/opportunity.service";
 import { assertPuedeEditar, ownerAlCrear } from "../services/permisosDelVendedor";
@@ -110,20 +113,34 @@ const opportunityFields = {
 
 // Exportado para poder fijar con tests unitarios (sin base) qué rechaza el
 // borde: ver opportunity.controller.test.ts.
-export const createOpportunitySchema = z
-  .object({
-    ...opportunityFields,
-    expectedCloseDate: z.coerce.date().optional(),
-    actualCloseDate: z.coerce.date().optional(),
-    lostReason: z
-      .string()
-      .trim()
-      .max(255, "lostReason no puede superar los 255 caracteres")
-      .optional(),
-  })
-  .refine((data) => Boolean(data.companyId) || Boolean(data.contactId), {
-    message: "Debe indicar companyId, contactId, o ambos",
-  });
+const createOpportunityObject = z.object({
+  ...opportunityFields,
+  expectedCloseDate: z.coerce.date().optional(),
+  actualCloseDate: z.coerce.date().optional(),
+  lostReason: z
+    .string()
+    .trim()
+    .max(255, "lostReason no puede superar los 255 caracteres")
+    .optional(),
+});
+
+const conCompanyOContact = {
+  check: (data: { companyId?: string; contactId?: string }) =>
+    Boolean(data.companyId) || Boolean(data.contactId),
+  message: "Debe indicar companyId, contactId, o ambos",
+};
+
+export const createOpportunitySchema = createOpportunityObject.refine(conCompanyOContact.check, {
+  message: conCompanyOContact.message,
+});
+
+// Paso B de docs/ediciones.md §10: sin el módulo procesos_de_venta, el cuerpo
+// no trae proceso ni etapa (el gate ya rechazó esos dos campos con 400
+// CAMPO_NO_INCLUIDO) y el servidor usa el proceso por defecto. Todo lo demás,
+// idéntico.
+export const createOpportunitySinProcesoSchema = createOpportunityObject
+  .omit({ pipelineId: true, stageId: true })
+  .refine(conCompanyOContact.check, { message: conCompanyOContact.message });
 
 // expectedCloseDate/actualCloseDate/lostReason son .nullable() acá (a
 // diferencia de create): permite limpiarlos explícitamente — necesario para
@@ -179,9 +196,25 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
+async function conProcesoDeVentaPorDefecto<T extends { status?: OpportunityStatus }>(
+  organizationId: string,
+  cuerpo: T,
+) {
+  return { ...cuerpo, ...(await procesoDeVentaPorDefecto(organizationId, cuerpo.status)) };
+}
+
 export const createOpportunityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
-    const input = parseOrThrow(createOpportunitySchema, req.body);
+    // COMPLETA: exactamente como siempre, con pipelineId y stageId del cuerpo.
+    // Sin procesos_de_venta (ESENCIAL): el proceso y la etapa los pone el
+    // servidor (procesoDeVentaPorDefecto).
+    const conProcesos = modulosDe(req.auth.edition, req.auth.industry).has("procesos_de_venta");
+    const input = conProcesos
+      ? parseOrThrow(createOpportunitySchema, req.body)
+      : await conProcesoDeVentaPorDefecto(
+          req.auth.organizationId,
+          parseOrThrow(createOpportunitySinProcesoSchema, req.body),
+        );
     // D2: un USER crea oportunidades, y quedan a su nombre
     // (permisosDelVendedor.ts).
     const opportunity = await createOpportunity(req.auth.organizationId, req.auth.userId, {

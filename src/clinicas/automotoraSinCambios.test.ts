@@ -17,11 +17,16 @@ import {
   type OrganizacionDelAgente,
 } from "../services/agentPermissions.service";
 import { armarSystemPrompt } from "../services/agentOrchestration.service";
-import { CATALOGO_DE_TOOLS, toolsHabilitadas } from "../services/agentTools.service";
+import {
+  CATALOGO_DE_TOOLS,
+  toolsHabilitadas,
+  toolsSinCampos,
+} from "../services/agentTools.service";
 import {
   createOrganizationWithFoundingAdmin,
   defaultOrganizationAdminDeps,
 } from "../services/organizationAdmin.service";
+import { SIN_REGLAS, reglasDelRubro } from "../services/reglasDelRubro";
 import { vocabularioDe } from "../config/vocabulario";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
@@ -443,4 +448,30 @@ test("el alta de una automotora no crea nada de clínica, aunque CLINICA se habi
   assert.equal(result.organization.industry, "AUTOMOTORA");
   assert.equal(result.organization.edition, "COMPLETA");
   assert.deepEqual(configuraciones, []);
+});
+
+// ---------------------------------------------------------------------------
+// R4 (guardrails de salud, docs/rubros.md §5.3): los puntos de extensión del
+// loop no tienen nada para una automotora. El prompt sigue siendo el del
+// snapshot de arriba, y "me arde la garganta" llega al modelo (eso, contra la
+// base, en src/clinicas/guardrailsDeSalud.integration-test.ts).
+// ---------------------------------------------------------------------------
+
+test("las reglas del rubro de una automotora están vacías: ningún verificador, instrucción ni campo recortado", () => {
+  assert.deepEqual(reglasDelRubro("AUTOMOTORA"), SIN_REGLAS);
+  assert.deepEqual(SIN_REGLAS, {
+    entradaPrioritaria: [],
+    entrada: [],
+    salida: [],
+    callaDespuesDeDerivar: false,
+    instruccionesDelPrompt: [],
+    camposFueraDeLasTools: {},
+  });
+});
+
+test("las tools de una automotora no se recortan: son los mismos objetos del catálogo", () => {
+  const tools = toolsHabilitadas(TOOLS_DE_HOY, { edition: "COMPLETA", industry: "AUTOMOTORA" });
+  const recortadas = toolsSinCampos(tools, reglasDelRubro("AUTOMOTORA").camposFueraDeLasTools);
+  assert.equal(recortadas.length, tools.length);
+  recortadas.forEach((tool, i) => assert.equal(tool, tools[i]));
 });

@@ -822,6 +822,43 @@ agenda", y el formulario del agente de clínicas lo dice así.
 
 ### 5.3 Guardrails de salud, en el backend (D11)
 
+> **Implementado en R4.** Cómo quedó, y dónde difiere de lo de abajo:
+>
+> - **Los puntos de extensión** son `src/services/reglasDelRubro.ts`: por rubro,
+>   una lista de verificadores de entrada **prioritarios** (la urgencia, que
+>   corren antes del gate de una persona atendiendo y también sin agente),
+>   otra de entrada (la consulta clínica), otra de salida (capa 3), si el
+>   agente calla después de derivar, las instrucciones fijas del prompt y los
+>   argumentos que las tools no ofrecen. AUTOMOTORA es `SIN_REGLAS`: todo vacío.
+>   Las de CLINICA están en `src/clinicas/reglasDeClinica.ts`.
+> - **Los mensajes fijos** están en `src/clinicas/config/mensajesDeSalud.ts`,
+>   no en `rubro.ts`: R3, en paralelo, crea `rubro.ts` con el vocabulario.
+> - **Capa 2:** `armarSystemPrompt` recibe un último parámetro,
+>   `instruccionesDelRubro`, que va antes de la instrucción de identidad. Vacío
+>   en AUTOMOTORA, así que el prompt es el mismo byte a byte (snapshot de
+>   §14.1). El objeto `textos` de §3.2 queda para R11.
+> - **"Prioridad alta"**: `Activity` no tiene una columna de prioridad, y R4 no
+>   lleva migración. La tarea de una urgencia empieza con `URGENTE · `, vence
+>   en el acto (`dueDate` = ahora), no reutiliza una tarea abierta y se crea
+>   aunque la conversación ya estuviera derivada. Si sin agente asignado
+>   tampoco hay vendedor, va al ADMIN activo más antiguo.
+> - **El silencio** no usa una columna: la respuesta fija se guarda con una
+>   marca `regla_del_rubro` en `Message.toolCalls`. Si la conversación está
+>   derivada y el último saliente del agente tiene la marca, el agente calla.
+>   "Devolver al agente" la pasa a ACTIVE y el agente vuelve.
+> - **Ráfagas:** la capa 1 mira todo lo que escribió el contacto desde la
+>   última vez que le habló el negocio, no solo el último mensaje.
+> - **La derivación que pide el modelo:** si su `reason` dispara la capa 1 (por
+>   ejemplo, "consulta clínica"), la tarea lleva el aviso fijo y no el
+>   `reason`.
+> - **Sin agente:** un webhook con el agente apagado encola igual el mensaje si
+>   el rubro tiene una regla prioritaria. El worker llama a
+>   `derivarEntranteSinAgente` con `responder`: con una urgencia guarda y manda
+>   el texto fijo; con otra cosa, deriva como siempre.
+> - **SOLO_SEGUIMIENTO** todavía no existe en el código (PR 6 de ediciones).
+>   La urgencia corre antes que cualquier filtro por nivel, así que vale
+>   cualquiera sea. El test lo fija con un agente en SOLO_SEGUIMIENTO.
+
 **Regla:** en CLINICA, en **todos** los niveles y **todos** los canales
 (incluido el widget web), el agente no da historia clínica, diagnósticos ni
 consejos médicos. Tres capas. **Ninguna es configurable por el ADMIN.** En

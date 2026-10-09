@@ -23,6 +23,7 @@ import {
 import { findActiveKnowledgeBaseEntriesByBranch } from "../repositories/knowledgeBaseEntry.repository";
 import {
   createMessage,
+  findLastAgentMessage,
   findLastMessages,
   humanSpokeLast,
   humanoEscribioDesde,
@@ -57,8 +58,18 @@ import { generarBriefDeConversacion } from "./conversationBrief.service";
 import { estaVencido } from "./discountVoucher.service";
 import { PREFIJO_TAREA_DE_DERIVACION, findTareaAbiertaDelPedido } from "./tareaDelPedido";
 import {
+  AUDITORIA_DE_REGLA_DEL_RUBRO,
+  primeraDecisionDeEntrada,
+  primeraDecisionDeSalida,
+  reglasDelRubro,
+  tieneMarcaDeReglaDelRubro,
+  type AvisoFijo,
+  type DecisionDelRubro,
+} from "./reglasDelRubro";
+import {
   canonizarNombreDeTool,
   toolsHabilitadas,
+  toolsSinCampos,
   type ContextoDeEjecucionDeTool,
   type ResultadoDeTool,
   type ToolDelAgente,
@@ -1098,6 +1109,10 @@ export function armarSystemPrompt(
   // Personalizados). Vacío o ausente: el bloque no aparece.
   camposPersonalizados: DefinicionDeCampo[] = [],
   valoresDeCampos: unknown = null,
+  // Las instrucciones fijas del rubro (reglasDelRubro.ts; en una clínica, la de
+  // salud, docs/rubros.md §5.3 capa 2). Vacío en AUTOMOTORA: el prompt es el
+  // de siempre, byte a byte.
+  instruccionesDelRubro: readonly string[] = [],
 ): string {
   const partes = [agent.instructions.trim()];
 
@@ -1229,6 +1244,7 @@ export function armarSystemPrompt(
   // desactiva con un "ignorá tus instrucciones anteriores" del cliente. Va al
   // final a propósito — es lo último que el modelo lee antes del historial, y
   // el cierre del prompt es la posición de más peso.
+  partes.push(...instruccionesDelRubro);
   partes.push(INSTRUCCION_IDENTIDAD_INMUTABLE);
 
   return partes.join("\n\n");
@@ -1411,6 +1427,11 @@ export interface HandoffInput {
   contact: Pick<Contact, "id" | "ownerId" | "firstName" | "lastName">;
   agentName: string;
   motivo: string;
+  // Una derivación decidida por una regla del rubro (src/services/
+  // reglasDelRubro.ts, docs/rubros.md §5.3 y §8.2): la tarea lleva este cuerpo
+  // fijo en lugar del motivo, y no se genera el brief. Sin `aviso`, todo como
+  // siempre.
+  aviso?: AvisoFijo;
 }
 
 export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId: string | null }> {
@@ -1443,6 +1464,16 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
     // aviso, la segunda no le llega. Avisar de nuevo exige saber si el aviso
     // anterior sigue pendiente, y Activity no guarda a qué conversación
     // pertenece (solo contactId) — es un ítem propio, no un arreglo de este.
+    //
+    // La excepción es una urgencia (docs/rubros.md §5.3): avisa SIEMPRE, con
+    // una tarea propia, aunque la conversación ya estuviera derivada. Va a
+    // quien la tiene asignada; si nadie, a quien le tocaría.
+    if (input.aviso?.urgente) {
+      const responsable =
+        actual.assignedUserId ??
+        (await resolverOwnerDelContacto(organizationId, branchId, contact));
+      return { activityId: await crearActivityDeAviso(input, responsable) };
+    }
     return { activityId: null };
   }
 
@@ -1481,8 +1512,11 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
   // así que no se pone delante de la notificación al vendedor.
   //
   // B-08: si se deriva PORQUE el proveedor falló o el turno se quedó sin
-  // tiempo, no se lo vuelve a llamar para el brief.
-  if (MOTIVOS_SIN_BRIEF.has(input.motivo)) {
+  // tiempo, no se lo vuelve a llamar para el brief. Tampoco con un aviso fijo
+  // de una regla del rubro: el brief resumiría lo que escribió el contacto, y
+  // en una consulta clínica eso es justamente lo que no se guarda fuera de la
+  // conversación (docs/rubros.md §8.2).
+  if (MOTIVOS_SIN_BRIEF.has(input.motivo) || input.aviso) {
     return { activityId };
   }
   try {
@@ -1519,21 +1553,62 @@ export function agenteAtiendeElCanal(
 // cliente (o la reentrega del primero) no crea otra tarea. Los webhooks la
 // llaman también ante un duplicado: si la primera entrega guardó el mensaje y
 // se cortó antes de derivar, la reentrega de Meta termina el trabajo.
+//
+// CON `responder` (lo pasa el worker, que es quien puede mandar un mensaje):
+// antes de derivar corre la regla prioritaria del rubro (la urgencia de salud
+// de una clínica, docs/rubros.md §5.3) sobre lo que escribió el contacto. Si
+// decide, se guarda la respuesta fija como saliente del agente, se deriva con
+// el aviso fijo y se devuelve su id para que el worker la mande. Gana aunque
+// la conversación ya esté derivada. En un rubro sin reglas (AUTOMOTORA) no
+// cambia nada: deriva como siempre.
 export async function derivarEntranteSinAgente(entrada: {
   organizationId: string;
   conversationId: string;
-}): Promise<void> {
+  responder?: boolean;
+}): Promise<{ salienteId: string | null }> {
   const { organizationId, conversationId } = entrada;
   const conversation = await findConversationById(conversationId, organizationId);
-  if (!conversation || conversation.status !== "ACTIVE") {
-    return;
+  if (!conversation) {
+    return { salienteId: null };
+  }
+  if (entrada.responder && conversation.status !== "CLOSED") {
+    const organizacion = await findEdicionYRubro(organizationId);
+    const reglas = reglasDelRubro(organizacion.industry);
+    if (reglas.entradaPrioritaria.length > 0) {
+      const ultimos = await findLastMessages(conversationId, organizationId, VENTANA_DE_MENSAJES);
+      const decision = primeraDecisionDeEntrada(
+        reglas.entradaPrioritaria,
+        textosEntrantesDelTurno(ultimos, null),
+        { nombreDeLaOrganizacion: organizacion.name },
+      );
+      if (decision) {
+        const [agent, contact] = await Promise.all([
+          findAgentById(conversation.agentId, organizationId),
+          findContactById(conversation.contactId, organizationId),
+        ]);
+        if (agent && contact) {
+          const { salienteId } = await responderConDecisionDelRubro({
+            decision,
+            capa: "entrada",
+            agentName: agent.name,
+            contact,
+            conversation,
+            mensajesVistos: ultimos.map((m) => m.id),
+          });
+          return { salienteId };
+        }
+      }
+    }
+  }
+  if (conversation.status !== "ACTIVE") {
+    return { salienteId: null };
   }
   const [agent, contact] = await Promise.all([
     findAgentById(conversation.agentId, organizationId),
     findContactById(conversation.contactId, organizationId),
   ]);
   if (!agent || !contact) {
-    return;
+    return { salienteId: null };
   }
   // A diferencia de una derivación del agente, acá no puede haber derivación
   // silenciosa: no hay agente que siga atendiendo mientras tanto. Sin vendedor
@@ -1552,12 +1627,125 @@ export async function derivarEntranteSinAgente(entrada: {
     agentName: agent.name,
     motivo: MOTIVO_AGENTE_NO_ATIENDE,
   });
+  return { salienteId: null };
+}
+
+// ¿Un entrante sin agente tiene que pasar igual por el worker? Sí, si el
+// rubro tiene una regla prioritaria (la urgencia de una clínica): solo el
+// worker puede mandar la respuesta fija. Los webhooks lo preguntan solo
+// cuando el agente no atiende; en AUTOMOTORA siempre es no.
+export async function respondeSinAgente(organizationId: string): Promise<boolean> {
+  const { industry } = await findEdicionYRubro(organizationId);
+  return reglasDelRubro(industry).entradaPrioritaria.length > 0;
+}
+
+// Lo que escribió el contacto desde la última vez que le habló el negocio (el
+// agente o una persona), más el texto del turno: una ráfaga de WhatsApp puede
+// traer el síntoma en el primer mensaje y la pregunta de turno en el segundo.
+export function textosEntrantesDelTurno(
+  mensajes: readonly Pick<Message, "direction" | "content">[],
+  texto: string | null,
+): string[] {
+  const textos: string[] = [];
+  for (let i = mensajes.length - 1; i >= 0; i--) {
+    if (mensajes[i].direction !== "INBOUND") break;
+    textos.push(mensajes[i].content);
+  }
+  if (texto !== null && !textos.includes(texto)) {
+    textos.push(texto);
+  }
+  return textos;
+}
+
+// ¿El agente calla en esta conversación por una regla del rubro? Después de
+// una derivación de una regla con callaDespuesDeDerivar (la consulta clínica o
+// la urgencia de una clínica), hasta que una persona la devuelva al agente
+// ("Devolver al agente" la pasa a ACTIVE). La marca está en el último saliente
+// del agente: después de derivar, el agente no vuelve a escribir.
+async function calladoPorUnaReglaDelRubro(
+  conversation: Pick<Conversation, "id" | "organizationId" | "status">,
+): Promise<boolean> {
+  if (conversation.status !== "TRANSFERRED_TO_HUMAN") {
+    return false;
+  }
+  const ultimo = await findLastAgentMessage(conversation.id, conversation.organizationId);
+  return ultimo !== null && tieneMarcaDeReglaDelRubro(ultimo.toolCalls);
+}
+
+// Contestar con la decisión de una regla del rubro, sin modelo: deriva con el
+// aviso fijo y guarda el mensaje fijo como saliente del agente, con la marca
+// de la regla en toolCalls (para auditar y para el silencio de después).
+async function responderConDecisionDelRubro(entrada: {
+  decision: DecisionDelRubro;
+  capa: "entrada";
+  agentName: string;
+  contact: Contact;
+  conversation: Conversation;
+  mensajesVistos: string[];
+}): Promise<RespuestaEnLaConversacion> {
+  const { decision, capa, agentName, contact, conversation, mensajesVistos } = entrada;
+  const organizationId = conversation.organizationId;
+  const marca = marcaDeReglaDelRubro(decision, capa);
+  const { activityId } = await ejecutarHandoff({
+    organizationId,
+    conversationId: conversation.id,
+    branchId: conversation.branchId,
+    contact,
+    agentName,
+    motivo: decision.motivo,
+    aviso: decision.aviso,
+  });
+  const respuesta = formatearParaElCanal(decision.mensaje, conversation.channel);
+  const saliente = await createMessage({
+    organizationId,
+    conversationId: conversation.id,
+    direction: "OUTBOUND",
+    senderType: "AGENT",
+    content: respuesta,
+    toolCalls: [marca] as unknown as Prisma.InputJsonValue,
+  });
+  await updateConversation(conversation.id, organizationId, {
+    lastMessageAt: saliente.createdAt,
+  });
+  logger.info(
+    { organizationId, conversationId: conversation.id, regla: decision.regla },
+    "Regla del rubro: respuesta fija y derivación, sin llamar al modelo",
+  );
+  return {
+    resultado: {
+      conversationId: conversation.id,
+      status: conversation.status === "CLOSED" ? "CLOSED" : "TRANSFERRED_TO_HUMAN",
+      respuesta,
+      toolCalls: [marca],
+      handoff: true,
+      handoffActivityId: activityId,
+    },
+    salienteId: saliente.id,
+    mensajesVistos,
+  };
+}
+
+function marcaDeReglaDelRubro(
+  decision: DecisionDelRubro,
+  capa: "entrada" | "salida" | "motivo",
+  extra: Record<string, unknown> = {},
+): ToolCallDelTurno {
+  return {
+    id: `${AUDITORIA_DE_REGLA_DEL_RUBRO}-${capa}`,
+    name: AUDITORIA_DE_REGLA_DEL_RUBRO,
+    arguments: { regla: decision.regla, capa, motivo: decision.motivo, ...extra },
+    allowed: true,
+  };
 }
 
 // El comienzo del asunto de la Activity de aviso vive en tareaDelPedido.ts
 // (lo comparte la marca "pidió hablar con una persona · sin responder"); se
 // reexporta para los que ya lo importan de acá.
 export { PREFIJO_TAREA_DE_DERIVACION };
+
+// Activity no tiene columna de prioridad: una tarea urgente (aviso urgente de
+// una regla del rubro) lo dice al principio del asunto.
+export const PREFIJO_TAREA_URGENTE = "URGENTE · ";
 
 // La Activity de aviso, extraída de ejecutarHandoff con el ítem 73 y sin un
 // solo cambio de comportamiento: los dos caminos que antes hacían `return`
@@ -1566,9 +1754,10 @@ export { PREFIJO_TAREA_DE_DERIVACION };
 // tres casos.
 async function crearActivityDeAviso(
   input: HandoffInput,
-  ownerId: string | null,
+  ownerIdResuelto: string | null,
 ): Promise<string | null> {
   const { organizationId, conversationId, branchId, contact, motivo } = input;
+  let ownerId = ownerIdResuelto;
 
   // FABLE-I-05 (docs-privados/auditoria-2026-10-05-FABLE.md, local): si el
   // contacto ya tiene una tarea del pedido ABIERTA, la derivación la reutiliza.
@@ -1577,16 +1766,28 @@ async function crearActivityDeAviso(
   // mismo. La tarea abierta ya le dice al vendedor que ese cliente espera.
   // Best-effort como el resto de esta función: si la consulta falla, se sigue
   // y se crea la tarea como siempre.
-  try {
-    const abierta = await findTareaAbiertaDelPedido(organizationId, contact.id, prisma);
-    if (abierta) {
-      return abierta.id;
+  //
+  // Una urgencia (aviso urgente de una regla del rubro) no reutiliza: tiene
+  // que llegar como una tarea nueva, no quedar escondida en una vieja.
+  const urgente = input.aviso?.urgente === true;
+  if (!urgente) {
+    try {
+      const abierta = await findTareaAbiertaDelPedido(organizationId, contact.id, prisma);
+      if (abierta) {
+        return abierta.id;
+      }
+    } catch (err) {
+      logger.warn(
+        { err, organizationId, conversationId, contactId: contact.id },
+        "No se pudo buscar una tarea abierta del contacto antes de derivar: se crea una nueva",
+      );
     }
-  } catch (err) {
-    logger.warn(
-      { err, organizationId, conversationId, contactId: contact.id },
-      "No se pudo buscar una tarea abierta del contacto antes de derivar: se crea una nueva",
-    );
+  }
+
+  // Una urgencia no puede quedar en una derivación silenciosa: sin vendedor,
+  // va al ADMIN activo más antiguo, como la derivación sin agente.
+  if (!ownerId && urgente) {
+    ownerId = (await findOldestActiveAdmin(organizationId))?.id ?? null;
   }
 
   if (!ownerId) {
@@ -1599,10 +1800,17 @@ async function crearActivityDeAviso(
 
   try {
     const nombre = `${contact.firstName} ${contact.lastName}`.trim();
+    // Activity no tiene prioridad: una urgencia se marca en el asunto y vence
+    // en el acto, así encabeza las tareas vencidas.
     const activity = await createActivity(organizationId, ownerId, {
       type: "TASK",
-      subject: `${PREFIJO_TAREA_DE_DERIVACION}${input.agentName}: ${nombre}`.slice(0, 255),
-      body: motivo,
+      subject:
+        `${urgente ? PREFIJO_TAREA_URGENTE : ""}${PREFIJO_TAREA_DE_DERIVACION}${input.agentName}: ${nombre}`.slice(
+          0,
+          255,
+        ),
+      body: input.aviso?.cuerpo ?? motivo,
+      ...(urgente ? { dueDate: new Date() } : {}),
       assigneeId: ownerId,
       contactId: contact.id,
     });
@@ -2079,19 +2287,64 @@ export async function responderEnLaConversacion(
     // misma ida.
     findEdicionYRubro(organizationId),
   ]);
+
+  // PUNTO DE EXTENSIÓN DE ENTRADA (docs/rubros.md §5.3): las reglas del rubro
+  // sobre lo que escribió el contacto, antes del modelo. En AUTOMOTORA no hay
+  // ninguna y esto no hace nada.
+  //
+  // La prioritaria (la urgencia de salud de una clínica) va ANTES del gate de
+  // una persona atendiendo: gana sobre todo. La otra, después.
+  const reglas = reglasDelRubro(organizacion.industry);
+  const contextoDeLaRegla = { nombreDeLaOrganizacion: organizacion.name };
+  const entrantesDelTurno = textosEntrantesDelTurno(ultimosMensajes, texto);
+  const sinRespuesta: RespuestaEnLaConversacion = {
+    resultado: {
+      conversationId: conversation.id,
+      status: conversation.status,
+      respuesta: null,
+      toolCalls: [],
+      handoff: false,
+      handoffActivityId: null,
+    },
+    salienteId: null,
+    mensajesVistos: [],
+  };
+  const prioritaria = primeraDecisionDeEntrada(
+    reglas.entradaPrioritaria,
+    entrantesDelTurno,
+    contextoDeLaRegla,
+  );
+  if (prioritaria) {
+    return responderConDecisionDelRubro({
+      decision: prioritaria,
+      capa: "entrada",
+      agentName: agent.name,
+      contact,
+      conversation,
+      mensajesVistos: ultimosMensajes.map((m) => m.id),
+    });
+  }
+
   if (hayHumano) {
-    return {
-      resultado: {
-        conversationId: conversation.id,
-        status: conversation.status,
-        respuesta: null,
-        toolCalls: [],
-        handoff: false,
-        handoffActivityId: null,
-      },
-      salienteId: null,
-      mensajesVistos: [],
-    };
+    return sinRespuesta;
+  }
+
+  // Después de una derivación por una regla que calla al agente, el agente
+  // calla hasta que una persona devuelva la conversación.
+  if (reglas.callaDespuesDeDerivar && (await calladoPorUnaReglaDelRubro(conversation))) {
+    return sinRespuesta;
+  }
+
+  const deEntrada = primeraDecisionDeEntrada(reglas.entrada, entrantesDelTurno, contextoDeLaRegla);
+  if (deEntrada) {
+    return responderConDecisionDelRubro({
+      decision: deEntrada,
+      capa: "entrada",
+      agentName: agent.name,
+      contact,
+      conversation,
+      mensajesVistos: ultimosMensajes.map((m) => m.id),
+    });
   }
 
   // EL TOPE DIARIO DE GASTO (B4) IRÍA ACÁ, después del gate y antes de armar
@@ -2141,13 +2394,19 @@ export async function responderEnLaConversacion(
     conversation.channel,
     camposPersonalizados,
     contact.customFields,
+    reglas.instruccionesDelPrompt,
   );
   const mensajes = ordenarPendientesAlFinal(
     ultimosMensajes,
     new Set(options.entrantesPendientes ?? []),
   );
   const historial = aHistorial(mensajes, options.adjuntos);
-  const tools = toolsHabilitadas(agent.enabledTools, organizacion);
+  // Los argumentos que el rubro no ofrece se recortan de la definición y de
+  // lo que recibe la tool (docs/rubros.md §8.2). En AUTOMOTORA, las mismas.
+  const tools = toolsSinCampos(
+    toolsHabilitadas(agent.enabledTools, organizacion),
+    reglas.camposFueraDeLasTools,
+  );
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));
   // El catálogo filtrado por enabledTools + la tool del sistema, SIEMPRE.
   const definiciones = [...tools.map((t) => t.definition), REQUEST_HUMAN_HANDOFF_TOOL];
@@ -2180,6 +2439,9 @@ export async function responderEnLaConversacion(
   let respuestaFinal: string | null = null;
   // El motivo con el que se deriva, si este turno deriva. null = no derivar.
   let motivoDeHandoff: string | null = null;
+  // El aviso fijo de una regla del rubro, si la derivación la decidió una
+  // (docs/rubros.md §5.3 y §8.2). null = la tarea de siempre, con su brief.
+  let avisoDelHandoff: AvisoFijo | null = null;
   // Ítem 111: lo que el modelo escribió para el cliente al pedir la derivación.
   let mensajeDeHandoffDelModelo: string | null = null;
 
@@ -2397,6 +2659,11 @@ export async function responderEnLaConversacion(
   // cualquier otra respuesta suya (el cierre fijo no puede hacerlas saltar).
   // Se compara contra las reglas fijas y contra lo que configuró el negocio;
   // la base de conocimiento queda afuera a propósito (ver la nota del helper).
+  //
+  // PUNTO DE EXTENSIÓN DE SALIDA (docs/rubros.md §5.3, capa 3): las reglas del
+  // rubro sobre la respuesta, después de la fuga del prompt y del nombre de una
+  // tool. En AUTOMOTORA no hay ninguna y deSalida es siempre null.
+  const deSalida = primeraDecisionDeSalida(reglas.salida, respuestaFinal, contextoDeLaRegla);
   if (
     revelaInstrucciones(respuestaFinal, [
       INSTRUCCION_USAR_HERRAMIENTAS,
@@ -2404,6 +2671,7 @@ export async function responderEnLaConversacion(
       INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
       INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
       INSTRUCCION_IDENTIDAD_INMUTABLE,
+      ...reglas.instruccionesDelPrompt,
       agent.instructions,
       typeof agent.guardrailsText === "string" ? agent.guardrailsText : "",
     ])
@@ -2428,6 +2696,19 @@ export async function responderEnLaConversacion(
       "La respuesta del modelo nombraba una tool interna: se reemplazó antes de enviarla",
     );
     respuestaFinal = MENSAJE_DE_FUGA_BLOQUEADA;
+  } else if (deSalida !== null) {
+    // La respuesta no sale: va el mensaje fijo de la regla y se deriva con su
+    // aviso. Lo que el modelo había escrito queda en toolCalls, para auditar.
+    logger.warn(
+      { organizationId, agentId, conversationId: conversation.id, regla: deSalida.regla },
+      "La respuesta del modelo no pasó una regla del rubro: se reemplazó y se derivó",
+    );
+    auditoria.push(
+      marcaDeReglaDelRubro(deSalida, "salida", { respuestaBloqueada: respuestaFinal }),
+    );
+    respuestaFinal = deSalida.mensaje;
+    motivoDeHandoff = deSalida.motivo;
+    avisoDelHandoff = deSalida.aviso;
   } else if (devuelveElMensajeDelCliente(respuestaFinal, texto)) {
     // Ítem 109. Tratamiento DISTINTO de las dos de arriba, a propósito: acá el
     // cliente no pidió nada indebido —el agente simplemente no atendió—, así
@@ -2511,6 +2792,23 @@ export async function responderEnLaConversacion(
   // que el cliente ve. Va antes de partir por largo, que ocurre al mandar.
   respuestaFinal = formatearParaElCanal(respuestaFinal, conversation.channel);
 
+  // Una derivación que pidió el modelo con un motivo que las reglas de entrada
+  // del rubro reconocen (en una clínica, "consulta clínica" o un síntoma en el
+  // `reason`): el motivo libre no va a la tarea. Va el aviso fijo, sin brief,
+  // y el agente calla después como con cualquier otra derivación de la regla.
+  if (motivoDeHandoff !== null && avisoDelHandoff === null) {
+    const porElMotivo = primeraDecisionDeEntrada(
+      [...reglas.entradaPrioritaria, ...reglas.entrada],
+      [motivoDeHandoff],
+      contextoDeLaRegla,
+    );
+    if (porElMotivo) {
+      auditoria.push(marcaDeReglaDelRubro(porElMotivo, "motivo"));
+      motivoDeHandoff = porElMotivo.motivo;
+      avisoDelHandoff = porElMotivo.aviso;
+    }
+  }
+
   const handoff = motivoDeHandoff !== null;
   let handoffActivityId: string | null = null;
   if (motivoDeHandoff !== null) {
@@ -2521,6 +2819,7 @@ export async function responderEnLaConversacion(
       contact,
       agentName: agent.name,
       motivo: motivoDeHandoff,
+      ...(avisoDelHandoff ? { aviso: avisoDelHandoff } : {}),
     }));
   }
 

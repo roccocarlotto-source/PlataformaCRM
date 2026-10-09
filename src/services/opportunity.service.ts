@@ -27,7 +27,7 @@ import {
   lockOrganizationForUpdate,
 } from "../repositories/organization.repository";
 import { emitOutboxEvent } from "../repositories/outboxEvent.repository";
-import { findPipelineById } from "../repositories/pipeline.repository";
+import { findDefaultPipeline, findPipelineById } from "../repositories/pipeline.repository";
 import {
   findStageById,
   findStagesByPipeline,
@@ -322,6 +322,38 @@ export interface CreateOpportunityInput {
   financingDownPayment?: number;
   financingInstallmentCount?: number;
   financingInstallmentAmount?: number;
+}
+
+// Paso B de docs/ediciones.md §10: una organización sin el módulo
+// procesos_de_venta (ESENCIAL) no elige proceso ni etapa. La oportunidad nace
+// en su proceso por defecto (el fijo que crea el alta, §2.1), en la etapa que
+// corresponde al status pedido: la ganada para WON (Vendida), la perdida para
+// LOST (Perdida) y, si no, la primera ABIERTA, con el mismo criterio que la
+// tool create_opportunity del agente (ítem 124). El ítem 154 exige que etapa
+// y status coincidan al crear; acá el servidor elige la etapa, así que
+// coinciden siempre.
+export async function procesoDeVentaPorDefecto(
+  organizationId: string,
+  status?: OpportunityStatus,
+): Promise<{ pipelineId: string; stageId: string }> {
+  const pipeline = await findDefaultPipeline(organizationId);
+  if (!pipeline) {
+    throw new AppError(
+      "La organización no tiene su proceso de venta. Contactá al administrador de la plataforma.",
+      409,
+    );
+  }
+  const etapas = await findStagesByPipeline(pipeline.id);
+  const etapa = etapas.find((e) =>
+    status === "WON" ? e.isWon : status === "LOST" ? e.isLost : !e.isWon && !e.isLost,
+  );
+  if (!etapa) {
+    throw new AppError(
+      "El proceso de venta de la organización no tiene la etapa que corresponde a ese estado. Contactá al administrador de la plataforma.",
+      409,
+    );
+  }
+  return { pipelineId: pipeline.id, stageId: etapa.id };
 }
 
 export async function createOpportunity(
