@@ -42,7 +42,17 @@ import { crearRegistroDeHandlers, type RegistroDeHandlers } from "./outboxHandle
 // ---------------------------------------------------------------------------
 
 const DIA = 24 * 60 * 60 * 1000;
-const AHORA = new Date("2026-10-08T15:00:00.000Z");
+// El reloj simulado tiene que quedar en las últimas 24 h del reloj REAL: el
+// reclamo de la cola compara next_attempt_at y last_inbound_at con now() de
+// Postgres, no con `ahora`. Con una fecha fija, el día siguiente la "próxima
+// apertura" (AHORA + 16 h) ya era pasado para la base y la fila se volvía a
+// reclamar en el mismo drenaje. Se fija a las 15:00 UTC de hoy (o de ayer, si
+// todavía no son las 15) para conservar la hora del día de siempre.
+const AHORA = (() => {
+  const quince = new Date();
+  quince.setUTCHours(15, 0, 0, 0);
+  return quince.getTime() > Date.now() ? new Date(quince.getTime() - DIA) : quince;
+})();
 
 let acciones: RegistroDeAcciones;
 let handlers: RegistroDeHandlers;
