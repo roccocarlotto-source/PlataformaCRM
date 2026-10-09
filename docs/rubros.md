@@ -128,6 +128,39 @@ model Organization {
   `AuthContext`. Un cambio llama a `vaciar()` (`authContextCache.ts:33`).
 - El ADMIN de la organización ve el rubro como dato de **solo lectura**.
 
+> **Implementado en R3.** Cómo quedó, y dónde difiere de lo de arriba:
+>
+> - **Llave `CLINICA_HABILITADA`** (`src/config/ediciones.ts`), en `false`,
+>   con el mismo molde que `ESENCIAL_HABILITADA`. Con la llave en `false`, el
+>   alta y el cambio de rubro responden 400 a CLINICA.
+>   `GET /api/admin/organizations/industries` devuelve los rubros disponibles.
+> - **Selector de rubro:** obligatorio y sin valor preseleccionado, junto al de
+>   edición. Igual que el de edición, **solo aparece si el backend ofrece más
+>   de un rubro**: hoy no se ve, y el alta no manda `industry` (default
+>   AUTOMOTORA).
+> - **Cambio de rubro (D1):** `PATCH /api/admin/organizations/:organizationId/industry`,
+>   solo por API (no hay pantalla todavía, como pasó con la edición). Cuenta
+>   como datos de negocio los contactos, turnos, conversaciones y vehículos,
+>   **incluidos los dados de baja**. Cuenta como roles no admitidos los de
+>   `ROLES_POR_RUBRO` (`src/config/ediciones.ts`): hoy CLINICA admite solo
+>   ADMIN, y R12 le suma RECEPCION. Los chequeos y la escritura van en una
+>   transacción con la fila de la organización bloqueada.
+> - **`clinic_settings` → `organizations` con `ON DELETE CASCADE`**: es
+>   configuración 1:1, sin datos de negocio. `clinic_branch_settings` sigue la
+>   regla C-3 (FK compuesta a `branches`, RESTRICT).
+> - **La sede de una clínica** crea su fila en `createBranch`, con el rubro de
+>   `req.auth`. Una sucursal sin fila (por ejemplo, una creada antes de pasar a
+>   CLINICA) usa los defaults.
+> - **`/organization`:** `GET` y `PATCH /api/organization` suman `edition`,
+>   `industry` y `contactTerm` (`null` en una automotora). El término se
+>   cambia con el mismo `PATCH`, y en una automotora responde 400.
+> - **`/me` → `vocabulario`:** las claves son `marca`, `contacto`, `recurso`,
+>   `tipoDeServicio`, `reserva`, `agenda` y `responsable`. Cada una trae
+>   `singular`, `plural`, `singularTitulo` y `pluralTitulo`. El de AUTOMOTORA
+>   (`src/config/vocabulario.ts`) son los textos de hoy, y lo fija la suite
+>   "automotora sin cambios". El de CLINICA está en
+>   `src/clinicas/config/rubro.ts`.
+
 ### 1.2 Cómo se combinan rubro y edición: un solo catálogo
 
 > **Implementado en R2.** El diseño de abajo es anterior al PR 3 de ediciones

@@ -3,6 +3,7 @@ import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
+import { DetailList } from "../../design-system/DetailList";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -16,7 +17,27 @@ import { formatExchangeRate } from "./format";
 import { MetaConnectionSection } from "./MetaConnectionSection";
 import { useUpdateOrganizationSettings } from "./mutations";
 import { useOrganizationSettings } from "./queries";
-import type { OrganizationSettings } from "./types";
+import type {
+  ContactTerm,
+  OrganizationEdition,
+  OrganizationIndustry,
+  OrganizationSettings,
+} from "./types";
+
+const NOMBRE_DE_EDICION: Record<OrganizationEdition, string> = {
+  COMPLETA: "Completa",
+  ESENCIAL: "Esencial",
+};
+
+const NOMBRE_DE_RUBRO: Record<OrganizationIndustry, string> = {
+  AUTOMOTORA: "Automotora",
+  CLINICA: "Clínica",
+};
+
+const OPCIONES_DE_TERMINO: { value: ContactTerm; label: string }[] = [
+  { value: "PACIENTE", label: "Paciente" },
+  { value: "CLIENTE", label: "Cliente" },
+];
 
 // El formulario guarda "" para "sin configurar" y lo convierte a null recién
 // al enviar: el selector no puede tener value null.
@@ -25,6 +46,8 @@ interface OrganizationFormValues {
   alternateCurrency: string;
   defaultPhoneCountryCode: string;
   timezone: string;
+  // Solo cuenta en una clínica.
+  contactTerm: ContactTerm;
 }
 
 const EMPTY_FORM: OrganizationFormValues = {
@@ -32,6 +55,7 @@ const EMPTY_FORM: OrganizationFormValues = {
   alternateCurrency: "",
   defaultPhoneCountryCode: "",
   timezone: "UTC",
+  contactTerm: "PACIENTE",
 };
 
 function toFormValues(settings: OrganizationSettings): OrganizationFormValues {
@@ -40,6 +64,7 @@ function toFormValues(settings: OrganizationSettings): OrganizationFormValues {
     alternateCurrency: settings.alternateCurrency ?? "",
     defaultPhoneCountryCode: settings.defaultPhoneCountryCode ?? "",
     timezone: settings.timezone,
+    contactTerm: settings.contactTerm ?? "PACIENTE",
   };
 }
 
@@ -107,6 +132,9 @@ export function OrganizationSettingsPage() {
         alternateCurrency: values.alternateCurrency || null,
         defaultPhoneCountryCode: values.defaultPhoneCountryCode.trim() || null,
         timezone: values.timezone,
+        // El término del contacto solo existe en una clínica: a una automotora
+        // no se le manda (el backend respondería 400).
+        ...(settingsQuery.data?.industry === "CLINICA" ? { contactTerm: values.contactTerm } : {}),
       });
       toast.show("Configuración guardada");
     } catch (err) {
@@ -203,6 +231,38 @@ export function OrganizationSettingsPage() {
             />
           </div>
           <p className="ds-hint">Define hoy, esta semana y este mes en el dashboard.</p>
+        </Card>
+
+        {/* Rubros (docs/rubros.md §1.1): el rubro y la edición se ven, pero
+          los cambia el platform admin. En una clínica, además, cómo se llama
+          a los contactos (§3). */}
+        <Card heading="Rubro y edición">
+          <div className="ds-stack">
+            <DetailList
+              sections={[
+                {
+                  items: [
+                    { label: "Rubro", value: NOMBRE_DE_RUBRO[settings.industry] },
+                    { label: "Edición", value: NOMBRE_DE_EDICION[settings.edition] },
+                  ],
+                },
+              ]}
+            />
+            {settings.industry === "CLINICA" ? (
+              <div className="ds-field-grid">
+                <Select
+                  label="Cómo llamar a los contactos"
+                  value={values.contactTerm}
+                  options={OPCIONES_DE_TERMINO}
+                  onChange={(contactTerm) => {
+                    if (contactTerm)
+                      setValues({ ...values, contactTerm: contactTerm as ContactTerm });
+                  }}
+                />
+              </div>
+            ) : null}
+            <p className="ds-hint">El rubro y la edición los cambia el equipo de la plataforma.</p>
+          </div>
         </Card>
 
         <Card heading="Cotización vigente">

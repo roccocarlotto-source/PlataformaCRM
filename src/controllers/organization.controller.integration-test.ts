@@ -253,6 +253,11 @@ test("GET /api/organization — sin moneda configurada: las dos en null, sin cot
     // T-01: una organización recién creada queda en el default de la columna.
     timezone: "UTC",
     exchangeRates: [],
+    // Rubros (docs/rubros.md §1.1 y §3): edición y rubro de solo lectura, y
+    // el término del contacto, que una automotora no tiene.
+    edition: "COMPLETA",
+    industry: "AUTOMOTORA",
+    contactTerm: null,
   });
   for (const interno of ["nextVehicleStockNumber", "slug"]) {
     assert.ok(!crudo.includes(interno), `${interno} no debe salir por la API`);
@@ -321,6 +326,11 @@ test("PATCH /api/organization — null limpia una moneda y USD no pide cotizaci�
     defaultPhoneCountryCode: null,
     timezone: "UTC",
     exchangeRates: [],
+    // Rubros (docs/rubros.md §1.1 y §3): edición y rubro de solo lectura, y
+    // el término del contacto, que una automotora no tiene.
+    edition: "COMPLETA",
+    industry: "AUTOMOTORA",
+    contactTerm: null,
   });
 });
 

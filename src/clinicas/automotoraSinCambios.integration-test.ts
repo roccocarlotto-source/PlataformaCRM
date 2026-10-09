@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { vocabularioDe } from "../config/vocabulario";
 import {
   borrarOrgDePrueba,
   crearOrgDePrueba,
@@ -40,7 +41,8 @@ after(async () => {
   await borrarOrgDePrueba(esencial);
 });
 
-// Las claves de /api/me antes de R2. R2 suma `industry` y nada más.
+// Las claves de /api/me antes de R2. R2 suma `industry`; R3, `vocabulario`
+// (una automotora no tiene `contactTerm`).
 const CLAVES_DE_ME_DE_HOY = [
   "canUseInternalAgent",
   "edition",
@@ -88,11 +90,20 @@ const MODULOS_DE_HOY_COMPLETA = [
   ...SOLO_COMPLETA,
 ];
 
-test("/api/me de una automotora: las claves de antes más industry, y los mismos módulos", async () => {
+test("/api/me de una automotora: las claves de antes más industry y vocabulario, y los mismos módulos", async () => {
   for (const org of [completa, esencial]) {
     const me = await pedir(org, "GET", "/api/me");
     assert.equal(me.status, 200);
-    assert.deepEqual(Object.keys(me.json).sort(), [...CLAVES_DE_ME_DE_HOY, "industry"].sort());
+    assert.deepEqual(
+      Object.keys(me.json).sort(),
+      [...CLAVES_DE_ME_DE_HOY, "industry", "vocabulario"].sort(),
+    );
+    // Los textos de hoy (fijados uno por uno en automotoraSinCambios.test.ts).
+    assert.deepEqual(me.json.vocabulario, vocabularioDe("AUTOMOTORA", null));
+    assert.equal(
+      (me.json.vocabulario as { contacto: { pluralTitulo: string } }).contacto.pluralTitulo,
+      "Clientes",
+    );
     assert.equal(me.json.edition, org.edition);
     assert.equal(me.json.industry, "AUTOMOTORA");
     assert.deepEqual(

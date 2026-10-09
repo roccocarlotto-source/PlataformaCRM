@@ -1,4 +1,5 @@
 import type { Response } from "express";
+import { ContactTerm } from "@prisma/client";
 import { z } from "zod";
 import {
   getOrganizationSettings,
@@ -37,6 +38,12 @@ export const updateOrganizationSettingsSchema = z
     // dashboard y con la que se fecha el cierre de una venta. NO nullable: la
     // columna es NOT NULL con default 'UTC', y "sin zona" no existe.
     timezone: timezoneSchema.optional(),
+    // Rubros (docs/rubros.md §3): paciente o cliente, solo en una clínica (el
+    // service responde 400 en una automotora). El rubro y la edición NO se
+    // cambian acá: los cambia el platform admin.
+    contactTerm: z
+      .nativeEnum(ContactTerm, { invalid_type_error: "contactTerm inválido" })
+      .optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",

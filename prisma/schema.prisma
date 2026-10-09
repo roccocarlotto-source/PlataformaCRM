@@ -263,6 +263,23 @@ enum OrganizationIndustry {
   CLINICA
 }
 
+// Cómo una clínica llama a sus contactos (docs/rubros.md §3, B10). Lo elige
+// el ADMIN de la clínica en /organization. Las automotoras no lo tienen:
+// siempre "cliente".
+enum ContactTerm {
+  PACIENTE
+  CLIENTE
+}
+
+// Qué hacer con el recordatorio de un turno que se agenda con menos
+// anticipación que reminderHoursBefore (docs/rubros.md §6.2, D8). Lo usa el
+// PR de recordatorios (R13); R3 solo guarda la configuración.
+enum LateBookingReminder {
+  NO_ENVIAR
+  EN_EL_MOMENTO
+  HORAS_ANTES
+}
+
 // Cuánto hace el agente de IA con el cliente (docs/ediciones.md §1.2 y §4),
 // en las dos ediciones. BORRADOR (la IA redacta y una persona aprueba) es la
 // fase 2 y se agrega con su propia migración: un valor que el backend no sabe
@@ -734,6 +751,12 @@ model Organization {
   // organizaciones que ya existían son automotoras. Ningún código la lee
   // todavía; el gate del rubro es el PR R2.
   industry OrganizationIndustry @default(AUTOMOTORA)
+
+  // La configuración de una clínica (docs/rubros.md §1.3). Solo existe si el
+  // rubro es CLINICA: la crea el alta, o el cambio de rubro. Si falta, el
+  // código usa los defaults.
+  clinicSettings       ClinicSettings?
+  clinicBranchSettings ClinicBranchSettings[]
 
   users         User[]
   companies     Company[]
@@ -1903,6 +1926,10 @@ model Branch {
   // El horario de atención propio de la sucursal (G-07). Vacío = no cargado:
   // se usa el horario por defecto (utils/horarioDeAtencion.ts).
   businessHours BranchBusinessHours[]
+
+  // La configuración de la sede de una clínica (docs/rubros.md §1.3). A lo
+  // sumo una fila (branch_id es la clave): lista porque la FK es compuesta.
+  clinicBranchSettings ClinicBranchSettings[]
 
   // FK COMPUESTA por organización, el estándar del proyecto desde C-3, y
   // onDelete: NoAction como toda relación OPCIONAL hacia User (misma forma que
@@ -4641,4 +4668,60 @@ model ImportSync {
   // El reclamo del worker.
   @@index([nextRunAt])
   @@map("import_syncs")
+}
+
+// ---------------------------------------------------------------------------
+// Configuración de una clínica (docs/rubros.md §1.3, PR R3). Tablas PROPIAS
+// del módulo de clínicas, 1:1 con la organización y con la sucursal: lo que
+// solo usa una clínica no va en columnas de organizations ni de branches.
+//
+// Ninguna fila es obligatoria: si falta, el código usa los defaults de acá
+// (src/clinicas/repositories/clinicSettings.repository.ts). Las automotoras no
+// tienen filas.
+// ---------------------------------------------------------------------------
+
+model ClinicSettings {
+  organizationId    String      @id @map("organization_id") @db.Uuid
+  // Paciente o cliente (§3). Default PACIENTE.
+  contactTerm       ContactTerm @default(PACIENTE) @map("contact_term")
+  // El aviso de privacidad del primer contacto (§8.1). Lo usa R16.
+  privacyNoticeText String?     @map("privacy_notice_text") @db.VarChar(1000)
+  privacyPolicyUrl  String?     @map("privacy_policy_url") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // ON DELETE CASCADE: es configuración 1:1 de la organización, sin datos de
+  // negocio. Una organización solo se borra de verdad en los tests (la app
+  // usa soft delete), y así el borrado no depende de acordarse de esta tabla.
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("clinic_settings")
+}
+
+model ClinicBranchSettings {
+  branchId       String @id @map("branch_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  // Recordatorio del turno (§6.2, D8). Los usa R13; R3 solo los guarda.
+  // CHECK 1..72 en la migración.
+  reminderHoursBefore     Int                 @default(24) @map("reminder_hours_before")
+  lateBookingReminder     LateBookingReminder @default(NO_ENVIAR) @map("late_booking_reminder")
+  // Solo con HORAS_ANTES. CHECK 1..23 en la migración.
+  lateBookingHoursBefore  Int                 @default(2) @map("late_booking_hours_before")
+  // Horas sin respuesta antes de la tarea para recepción (§6.5).
+  noResponseTaskHours     Int                 @default(4) @map("no_response_task_hours")
+  // Anticipación mínima para cambiar o cancelar un turno por el agente
+  // (§5.1, D10). null = sin plazo.
+  minHoursToChangeBooking Int?                @map("min_hours_to_change_booking")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  // FK COMPUESTA por organización (C-3): la sede tiene que ser de la misma
+  // organización.
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+
+  @@map("clinic_branch_settings")
 }

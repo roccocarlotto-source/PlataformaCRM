@@ -15,11 +15,16 @@ vi.mock("../../auth/getAccessToken", () => ({
 
 const url = `${env.apiUrl}/api/admin/organizations`;
 const editionsUrl = `${env.apiUrl}/api/admin/organizations/editions`;
+const industriesUrl = `${env.apiUrl}/api/admin/organizations/industries`;
 
 // Lo de hoy: el backend ofrece solo COMPLETA (ESENCIAL_HABILITADA en false).
 // Cada test que necesite otra cosa lo pisa con server.use.
 beforeEach(() => {
-  server.use(http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA"] })));
+  server.use(
+    http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA"] })),
+    // Ídem rubros: solo AUTOMOTORA (CLINICA_HABILITADA en false).
+    http.get(industriesUrl, () => HttpResponse.json({ industries: ["AUTOMOTORA"] })),
+  );
 });
 
 const CREATED: CreateOrganizationResponse = {
@@ -28,6 +33,7 @@ const CREATED: CreateOrganizationResponse = {
     name: "Automotora Pérez",
     slug: "automotora-perez",
     edition: "COMPLETA",
+    industry: "AUTOMOTORA",
   },
   admin: {
     id: "u-nuevo",
@@ -199,6 +205,64 @@ describe("NewOrganizationPage", () => {
       adminFullName: "Juan Pérez",
       adminEmail: "juan@perez.test",
       edition: "ESENCIAL",
+    });
+  });
+
+  // docs/rubros.md §15, R3: la llave CLINICA_HABILITADA vive en el backend;
+  // la pantalla solo mira cuántos rubros le ofrece, igual que con la edición.
+  it("con un solo rubro disponible (hoy): no hay selector y el alta no manda industry", async () => {
+    let postedBody: unknown;
+    server.use(
+      http.post(url, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(CREATED, { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await completarYEnviar(user);
+
+    await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Rubro")).not.toBeInTheDocument();
+    expect(postedBody).not.toHaveProperty("industry");
+  });
+
+  it("con dos rubros disponibles: selector obligatorio sin preselección, junto al de edición, y manda el elegido", async () => {
+    let postedBody: unknown;
+    server.use(
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+      http.get(industriesUrl, () => HttpResponse.json({ industries: ["AUTOMOTORA", "CLINICA"] })),
+      http.post(url, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(
+          { ...CREATED, organization: { ...CREATED.organization, industry: "CLINICA" } },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    const rubro = await screen.findByLabelText("Rubro");
+    expect(rubro).toBeRequired();
+    expect(rubro).toHaveValue("");
+    expect(screen.getByRole("option", { name: "Automotora" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Clínica" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Edición")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Edición"), "COMPLETA");
+    await user.selectOptions(rubro, "CLINICA");
+    await completarYEnviar(user);
+
+    await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
+    expect(postedBody).toEqual({
+      organizationName: "Automotora Pérez",
+      adminFullName: "Juan Pérez",
+      adminEmail: "juan@perez.test",
+      edition: "COMPLETA",
+      industry: "CLINICA",
     });
   });
 });

@@ -34,7 +34,17 @@ export interface OrganizationSettings {
   // Una fila por moneda configurada distinta de USD (con cotización cargada).
   // Con el universo USD/UYU de la UI, como máximo una.
   exchangeRates: OrganizationExchangeRate[];
+  // Rubros (docs/rubros.md §1.1 y §3): la edición y el rubro, de solo lectura
+  // (los cambia el platform admin), y el término del contacto de una clínica.
+  // null en una automotora: no lo tiene.
+  edition: OrganizationEdition;
+  industry: OrganizationIndustry;
+  contactTerm: ContactTerm | null;
 }
+
+export type OrganizationEdition = "COMPLETA" | "ESENCIAL";
+export type OrganizationIndustry = "AUTOMOTORA" | "CLINICA";
+export type ContactTerm = "PACIENTE" | "CLIENTE";
 
 // updateOrganizationSettingsSchema: cada campo es opcional Y nullable
 // (null = desconfigurar esa moneda), y hay que mandar al menos uno. Si tras
@@ -47,6 +57,8 @@ export interface UpdateOrganizationSettingsInput {
   defaultPhoneCountryCode?: string | null;
   // No nullable: la zona no se puede vaciar (400).
   timezone?: string;
+  // Solo en una clínica: en una automotora el backend responde 400.
+  contactTerm?: ContactTerm;
 }
 
 // Conexión de la página de Facebook de la organización (ítem 173 en el

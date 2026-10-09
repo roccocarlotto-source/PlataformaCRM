@@ -1,8 +1,10 @@
 import { Router } from "express";
 import {
   changeOrganizationEditionHandler,
+  changeOrganizationIndustryHandler,
   createOrganizationHandler,
   listEditionsHandler,
+  listIndustriesHandler,
   listLlmUsageHandler,
   listOrganizationsHandler,
 } from "../controllers/organizationAdmin.controller";
@@ -56,6 +58,25 @@ organizationAdminRouter.patch(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   changeOrganizationEditionHandler,
+);
+
+// Rubros (docs/rubros.md §15, R3): los que se pueden elegir en el alta, y
+// cambiar el rubro de una organización sin datos de negocio (D1). Misma
+// cadena.
+organizationAdminRouter.get(
+  "/admin/organizations/industries",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  listIndustriesHandler,
+);
+
+organizationAdminRouter.patch(
+  "/admin/organizations/:organizationId/industry",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  changeOrganizationIndustryHandler,
 );
 
 // B4: el gasto en el modelo por organización (últimos 30 días), misma cadena.

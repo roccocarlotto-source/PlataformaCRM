@@ -29,6 +29,17 @@ un mail para elegir su contraseña y, cuando lo complete, entra como
    *Ana Pérez*, *ana@example.com*).
 4. Tocá **Crear organización**.
 
+Cuando la plataforma ofrece más de una edición o más de un rubro, en
+**Organización** aparecen también **Edición** y **Rubro** (por ejemplo,
+**Automotora** o **Clínica**). Los dos son obligatorios y vienen sin ninguna
+opción elegida: elegí los que correspondan al cliente. Si solo hay una opción
+disponible, el campo no aparece y la organización se crea con esa (hoy, una
+automotora en edición completa).
+
+> El rubro define qué ve y cómo habla el sistema para ese cliente. Después de
+> creada, solo se puede cambiar mientras la organización todavía no tenga
+> contactos, turnos, conversaciones ni vehículos.
+
 Al terminar, la pantalla muestra **Organización creada**, con el nombre, un
 **Identificador** corto (el nombre abreviado con el que el sistema distingue a
 esa organización) y a qué email se mandó la invitación. Avisale al cliente que
