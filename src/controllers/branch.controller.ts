@@ -93,7 +93,7 @@ const listQuerySchema = z.object({
 export const createBranchHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createBranchSchema, req.body);
-    const branch = await createBranch(req.auth.organizationId, input);
+    const branch = await createBranch(req.auth.organizationId, input, req.auth.industry);
     res.status(201).json(branch);
   },
 );

@@ -6,14 +6,20 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { useCreateOrganization } from "./mutations";
-import { useEdicionesDisponibles } from "./queries";
-import type { CreateOrganizationResponse, OrganizationEdition } from "./types";
+import { useEdicionesDisponibles, useRubrosDisponibles } from "./queries";
+import type {
+  CreateOrganizationInput,
+  CreateOrganizationResponse,
+  OrganizationEdition,
+  OrganizationIndustry,
+} from "./types";
 
 interface NewOrganizationFormValues {
   organizationName: string;
   adminFullName: string;
   adminEmail: string;
   edition: OrganizationEdition | "";
+  industry: OrganizationIndustry | "";
 }
 
 const EMPTY_FORM: NewOrganizationFormValues = {
@@ -21,11 +27,17 @@ const EMPTY_FORM: NewOrganizationFormValues = {
   adminFullName: "",
   adminEmail: "",
   edition: "",
+  industry: "",
 };
 
 const NOMBRE_DE_EDICION: Record<OrganizationEdition, string> = {
   COMPLETA: "Completa",
   ESENCIAL: "Esencial",
+};
+
+const NOMBRE_DE_RUBRO: Record<OrganizationIndustry, string> = {
+  AUTOMOTORA: "Automotora",
+  CLINICA: "Clínica",
 };
 
 // Alta de una organización nueva (cliente/automotora) con su primer ADMIN —
@@ -48,6 +60,11 @@ export function NewOrganizationPage() {
   // no manda edition.
   const ediciones = useEdicionesDisponibles().data?.editions ?? [];
   const eligeEdicion = ediciones.length > 1;
+  // El rubro (docs/rubros.md §1.1), con el mismo criterio: hoy el backend
+  // ofrece solo AUTOMOTORA (CLINICA_HABILITADA en false), así que no hay
+  // selector y el alta no manda industry.
+  const rubros = useRubrosDisponibles().data?.industries ?? [];
+  const eligeRubro = rubros.length > 1;
 
   const [values, setValues] = useState<NewOrganizationFormValues>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
@@ -57,10 +74,13 @@ export function NewOrganizationPage() {
     event.preventDefault();
     setError(null);
     try {
-      const { edition, ...resto } = values;
-      const result = await createOrganizationMutation.mutateAsync(
-        eligeEdicion && edition !== "" ? { ...resto, edition } : resto,
-      );
+      const { edition, industry, ...resto } = values;
+      const input: CreateOrganizationInput = {
+        ...resto,
+        ...(eligeEdicion && edition !== "" ? { edition } : {}),
+        ...(eligeRubro && industry !== "" ? { industry } : {}),
+      };
+      const result = await createOrganizationMutation.mutateAsync(input);
       setCreated(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pudimos crear la organización");
@@ -133,6 +153,29 @@ export function NewOrganizationPage() {
                     {ediciones.map((edicion) => (
                       <option key={edicion} value={edicion}>
                         {NOMBRE_DE_EDICION[edicion]}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              </div>
+            ) : null}
+            {eligeRubro ? (
+              <div className="ds-field-grid--full">
+                <FormField label={<span className="ds-required">Rubro</span>}>
+                  <select
+                    value={values.industry}
+                    onChange={(event) =>
+                      setValues({
+                        ...values,
+                        industry: event.target.value as OrganizationIndustry | "",
+                      })
+                    }
+                    required
+                  >
+                    <option value="">Elegí un rubro</option>
+                    {rubros.map((rubro) => (
+                      <option key={rubro} value={rubro}>
+                        {NOMBRE_DE_RUBRO[rubro]}
                       </option>
                     ))}
                   </select>

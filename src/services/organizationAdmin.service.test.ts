@@ -7,6 +7,7 @@ import { logger } from "../lib/logger";
 import { AppError } from "../utils/AppError";
 import {
   cambiarEdicionDeOrganizacion,
+  cambiarRubroDeOrganizacion,
   createOrganizationWithFoundingAdmin,
   primaryCorsOrigin,
   type OrganizationAdminDeps,
@@ -28,9 +29,10 @@ const AUTH_USER_ID = "11111111-1111-4111-8111-111111111111";
 interface Registro {
   invites: { email: string; options: unknown }[];
   deletedAuthUsers: string[];
-  organizationsCreated: { name: string; slug: string; edition: string }[];
+  organizationsCreated: { name: string; slug: string; edition: string; industry: string }[];
   usersCreated: Record<string, unknown>[];
   procesosFijos: string[];
+  configuracionesDeClinica: string[];
 }
 
 interface Escenario {
@@ -46,6 +48,7 @@ interface Opciones {
   fallaTransaccion?: unknown;
   fallaDeleteUser?: boolean;
   esencialHabilitada?: boolean;
+  clinicaHabilitada?: boolean;
 }
 
 // Un `tx` de mentira: el service solo lo pasa de largo a los repositorios
@@ -59,6 +62,7 @@ function armar(opciones: Opciones = {}): Escenario {
     organizationsCreated: [],
     usersCreated: [],
     procesosFijos: [],
+    configuracionesDeClinica: [],
   };
 
   const supabaseAdmin = {
@@ -103,6 +107,11 @@ function armar(opciones: Opciones = {}): Escenario {
       return { id: "pipeline-fijo" };
     },
     esencialHabilitada: opciones.esencialHabilitada ?? false,
+    createClinicSettings: async (organizationId) => {
+      registro.configuracionesDeClinica.push(organizationId);
+      return { organizationId };
+    },
+    clinicaHabilitada: opciones.clinicaHabilitada ?? false,
     transaction: async (fn) => {
       if (opciones.fallaTransaccion !== undefined) {
         throw opciones.fallaTransaccion;
@@ -147,7 +156,12 @@ test("camino feliz: pre-chequeos, invite con redirectTo al frontend, Organizatio
     },
   ]);
   assert.deepEqual(registro.organizationsCreated, [
-    { name: "Automotora Pérez", slug: "automotora-perez", edition: "COMPLETA" },
+    {
+      name: "Automotora Pérez",
+      slug: "automotora-perez",
+      edition: "COMPLETA",
+      industry: "AUTOMOTORA",
+    },
   ]);
   assert.deepEqual(registro.usersCreated, [
     {
@@ -166,6 +180,7 @@ test("camino feliz: pre-chequeos, invite con redirectTo al frontend, Organizatio
       name: "Automotora Pérez",
       slug: "automotora-perez",
       edition: "COMPLETA",
+      industry: "AUTOMOTORA",
     },
     admin: {
       id: AUTH_USER_ID,
@@ -400,4 +415,86 @@ test("bajar de COMPLETA a ESENCIAL: 409, sin vaciar la caché", async () => {
 test("organización inexistente o dada de baja: 404", async () => {
   const { deps } = depsDeEdicion(null);
   await esperarAppError(() => cambiarEdicionDeOrganizacion("org-1", "COMPLETA", deps), 404);
+});
+
+// ---------------------------------------------------------------------------
+// Rubros (docs/rubros.md §15, R3): la llave CLINICA_HABILITADA, con sus dos
+// valores, y la configuración de la clínica en la transacción del alta.
+// ---------------------------------------------------------------------------
+
+test("sin rubro: AUTOMOTORA, sin nada de clínica (el alta de siempre)", async () => {
+  const { deps, registro } = armar({ clinicaHabilitada: true });
+
+  const result = await createOrganizationWithFoundingAdmin(INPUT, deps);
+
+  assert.equal(result.organization.industry, "AUTOMOTORA");
+  assert.equal(registro.organizationsCreated[0].industry, "AUTOMOTORA");
+  assert.deepEqual(registro.configuracionesDeClinica, []);
+});
+
+test("CLINICA con la llave en false: 400 antes de escribir nada (ni el mail de invitación)", async () => {
+  const { deps, registro } = armar({ clinicaHabilitada: false });
+
+  const err = await esperarAppError(
+    () => createOrganizationWithFoundingAdmin({ ...INPUT, industry: "CLINICA" }, deps),
+    400,
+  );
+
+  assert.match(err.message, /CLINICA todavía no está disponible/);
+  assert.deepEqual(registro.invites, []);
+  assert.deepEqual(registro.organizationsCreated, []);
+  assert.deepEqual(registro.configuracionesDeClinica, []);
+});
+
+test("CLINICA con la llave en true: nace CLINICA con su configuración, en la misma transacción", async () => {
+  const { deps, registro } = armar({ clinicaHabilitada: true });
+
+  const result = await createOrganizationWithFoundingAdmin({ ...INPUT, industry: "CLINICA" }, deps);
+
+  assert.equal(result.organization.industry, "CLINICA");
+  assert.equal(registro.organizationsCreated[0].industry, "CLINICA");
+  assert.deepEqual(registro.configuracionesDeClinica, ["org-nueva"]);
+  assert.deepEqual(registro.procesosFijos, [], "COMPLETA: sin proceso fijo");
+});
+
+test("CLINICA y ESENCIAL: la configuración de la clínica y el proceso fijo, los dos", async () => {
+  const { deps, registro } = armar({ clinicaHabilitada: true, esencialHabilitada: true });
+
+  await createOrganizationWithFoundingAdmin(
+    { ...INPUT, edition: "ESENCIAL", industry: "CLINICA" },
+    deps,
+  );
+
+  assert.deepEqual(registro.procesosFijos, ["org-nueva"]);
+  assert.deepEqual(registro.configuracionesDeClinica, ["org-nueva"]);
+});
+
+test("si la transacción falla en una clínica: se compensa la identidad igual que siempre", async () => {
+  const { deps, registro } = armar({
+    clinicaHabilitada: true,
+    fallaTransaccion: new Error("boom"),
+  });
+
+  await esperarAppError(
+    () => createOrganizationWithFoundingAdmin({ ...INPUT, industry: "CLINICA" }, deps),
+    500,
+  );
+  assert.deepEqual(registro.deletedAuthUsers, [AUTH_USER_ID]);
+});
+
+test("cambiar a CLINICA con la llave en false: 400 sin abrir la transacción", async () => {
+  let transacciones = 0;
+  await esperarAppError(
+    () =>
+      cambiarRubroDeOrganizacion("org-1", "CLINICA", {
+        clinicaHabilitada: false,
+        transaction: async () => {
+          transacciones++;
+          throw new Error("no debería abrirse");
+        },
+        vaciarCacheDeAuth: () => assert.fail("no debería vaciar la caché"),
+      }),
+    400,
+  );
+  assert.equal(transacciones, 0);
 });

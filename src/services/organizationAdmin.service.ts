@@ -1,6 +1,13 @@
-import { Prisma, type OrganizationEdition } from "@prisma/client";
+import { Prisma, type OrganizationEdition, type OrganizationIndustry } from "@prisma/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ESENCIAL_HABILITADA, edicionesDisponibles } from "../config/ediciones";
+import { crearConfiguracionDeClinica } from "../clinicas/repositories/clinicSettings.repository";
+import {
+  CLINICA_HABILITADA,
+  ESENCIAL_HABILITADA,
+  ROLES_POR_RUBRO,
+  edicionesDisponibles,
+  rubrosDisponibles,
+} from "../config/ediciones";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma, type Db } from "../lib/prisma";
@@ -9,9 +16,14 @@ import { findPendingInvitationByEmail } from "../repositories/invitation.reposit
 import {
   createOrganization,
   createProcesoDeVentaFijo,
+  contarDatosDeNegocio,
+  contarUsuariosConRoles,
   findActiveOrganizationEdition,
   findOrganizationBySlug,
+  lockOrganizationForUpdate,
+  rubroDeLaOrganizacionVigente,
   subirOrganizacionACompleta,
+  updateOrganizationIndustry,
 } from "../repositories/organization.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { createUser, findUserByEmail } from "../repositories/user.repository";
@@ -63,10 +75,18 @@ export interface CreateOrganizationWithFoundingAdminInput {
   adminEmail: string;
   // docs/ediciones.md §1.1. Opcional por compatibilidad: sin ella, COMPLETA.
   edition?: OrganizationEdition;
+  // docs/rubros.md §1.1. Opcional por compatibilidad: sin él, AUTOMOTORA.
+  industry?: OrganizationIndustry;
 }
 
 export interface CreateOrganizationWithFoundingAdminResult {
-  organization: { id: string; name: string; slug: string; edition: OrganizationEdition };
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    edition: OrganizationEdition;
+    industry: OrganizationIndustry;
+  };
   admin: { id: string; email: string; fullName: string; role: "ADMIN" };
 }
 
@@ -86,14 +106,30 @@ export interface OrganizationAdminDeps {
   findOrganizationBySlug: (slug: string) => Promise<{ id: string } | null>;
   findRoleByName: (name: RoleName, db: Db) => Promise<{ id: string } | null>;
   createOrganization: (
-    data: { name: string; slug: string; edition: OrganizationEdition },
+    data: {
+      name: string;
+      slug: string;
+      edition: OrganizationEdition;
+      industry: OrganizationIndustry;
+    },
     db: Db,
-  ) => Promise<{ id: string; name: string; slug: string; edition: OrganizationEdition }>;
+  ) => Promise<{
+    id: string;
+    name: string;
+    slug: string;
+    edition: OrganizationEdition;
+    industry: OrganizationIndustry;
+  }>;
   // El proceso de venta fijo de ESENCIAL (docs/ediciones.md §2.1).
   createProcesoDeVentaFijo: (organizationId: string, db: Db) => Promise<unknown>;
   // La llave ESENCIAL_HABILITADA (src/config/ediciones.ts). Inyectable para
   // que los tests cubran los dos valores sin tocar la constante.
   esencialHabilitada: boolean;
+  // La configuración de la clínica (docs/rubros.md §1.3), en la transacción
+  // del alta.
+  createClinicSettings: (organizationId: string, db: Db) => Promise<unknown>;
+  // La llave CLINICA_HABILITADA, inyectable por lo mismo que la de ESENCIAL.
+  clinicaHabilitada: boolean;
   createUser: (
     data: { id: string; organizationId: string; roleId: string; email: string; fullName: string },
     db: Db,
@@ -120,6 +156,10 @@ export const defaultOrganizationAdminDeps: OrganizationAdminDeps = {
   get esencialHabilitada() {
     return ESENCIAL_HABILITADA;
   },
+  createClinicSettings: crearConfiguracionDeClinica,
+  get clinicaHabilitada() {
+    return CLINICA_HABILITADA;
+  },
   transaction: (fn) => prisma.$transaction(fn),
 };
 
@@ -135,6 +175,11 @@ export async function createOrganizationWithFoundingAdmin(
   // que compensar.
   if (!edicionesDisponibles(deps.esencialHabilitada).includes(edition)) {
     throw new AppError(`La edición ${edition} todavía no está disponible.`, 400);
+  }
+  // docs/rubros.md §15, R3: lo mismo para CLINICA (CLINICA_HABILITADA).
+  const industry = input.industry ?? "AUTOMOTORA";
+  if (!rubrosDisponibles(deps.clinicaHabilitada).includes(industry)) {
+    throw new AppError(`El rubro ${industry} todavía no está disponible.`, 400);
   }
   // Misma normalización que invitation.service.ts (normalizeEmail): el email
   // de public.users es único y se compara tal cual.
@@ -220,14 +265,20 @@ export async function createOrganizationWithFoundingAdmin(
       }
 
       const organization = await deps.createOrganization(
-        { name: organizationName, slug, edition },
+        { name: organizationName, slug, edition, industry },
         tx,
       );
       // ESENCIAL nace con su proceso de venta fijo, en la misma transacción:
       // sin él no podría crear oportunidades (§2.1). COMPLETA, como siempre,
-      // sin ninguno.
+      // sin ninguno. Una clínica ESENCIAL también: queda invisible
+      // (docs/rubros.md §2.1), sin bifurcar la transacción.
       if (edition === "ESENCIAL") {
         await deps.createProcesoDeVentaFijo(organization.id, tx);
+      }
+      // Una clínica nace con su configuración (docs/rubros.md §1.3). Una
+      // automotora, como siempre, sin nada de clínica.
+      if (industry === "CLINICA") {
+        await deps.createClinicSettings(organization.id, tx);
       }
       const user = await deps.createUser(
         {
@@ -249,6 +300,7 @@ export async function createOrganizationWithFoundingAdmin(
         name: organization.name,
         slug: organization.slug,
         edition: organization.edition,
+        industry: organization.industry,
       },
       admin: { id: user.id, email: user.email, fullName: user.fullName, role: "ADMIN" },
     };
@@ -330,4 +382,89 @@ export async function cambiarEdicionDeOrganizacion(
     "No se puede bajar de edición: solo se puede pasar de ESENCIAL a COMPLETA.",
     409,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Cambiar el rubro de una organización (docs/rubros.md §1.1, D1). Solo un
+// platform admin, y solo mientras la organización no tenga:
+//   - datos de negocio (contactos, turnos, conversaciones, vehículos),
+//     contando también los dados de baja: son datos igual;
+//   - usuarios vigentes con un rol que el rubro nuevo no admite
+//     (ROLES_POR_RUBRO: hoy, USER al pasar a CLINICA).
+// En cualquier otro caso, 409. Pedir el rubro que ya tiene es un 200 sin
+// cambios, como en la edición. CLINICA solo si CLINICA_HABILITADA (400).
+//
+// Los chequeos y la escritura van en una transacción con la fila de la
+// organización bloqueada (FOR UPDATE): dos cambios simultáneos no se pisan.
+// Un contacto creado en ese mismo instante por otro camino no toma ese lock;
+// es una carrera aceptada para una operación manual de plataforma sobre una
+// organización recién creada.
+//
+// Al pasar a CLINICA se crea su configuración (ClinicSettings); al volver a
+// AUTOMOTORA no se borra nada (queda sin uso). Después se vacía la caché de
+// autenticación: el rubro viaja en el AuthContext.
+// ---------------------------------------------------------------------------
+export interface CambiarRubroDeps {
+  clinicaHabilitada: boolean;
+  transaction: <T>(fn: (tx: Db) => Promise<T>) => Promise<T>;
+  vaciarCacheDeAuth: () => void;
+}
+
+const defaultCambiarRubroDeps: CambiarRubroDeps = {
+  get clinicaHabilitada() {
+    return CLINICA_HABILITADA;
+  },
+  transaction: (fn) => prisma.$transaction(fn),
+  vaciarCacheDeAuth: vaciarContextosDeAuth,
+};
+
+export const RUBRO_CON_DATOS =
+  "No se puede cambiar el rubro: la organización ya tiene contactos, turnos, conversaciones o vehículos.";
+
+export async function cambiarRubroDeOrganizacion(
+  organizationId: string,
+  rubroPedido: OrganizationIndustry,
+  deps: CambiarRubroDeps = defaultCambiarRubroDeps,
+): Promise<{ id: string; industry: OrganizationIndustry }> {
+  if (!rubrosDisponibles(deps.clinicaHabilitada).includes(rubroPedido)) {
+    throw new AppError(`El rubro ${rubroPedido} todavía no está disponible.`, 400);
+  }
+
+  const cambio = await deps.transaction(async (tx) => {
+    const actual = await rubroDeLaOrganizacionVigente(organizationId, tx);
+    if (!actual) {
+      throw new AppError("Organización no encontrada", 404);
+    }
+    if (actual.industry === rubroPedido) {
+      return { id: organizationId, industry: rubroPedido, cambio: false };
+    }
+    await lockOrganizationForUpdate(organizationId, tx);
+
+    if ((await contarDatosDeNegocio(organizationId, tx)) > 0) {
+      throw new AppError(RUBRO_CON_DATOS, 409);
+    }
+    const noAdmitidos = (["ADMIN", "USER"] as const).filter(
+      (rol) => !ROLES_POR_RUBRO[rubroPedido].includes(rol),
+    );
+    if (
+      noAdmitidos.length > 0 &&
+      (await contarUsuariosConRoles(organizationId, noAdmitidos, tx)) > 0
+    ) {
+      throw new AppError(
+        `No se puede cambiar el rubro: la organización tiene usuarios con un rol que ${rubroPedido} no admite (${noAdmitidos.join(", ")}).`,
+        409,
+      );
+    }
+
+    await updateOrganizationIndustry(organizationId, rubroPedido, tx);
+    if (rubroPedido === "CLINICA") {
+      await crearConfiguracionDeClinica(organizationId, tx);
+    }
+    return { id: organizationId, industry: rubroPedido, cambio: true };
+  });
+
+  if (cambio.cambio) {
+    deps.vaciarCacheDeAuth();
+  }
+  return { id: cambio.id, industry: cambio.industry };
 }

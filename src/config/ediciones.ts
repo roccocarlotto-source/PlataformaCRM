@@ -1,4 +1,5 @@
 import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
+import type { RoleName } from "../types/auth";
 
 // ---------------------------------------------------------------------------
 // Catálogo de módulos por edición y por rubro (docs/ediciones.md §5,
@@ -168,6 +169,33 @@ export function edicionesDisponibles(
   return esencialHabilitada ? ["COMPLETA", "ESENCIAL"] : ["COMPLETA"];
 }
 
+// ---------------------------------------------------------------------------
+// CLINICA todavía no se ofrece (docs/rubros.md §15, R3): el alta y la
+// configuración existen, pero sin el resto del plan una clínica quedaría a
+// medias. Mismo molde que ESENCIAL_HABILITADA: es la ÚNICA llave, el alta y el
+// cambio de rubro la consultan por rubrosDisponibles() y la pantalla de
+// Plataforma se entera por GET /api/admin/organizations/industries. Se pone en
+// true en un PR posterior, cuando haya un mínimo usable.
+// ---------------------------------------------------------------------------
+export const CLINICA_HABILITADA = false;
+
+/** Los rubros que se pueden elegir al dar de alta una organización (o al
+ *  cambiarle el rubro), en el orden en que se muestran. */
+export function rubrosDisponibles(
+  clinicaHabilitada: boolean = CLINICA_HABILITADA,
+): readonly OrganizationIndustry[] {
+  return clinicaHabilitada ? ["AUTOMOTORA", "CLINICA"] : ["AUTOMOTORA"];
+}
+
+/** Los roles que admite cada rubro (docs/rubros.md §11.1). Hoy solo los usa
+ *  el cambio de rubro (D1): 409 si la organización tiene usuarios con un rol
+ *  que el rubro nuevo no admite. R12 suma RECEPCION a CLINICA y valida con
+ *  esto las invitaciones y el cambio de rol. */
+export const ROLES_POR_RUBRO: Readonly<Record<OrganizationIndustry, readonly RoleName[]>> = {
+  AUTOMOTORA: ["ADMIN", "USER"],
+  CLINICA: ["ADMIN"],
+};
+
 /** El proceso de venta fijo de ESENCIAL (§2.1): se crea en el alta, en la
  *  misma transacción, y queda invisible (ESENCIAL no tiene /pipelines ni
  *  /stages). Vendida y Perdida son las etapas ganada y perdida a las que el
@@ -200,6 +228,10 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "POST /api/admin/organizations",
     "GET /api/admin/organizations/editions",
     "PATCH /api/admin/organizations/:organizationId/edition",
+    // Rubros (docs/rubros.md §15, R3): los que se pueden elegir en el alta, y
+    // cambiar el rubro de una organización sin datos (D1).
+    "GET /api/admin/organizations/industries",
+    "PATCH /api/admin/organizations/:organizationId/industry",
     "GET /api/admin/llm-usage",
     "PUT /api/admin/agents/:agentId/facebook-page",
     "PUT /api/admin/agents/:agentId/model",

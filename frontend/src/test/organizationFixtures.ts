@@ -32,6 +32,10 @@ export function makeOrganizationSettings(
     defaultPhoneCountryCode: null,
     timezone: "UTC",
     exchangeRates: [],
+    // Una automotora COMPLETA, como todas las de hoy (docs/rubros.md).
+    edition: "COMPLETA",
+    industry: "AUTOMOTORA",
+    contactTerm: null,
     ...overrides,
   };
 }

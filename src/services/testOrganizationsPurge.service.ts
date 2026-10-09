@@ -125,6 +125,12 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("esencial-cerrada-{ts}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("completa-explicita-{ts}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("esencial-abierta-{ts}", `${C}organizationAdmin.controller.integration-test.ts`),
+  patron("clinica-alta-{ts}", "src/clinicas/altaYConfiguracion.integration-test.ts"),
+  patron("clinica-cerrada-{ts}", "src/clinicas/altaYConfiguracion.integration-test.ts"),
+  patron(
+    "clinica-config-{etiqueta}-{ts}-{hex8}",
+    "src/clinicas/altaYConfiguracion.integration-test.ts",
+  ),
   patron("payment-http-{ts}-{hex8}", `${C}payment.controller.integration-test.ts`),
   patron("widget-test-{ts}-{hex8}", `${C}publicWidget.controller.integration-test.ts`),
   patron("merge-{ts}-{hex8}", `${C}contactMerge.integration-test.ts`),

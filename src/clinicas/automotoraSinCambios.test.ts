@@ -18,6 +18,11 @@ import {
 } from "../services/agentPermissions.service";
 import { armarSystemPrompt } from "../services/agentOrchestration.service";
 import { CATALOGO_DE_TOOLS, toolsHabilitadas } from "../services/agentTools.service";
+import {
+  createOrganizationWithFoundingAdmin,
+  defaultOrganizationAdminDeps,
+} from "../services/organizationAdmin.service";
+import { vocabularioDe } from "../config/vocabulario";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
 
@@ -37,7 +42,8 @@ import { AppError } from "../utils/AppError";
 //
 // Casos de R2: el catálogo de módulos, el gate (rutas, 403 y 400), las tools
 // que se ofrecen y se ejecutan, y el prompt del agente. /api/me, contra la
-// app real, en el par de integración.
+// app real, en el par de integración. Casos de R3: el vocabulario de /api/me
+// y el alta sin nada de clínica.
 // ---------------------------------------------------------------------------
 
 const EDICIONES: OrganizationEdition[] = ["COMPLETA", "ESENCIAL"];
@@ -345,4 +351,96 @@ test("el prompt y las tools que ve el modelo de un agente de automotora no cambi
     fs.writeFileSync(SNAPSHOT_DEL_PROMPT, actual);
   }
   assert.equal(actual, fs.readFileSync(SNAPSHOT_DEL_PROMPT, "utf8"));
+});
+
+// ---------------------------------------------------------------------------
+// R3: el vocabulario que /api/me le devuelve a una automotora son los textos
+// que sus pantallas muestran hoy, escritos acá a mano. Si alguno cambia, es
+// un cambio para todas las automotoras y va en su propio PR.
+// ---------------------------------------------------------------------------
+
+test("vocabulario de una automotora: los textos de hoy, con o sin término del contacto", () => {
+  const esperado = {
+    marca: "Plataforma CRM",
+    contacto: {
+      singular: "cliente",
+      plural: "clientes",
+      singularTitulo: "Cliente",
+      pluralTitulo: "Clientes",
+    },
+    recurso: {
+      singular: "recurso",
+      plural: "recursos",
+      singularTitulo: "Recurso",
+      pluralTitulo: "Recursos",
+    },
+    tipoDeServicio: {
+      singular: "tipo de servicio",
+      plural: "tipos de servicio",
+      singularTitulo: "Tipo de servicio",
+      pluralTitulo: "Tipos de servicio",
+    },
+    reserva: {
+      singular: "reserva",
+      plural: "reservas",
+      singularTitulo: "Reserva",
+      pluralTitulo: "Reservas",
+    },
+    agenda: {
+      singular: "calendario",
+      plural: "calendarios",
+      singularTitulo: "Calendario",
+      pluralTitulo: "Calendarios",
+    },
+    responsable: {
+      singular: "vendedor",
+      plural: "vendedores",
+      singularTitulo: "Vendedor",
+      pluralTitulo: "Vendedores",
+    },
+  };
+  assert.deepEqual(vocabularioDe("AUTOMOTORA", null), esperado);
+  assert.deepEqual(vocabularioDe("AUTOMOTORA", "PACIENTE"), esperado);
+});
+
+test("el alta de una automotora no crea nada de clínica, aunque CLINICA se habilite", async () => {
+  const configuraciones: string[] = [];
+  const result = await createOrganizationWithFoundingAdmin(
+    {
+      organizationName: "Automotora Ejemplo",
+      adminFullName: "Persona de Prueba",
+      adminEmail: "persona@example.com",
+    },
+    {
+      ...defaultOrganizationAdminDeps,
+      supabaseAdmin: () =>
+        ({
+          auth: {
+            admin: {
+              inviteUserByEmail: async (email: string) => ({
+                data: { user: { id: "11111111-1111-4111-8111-111111111111", email } },
+                error: null,
+              }),
+            },
+          },
+        }) as never,
+      frontendOrigin: "https://app.example.com",
+      findUserByEmail: async () => null,
+      findPendingInvitationByEmail: async () => null,
+      findOrganizationBySlug: async () => null,
+      findRoleByName: async () => ({ id: "role-admin" }),
+      createOrganization: async (data) => ({ id: "org-nueva", ...data }),
+      createProcesoDeVentaFijo: async () =>
+        assert.fail("una automotora COMPLETA no tiene proceso fijo"),
+      createClinicSettings: async (organizationId) => {
+        configuraciones.push(organizationId);
+      },
+      clinicaHabilitada: true,
+      createUser: async (data) => ({ ...data }),
+      transaction: (fn) => fn({} as never),
+    },
+  );
+  assert.equal(result.organization.industry, "AUTOMOTORA");
+  assert.equal(result.organization.edition, "COMPLETA");
+  assert.deepEqual(configuraciones, []);
 });

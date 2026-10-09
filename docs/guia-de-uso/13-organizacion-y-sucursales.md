@@ -12,8 +12,9 @@ agentes de IA.
 
 En el menú: **Administración → Organización**. Es una sola pantalla con los
 datos generales de la organización, agrupados en tarjetas. Los cambios de
-las primeras tres tarjetas se guardan con el botón **Guardar** del final;
-las otras dos son informativas.
+**Moneda**, **Teléfonos**, **Zona horaria** y, en una clínica, de **Cómo
+llamar a los contactos** se guardan con el botón **Guardar** del final; el
+resto es informativo.
 
 ### Moneda
 
@@ -45,6 +46,17 @@ Elegí tu ciudad (Montevideo, Buenos Aires, Santiago, São Paulo, etc.). No
 confundir con la zona horaria de cada sucursal (ver
 [Crear o editar una sucursal](#nueva-sucursal)): esa define los horarios de
 los turnos y del horario de atención.
+
+### Rubro y edición
+
+Solo lectura. Muestra el **Rubro** de la organización (por ejemplo,
+**Automotora**) y su **Edición** (por ejemplo, **Completa**). Los dos los
+define el equipo de la plataforma al dar de alta la organización; si hace
+falta cambiarlos, pedíselo.
+
+En una clínica aparece además **Cómo llamar a los contactos**: **Paciente** o
+**Cliente**. Es la palabra con la que el sistema nombra a las personas que
+atiende la clínica. Elegí la que corresponda y tocá **Guardar**.
 
 ### Cotización vigente
 

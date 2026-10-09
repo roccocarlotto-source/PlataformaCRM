@@ -11,6 +11,7 @@ import type {
   CreateOrganizationInput,
   CreateOrganizationResponse,
   EdicionesDisponibles,
+  RubrosDisponibles,
   LlmUsageSummary,
   MetaAuthorization,
   MetaConnectionPendiente,
@@ -34,6 +35,12 @@ export function createOrganization(
 // PR 4). Con una sola, la pantalla no muestra el selector.
 export function listEditions(signal?: AbortSignal): Promise<EdicionesDisponibles> {
   return request<EdicionesDisponibles>("/admin/organizations/editions", { getAccessToken, signal });
+}
+
+// Los rubros que se pueden elegir hoy en el alta (docs/rubros.md §15, R3).
+// Con uno solo, la pantalla no muestra el selector.
+export function listIndustries(signal?: AbortSignal): Promise<RubrosDisponibles> {
+  return request<RubrosDisponibles>("/admin/organizations/industries", { getAccessToken, signal });
 }
 
 // Devuelve el agente actualizado, con la misma forma que GET /api/agents/:id.
