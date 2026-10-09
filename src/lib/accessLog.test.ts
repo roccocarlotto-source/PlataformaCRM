@@ -35,6 +35,7 @@ const AUTH: AuthContext = {
   email: "admin@ejemplo.test",
   fullName: "Admin de Prueba",
   edition: "COMPLETA",
+  industry: "AUTOMOTORA",
 };
 
 test("registra quién, qué recurso y de qué clase", () => {

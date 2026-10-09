@@ -1,16 +1,20 @@
-import type { OrganizationEdition } from "@prisma/client";
+import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
-// Catálogo de módulos por edición (docs/ediciones.md §5). ÚNICA fuente de
-// verdad de qué puede usar una organización según su edición:
+// Catálogo de módulos por edición y por rubro (docs/ediciones.md §5,
+// docs/rubros.md §1.2). ÚNICA fuente de verdad de qué puede usar una
+// organización según su edición y su rubro, que se combinan por intersección
+// en modulosDe:
 //
 //   - el gate de rutas (middlewares/moduloDeLaEdicion.ts, que corre dentro de
 //     `authenticate`) lo lee para responder 403 MODULO_NO_INCLUIDO;
 //   - los bloqueos por campo (400 CAMPO_NO_INCLUIDO) salen de CAMPOS_POR_RUTA;
 //   - /api/me devuelve `modulos` desde acá, para que el frontend no tenga una
-//     tabla propia que se desincronice.
+//     tabla propia que se desincronice;
+//   - las tools del agente de clientes se filtran con toolDelRubro.
 //
-// COMPLETA tiene TODOS los módulos: para ella el gate es un no-op total.
+// COMPLETA + AUTOMOTORA (todas las organizaciones de hoy) tiene TODOS los
+// módulos: para ella el gate es un no-op total.
 //
 // Cada ruta montada está clasificada: o en RUTAS_POR_MODULO (rutas con
 // `authenticate`) o en RUTAS_PUBLICAS (rutas sin sesión de usuario: health,
@@ -78,10 +82,72 @@ export const MODULOS_POR_EDICION: Readonly<Record<OrganizationEdition, ReadonlyS
   ESENCIAL: new Set<Modulo>(MODULOS.filter((m) => !SOLO_COMPLETA.has(m))),
 };
 
-/** Los módulos de una organización. La única función que decide: el gate y
- *  /api/me la usan (docs/rubros.md la extiende con el rubro). */
-export function modulosDe(edition: OrganizationEdition): ReadonlySet<Modulo> {
-  return MODULOS_POR_EDICION[edition];
+// Los módulos de cada rubro (docs/rubros.md §2). AUTOMOTORA es todo lo que
+// existía antes de los rubros: con ella, modulosDe(e, "AUTOMOTORA") es
+// exactamente lo que era modulosDe(e) (lo fija
+// src/clinicas/automotoraSinCambios.test.ts). Los módulos propios de clínica
+// (agenda_clinica, recordatorios_de_turno, post_turno, recepcion) entran a
+// MODULOS con el PR que les da rutas, y a SOLO_CLINICA para que AUTOMOTORA no
+// los tenga.
+const SOLO_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>([]);
+
+// Lo que una clínica no tiene (docs/rubros.md §2 y §2.1, D3): el stock de
+// vehículos (con sync-vehicles, que es del módulo stock), las oportunidades y
+// todo lo que cuelga de ellas.
+const FUERA_DE_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>([
+  "stock",
+  "oportunidades",
+  "procesos_de_venta",
+  "cotizaciones",
+  "pagos",
+  "entregas",
+  "empresas",
+  "dashboard_comercial",
+  "financiacion",
+  "permutas",
+]);
+
+export const MODULOS_POR_RUBRO: Readonly<Record<OrganizationIndustry, ReadonlySet<Modulo>>> = {
+  AUTOMOTORA: new Set<Modulo>(MODULOS.filter((m) => !SOLO_CLINICA.has(m))),
+  CLINICA: new Set<Modulo>(MODULOS.filter((m) => !FUERA_DE_CLINICA.has(m))),
+};
+
+// Las cuatro combinaciones, precalculadas: el gate no arma sets por request.
+const MODULOS_POR_COMBINACION: ReadonlyMap<string, ReadonlySet<Modulo>> = (() => {
+  const mapa = new Map<string, ReadonlySet<Modulo>>();
+  for (const [edition, deLaEdicion] of Object.entries(MODULOS_POR_EDICION)) {
+    for (const [industry, delRubro] of Object.entries(MODULOS_POR_RUBRO)) {
+      mapa.set(
+        `${edition}/${industry}`,
+        new Set<Modulo>(MODULOS.filter((m) => deLaEdicion.has(m) && delRubro.has(m))),
+      );
+    }
+  }
+  return mapa;
+})();
+
+/** Los módulos de una organización: los de su edición Y los de su rubro (el
+ *  rubro nunca agrega lo que la edición quita, docs/rubros.md §0.4). La única
+ *  función que decide: el gate, /api/me y las tools la usan. */
+export function modulosDe(
+  edition: OrganizationEdition,
+  industry: OrganizationIndustry,
+): ReadonlySet<Modulo> {
+  const modulos = MODULOS_POR_COMBINACION.get(`${edition}/${industry}`);
+  if (!modulos) throw new Error(`Combinación sin catálogo: ${edition}/${industry}`);
+  return modulos;
+}
+
+/** Por qué una organización no tiene un módulo (D12 de docs/rubros.md). Si su
+ *  rubro no lo tiene, "RUBRO", aunque la edición tampoco lo tenga: subir de
+ *  edición no se lo daría. Si no, "EDICION". */
+export type MotivoDeExclusion = "EDICION" | "RUBRO";
+
+export function motivoDeExclusion(
+  modulo: Modulo,
+  industry: OrganizationIndustry,
+): MotivoDeExclusion {
+  return MODULOS_POR_RUBRO[industry].has(modulo) ? "EDICION" : "RUBRO";
 }
 
 /** Módulos sin rutas propias: el test de clasificación los tolera.
@@ -175,7 +241,6 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "GET /api/knowledge-base",
     "POST /api/knowledge-base",
     "POST /api/knowledge-base/extract-text",
-    "POST /api/knowledge-base/sync-vehicles",
     "GET /api/knowledge-base/:id",
     "PATCH /api/knowledge-base/:id",
     "DELETE /api/knowledge-base/:id",
@@ -212,6 +277,11 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "PATCH /api/bookings/:id/cancel",
   ],
   stock: [
+    // Vuelca el stock a la base de conocimiento: sin stock no hay nada que
+    // volcar (docs/rubros.md §2, "Sin sync-vehicles"). Las dos ediciones
+    // tienen stock, así que pasar acá desde base_de_conocimiento no cambia
+    // nada para una automotora.
+    "POST /api/knowledge-base/sync-vehicles",
     "GET /api/vehicles",
     "POST /api/vehicles",
     "GET /api/vehicles/:id",
@@ -356,10 +426,12 @@ export const RUTAS_PUBLICAS: readonly string[] = [
   "POST /api/invitations/accept",
 ];
 
-/** Bloqueos por campo (docs/ediciones.md §5.3): un campo de un módulo que la
- *  edición no tiene, con un valor distinto de null, da 400 CAMPO_NO_INCLUIDO.
- *  pipelineId y stageId de oportunidades van en el PR 5, junto con el
- *  pipeline fijo. */
+/** Bloqueos por campo (docs/ediciones.md §5.3, docs/rubros.md §1.2): un campo
+ *  de un módulo que la organización no tiene, por edición o por rubro, con un
+ *  valor distinto de null, da 400 CAMPO_NO_INCLUIDO. Una sola lista para los
+ *  dos: el módulo del campo decide, con modulosDe, igual que en las rutas.
+ *  pipelineId y stageId de oportunidades van en el PR 5 de ediciones, junto
+ *  con el pipeline fijo. */
 export const CAMPOS_POR_RUTA: Readonly<
   Record<string, readonly { campo: string; modulo: Modulo }[]>
 > = (() => {
@@ -372,11 +444,16 @@ export const CAMPOS_POR_RUTA: Readonly<
     "financingInstallmentAmount",
   ].map((campo) => ({ campo, modulo: "financiacion" as const }));
   const permuta = [{ campo: "tradeInOpportunityId", modulo: "permutas" as const }];
+  // Los que hoy solo excluye el rubro (CLINICA): las dos ediciones tienen
+  // stock y oportunidades.
+  const vehiculoDeInteres = [{ campo: "vehicleOfInterestId", modulo: "stock" as const }];
+  const oportunidad = [{ campo: "opportunityId", modulo: "oportunidades" as const }];
   return {
     "POST /api/contacts": empresa,
-    "PATCH /api/contacts/:id": empresa,
-    "POST /api/activities": empresa,
-    "PATCH /api/activities/:id": empresa,
+    "PATCH /api/contacts/:id": [...empresa, ...vehiculoDeInteres],
+    "POST /api/activities": [...empresa, ...oportunidad],
+    "PATCH /api/activities/:id": [...empresa, ...oportunidad],
+    "POST /api/bookings": oportunidad,
     "POST /api/opportunities": [...empresa, ...financiacion],
     "PATCH /api/opportunities/:id": [...empresa, ...financiacion],
     "POST /api/vehicles": permuta,
@@ -398,4 +475,58 @@ const MODULO_DE_LA_RUTA: ReadonlyMap<string, Modulo> = (() => {
 /** El módulo de una ruta autenticada, o undefined si no está clasificada. */
 export function moduloDeLaRuta(ruta: string): Modulo | undefined {
   return MODULO_DE_LA_RUTA.get(ruta);
+}
+
+// ---------------------------------------------------------------------------
+// Tools del agente de clientes por rubro (docs/rubros.md §5.1): los mismos
+// módulos que las rutas. Una tool está en el rubro si su módulo está en
+// modulosDe. Se aplica en los dos lugares de siempre: toolsHabilitadas (lo
+// que se le ofrece al modelo) y puedeEjecutarTool (lo que se ejecuta).
+//
+// AUTOMOTORA no filtra NADA, en ninguna edición: el filtro por edición y por
+// nivel de IA es el PR 6 de docs/ediciones.md.
+// ---------------------------------------------------------------------------
+
+/** El módulo de cada tool de CATALOGO_DE_TOOLS (agentTools.service.ts).
+ *  src/clinicas/automotoraSinCambios.test.ts falla si falta una.
+ *  request_human_handoff no está: es la tool del sistema y se ofrece siempre. */
+export const MODULO_DE_LA_TOOL: Readonly<Record<string, Modulo>> = {
+  search_vehicles: "stock",
+  reserve_vehicle: "stock",
+  create_opportunity: "oportunidades",
+  update_opportunity: "oportunidades",
+  get_service_types: "agenda",
+  get_availability: "agenda",
+  create_booking: "agenda",
+  get_contact_info: "contactos",
+  create_lead: "contactos",
+  update_lead: "contactos",
+  mark_no_interest: "contactos",
+  update_contact_custom_fields: "campos_personalizados",
+  get_contact_activities: "tareas",
+  // No usa el módulo de pagos: lee el link de pago y los datos de
+  // transferencia de la sucursal (docs/ediciones.md D11). En CLINICA queda
+  // afuera por TOOLS_FUERA_DEL_RUBRO, no por su módulo.
+  get_payment_info: "sucursales",
+};
+
+/** Tools que un rubro no tiene aunque tenga su módulo. En CLINICA el agente
+ *  informa precios y medios de pago, pero no manda un link de pago
+ *  (docs/rubros.md §5.1 y §5.5, B7). */
+const TOOLS_FUERA_DEL_RUBRO: Readonly<Record<OrganizationIndustry, ReadonlySet<string>>> = {
+  AUTOMOTORA: new Set<string>(),
+  CLINICA: new Set<string>(["get_payment_info"]),
+};
+
+/** Si una tool está en el rubro de la organización. En AUTOMOTORA, siempre.
+ *  En otro rubro, una tool sin módulo conocido no está (falla cerrado). */
+export function toolDelRubro(
+  nombre: string,
+  edition: OrganizationEdition,
+  industry: OrganizationIndustry,
+): boolean {
+  if (industry === "AUTOMOTORA") return true;
+  if (TOOLS_FUERA_DEL_RUBRO[industry].has(nombre)) return false;
+  const modulo = Object.hasOwn(MODULO_DE_LA_TOOL, nombre) ? MODULO_DE_LA_TOOL[nombre] : undefined;
+  return modulo !== undefined && modulosDe(edition, industry).has(modulo);
 }

@@ -73,6 +73,18 @@ export async function findDefaultPhoneCountryCode(
 }
 
 // ---------------------------------------------------------------------------
+// La edición y el rubro de una organización, para lo que no pasa por HTTP y no
+// tiene AuthContext: el turno del agente de clientes (docs/rubros.md §5.1).
+// findUniqueOrThrow: el agente que la pide es de esa organización (FK), así
+// que si no existe es un error, no un "sin rubro".
+export function findEdicionYRubro(organizationId: string, db: Db = prisma) {
+  return db.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { edition: true, industry: true },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Configuración de moneda del módulo de stock de vehículos (Fase 2c). Las
 // lecturas devuelven el row completo de Organization para el service; es el
 // SERVICE el que recorta a la forma pública (ver organization.service.ts —

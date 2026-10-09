@@ -717,6 +717,7 @@ function mountBusinessWrite(app: express.Express, max: number) {
         email: `${userId}@example.test`,
         fullName: "Test User",
         edition: "COMPLETA",
+        industry: "AUTOMOTORA",
       } satisfies AuthContext;
       next();
     },
@@ -806,6 +807,7 @@ function mountPreviewAndBusinessWrite(app: express.Express, previewMax: number, 
       email: `${userId}@example.test`,
       fullName: "Test User",
       edition: "COMPLETA",
+      industry: "AUTOMOTORA",
     } satisfies AuthContext;
     next();
   };

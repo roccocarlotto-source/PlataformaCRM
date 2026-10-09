@@ -29,6 +29,7 @@ import {
   type CreateMessageData,
 } from "../repositories/message.repository";
 import { findVouchersDelContacto } from "../repositories/discountVoucher.repository";
+import { findEdicionYRubro } from "../repositories/organization.repository";
 import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
 import { describirValor, type DefinicionDeCampo } from "../utils/camposPersonalizados";
@@ -47,7 +48,11 @@ import {
 import { esNombreProvisorio, tieneNombreCompleto } from "../utils/nombreProvisorio";
 import { isoEnZona } from "../utils/timezone";
 import { createActivity } from "./activity.service";
-import { puedeEjecutarTool, type DatosDisponibles } from "./agentPermissions.service";
+import {
+  puedeEjecutarTool,
+  type AgentParaPermisos,
+  type DatosDisponibles,
+} from "./agentPermissions.service";
 import { generarBriefDeConversacion } from "./conversationBrief.service";
 import { estaVencido } from "./discountVoucher.service";
 import { PREFIJO_TAREA_DE_DERIVACION, findTareaAbiertaDelPedido } from "./tareaDelPedido";
@@ -2060,6 +2065,7 @@ export async function responderEnLaConversacion(
     ultimosMensajes,
     cuponesDelContacto,
     camposPersonalizados,
+    organizacion,
   ] = await Promise.all([
     humanoAtiendeLaConversacion(conversation),
     findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
@@ -2069,6 +2075,9 @@ export async function responderEnLaConversacion(
     findVouchersDelContacto(organizationId, contact.id, MAX_CUPONES_EN_EL_PROMPT),
     // B6: las definiciones de campos personalizados, en la misma ida.
     definicionesParaValidar(organizationId),
+    // La edición y el rubro, para las tools (docs/rubros.md §5.1), en la
+    // misma ida.
+    findEdicionYRubro(organizationId),
   ]);
   if (hayHumano) {
     return {
@@ -2138,7 +2147,7 @@ export async function responderEnLaConversacion(
     new Set(options.entrantesPendientes ?? []),
   );
   const historial = aHistorial(mensajes, options.adjuntos);
-  const tools = toolsHabilitadas(agent.enabledTools);
+  const tools = toolsHabilitadas(agent.enabledTools, organizacion);
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));
   // El catálogo filtrado por enabledTools + la tool del sistema, SIEMPRE.
   const definiciones = [...tools.map((t) => t.definition), REQUEST_HUMAN_HANDOFF_TOOL];
@@ -2282,7 +2291,7 @@ export async function responderEnLaConversacion(
       const entrada: ToolCallDelTurno =
         indice < MAX_TOOL_CALLS_PER_ROUND
           ? await resolverToolCall(llamada, {
-              agent,
+              agent: { ...agent, organizacion },
               toolsPorNombre,
               datosDisponibles,
               contextoDeTools,
@@ -2621,7 +2630,7 @@ export function argumentosDeclarados(
 export async function resolverToolCall(
   llamada: LlmToolCall,
   deps: {
-    agent: { enabledTools: string[]; guardrails: unknown };
+    agent: AgentParaPermisos;
     toolsPorNombre: Map<string, ToolDelAgente>;
     datosDisponibles: DatosDisponibles;
     contextoDeTools: ContextoDeEjecucionDeTool;

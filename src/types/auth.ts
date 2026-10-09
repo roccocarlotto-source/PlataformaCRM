@@ -1,4 +1,4 @@
-import type { OrganizationEdition } from "@prisma/client";
+import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import type { Request } from "express";
 
 // Catálogo de roles soportado hoy. Coincide con los valores esperados en la
@@ -33,6 +33,9 @@ export interface AuthContext {
   // en el mismo JOIN que la organización: nunca viene del cliente. La usa el
   // gate de módulos (middlewares/moduloDeLaEdicion.ts).
   edition: OrganizationEdition;
+  // El rubro de la organización (docs/rubros.md §1.1), por el mismo JOIN y con
+  // las mismas garantías que la edición. El gate decide con los dos.
+  industry: OrganizationIndustry;
 }
 
 // Para controllers que corren después de `authenticate`: `auth` ya no es

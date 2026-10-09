@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { OrganizacionDelAgente } from "./agentPermissions.service";
 import {
   CONSULTAS_QUE_NO_SON_INICIATIVA,
   INICIATIVAS_DEL_CLIENTE,
@@ -25,6 +26,9 @@ import {
   tituloConUnidad,
   precioOcultoParaElModelo,
 } from "./agentTools.service";
+
+// Una automotora de hoy: no filtra ninguna tool (docs/rubros.md §5.1).
+const AUTOMOTORA: OrganizacionDelAgente = { edition: "COMPLETA", industry: "AUTOMOTORA" };
 
 // B2 (migración 20261022120000): todo canal tiene su origen de oportunidad.
 // Antes Messenger e Instagram no estaban en el mapa y la oportunidad que el
@@ -110,12 +114,15 @@ test("ninguna tool expone contactId, ownerId ni pipelineId al modelo", () => {
 });
 
 test("toolsHabilitadas es la intersección con el catálogo, en el orden del agente", () => {
-  const tools = toolsHabilitadas(["create_booking", "tool_inventada", "create_opportunity"]);
+  const tools = toolsHabilitadas(
+    ["create_booking", "tool_inventada", "create_opportunity"],
+    AUTOMOTORA,
+  );
   assert.deepEqual(
     tools.map((t) => t.definition.name),
     ["create_booking", "create_opportunity"],
   );
-  assert.deepEqual(toolsHabilitadas([]), []);
+  assert.deepEqual(toolsHabilitadas([], AUTOMOTORA), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -125,14 +132,13 @@ test("toolsHabilitadas es la intersección con el catálogo, en el orden del age
 test("reserve_vehicle solo se le ofrece al modelo si el agente la tiene en enabledTools", () => {
   // Es toda la configurabilidad: ningún agente existente la tiene, así que la
   // reserva por IA arranca apagada para todos.
-  const sinReserva = toolsHabilitadas([
-    "create_opportunity",
-    "update_opportunity",
-    "search_vehicles",
-  ]).map((t) => t.definition.name);
+  const sinReserva = toolsHabilitadas(
+    ["create_opportunity", "update_opportunity", "search_vehicles"],
+    AUTOMOTORA,
+  ).map((t) => t.definition.name);
   assert.ok(!sinReserva.includes("reserve_vehicle"));
 
-  const conReserva = toolsHabilitadas(["create_opportunity", "reserve_vehicle"]).map(
+  const conReserva = toolsHabilitadas(["create_opportunity", "reserve_vehicle"], AUTOMOTORA).map(
     (t) => t.definition.name,
   );
   assert.deepEqual(conReserva, ["create_opportunity", "reserve_vehicle"]);

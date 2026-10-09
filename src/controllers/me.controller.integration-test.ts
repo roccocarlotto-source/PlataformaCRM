@@ -160,7 +160,7 @@ async function createOrphanAuthUser(label: string) {
   return { accessToken: signInData.session.access_token, authUserId: data.user.id };
 }
 
-test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role/isPlatformAdmin/canUseInternalAgent/edition/modulos", async () => {
+test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role/isPlatformAdmin/canUseInternalAgent/edition/industry/modulos", async () => {
   const fx = await createFixtureUser("happy", "ADMIN");
   const { url, close } = await startTestApp();
   try {
@@ -179,6 +179,8 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
         "email",
         "fullName",
         "id",
+        // Rubros (docs/rubros.md §1.2): el rubro de la organización.
+        "industry",
         // Si la organización tiene un agente interno (OPUS-F-04 / FABLE-F-07,
         // docs-privados, local).
         "internalAgentConfigured",
@@ -200,9 +202,10 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     // Ítem 180: un ADMIN siempre puede usar el agente interno, aunque su
     // columna User.canUseInternalAgent quede en el default false.
     assert.equal(body.canUseInternalAgent, true);
-    // Una organización sin edición explícita es COMPLETA: tiene todos los
-    // módulos del catálogo.
+    // Una organización sin edición ni rubro explícitos es COMPLETA y
+    // AUTOMOTORA: tiene todos los módulos del catálogo.
     assert.equal(body.edition, "COMPLETA");
+    assert.equal(body.industry, "AUTOMOTORA");
     assert.deepEqual(body.modulos, [...MODULOS]);
   } finally {
     await close();

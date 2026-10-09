@@ -53,19 +53,23 @@ if (KEY === undefined || KEY.length === 0) {
 const INSTRUCCIONES = `Sos el asistente de ventas de AutoMax. Respondé consultas sobre stock, precios y financiación, calificá al lead y ofrecé coordinar un test drive. Nunca inventes precios que no estén en el sistema.`;
 const TONO = "Cordial y directo, tuteando al cliente.";
 
-const TOOLS = toolsHabilitadas([
-  "search_vehicles",
-  "get_payment_info",
-  "get_service_types",
-  "get_availability",
-  "create_booking",
-  "create_opportunity",
-  "update_opportunity",
-  "create_lead",
-  "update_lead",
-  "get_contact_info",
-  "get_contact_activities",
-])
+const TOOLS = toolsHabilitadas(
+  [
+    "search_vehicles",
+    "get_payment_info",
+    "get_service_types",
+    "get_availability",
+    "create_booking",
+    "create_opportunity",
+    "update_opportunity",
+    "create_lead",
+    "update_lead",
+    "get_contact_info",
+    "get_contact_activities",
+  ],
+  // Una automotora de hoy, como el agente de arriba.
+  { edition: "COMPLETA", industry: "AUTOMOTORA" },
+)
   .map((t) => t.definition)
   // request_human_handoff no está en el catálogo: la agrega el orquestador,
   // siempre. Sin ella la sonda no puede medir nada sobre derivación.

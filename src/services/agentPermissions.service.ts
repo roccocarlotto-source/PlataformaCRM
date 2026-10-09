@@ -1,3 +1,6 @@
+import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
+import { toolDelRubro } from "../config/ediciones";
+
 // ---------------------------------------------------------------------------
 // Capa de permisos del agente de IA — puedeEjecutarTool (docs/ai-agent-
 // architecture.md §6). Es la pieza que hace cumplir CON CÓDIGO el principio de
@@ -19,6 +22,14 @@
 export interface AgentParaPermisos {
   enabledTools: string[];
   guardrails: unknown;
+  // La edición y el rubro de la organización del agente: deciden qué tools
+  // existen para ella (toolDelRubro, docs/rubros.md §5.1).
+  organizacion: OrganizacionDelAgente;
+}
+
+export interface OrganizacionDelAgente {
+  edition: OrganizationEdition;
+  industry: OrganizationIndustry;
 }
 
 // Lo que la conversación YA SABE, para la comprobación (4). Lo arma el loop de
@@ -96,6 +107,18 @@ export function puedeEjecutarTool(
     return {
       allowed: false,
       reason: `La acción "${toolName}" no está habilitada para este agente`,
+    };
+  }
+
+  // (1b) La tool tiene que existir en el rubro de la organización
+  // (docs/rubros.md §5.1). En AUTOMOTORA siempre existe. Es la garantía:
+  // toolsHabilitadas ya no se la ofrece al modelo, pero enabledTools puede
+  // tenerla.
+  const { edition, industry } = agent.organizacion;
+  if (!toolDelRubro(toolName, edition, industry)) {
+    return {
+      allowed: false,
+      reason: `La acción "${toolName}" no está disponible para este rubro`,
     };
   }
 
