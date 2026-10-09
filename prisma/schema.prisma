@@ -245,6 +245,25 @@ enum ConversationStatus {
   CLOSED
 }
 
+// Edición de la organización: qué módulos tiene (docs/ediciones.md §1.1).
+// COMPLETA es todo lo que existía antes de las ediciones; ESENCIAL es la
+// edición simple. La elige el platform admin al crear la organización y solo
+// puede subir de ESENCIAL a COMPLETA.
+enum OrganizationEdition {
+  COMPLETA
+  ESENCIAL
+}
+
+// Cuánto hace el agente de IA con el cliente (docs/ediciones.md §1.2 y §4),
+// en las dos ediciones. BORRADOR (la IA redacta y una persona aprueba) es la
+// fase 2 y se agrega con su propia migración: un valor que el backend no sabe
+// ejecutar no va en el enum.
+enum AgentParticipation {
+  AUTONOMA
+  PRIMER_CONTACTO
+  SOLO_SEGUIMIENTO
+}
+
 // INBOUND: llegó del contacto. OUTBOUND: salió del negocio (el agente de IA o
 // una persona). Es ortogonal a senderType a propósito: la dirección dice por
 // dónde viajó el mensaje, el tipo de emisor dice quién lo escribió.
@@ -696,6 +715,11 @@ model Organization {
   // quemaría un número aunque la transacción que lo pidió haga rollback, y
   // el código interno de una automotora tiene que ser correlativo.
   nextVehicleStockNumber  Int     @default(1) @map("next_vehicle_stock_number")
+
+  // Edición (docs/ediciones.md §1.1). Default COMPLETA: las organizaciones
+  // que ya existían quedan como estaban. La lee el trigger
+  // agents_nivel_por_defecto (manual_constraints.sql) al insertar un agente.
+  edition OrganizationEdition @default(COMPLETA)
 
   users         User[]
   companies     Company[]
@@ -2460,6 +2484,22 @@ model Agent {
   // al borrar el agente. VarChar(64), el mismo ancho que
   // MetaPageConnection.pageId: son el mismo dato. NULL = sin página.
   facebookPageId String? @unique @map("facebook_page_id") @db.VarChar(64)
+
+  // Nivel de participación de la IA (docs/ediciones.md §1.2, "Nivel sin
+  // elegir"). NULL = todavía no se eligió, y solo puede pasar en una
+  // organización ESENCIAL. SIN DEFAULT A PROPÓSITO: lo completa el trigger
+  // agents_nivel_por_defecto (manual_constraints.sql), que pone AUTONOMA si
+  // viene NULL y la organización es COMPLETA, y lo deja NULL en ESENCIAL. El
+  // CHECK agents_activo_requiere_nivel_check (en la migración, B-15) impide un
+  // agente activo sin nivel.
+  participation            AgentParticipation?
+  // Cuándo un ADMIN eligió o cambió el nivel. Lo escribe SOLO el service de
+  // agentes; en ESENCIAL el agente atiende solo si no es NULL (§1.2,
+  // "Pendiente del PR 6"). Los agentes anteriores quedan en NULL.
+  participationChosenAt    DateTime?           @map("participation_chosen_at")
+  // Con PRIMER_CONTACTO: dentro del horario de la sucursal el agente no
+  // atiende y deriva (§4.2 c).
+  onlyOutsideBusinessHours Boolean             @default(false) @map("only_outside_business_hours")
 
   isActive  Boolean   @default(true) @map("is_active")
   createdAt DateTime  @default(now()) @map("created_at")

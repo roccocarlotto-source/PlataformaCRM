@@ -259,6 +259,17 @@ test("POST /api/agents — ADMIN crea con el cuerpo mínimo; proveedor y modelo 
   assert.deepEqual(agente.allowedOrigins, [], "paso 5a: sin orígenes = widget deshabilitado");
   assert.equal(agente.isActive, true);
   assert.equal(agente.deletedAt, null);
+
+  // Ediciones (20261030120000): la API todavía no conoce el nivel de IA, y en
+  // una organización COMPLETA el trigger lo completa con AUTONOMA, así que
+  // crear un agente activo sigue andando igual que antes.
+  const enLaBase = await prisma.agent.findUniqueOrThrow({
+    where: { id: agente.id as string },
+    select: { participation: true, participationChosenAt: true, onlyOutsideBusinessHours: true },
+  });
+  assert.equal(enLaBase.participation, "AUTONOMA");
+  assert.equal(enLaBase.participationChosenAt, null, "nadie eligió el nivel");
+  assert.equal(enLaBase.onlyOutsideBusinessHours, false);
 });
 
 test("POST /api/agents — el cuerpo completo se persiste tal cual, con tools y canales deduplicados", async () => {
