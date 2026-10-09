@@ -463,8 +463,9 @@ export const RUTAS_PUBLICAS: readonly string[] = [
  *  de un módulo que la organización no tiene, por edición o por rubro, con un
  *  valor distinto de null, da 400 CAMPO_NO_INCLUIDO. Una sola lista para los
  *  dos: el módulo del campo decide, con modulosDe, igual que en las rutas.
- *  pipelineId y stageId de oportunidades van en el PR 5 de ediciones, junto
- *  con el pipeline fijo. */
+ *  pipelineId y stageId de oportunidades son de procesos_de_venta: sin ese
+ *  módulo, la oportunidad vive en el proceso fijo y el servidor lo elige
+ *  (paso B de docs/ediciones.md §10). */
 export const CAMPOS_POR_RUTA: Readonly<
   Record<string, readonly { campo: string; modulo: Modulo }[]>
 > = (() => {
@@ -477,6 +478,10 @@ export const CAMPOS_POR_RUTA: Readonly<
     "financingInstallmentAmount",
   ].map((campo) => ({ campo, modulo: "financiacion" as const }));
   const permuta = [{ campo: "tradeInOpportunityId", modulo: "permutas" as const }];
+  const procesoDeVenta = ["pipelineId", "stageId"].map((campo) => ({
+    campo,
+    modulo: "procesos_de_venta" as const,
+  }));
   // Los que hoy solo excluye el rubro (CLINICA): las dos ediciones tienen
   // stock y oportunidades.
   const vehiculoDeInteres = [{ campo: "vehicleOfInterestId", modulo: "stock" as const }];
@@ -487,8 +492,8 @@ export const CAMPOS_POR_RUTA: Readonly<
     "POST /api/activities": [...empresa, ...oportunidad],
     "PATCH /api/activities/:id": [...empresa, ...oportunidad],
     "POST /api/bookings": oportunidad,
-    "POST /api/opportunities": [...empresa, ...financiacion],
-    "PATCH /api/opportunities/:id": [...empresa, ...financiacion],
+    "POST /api/opportunities": [...empresa, ...financiacion, ...procesoDeVenta],
+    "PATCH /api/opportunities/:id": [...empresa, ...financiacion, ...procesoDeVenta],
     "POST /api/vehicles": permuta,
     "PATCH /api/vehicles/:id": permuta,
   };

@@ -959,7 +959,7 @@ cada uno deja a COMPLETA igual que hoy:
 | Paso | PR | Contenido |
 |---|---|---|
 | A | `feat(plataforma): pantalla Organizaciones` | **Hecho.** Plataforma → Organizaciones con la edición y "Pasar a edición completa" (confirmación, sobre el `PATCH` del PR 4). Se muestra recién cuando el backend ofrece ESENCIAL: hasta H, el platform admin no ve nada nuevo. |
-| B | `feat(oportunidades): crear sin proceso de venta en ESENCIAL` | Parte backend del PR 5: `pipelineId`/`stageId` opcionales en ESENCIAL y en `CAMPOS_POR_RUTA`, con el test obligatorio de §5.4. |
+| B | `feat(oportunidades): crear sin proceso de venta en ESENCIAL` | **Hecho.** Sin el módulo `procesos_de_venta` (lo decide `modulosDe`, no la edición a mano), `POST /api/opportunities` no lleva `pipelineId` ni `stageId` (400 `CAMPO_NO_INCLUIDO`, también en el PATCH) y el servidor elige el proceso por defecto y la etapa del status pedido (`procesoDeVentaPorDefecto`: Vendida para WON, Perdida para LOST, la primera abierta si no); sin proceso por defecto, 409. COMPLETA usa el mismo schema de siempre. La tool `create_opportunity` del agente mantiene su propia resolución: unificarlas queda para D. |
 | C | `feat(agente): nivel de IA en la API y el formulario` | Parte 1 del PR 6: `participation`, `onlyOutsideBusinessHours`, reglas del "nivel sin elegir" con 400 en vez de 500, `participation_chosen_at`, selector y guía 08. |
 | D | `feat(agente): el loop respeta la edición y el nivel` | Parte 2 del PR 6. **Su diseño se muestra y se aprueba antes de escribir código.** |
 | E | `feat(ediciones): menú, pantallas y guía por edición` | PR 7, con la lista y el formulario simples de oportunidades del PR 5. |
