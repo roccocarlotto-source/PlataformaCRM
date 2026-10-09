@@ -130,6 +130,15 @@ que un ADMIN lo eligió. La regla que decide si el agente atiende un turno es:
 El trigger impide el accidente más probable (un INSERT que no dice nada). Este
 filtro cubre el resto: una escritura explícita de un nivel que nadie eligió.
 
+**Pendiente del PR 6: un agente borrado no atiende.** Borrar un agente
+(`DELETE /api/agents/:id`) solo marca `deleted_at` y deja `is_active = true`.
+Se verificó en producción en la prueba posterior al PR 2 (2026-10-09), y es el
+comportamiento de antes de las ediciones: no lo introdujeron ellas. Por
+eso el filtro que decide si un agente atiende un turno mira **las tres cosas**:
+`deleted_at` vacío, `is_active` y el nivel (con `participation_chosen_at` en
+ESENCIAL). Que un agente esté activo no alcanza. Lleva un test: "agente
+borrado no responde".
+
 **Cómo se ve en el formulario** (`AgentFormPage`):
 
 - **Bloque "Cuánto hace la IA"**, arriba de las instrucciones. Tiene tres
@@ -635,7 +644,10 @@ original se comporte exactamente como hoy.
    - que `participation = null` derive sin llamar al proveedor;
    - (PR 6) en ESENCIAL, un nivel escrito **sin** `participation_chosen_at`
      → el agente no responde y deriva; **con** `chosen_at` → responde según el
-     nivel. En COMPLETA, el mismo agente sin `chosen_at` responde como hoy.
+     nivel. En COMPLETA, el mismo agente sin `chosen_at` responde como hoy;
+   - (PR 6) agente borrado no responde: con `deleted_at` puesto e
+     `is_active = true` (como lo deja el borrado), el agente no corre el
+     turno ni llama al proveedor, en cualquier edición y con cualquier nivel.
 4. **Nivel sin elegir**, en dos partes:
    - **PR 2 (base, por cualquier camino):** el test inserta agentes
      **directo con Prisma**, sin pasar por el service, porque así son los
@@ -861,7 +873,7 @@ fija que empezó a fallar el 2026-10-09 y deja en rojo el CI de cualquier PR.
 | 3 | `feat(ediciones): catálogo de módulos y gate central` | — | **Medio-alto** | `ediciones.ts`, `edition` en `AuthContext`, `gateDeEdicion`, `authenticate` idempotente, refinaciones zod por campo, `edition` y `modulos` en `/me`, test "toda ruta clasificada", suite `ediciones.integration-test.ts` y slugs. Toca cada request: el test de clasificación y el de COMPLETA sin cambios son la red. Depende de 2 aplicado. |
 | 4 | `feat(plataforma): elegir y subir la edición` | — | Medio | `edition` en el alta, con el proceso fijo para ESENCIAL en la misma transacción. `PATCH .../edition` solo hacia arriba y `vaciar()` de la caché. Pantallas de Plataforma y sección 14 de la guía. |
 | 5 | `feat(oportunidades): versión mínima en ESENCIAL` | — | Medio | Status→etapa con el proceso fijo, lista y formulario simples, entrega creada y oculta (D7), sección 04 de la guía. |
-| 6 | `feat(agente): nivel de participación (a, c, d)` | — | **Medio-alto** | Reglas del "nivel sin elegir" en el service de agentes (D3), escritura de `participation_chosen_at` solo al elegir o cambiar el nivel, y bloque "Cuánto hace la IA" en el formulario. **Filtro por edición y nivel**: en ESENCIAL el agente atiende solo con `participation_chosen_at` no `null`; en COMPLETA esa columna no se mira (§1.2, "Pendiente del PR 6"). Gate de horario, tope fijo de 2 respuestas (D12), filtro de tools en los dos lugares, pausa al derivar en PRIMER_CONTACTO, SOLO_SEGUIMIENTO y `null` sin modelo, widget web, seguimiento de consultas con plantilla (§4.5, D9). Sección 08 de la guía. Es la parte más delicada del agente: tests del loop por nivel, incluido el de `chosen_at`. |
+| 6 | `feat(agente): nivel de participación (a, c, d)` | — | **Medio-alto** | Reglas del "nivel sin elegir" en el service de agentes (D3), escritura de `participation_chosen_at` solo al elegir o cambiar el nivel, y bloque "Cuánto hace la IA" en el formulario. **Filtro por edición y nivel**: en ESENCIAL el agente atiende solo con `participation_chosen_at` no `null`; en COMPLETA esa columna no se mira (§1.2, "Pendiente del PR 6"). El filtro mira también `deleted_at`: el borrado deja `is_active = true` (§1.2, "un agente borrado no atiende"), con su test. Gate de horario, tope fijo de 2 respuestas (D12), filtro de tools en los dos lugares, pausa al derivar en PRIMER_CONTACTO, SOLO_SEGUIMIENTO y `null` sin modelo, widget web, seguimiento de consultas con plantilla (§4.5, D9). Sección 08 de la guía. Es la parte más delicada del agente: tests del loop por nivel, incluido el de `chosen_at`. |
 | 7 | `feat(ediciones): menú, pantallas y guía por edición` | — | Medio | `useModulo`, `ModuloRoute`, menú, contactos sin empresa, stock sin permuta, catálogo de automatizaciones, filtro de la guía y test de `AYUDA`. |
 | 8 | `feat(dashboard): dashboard de atención` | — | Bajo | Endpoint y pantalla de §6.4. |
 | 9 | `feat(importacion): sin empresas en ESENCIAL` | — | Bajo | Rechazo de la entidad y aviso en la vista previa. |
