@@ -518,89 +518,127 @@ Decidido en D9.
 
 ## 5. Backend como fuente de verdad
 
+> **Implementado en el PR 3.** Esta sección describe lo que quedó en el código.
+> El diseño original montaba el gate arriba de todo, en `routes/index.ts`, con
+> matchers de path y un `authenticate` idempotente. Se reemplazó por el gate
+> dentro de `authenticate` (§5.2), que es más simple y no puede bloquear una
+> ruta pública por error.
+
 ### 5.1 Catálogo de módulos
 
 Un solo archivo, `src/config/ediciones.ts`, es la fuente de verdad:
 
 ```ts
-export type Modulo =
-  | "comun" | "contactos" | "conversaciones" | "agentes" | "canales"
-  | "base_de_conocimiento" | "usuarios" | "sucursales" | "importacion"
-  | "stock" | "tareas" | "agenda" | "cupones_y_qr" | "automatizaciones"
-  | "dashboard_atencion" | "oportunidades" | "campos_personalizados"
-  | "agente_interno" | "ingesta" | "plataforma"
+export const MODULOS = [
+  "comun", "plataforma", "usuarios", "contactos", "conversaciones", "agentes",
+  "canales", "base_de_conocimiento", "sucursales", "agenda", "stock", "tareas",
+  "cupones_y_qr", "automatizaciones", "oportunidades", "campos_personalizados",
+  "agente_interno", "ingesta",
+  "dashboard_atencion",            // reservado sin rutas: llega con el PR 8 (§6.4)
   // solo COMPLETA:
-  | "procesos_de_venta" | "cotizaciones" | "pagos" | "entregas"
-  | "empresas" | "dashboard_comercial";
+  "procesos_de_venta", "cotizaciones", "pagos", "entregas", "empresas",
+  "dashboard_comercial",
+  "financiacion", "permutas",      // solo campos, sin rutas propias
+] as const;
 
 export const MODULOS_POR_EDICION: Record<OrganizationEdition, ReadonlySet<Modulo>>;
-
-/** Cada ruta montada, clasificada. Un test falla si aparece una ruta sin clasificar. */
-export const RUTAS_POR_MODULO: ReadonlyArray<{ metodo: string; ruta: string; modulo: Modulo }>;
+export function modulosDe(edition): ReadonlySet<Modulo>;   // la única que decide
+export const RUTAS_POR_MODULO: Record<Modulo, readonly string[]>; // "MÉTODO /api/patron"
+export const RUTAS_PUBLICAS: readonly string[];            // rutas sin authenticate
+export const MODULOS_SIN_RUTAS: ReadonlySet<Modulo>;       // dashboard_atencion, financiacion, permutas
+export const CAMPOS_POR_RUTA: Record<string, { campo; modulo }[]>; // bloqueos por campo (§5.3)
 ```
 
-### 5.2 Gate central, no ruta por ruta
+Las rutas se escriben con el patrón tal como lo registra Express
+(`"GET /api/quotes/:id"`). `docs/rubros.md` extiende `modulosDe` con el rubro:
+sigue habiendo un solo gate.
+
+### 5.2 Gate dentro de `authenticate`
 
 **Restricción del repo:** no hay middleware global de auth. Cada ruta declara
-`authenticate`, y todos los routers se montan en `/api` sin subprefijo
-(`routes/index.ts`). Un `router.use(gate)` sin path interceptaría cualquier
-request que pase por ese router.
+`authenticate`, y todos los routers se montan en `/api` sin subprefijo.
 
-**Propuesta:**
+**Cómo quedó:**
 
-1. `findUserForAuth` (`user.repository.ts:42-63`) ya hace `JOIN organizations`.
-   Se suma `o.edition` al SELECT y `edition` a `AuthContext`
-   (`types/auth.ts:126-132`).
-2. Un único middleware `gateDeEdicion`, montado una vez al principio de
-   `routes` en `routes/index.ts`:
-   - Busca el `metodo + path` del request en `RUTAS_POR_MODULO`, compilado una
-     vez a matchers.
-   - Si el módulo es `comun` o está en todas las ediciones, sigue sin hacer
-     nada (sin costo).
-   - Si no, corre `authenticate` (que deja `req.auth`) y verifica
-     `MODULOS_POR_EDICION[req.auth.edition]`.
-   - `authenticate` aprende a no repetir el trabajo si `req.auth` ya existe
-     (un `if` al principio). Así la ruta, que declara su `authenticate` como
-     siempre, no verifica el JWT dos veces.
-3. **Respuesta:** **403** con `code: "MODULO_NO_INCLUIDO"` y el nombre del
-   módulo. El frontend lo usa para mostrar "Disponible en la edición
-   completa", y no oculta nada que no sea público (el repo es público y los
-   módulos son conocidos). Ver D10.
-4. **Rutas públicas o sin organización** (`/api/public`, webhooks, `/qr/resolve`,
-   `/vouchers/resolve`, onboarding, `/admin/...`) se clasifican como `comun` o
-   `plataforma`. Las de `/admin/organizations/:organizationId/...` aplican la
-   edición de **esa** organización cuando el módulo lo requiere, por ejemplo
-   importar empresas a una ESENCIAL.
+1. `findUserForAuth` ya hacía `JOIN organizations`: se suma `o.edition` al
+   SELECT y `edition` a `AuthContext`. La edición viaja con el contexto de
+   autenticación, que ya se cacheaba por usuario (`AUTH_CONTEXT_CACHE_TTL_MS`,
+   5 s): **ninguna consulta extra por pedido**. Sale siempre de la base, nunca
+   de un header ni del body.
+2. `authenticate`, apenas resolvió `req.auth`, llama a
+   `exigirModuloDeLaEdicion(req, auth)` (`src/middlewares/moduloDeLaEdicion.ts`).
+   Es el único punto que decide; ninguna ruta lo llama a mano.
+   - Identifica la ruta por método + `req.baseUrl` + `req.route.path`, el
+     patrón exacto que registró Express. Sin regex de paths. `HEAD` cuenta como
+     `GET`.
+   - **COMPLETA: no-op total.** Retorna antes de buscar nada.
+   - **ESENCIAL:** si el módulo de la ruta no está incluido, **403**
+     `{ code: "MODULO_NO_INCLUIDO", modulo }` (D10).
+3. **Orden de respuestas:** un pedido sin sesión, o con un token inválido,
+   sigue dando **401**, porque `authenticate` falla antes de llegar al gate. El
+   403 `MODULO_NO_INCLUIDO` solo lo ve un usuario ya autenticado de una
+   organización ESENCIAL.
+4. **Rutas que no dependen de la edición del usuario.** Las rutas sin
+   `authenticate` nunca pasan por el gate, así que no se pueden bloquear por
+   error:
+   - health;
+   - webhooks de WhatsApp, Meta y Google Calendar;
+   - ingesta por API key;
+   - widget web;
+   - callbacks de OAuth y enlaces públicos de QR y cupones;
+   - onboarding y aceptar invitación.
 
-**Caminos que no pasan por HTTP** y el gate no ve (se cubren en sus propios
-puntos, con la misma tabla):
+   Están listadas en `RUTAS_PUBLICAS`. Las de Plataforma (`/api/admin/*`) sí
+   tienen `authenticate`, pero su módulo `plataforma` está en las dos ediciones.
+   Las protege `requirePlatformAdmin`, como siempre. La edición de la
+   organización **destino** de una importación es asunto del PR 9.
+5. **Ruta autenticada sin clasificar, en runtime:** en COMPLETA se permite
+   (no-op). En ESENCIAL se bloquea: falla cerrado, con 403
+   `MODULO_NO_INCLUIDO`, `modulo: "sin_clasificar"` y un log de error. El test
+   de clasificación (§5.4) impide mergearla en las dos ediciones.
+6. **Cambio de edición (PR 4):** la ruta que la cambie llama a `vaciar()` de
+   la caché de autenticación. Con un solo proceso, el cambio se ve en el acto;
+   con varios, en a lo sumo el TTL.
+
+**Caminos que no pasan por HTTP** y el gate no ve. Se cubren en sus propios
+puntos, con la misma tabla:
 
 | Camino | Dónde se valida |
 |---|---|
 | Tools del agente de clientes | `toolsHabilitadas` y `puedeEjecutarTool` (§6.1) |
 | Tools del agente interno | Catálogo interno por edición |
 | Automatizaciones | Al crear y editar (catálogo por edición) y en `despacharAutomatizaciones` (salta reglas de módulos no incluidos) |
-| Importación | `importacionAdmin`: rechaza la entidad "empresas" en ESENCIAL |
+| Importación | `importacionAdmin`: rechaza la entidad "empresas" en ESENCIAL (PR 9) |
 | Workers de dominio | No hace falta: solo actúan sobre filas que solo pueden existir si el módulo existe |
 
 ### 5.3 Rutas bloqueadas en ESENCIAL
 
-| Módulo | Rutas | Respuesta |
-|---|---|---|
-| procesos_de_venta | `/api/pipelines*`, `/api/stages*` | 403 |
-| cotizaciones | `/api/quotes*` | 403 |
-| pagos | `/api/payments*` | 403 |
-| entregas | `/api/deliveries*` | 403 |
-| empresas | `/api/companies*` | 403 |
-| dashboard_comercial | `GET /api/opportunities/dashboard-summary`, `GET /api/opportunities/revenue-series` | 403 |
-| (campo) permutas | `tradeInOpportunityId` en POST/PATCH `/api/vehicles` | 400 |
-| (campo) empresa | `companyId` en `/api/contacts`, `/api/opportunities`, `/api/activities` | 400 |
-| (campo) financiación, pipeline, etapa | `financing*`, `pipelineId`, `stageId` en `/api/opportunities` | 400 |
+29 rutas, todas con 403 `MODULO_NO_INCLUIDO`:
 
-Los bloqueos por **campo** van en los schemas zod de esas rutas: una
-refinación que lee `req.auth.edition` y una lista de campos por edición
-definida en el mismo `ediciones.ts`. No es un middleware por ruta escrito a
-mano.
+| Módulo | Rutas |
+|---|---|
+| procesos_de_venta (10) | `GET, POST /api/pipelines` · `GET, PATCH, DELETE /api/pipelines/:id` · `GET, POST /api/stages` · `GET, PATCH, DELETE /api/stages/:id` |
+| cotizaciones (4) | `GET, POST /api/quotes` · `GET, PATCH /api/quotes/:id` |
+| pagos (5) | `GET, POST /api/payments` · `GET, PATCH, DELETE /api/payments/:id` |
+| entregas (3) | `GET /api/deliveries` · `GET, PATCH /api/deliveries/:id` |
+| empresas (5) | `GET, POST /api/companies` · `GET, PATCH, DELETE /api/companies/:id` |
+| dashboard_comercial (2) | `GET /api/opportunities/dashboard-summary` · `GET /api/opportunities/revenue-series` |
+
+**Bloqueos por campo:** 400 `{ code: "CAMPO_NO_INCLUIDO", campo, modulo }`.
+Salen de `CAMPOS_POR_RUTA` y los aplica el mismo gate. No hay un middleware
+ni una refinación por ruta. Un valor `null` no se bloquea, porque es
+"desvincular".
+
+| Campo | Rutas | Módulo |
+|---|---|---|
+| `companyId` | POST/PATCH `/api/contacts`, `/api/opportunities`, `/api/activities` | empresas |
+| `financingType`, `financingLender`, `financingDownPayment`, `financingInstallmentCount`, `financingInstallmentAmount` | POST/PATCH `/api/opportunities` | financiacion |
+| `tradeInOpportunityId` | POST/PATCH `/api/vehicles` | permutas |
+| `pipelineId`, `stageId` | POST/PATCH `/api/opportunities` | **PR 5**, junto con el proceso fijo: sacarlos antes dejaría a ESENCIAL sin poder crear oportunidades |
+
+**Oportunidades sin `/pipelines` ni `/stages`:**
+- Marcar **Vendida** o **Perdida** ya funciona con `PATCH status: "WON" | "LOST"`, sin `stageId`. El servicio mueve la oportunidad a la etapa ganada o perdida de su proceso (ítem 154). Lo fija un test del PR 3.
+- **Crear** todavía exige `pipelineId` y `stageId`. Eso se resuelve en el PR 5 (§10).
 
 `get_payment_info` del agente lee `Branch.paymentLinkUrl` y los datos de
 transferencia de la sucursal; no usa el módulo de pagos. Se mantiene en
@@ -611,30 +649,45 @@ original se comporte exactamente como hoy.
 
 ### 5.4 Tests
 
-1. **Unitario: toda ruta clasificada** (`src/config/ediciones.test.ts`).
-   Recorre el stack de Express de la app real, como hace
-   `src/routes/index.test.ts`, y falla si hay una ruta montada que no esté en
-   `RUTAS_POR_MODULO` o una entrada que no corresponda a ninguna ruta. Es el
-   equivalente del meta-test de `tenant-isolation.integration-test.ts`
-   (`:2548-2566`), que obliga a sumar cada modelo nuevo: acá obliga a decidir
-   la edición de cada ruta nueva.
+1. **Unitario: toda ruta clasificada** (`src/config/ediciones.test.ts`, PR 3).
+   Recorre el router de la app real y separa las rutas según si su cadena
+   tiene `authenticate` (compara la función, no el nombre). Falla si:
+   - una ruta con `authenticate` no está en `RUTAS_POR_MODULO`;
+   - una ruta sin `authenticate` no está en `RUTAS_PUBLICAS`;
+   - una ruta del catálogo ya no existe en el router;
+   - un módulo sin rutas no figura en `MODULOS_SIN_RUTAS`, o uno que figura
+     ahí tiene rutas. Por eso `dashboard_atencion`, reservado, no deja el CI
+     en rojo; el PR 8 lo saca de esa lista al darle su ruta.
+
+   Es el equivalente del meta-test de `tenant-isolation.integration-test.ts`,
+   que obliga a sumar cada modelo nuevo: acá obliga a decidir la edición de
+   cada ruta nueva. El mismo archivo prueba el gate sin HTTP: no-op en
+   COMPLETA, 403 en ESENCIAL, `sin_clasificar` y los campos.
 2. **Integración: suite de ediciones**
-   (`src/routes/ediciones.integration-test.ts`), al estilo de los tests de
-   aislamiento:
-   - Crea dos organizaciones, una `ESENCIAL` y una `COMPLETA`, cada una con un
-     ADMIN real (Supabase local). Los slugs `ediciones-esencial-{ts}` y
-     `ediciones-completa-{ts}` se registran en `PATRONES_DE_SLUG_DE_PRUEBA`
-     (`testOrganizationsPurge.service.ts`).
-   - **Genera los casos desde `RUTAS_POR_MODULO`**, no a mano. Para cada ruta
-     de un módulo fuera de ESENCIAL:
-     - con el token de la ESENCIAL espera 403 `MODULO_NO_INCLUIDO`;
-     - con el de la COMPLETA espera cualquier cosa **menos** ese código.
-   - Casos por campo (los 400 de §5.3).
-   - Contraprueba: para las rutas de los módulos incluidos, la ESENCIAL
-     **no** recibe `MODULO_NO_INCLUIDO`.
-   - Upgrade: `PATCH /admin/organizations/:id/edition` a COMPLETA y la misma
-     ruta pasa. Bajar devuelve 409. Un ADMIN que no es platform admin recibe
-     403.
+   (`src/routes/ediciones.integration-test.ts`, PR 3), contra la app real:
+   - Crea dos organizaciones, una `ESENCIAL` y una `COMPLETA`, con ADMIN
+     reales de Supabase local. El patrón `ediciones-{etiqueta}-{ts}-{hex8}`
+     está registrado en `PATRONES_DE_SLUG_DE_PRUEBA`.
+   - **Genera los casos desde `RUTAS_POR_MODULO`**, no a mano. Usa UUIDs
+     inventados en el path y, si no es GET, un body que es un array, que todo
+     schema rechaza antes de tocar nada.
+     - **COMPLETA:** recorre **todas** las rutas del catálogo (afirma que la
+       cuenta es el total) y ninguna da `MODULO_NO_INCLUIDO`.
+     - **ESENCIAL:** cada ruta excluida da 403 `MODULO_NO_INCLUIDO` con su
+       módulo, y cada ruta incluida no lo da.
+   - El orden de respuestas: sin token o con un token inválido, 401, también
+     en una ruta excluida. El 403 es solo para el autenticado.
+   - Bloqueos por campo (400 `CAMPO_NO_INCLUIDO` en ESENCIAL; COMPLETA no los
+     ve; `null` pasa).
+   - `/api/me` con `edition` y `modulos` en las dos ediciones.
+   - ESENCIAL marca una oportunidad Vendida y Perdida sin llamar a
+     `/pipelines` ni `/stages`, con el proceso fijo armado en el fixture.
+   - **PR 4:** upgrade con `PATCH /admin/organizations/:id/edition` a
+     COMPLETA, y la misma ruta pasa. Bajar devuelve 409. Un ADMIN que no es
+     platform admin recibe 403.
+   - **PR 5:** **crear** una oportunidad en ESENCIAL sin `pipelineId` ni
+     `stageId` queda en "En curso" del proceso fijo. Y `pipelineId` o
+     `stageId` en el body dan 400 `CAMPO_NO_INCLUIDO`. Es obligatorio.
 3. **Agente** (unitarios de `agentPermissions` y del loop):
    - para cada nivel, qué tools se ofrecen y que una llamada forzada a una
      tool no permitida se rechace;
@@ -765,6 +818,11 @@ sin migración. Usa ventanas en la zona de la organización (`zonedWindow.ts`):
 
 En COMPLETA se puede sumar después como una tarjeta más.
 
+El catálogo (`src/config/ediciones.ts`) ya reserva el módulo
+`dashboard_atencion`, incluido en las dos ediciones y todavía sin rutas (está
+en `MODULOS_SIN_RUTAS`). El PR 8 le agrega `GET /api/dashboard/atencion` y lo
+saca de esa lista: el test de clasificación lo obliga.
+
 ---
 
 ## 7. Frontend
@@ -870,9 +928,9 @@ fija que empezó a fallar el 2026-10-09 y deja en rojo el CI de cualquier PR.
 | 0 | `chore: borrar archivos vacíos de la raíz` | — | Bajo | `${clave}`, `=` y `opportunityId` entraron por error con #446. Independiente de todo lo demás. |
 | 1 | `docs: diseño de ediciones` (#449) | — | Nulo | Solo `docs/ediciones.md`. |
 | 2 | `feat(ediciones): columnas edition y participation` 🗄 | Sí | **Bajo-medio** | `organizations.edition` con default `COMPLETA`, sin backfill. `agents.participation` nullable y **sin DEFAULT en la columna**, con un `UPDATE` que deja `AUTONOMA` a todos los agentes existentes. `agents.participation_chosen_at` nullable, sin relleno. `agents.only_outside_business_hours` con default `false`. Trigger `agents_nivel_por_defecto` (BEFORE INSERT: `AUTONOMA` si viene `null` y la organización es COMPLETA), en la migración y en `manual_constraints.sql`. CHECK `agents_activo_requiere_nivel_check`, solo en la migración (B-15). Más lo que pidan `verify:schema` y el diagnóstico. Test de integración de la parte "PR 2" de §5.4 punto 4, con la lista de caminos de creación cubiertos en la descripción del PR. El riesgo sube de "bajo" por el `UPDATE`, el trigger y el CHECK: si el `UPDATE` no cubriera algún agente activo, el CHECK haría fallar la migración entera (que es lo correcto: no deja datos a medias). Ningún código de la app lee las columnas todavía, y gracias al trigger ningún insert existente cambia de comportamiento. |
-| 3 | `feat(ediciones): catálogo de módulos y gate central` | — | **Medio-alto** | `ediciones.ts`, `edition` en `AuthContext`, `gateDeEdicion`, `authenticate` idempotente, refinaciones zod por campo, `edition` y `modulos` en `/me`, test "toda ruta clasificada", suite `ediciones.integration-test.ts` y slugs. Toca cada request: el test de clasificación y el de COMPLETA sin cambios son la red. Depende de 2 aplicado. |
-| 4 | `feat(plataforma): elegir y subir la edición` | — | Medio | `edition` en el alta, con el proceso fijo para ESENCIAL en la misma transacción. `PATCH .../edition` solo hacia arriba y `vaciar()` de la caché. Pantallas de Plataforma y sección 14 de la guía. |
-| 5 | `feat(oportunidades): versión mínima en ESENCIAL` | — | Medio | Status→etapa con el proceso fijo, lista y formulario simples, entrega creada y oculta (D7), sección 04 de la guía. |
+| 3 | `feat(ediciones): catálogo de módulos y gate central` | — | **Medio-alto** | `src/config/ediciones.ts` (módulos, `modulosDe`, rutas por módulo, rutas públicas, campos por ruta), `edition` en `AuthContext` por el mismo JOIN (sin consulta extra), gate `exigirModuloDeLaEdicion` llamado desde `authenticate` (§5.2), bloqueos por campo salvo `pipelineId`/`stageId`, `edition` y `modulos` en `/me`, test "toda ruta clasificada" contra el router real, suite `ediciones.integration-test.ts` y slug. Toca cada request autenticado: el barrido de COMPLETA por todo el catálogo es la red. |
+| 4 | `feat(plataforma): elegir y subir la edición` | — | Medio | `edition` en el alta, con el proceso fijo para ESENCIAL en la misma transacción. `PATCH .../edition` solo hacia arriba y `vaciar()` de la caché. Pantallas de Plataforma y sección 14 de la guía. **La opción ESENCIAL de "Nueva organización" no queda visible para el platform admin (ni la API la acepta) hasta que el PR 5 esté mergeado, o el 4 y el 5 se despliegan juntos**: sin el PR 5, una organización ESENCIAL no puede crear oportunidades (§5.3). Hoy no hay organizaciones ESENCIAL; esto evita crear una por error. |
+| 5 | `feat(oportunidades): versión mínima en ESENCIAL` | — | Medio | Crear sin `pipelineId`/`stageId` en ESENCIAL (el servidor usa el proceso por defecto y su primera etapa abierta, como `create_opportunity` del agente), y esos dos campos pasan a 400 `CAMPO_NO_INCLUIDO` en `CAMPOS_POR_RUTA`, con el test obligatorio de §5.4. Status→etapa con el proceso fijo (Vendida y Perdida ya andan por el ítem 154), lista y formulario simples, entrega creada y oculta (D7), sección 04 de la guía. |
 | 6 | `feat(agente): nivel de participación (a, c, d)` | — | **Medio-alto** | Reglas del "nivel sin elegir" en el service de agentes (D3), escritura de `participation_chosen_at` solo al elegir o cambiar el nivel, y bloque "Cuánto hace la IA" en el formulario. **Filtro por edición y nivel**: en ESENCIAL el agente atiende solo con `participation_chosen_at` no `null`; en COMPLETA esa columna no se mira (§1.2, "Pendiente del PR 6"). El filtro mira también `deleted_at`: el borrado deja `is_active = true` (§1.2, "un agente borrado no atiende"), con su test. Gate de horario, tope fijo de 2 respuestas (D12), filtro de tools en los dos lugares, pausa al derivar en PRIMER_CONTACTO, SOLO_SEGUIMIENTO y `null` sin modelo, widget web, seguimiento de consultas con plantilla (§4.5, D9). Sección 08 de la guía. Es la parte más delicada del agente: tests del loop por nivel, incluido el de `chosen_at`. |
 | 7 | `feat(ediciones): menú, pantallas y guía por edición` | — | Medio | `useModulo`, `ModuloRoute`, menú, contactos sin empresa, stock sin permuta, catálogo de automatizaciones, filtro de la guía y test de `AYUDA`. |
 | 8 | `feat(dashboard): dashboard de atención` | — | Bajo | Endpoint y pantalla de §6.4. |

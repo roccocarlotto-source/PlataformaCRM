@@ -1,5 +1,6 @@
 import { findInternalAgentByOrganization } from "../repositories/internalAgent.repository";
 import type { Response } from "express";
+import { MODULOS, modulosDe } from "../config/ediciones";
 import { findPlatformAdminByUserId } from "../repositories/platformAdmin.repository";
 import { findUserById } from "../repositories/user.repository";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -19,7 +20,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 // siempre, sin lectura; USER según la columna) — la autorización real sigue
 // siendo esos middlewares en cada llamada, nunca estos booleanos.
 export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-  const { userId, email, fullName, organizationId, role } = req.auth;
+  const { userId, email, fullName, organizationId, role, edition } = req.auth;
   // internalAgentConfigured (OPUS-F-04 / FABLE-F-07, docs-privados, local): si
   // la organización TIENE un agente interno. Sin este dato la pantalla del
   // agente interno pedía su configuración y sus mensajes para enterarse de que
@@ -41,5 +42,11 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     isPlatformAdmin: platformAdmin !== null,
     canUseInternalAgent,
     internalAgentConfigured: agenteInterno !== null,
+    // Ediciones (docs/ediciones.md §7): la edición y los módulos que incluye,
+    // calculados acá desde src/config/ediciones.ts para que el frontend no
+    // tenga una tabla propia. En el orden del catálogo. Es solo para mostrar
+    // u ocultar: lo que decide es el gate de cada request.
+    edition,
+    modulos: MODULOS.filter((modulo) => modulosDe(edition).has(modulo)),
   });
 });

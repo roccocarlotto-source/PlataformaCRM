@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import express from "express";
+import { MODULOS } from "../config/ediciones";
 import { env } from "../config/env";
 import { authenticate } from "../middlewares/authenticate";
 import { errorHandler } from "../middlewares/errorHandler";
@@ -159,7 +160,7 @@ async function createOrphanAuthUser(label: string) {
   return { accessToken: signInData.session.access_token, authUserId: data.user.id };
 }
 
-test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role/isPlatformAdmin/canUseInternalAgent", async () => {
+test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role/isPlatformAdmin/canUseInternalAgent/edition/modulos", async () => {
   const fx = await createFixtureUser("happy", "ADMIN");
   const { url, close } = await startTestApp();
   try {
@@ -173,6 +174,8 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
       Object.keys(body).sort(),
       [
         "canUseInternalAgent",
+        // Ediciones (docs/ediciones.md §7): la edición y sus módulos.
+        "edition",
         "email",
         "fullName",
         "id",
@@ -180,6 +183,7 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
         // docs-privados, local).
         "internalAgentConfigured",
         "isPlatformAdmin",
+        "modulos",
         "organizationId",
         "role",
       ],
@@ -196,6 +200,10 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     // Ítem 180: un ADMIN siempre puede usar el agente interno, aunque su
     // columna User.canUseInternalAgent quede en el default false.
     assert.equal(body.canUseInternalAgent, true);
+    // Una organización sin edición explícita es COMPLETA: tiene todos los
+    // módulos del catálogo.
+    assert.equal(body.edition, "COMPLETA");
+    assert.deepEqual(body.modulos, [...MODULOS]);
   } finally {
     await close();
     await prisma.user.delete({ where: { id: fx.authUserId } });

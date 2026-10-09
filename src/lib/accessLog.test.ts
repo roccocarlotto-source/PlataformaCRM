@@ -34,6 +34,7 @@ const AUTH: AuthContext = {
   role: "ADMIN",
   email: "admin@ejemplo.test",
   fullName: "Admin de Prueba",
+  edition: "COMPLETA",
 };
 
 test("registra quién, qué recurso y de qué clase", () => {

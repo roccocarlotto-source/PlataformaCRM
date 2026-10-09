@@ -63,5 +63,6 @@ async function resolverDesdeLaBase(payload: JwtPayload): Promise<AuthContext> {
     role: user.role.name,
     email: user.email,
     fullName: user.fullName,
+    edition: user.organization.edition,
   };
 }
