@@ -1,8 +1,13 @@
 import type { Response } from "express";
+import { OrganizationEdition } from "@prisma/client";
 import { z } from "zod";
+import { edicionesDisponibles } from "../config/ediciones";
 import { listActiveOrganizations } from "../repositories/organization.repository";
 import { DIAS_DE_LA_VISTA_DE_USO, gastoPorOrganizacion } from "../services/llmUsage.service";
-import { createOrganizationWithFoundingAdmin } from "../services/organizationAdmin.service";
+import {
+  cambiarEdicionDeOrganizacion,
+  createOrganizationWithFoundingAdmin,
+} from "../services/organizationAdmin.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -32,13 +37,45 @@ export const createOrganizationSchema = z.object({
     .string({ required_error: "adminEmail es requerido" })
     .trim()
     .email("adminEmail inválido"),
+  // docs/ediciones.md §1.1. Opcional: sin ella, COMPLETA. Si es una edición
+  // que todavía no se ofrece (ESENCIAL_HABILITADA), el service responde 400.
+  edition: z.nativeEnum(OrganizationEdition, { invalid_type_error: "edition inválida" }).optional(),
 });
+
+const organizationIdSchema = z.string().uuid("organizationId inválido");
+
+const cambiarEdicionSchema = z
+  .object({
+    edition: z.nativeEnum(OrganizationEdition, {
+      required_error: "edition es requerida",
+      invalid_type_error: "edition inválida",
+    }),
+  })
+  .strict();
 
 export const createOrganizationHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createOrganizationSchema, req.body);
     const result = await createOrganizationWithFoundingAdmin(input);
     res.status(201).json(result);
+  },
+);
+
+// Las ediciones que se pueden elegir hoy en el alta, en el orden en que se
+// muestran. La pantalla de Plataforma no tiene una constante propia: si hay
+// una sola, no muestra el selector (docs/ediciones.md §10, PR 4).
+export const listEditionsHandler = asyncHandler<AuthenticatedRequest>(
+  async (_req, res: Response) => {
+    res.status(200).json({ editions: edicionesDisponibles() });
+  },
+);
+
+// Subir de edición: solo ESENCIAL → COMPLETA (ver cambiarEdicionDeOrganizacion).
+export const changeOrganizationEditionHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
+    const { edition } = parseOrThrow(cambiarEdicionSchema, req.body);
+    res.status(200).json(await cambiarEdicionDeOrganizacion(organizationId, edition));
   },
 );
 

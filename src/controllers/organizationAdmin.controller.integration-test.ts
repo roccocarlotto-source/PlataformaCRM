@@ -10,8 +10,15 @@ import { notFound } from "../middlewares/notFound";
 import { requirePlatformAdmin } from "../middlewares/requirePlatformAdmin";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { ESENCIAL_HABILITADA, PROCESO_DE_VENTA_FIJO } from "../config/ediciones";
 import {
+  createOrganizationWithFoundingAdmin,
+  defaultOrganizationAdminDeps,
+} from "../services/organizationAdmin.service";
+import {
+  changeOrganizationEditionHandler,
   createOrganizationHandler,
+  listEditionsHandler,
   listOrganizationsHandler,
 } from "./organizationAdmin.controller";
 
@@ -58,6 +65,18 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
     stubAuthenticate,
     requirePlatformAdmin,
     listOrganizationsHandler,
+  );
+  app.get(
+    "/api/admin/organizations/editions",
+    stubAuthenticate,
+    requirePlatformAdmin,
+    listEditionsHandler,
+  );
+  app.patch(
+    "/api/admin/organizations/:organizationId/edition",
+    stubAuthenticate,
+    requirePlatformAdmin,
+    changeOrganizationEditionHandler,
   );
   app.use(notFound);
   app.use(errorHandler);
@@ -312,7 +331,12 @@ test("listado: 403 para un ADMIN común; el platform admin ve las vigentes con i
       assert.equal(res.status, 200);
       const lista = (await res.json()) as Record<string, unknown>[];
       const encontrada = lista.find((o) => o.id === vigente.id);
-      assert.deepEqual(encontrada, { id: vigente.id, name: vigente.name, slug: vigente.slug });
+      assert.deepEqual(encontrada, {
+        id: vigente.id,
+        name: vigente.name,
+        slug: vigente.slug,
+        edition: "COMPLETA",
+      });
       assert.equal(
         lista.some((o) => o.id === deBaja.id),
         false,
@@ -321,5 +345,194 @@ test("listado: 403 para un ADMIN común; el platform admin ve las vigentes con i
   } finally {
     identidad = undefined;
     await prisma.organization.deleteMany({ where: { id: { in: [vigente.id, deBaja.id] } } });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ediciones (docs/ediciones.md §10, PR 4). La llave ESENCIAL_HABILITADA está
+// en false hasta el PR 5: por la API, ESENCIAL se rechaza. El camino con la
+// llave en true se prueba llamando al service con la llave inyectada, contra
+// Postgres y GoTrue reales.
+// ---------------------------------------------------------------------------
+
+test("la llave ESENCIAL_HABILITADA sigue en false hasta el PR 5", () => {
+  // El PR 5 la pone en true y cambia esta línea.
+  assert.equal(ESENCIAL_HABILITADA, false);
+});
+
+test("GET /editions: el platform admin ve solo COMPLETA; un ADMIN común recibe 403", async () => {
+  identidad = comoUsuario(randomUUID(), randomUUID(), "ADMIN");
+  try {
+    assert.equal((await fetch(`${baseUrl}/api/admin/organizations/editions`)).status, 403);
+    await conPlatformAdmin(async (platformAdminUserId) => {
+      identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
+      const res = await fetch(`${baseUrl}/api/admin/organizations/editions`);
+      assert.equal(res.status, 200);
+      assert.deepEqual(await res.json(), { editions: ["COMPLETA"] });
+    });
+  } finally {
+    identidad = undefined;
+  }
+});
+
+test("alta con edition ESENCIAL y la llave en false: 400 y no se crea nada (ni la identidad)", async () => {
+  await conPlatformAdmin(async (platformAdminUserId) => {
+    identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
+    const email = emailDePrueba("esencial-cerrada");
+    try {
+      const res = await post({
+        organizationName: `Esencial Cerrada ${Date.now()}`,
+        adminFullName: "Ana Pérez",
+        adminEmail: email,
+        edition: "ESENCIAL",
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as { error: { message: string } };
+      assert.match(body.error.message, /ESENCIAL todavía no está disponible/);
+      assert.equal(await prisma.user.findUnique({ where: { email } }), null);
+      const { data } = await getSupabaseAdmin().auth.admin.listUsers({ perPage: 1000 });
+      assert.equal(
+        data.users.some((u) => u.email === email),
+        false,
+        "no se mandó la invitación",
+      );
+    } finally {
+      identidad = undefined;
+    }
+  });
+});
+
+test("alta con edition COMPLETA: 201, nace COMPLETA y sin proceso de venta", async () => {
+  await conPlatformAdmin(async (platformAdminUserId) => {
+    identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
+    let creado: (Creado & { organization: { edition: string } }) | undefined;
+    try {
+      const res = await post({
+        organizationName: `Completa Explicita ${Date.now()}`,
+        adminFullName: "Ana Pérez",
+        adminEmail: emailDePrueba("completa"),
+        edition: "COMPLETA",
+      });
+      const texto = await res.text();
+      assert.equal(res.status, 201, texto);
+      creado = JSON.parse(texto) as Creado & { organization: { edition: string } };
+      assert.equal(creado.organization.edition, "COMPLETA");
+      assert.equal(
+        await prisma.pipeline.count({ where: { organizationId: creado.organization.id } }),
+        0,
+      );
+    } finally {
+      identidad = undefined;
+      if (creado) await limpiarCreado(creado);
+    }
+  });
+});
+
+test("alta con un valor de edition que no existe: 400", async () => {
+  await conPlatformAdmin(async (platformAdminUserId) => {
+    identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
+    try {
+      const res = await post({
+        organizationName: "x",
+        adminFullName: "y",
+        adminEmail: emailDePrueba("edicion-rara"),
+        edition: "PREMIUM",
+      });
+      assert.equal(res.status, 400);
+    } finally {
+      identidad = undefined;
+    }
+  });
+});
+
+test("con la llave en true (service inyectado): ESENCIAL nace con el proceso de venta fijo, en la misma alta", async () => {
+  let creado: Awaited<ReturnType<typeof createOrganizationWithFoundingAdmin>> | undefined;
+  try {
+    creado = await createOrganizationWithFoundingAdmin(
+      {
+        organizationName: `Esencial Abierta ${Date.now()}`,
+        adminFullName: "Ana Pérez",
+        adminEmail: emailDePrueba("esencial-abierta"),
+        edition: "ESENCIAL",
+      },
+      { ...defaultOrganizationAdminDeps, esencialHabilitada: true },
+    );
+    assert.equal(creado.organization.edition, "ESENCIAL");
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: creado.organization.id },
+      select: { edition: true },
+    });
+    assert.equal(org.edition, "ESENCIAL");
+
+    const pipelines = await prisma.pipeline.findMany({
+      where: { organizationId: creado.organization.id },
+      include: { stages: { orderBy: { order: "asc" } } },
+    });
+    assert.equal(pipelines.length, 1);
+    assert.equal(pipelines[0].name, PROCESO_DE_VENTA_FIJO.name);
+    assert.equal(pipelines[0].isDefault, true);
+    assert.deepEqual(
+      pipelines[0].stages.map((st) => [st.name, st.order, st.isWon, st.isLost]),
+      [
+        ["En curso", 1, false, false],
+        ["Vendida", 2, true, false],
+        ["Perdida", 3, false, true],
+      ],
+    );
+  } finally {
+    if (creado) {
+      await prisma.stage.deleteMany({ where: { organizationId: creado.organization.id } });
+      await prisma.pipeline.deleteMany({ where: { organizationId: creado.organization.id } });
+      await limpiarCreado(creado);
+    }
+  }
+});
+
+test("PATCH /edition: sube ESENCIAL a COMPLETA; repetir es 200 sin cambios; bajar es 409; inexistente 404; no platform admin 403", async () => {
+  const sufijo = randomUUID().slice(0, 8);
+  const org = await prisma.organization.create({
+    data: { name: `Edicion ${sufijo}`, slug: `edicion-cambio-${sufijo}`, edition: "ESENCIAL" },
+  });
+  const patch = (id: string, edition: string) =>
+    fetch(`${baseUrl}/api/admin/organizations/${id}/edition`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ edition }),
+    });
+  try {
+    identidad = comoUsuario(randomUUID(), org.id, "ADMIN");
+    assert.equal((await patch(org.id, "COMPLETA")).status, 403);
+    assert.equal(
+      (await prisma.organization.findUniqueOrThrow({ where: { id: org.id } })).edition,
+      "ESENCIAL",
+    );
+
+    await conPlatformAdmin(async (platformAdminUserId) => {
+      identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
+
+      const subir = await patch(org.id, "COMPLETA");
+      assert.equal(subir.status, 200);
+      assert.deepEqual(await subir.json(), { id: org.id, edition: "COMPLETA" });
+      assert.equal(
+        (await prisma.organization.findUniqueOrThrow({ where: { id: org.id } })).edition,
+        "COMPLETA",
+      );
+
+      const repetir = await patch(org.id, "COMPLETA");
+      assert.equal(repetir.status, 200);
+
+      const bajar = await patch(org.id, "ESENCIAL");
+      assert.equal(bajar.status, 409);
+      assert.equal(
+        (await prisma.organization.findUniqueOrThrow({ where: { id: org.id } })).edition,
+        "COMPLETA",
+      );
+
+      assert.equal((await patch(randomUUID(), "COMPLETA")).status, 404);
+      assert.equal((await patch(org.id, "PREMIUM")).status, 400);
+    });
+  } finally {
+    identidad = undefined;
+    await prisma.organization.deleteMany({ where: { id: org.id } });
   }
 });

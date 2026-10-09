@@ -2,14 +2,20 @@
 // (src/controllers/organizationAdmin.controller.ts) — Fase 4a del módulo
 // SaaS. Herramienta del platform admin, no un signup público.
 
+// docs/ediciones.md §1.1. La lista de las que se pueden elegir hoy la da el
+// backend (GET /api/admin/organizations/editions): acá no hay una constante.
+export type OrganizationEdition = "COMPLETA" | "ESENCIAL";
+
 export interface CreateOrganizationInput {
   organizationName: string;
   adminFullName: string;
   adminEmail: string;
+  // Solo se manda si se pudo elegir (más de una edición disponible).
+  edition?: OrganizationEdition;
 }
 
 export interface CreateOrganizationResponse {
-  organization: { id: string; name: string; slug: string };
+  organization: { id: string; name: string; slug: string; edition: OrganizationEdition };
   admin: { id: string; email: string; fullName: string; role: "ADMIN" };
 }
 
@@ -51,6 +57,12 @@ export interface PlatformOrganization {
   id: string;
   name: string;
   slug: string;
+  edition: OrganizationEdition;
+}
+
+// Contrato de GET /api/admin/organizations/editions.
+export interface EdicionesDisponibles {
+  editions: OrganizationEdition[];
 }
 
 // Contrato de GET /api/admin/llm-usage (B4): el gasto en el modelo por

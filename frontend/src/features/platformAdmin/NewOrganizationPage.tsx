@@ -6,18 +6,26 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { useCreateOrganization } from "./mutations";
-import type { CreateOrganizationResponse } from "./types";
+import { useEdicionesDisponibles } from "./queries";
+import type { CreateOrganizationResponse, OrganizationEdition } from "./types";
 
 interface NewOrganizationFormValues {
   organizationName: string;
   adminFullName: string;
   adminEmail: string;
+  edition: OrganizationEdition | "";
 }
 
 const EMPTY_FORM: NewOrganizationFormValues = {
   organizationName: "",
   adminFullName: "",
   adminEmail: "",
+  edition: "",
+};
+
+const NOMBRE_DE_EDICION: Record<OrganizationEdition, string> = {
+  COMPLETA: "Completa",
+  ESENCIAL: "Esencial",
 };
 
 // Alta de una organización nueva (cliente/automotora) con su primer ADMIN —
@@ -34,6 +42,12 @@ const EMPTY_FORM: NewOrganizationFormValues = {
 // sin tocar).
 export function NewOrganizationPage() {
   const createOrganizationMutation = useCreateOrganization();
+  // La edición (docs/ediciones.md §1.1): el selector aparece solo si el
+  // backend ofrece más de una. Hoy ofrece solo COMPLETA (ESENCIAL_HABILITADA
+  // en false hasta el PR 5), así que la pantalla queda como siempre y el alta
+  // no manda edition.
+  const ediciones = useEdicionesDisponibles().data?.editions ?? [];
+  const eligeEdicion = ediciones.length > 1;
 
   const [values, setValues] = useState<NewOrganizationFormValues>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +57,10 @@ export function NewOrganizationPage() {
     event.preventDefault();
     setError(null);
     try {
-      const result = await createOrganizationMutation.mutateAsync(values);
+      const { edition, ...resto } = values;
+      const result = await createOrganizationMutation.mutateAsync(
+        eligeEdicion && edition !== "" ? { ...resto, edition } : resto,
+      );
       setCreated(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pudimos crear la organización");
@@ -99,6 +116,29 @@ export function NewOrganizationPage() {
                 />
               </FormField>
             </div>
+            {eligeEdicion ? (
+              <div className="ds-field-grid--full">
+                <FormField label={<span className="ds-required">Edición</span>}>
+                  <select
+                    value={values.edition}
+                    onChange={(event) =>
+                      setValues({
+                        ...values,
+                        edition: event.target.value as OrganizationEdition | "",
+                      })
+                    }
+                    required
+                  >
+                    <option value="">Elegí una edición</option>
+                    {ediciones.map((edicion) => (
+                      <option key={edicion} value={edicion}>
+                        {NOMBRE_DE_EDICION[edicion]}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              </div>
+            ) : null}
           </div>
         </Card>
         <Card heading="Primer administrador">

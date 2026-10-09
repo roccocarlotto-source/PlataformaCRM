@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,9 +14,21 @@ vi.mock("../../auth/getAccessToken", () => ({
 }));
 
 const url = `${env.apiUrl}/api/admin/organizations`;
+const editionsUrl = `${env.apiUrl}/api/admin/organizations/editions`;
+
+// Lo de hoy: el backend ofrece solo COMPLETA (ESENCIAL_HABILITADA en false).
+// Cada test que necesite otra cosa lo pisa con server.use.
+beforeEach(() => {
+  server.use(http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA"] })));
+});
 
 const CREATED: CreateOrganizationResponse = {
-  organization: { id: "org-nueva", name: "Automotora Pérez", slug: "automotora-perez" },
+  organization: {
+    id: "org-nueva",
+    name: "Automotora Pérez",
+    slug: "automotora-perez",
+    edition: "COMPLETA",
+  },
   admin: {
     id: "u-nuevo",
     email: "juan@perez.test",
@@ -134,5 +146,59 @@ describe("NewOrganizationPage", () => {
       ),
     );
     expect(screen.queryByText("Organización creada")).not.toBeInTheDocument();
+  });
+
+  // docs/ediciones.md §10, PR 4: la llave ESENCIAL_HABILITADA vive en el
+  // backend; la pantalla solo mira cuántas ediciones le ofrece.
+  it("con una sola edición disponible (hoy): no hay selector y el alta no manda edition", async () => {
+    let postedBody: unknown;
+    server.use(
+      http.post(url, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(CREATED, { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await completarYEnviar(user);
+
+    await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Edición")).not.toBeInTheDocument();
+    expect(postedBody).not.toHaveProperty("edition");
+  });
+
+  it("con dos ediciones disponibles (PR 5): selector obligatorio sin preselección, y manda la elegida", async () => {
+    let postedBody: unknown;
+    server.use(
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+      http.post(url, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(
+          { ...CREATED, organization: { ...CREATED.organization, edition: "ESENCIAL" } },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    const selector = await screen.findByLabelText("Edición");
+    expect(selector).toBeRequired();
+    expect(selector).toHaveValue("");
+    expect(screen.getByRole("option", { name: "Completa" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Esencial" })).toBeInTheDocument();
+
+    await user.selectOptions(selector, "ESENCIAL");
+    await completarYEnviar(user);
+
+    await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
+    expect(postedBody).toEqual({
+      organizationName: "Automotora Pérez",
+      adminFullName: "Juan Pérez",
+      adminEmail: "juan@perez.test",
+      edition: "ESENCIAL",
+    });
   });
 });
