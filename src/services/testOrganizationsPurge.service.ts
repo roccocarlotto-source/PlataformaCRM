@@ -145,6 +145,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("purga-test-{ts}-{hex8}", `${R}ingestionEvent-purge.integration-test.ts`),
   patron("nivel-ia-{etiqueta}-{ts}-{hex8}", `${R}agentNivelPorDefecto.integration-test.ts`),
   patron("ediciones-{etiqueta}-{ts}-{hex8}", "src/routes/ediciones.integration-test.ts"),
+  patron("rubro-{etiqueta}-{ts}-{hex8}", `${R}organizationIndustry.integration-test.ts`),
   patron("llm-uso-{etiqueta}-{ts}-{hex8}", `${R}llmTurnUsage.integration-test.ts`),
   patron("b17-{ts}-{hex8}", `${R}lockForUpdate.integration-test.ts`),
   patron("m4-org-a-{ts}", `${R}tenant-isolation.integration-test.ts`),

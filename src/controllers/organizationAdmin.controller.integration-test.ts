@@ -202,6 +202,14 @@ test("platform admin: 201 con Organization + User ADMIN creados, identidad en au
       assert.equal(user.role.name, "ADMIN");
       assert.equal(user.email, email);
 
+      // Rubros (20261031120000, docs/rubros.md §1.1): la API todavía no conoce
+      // el rubro, y la organización nace AUTOMOTORA por el DEFAULT.
+      const org = await prisma.organization.findUniqueOrThrow({
+        where: { id: creado.organization.id },
+        select: { industry: true },
+      });
+      assert.equal(org.industry, "AUTOMOTORA");
+
       const { data, error } = await getSupabaseAdmin().auth.admin.getUserById(creado.admin.id);
       assert.equal(error, null);
       assert.equal(data.user?.email, email);
