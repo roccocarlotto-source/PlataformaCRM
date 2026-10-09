@@ -16,6 +16,14 @@ export function olvidarContextoDeAuth(userId: string): void {
   cache.olvidar(userId);
 }
 
+// Para un cambio que afecta a TODOS los usuarios de una organización (subir de
+// edición, docs/ediciones.md §5.2): la caché es por usuario, así que se vacía
+// entera. Es un cambio raro, de un platform admin: el costo es una ida a la
+// base en el próximo request de cada usuario.
+export function vaciarContextosDeAuth(): void {
+  cache.vaciar();
+}
+
 export async function resolveAuthContext(payload: JwtPayload): Promise<AuthContext> {
   const enCache = cache.leer(payload.sub);
   if (enCache) {

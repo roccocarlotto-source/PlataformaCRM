@@ -10,6 +10,7 @@ import type {
   AssignWhatsappNumberInput,
   CreateOrganizationInput,
   CreateOrganizationResponse,
+  EdicionesDisponibles,
   LlmUsageSummary,
   MetaAuthorization,
   MetaConnectionPendiente,
@@ -27,6 +28,12 @@ export function createOrganization(
     body: input,
     getAccessToken,
   });
+}
+
+// Las ediciones que se pueden elegir hoy en el alta (docs/ediciones.md §10,
+// PR 4). Con una sola, la pantalla no muestra el selector.
+export function listEditions(signal?: AbortSignal): Promise<EdicionesDisponibles> {
+  return request<EdicionesDisponibles>("/admin/organizations/editions", { getAccessToken, signal });
 }
 
 // Devuelve el agente actualizado, con la misma forma que GET /api/agents/:id.

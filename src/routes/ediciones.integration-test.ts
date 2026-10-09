@@ -355,3 +355,49 @@ test("ESENCIAL: una oportunidad se marca Vendida y Perdida sin llamar a /pipelin
   const detalle = await pedir(esencial, "GET", `/api/opportunities/${aVender.id}`);
   assert.equal(detalle.status, 200);
 });
+
+test("subir de edición (PR 4): un usuario ESENCIAL bloqueado en /quotes deja de estarlo con el mismo token", async () => {
+  const aSubir = await crearOrg("ESENCIAL");
+  // El platform admin: un usuario de la organización COMPLETA en la allowlist.
+  await prisma.platformAdmin.create({ data: { userId: completa.authIds[0] } });
+  try {
+    const usuario = aSubir.tokens[0];
+    const ruta = `/api/quotes?opportunityId=${randomUUID()}`;
+
+    const antes = await pedir(aSubir, "GET", ruta, undefined, usuario);
+    assert.ok(esDelGate(antes), "antes de subir, ESENCIAL no tiene cotizaciones");
+
+    const subir = await pedir(
+      completa,
+      "PATCH",
+      `/api/admin/organizations/${aSubir.id}/edition`,
+      { edition: "COMPLETA" },
+      completa.tokens[0],
+    );
+    assert.equal(subir.status, 200, JSON.stringify(subir.json));
+    assert.equal(subir.json.edition, "COMPLETA");
+
+    const despues = await pedir(aSubir, "GET", ruta, undefined, usuario);
+    assert.equal(
+      esDelGate(despues),
+      false,
+      "después de subir, el mismo token ya no está bloqueado",
+    );
+    const me = await pedir(aSubir, "GET", "/api/me", undefined, usuario);
+    assert.equal(me.json.edition, "COMPLETA");
+
+    const bajar = await pedir(
+      completa,
+      "PATCH",
+      `/api/admin/organizations/${aSubir.id}/edition`,
+      { edition: "ESENCIAL" },
+      completa.tokens[0],
+    );
+    assert.equal(bajar.status, 409);
+  } finally {
+    await prisma.platformAdmin.deleteMany({ where: { userId: completa.authIds[0] } });
+    await prisma.user.deleteMany({ where: { organizationId: aSubir.id } });
+    await prisma.organization.delete({ where: { id: aSubir.id } });
+    for (const id of aSubir.authIds) await getSupabaseAdmin().auth.admin.deleteUser(id);
+  }
+});

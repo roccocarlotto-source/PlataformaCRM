@@ -84,6 +84,37 @@ export function modulosDe(edition: OrganizationEdition): ReadonlySet<Modulo> {
   return MODULOS_POR_EDICION[edition];
 }
 
+// ---------------------------------------------------------------------------
+// ESENCIAL todavía no se ofrece (docs/ediciones.md §10, PR 4): sin el PR 5
+// (crear oportunidades sin pipelineId/stageId), una organización ESENCIAL no
+// podría crear oportunidades. Es la ÚNICA llave: el alta la consulta por
+// edicionesDisponibles() y la pantalla de Plataforma se entera por
+// GET /api/admin/organizations/editions, sin una constante propia. EL PR 5 LA
+// PONE EN true.
+// ---------------------------------------------------------------------------
+export const ESENCIAL_HABILITADA = false;
+
+/** Las ediciones que se pueden elegir al dar de alta una organización, en el
+ *  orden en que se muestran. */
+export function edicionesDisponibles(
+  esencialHabilitada: boolean = ESENCIAL_HABILITADA,
+): readonly OrganizationEdition[] {
+  return esencialHabilitada ? ["COMPLETA", "ESENCIAL"] : ["COMPLETA"];
+}
+
+/** El proceso de venta fijo de ESENCIAL (§2.1): se crea en el alta, en la
+ *  misma transacción, y queda invisible (ESENCIAL no tiene /pipelines ni
+ *  /stages). Vendida y Perdida son las etapas ganada y perdida a las que el
+ *  ítem 154 mueve una oportunidad con status WON o LOST. */
+export const PROCESO_DE_VENTA_FIJO = {
+  name: "Ventas",
+  stages: [
+    { name: "En curso", order: 1, probability: 0, isWon: false, isLost: false },
+    { name: "Vendida", order: 2, probability: 100, isWon: true, isLost: false },
+    { name: "Perdida", order: 3, probability: 0, isWon: false, isLost: true },
+  ],
+} as const;
+
 /** Módulos sin rutas propias: el test de clasificación los tolera.
  *  dashboard_atencion está reservado (su ruta llega con el PR 8 y entonces
  *  sale de esta lista); financiacion y permutas son solo campos. */
@@ -101,6 +132,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   plataforma: [
     "GET /api/admin/organizations",
     "POST /api/admin/organizations",
+    "GET /api/admin/organizations/editions",
+    "PATCH /api/admin/organizations/:organizationId/edition",
     "GET /api/admin/llm-usage",
     "PUT /api/admin/agents/:agentId/facebook-page",
     "PUT /api/admin/agents/:agentId/model",

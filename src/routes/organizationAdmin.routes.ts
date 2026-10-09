@@ -1,6 +1,8 @@
 import { Router } from "express";
 import {
+  changeOrganizationEditionHandler,
   createOrganizationHandler,
+  listEditionsHandler,
   listLlmUsageHandler,
   listOrganizationsHandler,
 } from "../controllers/organizationAdmin.controller";
@@ -36,6 +38,24 @@ organizationAdminRouter.get(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   listOrganizationsHandler,
+);
+
+// Ediciones (docs/ediciones.md §10, PR 4): las que se pueden elegir en el
+// alta, y subir una organización de ESENCIAL a COMPLETA. Misma cadena.
+organizationAdminRouter.get(
+  "/admin/organizations/editions",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  listEditionsHandler,
+);
+
+organizationAdminRouter.patch(
+  "/admin/organizations/:organizationId/edition",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  changeOrganizationEditionHandler,
 );
 
 // B4: el gasto en el modelo por organización (últimos 30 días), misma cadena.

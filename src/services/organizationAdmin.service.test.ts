@@ -6,6 +6,7 @@ import type { Db } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { AppError } from "../utils/AppError";
 import {
+  cambiarEdicionDeOrganizacion,
   createOrganizationWithFoundingAdmin,
   primaryCorsOrigin,
   type OrganizationAdminDeps,
@@ -27,8 +28,9 @@ const AUTH_USER_ID = "11111111-1111-4111-8111-111111111111";
 interface Registro {
   invites: { email: string; options: unknown }[];
   deletedAuthUsers: string[];
-  organizationsCreated: { name: string; slug: string }[];
+  organizationsCreated: { name: string; slug: string; edition: string }[];
   usersCreated: Record<string, unknown>[];
+  procesosFijos: string[];
 }
 
 interface Escenario {
@@ -43,6 +45,7 @@ interface Opciones {
   inviteError?: { code?: string; message: string };
   fallaTransaccion?: unknown;
   fallaDeleteUser?: boolean;
+  esencialHabilitada?: boolean;
 }
 
 // Un `tx` de mentira: el service solo lo pasa de largo a los repositorios
@@ -55,6 +58,7 @@ function armar(opciones: Opciones = {}): Escenario {
     deletedAuthUsers: [],
     organizationsCreated: [],
     usersCreated: [],
+    procesosFijos: [],
   };
 
   const supabaseAdmin = {
@@ -94,6 +98,11 @@ function armar(opciones: Opciones = {}): Escenario {
       registro.usersCreated.push(data);
       return data;
     },
+    createProcesoDeVentaFijo: async (organizationId) => {
+      registro.procesosFijos.push(organizationId);
+      return { id: "pipeline-fijo" };
+    },
+    esencialHabilitada: opciones.esencialHabilitada ?? false,
     transaction: async (fn) => {
       if (opciones.fallaTransaccion !== undefined) {
         throw opciones.fallaTransaccion;
@@ -138,7 +147,7 @@ test("camino feliz: pre-chequeos, invite con redirectTo al frontend, Organizatio
     },
   ]);
   assert.deepEqual(registro.organizationsCreated, [
-    { name: "Automotora Pérez", slug: "automotora-perez" },
+    { name: "Automotora Pérez", slug: "automotora-perez", edition: "COMPLETA" },
   ]);
   assert.deepEqual(registro.usersCreated, [
     {
@@ -152,7 +161,12 @@ test("camino feliz: pre-chequeos, invite con redirectTo al frontend, Organizatio
   assert.deepEqual(registro.deletedAuthUsers, []);
 
   assert.deepEqual(result, {
-    organization: { id: "org-nueva", name: "Automotora Pérez", slug: "automotora-perez" },
+    organization: {
+      id: "org-nueva",
+      name: "Automotora Pérez",
+      slug: "automotora-perez",
+      edition: "COMPLETA",
+    },
     admin: {
       id: AUTH_USER_ID,
       email: "juan.perez@example.test",
@@ -283,4 +297,107 @@ test("si además falla el borrado de la identidad: el error que sube es el origi
 test("primaryCorsOrigin toma el primer origen de la lista separada por comas, sin espacios", () => {
   assert.equal(primaryCorsOrigin("https://app.test"), "https://app.test");
   assert.equal(primaryCorsOrigin(" https://app.test , http://localhost:5173"), "https://app.test");
+});
+
+// ---------------------------------------------------------------------------
+// Ediciones (docs/ediciones.md §10, PR 4): la llave ESENCIAL_HABILITADA, con
+// sus dos valores.
+// ---------------------------------------------------------------------------
+
+test("sin edición: COMPLETA, sin proceso de venta fijo (el alta de siempre)", async () => {
+  const { deps, registro } = armar();
+
+  const result = await createOrganizationWithFoundingAdmin(INPUT, deps);
+
+  assert.equal(result.organization.edition, "COMPLETA");
+  assert.equal(registro.organizationsCreated[0].edition, "COMPLETA");
+  assert.deepEqual(registro.procesosFijos, []);
+});
+
+test("ESENCIAL con la llave en false: 400 antes de escribir nada (ni el mail de invitación)", async () => {
+  const { deps, registro } = armar({ esencialHabilitada: false });
+
+  const err = await esperarAppError(
+    () => createOrganizationWithFoundingAdmin({ ...INPUT, edition: "ESENCIAL" }, deps),
+    400,
+  );
+
+  assert.match(err.message, /ESENCIAL todavía no está disponible/);
+  assert.deepEqual(registro.invites, []);
+  assert.deepEqual(registro.organizationsCreated, []);
+  assert.deepEqual(registro.procesosFijos, []);
+});
+
+test("ESENCIAL con la llave en true: la organización nace ESENCIAL con su proceso de venta fijo", async () => {
+  const { deps, registro } = armar({ esencialHabilitada: true });
+
+  const result = await createOrganizationWithFoundingAdmin({ ...INPUT, edition: "ESENCIAL" }, deps);
+
+  assert.equal(result.organization.edition, "ESENCIAL");
+  assert.equal(registro.organizationsCreated[0].edition, "ESENCIAL");
+  assert.deepEqual(registro.procesosFijos, ["org-nueva"]);
+  assert.equal(registro.usersCreated.length, 1);
+});
+
+test("COMPLETA explícita con la llave en true: tampoco crea proceso fijo", async () => {
+  const { deps, registro } = armar({ esencialHabilitada: true });
+
+  const result = await createOrganizationWithFoundingAdmin({ ...INPUT, edition: "COMPLETA" }, deps);
+
+  assert.equal(result.organization.edition, "COMPLETA");
+  assert.deepEqual(registro.procesosFijos, []);
+});
+
+// ---------------------------------------------------------------------------
+// Subir de edición: el estado de la base lo prueba el test de integración; acá,
+// sobre todo, que la caché de autenticación se vacía cuando hay que vaciarla
+// (en los tests de integración la caché está apagada, TTL 0, así que allá no
+// se ve).
+// ---------------------------------------------------------------------------
+
+function depsDeEdicion(estado: "ESENCIAL" | "COMPLETA" | null) {
+  const registro = { vaciados: 0, subidas: 0 };
+  let actual = estado;
+  return {
+    registro,
+    deps: {
+      subirACompleta: async () => {
+        if (actual !== "ESENCIAL") return 0;
+        actual = "COMPLETA";
+        registro.subidas++;
+        return 1;
+      },
+      edicionActual: async (id: string) => (actual ? { id, edition: actual } : null),
+      vaciarCacheDeAuth: () => {
+        registro.vaciados++;
+      },
+    },
+  };
+}
+
+test("subir de ESENCIAL a COMPLETA: cambia y vacía la caché de autenticación una vez", async () => {
+  const { deps, registro } = depsDeEdicion("ESENCIAL");
+  const result = await cambiarEdicionDeOrganizacion("org-1", "COMPLETA", deps);
+  assert.deepEqual(result, { id: "org-1", edition: "COMPLETA" });
+  assert.deepEqual(registro, { vaciados: 1, subidas: 1 });
+});
+
+test("pedir la edición que ya tiene: 200 sin cambios y sin vaciar la caché", async () => {
+  for (const edicion of ["COMPLETA", "ESENCIAL"] as const) {
+    const { deps, registro } = depsDeEdicion(edicion);
+    const result = await cambiarEdicionDeOrganizacion("org-1", edicion, deps);
+    assert.deepEqual(result, { id: "org-1", edition: edicion });
+    assert.deepEqual(registro, { vaciados: 0, subidas: 0 });
+  }
+});
+
+test("bajar de COMPLETA a ESENCIAL: 409, sin vaciar la caché", async () => {
+  const { deps, registro } = depsDeEdicion("COMPLETA");
+  await esperarAppError(() => cambiarEdicionDeOrganizacion("org-1", "ESENCIAL", deps), 409);
+  assert.equal(registro.vaciados, 0);
+});
+
+test("organización inexistente o dada de baja: 404", async () => {
+  const { deps } = depsDeEdicion(null);
+  await esperarAppError(() => cambiarEdicionDeOrganizacion("org-1", "COMPLETA", deps), 404);
 });

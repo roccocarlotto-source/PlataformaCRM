@@ -1,5 +1,6 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type OrganizationEdition } from "@prisma/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ESENCIAL_HABILITADA, edicionesDisponibles } from "../config/ediciones";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma, type Db } from "../lib/prisma";
@@ -7,13 +8,17 @@ import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findPendingInvitationByEmail } from "../repositories/invitation.repository";
 import {
   createOrganization,
+  createProcesoDeVentaFijo,
+  findActiveOrganizationEdition,
   findOrganizationBySlug,
+  subirOrganizacionACompleta,
 } from "../repositories/organization.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { createUser, findUserByEmail } from "../repositories/user.repository";
 import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { slugify } from "../utils/slug";
+import { vaciarContextosDeAuth } from "./auth.service";
 import { esErrorDeEmailDuplicado, revertirIdentidad } from "./authIdentity.service";
 
 // ---------------------------------------------------------------------------
@@ -56,10 +61,12 @@ export interface CreateOrganizationWithFoundingAdminInput {
   organizationName: string;
   adminFullName: string;
   adminEmail: string;
+  // docs/ediciones.md §1.1. Opcional por compatibilidad: sin ella, COMPLETA.
+  edition?: OrganizationEdition;
 }
 
 export interface CreateOrganizationWithFoundingAdminResult {
-  organization: { id: string; name: string; slug: string };
+  organization: { id: string; name: string; slug: string; edition: OrganizationEdition };
   admin: { id: string; email: string; fullName: string; role: "ADMIN" };
 }
 
@@ -79,9 +86,14 @@ export interface OrganizationAdminDeps {
   findOrganizationBySlug: (slug: string) => Promise<{ id: string } | null>;
   findRoleByName: (name: RoleName, db: Db) => Promise<{ id: string } | null>;
   createOrganization: (
-    data: { name: string; slug: string },
+    data: { name: string; slug: string; edition: OrganizationEdition },
     db: Db,
-  ) => Promise<{ id: string; name: string; slug: string }>;
+  ) => Promise<{ id: string; name: string; slug: string; edition: OrganizationEdition }>;
+  // El proceso de venta fijo de ESENCIAL (docs/ediciones.md §2.1).
+  createProcesoDeVentaFijo: (organizationId: string, db: Db) => Promise<unknown>;
+  // La llave ESENCIAL_HABILITADA (src/config/ediciones.ts). Inyectable para
+  // que los tests cubran los dos valores sin tocar la constante.
+  esencialHabilitada: boolean;
   createUser: (
     data: { id: string; organizationId: string; roleId: string; email: string; fullName: string },
     db: Db,
@@ -103,7 +115,11 @@ export const defaultOrganizationAdminDeps: OrganizationAdminDeps = {
   findOrganizationBySlug,
   findRoleByName,
   createOrganization,
+  createProcesoDeVentaFijo,
   createUser,
+  get esencialHabilitada() {
+    return ESENCIAL_HABILITADA;
+  },
   transaction: (fn) => prisma.$transaction(fn),
 };
 
@@ -112,6 +128,14 @@ export async function createOrganizationWithFoundingAdmin(
   deps: OrganizationAdminDeps = defaultOrganizationAdminDeps,
 ): Promise<CreateOrganizationWithFoundingAdminResult> {
   const { organizationName, adminFullName } = input;
+  const edition = input.edition ?? "COMPLETA";
+
+  // docs/ediciones.md §10, PR 4: ESENCIAL no se ofrece hasta el PR 5. Antes de
+  // cualquier escritura (y del mail de invitación): un 400 acá no deja nada
+  // que compensar.
+  if (!edicionesDisponibles(deps.esencialHabilitada).includes(edition)) {
+    throw new AppError(`La edición ${edition} todavía no está disponible.`, 400);
+  }
   // Misma normalización que invitation.service.ts (normalizeEmail): el email
   // de public.users es único y se compara tal cual.
   const email = input.adminEmail.trim().toLowerCase();
@@ -195,7 +219,16 @@ export async function createOrganizationWithFoundingAdmin(
         );
       }
 
-      const organization = await deps.createOrganization({ name: organizationName, slug }, tx);
+      const organization = await deps.createOrganization(
+        { name: organizationName, slug, edition },
+        tx,
+      );
+      // ESENCIAL nace con su proceso de venta fijo, en la misma transacción:
+      // sin él no podría crear oportunidades (§2.1). COMPLETA, como siempre,
+      // sin ninguno.
+      if (edition === "ESENCIAL") {
+        await deps.createProcesoDeVentaFijo(organization.id, tx);
+      }
       const user = await deps.createUser(
         {
           id: authUserId,
@@ -211,7 +244,12 @@ export async function createOrganizationWithFoundingAdmin(
     });
 
     return {
-      organization: { id: organization.id, name: organization.name, slug: organization.slug },
+      organization: {
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
+        edition: organization.edition,
+      },
       admin: { id: user.id, email: user.email, fullName: user.fullName, role: "ADMIN" },
     };
   } catch (err) {
@@ -244,4 +282,52 @@ export async function createOrganizationWithFoundingAdmin(
     logger.error({ err }, "Error inesperado creando la organización por platform admin");
     throw new AppError("No se pudo crear la organización", 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Cambiar la edición de una organización (docs/ediciones.md §1.1). Solo un
+// platform admin, y solo hacia arriba: ESENCIAL → COMPLETA. Bajar es un 409
+// (deja datos de módulos que la edición simple no tiene; fuera de alcance).
+// Pedir la edición que ya tiene es un 200 sin cambios: un reintento o un doble
+// click no da error.
+//
+// Después de subir se vacía la caché de autenticación: la edición viaja en el
+// AuthContext cacheado por usuario, y sin esto los usuarios de la
+// organización seguirían viendo ESENCIAL hasta el TTL.
+// ---------------------------------------------------------------------------
+export interface CambiarEdicionDeps {
+  subirACompleta: (organizationId: string) => Promise<number>;
+  edicionActual: (
+    organizationId: string,
+  ) => Promise<{ id: string; edition: OrganizationEdition } | null>;
+  vaciarCacheDeAuth: () => void;
+}
+
+const defaultCambiarEdicionDeps: CambiarEdicionDeps = {
+  subirACompleta: (organizationId) => subirOrganizacionACompleta(organizationId),
+  edicionActual: (organizationId) => findActiveOrganizationEdition(organizationId),
+  vaciarCacheDeAuth: vaciarContextosDeAuth,
+};
+
+export async function cambiarEdicionDeOrganizacion(
+  organizationId: string,
+  edicionPedida: OrganizationEdition,
+  deps: CambiarEdicionDeps = defaultCambiarEdicionDeps,
+): Promise<{ id: string; edition: OrganizationEdition }> {
+  if (edicionPedida === "COMPLETA" && (await deps.subirACompleta(organizationId)) === 1) {
+    deps.vaciarCacheDeAuth();
+    return { id: organizationId, edition: "COMPLETA" };
+  }
+
+  const actual = await deps.edicionActual(organizationId);
+  if (!actual) {
+    throw new AppError("Organización no encontrada", 404);
+  }
+  if (actual.edition === edicionPedida) {
+    return actual;
+  }
+  throw new AppError(
+    "No se puede bajar de edición: solo se puede pasar de ESENCIAL a COMPLETA.",
+    409,
+  );
 }

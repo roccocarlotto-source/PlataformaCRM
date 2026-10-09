@@ -1,11 +1,51 @@
+import type { OrganizationEdition } from "@prisma/client";
+import { PROCESO_DE_VENTA_FIJO } from "../config/ediciones";
 import { prisma, type Db } from "../lib/prisma";
 
 export function findOrganizationBySlug(slug: string, db: Db = prisma) {
   return db.organization.findUnique({ where: { slug } });
 }
 
-export function createOrganization(data: { name: string; slug: string }, db: Db = prisma) {
+export function createOrganization(
+  data: { name: string; slug: string; edition?: OrganizationEdition },
+  db: Db = prisma,
+) {
   return db.organization.create({ data });
+}
+
+// El proceso de venta fijo de ESENCIAL (docs/ediciones.md §2.1), dentro de la
+// transacción del alta: el pipeline por defecto y sus tres etapas. Sin
+// default para `db`: fuera de la transacción del alta no tiene sentido.
+export async function createProcesoDeVentaFijo(organizationId: string, db: Db) {
+  const pipeline = await db.pipeline.create({
+    data: { organizationId, name: PROCESO_DE_VENTA_FIJO.name, isDefault: true },
+  });
+  await db.stage.createMany({
+    data: PROCESO_DE_VENTA_FIJO.stages.map((stage) => ({
+      ...stage,
+      organizationId,
+      pipelineId: pipeline.id,
+    })),
+  });
+  return pipeline;
+}
+
+// Subir de edición (docs/ediciones.md §1.1): solo ESENCIAL → COMPLETA, y el
+// WHERE lo exige en la misma escritura, así que dos pedidos simultáneos no
+// pueden pisarse. Devuelve cuántas filas cambió (0 o 1).
+export async function subirOrganizacionACompleta(organizationId: string, db: Db = prisma) {
+  const { count } = await db.organization.updateMany({
+    where: { id: organizationId, edition: "ESENCIAL", deletedAt: null },
+    data: { edition: "COMPLETA" },
+  });
+  return count;
+}
+
+export function findActiveOrganizationEdition(organizationId: string, db: Db = prisma) {
+  return db.organization.findFirst({
+    where: { id: organizationId, deletedAt: null },
+    select: { id: true, edition: true },
+  });
 }
 
 // El listado de la plataforma (selector de organización de las pantallas de
@@ -14,7 +54,7 @@ export function createOrganization(data: { name: string; slug: string }, db: Db 
 export function listActiveOrganizations(db: Db = prisma) {
   return db.organization.findMany({
     where: { deletedAt: null },
-    select: { id: true, name: true, slug: true },
+    select: { id: true, name: true, slug: true, edition: true },
     orderBy: { name: "asc" },
   });
 }
