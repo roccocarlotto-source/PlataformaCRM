@@ -30,10 +30,11 @@
 --    (el service, scripts, tests con prisma.agent.create) se comporta como
 --    antes en COMPLETA, y en ESENCIAL el agente nace sin nivel. Solo actúa al
 --    insertar: cambiar la edición después no toca a los agentes. Se repite en
---    prisma/sql/manual_constraints.sql, que lo reaplica en cada deploy.
+--    prisma/sql/manual_constraints.sql, que lo reaplica cada `npm run
+--    migrate:deploy` (manual; el deploy de Render no corre ese script).
 --
 -- 5. CHECK agents_activo_requiere_nivel_check: un agente activo tiene nivel.
---    Va solo acá (B-15: los CHECK no se reaplican por deploy). Como is_active
+--    Va solo acá (B-15: los CHECK no se reaplican en migrate:deploy). Como is_active
 --    tiene default true, un agente de ESENCIAL creado sin nivel por un camino
 --    que no sea el service falla al insertar en lugar de quedar activo.
 --
