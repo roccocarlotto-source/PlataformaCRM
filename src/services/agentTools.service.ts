@@ -9,6 +9,7 @@ import {
   VehicleTransmission,
 } from "@prisma/client";
 import { z } from "zod";
+import { toolDelRubro } from "../config/ediciones";
 import { logger } from "../lib/logger";
 import { findManyActivities } from "../repositories/activity.repository";
 import { countFutureConfirmedBookingsOfContact } from "../repositories/booking.repository";
@@ -60,6 +61,7 @@ import {
   qualifyLead,
   marcarSinInteres,
 } from "./contact.service";
+import type { OrganizacionDelAgente } from "./agentPermissions.service";
 import type { LlmToolDefinition } from "./llmProvider.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
 import { resolverOwnerDelContacto } from "./ownership.service";
@@ -2910,11 +2912,16 @@ export const CATALOGO_DE_TOOLS: ReadonlyMap<string, ToolDelAgente> = new Map(
 // verdad (paso 2 de §4). Un nombre de enabledTools que no esté en el catálogo
 // simplemente no se le ofrece al modelo — el CRUD de agentes solo valida la
 // forma del nombre, no su pertenencia, a propósito (ver agent.controller.ts).
-export function toolsHabilitadas(enabledTools: string[]): ToolDelAgente[] {
+// Y tiene que existir en el rubro de la organización (toolDelRubro,
+// docs/rubros.md §5.1): en AUTOMOTORA, todas.
+export function toolsHabilitadas(
+  enabledTools: string[],
+  organizacion: OrganizacionDelAgente,
+): ToolDelAgente[] {
   const resultado: ToolDelAgente[] = [];
   for (const nombre of enabledTools) {
     const tool = CATALOGO_DE_TOOLS.get(nombre);
-    if (tool) {
+    if (tool && toolDelRubro(nombre, organizacion.edition, organizacion.industry)) {
       resultado.push(tool);
     }
   }

@@ -114,6 +114,7 @@ function comoUsuario(
     email: `${userId}@example.test`,
     fullName: "Test",
     edition: "COMPLETA",
+    industry: "AUTOMOTORA",
   };
 }
 

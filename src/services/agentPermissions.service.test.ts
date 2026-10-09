@@ -12,6 +12,7 @@ function agente(overrides: Partial<AgentParaPermisos> = {}): AgentParaPermisos {
   return {
     enabledTools: ["create_opportunity", "create_booking", "get_availability"],
     guardrails: {},
+    organizacion: { edition: "COMPLETA", industry: "AUTOMOTORA" },
     ...overrides,
   };
 }

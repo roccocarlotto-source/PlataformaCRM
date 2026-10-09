@@ -130,6 +130,42 @@ model Organization {
 
 ### 1.2 Cómo se combinan rubro y edición: un solo catálogo
 
+> **Implementado en R2.** El diseño de abajo es anterior al PR 3 de ediciones
+> (#457), y el código real difiere en estos puntos:
+>
+> - **El gate no es un middleware aparte (`gateDeEdicion`):** es
+>   `exigirModuloDeLaEdicion` (`src/middlewares/moduloDeLaEdicion.ts`), que
+>   `authenticate` llama apenas resuelve `req.auth` (ediciones §5.2). R2 lo
+>   extiende ahí. El no-op es para **COMPLETA + AUTOMOTORA**: una clínica
+>   COMPLETA sí pasa por el gate.
+> - **`RUTAS_POR_MODULO` es `Record<Modulo, string[]>`** con `"MÉTODO /api/patron"`,
+>   no una lista de objetos.
+> - **Bloqueos por campo:** no son zod refinados ni una lista por rubro. Es la
+>   misma `CAMPOS_POR_RUTA` de ediciones, campo → módulo. El módulo decide con
+>   `modulosDe`, así que sirve para la edición y para el rubro.
+>   R2 suma `vehicleOfInterestId` en `PATCH /api/contacts/:id` (`stock`; el
+>   `POST` no acepta ese campo), y `opportunityId` en `POST`/`PATCH
+>   /api/activities` y `POST /api/bookings` (`oportunidades`). Las dos
+>   ediciones tienen esos módulos, así que una automotora no los ve.
+> - **`motivo` va en el 403 y en el 400.** Es `RUBRO` si el rubro no tiene el
+>   módulo, aunque la edición tampoco lo tenga, porque subir de edición no se
+>   lo daría. Si no, es `EDICION`. En una ruta sin clasificar es `RUBRO` fuera
+>   de AUTOMOTORA. El texto del 403 de una automotora no cambia.
+> - **`sync-vehicles` pasó de `base_de_conocimiento` a `stock`:** sin stock no
+>   hay nada que volcar. Las dos ediciones tienen `stock`, así que a una
+>   automotora no le cambia nada.
+> - **Todavía no hay módulos propios de CLINICA.** R2 no los necesita:
+>   `agenda_clinica` y los demás entran con el PR que les da rutas, y
+>   `SOLO_CLINICA` los saca de AUTOMOTORA. Por eso `/me` de una automotora
+>   devuelve los mismos `modulos` que antes. La garantía de §14.1 no compara
+>   contra `MODULOS_POR_EDICION[e]`, que va a incluir esos módulos, sino
+>   contra la lista fija de los módulos de antes de R2.
+> - **Tools:** `toolDelRubro(nombre, edition, industry)` mapea cada tool a su
+>   módulo (`MODULO_DE_LA_TOOL`) y le pregunta a `modulosDe`. Hay una sola
+>   excepción explícita, `get_payment_info` fuera de CLINICA
+>   (`TOOLS_FUERA_DEL_RUBRO`): su módulo no explica la exclusión (§5.1, B7).
+>   En AUTOMOTORA no filtra nada, en ninguna edición.
+
 **No se duplica el gate.** `docs/ediciones.md` §5 define un catálogo
 (`src/config/ediciones.ts`) y un único middleware (`gateDeEdicion`). El rubro se
 suma **al mismo archivo y al mismo middleware**:

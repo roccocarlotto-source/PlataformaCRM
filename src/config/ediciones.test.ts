@@ -146,7 +146,7 @@ test("un módulo sin rutas está declarado en MODULOS_SIN_RUTAS, y uno declarado
 
 test("COMPLETA tiene todos los módulos; ESENCIAL, todos menos los de solo COMPLETA", () => {
   assert.deepEqual([...MODULOS_POR_EDICION.COMPLETA].sort(), [...MODULOS].sort());
-  const fuera = MODULOS.filter((m) => !modulosDe("ESENCIAL").has(m)).sort();
+  const fuera = MODULOS.filter((m) => !modulosDe("ESENCIAL", "AUTOMOTORA").has(m)).sort();
   assert.deepEqual(fuera, [
     "cotizaciones",
     "dashboard_comercial",
@@ -159,7 +159,7 @@ test("COMPLETA tiene todos los módulos; ESENCIAL, todos menos los de solo COMPL
   ]);
   // Las rutas que no pueden depender de la edición del usuario.
   for (const modulo of ["plataforma", "comun", "dashboard_atencion"] as const) {
-    assert.ok(modulosDe("ESENCIAL").has(modulo), modulo);
+    assert.ok(modulosDe("ESENCIAL", "AUTOMOTORA").has(modulo), modulo);
   }
 });
 
@@ -167,7 +167,7 @@ test("las rutas con bloqueo por campo están en el catálogo y en un módulo inc
   for (const ruta of Object.keys(CAMPOS_POR_RUTA)) {
     const modulo = moduloDeLaRuta(ruta);
     assert.ok(modulo, ruta);
-    assert.ok(modulosDe("ESENCIAL").has(modulo), ruta);
+    assert.ok(modulosDe("ESENCIAL", "AUTOMOTORA").has(modulo), ruta);
   }
 });
 
@@ -194,6 +194,7 @@ function auth(edition: AuthContext["edition"]): AuthContext {
     email: "persona@example.com",
     fullName: "Persona de Prueba",
     edition,
+    industry: "AUTOMOTORA",
   };
 }
 
@@ -237,13 +238,21 @@ test("ESENCIAL: ruta de un módulo excluido → 403 MODULO_NO_INCLUIDO con el m�
     exigirModuloDeLaEdicion(pedido("PATCH", "/quotes/:id"), auth("ESENCIAL")),
   );
   assert.equal(err?.statusCode, 403);
-  assert.deepEqual(err?.details, { code: MODULO_NO_INCLUIDO, modulo: "cotizaciones" });
+  assert.deepEqual(err?.details, {
+    code: MODULO_NO_INCLUIDO,
+    modulo: "cotizaciones",
+    motivo: "EDICION",
+  });
 });
 
 test("ESENCIAL: ruta sin clasificar → falla cerrado, 403 con modulo sin_clasificar", () => {
   const err = errorDe(() => exigirModuloDeLaEdicion(pedido("GET", "/no-existe"), auth("ESENCIAL")));
   assert.equal(err?.statusCode, 403);
-  assert.deepEqual(err?.details, { code: MODULO_NO_INCLUIDO, modulo: "sin_clasificar" });
+  assert.deepEqual(err?.details, {
+    code: MODULO_NO_INCLUIDO,
+    modulo: "sin_clasificar",
+    motivo: "EDICION",
+  });
 });
 
 test("ESENCIAL: ruta incluida pasa", () => {
@@ -272,6 +281,7 @@ test("ESENCIAL: un campo excluido con valor → 400 CAMPO_NO_INCLUIDO; null o au
     code: CAMPO_NO_INCLUIDO,
     campo: "companyId",
     modulo: "empresas",
+    motivo: "EDICION",
   });
 
   const financiacion = errorDe(() =>
@@ -284,6 +294,7 @@ test("ESENCIAL: un campo excluido con valor → 400 CAMPO_NO_INCLUIDO; null o au
     code: CAMPO_NO_INCLUIDO,
     campo: "financingType",
     modulo: "financiacion",
+    motivo: "EDICION",
   });
 
   const permuta = errorDe(() =>
@@ -298,6 +309,7 @@ test("ESENCIAL: un campo excluido con valor → 400 CAMPO_NO_INCLUIDO; null o au
     code: CAMPO_NO_INCLUIDO,
     campo: "tradeInOpportunityId",
     modulo: "permutas",
+    motivo: "EDICION",
   });
 
   assert.equal(

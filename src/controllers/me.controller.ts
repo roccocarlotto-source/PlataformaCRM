@@ -20,7 +20,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 // siempre, sin lectura; USER según la columna) — la autorización real sigue
 // siendo esos middlewares en cada llamada, nunca estos booleanos.
 export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-  const { userId, email, fullName, organizationId, role, edition } = req.auth;
+  const { userId, email, fullName, organizationId, role, edition, industry } = req.auth;
   // internalAgentConfigured (OPUS-F-04 / FABLE-F-07, docs-privados, local): si
   // la organización TIENE un agente interno. Sin este dato la pantalla del
   // agente interno pedía su configuración y sus mensajes para enterarse de que
@@ -45,8 +45,10 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     // Ediciones (docs/ediciones.md §7): la edición y los módulos que incluye,
     // calculados acá desde src/config/ediciones.ts para que el frontend no
     // tenga una tabla propia. En el orden del catálogo. Es solo para mostrar
-    // u ocultar: lo que decide es el gate de cada request.
+    // u ocultar: lo que decide es el gate de cada request. Con el rubro
+    // (docs/rubros.md §1.2), los módulos son los de la edición Y los del rubro.
     edition,
-    modulos: MODULOS.filter((modulo) => modulosDe(edition).has(modulo)),
+    industry,
+    modulos: MODULOS.filter((modulo) => modulosDe(edition, industry).has(modulo)),
   });
 });

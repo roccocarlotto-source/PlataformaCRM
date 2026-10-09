@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
+import type { OrganizacionDelAgente } from "./agentPermissions.service";
 import {
   bloqueDeCupones,
   bloqueDeCamposPersonalizados,
@@ -51,6 +52,9 @@ import {
 import type { DefinicionDeCampo } from "../utils/camposPersonalizados";
 import { isoEnZona } from "../utils/timezone";
 import { CATALOGO_DE_TOOLS, type ToolDelAgente } from "./agentTools.service";
+
+// Una automotora de hoy: no filtra ninguna tool (docs/rubros.md §5.1).
+const AUTOMOTORA: OrganizacionDelAgente = { edition: "COMPLETA", industry: "AUTOMOTORA" };
 
 // Unitarios, sin base: armarSystemPrompt es pura. Lo que se verifica es que
 // los tres guardrails "de lo que el modelo puede DECIR" (nota del paso 4 bajo
@@ -1189,7 +1193,7 @@ function resolverReserva(
   return resolverToolCall(
     { id: "call-1", name: "create_booking", arguments: args },
     {
-      agent: { enabledTools: ["create_booking"], guardrails },
+      agent: { enabledTools: ["create_booking"], guardrails, organizacion: AUTOMOTORA },
       toolsPorNombre: new Map([["create_booking", tool]]),
       datosDisponibles,
       contextoDeTools: {} as never,
@@ -1259,7 +1263,7 @@ test("ítem 133: una tool fuera del catálogo sigue respondiendo 'no existe'", a
   const entrada = await resolverToolCall(
     { id: "call-1", name: "inventada", arguments: {} },
     {
-      agent: { enabledTools: ["inventada"], guardrails: {} },
+      agent: { enabledTools: ["inventada"], guardrails: {}, organizacion: AUTOMOTORA },
       toolsPorNombre: new Map(),
       datosDisponibles: {},
       contextoDeTools: {} as never,
