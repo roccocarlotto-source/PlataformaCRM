@@ -71,64 +71,114 @@ export const SECCIONES: Seccion[] = Object.entries(ARCHIVOS)
   .map(([ruta, markdown]) => parsearSeccion(ruta, markdown))
   .sort((a, b) => a.orden - b.orden);
 
-// Ediciones (docs/ediciones.md §9): los ## que explican un módulo que no
-// todas las ediciones tienen, como `<slug>#<ancla>` → módulo. Sin el módulo,
-// GuiaPage no muestra el ## (con sus ###), ni en la sección, ni en el índice,
-// ni en el buscador. Un ## que no está acá se muestra siempre.
+// Ediciones (docs/ediciones.md §9): los bloques de la guía que dependen de un
+// módulo, como `<slug>#<ancla>` → módulo. Un bloque es un ## (con sus ###) o
+// un ### con {#ancla} propia (hasta el próximo ### o ##).
+//
+//   - MODULO_DE_ANCLA: el bloque explica algo de ese módulo; sin el módulo,
+//     no se muestra.
+//   - SOLO_SIN_MODULO: el bloque explica cómo se hace SIN ese módulo (lo de la
+//     edición Esencial); con el módulo, no se muestra.
+//
+// Con la regla de useModulo, en COMPLETA (también una clínica) se ven los
+// primeros y no los segundos; en ESENCIAL, al revés. Un bloque que no está en
+// ninguno de los dos se muestra siempre.
 export const MODULO_DE_ANCLA: Readonly<Record<string, string>> = {
   "contactos-y-consultas#empresas": "empresas",
   "contactos-y-consultas#nueva-empresa": "empresas",
+  "oportunidades-y-procesos-de-venta#oportunidades": "procesos_de_venta",
   "oportunidades-y-procesos-de-venta#embudo": "procesos_de_venta",
+  "oportunidades-y-procesos-de-venta#nueva-oportunidad": "procesos_de_venta",
+  "oportunidades-y-procesos-de-venta#ficha-de-oportunidad": "procesos_de_venta",
   "oportunidades-y-procesos-de-venta#cotizaciones": "cotizaciones",
   "oportunidades-y-procesos-de-venta#pagos": "pagos",
   "oportunidades-y-procesos-de-venta#permuta": "permutas",
   "oportunidades-y-procesos-de-venta#entrega": "entregas",
+  "oportunidades-y-procesos-de-venta#cerrar": "procesos_de_venta",
   "oportunidades-y-procesos-de-venta#procesos-de-venta": "procesos_de_venta",
   "oportunidades-y-procesos-de-venta#etapas": "procesos_de_venta",
+  "stock#desde-una-permuta": "permutas",
 };
 
-const ENCABEZADO_DOS = /^## .*\{#([a-z0-9-]+)\}\s*$/;
+export const SOLO_SIN_MODULO: Readonly<Record<string, string>> = {
+  "oportunidades-y-procesos-de-venta#oportunidades-esencial": "procesos_de_venta",
+};
 
-/** La sección sin los ## de los módulos que la organización no tiene. Si no
- *  oculta nada, devuelve la MISMA sección (en COMPLETA, siempre). */
+const ENCABEZADO_CUALQUIERA = /^(##|###) /;
+const ANCLA_EXPLICITA = /\{#([a-z0-9-]+)\}\s*$/;
+
+/** La sección sin los bloques que no van con los módulos de la organización.
+ *  Si no oculta nada, devuelve la MISMA sección. */
 export function filtrarPorModulos(seccion: Seccion, tiene: (modulo: string) => boolean): Seccion {
   const oculta = (ancla: string) => {
-    const modulo = MODULO_DE_ANCLA[`${seccion.slug}#${ancla}`];
-    return modulo !== undefined && !tiene(modulo);
+    const clave = `${seccion.slug}#${ancla}`;
+    const sinElModulo = MODULO_DE_ANCLA[clave];
+    const soloSinElModulo = SOLO_SIN_MODULO[clave];
+    return (
+      (sinElModulo !== undefined && !tiene(sinElModulo)) ||
+      (soloSinElModulo !== undefined && tiene(soloSinElModulo))
+    );
   };
-  if (!seccion.encabezados.some((e) => e.nivel === 2 && oculta(e.ancla))) return seccion;
+  if (!seccion.encabezados.some((e) => oculta(e.ancla))) return seccion;
+
+  // El nivel del bloque que se está ocultando (2 o 3), o null.
+  let ocultandoDesde: number | null = null;
+  const entra = (nivel: number, ancla: string | undefined) => {
+    if (ocultandoDesde !== null && nivel <= ocultandoDesde) ocultandoDesde = null;
+    if (ocultandoDesde === null && ancla !== undefined && oculta(ancla)) ocultandoDesde = nivel;
+    return ocultandoDesde === null;
+  };
 
   const lineas: string[] = [];
-  let ocultando = false;
   let enBloqueDeCodigo = false;
   for (const linea of seccion.markdown.split("\n")) {
     if (linea.startsWith("```")) enBloqueDeCodigo = !enBloqueDeCodigo;
-    if (!enBloqueDeCodigo) {
-      const match = ENCABEZADO_DOS.exec(linea);
-      if (match) ocultando = oculta(match[1]);
-    }
-    if (!ocultando) lineas.push(linea);
+    const encabezado = enBloqueDeCodigo ? null : ENCABEZADO_CUALQUIERA.exec(linea);
+    if (encabezado) entra(encabezado[1].length, ANCLA_EXPLICITA.exec(linea)?.[1]);
+    if (ocultandoDesde === null) lineas.push(linea);
   }
 
-  const encabezados: Encabezado[] = [];
-  let ocultandoEncabezados = false;
-  for (const encabezado of seccion.encabezados) {
-    if (encabezado.nivel === 2) ocultandoEncabezados = oculta(encabezado.ancla);
-    if (!ocultandoEncabezados) encabezados.push(encabezado);
-  }
+  ocultandoDesde = null;
+  const encabezados = seccion.encabezados.filter((e) => entra(e.nivel, e.ancla));
   return { ...seccion, markdown: lineas.join("\n"), encabezados };
 }
 
+// Un link a un bloque que quedó oculto lleva a la sección, sin el ancla: así
+// nunca hay un link a algo que no se ve. Cubre los links a otra sección
+// (/ayuda/<slug>#<ancla>) y los de la misma (#<ancla>).
+function sinLinksAOcultos(
+  seccion: Seccion,
+  original: Seccion,
+  ocultas: ReadonlySet<string>,
+): Seccion {
+  const markdown = seccion.markdown
+    .replace(/\]\(\/ayuda\/([a-z0-9-]+)#([a-z0-9-]+)\)/g, (link, slug: string, ancla: string) =>
+      ocultas.has(`${slug}#${ancla}`) ? `](/ayuda/${slug})` : link,
+    )
+    .replace(/\]\(#([a-z0-9-]+)\)/g, (link, ancla: string) =>
+      ocultas.has(`${original.slug}#${ancla}`) ? `](/ayuda/${original.slug})` : link,
+    );
+  return markdown === seccion.markdown ? seccion : { ...seccion, markdown };
+}
+
 /** Las secciones que ve quien está en la app: "Plataforma" solo el platform
- *  admin, y sin los ## de módulos que la organización no tiene (`tiene`, la
- *  regla de useModulo: en COMPLETA, todo). */
+ *  admin, y los bloques que van con los módulos de la organización (`tiene`,
+ *  la regla de useModulo). */
 export function seccionesVisibles(
   esPlatformAdmin: boolean,
   tiene: (modulo: string) => boolean = () => true,
 ): Seccion[] {
-  return SECCIONES.filter((seccion) => !seccion.soloPlataforma || esPlatformAdmin).map((seccion) =>
-    filtrarPorModulos(seccion, tiene),
-  );
+  const originales = SECCIONES.filter((seccion) => !seccion.soloPlataforma || esPlatformAdmin);
+  const filtradas = originales.map((seccion) => filtrarPorModulos(seccion, tiene));
+  const ocultas = new Set<string>();
+  filtradas.forEach((seccion, i) => {
+    const visibles = new Set(seccion.encabezados.map((e) => e.ancla));
+    for (const e of originales[i].encabezados) {
+      if (!visibles.has(e.ancla)) ocultas.add(`${seccion.slug}#${e.ancla}`);
+    }
+  });
+  if (ocultas.size === 0) return filtradas;
+  return filtradas.map((seccion, i) => sinLinksAOcultos(seccion, originales[i], ocultas));
 }
 
 export function seccionPorSlug(slug: string | undefined): Seccion | undefined {

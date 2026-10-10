@@ -575,7 +575,7 @@ export function OpportunityFormPage() {
     <>
       <form onSubmit={handleSubmit} className="ds-form">
         <PageHeader
-          help={AYUDA.oportunidadForm}
+          help={simple ? AYUDA.oportunidadEsencialForm : AYUDA.oportunidadForm}
           title={isEditMode ? "Editar oportunidad" : "Nueva oportunidad"}
           actions={
             // "Crear cupón" a mano: el cupón es del contacto de la venta, así

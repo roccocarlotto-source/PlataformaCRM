@@ -29,12 +29,12 @@ un mail para elegir su contraseña y, cuando lo complete, entra como
    *Ana Pérez*, *ana@example.com*).
 4. Tocá **Crear organización**.
 
-Cuando la plataforma ofrece más de una edición o más de un rubro, en
-**Organización** aparecen también **Edición** y **Rubro** (por ejemplo,
-**Automotora** o **Clínica**). Los dos son obligatorios y vienen sin ninguna
-opción elegida: elegí los que correspondan al cliente. Si solo hay una opción
-disponible, el campo no aparece y la organización se crea con esa (hoy, una
-automotora en edición completa).
+En **Organización** aparece también **Edición**: **Completa** o **Esencial**
+(ver [Las ediciones](#las-ediciones)). Es obligatoria y viene sin ninguna
+opción elegida: elegí la que contrató el cliente. Cuando la plataforma ofrece
+más de un rubro, aparece también **Rubro** (por ejemplo, **Automotora** o
+**Clínica**), con el mismo criterio. Si para alguno de los dos hay una sola
+opción disponible, ese campo no aparece y la organización se crea con esa.
 
 > El rubro define qué ve y cómo habla el sistema para ese cliente. Después de
 > creada, solo se puede cambiar mientras la organización todavía no tenga
@@ -48,6 +48,45 @@ formulario vacío.
 
 > Revisá bien el email antes de confirmar: la invitación sale a esa casilla y
 > quien la complete queda como administrador del cliente.
+
+### Las ediciones {#las-ediciones}
+
+| Edición | Qué tiene |
+|---|---|
+| **Completa** | Todo el CRM: empresas, procesos de venta con su embudo, cotizaciones, pagos, entregas, permutas, financiación y el dashboard comercial, además de todo lo de Esencial. |
+| **Esencial** | Contactos y consultas, conversaciones, agentes de IA, stock, agenda, tareas, cupones y QR, automatizaciones y oportunidades simples: cada una está **En curso**, **Vendida** o **Perdida**, sin embudo ni etapas. El dashboard muestra la atención (conversaciones, derivaciones, consultas y tareas) en lugar de los montos. |
+
+Al crear una organización **Esencial**, el sistema le arma su proceso de venta:
+**Ventas**, con las etapas **En curso**, **Vendida** y **Perdida**. El cliente
+no lo ve ni lo puede cambiar; es lo que ordena sus oportunidades.
+
+En **Esencial**, cada agente de IA arranca sin nivel: el administrador del
+cliente tiene que elegir **Cuánto hace la IA** antes de activarlo.
+
+> Una organización **Esencial** se puede pasar a **Completa** desde
+> [Organizaciones](#organizaciones). Al revés no: una organización **Completa**
+> no vuelve a **Esencial**.
+
+## Organizaciones {#organizaciones}
+
+En **Plataforma → Organizaciones** está la lista de las organizaciones vigentes,
+con su **Identificador** y su **Edición**.
+
+### Pasar a edición completa
+
+1. En la fila de una organización **Esencial**, tocá **Pasar a edición
+   completa**.
+2. Confirmá con **Pasar a completa**.
+
+Arriba de la lista aparece que la organización *ya tiene la edición completa*.
+Desde ese momento tiene todos los módulos: empresas, procesos de venta (su
+proceso **Ventas** pasa a ser uno común, que puede editar y ver como embudo),
+cotizaciones, pagos, entregas, permutas, financiación y el dashboard comercial.
+Las oportunidades que ya tenía siguen igual, cada una en la etapa de su estado.
+Quien esté usando la app del cliente ve los módulos nuevos al volver a cargar la
+página.
+
+> No se puede deshacer: una organización **Completa** no vuelve a **Esencial**.
 
 ## Importar datos {#importar-datos}
 

@@ -11,6 +11,67 @@ configura un administrador en **Procesos de venta**.
 
 Las dos pantallas están en el menú **CRM**.
 
+## Oportunidades en la edición Esencial {#oportunidades-esencial}
+
+En la edición **Esencial**, una oportunidad es simple: un contacto, un título,
+la unidad que le interesa, un monto y en qué está la venta. No hay embudo,
+etapas, procesos de venta ni empresas: el estado de la venta se elige a mano.
+
+| Estado | Qué significa |
+|---|---|
+| **En curso** | La venta está abierta. Es el estado con que nace. |
+| **Vendida** | La venta se registró. |
+| **Perdida** | No se dio. Se puede anotar por qué. |
+
+### La lista {#lista-esencial}
+
+En **CRM → Oportunidades** se ven todas las oportunidades de la organización,
+en una tabla. Se puede **Buscar por título**, filtrar por **Estado** y elegir
+el orden (fecha de creación, última actualización, monto o título).
+
+Las columnas son **Título** (tocarlo abre la oportunidad), **Asociado** (el
+contacto), **Monto**, **Cierre**, **Asignado** (solo la ven los
+administradores) y **Estado**. En los tres puntos de cada fila están **Ver
+detalle**, **Editar** y **Eliminar**.
+
+Cualquier usuario puede crear oportunidades, y las que crea quedan a su nombre.
+Una oportunidad la edita quien la tiene asignada o un administrador; la de otra
+persona se ve en solo lectura. Eliminar y reasignar: solo un administrador.
+
+> Eliminar una oportunidad no se deshace desde la app. Si tenía una unidad de
+> stock vinculada, la unidad vuelve a quedar disponible.
+
+### Nueva oportunidad {#nueva-oportunidad-esencial}
+
+1. En la lista, tocá **Nueva oportunidad**.
+2. Escribí el **Título** (por ejemplo, *Hilux para Ana Pérez*).
+3. En **Contacto**, escribí parte del nombre o del email y elegilo de la lista.
+   Es obligatorio.
+4. Si ya hay una unidad, elegila en **Unidad de stock**. Si dejás el **Monto**
+   vacío, la oportunidad toma el precio de la unidad.
+5. Si hace falta, cargá **Monto** y **Moneda**, y un administrador puede
+   elegir a quién queda **Asignado**.
+6. Tocá **Guardar**. La oportunidad nace **En curso**.
+
+Al abrir una oportunidad que tiene contacto, arriba a la derecha está el botón
+**Crear cupón**, para mandarle por WhatsApp un cupón de descuento (ver
+[Cupones y QR](/ayuda/cupones-y-qr)).
+
+### Vendida o perdida {#cerrar-esencial}
+
+Para cerrar una venta, abrí la oportunidad, elegí el **Estado** y tocá
+**Guardar**:
+
+- **Vendida**: la fecha de cierre se completa sola con la de hoy. Si la
+  oportunidad tiene una unidad vinculada, la unidad queda **Vendida** en el
+  stock. Si hay una automatización de **Venta registrada**, se dispara (por
+  ejemplo, el QR o el cupón al cliente, ver
+  [Automatizaciones](/ayuda/automatizaciones)).
+- **Perdida**: aparece **Motivo de pérdida**, para anotar por qué no se dio.
+  Si tenía una unidad vinculada, la unidad vuelve a quedar disponible.
+- Volver a **En curso** reabre la venta: se borran la fecha de cierre y el
+  motivo de pérdida.
+
 ## Oportunidades {#oportunidades}
 
 En **CRM → Oportunidades** se ven todas las oportunidades de la organización.

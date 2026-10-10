@@ -514,8 +514,9 @@ export function AppLayout() {
               <SidebarLink to="/admin/organizations/new" icon={Building}>
                 Nueva organización
               </SidebarLink>
+              {/* end: si no, también queda marcado en /admin/organizations/new. */}
               {esencialOfrecida ? (
-                <SidebarLink to="/admin/organizations" icon={Building2}>
+                <SidebarLink to="/admin/organizations" end icon={Building2}>
                   Organizaciones
                 </SidebarLink>
               ) : null}

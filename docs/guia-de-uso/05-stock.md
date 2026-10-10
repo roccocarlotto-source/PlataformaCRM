@@ -65,6 +65,8 @@ Solo un administrador puede dar de alta una unidad.
 Las fotos y la publicación se cargan **después de guardar**, desde la ficha
 (ver [Fotos](#fotos) y [Publicar una unidad](#publicar)).
 
+### Desde una permuta {#desde-una-permuta}
+
 Si llegaste a esta pantalla desde **Agregar auto en permuta** en una
 oportunidad, el **Origen** viene en Permuta, arriba se lee a qué oportunidad
 se va a vincular y, al guardar, volvés a esa oportunidad. Ver

@@ -125,6 +125,8 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("esencial-cerrada-{ts}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("completa-explicita-{ts}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("esencial-abierta-{ts}", `${C}organizationAdmin.controller.integration-test.ts`),
+  patron("esencial-punta-{ts}", `${C}edicionEsencial.integration-test.ts`),
+  patron("punta-plataforma-{hex8}", `${C}edicionEsencial.integration-test.ts`),
   patron("clinica-alta-{ts}", "src/clinicas/altaYConfiguracion.integration-test.ts"),
   patron("clinica-cerrada-{ts}", "src/clinicas/altaYConfiguracion.integration-test.ts"),
   patron(

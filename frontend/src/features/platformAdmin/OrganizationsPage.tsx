@@ -1,3 +1,4 @@
+import { AYUDA } from "../guia/anclas";
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Badge } from "../../design-system/Badge";
@@ -20,10 +21,10 @@ import type { PlatformOrganization } from "./types";
 // (PATCH /api/admin/organizations/:id/edition). Solo hacia arriba: bajar no
 // existe.
 //
-// Mientras el backend no ofrezca ESENCIAL (ESENCIAL_HABILITADA en false) no
-// puede haber ninguna organización que subir, así que la pantalla no se
-// muestra: el menú no la lista y la ruta vuelve al inicio. El "?" de ayuda
-// llega con la sección 14 de la guía, en el PR que habilita ESENCIAL.
+// Si el backend no ofrece ESENCIAL (ESENCIAL_HABILITADA en false) no puede
+// haber ninguna organización que subir, así que la pantalla no se muestra: el
+// menú no la lista y la ruta vuelve al inicio. Su "?" apunta a la sección 14
+// de la guía (plataforma#organizaciones).
 // ---------------------------------------------------------------------------
 
 export function OrganizationsPage() {
@@ -58,7 +59,7 @@ function ListaDeOrganizaciones() {
 
   return (
     <>
-      <PageHeader title="Organizaciones" />
+      <PageHeader help={AYUDA.organizaciones} title="Organizaciones" />
       <Card heading="Organizaciones vigentes">
         {organizationsQuery.isLoading ? <LoadingState /> : null}
         {organizationsQuery.isError ? (

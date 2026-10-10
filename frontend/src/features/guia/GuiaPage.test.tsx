@@ -123,7 +123,10 @@ describe("GuiaPage — por edición", () => {
   it("ESENCIAL: la sección de oportunidades no muestra Cotizaciones ni Procesos de venta", () => {
     conEdicion("ESENCIAL");
     renderEn("/ayuda/oportunidades-y-procesos-de-venta");
-    expect(screen.getByRole("heading", { level: 2, name: "Oportunidades" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Oportunidades en la edición Esencial" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "Oportunidades" })).toBeNull();
     expect(screen.queryByRole("heading", { level: 2, name: "Cotizaciones" })).toBeNull();
     expect(screen.queryByRole("heading", { level: 2, name: "Procesos de venta" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Cotizaciones" })).toBeNull();

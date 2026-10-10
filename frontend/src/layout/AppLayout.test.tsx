@@ -535,7 +535,8 @@ describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () =>
   }
 
   const editionsUrl = `${env.apiUrl}/api/admin/organizations/editions`;
-  // Lo de hoy: el backend ofrece solo COMPLETA (ESENCIAL_HABILITADA en false).
+  // Por defecto, un backend que ofrece solo COMPLETA (ESENCIAL_HABILITADA en
+  // false); los casos de ESENCIAL lo cambian.
   beforeEach(() => {
     server.use(http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA"] })));
   });
@@ -567,6 +568,21 @@ describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () =>
       "href",
       "/admin/organizations",
     );
+  });
+
+  it("en Nueva organización, solo ese link queda marcado (no también Organizaciones)", async () => {
+    server.use(
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+    );
+    useAuthMock.mockReturnValue(mockPlatformAdmin("ADMIN"));
+    renderLayout("/admin/organizations/new");
+
+    const organizaciones = await screen.findByRole("link", { name: "Organizaciones" });
+    expect(screen.getByRole("link", { name: "Nueva organización" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(organizaciones).not.toHaveAttribute("aria-current");
   });
 
   it("quien no es platform admin no pregunta las ediciones", async () => {
