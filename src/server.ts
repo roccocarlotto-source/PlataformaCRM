@@ -18,6 +18,8 @@ import { iniciarWorkerDeSeguimientosDeConsultas } from "./workers/inquiryFollowU
 import { iniciarWorkerDeAvisoSinRespuesta } from "./workers/avisoSinRespuestaWorker";
 import { iniciarWorkerDeLotesDeImportacion } from "./workers/importBatchWorker";
 import { iniciarWorkerDeFotosImportadas } from "./workers/importPhotoWorker";
+import { registrarEventosDeTurno } from "./clinicas/services/eventosDeTurno";
+import { iniciarWorkerDeCierreAutomatico } from "./clinicas/workers/cierreAutomaticoWorker";
 import { iniciarWorkerDeSincronizaciones } from "./workers/importSyncWorker";
 
 const server = app.listen(env.PORT, () => {
@@ -57,6 +59,9 @@ const detenerWorker = arrancarWorkers ? iniciarWorkerDeIngesta() : sinWorker;
 // atender. Es el primer consumidor real del outbox; hasta este punto el
 // registro de handlers estaba vacío por diseño (outboxHandlers.ts).
 if (arrancarWorkers) registrarAutomatizaciones();
+// R10 (docs/rubros.md §4.8): los eventos de turno de clínica tienen un handler
+// que los consume sin acción hasta que R13/R14 los sumen al motor.
+if (arrancarWorkers) registrarEventosDeTurno();
 
 // El worker de eventos salientes, por el mismo motivo y con el mismo criterio:
 // vive con el proceso servidor, no con la instancia de Express. Son dos timers
@@ -134,6 +139,12 @@ const detenerWorkerDeLotesDeImportacion = arrancarWorkers
 
 // Las fotos del stock importado: descargas de links externos, detrás de la
 // misma guarda (docs/importacion-de-datos.md §6).
+// El cierre automático de los turnos de clínica a las 3 h (R10, D6), detrás de
+// la misma guarda: cambia el estado de turnos reales.
+const detenerWorkerDeCierreAutomatico = arrancarWorkers
+  ? iniciarWorkerDeCierreAutomatico()
+  : sinWorker;
+
 const detenerWorkerDeFotosImportadas = arrancarWorkers
   ? iniciarWorkerDeFotosImportadas()
   : sinWorker;
@@ -172,6 +183,7 @@ const shutdown = crearShutdown({
       detenerWorkerDeSeguimientosQr(),
       detenerWorkerDeLotesDeImportacion(),
       detenerWorkerDeFotosImportadas(),
+      detenerWorkerDeCierreAutomatico(),
       detenerWorkerDeSincronizaciones(),
       detenerWorkerDeCupones(),
       detenerWorkerDeConsultasSinAvance(),

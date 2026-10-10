@@ -496,6 +496,9 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     // R9: reprogramar y los turnos futuros de un profesional.
     "PATCH /api/bookings/:id/reschedule",
     "GET /api/clinica/profesionales/:resourceId/turnos-futuros",
+    // R10: atendido / no vino.
+    "PATCH /api/bookings/:id/attended",
+    "PATCH /api/bookings/:id/no-show",
   ],
 };
 

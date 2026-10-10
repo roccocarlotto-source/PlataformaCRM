@@ -960,6 +960,44 @@ las automotoras. **El comportamiento es el mismo**, y lo prueban los tests de
 
 ### 4.8 Atendido y No vino (D6)
 
+> **Implementado en R10** (migración `20261108120000_clinicas_atendido_no_vino`).
+> Decisiones de Rocco del 2026-10-10 y cómo quedó:
+>
+> - **Marcar:** `PATCH /api/bookings/:id/attended` y `/no-show` (módulo
+>   `agenda_clinica`, ADMIN y Recepción, 404 fuera de sus sedes), sobre un
+>   turno que ya empezó. Marcar lo mismo otra vez no hace nada (ni nota ni
+>   evento). Un turno cancelado da 409. El agente no marca nada.
+> - **Corrección:** `COMPLETED` ↔ `NO_SHOW`, sin límite de tiempo (se aparta
+>   de "solo desde CONFIRMED"); volver a `CONFIRMED` no. Queda una nota
+>   "Corrección del turno: de X a Y" con quién, y el evento del estado nuevo va
+>   con `esCorreccion: true` y `estadoAnterior`.
+> - **Historial:** una NOTE en el paciente con qué se marcó, cuándo y quién, y la
+>   nota opcional (200 caracteres; la pantalla avisa que no se carguen datos de
+>   salud). El texto vive solo en la actividad: el turno no guarda nota.
+> - **Columnas:** `completedAt` y `completedBy` (`PERSONA` | `AUTO`), los dos
+>   juntos y solo en `COMPLETED`/`NO_SHOW` (CHECK `bookings_completed_check`).
+> - **Eventos, solo en CLINICA:** `booking.created`, `booking.cancelled`,
+>   `booking.rescheduled`, `booking.completed` y **`booking.no_show`** (sumado
+>   para R14). Salen de los servicios únicos de turnos (agendar, cancelar,
+>   reprogramar, marcar, el cierre automático), en la misma transacción que el
+>   cambio, y cada uno lleva un `eventoId` único. Lo que se detecta desde
+>   Google en una clínica (D16) no emite nada: solo crea la tarea. Una
+>   automotora no emite nada nuevo (suite "automotora sin cambios"). Hasta que
+>   R13/R14 los sumen como triggers del motor, un handler los consume sin
+>   acción (`registrarEventosDeTurno`) para que no vayan a `DEAD_LETTER`;
+>   ese PR lo reemplaza.
+> - **LOS CONSUMIDORES TIENEN QUE SER IDEMPOTENTES POR TURNO** y no reenviar un
+>   mensaje que ya salió por una corrección (`esCorreccion`) o un cierre
+>   automático (`automatico`).
+> - **Cierre automático:** `cerrarTurnosVencidos` (worker de cada 15 min)
+>   pasa a `COMPLETED` (`completedBy AUTO`) los turnos `CONFIRMED` de
+>   clínicas cuyo `endsAt` pasó hace más de 3 h. Deja una nota "Turno cerrado
+>   automáticamente" y emite `booking.completed` con `automatico: true`. **Para
+>   R14:** puede esperar o tratar distinto un cierre automático antes de pedir la
+>   reseña. Si Recepción corrige después a No vino, llega como corrección.
+>   Idempotente por el CAS sobre `CONFIRMED`. Una automotora nunca cambia
+>   sola.
+
 - `PATCH /api/bookings/:id/attended` y `/no-show`, transiciones con el verbo en
   el path, como `cancel`. Solo desde `CONFIRMED` y después de `startsAt`.
 - **Cierre automático:** un worker de clínicas pasa a `COMPLETED` los turnos

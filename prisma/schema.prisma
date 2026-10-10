@@ -150,6 +150,12 @@ enum AutomationExecutionStatus {
 // persona que atiende (un barbero, un médico). ROOM: un espacio (una sala, una
 // cancha). CLASS: una clase con cupo, donde el recurso no es ni una persona ni
 // un lugar sino la clase misma.
+// Quién cerró un turno de clínica (docs/rubros.md §4.8, R10).
+enum BookingCompletedBy {
+  PERSONA
+  AUTO
+}
+
 enum ResourceType {
   PERSON
   ROOM
@@ -2511,6 +2517,14 @@ model Booking {
   // (toda reserva de una automotora).
   googleCalendarId String? @map("google_calendar_id") @db.VarChar(255)
 
+  // Atendido / No vino (docs/rubros.md §4.8, D6, R10): cuándo se cerró el turno
+  // (COMPLETED o NO_SHOW) y quién (una persona o el cierre automático de las
+  // 3 h). Solo los escribe una clínica; los dos juntos o ninguno, y solo con
+  // esos dos estados (CHECK bookings_completed_check, migración
+  // 20261108120000). Una corrección (atendido ↔ no vino) los vuelve a escribir.
+  completedAt DateTime?           @map("completed_at")
+  completedBy BookingCompletedBy? @map("completed_by")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -2534,6 +2548,9 @@ model Booking {
   @@index([organizationId, contactId])
   // La agenda: "las reservas de esta organización entre dos fechas".
   @@index([organizationId, startsAt])
+  // El barrido del cierre automático de clínicas (R10): los CONFIRMED cuyo
+  // endsAt ya pasó hace más de 3 h.
+  @@index([status, endsAt])
   // ÚNICO Y PARCIAL: bookings_org_google_event_unique sobre (organization_id,
   // google_event_id) WHERE google_event_id IS NOT NULL — el DSL de Prisma no
   // expresa el predicado, vive en la migración

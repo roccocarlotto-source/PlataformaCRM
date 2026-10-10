@@ -419,7 +419,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 40 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 41 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -608,7 +608,12 @@ from (
     ('resources_max_overbookings_per_day_check', 'resources',
      'CHECK (max_overbookings_per_day >= 1)'),
     ('resource_time_offs_time_range_check', 'resource_time_offs',
-     'CHECK (starts_at < ends_at)')
+     'CHECK (starts_at < ends_at)'),
+    -- Atendido / No vino de clínica (migración 20261108120000, docs/rubros.md
+    -- §4.8): cuándo y quién cerró el turno van juntos, y solo en COMPLETED o
+    -- NO_SHOW.
+    ('bookings_completed_check', 'bookings',
+     'CHECK (completed_at IS NULL AND completed_by IS NULL OR completed_at IS NOT NULL AND completed_by IS NOT NULL AND status = ANY (ARRAY[''COMPLETED'', ''NO_SHOW'']))')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def

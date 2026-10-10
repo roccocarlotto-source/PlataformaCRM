@@ -5,6 +5,8 @@ import { vocabularioDe } from "../config/vocabulario";
 import { prisma } from "../lib/prisma";
 import { findRoleByName } from "../repositories/role.repository";
 import { createBranch } from "../services/branch.service";
+import { replaceWorkingHoursForResource } from "../services/workingHours.service";
+import { cerrarTurnosVencidos } from "./services/atendido.service";
 import {
   borrarOrgDePrueba,
   crearOrgDePrueba,
@@ -64,7 +66,9 @@ after(async () => {
   if (conSucursales) {
     const where = { organizationId: conSucursales.id };
     await prisma.booking.deleteMany({ where });
+    await prisma.outboxEvent.deleteMany({ where });
     await prisma.serviceType.deleteMany({ where });
+    await prisma.workingHours.deleteMany({ where });
     await prisma.resource.deleteMany({ where });
     await prisma.conversation.deleteMany({ where });
     await prisma.agent.deleteMany({ where });
@@ -478,4 +482,84 @@ test("R9: reprogramar da 403 RUBRO y archivar un recurso con turnos futuros no c
   const despues = await prisma.booking.findUniqueOrThrow({ where: { id: turno.id } });
   assert.equal(despues.status, "CONFIRMED");
   assert.deepEqual(despues.startsAt, inicio);
+});
+
+// ---------------------------------------------------------------------------
+// R10 (atendido, no vino y eventos del turno, docs/rubros.md §4.8): una
+// automotora no emite ningún evento de turno al agendar ni al cancelar, el
+// cierre automático nunca toca sus turnos, y las rutas de marcar son de clínica
+// (403 con motivo RUBRO).
+// ---------------------------------------------------------------------------
+
+test("R10: agendar y cancelar en una automotora no emiten eventos, y el cierre automático no la toca", async () => {
+  const [comoAdmin] = conSucursales.tokens;
+  const recurso = await prisma.resource.findFirstOrThrow({
+    where: { organizationId: conSucursales.id, deletedAt: null, serviceTypes: { some: {} } },
+    include: { serviceTypes: true },
+  });
+  const contacto = await prisma.contact.findFirstOrThrow({
+    where: { organizationId: conSucursales.id },
+  });
+  await replaceWorkingHoursForResource(conSucursales.id, recurso.id, [
+    { weekday: "MONDAY", startMinute: 540, endMinute: 780 },
+  ]);
+  const lunes = new Date("2027-03-08T12:00:00.000Z");
+  const eventosAntes = await prisma.outboxEvent.count({
+    where: { organizationId: conSucursales.id, eventType: { startsWith: "booking." } },
+  });
+  const creado = await pedir(
+    conSucursales,
+    "POST",
+    "/api/bookings",
+    {
+      resourceId: recurso.id,
+      serviceTypeId: recurso.serviceTypes[0].id,
+      contactId: contacto.id,
+      startsAt: lunes.toISOString(),
+      force: true,
+    },
+    comoAdmin,
+  );
+  assert.equal(creado.status, 201, JSON.stringify(creado.json));
+  const cancelado = await pedir(
+    conSucursales,
+    "PATCH",
+    `/api/bookings/${creado.json.id as string}/cancel`,
+    {},
+    comoAdmin,
+  );
+  assert.equal(cancelado.status, 200);
+  assert.equal(
+    await prisma.outboxEvent.count({
+      where: { organizationId: conSucursales.id, eventType: { startsWith: "booking." } },
+    }),
+    eventosAntes,
+  );
+
+  const viejo = await prisma.booking.create({
+    data: {
+      organizationId: conSucursales.id,
+      branchId: recurso.branchId,
+      serviceTypeId: recurso.serviceTypes[0].id,
+      resourceId: recurso.id,
+      contactId: contacto.id,
+      startsAt: new Date(Date.now() - 10 * 60 * 60 * 1000),
+      endsAt: new Date(Date.now() - 9 * 60 * 60 * 1000),
+    },
+  });
+  await cerrarTurnosVencidos({ organizationId: conSucursales.id });
+  assert.equal(
+    (await prisma.booking.findUniqueOrThrow({ where: { id: viejo.id } })).status,
+    "CONFIRMED",
+  );
+
+  const marcar = await pedir(
+    conSucursales,
+    "PATCH",
+    `/api/bookings/${viejo.id}/attended`,
+    {},
+    comoAdmin,
+  );
+  assert.equal(marcar.status, 403);
+  assert.equal(marcar.json.error?.motivo, "RUBRO");
 });
