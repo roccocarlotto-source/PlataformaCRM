@@ -4,6 +4,8 @@
 // Invitation). No se agrega ningún campo que el backend no devuelva o no
 // acepte: no hay token propio (ver informe de diseño de M7, sección P).
 
+import type { RoleName } from "../../auth/AuthContext";
+
 export type InvitationStatus = "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
 
 export const INVITATION_STATUSES: InvitationStatus[] = [
@@ -70,5 +72,5 @@ export interface InvitationListQuery {
 // un campo de este input (sale de req.auth.organizationId).
 export interface CreateInvitationInput {
   email: string;
-  role: "ADMIN" | "USER";
+  role: RoleName;
 }

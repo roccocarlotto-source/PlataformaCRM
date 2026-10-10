@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { UserCog } from "lucide-react";
-import { useAuth } from "../../auth/AuthContext";
+import { useAuth, type RoleName } from "../../auth/AuthContext";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
@@ -19,7 +19,7 @@ import { Table } from "../../design-system/Table";
 import { useDeleteUser, useUpdateUser } from "./mutations";
 import { useUsers } from "./queries";
 import type { User, UserSortBy, SortOrder } from "./types";
-import { roleLabel } from "./roles";
+import { esRolAsignable, roleLabel, rolesAsignables } from "./roles";
 
 const PAGE_SIZE = 20;
 
@@ -39,17 +39,20 @@ const PAGE_SIZE = 20;
 function UserRow({
   user,
   isSelf,
+  roles,
   onVerDetalle,
 }: {
   user: User;
   isSelf: boolean;
+  // Los roles del rubro (R12): los que se pueden asignar.
+  roles: readonly RoleName[];
   onVerDetalle: () => void;
 }) {
   const confirm = useConfirm();
   const updateUserMutation = useUpdateUser(user.id);
   const deleteUserMutation = useDeleteUser();
 
-  function handleRoleChange(role: "ADMIN" | "USER") {
+  function handleRoleChange(role: RoleName) {
     if (role === user.role.name) return;
     updateUserMutation.mutate({ role });
   }
@@ -88,16 +91,13 @@ function UserRow({
           //
           // Role.name es `string` en el contrato (la tabla de roles del backend
           // podría tener otro), así que el genérico va explícito y un nombre
-          // fuera de los dos conocidos cae en "": el control queda en blanco,
+          // fuera de los del rubro cae en "": el control queda en blanco,
           // exactamente lo que hacía el <select> con un value sin <option>.
-          <Select<"ADMIN" | "USER">
+          <Select<RoleName>
             label={`Rol de ${user.fullName}`}
             labelHidden
-            value={user.role.name === "ADMIN" || user.role.name === "USER" ? user.role.name : ""}
-            options={[
-              { value: "ADMIN", label: roleLabel("ADMIN") },
-              { value: "USER", label: roleLabel("USER") },
-            ]}
+            value={esRolAsignable(roles, user.role.name) ? user.role.name : ""}
+            options={roles.map((rol) => ({ value: rol, label: roleLabel(rol) }))}
             onChange={(value) => {
               if (value) handleRoleChange(value);
             }}
@@ -188,9 +188,10 @@ function UserRow({
 
 export function UserListPage() {
   const { me } = useAuth();
+  const roles = rolesAsignables(me);
 
   const [page, setPage] = useState(1);
-  const [role, setRole] = useState<"ADMIN" | "USER" | "">("");
+  const [role, setRole] = useState<RoleName | "">("");
   const [isActive, setIsActive] = useState<"true" | "false" | "">("");
   const [sortBy, setSortBy] = useState<UserSortBy>("fullName");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
@@ -228,10 +229,7 @@ export function UserListPage() {
           <Select
             label="Rol"
             value={role}
-            options={[
-              { value: "ADMIN", label: roleLabel("ADMIN") },
-              { value: "USER", label: roleLabel("USER") },
-            ]}
+            options={roles.map((rol) => ({ value: rol, label: roleLabel(rol) }))}
             emptyOption={{ label: "Todos" }}
             onChange={(value) => {
               setRole(value);
@@ -300,6 +298,7 @@ export function UserListPage() {
                   key={user.id}
                   user={user}
                   isSelf={user.id === me?.id}
+                  roles={roles}
                   onVerDetalle={() => setDetalleAbierto(user.id)}
                 />
               ))}

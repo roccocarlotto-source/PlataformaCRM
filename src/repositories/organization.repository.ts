@@ -79,6 +79,24 @@ export function contarUsuariosConRoles(
   });
 }
 
+// Las invitaciones pendientes con alguno de esos roles (R12): aceptarlas
+// después del cambio de rubro crearía un usuario con un rol que el rubro no
+// admite. Las vencidas por fecha no cuentan: ya no se pueden aceptar.
+export function contarInvitacionesPendientesConRoles(
+  organizationId: string,
+  roles: readonly RoleName[],
+  db: Db = prisma,
+) {
+  return db.invitation.count({
+    where: {
+      organizationId,
+      status: "PENDING",
+      expiresAt: { gt: new Date() },
+      role: { name: { in: [...roles] } },
+    },
+  });
+}
+
 export function updateOrganizationIndustry(
   organizationId: string,
   industry: OrganizationIndustry,

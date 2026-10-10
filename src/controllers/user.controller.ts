@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { exigirRolDelRubro } from "../config/ediciones";
 import { deleteUser, listUsers, updateUser } from "../services/user.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -7,7 +8,9 @@ import { parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
 
-const roleSchema = z.enum(["ADMIN", "USER"]);
+// Los tres roles que conoce el sistema; cuál admite la organización lo decide
+// su rubro (exigirRolDelRubro, docs/rubros.md §11.1).
+const roleSchema = z.enum(["ADMIN", "USER", "RECEPCION"]);
 
 // z.coerce.boolean() coacciona cualquier string no vacío (incluido "false")
 // a true — no sirve para un query param booleano. Se acepta explícitamente
@@ -50,6 +53,10 @@ export const listUsersHandler = asyncHandler<AuthenticatedRequest>(async (req, r
 export const updateUserHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
   const input = parseOrThrow(updateUserSchema, req.body);
+  // R12: pasar a alguien a un rol que el rubro no admite → 400.
+  if (input.role !== undefined) {
+    exigirRolDelRubro(input.role, req.auth.industry);
+  }
   const user = await updateUser(req.auth.organizationId, req.auth.userId, id, input);
   res.status(200).json(user);
 });
