@@ -31,6 +31,11 @@ import {
   type TipoDePlan,
 } from "../utils/importacionMapeo";
 import type { FilaCruda } from "../utils/spreadsheet";
+import {
+  advertenciaDeEmpresaIgnorada,
+  ajustesSinEmpresas,
+  organizacionSinEmpresas,
+} from "./importacionEdicion";
 import { aDefinicionDeCampo } from "./contactCustomFieldDefinition.service";
 import { ajustesDelLote, montosEnDolares } from "./importacionPromocion.service";
 import { monedaLocalDe, type MonedaLocal } from "./importacionMoneda";
@@ -330,8 +335,13 @@ function planDeActividad(
 
 // Analiza el lote entero, en la transacción del worker que lo tiene tomado.
 export async function analizarLote(lote: ImportBatch, db: Db): Promise<ResumenDelAnalisis> {
-  const ajustes = ajustesDelLote(lote.config);
-  if (!ajustes) throw new Error(`analizarLote: el lote ${lote.id} no tiene ajustes`);
+  const ajustesDelArchivo = ajustesDelLote(lote.config);
+  if (!ajustesDelArchivo) throw new Error(`analizarLote: el lote ${lote.id} no tiene ajustes`);
+  // docs/ediciones.md §2.2: sin el módulo empresas (ESENCIAL), la empresa de
+  // un contacto se ignora (con su advertencia) y no se crea ninguna.
+  const sinEmpresas =
+    lote.entityType === "CONTACT" && (await organizacionSinEmpresas(lote.organizationId, db));
+  const ajustes = sinEmpresas ? ajustesSinEmpresas(ajustesDelArchivo) : ajustesDelArchivo;
   const definiciones =
     lote.entityType === "CONTACT"
       ? (await findActiveContactCustomFieldDefinitions(lote.organizationId, db)).map(
@@ -370,6 +380,10 @@ export async function analizarLote(lote: ImportBatch, db: Db): Promise<ResumenDe
           plan: t.ok
             ? planDeContacto(ctx, t.candidato, f.rowNumber ?? 0, ajustes.crearEmpresas, [
                 ...t.advertencias,
+                ...(sinEmpresas
+                  ? [advertenciaDeEmpresaIgnorada(ajustesDelArchivo, f.rawPayload as FilaCruda)]
+                  : []
+                ).filter((a): a is string => a !== null),
               ])
             : { tipo: "FAIL", errores: t.errores, advertencias: t.advertencias },
         });
