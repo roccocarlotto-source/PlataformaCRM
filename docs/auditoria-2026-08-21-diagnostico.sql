@@ -236,6 +236,8 @@ from (
       -- 20261005120000): ídem. meta_page_connections NO está acá a propósito,
       -- igual que google_calendar_connections: RLS habilitada y cero
       -- políticas (deny-all, guarda el page access token).
+      -- google_calendar_channels (R7, migración 20261103120000) tampoco:
+      -- deny-all como la conexión de la que salió su estado.
       ('contact_channel_identities'),
       -- Cupón de descuento de un solo uso (ítem 176, migración
       -- 20261006120000): organization_id propio y la política uniforme.
@@ -411,7 +413,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 37 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 38 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -589,7 +591,11 @@ from (
     ('clinic_branch_settings_reminder_hours_before_check', 'clinic_branch_settings',
      'CHECK (reminder_hours_before >= 1 AND reminder_hours_before <= 72)'),
     ('clinic_branch_settings_late_booking_hours_before_check', 'clinic_branch_settings',
-     'CHECK (late_booking_hours_before >= 1 AND late_booking_hours_before <= 23)')
+     'CHECK (late_booking_hours_before >= 1 AND late_booking_hours_before <= 23)'),
+    -- Canales de Google Calendar en su propia tabla (migración 20261103120000,
+    -- docs/rubros.md §4.6): el mismo invariante que el de la conexión.
+    ('google_calendar_channels_channel_all_or_none_check', 'google_calendar_channels',
+     'CHECK (channel_id IS NULL AND channel_resource_id IS NULL AND channel_expiration IS NULL OR channel_id IS NOT NULL AND channel_resource_id IS NOT NULL AND channel_expiration IS NOT NULL)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -974,7 +980,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 87 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 88 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -998,7 +1004,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 87 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 88 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1195,7 +1201,11 @@ from (
     -- migración 20261102120000): la prestación y el profesional de la misma
     -- organización.
     ('service_type_resources_organization_id_service_type_id_fkey|service_type_resources(organization_id,service_type_id)->service_types(organization_id,id)'),
-    ('service_type_resources_organization_id_resource_id_fkey|service_type_resources(organization_id,resource_id)->resources(organization_id,id)')
+    ('service_type_resources_organization_id_resource_id_fkey|service_type_resources(organization_id,resource_id)->resources(organization_id,id)'),
+    -- Canales de Google Calendar en su propia tabla (docs/rubros.md §4.6,
+    -- migración 20261103120000): la sucursal de la misma organización, igual
+    -- que la conexión.
+    ('google_calendar_channels_organization_id_branch_id_fkey|google_calendar_channels(organization_id,branch_id)->branches(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

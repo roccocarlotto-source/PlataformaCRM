@@ -2,6 +2,26 @@ import type { ConnectionStatus, Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
+// R7 (docs/rubros.md §4.6, D18): EL CANAL Y EL syncToken VIVEN EN
+// google_calendar_channels. Las funciones de este archivo conservan su firma
+// y su comportamiento, y por adentro:
+//
+//   - LEEN la tabla nueva (la fila del calendario de la conexión);
+//   - ESCRIBEN la tabla nueva y, EN ESPEJO y en la misma transacción, las
+//     cuatro columnas viejas de google_calendar_connections.
+//
+// El espejo es lo que hace reversible a R7: el código de antes lee las
+// columnas viejas, y como están al día, volver a él no pierde ningún canal
+// renovado ni ningún syncToken. Se va con R21, junto con las columnas.
+// ---------------------------------------------------------------------------
+
+// Corre `fn` en una transacción. Si quien llama ya pasó una (upsertConnection
+// la recibe del callback de OAuth), usa esa: Prisma no anida transacciones.
+function enTransaccion<T>(db: Db, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return "$transaction" in db ? db.$transaction(fn) : fn(db);
+}
+
+// ---------------------------------------------------------------------------
 // GoogleCalendarConnection — acceso a datos (P2.1, paso 2).
 //
 // SIN deletedAt en ningún WHERE, a diferencia del resto de los repositorios de
@@ -121,8 +141,21 @@ export interface DatosDeConexion {
 // venciera el viejo: hasta 7 días sin notificaciones push tras reconectar.
 // Los tres campos del canal van juntos, como exige el CHECK
 // channel_all_or_none_check; en el create son un no-op (ya nacen NULL).
+//
+// R7: las filas de canal de la sucursal (tabla nueva) se BORRAN en la misma
+// transacción, por el mismo motivo; las columnas viejas se limpian como
+// siempre, que es su espejo.
 // ---------------------------------------------------------------------------
 export function upsertConnection(datos: DatosDeConexion, db: Db = prisma) {
+  return enTransaccion(db, async (tx) => {
+    await tx.googleCalendarChannel.deleteMany({
+      where: { organizationId: datos.organizationId, branchId: datos.branchId },
+    });
+    return upsertConnectionRow(datos, tx);
+  });
+}
+
+function upsertConnectionRow(datos: DatosDeConexion, db: Db) {
   const comun = {
     refreshToken: datos.refreshToken,
     calendarId: datos.calendarId,
@@ -164,19 +197,25 @@ export function upsertConnection(datos: DatosDeConexion, db: Db = prisma) {
 // escrituras sin transacción" de B-8) se sacó después porque ya no cambiaba
 // nada. Los tres campos del canal juntos, por el CHECK
 // channel_all_or_none_check.
+//
+// R7: las filas de canal de la sucursal se borran en la misma transacción.
 export function markConnectionRevoked(branchId: string, organizationId: string, db: Db = prisma) {
-  return db.googleCalendarConnection.updateMany({
-    where: { branchId, organizationId },
-    data: {
-      status: "REVOKED",
-      refreshToken: null,
-      lastErrorAt: null,
-      lastErrorMessage: null,
-      syncToken: null,
-      channelId: null,
-      channelResourceId: null,
-      channelExpiration: null,
-    },
+  return enTransaccion(db, async (tx) => {
+    const resultado = await tx.googleCalendarConnection.updateMany({
+      where: { branchId, organizationId },
+      data: {
+        status: "REVOKED",
+        refreshToken: null,
+        lastErrorAt: null,
+        lastErrorMessage: null,
+        syncToken: null,
+        channelId: null,
+        channelResourceId: null,
+        channelExpiration: null,
+      },
+    });
+    await tx.googleCalendarChannel.deleteMany({ where: { branchId, organizationId } });
+    return resultado;
   });
 }
 
@@ -206,18 +245,28 @@ export function markConnectionError(
 
 // ---------------------------------------------------------------------------
 // Canal de notificaciones push y sincronización incremental (paso 4)
+//
+// DESDE R7 sobre google_calendar_channels (ver el encabezado del archivo): se
+// lee la tabla nueva y se escribe la nueva más el espejo de las columnas
+// viejas. La fila es la del calendario de la conexión de la sucursal; en R7 no
+// hay otras.
 // ---------------------------------------------------------------------------
 
+const SELECT_DEL_WEBHOOK = {
+  organizationId: true,
+  branchId: true,
+  syncToken: true,
+  // La zona de la sucursal viaja con la conexión —B-6— para que la
+  // sincronización lea los eventos de día completo como medianoche de esa
+  // zona. Por la relación, en la misma consulta: sin un getBranchById aparte.
+  branch: { select: { timezone: true } },
+} as const;
+
 // La búsqueda del webhook: llega X-Goog-Channel-ID y hay que encontrar la
-// conexión. SIN el secreto — B-16 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). El
-// comentario original decía que devolvía la fila completa "porque el camino que
-// sigue necesita el refresh token para llamar a events.list", y eso era falso:
-// el flujo del webhook (googleCalendarSync.service.ts) usa organizationId,
-// branchId y syncToken, y el access token lo consigue obtenerAccessToken con su
-// PROPIA lectura vía findConnectionWithSecretByBranch y su propio descifrado.
-// El select explícito es la defensa que no depende de que alguien se acuerde
-// (ver findConnectionWithSecretByBranch arriba: traer el secreto exige llamar a
-// la función que lo dice en el nombre).
+// sucursal. SIN el secreto — B-16 de docs-privados/auditoria-2026-08-29.md
+// (local, no está en GitHub): el flujo del webhook (googleCalendarSync.service.ts)
+// usa organizationId, branchId y syncToken, y el access token lo consigue
+// obtenerAccessToken con su PROPIA lectura vía findConnectionWithSecretByBranch.
 //
 // SIN organizationId en el WHERE, a diferencia de todo el resto de este archivo,
 // y es deliberado: el webhook no tiene organización todavía —no hay JWT, Google
@@ -225,18 +274,21 @@ export function markConnectionError(
 // aislamiento es el UNIQUE de la columna (una fila o ninguna) más la
 // verificación del token firmado, que ocurre ANTES de llegar acá y que afirma a
 // qué organización pertenece ese canal. El caller compara las dos cosas.
-export function findConnectionByChannelId(channelId: string, db: Db = prisma) {
+//
+// R7: primero la tabla nueva. Si no está ahí, las columnas viejas: es el canal
+// que abrió el código de antes entre que se aplicó la migración y se desplegó
+// R7, y que todavía no reconcilió el worker. Mismo UNIQUE, mismo criterio.
+export async function findConnectionByChannelId(channelId: string, db: Db = prisma) {
+  const canal = await db.googleCalendarChannel.findUnique({
+    where: { channelId },
+    select: SELECT_DEL_WEBHOOK,
+  });
+  if (canal) {
+    return canal;
+  }
   return db.googleCalendarConnection.findUnique({
     where: { channelId },
-    select: {
-      organizationId: true,
-      branchId: true,
-      syncToken: true,
-      // La zona de la sucursal viaja con la conexión —B-6— para que la
-      // sincronización lea los eventos de día completo como medianoche de esa
-      // zona. Por la relación, en la misma consulta: sin un getBranchById aparte.
-      branch: { select: { timezone: true } },
-    },
+    select: SELECT_DEL_WEBHOOK,
   });
 }
 
@@ -250,35 +302,94 @@ export function findConnectionByChannelId(channelId: string, db: Db = prisma) {
 // rama en el worker.
 //
 // `alcance.organizationId` es SOLO para tests (A-8 de
-// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): el worker de producción barre TODAS las
-// organizaciones, que es su trabajo; un test que ejercita el barrido tiene que
-// poder acotarlo a la organización que él mismo montó, porque la suite corre en
-// paralelo contra una base compartida y sin esto el barrido de un archivo
-// toca las conexiones de los demás. Sin el parámetro, el comportamiento es el
-// de siempre — es la única excepción al "organizationId en todo WHERE" de este
-// archivo, y está justificada por lo mismo que findConnectionByChannelId: acá
-// no hay tenant que pida, es el proceso.
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): el worker
+// de producción barre TODAS las organizaciones, que es su trabajo; un test que
+// ejercita el barrido tiene que poder acotarlo a la organización que él mismo
+// montó, porque la suite corre contra una base compartida.
 //
 // El select es exactamente lo que renovarCanal pide en su parámetro y lo que el
-// worker loguea — B-16: el refresh token no viaja por acá; renovarCanal lo
-// obtiene por su cuenta vía obtenerAccessToken.
-export function findConnectionsNeedingChannel(
+// worker loguea — B-16: el refresh token no viaja por acá.
+//
+// R7: el canal sale de google_calendar_channels. Dos lecturas (las conexiones
+// ACTIVE y sus canales) y el cruce en memoria: es una fila por sucursal, y
+// "sin fila de canal" es lo mismo que "sin canal".
+export async function findConnectionsNeedingChannel(
   limiteDeVencimiento: Date,
   alcance: { organizationId?: string } = {},
   db: Db = prisma,
 ) {
-  return db.googleCalendarConnection.findMany({
+  const conexiones = await db.googleCalendarConnection.findMany({
     where: {
       status: "ACTIVE",
-      OR: [{ channelId: null }, { channelExpiration: { lt: limiteDeVencimiento } }],
       ...(alcance.organizationId ? { organizationId: alcance.organizationId } : {}),
+    },
+    select: { organizationId: true, branchId: true, calendarId: true },
+  });
+  if (conexiones.length === 0) {
+    return [];
+  }
+
+  const canales = await db.googleCalendarChannel.findMany({
+    where: {
+      OR: conexiones.map((c) => ({
+        organizationId: c.organizationId,
+        branchId: c.branchId,
+        calendarId: c.calendarId,
+      })),
     },
     select: {
       organizationId: true,
       branchId: true,
       channelId: true,
       channelResourceId: true,
+      channelExpiration: true,
     },
+  });
+  const canalDe = new Map(canales.map((c) => [`${c.organizationId}:${c.branchId}`, c]));
+
+  return conexiones
+    .map((conexion) => ({
+      conexion,
+      canal: canalDe.get(`${conexion.organizationId}:${conexion.branchId}`),
+    }))
+    .filter(
+      ({ canal }) =>
+        !canal ||
+        canal.channelId === null ||
+        canal.channelExpiration === null ||
+        canal.channelExpiration < limiteDeVencimiento,
+    )
+    .map(({ conexion, canal }) => ({
+      organizationId: conexion.organizationId,
+      branchId: conexion.branchId,
+      channelId: canal?.channelId ?? null,
+      channelResourceId: canal?.channelResourceId ?? null,
+    }));
+}
+
+// El canal vigente del calendario de la conexión de una sucursal, para
+// cerrarlo al desconectar. Sin el secreto.
+export async function findCanalDeLaSucursal(
+  branchId: string,
+  organizationId: string,
+  db: Db = prisma,
+): Promise<{ channelId: string | null; channelResourceId: string | null } | null> {
+  const conexion = await db.googleCalendarConnection.findFirst({
+    where: { branchId, organizationId },
+    select: { calendarId: true },
+  });
+  if (!conexion) {
+    return null;
+  }
+  return db.googleCalendarChannel.findUnique({
+    where: {
+      organizationId_branchId_calendarId: {
+        organizationId,
+        branchId,
+        calendarId: conexion.calendarId,
+      },
+    },
+    select: { channelId: true, channelResourceId: true },
   });
 }
 
@@ -292,27 +403,41 @@ export interface DatosDeCanal {
 // migración lo exige, y el motivo es que un canal a medias es inutilizable de
 // forma silenciosa (sin resourceId no se puede detener nunca).
 //
-// SOLO SOBRE UNA CONEXIÓN ACTIVE — B-7 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Entre
-// que renovarCanal leyó la conexión (y obtenerAccessToken validó el status) y
-// que llega acá hay una llamada a Google en el medio; si desconectar() corrió
-// en esa ventana, la fila ya es REVOKED y escribirle el canal la dejaría con
-// uno que nadie renueva ni cierra hasta vencer (findConnectionsNeedingChannel
-// solo mira ACTIVE). La escritura misma es la garantía, no la lectura de
-// arriba — mismo criterio que B-12 y B-27. Devuelve `count`: 0 significa que
-// la conexión dejó de estar activa y el caller tiene que reaccionar.
+// SOLO SOBRE UNA CONEXIÓN ACTIVE — B-7 de docs-privados/auditoria-2026-08-29.md
+// (local, no está en GitHub). Entre que renovarCanal leyó la conexión y que
+// llega acá hay una llamada a Google en el medio; si desconectar() corrió en
+// esa ventana, la fila ya es REVOKED y escribirle el canal la dejaría con uno
+// que nadie renueva ni cierra hasta vencer. La escritura misma es la garantía,
+// no la lectura de arriba. Devuelve `count`: 0 significa que la conexión dejó
+// de estar activa y el caller tiene que reaccionar.
+//
+// R7: el espejo en la conexión va PRIMERO y es el que decide (su WHERE con
+// status ACTIVE es el de B-7, y deja la fila bloqueada hasta el final de la
+// transacción); recién con count 1 se escribe la fila del canal.
 export function setConnectionChannel(
   branchId: string,
   organizationId: string,
   datos: DatosDeCanal,
   db: Db = prisma,
 ) {
-  return db.googleCalendarConnection.updateMany({
-    where: { branchId, organizationId, status: "ACTIVE" },
-    data: {
+  return enTransaccion(db, async (tx) => {
+    const espejo = await tx.googleCalendarConnection.updateMany({
+      where: { branchId, organizationId, status: "ACTIVE" },
+      data: {
+        channelId: datos.channelId,
+        channelResourceId: datos.channelResourceId,
+        channelExpiration: datos.channelExpiration,
+      },
+    });
+    if (espejo.count !== 1) {
+      return espejo;
+    }
+    await escribirCanal(branchId, organizationId, tx, {
       channelId: datos.channelId,
       channelResourceId: datos.channelResourceId,
       channelExpiration: datos.channelExpiration,
-    },
+    });
+    return espejo;
   });
 }
 
@@ -320,9 +445,16 @@ export function setConnectionChannel(
 // el token de sincronización sobrevive al canal y sigue siendo válido — perderlo
 // forzaría una resincronización completa sin ninguna necesidad.
 export function clearConnectionChannel(branchId: string, organizationId: string, db: Db = prisma) {
-  return db.googleCalendarConnection.updateMany({
-    where: { branchId, organizationId },
-    data: { channelId: null, channelResourceId: null, channelExpiration: null },
+  return enTransaccion(db, async (tx) => {
+    const espejo = await tx.googleCalendarConnection.updateMany({
+      where: { branchId, organizationId },
+      data: { channelId: null, channelResourceId: null, channelExpiration: null },
+    });
+    await tx.googleCalendarChannel.updateMany({
+      where: { branchId, organizationId },
+      data: { channelId: null, channelResourceId: null, channelExpiration: null },
+    });
+    return espejo;
   });
 }
 
@@ -336,8 +468,121 @@ export function setConnectionSyncToken(
   syncToken: string,
   db: Db = prisma,
 ) {
-  return db.googleCalendarConnection.updateMany({
+  return enTransaccion(db, async (tx) => {
+    const espejo = await tx.googleCalendarConnection.updateMany({
+      where: { branchId, organizationId },
+      data: { syncToken },
+    });
+    if (espejo.count !== 1) {
+      return espejo;
+    }
+    await escribirCanal(branchId, organizationId, tx, { syncToken });
+    return espejo;
+  });
+}
+
+interface CamposDelCanal {
+  channelId?: string | null;
+  channelResourceId?: string | null;
+  channelExpiration?: Date | null;
+  syncToken?: string | null;
+}
+
+// La escritura de la fila del canal del calendario de la conexión: la crea si
+// no existe (una conexión sin canal ni syncToken no tiene fila) y si existe
+// actualiza solo los campos dados. Siempre dentro de la transacción del
+// espejo, después de él: la fila de la conexión ya está bloqueada.
+async function escribirCanal(
+  branchId: string,
+  organizationId: string,
+  tx: Prisma.TransactionClient,
+  datos: CamposDelCanal,
+) {
+  const conexion = await tx.googleCalendarConnection.findFirstOrThrow({
     where: { branchId, organizationId },
-    data: { syncToken },
+    select: { calendarId: true },
+  });
+  await tx.googleCalendarChannel.upsert({
+    where: {
+      organizationId_branchId_calendarId: {
+        organizationId,
+        branchId,
+        calendarId: conexion.calendarId,
+      },
+    },
+    create: {
+      organizationId,
+      branchId,
+      calendarId: conexion.calendarId,
+      channelId: datos.channelId ?? null,
+      channelResourceId: datos.channelResourceId ?? null,
+      channelExpiration: datos.channelExpiration ?? null,
+      syncToken: datos.syncToken ?? null,
+    },
+    update: datos,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// La reconciliación de la transición (R7). Copia a google_calendar_channels lo
+// que el código de ANTES de R7 haya escrito en las columnas viejas y la tabla
+// nueva todavía no tenga: un canal renovado o un syncToken avanzado entre que
+// se aplicó la migración y se desplegó R7 (o durante un rollback del código).
+//
+// Con el código de R7 las dos están siempre iguales —el espejo va en la misma
+// transacción—, así que en régimen esto no cambia ninguna fila. Corre al
+// empezar cada pasada del worker de renovación; es idempotente y barata (una
+// fila por sucursal). Se va con R21.
+//
+// LAS COLUMNAS VIEJAS GANAN cuando difieren, y es correcto: la única forma de
+// que difieran es que las haya escrito el código viejo, después.
+//
+// FOR UPDATE sobre las conexiones: toma los locks en el mismo orden que las
+// escrituras de arriba (primero la conexión, después el canal), así que no
+// puede pisar con un valor viejo una escritura en curso ni hacer deadlock con
+// ella. `organizationId` acota la pasada, solo para tests (como
+// findConnectionsNeedingChannel).
+// ---------------------------------------------------------------------------
+export async function reconciliarCanalesConLasColumnasViejas(
+  alcance: { organizationId?: string } = {},
+  db: Db = prisma,
+): Promise<{ creados: number; actualizados: number }> {
+  const organizacion = alcance.organizationId ?? null;
+  return enTransaccion(db, async (tx) => {
+    const actualizados = await tx.$executeRaw`
+      WITH conexiones AS (
+        SELECT organization_id, branch_id, calendar_id,
+               channel_id, channel_resource_id, channel_expiration, sync_token
+        FROM google_calendar_connections
+        WHERE ${organizacion}::uuid IS NULL OR organization_id = ${organizacion}::uuid
+        FOR UPDATE
+      )
+      UPDATE google_calendar_channels g
+      SET channel_id = c.channel_id,
+          channel_resource_id = c.channel_resource_id,
+          channel_expiration = c.channel_expiration,
+          sync_token = c.sync_token,
+          updated_at = CURRENT_TIMESTAMP
+      FROM conexiones c
+      WHERE g.organization_id = c.organization_id
+        AND g.branch_id = c.branch_id
+        AND g.calendar_id = c.calendar_id
+        AND (g.channel_id, g.channel_resource_id, g.channel_expiration, g.sync_token)
+            IS DISTINCT FROM
+            (c.channel_id, c.channel_resource_id, c.channel_expiration, c.sync_token)`;
+    const creados = await tx.$executeRaw`
+      INSERT INTO google_calendar_channels (
+        organization_id, branch_id, calendar_id,
+        channel_id, channel_resource_id, channel_expiration, sync_token,
+        created_at, updated_at
+      )
+      SELECT c.organization_id, c.branch_id, c.calendar_id,
+             c.channel_id, c.channel_resource_id, c.channel_expiration, c.sync_token,
+             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      FROM google_calendar_connections c
+      WHERE (c.channel_id IS NOT NULL OR c.sync_token IS NOT NULL)
+        AND (${organizacion}::uuid IS NULL OR c.organization_id = ${organizacion}::uuid)
+      ON CONFLICT (organization_id, branch_id, calendar_id) DO NOTHING`;
+    return { creados, actualizados };
   });
 }
