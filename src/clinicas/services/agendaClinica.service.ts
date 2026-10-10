@@ -6,8 +6,17 @@ import {
   findServiceTypeById,
   lockServiceTypeForUpdate,
 } from "../../repositories/serviceType.repository";
-import { obtenerDisponibilidad, type TurnoDisponible } from "../../services/availability.service";
-import { createBooking, type BookingActor } from "../../services/booking.service";
+import {
+  obtenerDisponibilidad,
+  resolverContexto,
+  type TurnoDisponible,
+} from "../../services/availability.service";
+import { generarGrilla, seSuperponen } from "../../utils/workingHours";
+import {
+  findBloqueosQueSeSuperponen,
+  findInicioDeSobreturnos,
+} from "../repositories/bloqueos.repository";
+import { createBooking, relojDeReservas, type BookingActor } from "../../services/booking.service";
 import { getBranchById } from "../../services/branch.service";
 import type { ClienteGoogleCalendar } from "../../services/googleCalendar.service";
 import { exigirSedeDelActor, type ActorConSedes } from "../../services/permisos";
@@ -130,6 +139,9 @@ export async function definirProfesionales(
 
 export interface TurnoConProfesional extends TurnoDisponible {
   profesional: Pick<Profesional, "id" | "name">;
+  // R6 (§4.4): un horario completo que se puede tomar como sobreturno. Solo
+  // lo pide el panel (`conSobreturnos`); el agente nunca los ve.
+  sobreturno?: true;
 }
 
 /** Los turnos libres de una prestación: los de un profesional, o la unión de
@@ -137,7 +149,14 @@ export interface TurnoConProfesional extends TurnoDisponible {
  *  nombre. */
 export async function disponibilidadDeLaPrestacion(
   organizationId: string,
-  params: { serviceTypeId: string; resourceId?: string; desde: Date; hasta: Date },
+  params: {
+    serviceTypeId: string;
+    resourceId?: string;
+    desde: Date;
+    hasta: Date;
+    // R6: sumar los horarios completos que se pueden tomar como sobreturno.
+    conSobreturnos?: boolean;
+  },
   cliente?: ClienteGoogleCalendar,
   actor?: ActorConSedes,
 ): Promise<TurnoConProfesional[]> {
@@ -161,13 +180,82 @@ export async function disponibilidadDeLaPrestacion(
       ).then((turnos) => turnos.map((t) => ({ ...t, profesional: { id: p.id, name: p.name } }))),
     ),
   );
-  return porProfesional
+  const sobreturnos = params.conSobreturnos
+    ? await enParalelo(
+        consultados.map((p, i) =>
+          sobreturnosOfrecibles(organizationId, prestacion, p, params, porProfesional[i]),
+        ),
+      )
+    : [];
+  return [...porProfesional, ...sobreturnos]
     .flat()
     .sort(
       (a, b) =>
         a.inicio.getTime() - b.inicio.getTime() ||
         a.profesional.name.localeCompare(b.profesional.name, "es"),
     );
+}
+
+// ---------------------------------------------------------------------------
+// R6 (docs/rubros.md §4.4): los horarios completos de un profesional que admite
+// sobreturnos y todavía no llegó a su tope ese día. La misma grilla y el mismo
+// horario de trabajo que la disponibilidad (resolverContexto, generarGrilla),
+// sin los bloqueos ni lo que ya pasó. Google no se resta: un horario completo
+// ya está ocupado en Google por el propio turno.
+// ---------------------------------------------------------------------------
+async function sobreturnosOfrecibles(
+  organizationId: string,
+  prestacion: { id: string; durationMin: number },
+  profesional: Profesional,
+  rango: { desde: Date; hasta: Date },
+  libres: TurnoConProfesional[],
+): Promise<TurnoConProfesional[]> {
+  const recurso = await findResourceById(profesional.id, organizationId);
+  if (!recurso?.allowsOverbooking) return [];
+  const { franjasDeTrabajo, branch } = await resolverContexto(organizationId, {
+    resourceId: profesional.id,
+    serviceTypeId: prestacion.id,
+    desde: rango.desde,
+    hasta: rango.hasta,
+  });
+  const zona = branch.timezone;
+  const primerDia = DateTime.fromJSDate(rango.desde, { zone: zona }).startOf("day");
+  const ultimoDia = DateTime.fromJSDate(rango.hasta, { zone: zona }).endOf("day");
+  const [bloqueos, cargados] = await Promise.all([
+    findBloqueosQueSeSuperponen(organizationId, profesional.id, rango.desde, rango.hasta),
+    findInicioDeSobreturnos(
+      organizationId,
+      profesional.id,
+      primerDia.toJSDate(),
+      ultimoDia.toJSDate(),
+    ),
+  ]);
+  const porDia = new Map<string, number>();
+  for (const { startsAt } of cargados) {
+    const dia = DateTime.fromJSDate(startsAt, { zone: zona }).toISODate() ?? "";
+    porDia.set(dia, (porDia.get(dia) ?? 0) + 1);
+  }
+  const ahora = Math.max(rango.desde.getTime(), relojDeReservas.ahora().getTime());
+  const libresAhora = new Set(libres.map((t) => t.inicio.getTime()));
+  const ofrecibles: TurnoConProfesional[] = [];
+  for (const franja of franjasDeTrabajo) {
+    for (const turno of generarGrilla(franja, prestacion.durationMin)) {
+      if (turno.inicio.getTime() < ahora || turno.inicio.getTime() >= rango.hasta.getTime())
+        continue;
+      if (libresAhora.has(turno.inicio.getTime())) continue;
+      if (bloqueos.some((b) => seSuperponen(turno, { inicio: b.startsAt, fin: b.endsAt })))
+        continue;
+      const dia = DateTime.fromJSDate(turno.inicio, { zone: zona }).toISODate() ?? "";
+      if ((porDia.get(dia) ?? 0) >= recurso.maxOverbookingsPerDay) continue;
+      ofrecibles.push({
+        ...turno,
+        lugaresDisponibles: 0,
+        profesional: { id: profesional.id, name: profesional.name },
+        sobreturno: true,
+      });
+    }
+  }
+  return ofrecibles;
 }
 
 function elegidos(profesionales: Profesional[], resourceId: string | undefined): Profesional[] {
@@ -204,6 +292,8 @@ export interface CrearTurnoDeClinicaInput {
   resourceId?: string;
   opportunityId?: string;
   force?: boolean;
+  // R6: sobreturno, con el profesional elegido (nunca el primero libre).
+  isOverbooking?: boolean;
 }
 
 /** Reserva un turno de una prestación. Con profesional, es createBooking con
@@ -230,6 +320,7 @@ export async function crearTurnoDeClinica(
         startsAt: input.startsAt,
         ...(input.opportunityId ? { opportunityId: input.opportunityId } : {}),
         ...(input.force !== undefined ? { force: input.force } : {}),
+        ...(input.isOverbooking ? { isOverbooking: true } : {}),
       },
       cliente,
       actor,
@@ -241,6 +332,9 @@ export async function crearTurnoDeClinica(
   }
   if (input.force === true) {
     throw new AppError("Para forzar un turno hay que elegir el profesional", 400);
+  }
+  if (input.isOverbooking === true) {
+    throw new AppError("Para un sobreturno hay que elegir el profesional", 400);
   }
 
   // Quiénes tienen ESE turno libre: la disponibilidad de la ventana del turno,

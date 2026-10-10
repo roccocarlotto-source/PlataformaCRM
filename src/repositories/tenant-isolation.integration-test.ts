@@ -167,6 +167,13 @@ import {
   sedesVigentesPorInvitacion,
   sedesVigentesPorUsuario,
 } from "../clinicas/repositories/sedesDeUsuarios.repository";
+import {
+  borrarBloqueo,
+  crearBloqueo,
+  findBloqueoById,
+  findBloqueosQueSeSuperponen,
+  guardarSobreturnosDelProfesional,
+} from "../clinicas/repositories/bloqueos.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -616,6 +623,8 @@ after(async () => {
   // Resource, ServiceType y Contact; WorkingHours y GoogleCalendarConnection
   // de Resource/Branch; ServiceType de Branch y Resource.
   await prisma.booking.deleteMany({ where: { organizationId: ambas } });
+  // R6: los bloqueos cuelgan de Resource.
+  await prisma.resourceTimeOff.deleteMany({ where: { organizationId: ambas } });
   // R20: las sedes de usuarios e invitaciones cuelgan de Branch, User e Invitation.
   await prisma.userBranch.deleteMany({ where: { organizationId: ambas } });
   await prisma.invitationBranch.deleteMany({ where: { organizationId: ambas } });
@@ -2764,6 +2773,53 @@ test("H-01 UserBranch e InvitationBranch: A no lee, no borra ni crea sedes de B"
     await prisma.invitationBranch.count({ where: { invitationId: fx.invitationB.id } }),
     1,
   );
+});
+
+// R6 (docs/rubros.md §4.4, §4.5): los bloqueos y los sobreturnos de un
+// profesional. Con la organización de A: no se lee, no se borra ni se crea un
+// bloqueo sobre el profesional de B (FK compuesta), y no se le cambian los
+// sobreturnos.
+test("H-01 ResourceTimeOff: A no lee, no borra ni crea bloqueos del profesional de B", async () => {
+  const desde = new Date("2027-03-01T12:00:00Z");
+  const hasta = new Date("2027-03-01T14:00:00Z");
+  const deB = await prisma.resourceTimeOff.create({
+    data: {
+      organizationId: fx.orgB.id,
+      resourceId: fx.resourceB.id,
+      startsAt: desde,
+      endsAt: hasta,
+    },
+  });
+
+  assert.deepEqual(
+    await findBloqueosQueSeSuperponen(fx.orgA.id, fx.resourceB.id, desde, hasta),
+    [],
+  );
+  assert.equal(await findBloqueoById(deB.id, fx.orgA.id), null);
+  assert.equal((await borrarBloqueo(deB.id, fx.orgA.id)).count, 0);
+  assert.equal(
+    (
+      await guardarSobreturnosDelProfesional(fx.orgA.id, fx.resourceB.id, {
+        allowsOverbooking: true,
+        maxOverbookingsPerDay: 9,
+      })
+    ).count,
+    0,
+  );
+  await assertViolaFk(
+    () =>
+      crearBloqueo({
+        organizationId: fx.orgA.id,
+        resourceId: fx.resourceB.id,
+        startsAt: desde,
+        endsAt: hasta,
+        reason: null,
+      }),
+    "ResourceTimeOff de A sobre el profesional de B",
+  );
+  assert.equal(await prisma.resourceTimeOff.count({ where: { id: deB.id } }), 1);
+  const recursoB = await prisma.resource.findUniqueOrThrow({ where: { id: fx.resourceB.id } });
+  assert.equal(recursoB.allowsOverbooking, false);
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {

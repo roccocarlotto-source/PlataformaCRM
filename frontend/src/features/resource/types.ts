@@ -12,6 +12,10 @@ export interface Resource {
   branchId: string;
   name: string;
   type: ResourceType;
+  // R6 (docs/rubros.md §4.4): sobreturnos del profesional, solo en una
+  // clínica. Una automotora no tiene las claves.
+  allowsOverbooking?: boolean;
+  maxOverbookingsPerDay?: number;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

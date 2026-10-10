@@ -1,3 +1,4 @@
+import { findBloqueosQueSeSuperponen } from "../clinicas/repositories/bloqueos.repository";
 import { esProfesionalDeLaPrestacion } from "../clinicas/repositories/serviceTypeResource.repository";
 import { logger } from "../lib/logger";
 import { findConfirmedBookingsInRange } from "../repositories/booking.repository";
@@ -15,6 +16,7 @@ import {
 import { getBranchById } from "./branch.service";
 import { consultarDisponibilidad } from "./googleCalendarConnection.service";
 import type { ClienteGoogleCalendar } from "./googleCalendar.service";
+import { estaEnSusSedes, type ActorConSedes } from "./permisos";
 import { getServiceTypeById } from "./serviceType.service";
 
 // ---------------------------------------------------------------------------
@@ -76,6 +78,10 @@ export interface TurnoDisponible {
 export interface EntradaDelCalculo {
   franjasDeTrabajo: Intervalo[];
   ocupadosEnGoogle: Intervalo[];
+  // Los bloqueos del profesional (docs/rubros.md §4.5, R6): misma regla que
+  // Google, cualquier superposición descarta el turno. Una automotora no
+  // tiene, así que para ella la cuenta es la de antes.
+  bloqueos?: Intervalo[];
   reservasConfirmadas: Intervalo[];
   duracionMin: number;
   capacidad: number;
@@ -88,6 +94,7 @@ export interface EntradaDelCalculo {
 export function calcularTurnos({
   franjasDeTrabajo,
   ocupadosEnGoogle,
+  bloqueos = [],
   reservasConfirmadas,
   duracionMin,
   capacidad,
@@ -135,6 +142,11 @@ export function calcularTurnos({
         continue;
       }
 
+      // Un bloqueo del profesional: no está, igual que un evento ajeno.
+      if (bloqueos.some((bloqueo) => seSuperponen(turno, bloqueo))) {
+        continue;
+      }
+
       // Reservas propias: acá sí manda la capacidad. Se cuentan las que se
       // superponen —no solo las que coinciden exacto— porque dos turnos que se
       // pisan parcialmente compiten por el mismo recurso.
@@ -154,12 +166,24 @@ export function calcularTurnos({
 // ---------------------------------------------------------------------------
 // La versión con base y con Google.
 // ---------------------------------------------------------------------------
+//
+// `actor` (R20/R6): quien pide desde el panel. A una Recepción de clínica un
+// profesional de otra sede le da el mismo 400 que un recurso inexistente; para
+// cualquier otro usuario (toda automotora, todo ADMIN) no cambia nada. Sin
+// actor (el agente de clientes), como antes.
 export async function obtenerDisponibilidad(
   organizationId: string,
   params: ParametrosDeDisponibilidad,
   cliente?: ClienteGoogleCalendar,
+  actor?: ActorConSedes,
 ): Promise<TurnoDisponible[]> {
-  const { franjasDeTrabajo, serviceType } = await resolverContexto(organizationId, params);
+  const { franjasDeTrabajo, serviceType, resource } = await resolverContexto(
+    organizationId,
+    params,
+  );
+  if (actor && !estaEnSusSedes(actor, resource.branchId)) {
+    throw new AppError("El recurso indicado no existe o no pertenece a tu organización", 400);
+  }
 
   // ---------------------------------------------------------------------------
   // GOOGLE ES OPCIONAL Y SU FALLA NO ROMPE LA DISPONIBILIDAD.
@@ -201,16 +225,15 @@ export async function obtenerDisponibilidad(
     }
   }
 
-  const reservas = await findConfirmedBookingsInRange(
-    organizationId,
-    params.resourceId,
-    params.desde,
-    params.hasta,
-  );
+  const [reservas, bloqueos] = await Promise.all([
+    findConfirmedBookingsInRange(organizationId, params.resourceId, params.desde, params.hasta),
+    findBloqueosQueSeSuperponen(organizationId, params.resourceId, params.desde, params.hasta),
+  ]);
 
   return calcularTurnos({
     franjasDeTrabajo,
     ocupadosEnGoogle,
+    bloqueos: bloqueos.map((b) => ({ inicio: b.startsAt, fin: b.endsAt })),
     reservasConfirmadas: reservas.map((r) => ({ inicio: r.startsAt, fin: r.endsAt })),
     duracionMin: serviceType.durationMin,
     capacidad: serviceType.capacity,

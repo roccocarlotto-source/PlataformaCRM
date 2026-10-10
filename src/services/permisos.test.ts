@@ -91,7 +91,12 @@ test("toda ruta con authorize deja pasar a ADMIN, y ninguna se le abre a Recepci
   // §11.2: lo que Recepción no hace es configurar, y todo lo de configurar es
   // authorize("ADMIN"). Si un PR abre una ruta a Recepción (la agenda de
   // clínica, R5 en adelante), la suma acá a propósito.
-  const abiertasARecepcion: string[] = [];
+  // R6: los bloqueos de un profesional (docs/rubros.md §4.5, §11.2).
+  const abiertasARecepcion: string[] = [
+    "GET /api/clinica/profesionales/:resourceId/bloqueos",
+    "POST /api/clinica/profesionales/:resourceId/bloqueos",
+    "DELETE /api/clinica/bloqueos/:id",
+  ];
   assert.deepEqual(
     conRol.filter((r) => r.roles?.includes("RECEPCION")).map((r) => r.ruta),
     abiertasARecepcion,

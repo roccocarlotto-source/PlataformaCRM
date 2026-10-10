@@ -122,8 +122,8 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // information_schema que se consultaba antes.
   [1, { descripcion: "C-1 · anon/authenticated sin escritura sobre public", esperado: "ninguno" }],
   [2, { descripcion: "C-1 · anon/authenticated sin lectura sobre public", esperado: "ninguno" }],
-  // Las 53 políticas de RLS (50 de aislamiento uniforme + 3 especiales, al
-  // 2026-10-10 con las dos de usuarios por sede de R20) comparadas por definición (cmd, permissive, roles,
+  // Las 54 políticas de RLS (51 de aislamiento uniforme + 3 especiales, al
+  // 2026-10-10 con resource_time_offs de R6) comparadas por definición (cmd, permissive, roles,
   // USING y WITH CHECK), con FULL OUTER JOIN para atrapar tanto la que falta
   // como la que sobra: 26 de aislamiento uniforme (10 originales + las 6 del
   // outbox y de agenda que agregó 20260901120000, M-5 + qr_codes, que agregó
@@ -148,7 +148,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // chequeo.
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
   [7, { descripcion: "Los 13 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
-  [8, { descripcion: "Los 38 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
+  [8, { descripcion: "Los 40 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
   [
     9,
     {
@@ -220,7 +220,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   [
     16,
     {
-      descripcion: "C-3 · las 93 FKs conocidas siguen apuntando a la tabla padre de su diseño",
+      descripcion: "C-3 · las 94 FKs conocidas siguen apuntando a la tabla padre de su diseño",
       esperado: "ninguna",
     },
   ],

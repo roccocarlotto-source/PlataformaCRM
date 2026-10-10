@@ -45,3 +45,42 @@ horario disponible y, si hay varios, al que tenga **menos turnos ese día**.
 > Si dos pacientes piden el mismo horario al mismo tiempo, el sistema no da el
 > mismo turno dos veces: el segundo queda con otro profesional libre, o se le
 > avisa que ese horario ya no está.
+
+## Bloqueos de un profesional {#bloqueos}
+
+Un bloqueo es un período en el que un profesional no atiende: vacaciones, una
+ausencia, una reunión. En [Bloqueos](/clinica/bloqueos) elegís el profesional,
+ves sus bloqueos de los próximos dos meses y cargás uno nuevo con **Desde**,
+**Hasta** y, si querés, un **Motivo** (es interno: el paciente nunca lo ve).
+
+- Mientras dura el bloqueo, esos horarios **no se ofrecen**: ni el asistente
+  ni el calendario los muestran, y no se puede dar un turno ahí.
+- Si ya había turnos dados dentro del bloqueo, **no se cancelan solos**. Al
+  guardar, la pantalla los lista para que los canceles o los reprogrames, y a
+  la recepción de esa sede le queda una tarea por cada turno para avisarle al
+  paciente.
+- Para sacar un bloqueo, tocá **Quitar** en su fila. Los horarios vuelven a
+  estar disponibles.
+
+Los bloqueos los cargan los administradores y la recepción, en los
+profesionales de sus sedes.
+
+## Sobreturnos {#sobreturnos}
+
+Un sobreturno es un turno de más encima de un horario que ya está completo.
+
+- **Están apagados** para cada profesional hasta que un administrador los
+  habilita: en [Profesionales](/clinica/profesionales), menú de la fila,
+  **Sobreturnos**. Ahí se elige también el **tope por día** (cuántos
+  sobreturnos puede tener ese profesional en un mismo día).
+- Para cargar uno, entrá a [Sobreturnos](/clinica/sobreturnos), elegí la
+  prestación, el profesional, el día y el paciente, y tocá **Cargar
+  sobreturno** en el horario que quieras. Solo aparecen horarios completos.
+- Un sobreturno respeta el horario del profesional y sus bloqueos, y no le
+  quita lugar a los turnos normales. En el calendario aparece marcado como
+  **Sobreturno**.
+- Al llegar al tope del día no se ofrecen más. Cancelar uno libera el lugar.
+  Si bajás el tope, los sobreturnos ya cargados no se tocan.
+
+> El asistente de IA nunca ofrece ni carga sobreturnos: los carga una persona
+> del equipo.

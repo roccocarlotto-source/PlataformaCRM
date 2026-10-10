@@ -30,6 +30,10 @@ import {
 // y un USER. /me, los listados de turnos, conversaciones, tareas, usuarios e
 // invitaciones y el 403 de una ruta de ADMIN, con las claves y lo visible de
 // antes de R20.
+//
+// Caso de R6 (bloqueos y sobreturnos): GET /api/availability de un USER sobre
+// un recurso de cualquier sucursal sigue respondiendo, y recursos y reservas
+// salen con las claves de antes (sin las columnas de sobreturnos).
 // ---------------------------------------------------------------------------
 
 let completa: OrgDePrueba;
@@ -340,4 +344,71 @@ test("R20: una automotora con dos sucursales ve lo de antes, con las claves de a
 
   // Sin ninguna fila de usuarios por sede.
   assert.equal(await prisma.userBranch.count({ where: { organizationId: conSucursales.id } }), 0);
+});
+
+// ---------------------------------------------------------------------------
+// R6 (bloqueos y sobreturnos, docs/rubros.md §4.4 y §4.5).
+// ---------------------------------------------------------------------------
+
+const CLAVES_DE_RECURSO_DE_HOY = [
+  "branchId",
+  "createdAt",
+  "deletedAt",
+  "id",
+  "name",
+  "organizationId",
+  "type",
+  "updatedAt",
+];
+
+const CLAVES_DE_RESERVA_DE_HOY = [
+  "branchId",
+  "contactId",
+  "createdAt",
+  "endsAt",
+  "googleEventId",
+  "id",
+  "opportunityId",
+  "organizationId",
+  "resourceId",
+  "serviceTypeId",
+  "startsAt",
+  "status",
+  "updatedAt",
+];
+
+test("R6: recursos y reservas con las claves de antes, y la disponibilidad genérica de un USER como siempre", async () => {
+  const [comoAdmin, comoUser] = conSucursales.tokens;
+  const recursos = await pedir(conSucursales, "GET", "/api/resources", undefined, comoAdmin);
+  assert.equal(recursos.status, 200);
+  const filas = recursos.json.data as Record<string, unknown>[];
+  assert.ok(filas.length > 0, "la suite R20 dejó recursos");
+  for (const r of filas) assert.deepEqual(Object.keys(r).sort(), CLAVES_DE_RECURSO_DE_HOY);
+
+  const reservas = await pedir(conSucursales, "GET", "/api/bookings", undefined, comoUser);
+  for (const b of reservas.json.data as Record<string, unknown>[]) {
+    assert.deepEqual(Object.keys(b).sort(), CLAVES_DE_RESERVA_DE_HOY);
+  }
+
+  // Un USER de una automotora consulta la disponibilidad de un recurso de
+  // cualquier sucursal (sin límite de sede).
+  for (const recurso of filas) {
+    const servicio = await prisma.serviceType.findFirstOrThrow({
+      where: { organizationId: conSucursales.id, resourceId: recurso.id as string },
+    });
+    const desde = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const hasta = new Date(desde.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const r = await pedir(
+      conSucursales,
+      "GET",
+      `/api/availability?resourceId=${recurso.id as string}&serviceTypeId=${servicio.id}&from=${desde.toISOString()}&to=${hasta.toISOString()}`,
+      undefined,
+      comoUser,
+    );
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+  }
+  assert.equal(
+    await prisma.resourceTimeOff.count({ where: { organizationId: conSucursales.id } }),
+    0,
+  );
 });

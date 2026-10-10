@@ -3,6 +3,10 @@ import { authenticate } from "../../middlewares/authenticate";
 import { authorize } from "../../middlewares/authorize";
 import { businessWriteRateLimiter } from "../../middlewares/rateLimit";
 import {
+  borrarBloqueoHandler,
+  configurarSobreturnosHandler,
+  crearBloqueoHandler,
+  listarBloqueosHandler,
   crearTurnoDeClinicaHandler,
   definirProfesionalesHandler,
   disponibilidadDeClinicaHandler,
@@ -47,4 +51,38 @@ agendaClinicaRouter.post(
   authenticate,
   businessWriteRateLimiter,
   crearTurnoDeClinicaHandler,
+);
+
+// R6 (docs/rubros.md §4.4, §4.5, §11.2): los bloqueos los cargan ADMIN y
+// Recepción (dentro de sus sedes: el service da 404 fuera de ellas); el permiso
+// de sobreturnos y su tope son configuración del profesional, solo ADMIN.
+agendaClinicaRouter.get(
+  "/clinica/profesionales/:resourceId/bloqueos",
+  authenticate,
+  authorize("ADMIN", "RECEPCION"),
+  listarBloqueosHandler,
+);
+
+agendaClinicaRouter.post(
+  "/clinica/profesionales/:resourceId/bloqueos",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN", "RECEPCION"),
+  crearBloqueoHandler,
+);
+
+agendaClinicaRouter.delete(
+  "/clinica/bloqueos/:id",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN", "RECEPCION"),
+  borrarBloqueoHandler,
+);
+
+agendaClinicaRouter.put(
+  "/clinica/profesionales/:resourceId/sobreturnos",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  configurarSobreturnosHandler,
 );

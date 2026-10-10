@@ -20,6 +20,9 @@ export interface Booking {
   endsAt: string;
   status: BookingStatus;
   googleEventId: string | null;
+  // R6 (docs/rubros.md §4.4): solo en una clínica. Una automotora no tiene la
+  // clave.
+  isOverbooking?: boolean;
   createdAt: string;
   updatedAt: string;
 }

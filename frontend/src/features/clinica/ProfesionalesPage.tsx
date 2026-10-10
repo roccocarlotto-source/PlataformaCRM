@@ -10,6 +10,9 @@ import { BRANCHES_PARA_SELECT, useBranches } from "../branch/queries";
 import { useResources } from "../resource/queries";
 import { usePrestaciones } from "./queries";
 import { useVocabularioDeClinica } from "./vocabulario";
+import { useState } from "react";
+import { SobreturnosDelProfesionalDialog } from "./SobreturnosDelProfesionalDialog";
+import type { Resource } from "../resource/types";
 
 const SIN_RESOLVER = "—";
 
@@ -39,6 +42,8 @@ export function ProfesionalesPage() {
 
   const profesionales = recursosQuery.data?.data ?? [];
   const termino = vocabulario.recurso;
+  // R6: el diálogo de sobreturnos de un profesional.
+  const [deSobreturnos, setDeSobreturnos] = useState<Resource | null>(null);
 
   return (
     <div>
@@ -73,6 +78,7 @@ export function ProfesionalesPage() {
                 <th>Nombre</th>
                 <th>Sede</th>
                 <th>{vocabulario.tipoDeServicio.pluralTitulo}</th>
+                <th>Sobreturnos</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -82,9 +88,17 @@ export function ProfesionalesPage() {
                   <td className="ds-cell-primary">{r.name}</td>
                   <td>{nombreDeSede.get(r.branchId) ?? SIN_RESOLVER}</td>
                   <td>{(prestacionesDe.get(r.id) ?? []).join(", ") || SIN_RESOLVER}</td>
+                  <td className="ds-cell-muted">
+                    {r.allowsOverbooking
+                      ? `Hasta ${String(r.maxOverbookingsPerDay ?? 1)} por día`
+                      : "No"}
+                  </td>
                   <td>
                     <ActionsMenu
-                      actions={[{ label: "Editar y horario", to: `/resources/${r.id}/edit` }]}
+                      actions={[
+                        { label: "Editar y horario", to: `/resources/${r.id}/edit` },
+                        { label: "Sobreturnos", onClick: () => setDeSobreturnos(r) },
+                      ]}
                     />
                   </td>
                 </tr>
@@ -93,6 +107,12 @@ export function ProfesionalesPage() {
           </Table>
         ) : null}
       </div>
+      {deSobreturnos ? (
+        <SobreturnosDelProfesionalDialog
+          profesional={deSobreturnos}
+          onClose={() => setDeSobreturnos(null)}
+        />
+      ) : null}
     </div>
   );
 }

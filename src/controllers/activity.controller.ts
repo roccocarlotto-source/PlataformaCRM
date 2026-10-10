@@ -9,6 +9,7 @@ import {
   updateActivity,
   type ActivityActor,
 } from "../services/activity.service";
+import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClinica";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -16,16 +17,9 @@ import { parseOrThrow } from "../utils/validation";
 const idParamSchema = z.string().uuid("id inválido");
 
 // R20 (docs/rubros.md §11.2): activities.branch_id es de las clínicas. Una
-// automotora recibe la tarea con las claves de antes, sin `branchId` (que para
-// ella siempre es null): su respuesta no cambia.
-function paraElRubro<T extends { branchId?: string | null }>(
-  activity: T,
-  industry: OrganizationIndustry,
-): T | Omit<T, "branchId"> {
-  if (industry === "CLINICA") return activity;
-  const resto: Omit<T, "branchId"> & { branchId?: string | null } = { ...activity };
-  delete resto.branchId;
-  return resto;
+// automotora recibe la tarea con las claves de antes (camposDeClinica.ts).
+function paraElRubro<T extends object>(activity: T, industry: OrganizationIndustry): T {
+  return sinCamposDeClinica(activity, industry, CAMPOS_DE_CLINICA.activity);
 }
 
 // z.nativeEnum sobre el enum real de Prisma: si ActivityType cambia en

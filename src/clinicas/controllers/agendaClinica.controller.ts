@@ -12,6 +12,12 @@ import {
   listarPrestaciones,
   profesionalesDeUnaPrestacion,
 } from "../services/agendaClinica.service";
+import {
+  borrarBloqueoDeProfesional,
+  configurarSobreturnos,
+  crearBloqueoDeProfesional,
+  listarBloqueos,
+} from "../services/bloqueos.service";
 
 // ---------------------------------------------------------------------------
 // Agenda de clínica (docs/rubros.md §4.3, R5): prestaciones con sus
@@ -39,6 +45,12 @@ const disponibilidadQuerySchema = z
     resourceId: z.string().uuid("resourceId inválido").optional(),
     from: instanteSchema,
     to: instanteSchema,
+    // R6: "true" suma los horarios completos que se pueden tomar como
+    // sobreturno (solo el panel; el agente nunca lo pide).
+    sobreturnos: z
+      .enum(["true", "false"])
+      .transform((v) => v === "true")
+      .optional(),
   })
   .refine((query) => query.from.getTime() < query.to.getTime(), {
     message: "`from` tiene que ser anterior a `to`",
@@ -56,6 +68,36 @@ const turnoBodySchema = z
     // Sin profesional: el primero libre.
     resourceId: z.string().uuid("resourceId inválido").optional(),
     force: z.boolean().optional(),
+    // R6 (§4.4): sobreturno, con el profesional elegido.
+    isOverbooking: z.boolean().optional(),
+  })
+  .strict();
+
+// ---------------------------------------------------------------------------
+// R6: bloqueos y sobreturnos de un profesional (§4.4, §4.5).
+// ---------------------------------------------------------------------------
+
+const resourceIdSchema = z.string().uuid("resourceId inválido");
+const bloqueoIdSchema = z.string().uuid("id inválido");
+
+const rangoQuerySchema = z
+  .object({ from: instanteSchema, to: instanteSchema })
+  .refine((query) => query.from.getTime() < query.to.getTime(), {
+    message: "`from` tiene que ser anterior a `to`",
+  });
+
+const bloqueoBodySchema = z
+  .object({
+    startsAt: instanteSchema,
+    endsAt: instanteSchema,
+    reason: z.string().trim().max(200, "El motivo no puede superar los 200 caracteres").nullish(),
+  })
+  .strict();
+
+const sobreturnosBodySchema = z
+  .object({
+    allowsOverbooking: z.boolean(),
+    maxOverbookingsPerDay: z.number().int().min(1, "El tope es de al menos 1").max(50),
   })
   .strict();
 
@@ -97,6 +139,7 @@ export const disponibilidadDeClinicaHandler = asyncHandler<AuthenticatedRequest>
         ...(query.resourceId ? { resourceId: query.resourceId } : {}),
         desde: query.from,
         hasta: query.to,
+        ...(query.sobreturnos ? { conSobreturnos: true } : {}),
       },
       undefined,
       req.auth,
@@ -107,6 +150,7 @@ export const disponibilidadDeClinicaHandler = asyncHandler<AuthenticatedRequest>
         endsAt: t.fin.toISOString(),
         availableSeats: t.lugaresDisponibles,
         resource: t.profesional,
+        ...(t.sobreturno ? { overbooking: true } : {}),
       })),
     });
   },
@@ -117,5 +161,49 @@ export const crearTurnoDeClinicaHandler = asyncHandler<AuthenticatedRequest>(
     const input = parseOrThrow(turnoBodySchema, req.body);
     const booking = await crearTurnoDeClinica(req.auth.organizationId, input, undefined, req.auth);
     res.status(201).json(booking);
+  },
+);
+
+export const listarBloqueosHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const resourceId = parseOrThrow(resourceIdSchema, req.params.resourceId);
+    const { from, to } = parseOrThrow(rangoQuerySchema, req.query);
+    const bloqueos = await listarBloqueos(
+      req.auth.organizationId,
+      resourceId,
+      { desde: from, hasta: to },
+      req.auth,
+    );
+    res.status(200).json({ bloqueos });
+  },
+);
+
+export const crearBloqueoHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const resourceId = parseOrThrow(resourceIdSchema, req.params.resourceId);
+    const input = parseOrThrow(bloqueoBodySchema, req.body);
+    const resultado = await crearBloqueoDeProfesional(
+      req.auth.organizationId,
+      resourceId,
+      input,
+      req.auth,
+    );
+    res.status(201).json(resultado);
+  },
+);
+
+export const borrarBloqueoHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(bloqueoIdSchema, req.params.id);
+    await borrarBloqueoDeProfesional(req.auth.organizationId, id, req.auth);
+    res.status(204).send();
+  },
+);
+
+export const configurarSobreturnosHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const resourceId = parseOrThrow(resourceIdSchema, req.params.resourceId);
+    const input = parseOrThrow(sobreturnosBodySchema, req.body);
+    res.status(200).json(await configurarSobreturnos(req.auth.organizationId, resourceId, input));
   },
 );

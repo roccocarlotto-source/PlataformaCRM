@@ -485,6 +485,11 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "PUT /api/clinica/prestaciones/:serviceTypeId/profesionales",
     "GET /api/clinica/disponibilidad",
     "POST /api/clinica/turnos",
+    // R6: bloqueos y sobreturnos de un profesional.
+    "GET /api/clinica/profesionales/:resourceId/bloqueos",
+    "POST /api/clinica/profesionales/:resourceId/bloqueos",
+    "DELETE /api/clinica/bloqueos/:id",
+    "PUT /api/clinica/profesionales/:resourceId/sobreturnos",
   ],
 };
 
