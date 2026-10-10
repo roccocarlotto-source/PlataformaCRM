@@ -66,6 +66,30 @@ export function countAgentsByBranch(branchId: string, organizationId: string, db
   return db.agent.count({ where: { branchId, organizationId, deletedAt: null } });
 }
 
+// Paso D (docs/ediciones.md §4.5): el agente de una conversación con lo que
+// decide si responde solo (su nivel y su estado) y la edición de su
+// organización. Sin filtrar deletedAt ni isActive: quien pregunta decide.
+export function findAgentDeLaConversacionParaElNivel(
+  conversationId: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.conversation.findFirst({
+    where: { id: conversationId, organizationId },
+    select: {
+      agent: {
+        select: {
+          isActive: true,
+          deletedAt: true,
+          participation: true,
+          participationChosenAt: true,
+        },
+      },
+      organization: { select: { edition: true } },
+    },
+  });
+}
+
 export function findAgentById(id: string, organizationId: string, db: Db = prisma) {
   return db.agent.findFirst({ where: { id, organizationId, deletedAt: null } });
 }

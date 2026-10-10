@@ -102,6 +102,38 @@ export async function humanSpokeLast(
 // después de una derivación por una regla del rubro (docs/rubros.md §5.3) se
 // lee de su marca. El hilo entero, no la ventana de contexto, por lo mismo que
 // humanSpokeLast.
+// Paso D (docs/ediciones.md §4.2 c): cuántas veces respondió el agente desde
+// lo último entre la derivación (transferred_to_human_at) y el último mensaje
+// de una persona. Es el contador del tope de PRIMER_CONTACTO: "Devolver al
+// agente" (después de que una persona escribió) lo reinicia.
+export async function contarRespuestasDelAgenteDesdeLaUltimaPersona(
+  conversationId: string,
+  organizationId: string,
+  transferredToHumanAt: Date | null,
+  db: Db = prisma,
+): Promise<number> {
+  const desdeLaDerivacion = transferredToHumanAt ?? new Date(0);
+  const [fila] = await db.$queryRaw<{ n: number }[]>`
+    SELECT count(*)::int AS n
+    FROM messages m
+    WHERE m.conversation_id = ${conversationId}::uuid
+      AND m.organization_id = ${organizationId}::uuid
+      AND m.direction = 'OUTBOUND'::"MessageDirection"
+      AND m.sender_type = 'AGENT'::"MessageSenderType"
+      AND m.created_at > GREATEST(
+        ${desdeLaDerivacion.toISOString()}::timestamptz AT TIME ZONE 'UTC',
+        COALESCE(
+          (SELECT max(h.created_at)
+           FROM messages h
+           WHERE h.conversation_id = m.conversation_id
+             AND h.organization_id = m.organization_id
+             AND h.sender_type = 'HUMAN'::"MessageSenderType"),
+          '-infinity'::timestamp
+        )
+      )`;
+  return fila?.n ?? 0;
+}
+
 export function findLastAgentMessage(
   conversationId: string,
   organizationId: string,

@@ -5,6 +5,7 @@ import type { ConversationChannel } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { barrerConsultasSinAvance } from "../workers/inquiryStalledWorker";
 import {
+  depsDelSeguimientoDeConsultaReales,
   drenarSeguimientosDeConsultas,
   type DepsDelSeguimientoDeConsulta,
 } from "../workers/inquiryFollowUpWorker";
@@ -262,6 +263,8 @@ function depsDeEnvio(e: Montado, opciones: { cerradaHasta?: Date; ahora?: Date }
       return { wamid: `wamid.${randomUUID().slice(0, 8)}` };
     },
     generarTexto: async () => "¡Hola! Vi que preguntaste por la Hilux. ¿Seguís interesado?",
+    // D9: la decisión real, contra la base (el agente de la conversación).
+    agenteRespondeSolo: depsDelSeguimientoDeConsultaReales.agenteRespondeSolo,
     ahora: () => opciones.ahora ?? AHORA,
   };
   return { deps, envios };
@@ -553,4 +556,66 @@ test("otra organización no se toca: su consulta estancada no entra en el barrid
   assert.equal(envios.plantillas.length, 1);
   assert.equal((await filasDe(otra)).length, 0);
   assert.equal((await actividadesDe(otra)).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// D9 (docs/ediciones.md §4.5): el texto libre de la IA sale SOLO si el agente
+// de la conversación responde solo (AUTONOMA, activo y no borrado). Con otro
+// nivel, inactivo, o ESENCIAL sin que un ADMIN haya elegido el nivel, la
+// plantilla aprobada aunque la ventana de 24 h esté abierta.
+// ---------------------------------------------------------------------------
+
+async function dentroDeLaVentana(
+  etiqueta: string,
+  agente: Record<string, unknown>,
+  edition: "COMPLETA" | "ESENCIAL" = "COMPLETA",
+) {
+  const e = await escenario(etiqueta);
+  if (edition !== "COMPLETA") {
+    await prisma.organization.update({ where: { id: e.organizationId }, data: { edition } });
+  }
+  await prisma.agent.update({ where: { id: e.agentId }, data: agente });
+  await reglaDeConsultas(e, { dias: 0 });
+  await consulta(e, { diasCallado: 0 });
+  assert.equal((await barrer(e)).emitidos, 1);
+  await drenar(e);
+  return (await enviar(e, { ahora: new Date(AHORA.getTime() + 3_600_000) })).envios;
+}
+
+test("D9: con un agente AUTONOMA (el de siempre), texto libre dentro de las 24 h", async () => {
+  const envios = await dentroDeLaVentana("d9-autonoma", { participation: "AUTONOMA" });
+  assert.equal(envios.textos.length, 1);
+  assert.equal(envios.plantillas.length, 0);
+});
+
+test("D9: con PRIMER_CONTACTO o SOLO_SEGUIMIENTO, la plantilla aunque la ventana esté abierta", async () => {
+  for (const participation of ["PRIMER_CONTACTO", "SOLO_SEGUIMIENTO"]) {
+    const envios = await dentroDeLaVentana(`d9-${participation.toLowerCase()}`, { participation });
+    assert.equal(envios.textos.length, 0, participation);
+    assert.equal(envios.plantillas.length, 1, participation);
+  }
+});
+
+test("D9: con el agente inactivo, la plantilla", async () => {
+  const envios = await dentroDeLaVentana("d9-inactivo", { isActive: false });
+  assert.equal(envios.textos.length, 0);
+  assert.equal(envios.plantillas.length, 1);
+});
+
+test("D9: en ESENCIAL, un AUTONOMA que nadie eligió va con plantilla; elegido, con texto libre", async () => {
+  const sinElegir = await dentroDeLaVentana(
+    "d9-esencial-sin-elegir",
+    { participation: "AUTONOMA", participationChosenAt: null },
+    "ESENCIAL",
+  );
+  assert.equal(sinElegir.textos.length, 0);
+  assert.equal(sinElegir.plantillas.length, 1);
+
+  const elegido = await dentroDeLaVentana(
+    "d9-esencial-elegido",
+    { participation: "AUTONOMA", participationChosenAt: AHORA },
+    "ESENCIAL",
+  );
+  assert.equal(elegido.textos.length, 1);
+  assert.equal(elegido.plantillas.length, 0);
 });

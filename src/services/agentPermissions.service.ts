@@ -1,5 +1,6 @@
-import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
+import type { AgentParticipation, OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import { toolDelRubro } from "../config/ediciones";
+import { toolDelNivel } from "./agentNivelDeIa";
 
 // ---------------------------------------------------------------------------
 // Capa de permisos del agente de IA — puedeEjecutarTool (docs/ai-agent-
@@ -25,6 +26,9 @@ export interface AgentParaPermisos {
   // La edición y el rubro de la organización del agente: deciden qué tools
   // existen para ella (toolDelRubro, docs/rubros.md §5.1).
   organizacion: OrganizacionDelAgente;
+  // El nivel de IA que rige en el turno (docs/ediciones.md §4, paso D).
+  // Opcional: sin él no se filtra por nivel (los que no son el loop).
+  nivel?: AgentParticipation;
 }
 
 export interface OrganizacionDelAgente {
@@ -119,6 +123,15 @@ export function puedeEjecutarTool(
     return {
       allowed: false,
       reason: `La acción "${toolName}" no está disponible para este rubro`,
+    };
+  }
+
+  // (1c) El nivel de IA del agente (docs/ediciones.md §4.2): en PRIMER_CONTACTO
+  // las acciones que comprometen algo las hace una persona. AUTONOMA: todas.
+  if (agent.nivel !== undefined && !toolDelNivel(toolName, agent.nivel)) {
+    return {
+      allowed: false,
+      reason: `La acción "${toolName}" la hace una persona del equipo en este nivel del agente`,
     };
   }
 

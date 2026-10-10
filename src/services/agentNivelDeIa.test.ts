@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AppError } from "../utils/AppError";
-import { NIVEL_DE_IA_SIN_ELEGIR, decidirNivelDeIa, type NivelActual } from "./agentNivelDeIa";
+import {
+  MAX_RESPUESTAS_PRIMER_CONTACTO,
+  MOTIVO_DENTRO_DE_HORARIO,
+  MOTIVO_NIVEL_SIN_ELEGIR,
+  MOTIVO_SOLO_SEGUIMIENTO,
+  MOTIVO_TOPE_DE_PRIMER_CONTACTO,
+  NIVEL_DE_IA_SIN_ELEGIR,
+  TOOLS_DE_PRIMER_CONTACTO,
+  decidirAtencion,
+  decidirNivelDeIa,
+  nivelEfectivo,
+  toolDelNivel,
+  type NivelActual,
+} from "./agentNivelDeIa";
 
 // Las reglas del nivel de IA en la API (docs/ediciones.md §1.2, D3; paso C).
 
@@ -174,4 +187,104 @@ test("«solo fuera de horario» va solo con PRIMER_CONTACTO, y pide el horario d
   });
   assert.equal(cambio.data.onlyOutsideBusinessHours, false);
   assert.equal(cambio.exigeHorarioDeLaSucursal, false);
+});
+
+// ---------------------------------------------------------------------------
+// Paso D: el nivel que rige al atender.
+// ---------------------------------------------------------------------------
+
+test("nivelEfectivo: sin nivel, null; ESENCIAL sin fecha de elección, null; COMPLETA no mira la fecha", () => {
+  assert.equal(
+    nivelEfectivo({ participation: null, participationChosenAt: null }, "COMPLETA"),
+    null,
+  );
+  assert.equal(
+    nivelEfectivo({ participation: "AUTONOMA", participationChosenAt: null }, "COMPLETA"),
+    "AUTONOMA",
+  );
+  assert.equal(
+    nivelEfectivo({ participation: "AUTONOMA", participationChosenAt: null }, "ESENCIAL"),
+    null,
+  );
+  assert.equal(
+    nivelEfectivo({ participation: "PRIMER_CONTACTO", participationChosenAt: ANTES }, "ESENCIAL"),
+    "PRIMER_CONTACTO",
+  );
+});
+
+test("toolDelNivel: AUTONOMA todas; PRIMER_CONTACTO solo informar y tomar datos; SOLO_SEGUIMIENTO ninguna", () => {
+  for (const tool of [
+    "create_opportunity",
+    "reserve_vehicle",
+    "create_booking",
+    "mark_no_interest",
+  ]) {
+    assert.equal(toolDelNivel(tool, "AUTONOMA"), true, tool);
+    assert.equal(toolDelNivel(tool, "PRIMER_CONTACTO"), false, tool);
+  }
+  for (const tool of TOOLS_DE_PRIMER_CONTACTO) {
+    assert.equal(toolDelNivel(tool, "PRIMER_CONTACTO"), true, tool);
+    assert.equal(toolDelNivel(tool, "SOLO_SEGUIMIENTO"), false, tool);
+  }
+});
+
+test("decidirAtencion: AUTONOMA siempre atiende, aun derivada (el camino de hoy)", () => {
+  assert.deepEqual(
+    decidirAtencion({
+      nivel: "AUTONOMA",
+      conversacionDerivada: true,
+      onlyOutsideBusinessHours: false,
+      dentroDeHorario: true,
+      respuestasDelAgente: 99,
+    }),
+    { atiende: true },
+  );
+});
+
+test("decidirAtencion: con otro nivel, derivada calla; sin elegir, solo seguimiento, dentro de horario y tope derivan", () => {
+  const base = {
+    conversacionDerivada: false,
+    onlyOutsideBusinessHours: false,
+    dentroDeHorario: false,
+    respuestasDelAgente: 0,
+  };
+  assert.deepEqual(
+    decidirAtencion({ ...base, nivel: "PRIMER_CONTACTO", conversacionDerivada: true }),
+    { atiende: false, deriva: false },
+  );
+  assert.deepEqual(decidirAtencion({ ...base, nivel: null }), {
+    atiende: false,
+    deriva: true,
+    motivo: MOTIVO_NIVEL_SIN_ELEGIR,
+  });
+  assert.deepEqual(decidirAtencion({ ...base, nivel: "SOLO_SEGUIMIENTO" }), {
+    atiende: false,
+    deriva: true,
+    motivo: MOTIVO_SOLO_SEGUIMIENTO,
+  });
+  assert.deepEqual(
+    decidirAtencion({
+      ...base,
+      nivel: "PRIMER_CONTACTO",
+      onlyOutsideBusinessHours: true,
+      dentroDeHorario: true,
+    }),
+    { atiende: false, deriva: true, motivo: MOTIVO_DENTRO_DE_HORARIO },
+  );
+  // Fuera de horario, o sin el interruptor: atiende hasta el tope.
+  assert.deepEqual(
+    decidirAtencion({ ...base, nivel: "PRIMER_CONTACTO", onlyOutsideBusinessHours: true }),
+    { atiende: true },
+  );
+  assert.deepEqual(decidirAtencion({ ...base, nivel: "PRIMER_CONTACTO", respuestasDelAgente: 1 }), {
+    atiende: true,
+  });
+  assert.deepEqual(
+    decidirAtencion({
+      ...base,
+      nivel: "PRIMER_CONTACTO",
+      respuestasDelAgente: MAX_RESPUESTAS_PRIMER_CONTACTO,
+    }),
+    { atiende: false, deriva: true, motivo: MOTIVO_TOPE_DE_PRIMER_CONTACTO },
+  );
 });
