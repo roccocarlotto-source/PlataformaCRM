@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
-import { useModulo } from "../../auth/modulos";
+import { useModulo } from "../../auth/useModulo";
 import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarRegistro } from "../../auth/permisos";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";

@@ -61,12 +61,26 @@ export const TRIGGER_OPTIONS: SelectOption<string>[] = [
   },
 ];
 
+// ESENCIAL (docs/ediciones.md §8): el catálogo es el mismo; solo cambia cómo
+// se nombra la venta, porque ahí no hay etapas sino el estado Vendida.
+const TRIGGER_OPTIONS_ESENCIAL: SelectOption<string>[] = TRIGGER_OPTIONS.map((option) =>
+  option.value === TRIGGER_OPPORTUNITY_WON
+    ? { ...option, label: "Venta registrada", subtitle: "Cuando se registra una venta" }
+    : option,
+);
+
+/** Las opciones del selector de trigger. `simple`: sin procesos de venta
+ *  (ESENCIAL). */
+export function triggerOptions(simple: boolean): SelectOption<string>[] {
+  return simple ? TRIGGER_OPTIONS_ESENCIAL : TRIGGER_OPTIONS;
+}
+
 // El rótulo de un trigger en el listado. Un valor fuera de la lista —un
 // trigger que el backend ya conoce y este espejo todavía no— se muestra crudo
 // en vez de como "—": el dato real informa más que su ausencia, mismo criterio
 // que modelProviderLabel en features/agent/labels.ts.
-export function triggerLabel(value: string): string {
-  return TRIGGER_OPTIONS.find((option) => option.value === value)?.label ?? value;
+export function triggerLabel(value: string, simple = false): string {
+  return triggerOptions(simple).find((option) => option.value === value)?.label ?? value;
 }
 
 // ---------------------------------------------------------------------------

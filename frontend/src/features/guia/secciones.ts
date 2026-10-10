@@ -71,8 +71,64 @@ export const SECCIONES: Seccion[] = Object.entries(ARCHIVOS)
   .map(([ruta, markdown]) => parsearSeccion(ruta, markdown))
   .sort((a, b) => a.orden - b.orden);
 
-export function seccionesVisibles(esPlatformAdmin: boolean): Seccion[] {
-  return SECCIONES.filter((seccion) => !seccion.soloPlataforma || esPlatformAdmin);
+// Ediciones (docs/ediciones.md §9): los ## que explican un módulo que no
+// todas las ediciones tienen, como `<slug>#<ancla>` → módulo. Sin el módulo,
+// GuiaPage no muestra el ## (con sus ###), ni en la sección, ni en el índice,
+// ni en el buscador. Un ## que no está acá se muestra siempre.
+export const MODULO_DE_ANCLA: Readonly<Record<string, string>> = {
+  "contactos-y-consultas#empresas": "empresas",
+  "contactos-y-consultas#nueva-empresa": "empresas",
+  "oportunidades-y-procesos-de-venta#embudo": "procesos_de_venta",
+  "oportunidades-y-procesos-de-venta#cotizaciones": "cotizaciones",
+  "oportunidades-y-procesos-de-venta#pagos": "pagos",
+  "oportunidades-y-procesos-de-venta#permuta": "permutas",
+  "oportunidades-y-procesos-de-venta#entrega": "entregas",
+  "oportunidades-y-procesos-de-venta#procesos-de-venta": "procesos_de_venta",
+  "oportunidades-y-procesos-de-venta#etapas": "procesos_de_venta",
+};
+
+const ENCABEZADO_DOS = /^## .*\{#([a-z0-9-]+)\}\s*$/;
+
+/** La sección sin los ## de los módulos que la organización no tiene. Si no
+ *  oculta nada, devuelve la MISMA sección (en COMPLETA, siempre). */
+export function filtrarPorModulos(seccion: Seccion, tiene: (modulo: string) => boolean): Seccion {
+  const oculta = (ancla: string) => {
+    const modulo = MODULO_DE_ANCLA[`${seccion.slug}#${ancla}`];
+    return modulo !== undefined && !tiene(modulo);
+  };
+  if (!seccion.encabezados.some((e) => e.nivel === 2 && oculta(e.ancla))) return seccion;
+
+  const lineas: string[] = [];
+  let ocultando = false;
+  let enBloqueDeCodigo = false;
+  for (const linea of seccion.markdown.split("\n")) {
+    if (linea.startsWith("```")) enBloqueDeCodigo = !enBloqueDeCodigo;
+    if (!enBloqueDeCodigo) {
+      const match = ENCABEZADO_DOS.exec(linea);
+      if (match) ocultando = oculta(match[1]);
+    }
+    if (!ocultando) lineas.push(linea);
+  }
+
+  const encabezados: Encabezado[] = [];
+  let ocultandoEncabezados = false;
+  for (const encabezado of seccion.encabezados) {
+    if (encabezado.nivel === 2) ocultandoEncabezados = oculta(encabezado.ancla);
+    if (!ocultandoEncabezados) encabezados.push(encabezado);
+  }
+  return { ...seccion, markdown: lineas.join("\n"), encabezados };
+}
+
+/** Las secciones que ve quien está en la app: "Plataforma" solo el platform
+ *  admin, y sin los ## de módulos que la organización no tiene (`tiene`, la
+ *  regla de useModulo: en COMPLETA, todo). */
+export function seccionesVisibles(
+  esPlatformAdmin: boolean,
+  tiene: (modulo: string) => boolean = () => true,
+): Seccion[] {
+  return SECCIONES.filter((seccion) => !seccion.soloPlataforma || esPlatformAdmin).map((seccion) =>
+    filtrarPorModulos(seccion, tiene),
+  );
 }
 
 export function seccionPorSlug(slug: string | undefined): Seccion | undefined {

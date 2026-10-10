@@ -1,4 +1,4 @@
-import { useModulo } from "../auth/modulos";
+import { useModulo } from "../auth/useModulo";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {

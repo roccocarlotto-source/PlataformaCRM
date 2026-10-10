@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeAutomation } from "../../test/automationFixtures";
+import { edicionDeMe } from "../../test/edicionFixtures";
 import { cellByHeader } from "../../test/cellByHeader";
 import { chooseSelectOption } from "../../test/chooseSelectOption";
 import { openActionsMenu } from "../../test/openActionsMenu";
@@ -20,8 +21,9 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-// Solo lo usan los casos de AdminRoute del final: la página en sí no consume
-// useAuth (no tiene gate por rol, ver el comentario de AutomationListPage).
+// La pantalla lee `me` solo por la edición (los rótulos de ESENCIAL,
+// docs/ediciones.md §8); por defecto, un ADMIN sin datos de edición, que ve lo
+// de siempre. Los casos de AdminRoute del final fijan el rol.
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 
@@ -44,6 +46,10 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
     retryProfile: vi.fn(),
   };
 }
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+});
 
 const baseUrl = `${env.apiUrl}/api/automations`;
 
@@ -445,5 +451,30 @@ describe("AutomationListPage — bajo AdminRoute", () => {
     renderUnderAdminRoute("/automations");
 
     expect(await screen.findByRole("heading", { name: "Automatizaciones" })).toBeInTheDocument();
+  });
+});
+
+// Ediciones (docs/ediciones.md §8): en ESENCIAL la venta se nombra
+// "Venta registrada"; en COMPLETA, lo de siempre.
+describe("AutomationListPage — por edición", () => {
+  function conEdicion(edition: "COMPLETA" | "ESENCIAL") {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe(edition) } });
+  }
+
+  it("ESENCIAL: «Venta registrada»", async () => {
+    conEdicion("ESENCIAL");
+    server.use(http.get(baseUrl, () => HttpResponse.json(listResponse())));
+    renderPage();
+    const fila = (await screen.findByText("Seguimiento post-venta")).closest("tr");
+    expect(cellByHeader(fila, "Cuándo")).toHaveTextContent("Venta registrada");
+  });
+
+  it("COMPLETA: «Oportunidad ganada», como siempre", async () => {
+    conEdicion("COMPLETA");
+    server.use(http.get(baseUrl, () => HttpResponse.json(listResponse())));
+    renderPage();
+    const fila = (await screen.findByText("Seguimiento post-venta")).closest("tr");
+    expect(cellByHeader(fila, "Cuándo")).toHaveTextContent("Oportunidad ganada");
   });
 });

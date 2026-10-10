@@ -1,8 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { AYUDA } from "./anclas";
+import type { ClaveDeAyuda } from "./anclas";
+import type { MeResponse } from "../../auth/AuthContext";
+import { tieneModulo } from "../../auth/useModulo";
+import { edicionDeMe, MODULOS_COMPLETA } from "../../test/edicionFixtures";
+
+const ME_BASE: MeResponse = {
+  id: "u1",
+  email: "a@example.com",
+  fullName: "Ana",
+  organizationId: "org-1",
+  role: "ADMIN",
+  isPlatformAdmin: true,
+  canUseInternalAgent: false,
+};
 import {
   buscarEnTitulos,
+  filtrarPorModulos,
+  MODULO_DE_ANCLA,
   parsearSeccion,
+  type Seccion,
   SECCIONES,
   seccionPorSlug,
   seccionesVisibles,
@@ -108,5 +125,117 @@ describe("seccionesVisibles y buscarEnTitulos", () => {
     expect(r[0].encabezados.map((e) => e.titulo)).toEqual(["Qué se conserva"]);
     expect(buscarEnTitulos(secciones, "primeros")[0].encabezados).toEqual([]);
     expect(buscarEnTitulos(secciones, "zzz")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ediciones (docs/ediciones.md §9): la guía sin los ## de módulos que la
+// organización no tiene. Se prueba con la regla real (tieneModulo) y los
+// módulos de cada edición.
+// ---------------------------------------------------------------------------
+
+const ESENCIAL = (modulo: string) =>
+  tieneModulo({ ...ME_BASE, ...edicionDeMe("ESENCIAL") }, modulo);
+const COMPLETA = (modulo: string) =>
+  tieneModulo({ ...ME_BASE, ...edicionDeMe("COMPLETA") }, modulo);
+const CLINICA_COMPLETA = (modulo: string) =>
+  tieneModulo(
+    {
+      ...ME_BASE,
+      edition: "COMPLETA",
+      industry: "CLINICA",
+      modulos: MODULOS_COMPLETA.filter((m) => m !== "empresas" && m !== "procesos_de_venta"),
+    },
+    modulo,
+  );
+
+// Las pantallas que ESENCIAL no tiene (su ruta vuelve al inicio, ModuloRoute):
+// su "?" no se ve nunca en esa edición. Toda otra clave de AYUDA es de una
+// pantalla visible en ESENCIAL y tiene que apuntar a un ancla visible.
+const PANTALLAS_FUERA_DE_ESENCIAL: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
+  "empresas",
+  "empresaForm",
+  "procesosDeVenta",
+  "procesoForm",
+  "etapas",
+  "etapaForm",
+]);
+
+function anclaVisible(secciones: Seccion[], destino: string): boolean {
+  const [slug, ancla] = destino.split("#");
+  const seccion = secciones.find((s) => s.slug === slug);
+  return seccion?.encabezados.some((e) => e.ancla === ancla) === true;
+}
+
+describe("filtrarPorModulos", () => {
+  const seccion = parsearSeccion(
+    "04-oportunidades-y-procesos-de-venta.md",
+    [
+      "# Oportunidades",
+      "",
+      "## Oportunidades {#oportunidades}",
+      "Texto.",
+      "",
+      "## Cotizaciones {#cotizaciones}",
+      "Se cotiza así.",
+      "",
+      "### Crear una cotización",
+      "Paso a paso.",
+      "",
+      "## Cerrar {#cerrar}",
+      "Se cierra así.",
+    ].join("\n"),
+  );
+
+  it("sin el módulo, saca el ## con su texto y sus ###; lo demás queda", () => {
+    const filtrada = filtrarPorModulos(seccion, (m) => m !== "cotizaciones");
+    expect(filtrada.encabezados.map((e) => e.ancla)).toEqual(["oportunidades", "cerrar"]);
+    expect(filtrada.markdown).not.toMatch(/cotiza/i);
+    expect(filtrada.markdown).toMatch(/Se cierra así\./);
+  });
+
+  it("con todos los módulos devuelve la misma sección, sin copiarla", () => {
+    expect(filtrarPorModulos(seccion, () => true)).toBe(seccion);
+  });
+});
+
+describe("la guía real por edición", () => {
+  it("cada ## de MODULO_DE_ANCLA existe en la guía (un rename lo rompe acá)", () => {
+    for (const destino of Object.keys(MODULO_DE_ANCLA)) {
+      expect(anclaVisible(SECCIONES, destino), destino).toBe(true);
+    }
+  });
+
+  it("ESENCIAL no ve los ## de empresas, embudo, cotizaciones, pagos, permuta, entrega, procesos de venta y etapas", () => {
+    const visibles = seccionesVisibles(true, ESENCIAL);
+    for (const destino of Object.keys(MODULO_DE_ANCLA)) {
+      expect(anclaVisible(visibles, destino), destino).toBe(false);
+    }
+    const oportunidades = visibles.find((s) => s.slug === "oportunidades-y-procesos-de-venta");
+    expect(oportunidades?.markdown).not.toMatch(/^## Cotizaciones/m);
+    expect(oportunidades?.markdown).toMatch(/^## Cerrar una oportunidad/m);
+  });
+
+  it("COMPLETA (también una clínica COMPLETA) ve exactamente la guía de siempre", () => {
+    for (const regla of [COMPLETA, CLINICA_COMPLETA]) {
+      const visibles = seccionesVisibles(true, regla);
+      expect(visibles).toEqual(seccionesVisibles(true));
+      visibles.forEach((seccion, i) => expect(seccion).toBe(seccionesVisibles(true)[i]));
+    }
+  });
+
+  it("cada '?' de una pantalla que ESENCIAL tiene apunta a un ancla visible en ESENCIAL", () => {
+    const visibles = seccionesVisibles(true, ESENCIAL);
+    for (const [clave, destino] of Object.entries(AYUDA) as [ClaveDeAyuda, string][]) {
+      if (PANTALLAS_FUERA_DE_ESENCIAL.has(clave)) continue;
+      expect(anclaVisible(visibles, destino), `${clave} → ${destino}`).toBe(true);
+    }
+  });
+
+  it("las pantallas fuera de ESENCIAL son justamente las que su ancla oculta", () => {
+    const visibles = seccionesVisibles(true, ESENCIAL);
+    for (const clave of PANTALLAS_FUERA_DE_ESENCIAL) {
+      expect(anclaVisible(visibles, AYUDA[clave]), clave).toBe(false);
+    }
   });
 });

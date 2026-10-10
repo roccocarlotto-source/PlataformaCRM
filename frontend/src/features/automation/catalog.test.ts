@@ -30,6 +30,7 @@ import {
   textoInicial,
   textoParaFormato,
   triggerLabel,
+  triggerOptions,
   validarMensaje,
 } from "./catalog";
 
@@ -472,5 +473,23 @@ describe("contact.inquiry_stalled e inquiry.follow_up (ítem 185)", () => {
     expect(validarMensajeDeConsulta({ messageText: "Por {vehiculo}. ¡{saludo}!" })).toMatch(
       /antes que/,
     );
+  });
+});
+
+// Ediciones (docs/ediciones.md §8): el mismo catálogo, con la venta nombrada
+// como en ESENCIAL.
+describe("catálogo — rótulos por edición", () => {
+  it("ESENCIAL nombra la venta «Venta registrada»; lo demás, igual", () => {
+    expect(triggerLabel(TRIGGER_OPPORTUNITY_WON, true)).toBe("Venta registrada");
+    expect(triggerOptions(true).find((o) => o.value === TRIGGER_OPPORTUNITY_WON)?.subtitle).toBe(
+      "Cuando se registra una venta",
+    );
+    expect(triggerLabel(TRIGGER_OPPORTUNITY_STALE, true)).toBe("Oportunidad sin movimiento");
+    expect(triggerOptions(true).map((o) => o.value)).toEqual(TRIGGER_OPTIONS.map((o) => o.value));
+  });
+
+  it("COMPLETA, los rótulos de siempre", () => {
+    expect(triggerOptions(false)).toBe(TRIGGER_OPTIONS);
+    expect(triggerLabel(TRIGGER_OPPORTUNITY_WON, false)).toBe("Oportunidad ganada");
   });
 });

@@ -1,4 +1,4 @@
-import { ModuloRoute } from "../auth/modulos";
+import { ModuloRoute } from "../auth/ModuloRoute";
 import { createBrowserRouter } from "react-router-dom";
 import { AdminRoute } from "../auth/AdminRoute";
 import { WhatsappTemplateRedirect } from "../features/automation/WhatsappTemplateRedirect";
