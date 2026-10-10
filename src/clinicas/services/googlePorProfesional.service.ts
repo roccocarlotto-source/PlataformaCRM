@@ -232,7 +232,14 @@ export async function renovarCanalesDeProfesionales(
       resumen.renovados++;
     } catch (err) {
       resumen.fallidos++;
-      const mensaje = err instanceof Error ? err.message : String(err);
+      // Solo el error de Google o de esta integración (GoogleAuthError y
+      // AppError, que son mensajes nuestros o de la API de Google). Cualquier
+      // otra cosa (la base, la red) no se guarda cruda: puede arrastrar datos
+      // de la consulta. El detalle completo queda en el log.
+      const mensaje =
+        err instanceof AppError
+          ? err.message
+          : "Error interno al abrir el canal de notificaciones (ver el log)";
       await registrarErrorDelCanal(fila.id, mensaje).catch(() => undefined);
       logger.error(
         { err, organizationId: fila.organizationId, branchId: fila.branchId, canal: fila.id },

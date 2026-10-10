@@ -8,6 +8,7 @@ import {
   scopesDeConexion,
   type FetchLike,
 } from "../services/googleCalendar.service";
+import { mensajeDeErrorDelCanal } from "./repositories/googlePorProfesional.repository";
 
 // ---------------------------------------------------------------------------
 // Un calendario de Google por profesional (docs/rubros.md §4.6, R8). Sin red ni
@@ -97,4 +98,20 @@ test("listarCalendarios sin el scope de la lista (403): GoogleScopeInsuficienteE
     cliente.listarCalendarios!("access"),
     (err: unknown) => err instanceof GoogleScopeInsuficienteError && err.statusCode === 409,
   );
+});
+
+test("mensajeDeErrorDelCanal: guarda el error de Google y tapa cualquier token; corta a 500", () => {
+  assert.equal(
+    mensajeDeErrorDelCanal(
+      'Google no pudo leer la disponibilidad del calendario "cal-x" (notFound)',
+    ),
+    'Google no pudo leer la disponibilidad del calendario "cal-x" (notFound)',
+  );
+  const conTokens = mensajeDeErrorDelCanal(
+    "fallo con Authorization: Bearer ya29.a0AfB_abc-123 y refresh 1//0gAbC-def_456",
+  );
+  assert.ok(!conTokens.includes("ya29."));
+  assert.ok(!conTokens.includes("1//0g"));
+  assert.ok(!conTokens.includes("a0AfB"));
+  assert.equal(mensajeDeErrorDelCanal("x".repeat(800)).length, 500);
 });

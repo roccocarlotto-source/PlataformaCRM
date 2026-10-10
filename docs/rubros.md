@@ -683,6 +683,16 @@ model ResourceTimeOff {
 >   calendario nuevo **se abre en el momento** (pedido de Rocco, para no quedar
 >   hasta una hora sin detectar cambios); si Google falla, la asignación vale
 >   igual, el error queda en la fila y el worker lo reintenta en su pasada.
+> - **Archivar un profesional** (el "eliminar" de recursos es un soft delete):
+>   su fila de canal se borra en la misma transacción que el archivado y el
+>   canal se detiene en Google después del commit, best-effort. Si Google
+>   falla, el archivado vale igual: el canal vence solo y sus notificaciones ya
+>   no encuentran fila. Sus bloqueos (R6) quedan como historia: con soft delete
+>   el RESTRICT nunca se dispara.
+> - **`last_error_message`** guarda solo el error de Google o de esta
+>   integración, con cualquier forma de token tapada (`mensajeDeErrorDelCanal`).
+>   Un error de otro origen (la base, la red) se guarda como un texto fijo; el
+>   detalle queda en el log.
 > - **Scopes:** `scopesDeConexion(industry)`. Para una automotora, la URL es
 >   idéntica byte a byte (suite "automotora sin cambios").
 >   `include_granted_scopes=true` solo para clínicas.
