@@ -82,7 +82,6 @@ test("CLINICA en frases reales: síntomas, medicación, ¿es normal?, embarazo, 
     "soy diabética",
     "me operaron hace un mes",
     "tengo una consulta clínica",
-    "Necesito un turno urgente",
   ]) {
     assert.equal(clasificarMensajeDeSalud(frase), "CLINICA", frase);
   }
@@ -181,6 +180,19 @@ test("un pedido de reprogramar con un síntoma o una urgencia adentro sigue disp
     clasificarMensajeDeSalud("Quiero cambiar el turno, me arde mucho la zona"),
     "CLINICA",
   );
+});
+
+test("pedir un turno urgente es agendar: no dispara; con un síntoma, dispara por el síntoma", () => {
+  for (const frase of [
+    "Necesito un turno urgente",
+    "necesito un turno urgente",
+    "¿Tienen algo urgente para mañana?",
+    "Es urgente, ¿me dan un turno hoy?",
+  ]) {
+    assert.equal(clasificarMensajeDeSalud(frase), "NINGUNO", frase);
+  }
+  assert.equal(clasificarMensajeDeSalud("Turno urgente, me sangra mucho"), "URGENCIA");
+  assert.equal(clasificarMensajeDeSalud("Necesito un turno urgente, me arde la zona"), "CLINICA");
 });
 
 test("la urgencia gana sobre la consulta clínica en el mismo mensaje", () => {

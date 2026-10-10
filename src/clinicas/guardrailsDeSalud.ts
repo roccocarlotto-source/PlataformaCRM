@@ -413,8 +413,9 @@ export const TERMINOS_CLINICOS: readonly Termino[] = [
   "me operaron",
   "postoperatori*",
   "post operatorio",
-  // Pedido de atención que no se puede evaluar por chat.
-  "urgente",
+  // Sin "urgente" (decisión de Rocco, 2026-10-10): "necesito un turno urgente"
+  // es pedir un turno, no un síntoma. Un síntoma en el mismo mensaje dispara
+  // por su propio término ("turno urgente, me sangra mucho" es URGENCIA).
   // El motivo con el que INSTRUCCION_SALUD le pide al modelo derivar: así una
   // derivación del modelo también lleva el aviso fijo, sin su resumen.
   "consulta clinica",
