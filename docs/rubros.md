@@ -913,6 +913,41 @@ las automotoras. **El comportamiento es el mismo**, y lo prueban los tests de
 
 ### 4.7 Reprogramar
 
+> **Implementado en R9** (sin migración). Cómo quedó, y dónde difiere de lo de
+> abajo:
+>
+> - `reprogramarTurno` (`src/clinicas/services/reprogramar.service.ts`) detrás
+>   de `PATCH /api/bookings/:id/reschedule` `{ startsAt, resourceId?,
+>   isOverbooking?, force? }`, con `authorize("ADMIN", "RECEPCION")` y el
+>   límite por sede (404). El horario nuevo pasa por las mismas reglas que
+>   agendar: horario y grilla (`resolverContexto`; `force` solo ADMIN),
+>   bloqueos (R6), capacidad sin contar el propio turno, y el sobreturno solo
+>   con `isOverbooking`, si el profesional lo permite y dentro del tope (R6).
+>   Otro profesional, solo de la misma prestación (R5) y de la misma sede.
+> - **El historial** es una NOTE en el paciente con el horario anterior, el
+>   nuevo y quién reprogramó.
+> - **Google:** mismo profesional, `events.patch`; otro, delete en el viejo e
+>   insert en el nuevo. El horario nuevo y el desvinculado del evento viejo se
+>   guardan **antes** de tocar Google, así la notificación de vuelta no dispara
+>   la tarea de "movido o borrado en Google" (D16). Si Google falla con la sede
+>   conectada, se crea en el momento una tarea para la Recepción de la sede.
+>   No hay columna de "desincronizado" (decisión de Rocco del 2026-10-10: sin
+>   migración).
+> - **Archivar un profesional con turnos futuros** (solo clínicas): los turnos
+>   no se cancelan y se crea una tarea por turno para la Recepción de la sede.
+>   `GET /api/clinica/profesionales/:id/turnos-futuros` le da a la pantalla el
+>   número para avisar antes de confirmar.
+> - **Lo que R11 tiene que reutilizar:** la tool `reschedule_booking` llama a
+>   `reprogramarTurno` con `quien` = el asistente (como `userId`, el
+>   responsable de la conversación o de la sede, porque `authorId` no admite
+>   nulos) y sin `isOverbooking` ni `force`. Antes suma solo sus reglas
+>   propias (§5.1): el turno del contacto de la conversación, el candado de
+>   identidad y `minHoursToChangeBooking`. Las validaciones, Google y el
+>   historial no se duplican en la tool.
+> - **Lo que R13 tiene que contemplar:** reprogramar no recalcula
+>   recordatorios porque todavía no existen. R13 tiene que mover (o cancelar) el
+>   `BookingMessage` pendiente del turno dentro de `reprogramarTurno`.
+
 - `PATCH /api/bookings/:id/reschedule` `{ startsAt, resourceId? }`, módulo
   `agenda_clinica`.
 - **Mismo `id`.** Los mensajes pendientes se recalculan (§6).

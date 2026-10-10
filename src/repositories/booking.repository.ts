@@ -95,12 +95,15 @@ export function countOverlappingBookings(
   inicio: Date,
   fin: Date,
   db: Db = prisma,
+  // R9: reprogramar no cuenta el propio turno.
+  excluirBookingId?: string,
 ) {
   return db.booking.count({
     where: {
       organizationId,
       resourceId,
       status: "CONFIRMED",
+      ...(excluirBookingId ? { id: { not: excluirBookingId } } : {}),
       // Un sobreturno no ocupa cupo (docs/rubros.md §4.4, R6). Una automotora
       // no tiene: el conteo es el de antes.
       isOverbooking: false,

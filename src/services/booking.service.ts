@@ -502,7 +502,7 @@ export async function createBooking(
 // sobreturnos no cancelados que EMPIEZAN ese día calendario, en la zona de la
 // sede). Corre con el lock del recurso sostenido: dos sobreturnos simultáneos
 // no pueden pasar los dos el tope.
-async function validarSobreturno(params: {
+export async function validarSobreturno(params: {
   organizationId: string;
   resource: { id: string; allowsOverbooking: boolean; maxOverbookingsPerDay: number };
   capacidad: number;
@@ -510,6 +510,8 @@ async function validarSobreturno(params: {
   startsAt: Date;
   zona: string;
   tx: Prisma.TransactionClient;
+  // R9: al reprogramar un sobreturno, el propio turno no cuenta para el tope.
+  excluirBookingId?: string;
 }) {
   const { organizationId, resource, startsAt, zona, tx } = params;
   if (!resource.allowsOverbooking) {
@@ -525,6 +527,7 @@ async function validarSobreturno(params: {
     dia.toJSDate(),
     dia.plus({ days: 1 }).toJSDate(),
     tx,
+    params.excluirBookingId,
   );
   if (cargados >= resource.maxOverbookingsPerDay) {
     throw new AppError(

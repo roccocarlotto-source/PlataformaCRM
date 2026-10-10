@@ -96,6 +96,8 @@ test("toda ruta con authorize deja pasar a ADMIN, y ninguna se le abre a Recepci
     "GET /api/clinica/profesionales/:resourceId/bloqueos",
     "POST /api/clinica/profesionales/:resourceId/bloqueos",
     "DELETE /api/clinica/bloqueos/:id",
+    // R9: reprogramar un turno (§4.7, §11.2).
+    "PATCH /api/bookings/:id/reschedule",
   ];
   assert.deepEqual(
     conRol.filter((r) => r.roles?.includes("RECEPCION")).map((r) => r.ruta),

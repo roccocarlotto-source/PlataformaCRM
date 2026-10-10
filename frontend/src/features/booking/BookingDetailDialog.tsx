@@ -14,6 +14,9 @@ interface BookingDetailDialogProps {
   resourceName: string;
   zona: string;
   onClose: () => void;
+  // R9 (docs/rubros.md §4.7): solo una clínica lo pasa, para un turno
+  // confirmado y futuro. Sin él, el diálogo es el de siempre.
+  onReprogramar?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -33,6 +36,7 @@ export function BookingDetailDialog({
   resourceName,
   zona,
   onClose,
+  onReprogramar,
 }: BookingDetailDialogProps) {
   const confirm = useConfirm();
   const cancelBookingMutation = useCancelBooking();
@@ -76,6 +80,11 @@ export function BookingDetailDialog({
         </ErrorState>
       ) : null}
 
+      {onReprogramar ? (
+        <Button variant="secondary" onClick={onReprogramar}>
+          Reprogramar
+        </Button>
+      ) : null}
       <Button
         variant="danger"
         onClick={handleCancel}

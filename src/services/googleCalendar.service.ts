@@ -267,6 +267,20 @@ export interface ClienteGoogleCalendar {
   // la ejercitan no tienen por qué implementarlo. Sin el scope de la lista
   // (una conexión anterior), lanza GoogleScopeInsuficienteError.
   listarCalendarios?(accessToken: string): Promise<CalendarioDeLaCuenta[]>;
+  // R9: events.patch — mueve el evento de un turno reprogramado al horario
+  // nuevo, en el mismo calendario. OPCIONAL por el mismo motivo que
+  // listarCalendarios: solo lo usa reprogramar (clínicas).
+  actualizarEvento?(evento: EventoAActualizar): Promise<void>;
+}
+
+export interface EventoAActualizar {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+  inicio: Date;
+  fin: Date;
+  // Zona IANA de la sucursal, como en EventoACrear.
+  zona: string;
 }
 
 export interface CalendarioDeLaCuenta {
@@ -905,6 +919,30 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
       }
 
       return { eventos, nextSyncToken };
+    },
+
+    // -----------------------------------------------------------------------
+    // events.patch (R9) — el horario nuevo de un turno reprogramado. Un 404 o
+    // 410 SÍ es un error acá (a diferencia de eliminarEvento): el evento que
+    // había que mover no está, y quien llama tiene que saber que el turno quedó
+    // sin reflejo en Google.
+    // -----------------------------------------------------------------------
+    async actualizarEvento({ accessToken, calendarId, eventId, inicio, fin, zona }) {
+      const res = await pedir(`${urlDeEventos(calendarId)}/${encodeURIComponent(eventId)}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          start: { dateTime: inicio.toISOString(), timeZone: zona },
+          end: { dateTime: fin.toISOString(), timeZone: zona },
+        }),
+      });
+      if (!res.ok) {
+        const { mensaje, codigo } = await describirFallo(res);
+        throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
+      }
     },
 
     // -----------------------------------------------------------------------

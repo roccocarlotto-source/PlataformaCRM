@@ -412,3 +412,70 @@ test("R6: recursos y reservas con las claves de antes, y la disponibilidad gené
     0,
   );
 });
+
+// ---------------------------------------------------------------------------
+// R9 (reprogramar, docs/rubros.md §4.7): una automotora no tiene reprogramar
+// (la ruta es de agenda_clinica: 403 con motivo RUBRO), y archivar un recurso
+// con turnos futuros es exactamente lo de antes: los turnos quedan como están y
+// no se crea ninguna tarea.
+// ---------------------------------------------------------------------------
+
+test("R9: reprogramar da 403 RUBRO y archivar un recurso con turnos futuros no crea tareas", async () => {
+  const [comoAdmin] = conSucursales.tokens;
+  const sucursal = await prisma.branch.findFirstOrThrow({
+    where: { organizationId: conSucursales.id, deletedAt: null },
+  });
+  const servicio = await prisma.serviceType.findFirstOrThrow({
+    where: { organizationId: conSucursales.id, branchId: sucursal.id },
+  });
+  const contacto = await prisma.contact.findFirstOrThrow({
+    where: { organizationId: conSucursales.id },
+  });
+  const archivable = await prisma.resource.create({
+    data: {
+      organizationId: conSucursales.id,
+      branchId: sucursal.id,
+      name: "Archivable",
+      type: "PERSON",
+    },
+  });
+  const inicio = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+  const turno = await prisma.booking.create({
+    data: {
+      organizationId: conSucursales.id,
+      branchId: sucursal.id,
+      serviceTypeId: servicio.id,
+      resourceId: archivable.id,
+      contactId: contacto.id,
+      startsAt: inicio,
+      endsAt: new Date(inicio.getTime() + 30 * 60 * 1000),
+    },
+  });
+
+  const reprogramar = await pedir(
+    conSucursales,
+    "PATCH",
+    `/api/bookings/${turno.id}/reschedule`,
+    { startsAt: new Date(inicio.getTime() + 60 * 60 * 1000).toISOString() },
+    comoAdmin,
+  );
+  assert.equal(reprogramar.status, 403);
+  assert.equal(reprogramar.json.error?.motivo, "RUBRO");
+
+  const tareasAntes = await prisma.activity.count({ where: { organizationId: conSucursales.id } });
+  const archivado = await pedir(
+    conSucursales,
+    "DELETE",
+    `/api/resources/${archivable.id}`,
+    undefined,
+    comoAdmin,
+  );
+  assert.equal(archivado.status, 204, JSON.stringify(archivado.json));
+  assert.equal(
+    await prisma.activity.count({ where: { organizationId: conSucursales.id } }),
+    tareasAntes,
+  );
+  const despues = await prisma.booking.findUniqueOrThrow({ where: { id: turno.id } });
+  assert.equal(despues.status, "CONFIRMED");
+  assert.deepEqual(despues.startsAt, inicio);
+});

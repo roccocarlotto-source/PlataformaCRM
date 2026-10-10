@@ -16,6 +16,7 @@ import type { Resource } from "../resource/types";
 import { SERVICE_TYPES_PARA_SELECT, useServiceTypes } from "../serviceType/queries";
 import type { ServiceType } from "../serviceType/types";
 import { BookingDetailDialog } from "./BookingDetailDialog";
+import { ReprogramarTurnoDialog } from "../clinica/ReprogramarTurnoDialog";
 import {
   estaAbierto,
   formatearMinuto,
@@ -94,6 +95,8 @@ export function BookingCalendarPage() {
   const [ahora] = useState(() => Date.now());
   const [nueva, setNueva] = useState<NuevaReserva | null>(null);
   const [abierta, setAbierta] = useState<ReservaAbierta | null>(null);
+  // R9: el turno que se está reprogramando (clínica).
+  const [aReprogramar, setAReprogramar] = useState<Booking | null>(null);
 
   const branchesQuery = useBranches(BRANCHES_PARA_SELECT);
   // R20: una Recepción de clínica, solo sus sedes (y la primera de ellas por
@@ -254,7 +257,22 @@ export function BookingCalendarPage() {
           resourceName={abierta.resource.name}
           zona={sucursal.timezone}
           onClose={() => setAbierta(null)}
+          // R9: reprogramar, solo en una clínica y para un turno confirmado
+          // y futuro.
+          {...(me?.industry === "CLINICA" &&
+          abierta.booking.status === "CONFIRMED" &&
+          new Date(abierta.booking.startsAt).getTime() > ahora
+            ? {
+                onReprogramar: () => {
+                  setAReprogramar(abierta.booking);
+                  setAbierta(null);
+                },
+              }
+            : {})}
         />
+      ) : null}
+      {aReprogramar ? (
+        <ReprogramarTurnoDialog booking={aReprogramar} onClose={() => setAReprogramar(null)} />
       ) : null}
     </div>
   );

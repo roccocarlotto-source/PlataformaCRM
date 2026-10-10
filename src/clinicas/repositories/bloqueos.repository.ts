@@ -82,11 +82,14 @@ export function contarSobreturnos(
   desde: Date,
   hasta: Date,
   db: Db = prisma,
+  // R9: reprogramar no cuenta el propio turno.
+  excluirBookingId?: string,
 ) {
   return db.booking.count({
     where: {
       organizationId,
       resourceId,
+      ...(excluirBookingId ? { id: { not: excluirBookingId } } : {}),
       isOverbooking: true,
       status: { not: "CANCELLED" },
       startsAt: { gte: desde, lt: hasta },
