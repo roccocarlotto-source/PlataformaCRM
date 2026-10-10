@@ -1,6 +1,9 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
-import { findConnectionsNeedingChannel } from "../repositories/googleCalendarConnection.repository";
+import {
+  findConnectionsNeedingChannel,
+  reconciliarCanalesConLasColumnasViejas,
+} from "../repositories/googleCalendarConnection.repository";
 import type { ClienteGoogleCalendar } from "../services/googleCalendar.service";
 import { renovarCanal } from "../services/googleCalendarConnection.service";
 
@@ -81,6 +84,24 @@ export async function renovarCanalesVencidos(
   const resumen: ResumenDeRenovacion = { renovados: 0, fallidos: 0 };
 
   const limite = new Date(Date.now() + env.GOOGLE_CHANNEL_RENEW_MARGIN_MS);
+
+  // R7 (docs/rubros.md §4.6): antes de decidir qué renovar, la tabla de canales
+  // se pone al día con lo que el código de antes de R7 haya escrito en las
+  // columnas viejas (el deploy o un rollback). En régimen no cambia nada. Si
+  // falla, se loguea y la pasada sigue: lo peor es renovar un canal de más.
+  try {
+    const reconciliados = await reconciliarCanalesConLasColumnasViejas({
+      organizationId: opciones.organizationId,
+    });
+    if (reconciliados.creados + reconciliados.actualizados > 0) {
+      logger.info(
+        reconciliados,
+        "Canales de Google Calendar reconciliados con las columnas viejas de la conexión",
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "No se pudieron reconciliar los canales con las columnas viejas");
+  }
 
   const conexiones = await findConnectionsNeedingChannel(limite, {
     organizationId: opciones.organizationId,

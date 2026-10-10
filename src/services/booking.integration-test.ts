@@ -115,6 +115,7 @@ async function desmontar(escenario: Escenario) {
   const where = { organizationId: escenario.organizationId };
   await prisma.booking.deleteMany({ where });
   await prisma.workingHours.deleteMany({ where });
+  await prisma.googleCalendarChannel.deleteMany({ where });
   await prisma.googleCalendarConnection.deleteMany({ where });
   await prisma.serviceType.deleteMany({ where });
   await prisma.resource.deleteMany({ where });

@@ -27,6 +27,8 @@ import {
   setConnectionChannel,
   clearConnectionChannel,
   setConnectionSyncToken,
+  findCanalDeLaSucursal,
+  reconciliarCanalesConLasColumnasViejas,
 } from "./googleCalendarConnection.repository";
 import {
   markOutboxEventProcessed,
@@ -470,6 +472,9 @@ before(async () => {
       syncToken: "m4-org-b-sync-token",
     },
   });
+  // R7: la fila de GoogleCalendarChannel de esa conexión, copiada como lo hace
+  // la migración 20261103120000 (la reconciliación es la misma copia).
+  await reconciliarCanalesConLasColumnasViejas({ organizationId: orgB.id });
   // Directo por Prisma: emitOutboxEvent exige una transacción abierta a
   // propósito y no aporta nada acá.
   const outboxEventB = await prisma.outboxEvent.create({
@@ -605,6 +610,7 @@ after(async () => {
   // R5: los profesionales de una prestación cuelgan de ServiceType y Resource.
   await prisma.serviceTypeResource.deleteMany({ where: { organizationId: ambas } });
   await prisma.workingHours.deleteMany({ where: { organizationId: ambas } });
+  await prisma.googleCalendarChannel.deleteMany({ where: { organizationId: ambas } });
   await prisma.googleCalendarConnection.deleteMany({ where: { organizationId: ambas } });
   await prisma.serviceType.deleteMany({ where: { organizationId: ambas } });
   await prisma.resource.deleteMany({ where: { organizationId: ambas } });
@@ -1159,10 +1165,45 @@ test("markBookingCancelled: id de Organization B + organizationId de Organizatio
 // La clave del WHERE acá es branchId, no id: se llama con la sucursal de B y
 // la organización de A. La conexión del fixture tiene canal y syncToken
 // seteados para que "no cambió nada" sea una afirmación real en las cinco.
+//
+// R7: el canal y el syncToken viven en GoogleCalendarChannel (y en espejo en
+// la conexión). La lectura trae las dos filas, así "no cambió nada" vale para
+// las dos tablas.
 
-function leerConexionB() {
-  return prisma.googleCalendarConnection.findUniqueOrThrow({ where: { id: fx.gcalB.id } });
+async function leerConexionB() {
+  return {
+    conexion: await prisma.googleCalendarConnection.findUniqueOrThrow({
+      where: { id: fx.gcalB.id },
+    }),
+    canal: await prisma.googleCalendarChannel.findFirstOrThrow({
+      where: { organizationId: fx.orgB.id, branchId: fx.branchB.id },
+    }),
+  };
 }
+
+test("GoogleCalendarChannel: el canal de B existe (copiado de la conexión) y A no lo ve", async () => {
+  const { conexion, canal } = await leerConexionB();
+  assert.equal(canal.channelId, conexion.channelId);
+  assert.equal(canal.syncToken, conexion.syncToken);
+  assert.equal(await findCanalDeLaSucursal(fx.branchB.id, fx.orgA.id), null);
+});
+
+test("reconciliarCanalesConLasColumnasViejas: acotada a A no toca el canal de B", async () => {
+  const antes = await leerConexionB();
+  await prisma.googleCalendarConnection.update({
+    where: { id: fx.gcalB.id },
+    data: { syncToken: "m4-org-b-sync-token-del-codigo-viejo" },
+  });
+  try {
+    await reconciliarCanalesConLasColumnasViejas({ organizationId: fx.orgA.id });
+    assert.deepEqual((await leerConexionB()).canal, antes.canal);
+  } finally {
+    await prisma.googleCalendarConnection.update({
+      where: { id: fx.gcalB.id },
+      data: { syncToken: antes.conexion.syncToken },
+    });
+  }
+});
 
 test("markConnectionRevoked: branchId de Organization B + organizationId de Organization A no revoca la conexión", async () => {
   await assertCrossTenantWriteNoOp(
