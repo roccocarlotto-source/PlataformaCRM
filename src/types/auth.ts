@@ -3,9 +3,12 @@ import type { Request } from "express";
 
 // Catálogo de roles soportado hoy. Coincide con los valores esperados en la
 // columna Role.name (string en la DB, no un enum de Postgres) — ver isRoleName().
-export type RoleName = "ADMIN" | "USER";
+// RECEPCION es el rol operativo de una clínica (docs/rubros.md §11, D15): una
+// automotora no lo admite y una clínica no admite USER (ROLES_POR_RUBRO en
+// src/config/ediciones.ts).
+export type RoleName = "ADMIN" | "USER" | "RECEPCION";
 
-const KNOWN_ROLES: readonly RoleName[] = ["ADMIN", "USER"];
+export const KNOWN_ROLES: readonly RoleName[] = ["ADMIN", "USER", "RECEPCION"];
 
 export function isRoleName(value: string): value is RoleName {
   return (KNOWN_ROLES as readonly string[]).includes(value);

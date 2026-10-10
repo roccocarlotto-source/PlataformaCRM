@@ -10,14 +10,13 @@ import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { useCreateInvitation } from "./mutations";
 import type { CreateInvitationInput } from "./types";
-import { roleLabel } from "../user/roles";
+import { useAuth, type RoleName } from "../../auth/AuthContext";
+import { roleLabel, rolesAsignables, rolOperativo } from "../user/roles";
 
 interface InvitationFormValues {
   email: string;
-  role: "ADMIN" | "USER";
+  role: RoleName;
 }
-
-const EMPTY_FORM: InvitationFormValues = { email: "", role: "USER" };
 
 // Únicamente create — sin edit (Invitation no se edita, ver informe de
 // diseño). email + role son los dos únicos campos reales de
@@ -30,8 +29,16 @@ const EMPTY_FORM: InvitationFormValues = { email: "", role: "USER" };
 export function InvitationFormPage() {
   const navigate = useNavigate();
   const createInvitationMutation = useCreateInvitation();
+  // Los roles del rubro (R12, docs/rubros.md §11.1): en una automotora Usuario
+  // y Administrador, como siempre; en una clínica Recepción y Administrador.
+  // Preseleccionado, el que no es ADMIN.
+  const { me } = useAuth();
+  const roles = rolesAsignables(me);
 
-  const [values, setValues] = useState<InvitationFormValues>(EMPTY_FORM);
+  const [values, setValues] = useState<InvitationFormValues>({
+    email: "",
+    role: rolOperativo(roles),
+  });
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -68,10 +75,9 @@ export function InvitationFormPage() {
               <Select
                 label="Rol"
                 value={values.role}
-                options={[
-                  { value: "USER", label: roleLabel("USER") },
-                  { value: "ADMIN", label: roleLabel("ADMIN") },
-                ]}
+                options={[...roles.filter((rol) => rol !== "ADMIN"), "ADMIN" as const].map(
+                  (rol) => ({ value: rol, label: roleLabel(rol) }),
+                )}
                 onChange={(role) => {
                   if (role) setValues({ ...values, role });
                 }}

@@ -1,5 +1,6 @@
 import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { puede, type Capacidad } from "./permisos";
 
 // ---------------------------------------------------------------------------
 // QUÉ PUEDE ESCRIBIR UN VENDEDOR (USER) SOBRE CONTACTOS Y OPORTUNIDADES —
@@ -40,7 +41,7 @@ export const MENSAJE_USER_SOLO_EDITA_LO_SUYO =
 // otro dueño es 403 (no se ignora en silencio: quedaría a su nombre algo que
 // creyó haberle cargado a otro). Un ADMIN, a quien pida.
 export function ownerAlCrear(actor: Actor, ownerIdPedido: string | undefined): string | undefined {
-  if (actor.role === "ADMIN") {
+  if (puede(actor, "asignar_a_otra_persona")) {
     return ownerIdPedido;
   }
   if (ownerIdPedido !== undefined && ownerIdPedido !== actor.userId) {
@@ -51,16 +52,23 @@ export function ownerAlCrear(actor: Actor, ownerIdPedido: string | undefined): s
 
 // ¿Puede esta persona editar este registro con estos cambios? Lanza 403 si no.
 // `ownerIdPedido` es el ownerId del PATCH: undefined = no lo toca; null = lo
-// deja sin asignar.
+// deja sin asignar. `editarCualquiera` es la capacidad que deja editar un
+// registro ajeno (permisos.ts): la de contactos la tiene también Recepción
+// (en una clínica nadie es dueño de un paciente, docs/rubros.md §11.2), pero
+// ni ella reasigna a otra persona.
 export function assertPuedeEditar(
   actor: Actor,
   registro: { ownerId: string | null },
   ownerIdPedido: string | null | undefined,
+  editarCualquiera: Extract<
+    Capacidad,
+    "editar_cualquier_contacto" | "editar_cualquier_oportunidad"
+  >,
 ): void {
-  if (actor.role === "ADMIN") {
+  if (puede(actor, "asignar_a_otra_persona")) {
     return;
   }
-  if (registro.ownerId !== actor.userId) {
+  if (registro.ownerId !== actor.userId && !puede(actor, editarCualquiera)) {
     throw new AppError(MENSAJE_USER_SOLO_EDITA_LO_SUYO, 403);
   }
   if (ownerIdPedido !== undefined && ownerIdPedido !== actor.userId) {

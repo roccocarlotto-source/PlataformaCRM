@@ -1,6 +1,7 @@
 import { InvitationStatus } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { exigirRolDelRubro } from "../config/ediciones";
 import { acceptInvitationSchema } from "../schemas/invitation.schema";
 import {
   acceptInvitation,
@@ -14,7 +15,9 @@ import { parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
 
-const roleSchema = z.enum(["ADMIN", "USER"]);
+// Los tres roles que conoce el sistema; cuál admite la organización lo decide
+// su rubro (exigirRolDelRubro, docs/rubros.md §11.1).
+const roleSchema = z.enum(["ADMIN", "USER", "RECEPCION"]);
 // z.nativeEnum sobre el enum real de Prisma — mismo criterio que
 // activity.controller.ts con ActivityType, en vez de duplicar los valores
 // de InvitationStatus a mano.
@@ -41,6 +44,9 @@ const listQuerySchema = z.object({
 export const createInvitationHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createInvitationSchema, req.body);
+    // R12: USER en una clínica o RECEPCION en una automotora → 400, antes de
+    // crear nada ni mandar el mail.
+    exigirRolDelRubro(input.role, req.auth.industry);
     const invitation = await createInvitation(req.auth.organizationId, req.auth.userId, input);
     res.status(201).json(invitation);
   },

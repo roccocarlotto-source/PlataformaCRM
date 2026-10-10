@@ -1352,6 +1352,37 @@ administran (ADMIN) y quienes atienden la recepción (Recepción). El rol USER
 sigue existiendo porque lo usan las automotoras, y para ellas no se borra ni
 cambia nada.
 
+> **Implementado en R12 (sin sedes: eso es R20).** Cómo quedó, y dónde difiere
+> de lo de abajo:
+>
+> - **Rol:** fila `RECEPCION` en `roles` (migración `20261104120000_rol_recepcion`
+>   y seed). `RoleName` y `KNOWN_ROLES` (`types/auth.ts`, exportado) la suman.
+>   **Orden de despliegue:** aplicar la migración antes del código es seguro.
+>   Una fila en `roles` sin usuarios no la lee nadie: `resolveAuthContext` solo
+>   rechaza a un usuario que tiene un rol desconocido, y el código viejo no
+>   puede asignarla (su zod acepta solo ADMIN y USER).
+> - **`ROLES_POR_RUBRO`** (`config/ediciones.ts`): CLINICA = ADMIN y RECEPCION.
+>   `exigirRolDelRubro` da 400 `ROL_NO_DISPONIBLE_EN_EL_RUBRO` en invitaciones
+>   y en el cambio de rol. El cambio de rubro (D1) mira los tres roles y, desde
+>   R12, también las **invitaciones pendientes** con un rol que el rubro nuevo
+>   no admite. `/api/me` suma `rolesAsignables` (los del rubro): los selectores
+>   de rol no tienen una tabla propia.
+> - **`src/services/permisos.ts`** con `puede(actor, capacidad)`. Solo se
+>   reemplazaron los chequeos donde Recepción difiere de USER:
+>   `editar_cualquier_contacto` (en `permisosDelVendedor.assertPuedeEditar`; ni
+>   ella reasigna) y `atender_cualquier_conversacion`
+>   (`puedeAtenderLaConversacion`). Los demás `role === "ADMIN"` quedan como
+>   estaban, y Recepción cae del lado de "no ADMIN".
+> - **Tareas:** hasta R20 (`Activity.branchId`), Recepción ve y edita las
+>   suyas, como un USER. "Las de sus sedes" llega con R20.
+> - **Rutas:** ninguna ruta con `authorize` se le abre a Recepción en R12.
+>   `authorize()` lleva sus roles en el middleware (`rolesDeAuthorize`), y
+>   `permisos.test.ts` recorre el router real y fija que todas exigen ADMIN.
+>   La primera que habilite a Recepción (la agenda de clínica) la suma ahí a
+>   propósito.
+> - **Menú:** Recepción ve el menú de un usuario no ADMIN. El menú propio de
+>   la clínica es de R17.
+
 ### 11.1 Cómo se modela
 
 Los roles no son un enum de Postgres: son filas de la tabla `roles` (`name`

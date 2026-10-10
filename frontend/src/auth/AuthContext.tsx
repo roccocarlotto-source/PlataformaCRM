@@ -15,12 +15,16 @@ import { getAccessToken } from "./getAccessToken";
 // Contrato real de GET /api/me (src/controllers/me.controller.ts): serializa
 // exactamente el AuthContext que el backend ya resolvió contra Postgres para
 // este request. No agregar campos que ese endpoint no devuelve.
+// Los roles dentro de una organización (backend: src/types/auth.ts).
+// RECEPCION es el de una clínica (docs/rubros.md §11).
+export type RoleName = "ADMIN" | "USER" | "RECEPCION";
+
 export interface MeResponse {
   id: string;
   email: string;
   fullName: string;
   organizationId: string;
-  role: "ADMIN" | "USER";
+  role: RoleName;
   // Fase 4a del módulo SaaS: si el usuario está en la allowlist global de
   // platform_admins. Independiente de `role` (que es el rol DENTRO de su
   // organización). Solo decide qué se muestra — la autorización real la
@@ -34,6 +38,10 @@ export interface MeResponse {
   // pantallas del agente interno no piden lo que no existe. Opcional: un
   // backend anterior no lo manda, y entonces se pregunta como antes.
   internalAgentConfigured?: boolean;
+  // R12: los roles que el ADMIN puede asignar en esta organización (los de
+  // su rubro), en orden. Opcional: un backend anterior no lo manda, y
+  // entonces son los de una automotora (ver features/user/roles.ts).
+  rolesAsignables?: RoleName[];
 }
 
 export type AuthStatus =

@@ -42,7 +42,7 @@ after(async () => {
 });
 
 // Las claves de /api/me antes de R2. R2 suma `industry`; R3, `vocabulario`
-// (una automotora no tiene `contactTerm`).
+// (una automotora no tiene `contactTerm`); R12, `rolesAsignables`.
 const CLAVES_DE_ME_DE_HOY = [
   "canUseInternalAgent",
   "edition",
@@ -90,14 +90,16 @@ const MODULOS_DE_HOY_COMPLETA = [
   ...SOLO_COMPLETA,
 ];
 
-test("/api/me de una automotora: las claves de antes más industry y vocabulario, y los mismos módulos", async () => {
+test("/api/me de una automotora: las claves de antes más industry, vocabulario y rolesAsignables, y los mismos módulos", async () => {
   for (const org of [completa, esencial]) {
     const me = await pedir(org, "GET", "/api/me");
     assert.equal(me.status, 200);
     assert.deepEqual(
       Object.keys(me.json).sort(),
-      [...CLAVES_DE_ME_DE_HOY, "industry", "vocabulario"].sort(),
+      [...CLAVES_DE_ME_DE_HOY, "industry", "vocabulario", "rolesAsignables"].sort(),
     );
+    // R12: los dos roles de siempre; Recepción no es de una automotora.
+    assert.deepEqual(me.json.rolesAsignables, ["ADMIN", "USER"]);
     // Los textos de hoy (fijados uno por uno en automotoraSinCambios.test.ts).
     assert.deepEqual(me.json.vocabulario, vocabularioDe("AUTOMOTORA", null));
     assert.equal(

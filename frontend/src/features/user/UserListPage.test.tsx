@@ -388,4 +388,38 @@ describe("UserListPage", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  // R12 (docs/rubros.md §11.1): en una clínica los roles son ADMIN y Recepción
+  // (los manda /api/me); Usuario no se ofrece.
+  it("en una clínica, el rol de un usuario se elige entre Administrador y Recepción", async () => {
+    const auth = mockAuth("self1");
+    useAuthMock.mockReturnValue({
+      ...auth,
+      me: auth.me ? { ...auth.me, rolesAsignables: ["ADMIN", "RECEPCION"] } : null,
+    });
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get(usersUrl, () =>
+        HttpResponse.json({
+          data: [makeUser({ id: "u2", fullName: "Beto Gómez" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.patch(`${usersUrl}/u2`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeUser({ id: "u2", fullName: "Beto Gómez" }));
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Beto Gómez")).toBeInTheDocument());
+    const selector = screen.getByLabelText("Rol de Beto Gómez");
+    await user.click(selector);
+    expect(screen.queryByRole("option", { name: "Usuario" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await chooseSelectOption(user, selector, "Recepción");
+
+    await waitFor(() => expect(patchedBody).toEqual({ role: "RECEPCION" }));
+  });
 });

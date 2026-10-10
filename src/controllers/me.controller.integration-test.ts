@@ -188,6 +188,8 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
         "modulos",
         "organizationId",
         "role",
+        // R12 (docs/rubros.md §11.1): los roles que el ADMIN puede asignar.
+        "rolesAsignables",
         // Rubros (docs/rubros.md §3): el vocabulario armado por el backend.
         "vocabulario",
       ],

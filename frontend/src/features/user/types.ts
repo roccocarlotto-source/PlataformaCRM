@@ -4,6 +4,8 @@
 // Opportunity — no se implementa administración de Users (fuera de alcance,
 // ver docs/project-overview.md).
 
+import type { RoleName } from "../../auth/AuthContext";
+
 export interface Role {
   id: string;
   name: string;
@@ -52,7 +54,7 @@ export type SortOrder = "asc" | "desc";
 export interface UserListQuery {
   page?: number;
   pageSize?: number;
-  role?: "ADMIN" | "USER";
+  role?: RoleName;
   isActive?: boolean;
   sortBy?: UserSortBy;
   sortOrder?: SortOrder;
@@ -64,6 +66,6 @@ export interface UserListQuery {
 // llegan al service — no se agregan acá tampoco.
 export interface UpdateUserInput {
   isActive?: boolean;
-  role?: "ADMIN" | "USER";
+  role?: RoleName;
   canUseInternalAgent?: boolean;
 }

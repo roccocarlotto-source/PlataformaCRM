@@ -1,5 +1,6 @@
 import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import type { RoleName } from "../types/auth";
+import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
 // Catálogo de módulos por edición y por rubro (docs/ediciones.md §5,
@@ -187,14 +188,30 @@ export function rubrosDisponibles(
   return clinicaHabilitada ? ["AUTOMOTORA", "CLINICA"] : ["AUTOMOTORA"];
 }
 
-/** Los roles que admite cada rubro (docs/rubros.md §11.1). Hoy solo los usa
- *  el cambio de rubro (D1): 409 si la organización tiene usuarios con un rol
- *  que el rubro nuevo no admite. R12 suma RECEPCION a CLINICA y valida con
- *  esto las invitaciones y el cambio de rol. */
+/** Los roles que admite cada rubro (docs/rubros.md §11.1, D21), en el orden
+ *  en que se muestran. Lo validan las invitaciones y el cambio de rol de un
+ *  usuario (400 ROL_NO_DISPONIBLE_EN_EL_RUBRO), y el cambio de rubro (D1: 409
+ *  si la organización tiene usuarios con un rol que el rubro nuevo no admite).
+ *  /api/me lo devuelve como rolesAsignables: la pantalla no tiene una tabla
+ *  propia. */
 export const ROLES_POR_RUBRO: Readonly<Record<OrganizationIndustry, readonly RoleName[]>> = {
   AUTOMOTORA: ["ADMIN", "USER"],
-  CLINICA: ["ADMIN"],
+  CLINICA: ["ADMIN", "RECEPCION"],
 };
+
+export const ROL_NO_DISPONIBLE_EN_EL_RUBRO = "ROL_NO_DISPONIBLE_EN_EL_RUBRO";
+
+/** 400 ROL_NO_DISPONIBLE_EN_EL_RUBRO si el rubro no admite el rol: USER en una
+ *  clínica, RECEPCION en una automotora. */
+export function exigirRolDelRubro(rol: RoleName, industry: OrganizationIndustry): void {
+  if (!ROLES_POR_RUBRO[industry].includes(rol)) {
+    throw new AppError(`El rol ${rol} no está disponible en este rubro.`, 400, true, {
+      code: ROL_NO_DISPONIBLE_EN_EL_RUBRO,
+      rol,
+      industry,
+    });
+  }
+}
 
 /** El proceso de venta fijo de ESENCIAL (§2.1): se crea en el alta, en la
  *  misma transacción, y queda invisible (ESENCIAL no tiene /pipelines ni

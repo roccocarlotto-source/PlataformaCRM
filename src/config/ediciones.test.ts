@@ -11,7 +11,6 @@ import {
   moduloDeLaRuta,
   modulosDe,
 } from "./ediciones";
-import { authenticate } from "../middlewares/authenticate";
 import {
   CAMPO_NO_INCLUIDO,
   MODULO_NO_INCLUIDO,
@@ -19,6 +18,7 @@ import {
   rutaDelRequest,
 } from "../middlewares/moduloDeLaEdicion";
 import type { AuthContext } from "../types/auth";
+import { rutasMontadas, type RutaMontada } from "../routes/rutasMontadas.test-helper";
 import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
@@ -33,56 +33,6 @@ import { AppError } from "../utils/AppError";
 //   - un módulo sin rutas no está declarado en MODULOS_SIN_RUTAS (o uno
 //     declarado ahí tiene rutas).
 // ---------------------------------------------------------------------------
-
-interface RutaMontada {
-  ruta: string;
-  autenticada: boolean;
-}
-
-interface Capa {
-  route?: {
-    path: string | string[];
-    methods: Record<string, boolean>;
-    stack: { handle: unknown }[];
-  };
-  name: string;
-  regexp?: RegExp;
-  handle: { stack?: Capa[] };
-}
-
-// El prefijo de un router montado con app.use("/api", router), a partir de la
-// regexp que arma Express 4: /^\/api\/?(?=\/|$)/i. Los routers sin prefijo
-// tienen la regexp de "/" (/^\/?(?=\/|$)/i).
-function prefijoDe(capa: Capa): string {
-  const fuente = capa.regexp?.source ?? "";
-  const crudo = fuente
-    .replace(/^\^/, "")
-    .replace(/\\\/\?\(\?=\\\/\|\$\)$/, "")
-    .replace(/\\\//g, "/");
-  return crudo === "/" || crudo === "" ? "" : crudo;
-}
-
-function rutasMontadas(app: Express): RutaMontada[] {
-  const salida: RutaMontada[] = [];
-  const recorrer = (pila: Capa[], prefijo: string) => {
-    for (const capa of pila) {
-      if (capa.route) {
-        const paths = Array.isArray(capa.route.path) ? capa.route.path : [capa.route.path];
-        const autenticada = capa.route.stack.some((s) => s.handle === authenticate);
-        for (const metodo of Object.keys(capa.route.methods)) {
-          if (!capa.route.methods[metodo]) continue;
-          for (const path of paths) {
-            salida.push({ ruta: `${metodo.toUpperCase()} ${prefijo}${path}`, autenticada });
-          }
-        }
-      } else if (capa.name === "router" && capa.handle.stack) {
-        recorrer(capa.handle.stack, prefijo + prefijoDe(capa));
-      }
-    }
-  };
-  recorrer((app as unknown as { _router: { stack: Capa[] } })._router.stack, "");
-  return salida;
-}
 
 let montadas: RutaMontada[];
 

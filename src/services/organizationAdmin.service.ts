@@ -17,6 +17,7 @@ import {
   createOrganization,
   createProcesoDeVentaFijo,
   contarDatosDeNegocio,
+  contarInvitacionesPendientesConRoles,
   contarUsuariosConRoles,
   findActiveOrganizationEdition,
   findOrganizationBySlug,
@@ -27,7 +28,7 @@ import {
 } from "../repositories/organization.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { createUser, findUserByEmail } from "../repositories/user.repository";
-import type { RoleName } from "../types/auth";
+import { KNOWN_ROLES, type RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { slugify } from "../utils/slug";
 import { vaciarContextosDeAuth } from "./auth.service";
@@ -390,7 +391,8 @@ export async function cambiarEdicionDeOrganizacion(
 //   - datos de negocio (contactos, turnos, conversaciones, vehículos),
 //     contando también los dados de baja: son datos igual;
 //   - usuarios vigentes con un rol que el rubro nuevo no admite
-//     (ROLES_POR_RUBRO: hoy, USER al pasar a CLINICA).
+//     (ROLES_POR_RUBRO: USER al pasar a CLINICA, RECEPCION al pasar a
+//     AUTOMOTORA), ni invitaciones pendientes con uno de esos roles (R12).
 // En cualquier otro caso, 409. Pedir el rubro que ya tiene es un 200 sin
 // cambios, como en la edición. CLINICA solo si CLINICA_HABILITADA (400).
 //
@@ -443,12 +445,11 @@ export async function cambiarRubroDeOrganizacion(
     if ((await contarDatosDeNegocio(organizationId, tx)) > 0) {
       throw new AppError(RUBRO_CON_DATOS, 409);
     }
-    const noAdmitidos = (["ADMIN", "USER"] as const).filter(
-      (rol) => !ROLES_POR_RUBRO[rubroPedido].includes(rol),
-    );
+    const noAdmitidos = KNOWN_ROLES.filter((rol) => !ROLES_POR_RUBRO[rubroPedido].includes(rol));
     if (
       noAdmitidos.length > 0 &&
-      (await contarUsuariosConRoles(organizationId, noAdmitidos, tx)) > 0
+      ((await contarUsuariosConRoles(organizationId, noAdmitidos, tx)) > 0 ||
+        (await contarInvitacionesPendientesConRoles(organizationId, noAdmitidos, tx)) > 0)
     ) {
       throw new AppError(
         `No se puede cambiar el rubro: la organización tiene usuarios con un rol que ${rubroPedido} no admite (${noAdmitidos.join(", ")}).`,
