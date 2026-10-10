@@ -558,6 +558,40 @@ model ResourceTimeOff {
 
 ### 4.6 Google Calendar: un calendario por profesional (D4)
 
+> **R7 implementado (canales en su propia tabla).** Cómo quedó, y dónde
+> difiere del modelo de abajo:
+>
+> - **`google_calendar_channels`** tiene `organizationId`, `branchId`,
+>   `calendarId`, los tres campos del canal (con el mismo CHECK de "van
+>   juntos"), `syncToken` y timestamps. `channelId` es `@unique` y hay un
+>   unique `(organizationId, branchId, calendarId)`.
+>   - **Sin `connectionId`.** Hay una conexión por sucursal, así que la FK
+>     compuesta va a `branches(organization_id, id)`, igual que la de la
+>     conexión. `google_calendar_connections` no tiene un unique
+>     `(organization_id, id)`, y agregarlo era tocar una tabla existente.
+>   - **Sin `resourceId` ni `lastError*`.** Son de R8, que los agrega con su
+>     migración junto con el uso.
+>   - **RLS sin políticas (deny-all)**, como la conexión y
+>     `meta_page_connections`.
+> - **Copia, no mueve.** La migración copia el canal y el `syncToken` de cada
+>   conexión que los tiene. El código de R7 **lee** la tabla nueva y **escribe
+>   las dos**, con las columnas viejas como espejo en la misma transacción.
+>   Volver al código anterior no pierde ningún canal renovado ni ningún
+>   `syncToken`. R21 borra las columnas y el espejo juntos.
+> - **Transición.** Entre que se aplica la migración y se despliega el código,
+>   el código viejo puede escribir las columnas viejas. Hay dos redes:
+>   - el webhook, si no encuentra el `channelId` en la tabla nueva, lo busca en
+>     las columnas viejas;
+>   - el worker de renovación, al empezar cada pasada, corre
+>     `reconciliarCanalesConLasColumnasViejas`, que adopta lo que el código
+>     viejo haya escrito (las columnas viejas ganan cuando difieren). En régimen
+>     no cambia ninguna fila.
+> - **Reconectar o desconectar** borra las filas de canal de la sucursal, en la
+>   misma transacción que limpia la conexión.
+> - Los repositorios conservan su firma. Webhook, sync y worker no cambiaron de
+>   forma, salvo `desconectar` (lee el canal de la tabla nueva) y la
+>   reconciliación al inicio de la pasada.
+
 #### El problema de hoy
 
 Con Google conectado, `obtenerDisponibilidad` consulta el `freebusy` del

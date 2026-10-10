@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { lockBranchForUpdate } from "../repositories/branch.repository";
 import {
+  findCanalDeLaSucursal,
   findConnectionByBranch,
   findConnectionWithSecretByBranch,
   markConnectionError,
@@ -226,11 +227,18 @@ export async function desconectar(
   //
   // Best-effort por el mismo criterio que la revocación de abajo: si esto
   // abortara, un Google caído dejaría al ADMIN sin poder desconectar.
-  if (conexion.channelId && conexion.channelResourceId) {
+  //
+  // R7: el canal sale de google_calendar_channels. Si ahí no hay uno, el de las
+  // columnas viejas: el que abrió el código de antes de R7 y todavía no se
+  // reconcilió (con el espejo, en régimen son el mismo).
+  const canal = await findCanalDeLaSucursal(branchId, organizationId);
+  const channelId = canal?.channelId ?? conexion.channelId;
+  const channelResourceId = canal?.channelResourceId ?? conexion.channelResourceId;
+  if (channelId && channelResourceId) {
     await detenerCanalDeConexion(
       organizationId,
       branchId,
-      { channelId: conexion.channelId, resourceId: conexion.channelResourceId },
+      { channelId, resourceId: channelResourceId },
       cliente,
     );
   }

@@ -27,6 +27,7 @@ import {
   defaultOrganizationAdminDeps,
 } from "../services/organizationAdmin.service";
 import { SIN_REGLAS, reglasDelRubro } from "../services/reglasDelRubro";
+import { crearClienteGoogleCalendar } from "../services/googleCalendar.service";
 import { vocabularioDe } from "../config/vocabulario";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
@@ -474,4 +475,32 @@ test("las tools de una automotora no se recortan: son los mismos objetos del cat
   const recortadas = toolsSinCampos(tools, reglasDelRubro("AUTOMOTORA").camposFueraDeLasTools);
   assert.equal(recortadas.length, tools.length);
   recortadas.forEach((tool, i) => assert.equal(tool, tools[i]));
+});
+
+// ---------------------------------------------------------------------------
+// R7 (canales de Google en su propia tabla, docs/rubros.md §4.6): el pedido de
+// autorización de Google de una automotora es EXACTAMENTE el de antes, con los
+// mismos dos scopes y los mismos parámetros. Una sucursal ya conectada no
+// tiene que volver a autorizar nada. El literal es la URL de antes de R7 con
+// una configuración y un state de prueba.
+// ---------------------------------------------------------------------------
+
+test("la URL de autorización de Google de una automotora es la de antes, con los mismos dos scopes", () => {
+  const url = crearClienteGoogleCalendar({
+    clientId: "client-id-de-prueba.apps.googleusercontent.com",
+    clientSecret: "secreto-de-prueba",
+    redirectUri: "https://api.example.com/api/integrations/google-calendar/callback",
+  }).construirUrlDeAutorizacion("state-firmado-de-prueba");
+
+  assert.equal(
+    url,
+    "https://accounts.google.com/o/oauth2/v2/auth" +
+      "?client_id=client-id-de-prueba.apps.googleusercontent.com" +
+      "&redirect_uri=https%3A%2F%2Fapi.example.com%2Fapi%2Fintegrations%2Fgoogle-calendar%2Fcallback" +
+      "&response_type=code" +
+      "&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events.freebusy" +
+      "&access_type=offline" +
+      "&prompt=consent" +
+      "&state=state-firmado-de-prueba",
+  );
 });

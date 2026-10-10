@@ -130,9 +130,10 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // las 2 del motor de automatizaciones, 20260913120000 + quotes, deliveries
   // y payments, §39/§40/§43 + knowledge_base_entries, §59) más las 3
   // especiales (organizations solo SELECT; roles y exchange_rates lectura
-  // para autenticados). api_keys, google_calendar_connections y
-  // platform_admins no tienen política — a propósito (deny-all: las dos
-  // primeras guardan secretos). Las tres tablas del módulo de Agentes de IA
+  // para autenticados). api_keys, google_calendar_connections,
+  // google_calendar_channels (R7) y platform_admins no tienen política — a
+  // propósito (deny-all: las conexiones guardan secretos, y los canales son su
+  // estado). Las tres tablas del módulo de Agentes de IA
   // (agents, conversations, messages) tienen la uniforme desde A-02
   // (20261014120000); hasta ahí eran las únicas sin RLS. Y desde entonces
   // src/repositories/rlsTodasLasTablas.test.ts falla si una tabla nueva nace
@@ -145,7 +146,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // chequeo.
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
   [7, { descripcion: "Los 13 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
-  [8, { descripcion: "Los 37 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
+  [8, { descripcion: "Los 38 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
   [
     9,
     {
@@ -217,7 +218,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   [
     16,
     {
-      descripcion: "C-3 · las 85 FKs conocidas siguen apuntando a la tabla padre de su diseño",
+      descripcion: "C-3 · las 86 FKs conocidas siguen apuntando a la tabla padre de su diseño",
       esperado: "ninguna",
     },
   ],

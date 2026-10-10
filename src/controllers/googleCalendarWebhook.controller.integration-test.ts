@@ -131,6 +131,7 @@ after(async () => {
   if (!orgId) return;
 
   const where = { organizationId: orgId };
+  await prisma.googleCalendarChannel.deleteMany({ where });
   await prisma.googleCalendarConnection.deleteMany({ where });
   await prisma.workingHours.deleteMany({ where });
   await prisma.branch.deleteMany({ where });

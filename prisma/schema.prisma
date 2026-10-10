@@ -780,6 +780,7 @@ model Organization {
   serviceTypes ServiceType[]
 
   googleCalendarConnections GoogleCalendarConnection[]
+  googleCalendarChannels    GoogleCalendarChannel[]
 
   workingHours WorkingHours[]
   bookings     Booking[]
@@ -1947,6 +1948,9 @@ model Branch {
   // Singular y opcional: el @unique sobre branch_id del otro lado convierte esta
   // relación en 1-a-lo-sumo-1, y Prisma la tipa así.
   googleCalendarConnection GoogleCalendarConnection?
+  // Los canales de notificaciones de Google de esta sucursal (R7,
+  // docs/rubros.md §4.6). Hoy, a lo sumo uno: el del calendario de la sucursal.
+  googleCalendarChannels   GoogleCalendarChannel[]
 
   bookings Booking[]
 
@@ -2208,6 +2212,65 @@ model GoogleCalendarConnection {
   // el que service_types se quedó sin su @@unique: no se agregan objetos que
   // nadie usa.
   @@map("google_calendar_connections")
+}
+
+// ---------------------------------------------------------------------------
+// GoogleCalendarChannel — el canal de notificaciones push y el syncToken de un
+// calendario de Google (R7, docs/rubros.md §4.6, D4, D18).
+//
+// Hasta R7 ese estado vivía en cuatro columnas de google_calendar_connections
+// (channel_id, channel_resource_id, channel_expiration, sync_token), una sola
+// vez por sucursal. R8 necesita un canal y un syncToken POR CALENDARIO (uno
+// por profesional en una clínica), así que pasa a su propia tabla. En R7 hay
+// a lo sumo una fila por sucursal: la del calendario de la conexión, y el
+// comportamiento es exactamente el de antes.
+//
+// LA MIGRACIÓN COPIA, NO MUEVE: las columnas viejas quedan y el código las
+// sigue escribiendo EN ESPEJO, en la misma transacción
+// (googleCalendarConnection.repository.ts). La tabla nueva es la que se LEE.
+// Así, volver al código de antes de R7 no pierde ningún canal renovado ni
+// ningún syncToken: las columnas viejas tienen lo mismo. Las columnas viejas
+// y el espejo se borran juntos en R21 (D18), que no se mergea por iniciativa
+// propia.
+//
+// DENY-ALL, como google_calendar_connections y meta_page_connections: RLS
+// habilitada y ninguna política. No guarda el refresh token, pero el id del
+// canal es lo único que autentica una notificación entrante junto con el
+// token firmado, y nadie fuera del backend tiene por qué leerlo.
+//
+// Respecto del diseño de §4.6 (ver la nota de R7 ahí): sin connectionId (la
+// conexión es una por sucursal: la FK compuesta va a branches, como la de la
+// conexión, sin tocar google_calendar_connections) y sin resourceId ni
+// lastError* (son de R8, que los agrega con su migración).
+// ---------------------------------------------------------------------------
+model GoogleCalendarChannel {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  branchId       String @map("branch_id") @db.Uuid
+
+  // El calendario observado. En R7, siempre el de la conexión de la sucursal.
+  calendarId String @map("calendar_id") @db.VarChar(255)
+
+  // Los mismos cuatro valores y las mismas reglas que las columnas de
+  // google_calendar_connections (ver allí): los tres del canal van juntos
+  // (CHECK google_calendar_channels_channel_all_or_none_check), channelId es
+  // único y por él se encuentra la fila desde el webhook.
+  channelId         String?   @unique @map("channel_id") @db.Uuid
+  channelResourceId String?   @map("channel_resource_id") @db.VarChar(255)
+  channelExpiration DateTime? @map("channel_expiration")
+  syncToken         String?   @map("sync_token")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+
+  // Un canal por calendario y por sucursal.
+  @@unique([organizationId, branchId, calendarId])
+  // Sirve la pasada del worker de renovación ("vence antes de X").
+  @@index([channelExpiration])
+  @@map("google_calendar_channels")
 }
 
 // ---------------------------------------------------------------------------

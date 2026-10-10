@@ -71,6 +71,9 @@ async function montar(etiqueta: string): Promise<Escenario> {
 }
 
 async function desmontar(escenario: Escenario) {
+  await prisma.googleCalendarChannel.deleteMany({
+    where: { organizationId: escenario.organizationId },
+  });
   await prisma.googleCalendarConnection.deleteMany({
     where: { organizationId: escenario.organizationId },
   });
