@@ -1,4 +1,10 @@
+import {
+  findCanalDeProfesionalPorChannelId,
+  guardarSyncTokenDelCanal,
+} from "../clinicas/repositories/googlePorProfesional.repository";
+import { avisarCambioEnGoogle } from "../clinicas/services/googlePorProfesional.service";
 import { logger } from "../lib/logger";
+import { findEdicionYRubro } from "../repositories/organization.repository";
 import {
   findBookingByGoogleEventId,
   markBookingCancelled,
@@ -97,6 +103,27 @@ export async function procesarNotificacion(
     return { accion: "sync-inicial", bookingsCancelados: 0, eventosMovidos: 0 };
   }
 
+  // R8 (docs/rubros.md §4.6): el canal del calendario de un profesional de
+  // clínica. Una automotora nunca tiene uno (resource_id NULL en su única fila),
+  // así que para ella esta lectura no encuentra nada y sigue el camino de
+  // siempre.
+  const delProfesional = await findCanalDeProfesionalPorChannelId(notificacion.channelId);
+  if (delProfesional) {
+    if (
+      delProfesional.organizationId !== firmado.organizationId ||
+      delProfesional.branchId !== firmado.branchId
+    ) {
+      throw new AppError("El token no corresponde al canal indicado", 403);
+    }
+    if (notificacion.resourceState === "not_exists") {
+      return { accion: "recurso-eliminado", bookingsCancelados: 0, eventosMovidos: 0 };
+    }
+    return sincronizar(delProfesional, cliente, {
+      id: delProfesional.id,
+      calendarId: delProfesional.calendarId,
+    });
+  }
+
   const conexion = await findConnectionByChannelId(notificacion.channelId);
 
   if (!conexion) {
@@ -155,9 +182,13 @@ interface ConexionConSecreto {
   branch: { timezone: string };
 }
 
+// `canalDelProfesional` (R8): el calendario de un profesional de clínica, con
+// su propio syncToken en su fila de canal. Sin él, el calendario de la conexión
+// de la sede, como siempre.
 async function sincronizar(
   conexion: ConexionConSecreto,
   cliente?: ClienteInyectado,
+  canalDelProfesional?: { id: string; calendarId: string },
 ): Promise<ResultadoDeNotificacion> {
   const { organizationId, branchId } = conexion;
   // La zona de la SUCURSAL, nunca la del servidor: es lo que decide a qué
@@ -178,7 +209,16 @@ async function sincronizar(
   // obtenerAccessToken descifra el refresh token, lo renueva contra Google y
   // —lo importante— traduce un grant muerto a status = ERROR. Reusarlo es lo
   // que hace que este camino no tenga su propia versión de ese manejo.
-  const { accessToken, calendarId } = await obtenerAccessToken(organizationId, branchId, cliente);
+  const { accessToken, calendarId: delaSede } = await obtenerAccessToken(
+    organizationId,
+    branchId,
+    cliente,
+  );
+  const calendarId = canalDelProfesional?.calendarId ?? delaSede;
+  const guardarSyncToken = (token: string) =>
+    canalDelProfesional
+      ? guardarSyncTokenDelCanal(canalDelProfesional.id, token)
+      : setConnectionSyncToken(branchId, organizationId, token);
 
   const clienteGoogle = cliente ?? getClienteGoogleCalendar();
 
@@ -225,7 +265,7 @@ async function sincronizar(
     });
 
     if (cambios.nextSyncToken) {
-      await setConnectionSyncToken(branchId, organizationId, cambios.nextSyncToken);
+      await guardarSyncToken(cambios.nextSyncToken);
     }
 
     return { accion: "sync-inicial", bookingsCancelados: 0, eventosMovidos: 0 };
@@ -239,9 +279,11 @@ async function sincronizar(
   let bookingsCancelados = 0;
   let eventosMovidos = 0;
 
-  if (!esPrimeraSincronizacion) {
+  if (!esPrimeraSincronizacion && cambios.eventos.length > 0) {
+    // R8 (D16): en una clínica un cambio hecho en Google no se aplica solo.
+    const esClinica = (await findEdicionYRubro(organizationId)).industry === "CLINICA";
     for (const evento of cambios.eventos) {
-      const resultado = await aplicarCambio(organizationId, evento);
+      const resultado = await aplicarCambio(organizationId, evento, esClinica);
       if (resultado === "cancelado") {
         bookingsCancelados++;
       } else if (resultado === "movido") {
@@ -258,7 +300,7 @@ async function sincronizar(
   // Si Google no devolvió nextSyncToken, NO se guarda nada: es preferible
   // reprocesar en la próxima notificación a guardar un token que no existe.
   if (cambios.nextSyncToken) {
-    await setConnectionSyncToken(branchId, organizationId, cambios.nextSyncToken);
+    await guardarSyncToken(cambios.nextSyncToken);
   }
 
   return {
@@ -298,9 +340,15 @@ function sonOtroHorario(enGoogle: Date, enElCrm: Date): boolean {
 // ---------------------------------------------------------------------------
 // Un evento cambiado, contra el Booking que lo refleje (si hay alguno).
 // ---------------------------------------------------------------------------
+// `esClinica` (R8, D16 — decisión de Rocco del 2026-10-10): en una clínica un
+// turno BORRADO o MOVIDO en Google no se cancela ni se mueve: se registra y se
+// avisa a la Recepción de la sede con una tarea (avisarCambioEnGoogle), y se
+// cuenta en eventosMovidos (un cambio de Google que no se aplicó). La
+// cancelación inversa automática de abajo queda SOLO para las automotoras.
 async function aplicarCambio(
   organizationId: string,
   evento: EventoCambiado,
+  esClinica = false,
 ): Promise<"cancelado" | "movido" | "ignorado"> {
   const booking = await findBookingByGoogleEventId(evento.id, organizationId);
 
@@ -308,6 +356,10 @@ async function aplicarCambio(
     // El evento no salió de una reserva nuestra: es del calendario propio del
     // negocio. La inmensa mayoría de los cambios caen acá.
     return "ignorado";
+  }
+
+  if (esClinica) {
+    return aplicarCambioEnClinica(organizationId, booking, evento);
   }
 
   // -------------------------------------------------------------------------
@@ -367,4 +419,45 @@ async function aplicarCambio(
   }
 
   return "ignorado";
+}
+
+// R8 (D16): un cambio en Google sobre un turno de clínica. Nada se cancela ni se
+// mueve: si el turno sigue CONFIRMED, se registra y se crea la tarea.
+async function aplicarCambioEnClinica(
+  organizationId: string,
+  booking: NonNullable<Awaited<ReturnType<typeof findBookingByGoogleEventId>>>,
+  evento: EventoCambiado,
+): Promise<"movido" | "ignorado"> {
+  if (booking.status !== "CONFIRMED") {
+    return "ignorado";
+  }
+  if (evento.status === "cancelled") {
+    logger.warn(
+      { bookingId: booking.id, organizationId, googleEventId: evento.id },
+      "Un turno de clínica se borró en Google Calendar: NO se cancela; se avisa a la recepción de la sede",
+    );
+    await avisarCambioEnGoogle(organizationId, booking, { tipo: "borrado" });
+    return "movido";
+  }
+  const cambioDeHorario =
+    (evento.inicio && sonOtroHorario(evento.inicio, booking.startsAt)) ||
+    (evento.fin && sonOtroHorario(evento.fin, booking.endsAt));
+  if (!cambioDeHorario) {
+    return "ignorado";
+  }
+  logger.warn(
+    {
+      bookingId: booking.id,
+      organizationId,
+      googleEventId: evento.id,
+      horarioEnElCrm: { startsAt: booking.startsAt, endsAt: booking.endsAt },
+      horarioEnGoogle: { startsAt: evento.inicio, endsAt: evento.fin },
+    },
+    "Un turno de clínica se movió en Google Calendar: NO se reprograma; se avisa a la recepción de la sede",
+  );
+  await avisarCambioEnGoogle(organizationId, booking, {
+    tipo: "movido",
+    ...(evento.inicio ? { inicioEnGoogle: evento.inicio } : {}),
+  });
+  return "movido";
 }

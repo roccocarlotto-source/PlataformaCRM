@@ -23,7 +23,14 @@ const branchIdParamSchema = z.string().uuid("branchId inválido");
 export const iniciarConexionHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const branchId = parseOrThrow(branchIdParamSchema, req.params.branchId);
-    const resultado = await iniciarConexion(req.auth.organizationId, branchId);
+    // R8: el rubro decide los scopes del pedido (una clínica suma la lista de
+    // calendarios); una automotora pide los de siempre.
+    const resultado = await iniciarConexion(
+      req.auth.organizationId,
+      branchId,
+      undefined,
+      req.auth.industry,
+    );
     res.status(200).json(resultado);
   },
 );

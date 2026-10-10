@@ -14,10 +14,11 @@ import type { OrganizationIndustry } from "@prisma/client";
 export const CAMPOS_DE_CLINICA = {
   // R20: la sede de la tarea.
   activity: ["branchId"],
-  // R6: sobreturnos del profesional.
-  resource: ["allowsOverbooking", "maxOverbookingsPerDay"],
-  // R6: el turno es un sobreturno.
-  booking: ["isOverbooking"],
+  // R6: sobreturnos del profesional. R8: su calendario de Google.
+  resource: ["allowsOverbooking", "maxOverbookingsPerDay", "googleCalendarId"],
+  // R6: el turno es un sobreturno. R8: el calendario del profesional donde
+  // quedó el evento.
+  booking: ["isOverbooking", "googleCalendarId"],
 } as const;
 
 export function sinCamposDeClinica<T extends object>(

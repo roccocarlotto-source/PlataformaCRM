@@ -627,3 +627,28 @@ test("la URL de autorización de Google de una automotora es la de antes, con lo
       "&state=state-firmado-de-prueba",
   );
 });
+
+// ---------------------------------------------------------------------------
+// R8 (un calendario de Google por profesional): una automotora sigue pidiendo
+// exactamente los mismos dos scopes, con los mismos parámetros, aunque el
+// pedido ahora lleve el rubro. Las sucursales ya conectadas no reconectan nada.
+// ---------------------------------------------------------------------------
+
+test("R8: la URL de autorización de una automotora con el rubro explícito es la de antes, byte a byte", () => {
+  const cliente = crearClienteGoogleCalendar({
+    clientId: "client-id-de-prueba.apps.googleusercontent.com",
+    clientSecret: "secreto-de-prueba",
+    redirectUri: "https://api.example.com/api/integrations/google-calendar/callback",
+  });
+  assert.equal(
+    cliente.construirUrlDeAutorizacion("state-firmado-de-prueba", "AUTOMOTORA"),
+    "https://accounts.google.com/o/oauth2/v2/auth" +
+      "?client_id=client-id-de-prueba.apps.googleusercontent.com" +
+      "&redirect_uri=https%3A%2F%2Fapi.example.com%2Fapi%2Fintegrations%2Fgoogle-calendar%2Fcallback" +
+      "&response_type=code" +
+      "&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events.freebusy" +
+      "&access_type=offline" +
+      "&prompt=consent" +
+      "&state=state-firmado-de-prueba",
+  );
+});

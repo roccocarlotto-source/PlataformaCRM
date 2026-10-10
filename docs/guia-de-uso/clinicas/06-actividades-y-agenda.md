@@ -84,3 +84,29 @@ Un sobreturno es un turno de más encima de un horario que ya está completo.
 
 > El asistente de IA nunca ofrece ni carga sobreturnos: los carga una persona
 > del equipo.
+
+## Calendario de Google de cada profesional {#calendario-de-google}
+
+Si la sede tiene Google Calendar conectado, cada profesional puede tener su
+propio calendario de Google. Lo elige un administrador en
+[Profesionales](/clinica/profesionales), menú de la fila, **Calendario de
+Google**.
+
+- El calendario tiene que ser de la cuenta de Google conectada a la sede, o
+  estar compartido con ella con permiso para editar.
+- Si no aparece la lista de calendarios, reconectá Google en la sede (la
+  conexión es anterior y le falta ese permiso), o pegá el **ID del
+  calendario** (en Google Calendar: Configuración del calendario → Integrar el
+  calendario).
+- Con calendario propio, los turnos del profesional se crean en su calendario,
+  y lo que tenga ocupado ahí (por ejemplo, un evento personal) **no se
+  ofrece**.
+- Sin calendario propio, el profesional funciona solo con la agenda de la
+  plataforma: no se le resta nada de Google y sus turnos se anotan en el
+  calendario de la sede.
+
+> La agenda de la plataforma manda. Si alguien **mueve o borra** un turno
+> directamente en Google, el turno **no cambia** en la plataforma: a la
+> recepción de la sede le llega una tarea con el paciente, el profesional, la
+> fecha y lo que pasó en Google, para que lo resuelva (reprogramar, cancelar o
+> avisarle al paciente).

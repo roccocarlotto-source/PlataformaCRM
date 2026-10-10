@@ -2042,6 +2042,12 @@ model Resource {
   // 20261106120000.
   allowsOverbooking     Boolean      @default(false) @map("allows_overbooking")
   maxOverbookingsPerDay Int          @default(1) @map("max_overbookings_per_day")
+  // El calendario de Google propio del profesional de una clínica
+  // (docs/rubros.md §4.6, D4, R8): de la cuenta conectada a la sede, o
+  // compartido con ella con permiso de edición. Solo una clínica lo escribe.
+  // Con NULL, el profesional funciona solo con la agenda de la plataforma (no
+  // resta nada de Google; sus turnos van al calendario de la sede).
+  googleCalendarId      String?      @map("google_calendar_id") @db.VarChar(255)
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
   deletedAt             DateTime?    @map("deleted_at")
@@ -2050,7 +2056,9 @@ model Resource {
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
 
   // Los bloqueos del profesional (docs/rubros.md §4.5, R6).
-  timeOffs ResourceTimeOff[]
+  timeOffs               ResourceTimeOff[]
+  // El canal de notificaciones de su calendario de Google (R8).
+  googleCalendarChannels GoogleCalendarChannel[]
 
   serviceTypes         ServiceType[]
   workingHours         WorkingHours[]
@@ -2306,16 +2314,29 @@ model GoogleCalendarChannel {
   channelExpiration DateTime? @map("channel_expiration")
   syncToken         String?   @map("sync_token")
 
+  // R8 (docs/rubros.md §4.6): el profesional de una clínica dueño de este
+  // calendario. NULL = el calendario de la conexión de la sede (la única fila
+  // de una automotora). Nullable, y por eso su FK es NO ACTION.
+  resourceId       String?   @map("resource_id") @db.Uuid
+  // El último error del canal de este calendario (uno que se borró o al que se
+  // le quitó el permiso): queda en su fila y no frena a los demás canales.
+  lastErrorAt      DateTime? @map("last_error_at")
+  lastErrorMessage String?   @map("last_error_message") @db.VarChar(500)
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+  resource     Resource?    @relation(fields: [organizationId, resourceId], references: [organizationId, id], onDelete: NoAction)
 
   // Un canal por calendario y por sucursal.
   @@unique([organizationId, branchId, calendarId])
   // Sirve la pasada del worker de renovación ("vence antes de X").
   @@index([channelExpiration])
+  // "El canal del calendario de este profesional" y el lado referenciante de
+  // la FK a resources (R8).
+  @@index([organizationId, resourceId])
   @@map("google_calendar_channels")
 }
 
@@ -2482,6 +2503,13 @@ model Booking {
   // quita lugar a los turnos normales) y sí para el tope diario del
   // profesional. Una automotora nunca lo escribe.
   isOverbooking Boolean @default(false) @map("is_overbooking")
+
+  // En qué calendario de Google quedó el evento, cuando no es el de la sede: el
+  // del profesional de una clínica (docs/rubros.md §4.6, R8). Hace falta para
+  // borrar el evento donde se creó aunque después cambie el calendario del
+  // profesional. NULL = el calendario de la conexión de la sede, como siempre
+  // (toda reserva de una automotora).
+  googleCalendarId String? @map("google_calendar_id") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

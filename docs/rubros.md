@@ -651,6 +651,49 @@ model ResourceTimeOff {
 
 ### 4.6 Google Calendar: un calendario por profesional (D4)
 
+> **R8 implementado** (migración `20261107120000_clinicas_google_por_profesional`).
+> Cómo quedó, y dónde difiere de lo de abajo:
+>
+> - **Modelo:** `Resource.googleCalendarId` y `Booking.googleCalendarId`
+>   (nullable). En `GoogleCalendarChannel`: `resourceId` (FK compuesta NO
+>   ACTION) y `lastErrorAt`/`lastErrorMessage`. Sin `connectionId`, como en
+>   R7. La fila de la sede de hoy queda con `resourceId` NULL.
+> - **La fuente de verdad es `Resource.googleCalendarId`.** El worker de
+>   renovación crea la fila de canal de cada profesional de clínica con
+>   calendario cuya sede tiene Google ACTIVE, y la abre o renueva
+>   (`events.watch` sobre ese calendario). Así, reconectar o desconectar la
+>   sede, que borra sus filas (R7), no pierde nada: la próxima pasada las vuelve
+>   a crear. Desconectar detiene también los canales de los profesionales.
+> - **Disponibilidad:** un `freebusy` por profesional consultado, no uno solo
+>   con todos los calendarios: cada uno usa el mismo `obtenerDisponibilidad`,
+>   y así el error de un calendario no tumba a los demás. Lo activa
+>   `googlePorProfesional` (la agenda de clínica siempre; `/api/availability`
+>   cuando el usuario es de una clínica). El error de un calendario de
+>   profesional queda en su fila de canal y **no** marca la conexión de la sede
+>   en ERROR.
+> - **Turno de un profesional sin calendario:** el evento va al calendario de
+>   la sede con el título de siempre (el nombre del profesional ya viaja en la
+>   descripción). `Booking.googleCalendarId` queda NULL (= el de la sede).
+> - **Rutas** (módulo `agenda_clinica`, ADMIN):
+>   `GET /api/branches/:branchId/google-calendar/calendars` y
+>   `PUT /api/clinica/profesionales/:resourceId/google-calendar` (en lugar de
+>   `/api/resources/:id/google-calendar`, para que la ruta sea del módulo de
+>   clínica). La elección valida con un `freebusy` sobre el calendario y
+>   rechaza el de la sede y uno que ya usa otro profesional. El canal del
+>   calendario nuevo **se abre en el momento** (pedido de Rocco, para no quedar
+>   hasta una hora sin detectar cambios); si Google falla, la asignación vale
+>   igual, el error queda en la fila y el worker lo reintenta en su pasada.
+> - **Scopes:** `scopesDeConexion(industry)`. Para una automotora, la URL es
+>   idéntica byte a byte (suite "automotora sin cambios").
+>   `include_granted_scopes=true` solo para clínicas.
+> - **D16, decisión de Rocco del 2026-10-10:** en una clínica un turno
+>   **borrado o movido** directamente en Google no se cancela ni se mueve
+>   solo. Se registra y se crea una tarea para la Recepción de la sede (§11.4),
+>   con paciente, profesional, fecha y qué pasó en Google. Un turno borrado
+>   queda además sin `googleEventId` (ya no tiene espejo). La plataforma sigue
+>   siendo la fuente de verdad. **La cancelación inversa automática queda solo
+>   para las automotoras**, como hoy.
+
 > **R7 implementado (canales en su propia tabla).** Cómo quedó, y dónde
 > difiere del modelo de abajo:
 >
@@ -830,10 +873,11 @@ las automotoras. **El comportamiento es el mismo**, y lo prueban los tests de
   profesional, `events.delete` en el calendario viejo y `events.insert` en el
   nuevo.
 - **Cancelar:** `events.delete` en `Booking.googleCalendarId`.
-- **Cancelación inversa:** cada calendario tiene su canal. Un evento borrado en
-  Google llega por el canal de **ese** calendario y se busca el `Booking` por
-  `googleEventId` (único por organización, migración `20260902140000`), como
-  hoy.
+- **Evento borrado en Google (D16, cambiado en R8):** cada calendario tiene su
+  canal, y el evento se busca por `googleEventId` (único por organización,
+  migración `20260902140000`). En una clínica **no se cancela el turno**: se
+  registra y se crea una tarea para recepción, como un evento movido. La
+  cancelación inversa automática queda solo para las automotoras.
 - **Evento movido en Google (D16):** no se aplica. Se registra (como hoy, con
   el `bookingId` y los dos horarios) y se crea una **tarea para recepción** de la
   sede del turno (§11.4): "El turno de {paciente} se movió en Google al {dia}
@@ -1980,7 +2024,7 @@ A1–A6 de la segunda.
 | D13 | ¿Recordatorios también para automotoras? | **Solo clínicas en la v1.** | §2, §6 |
 | D14 | Clínica Demo | **Endpoint del platform admin** con datos inventados. Rocco la limpia después de cobrarle al primer cliente. | §12 |
 | D15 | ¿Quién es recepción? | **Rol nuevo "Recepción".** Mientras no exista, los avisos van al "Responsable por defecto" de la sede. | §6.5, §11 |
-| D16 | Un turno movido directamente en Google, en una clínica | **Se registra y se crea una tarea para recepción** de la sede del turno. El turno no cambia. | §4.6 |
+| D16 | Un turno movido **o borrado** directamente en Google, en una clínica | **Se registra y se crea una tarea para recepción** de la sede del turno, con paciente, profesional, fecha y qué pasó en Google. El turno no se mueve ni se cancela (la plataforma es la fuente de verdad). La cancelación inversa automática queda solo para las automotoras. (Borrado sumado por Rocco el 2026-10-10, R8.) | §4.6 |
 | D17 | El `freebusy` de la sucursal se resta de todos los recursos en las automotoras con más de un recurso | **No se toca** (regla de §0.3). | §4.6 |
 | D18 | Columnas de canal viejas de `google_calendar_connections` | **Se borran en un PR posterior** (R21), después de un tiempo con R7 en producción. No se mergea por iniciativa propia. | §4.6, R21 |
 | D19 | ¿Recepción ve todas las sedes? | **No: usuarios por sede** (`UserBranch`, con migración). Solo en clínicas; en las automotoras no cambia nada. | §11.2, §11.5, R20 |

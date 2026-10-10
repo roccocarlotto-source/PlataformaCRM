@@ -63,6 +63,8 @@ export const getAvailabilityHandler = asyncHandler<AuthenticatedRequest>(
         serviceTypeId: query.serviceTypeId,
         desde: query.from,
         hasta: query.to,
+        // R8: en una clínica, Google por profesional.
+        ...(req.auth.industry === "CLINICA" ? { googlePorProfesional: true } : {}),
       },
       undefined,
       req.auth,

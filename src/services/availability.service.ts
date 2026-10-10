@@ -57,6 +57,12 @@ export interface ParametrosDeDisponibilidad {
   serviceTypeId: string;
   desde: Date;
   hasta: Date;
+  // R8 (docs/rubros.md §4.6): Google por profesional, el de una clínica. A cada
+  // profesional se le resta SOLO lo de su propio calendario; uno sin
+  // calendario no resta nada de Google, y el calendario de la sede nunca se
+  // resta. Sin pasarlo (o false), lo de siempre: el calendario de la sede,
+  // para cualquier recurso (D17: el freebusy de una automotora no se toca).
+  googlePorProfesional?: boolean;
 }
 
 export interface TurnoDisponible {
@@ -200,14 +206,19 @@ export async function obtenerDisponibilidad(
   // el log para que no sea invisible.
   // ---------------------------------------------------------------------------
   let ocupadosEnGoogle: Intervalo[] = [];
+  const calendarioPropio = resource.googleCalendarId ?? undefined;
+  const consultarGoogle = !params.googlePorProfesional || calendarioPropio !== undefined;
 
   try {
-    const intervalos = await consultarDisponibilidad(
-      organizationId,
-      serviceType.branchId,
-      { timeMin: params.desde.toISOString(), timeMax: params.hasta.toISOString() },
-      cliente,
-    );
+    const intervalos = consultarGoogle
+      ? await consultarDisponibilidad(
+          organizationId,
+          serviceType.branchId,
+          { timeMin: params.desde.toISOString(), timeMax: params.hasta.toISOString() },
+          cliente,
+          params.googlePorProfesional ? calendarioPropio : undefined,
+        )
+      : [];
 
     ocupadosEnGoogle = intervalos.map((intervalo) => ({
       inicio: new Date(intervalo.inicio),

@@ -3,6 +3,8 @@ import { authenticate } from "../../middlewares/authenticate";
 import { authorize } from "../../middlewares/authorize";
 import { businessWriteRateLimiter } from "../../middlewares/rateLimit";
 import {
+  asignarCalendarioHandler,
+  listarCalendariosHandler,
   borrarBloqueoHandler,
   configurarSobreturnosHandler,
   crearBloqueoHandler,
@@ -85,4 +87,22 @@ agendaClinicaRouter.put(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   configurarSobreturnosHandler,
+);
+
+// R8 (docs/rubros.md §4.6): el calendario de Google de cada profesional. Es
+// configuración: solo ADMIN. Del módulo agenda_clinica, así que una automotora
+// recibe 403 con motivo RUBRO.
+agendaClinicaRouter.get(
+  "/branches/:branchId/google-calendar/calendars",
+  authenticate,
+  authorize("ADMIN"),
+  listarCalendariosHandler,
+);
+
+agendaClinicaRouter.put(
+  "/clinica/profesionales/:resourceId/google-calendar",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  asignarCalendarioHandler,
 );

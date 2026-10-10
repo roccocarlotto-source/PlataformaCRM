@@ -1005,7 +1005,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 94 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 95 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -1029,7 +1029,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 94 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 95 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1244,7 +1244,11 @@ from (
     -- Bloqueos de los profesionales (docs/rubros.md §4.5, migración
     -- 20261106120000): el profesional de la misma organización. Una FK bien
     -- formada hacia branches o service_types pasaría la fila 14 entera.
-    ('resource_time_offs_organization_id_resource_id_fkey|resource_time_offs(organization_id,resource_id)->resources(organization_id,id)')
+    ('resource_time_offs_organization_id_resource_id_fkey|resource_time_offs(organization_id,resource_id)->resources(organization_id,id)'),
+    -- Un calendario de Google por profesional (docs/rubros.md §4.6, migración
+    -- 20261107120000): el canal de un calendario apunta al profesional dueño.
+    -- Una FK bien formada hacia branches o service_types pasaría la fila 14.
+    ('google_calendar_channels_organization_id_resource_id_fkey|google_calendar_channels(organization_id,resource_id)->resources(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
