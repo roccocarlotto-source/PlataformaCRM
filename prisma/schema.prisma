@@ -757,6 +757,7 @@ model Organization {
   // código usa los defaults.
   clinicSettings       ClinicSettings?
   clinicBranchSettings ClinicBranchSettings[]
+  serviceTypeResources ServiceTypeResource[]
 
   users         User[]
   companies     Company[]
@@ -2010,9 +2011,11 @@ model Resource {
   organization Organization @relation(fields: [organizationId], references: [id])
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
 
-  serviceTypes ServiceType[]
-  workingHours WorkingHours[]
-  bookings     Booking[]
+  serviceTypes         ServiceType[]
+  workingHours         WorkingHours[]
+  bookings             Booking[]
+  // Las prestaciones de clínica en las que atiende (docs/rubros.md §4.3).
+  serviceTypeResources ServiceTypeResource[]
 
   @@unique([organizationId, id])
   @@index([organizationId, createdAt])
@@ -2069,7 +2072,9 @@ model ServiceType {
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
   resource     Resource     @relation(fields: [organizationId, resourceId], references: [organizationId, id])
 
-  bookings Booking[]
+  bookings             Booking[]
+  // Los profesionales de una prestación de clínica (docs/rubros.md §4.3).
+  serviceTypeResources ServiceTypeResource[]
 
   // AHORA SÍ: Booking lo referencia con una FK compuesta, así que este UNIQUE
   // dejó de ser un objeto sin uso y pasó a ser el que la habilita. Es el tercero
@@ -4787,4 +4792,40 @@ model ClinicBranchSettings {
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
 
   @@map("clinic_branch_settings")
+}
+
+// ---------------------------------------------------------------------------
+// ServiceTypeResource — los profesionales de una prestación de clínica
+// (docs/rubros.md §4.3, R5). Una prestación ("Limpieza facial") la pueden
+// hacer varios profesionales, y el paciente puede elegir uno o "el primero
+// libre".
+//
+// ServiceType.resourceId NO se toca (§1.3): sigue NOT NULL y en una clínica es
+// el "profesional principal". Los profesionales de una prestación son el
+// principal MÁS las filas de esta tabla (src/clinicas/repositories/
+// serviceTypeResource.repository.ts), así que nada depende de que el principal
+// tenga su fila. Solo se escriben filas para prestaciones de clínicas: la
+// agenda de una automotora no lee esta tabla, salvo para ACEPTAR un recurso
+// que no es el del servicio, y una automotora no tiene filas.
+//
+// FKs COMPUESTAS por organización a service_types y resources (C-3): el
+// profesional y la prestación tienen que ser de la misma organización. Que
+// sean de la misma sucursal lo valida el service, igual que ServiceType con su
+// Resource (no se expresa en una FK sin denormalizar).
+// ---------------------------------------------------------------------------
+model ServiceTypeResource {
+  organizationId String   @map("organization_id") @db.Uuid
+  serviceTypeId  String   @map("service_type_id") @db.Uuid
+  resourceId     String   @map("resource_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  serviceType  ServiceType  @relation(fields: [organizationId, serviceTypeId], references: [organizationId, id])
+  resource     Resource     @relation(fields: [organizationId, resourceId], references: [organizationId, id])
+
+  @@id([serviceTypeId, resourceId])
+  // "Las prestaciones de este profesional" y el lado referenciante de la FK a
+  // resources.
+  @@index([organizationId, resourceId])
+  @@map("service_type_resources")
 }

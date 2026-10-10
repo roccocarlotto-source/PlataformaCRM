@@ -5,6 +5,7 @@ import {
   MODULOS,
   PROCESO_DE_VENTA_FIJO,
   RUTAS_POR_MODULO,
+  SOLO_CLINICA,
   modulosDe,
   motivoDeExclusion,
   type Modulo,
@@ -102,11 +103,17 @@ async function barrer(
 
 const TOTAL_DEL_CATALOGO = MODULOS.reduce((n, m) => n + RUTAS_POR_MODULO[m].length, 0);
 
-test("COMPLETA: TODAS las rutas del catálogo, ninguna da MODULO_NO_INCLUIDO", async () => {
+test("COMPLETA: TODAS las rutas del catálogo; ninguna da MODULO_NO_INCLUIDO salvo las de un módulo solo de clínica", async () => {
   const resultado = await barrer(completa);
   assert.equal(resultado.length, TOTAL_DEL_CATALOGO, "el barrido recorre el catálogo entero");
   assert.deepEqual(
-    resultado.filter((r) => r.bloqueada).map((r) => r.ruta),
+    resultado.filter((r) => r.bloqueada && !SOLO_CLINICA.has(r.modulo)).map((r) => r.ruta),
+    [],
+  );
+  // R5: las de agenda_clinica no son de una automotora (motivo RUBRO, que ya
+  // afirma barrer con motivoDeExclusion).
+  assert.deepEqual(
+    resultado.filter((r) => SOLO_CLINICA.has(r.modulo) && !r.bloqueada).map((r) => r.ruta),
     [],
   );
 });
@@ -189,7 +196,11 @@ test("/api/me devuelve la edición y los módulos, en las dos ediciones", async 
   assert.equal(meCompleta.status, 200);
   assert.equal(meCompleta.json.edition, "COMPLETA");
   assert.equal(meCompleta.json.industry, "AUTOMOTORA");
-  assert.deepEqual(meCompleta.json.modulos, [...MODULOS]);
+  // Todos los del catálogo menos los solo de clínica (R5).
+  assert.deepEqual(
+    meCompleta.json.modulos,
+    MODULOS.filter((m) => !SOLO_CLINICA.has(m)),
+  );
 
   const meEsencial = await pedir(esencial, "GET", "/api/me");
   assert.equal(meEsencial.json.edition, "ESENCIAL");

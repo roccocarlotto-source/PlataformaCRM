@@ -21,7 +21,7 @@ const idParamSchema = z.string().uuid("id inválido");
 // proceso.
 const FORMA_ISO_CON_ZONA = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
-const instanteSchema = z
+export const instanteSchema = z
   .string()
   .regex(
     FORMA_ISO_CON_ZONA,

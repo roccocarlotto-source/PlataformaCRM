@@ -152,6 +152,12 @@ import {
   leerConfiguracionDeClinica,
   leerConfiguracionDeSede,
 } from "../clinicas/repositories/clinicSettings.repository";
+import {
+  contarTurnosPorRecurso,
+  esProfesionalDeLaPrestacion,
+  profesionalesDeLasPrestaciones,
+  reemplazarProfesionales,
+} from "../clinicas/repositories/serviceTypeResource.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -601,6 +607,8 @@ after(async () => {
   // Resource, ServiceType y Contact; WorkingHours y GoogleCalendarConnection
   // de Resource/Branch; ServiceType de Branch y Resource.
   await prisma.booking.deleteMany({ where: { organizationId: ambas } });
+  // R5: los profesionales de una prestación cuelgan de ServiceType y Resource.
+  await prisma.serviceTypeResource.deleteMany({ where: { organizationId: ambas } });
   await prisma.workingHours.deleteMany({ where: { organizationId: ambas } });
   await prisma.googleCalendarChannel.deleteMany({ where: { organizationId: ambas } });
   await prisma.googleCalendarConnection.deleteMany({ where: { organizationId: ambas } });
@@ -2646,6 +2654,48 @@ test("H-01 ClinicBranchSettings: X no lee la configuración de la sede de Y ni p
   );
   assert.equal(await prisma.clinicBranchSettings.count({ where: { branchId: otraSedeY.id } }), 0);
   assert.deepEqual(await leerY.sede(), antes);
+});
+
+// R5 (docs/rubros.md §4.3): los profesionales de una prestación. Con la
+// organización de A: las lecturas no ven la prestación ni los profesionales
+// de B, reemplazar no borra las filas de B y la base rechaza una fila de A
+// sobre la prestación de B (FK compuesta).
+test("H-01 ServiceTypeResource: A no lee, no borra ni crea profesionales en la prestación de B", async () => {
+  const otroDeB = await prisma.resource.create({
+    data: {
+      organizationId: fx.orgB.id,
+      branchId: fx.branchB.id,
+      name: "H-01 profesional de B",
+      type: "PERSON",
+    },
+  });
+  await prisma.serviceTypeResource.create({
+    data: { organizationId: fx.orgB.id, serviceTypeId: fx.serviceTypeB.id, resourceId: otroDeB.id },
+  });
+  const deB = { id: fx.serviceTypeB.id, resourceId: fx.resourceB.id };
+
+  assert.deepEqual(
+    (await profesionalesDeLasPrestaciones(fx.orgA.id, [deB])).get(deB.id),
+    [],
+    "con A no se ven los profesionales de B",
+  );
+  assert.equal(await esProfesionalDeLaPrestacion(fx.orgA.id, deB, otroDeB.id), false);
+  assert.equal(
+    (await contarTurnosPorRecurso(fx.orgA.id, [fx.resourceB.id], new Date(0), new Date())).size,
+    0,
+  );
+
+  await assertViolaFk(
+    // Un par que todavía no existe: el ya existente lo saltaría skipDuplicates
+    // (tampoco insertaría nada), y el test no llegaría a la FK.
+    () => reemplazarProfesionales(fx.orgA.id, deB.id, [fx.resourceB.id], prisma),
+    "ServiceTypeResource de A sobre la prestación de B",
+  );
+  assert.equal(
+    await prisma.serviceTypeResource.count({ where: { serviceTypeId: deB.id } }),
+    1,
+    "la fila de B sigue",
+  );
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {
