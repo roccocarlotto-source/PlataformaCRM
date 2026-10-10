@@ -3,6 +3,7 @@ import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { findActiveAutomationsByTriggerForSweep } from "../repositories/automation.repository";
 import { findStalledInquiries } from "../repositories/inquiryFollowUp.repository";
+import { findEdicionYRubro } from "../repositories/organization.repository";
 import {
   emitOutboxEvent,
   findPayloadIdsWithEventSince,
@@ -111,10 +112,15 @@ export async function barrerConsultasSinAvance(
   for (const [organizationId, umbral] of umbralesPorOrganizacion(reglas)) {
     resumen.organizaciones++;
     try {
+      // R15: en una clínica, sin los contactos con un turno que frena el
+      // seguimiento (docs/rubros.md §9.1). Una automotora, la consulta de siempre.
+      const { industry } = await findEdicionYRubro(organizationId);
       const estancadas = await findStalledInquiries(
         organizationId,
         limiteDeSilencio(ahora, umbral.dias),
         umbral.maxSeguimientos,
+        undefined,
+        industry === "CLINICA" ? { ahora, dias: umbral.dias } : undefined,
       );
       if (estancadas.length === 0) {
         continue;

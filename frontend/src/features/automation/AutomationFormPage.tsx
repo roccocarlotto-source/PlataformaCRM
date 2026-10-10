@@ -1,3 +1,4 @@
+import { useAuth } from "../../auth/AuthContext";
 import { useModulo } from "../../auth/useModulo";
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -85,7 +86,10 @@ const EMPTY_FORM: AutomationFormValues = {
 // plantilla que ya tiene en Meta, y si no tiene ninguna, con el inicial. Así,
 // guardarla sin tocar el mensaje manda exactamente lo aprobado y no pide otra
 // aprobación.
-function conMensajeDeLaPlantilla(automation: Automation): Record<string, unknown> {
+function conMensajeDeLaPlantilla(
+  automation: Automation,
+  esClinica: boolean,
+): Record<string, unknown> {
   const config = automation.actionConfig;
   if (!accionConMensajeDeWhatsapp(automation.actionType)) return config;
   const approval = automation.whatsappApproval;
@@ -96,11 +100,11 @@ function conMensajeDeLaPlantilla(automation: Automation): Record<string, unknown
     messageText:
       config.messageText ??
       approval?.bodyText ??
-      textoInicial(automation.actionType, String(whatsappFormat)),
+      textoInicial(automation.actionType, String(whatsappFormat), esClinica),
   };
 }
 
-function toFormValues(automation: Automation): AutomationFormValues {
+function toFormValues(automation: Automation, esClinica: boolean): AutomationFormValues {
   const config = CONFIG_DE_ACCION[automation.actionType];
   const configDeTrigger = CONFIG_DE_TRIGGER[automation.triggerType];
   return {
@@ -115,7 +119,7 @@ function toFormValues(automation: Automation): AutomationFormValues {
     // Una acción guardada que este catálogo todavía no conoce no tiene cómo
     // dibujar sus campos: el borrador queda vacío y validar() frena el submit
     // con un mensaje, en vez de mandar una config a medias.
-    actionConfig: config ? config.draftDesde(conMensajeDeLaPlantilla(automation)) : {},
+    actionConfig: config ? config.draftDesde(conMensajeDeLaPlantilla(automation, esClinica)) : {},
     isActive: automation.isActive,
   };
 }
@@ -141,7 +145,7 @@ function opcionesCon(options: SelectOption<string>[], value: string): SelectOpti
 // superar los 365 días"), que nombra el campo con su nombre técnico. El
 // mensaje de acá nombra lo que se ve en la pantalla. El backend sigue siendo
 // quien decide: esto se adelanta, no lo reemplaza.
-function validar(values: AutomationFormValues): string | null {
+function validar(values: AutomationFormValues, esClinica: boolean): string | null {
   // Un trigger que este espejo no conoce no se valida acá: su config viaja
   // tal como está guardada (ver handleSubmit) y la valida el backend.
   const configDeTrigger = CONFIG_DE_TRIGGER[values.triggerType];
@@ -153,7 +157,7 @@ function validar(values: AutomationFormValues): string | null {
   if (!config) {
     return `La acción "${values.actionType}" no se puede configurar desde esta pantalla todavía.`;
   }
-  return config.validar(values.actionConfig);
+  return config.validar(values.actionConfig, esClinica);
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +483,10 @@ export function AutomationFormPage() {
   // Ediciones (docs/ediciones.md §8): en ESENCIAL la venta se nombra
   // "Venta registrada". En COMPLETA, los rótulos de siempre.
   const conProcesos = useModulo("procesos_de_venta");
+  // R15 (docs/rubros.md §9.1): el seguimiento de consultas de una clínica
+  // lleva {prestacion} y su propio texto inicial.
+  const { me } = useAuth();
+  const esClinica = me?.industry === "CLINICA";
 
   const automationQuery = useAutomation(isEditMode ? id : undefined);
   const createAutomationMutation = useCreateAutomation();
@@ -486,7 +494,7 @@ export function AutomationFormPage() {
 
   const [values, setValues] = useFormDraft<AutomationFormValues>(
     automationQuery.data?.id,
-    automationQuery.data ? toFormValues(automationQuery.data) : EMPTY_FORM,
+    automationQuery.data ? toFormValues(automationQuery.data, esClinica) : EMPTY_FORM,
   );
   const location = useLocation();
   // Un alta cuyo mensaje no llegó a Meta vuelve a esta pantalla, ya en
@@ -502,7 +510,7 @@ export function AutomationFormPage() {
     event.preventDefault();
     setError(null);
 
-    const errorDeValidacion = validar(values);
+    const errorDeValidacion = validar(values, esClinica);
     if (errorDeValidacion !== null) {
       setError(errorDeValidacion);
       return;
@@ -640,7 +648,7 @@ export function AutomationFormPage() {
                     ? {}
                     : {
                         actionType,
-                        actionConfig: configDeAccion ? configDeAccion.draftVacio() : {},
+                        actionConfig: configDeAccion ? configDeAccion.draftVacio(esClinica) : {},
                       }),
                 });
               }}
@@ -671,7 +679,7 @@ export function AutomationFormPage() {
                 setValues({
                   ...values,
                   actionType,
-                  actionConfig: config ? config.draftVacio() : {},
+                  actionConfig: config ? config.draftVacio(esClinica) : {},
                 });
               }}
               required
@@ -693,6 +701,7 @@ export function AutomationFormPage() {
             disabled={isSubmitting}
             approval={automationQuery.data?.whatsappApproval}
             automationId={isEditMode ? id : undefined}
+            esClinica={esClinica}
           />
         ) : null}
 

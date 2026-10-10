@@ -27,6 +27,13 @@ import {
   validarTextoDePlantilla,
 } from "../../utils/whatsappTemplateText";
 import { fechaDeVencimiento } from "./createFollowUpActivity";
+import { findEdicionYRubro } from "../../repositories/organization.repository";
+import {
+  MOTIVO_TURNO_DEL_PACIENTE,
+  prestacionParaElMensaje,
+  turnoFrenaElSeguimiento,
+} from "../../clinicas/seguimientoDeConsultas";
+import { VARIABLES_DE_CONSULTA_DE_CLINICA } from "../../utils/whatsappTemplateText";
 
 // ---------------------------------------------------------------------------
 // Acción `inquiry.follow_up` (ítem 185 de docs/frontend-cambios-pendientes
@@ -60,25 +67,31 @@ export const ACTION_INQUIRY_FOLLOW_UP = "inquiry.follow_up";
 export const TEXTO_POR_DEFECTO =
   "¡{saludo}! Te escribimos por tu consulta sobre {vehiculo}. ¿Seguís interesado? Si querés, te ayudamos a coordinar una visita o un test drive.";
 
-export const configDeSeguimientoDeConsultaSchema = z
-  .object({
-    messageText: z
-      .string({
-        required_error: "messageText es requerido",
-        invalid_type_error: "messageText debe ser un texto",
-      })
-      .trim()
-      .min(1, "messageText es requerido")
-      .max(LARGO_MAXIMO_DEL_CUERPO * 2, "messageText es demasiado largo"),
-  })
-  .superRefine((config, ctx) => {
-    const problema = validarTextoDePlantilla(config.messageText, {
-      variables: VARIABLES_DE_CONSULTA,
+function configDeSeguimiento(variables: typeof VARIABLES_DE_CONSULTA) {
+  return z
+    .object({
+      messageText: z
+        .string({
+          required_error: "messageText es requerido",
+          invalid_type_error: "messageText debe ser un texto",
+        })
+        .trim()
+        .min(1, "messageText es requerido")
+        .max(LARGO_MAXIMO_DEL_CUERPO * 2, "messageText es demasiado largo"),
+    })
+    .superRefine((config, ctx) => {
+      const problema = validarTextoDePlantilla(config.messageText, { variables });
+      if (problema) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["messageText"], message: problema });
+      }
     });
-    if (problema) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["messageText"], message: problema });
-    }
-  });
+}
+
+export const configDeSeguimientoDeConsultaSchema = configDeSeguimiento(VARIABLES_DE_CONSULTA);
+// R15 (docs/rubros.md §9.1): en una clínica, {prestacion} en lugar de {vehiculo}.
+export const configDeSeguimientoDeConsultaDeClinicaSchema = configDeSeguimiento(
+  VARIABLES_DE_CONSULTA_DE_CLINICA,
+);
 
 // Lo que emite el barrido (inquiryStalledWorker.ts). Se valida acá, en el
 // consumidor, como el payload de las otras acciones.
@@ -153,12 +166,14 @@ export function tareaDeSeguimiento(
   mensajes: MensajeDelCliente[],
   lastInboundAt: Date,
   ahora: Date,
+  // R15: en una clínica, la prestación. Sin pasarlo, el vehículo de siempre.
+  interes: string = vehiculoParaElMensaje(contacto),
 ): { subject: string; body: string } {
   const nombre = nombreUsableDelContacto(contacto) ?? "consulta sin identificar";
   const dias = diasSin(lastInboundAt, ahora);
   const lineas = [
     `Consultó por ${NOMBRE_DEL_CANAL[canal]} y hace ${String(dias)} ${dias === 1 ? "día" : "días"} que no responde.`,
-    `Le interesa: ${vehiculoParaElMensaje(contacto)}.`,
+    `Le interesa: ${interes}.`,
   ];
   const ultimos = mensajes.slice(-MENSAJES_EN_EL_RESUMEN);
   if (ultimos.length > 0) {
@@ -224,6 +239,15 @@ export interface DependenciasDelSeguimientoDeConsulta {
   agendar: (data: AgendarInquiryFollowUpData) => Promise<boolean>;
   // La fila SENT y la tarea, atómicas. false si ya había una.
   agendarYCrearTarea: (data: AgendarInquiryFollowUpData, tarea: TareaACrear) => Promise<boolean>;
+  // R15: si la organización es una clínica, y si un turno del contacto frena
+  // el seguimiento (docs/rubros.md §9.1). En una automotora no se lee nada.
+  esClinica: (organizationId: string) => Promise<boolean>;
+  turnoFrena: (
+    organizationId: string,
+    automationId: string,
+    contactId: string,
+    ahora: Date,
+  ) => Promise<boolean>;
   ahora: () => Date;
 }
 
@@ -298,6 +322,10 @@ const dependenciasReales: DependenciasDelSeguimientoDeConsulta = {
       );
       return true;
     }),
+  esClinica: (organizationId) =>
+    findEdicionYRubro(organizationId).then((o) => o.industry === "CLINICA"),
+  turnoFrena: (organizationId, automationId, contactId, ahora) =>
+    turnoFrenaElSeguimiento(organizationId, automationId, contactId, ahora, true),
   ahora: () => new Date(),
 };
 
@@ -307,6 +335,7 @@ export function crearAccionSeguimientoDeConsulta(
   return {
     actionType: ACTION_INQUIRY_FOLLOW_UP,
     schema: configDeSeguimientoDeConsultaSchema,
+    schemaPorRubro: { CLINICA: configDeSeguimientoDeConsultaDeClinicaSchema },
     triggers: [TRIGGER_CONTACT_INQUIRY_STALLED],
     async handler({ organizationId, automationId, payload, outboxEventId }) {
       const consulta = payloadDeConsultaSchema.parse(payload);
@@ -338,6 +367,15 @@ export function crearAccionSeguimientoDeConsulta(
           contexto,
           "Seguimiento de consulta: el cliente volvió a escribir; no hace falta",
         );
+        return;
+      }
+
+      const clinica = await deps.esClinica(organizationId);
+      if (
+        clinica &&
+        (await deps.turnoFrena(organizationId, automationId, consulta.contactId, deps.ahora()))
+      ) {
+        logger.info(contexto, `Seguimiento de consulta: ${MOTIVO_TURNO_DEL_PACIENTE}`);
         return;
       }
 
@@ -390,6 +428,7 @@ export function crearAccionSeguimientoDeConsulta(
         mensajes,
         consulta.lastInboundAt,
         ahora,
+        clinica ? prestacionParaElMensaje(contacto) : undefined,
       );
       const creada = await deps.agendarYCrearTarea(
         { ...base, status: InquiryFollowUpStatus.SENT, sentAt: ahora },

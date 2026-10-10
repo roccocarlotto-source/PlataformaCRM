@@ -265,6 +265,9 @@ function depsDeEnvio(e: Montado, opciones: { cerradaHasta?: Date; ahora?: Date }
     generarTexto: async () => "¡Hola! Vi que preguntaste por la Hilux. ¿Seguís interesado?",
     // D9: la decisión real, contra la base (el agente de la conversación).
     agenteRespondeSolo: depsDelSeguimientoDeConsultaReales.agenteRespondeSolo,
+    // R15: los reales (una automotora: nunca frena por turnos).
+    esClinica: depsDelSeguimientoDeConsultaReales.esClinica,
+    turnoFrena: depsDelSeguimientoDeConsultaReales.turnoFrena,
     ahora: () => opciones.ahora ?? AHORA,
   };
   return { deps, envios };

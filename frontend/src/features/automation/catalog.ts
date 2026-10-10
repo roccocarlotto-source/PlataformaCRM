@@ -1,7 +1,13 @@
 import type { BadgeVariant } from "../../design-system/Badge";
 import type { SelectOption } from "../../design-system/Select";
 import type { WhatsappApproval, WhatsappFormat } from "./types";
-import { TOKEN_LINK, TOKEN_NOMBRE, TOKEN_SALUDO, TOKEN_VEHICULO } from "./whatsappPreview";
+import {
+  TOKEN_LINK,
+  TOKEN_NOMBRE,
+  TOKEN_PRESTACION,
+  TOKEN_SALUDO,
+  TOKEN_VEHICULO,
+} from "./whatsappPreview";
 
 // ---------------------------------------------------------------------------
 // Catálogo de triggers y acciones del motor de automatizaciones, del lado del
@@ -168,15 +174,16 @@ export function accionesParaTrigger(triggerType: string): SelectOption<string>[]
 export type ConfigDraft = Record<string, string>;
 
 export interface ConfigDeAccion {
-  // El borrador de una regla nueva con esta acción.
-  draftVacio: () => ConfigDraft;
+  // El borrador de una regla nueva con esta acción. `esClinica` (R15): el
+  // seguimiento de consultas de una clínica arranca con su propio texto.
+  draftVacio: (esClinica?: boolean) => ConfigDraft;
   // El borrador a partir del actionConfig que devolvió el backend.
   draftDesde: (config: Record<string, unknown>) => ConfigDraft;
   // El error de validación del cliente, o null si puede viajar. Duplica a
   // propósito lo que el backend ya valida: no para reemplazarlo —quien manda
   // sigue siendo el 400— sino para que el rango se vea ANTES de mandar, con
   // el mensaje en el idioma de la pantalla.
-  validar: (draft: ConfigDraft) => string | null;
+  validar: (draft: ConfigDraft, esClinica?: boolean) => string | null;
   // El actionConfig tal como lo espera el schema de esa acción en el backend.
   aPayload: (draft: ConfigDraft) => Record<string, unknown>;
 }
@@ -397,8 +404,15 @@ const TEXTO_INICIAL: Record<string, { conLink: string; sinLink: string }> = {
 export const TEXTO_INICIAL_DE_CONSULTA =
   "¡{saludo}! Te escribimos por tu consulta sobre {vehiculo}. ¿Seguís interesado? Si querés, te ayudamos a coordinar una visita o un test drive.";
 
-export function textoInicial(actionType: string, formato: string): string {
-  if (actionType === ACTION_INQUIRY_FOLLOW_UP) return TEXTO_INICIAL_DE_CONSULTA;
+// R15 (docs/rubros.md §9.1): el de una clínica, espejo de
+// TEXTO_POR_DEFECTO_DE_CLINICA de src/clinicas/seguimientoDeConsultas.ts.
+export const TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA =
+  "¡{saludo}! Te escribimos por tu consulta sobre {prestacion}. ¿Querés que te ayudemos a coordinar un turno?";
+
+export function textoInicial(actionType: string, formato: string, esClinica = false): string {
+  if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
+    return esClinica ? TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA : TEXTO_INICIAL_DE_CONSULTA;
+  }
   const textos = TEXTO_INICIAL[actionType];
   if (!textos) return "";
   return formatoLlevaLink(formato) ? textos.conLink : textos.sinLink;
@@ -424,21 +438,34 @@ export interface MensajeDeLaAccion {
   variables: VariableDelMensaje[];
 }
 
-export function mensajeDeLaAccion(actionType: string, formato: string): MensajeDeLaAccion {
+export function mensajeDeLaAccion(
+  actionType: string,
+  formato: string,
+  esClinica = false,
+): MensajeDeLaAccion {
   if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
     return {
       conFormato: false,
       variables: [
         {
           token: TOKEN_SALUDO,
-          ayuda: "el saludo con el nombre del cliente («Hola Ana»), o «Hola» a secas si no lo dio",
+          ayuda: esClinica
+            ? "el saludo con el nombre del paciente («Hola Ana»), o «Hola» a secas si no lo dio"
+            : "el saludo con el nombre del cliente («Hola Ana»), o «Hola» a secas si no lo dio",
           obligatoria: true,
         },
-        {
-          token: TOKEN_VEHICULO,
-          ayuda: "el vehículo que consultó, o «el vehículo que consultaste» si no se sabe",
-          obligatoria: false,
-        },
+        // R15: en una clínica, la prestación en lugar del vehículo.
+        esClinica
+          ? {
+              token: TOKEN_PRESTACION,
+              ayuda: "la prestación que consultó, o «lo que consultaste» si no se sabe",
+              obligatoria: false,
+            }
+          : {
+              token: TOKEN_VEHICULO,
+              ayuda: "el vehículo que consultó, o «el vehículo que consultaste» si no se sabe",
+              obligatoria: false,
+            },
       ],
     };
   }
@@ -493,29 +520,35 @@ export function validarMensaje(draft: ConfigDraft): string | null {
 // {vehiculo} a lo sumo una, en ese orden, y ninguna otra variable. El resto
 // de las reglas de Meta (no empezar ni terminar con una variable, el largo)
 // las valida el backend con su 400.
-export function validarMensajeDeConsulta(draft: ConfigDraft): string | null {
+// R15: en una clínica la segunda variable es {prestacion} y no {vehiculo}.
+export function validarMensajeDeConsulta(draft: ConfigDraft, esClinica = false): string | null {
   const texto = (draft.messageText ?? "").trim();
+  const interes = esClinica ? TOKEN_PRESTACION : TOKEN_VEHICULO;
+  const ajeno = esClinica ? TOKEN_VEHICULO : TOKEN_PRESTACION;
   if (texto === "") return "Escribí el texto del mensaje de WhatsApp.";
   if (contar(texto, TOKEN_SALUDO) !== 1) {
-    return `El mensaje tiene que incluir ${TOKEN_SALUDO} una vez: ahí va el saludo con el nombre del cliente, o «Hola» si no lo dio.`;
+    return `El mensaje tiene que incluir ${TOKEN_SALUDO} una vez: ahí va el saludo con el nombre del ${esClinica ? "paciente" : "cliente"}, o «Hola» si no lo dio.`;
   }
-  if (contar(texto, TOKEN_VEHICULO) > 1) {
-    return `El mensaje no puede incluir ${TOKEN_VEHICULO} más de una vez.`;
-  }
-  if (contar(texto, TOKEN_NOMBRE) > 0 || contar(texto, TOKEN_LINK) > 0) {
-    return `En este mensaje solo valen ${TOKEN_SALUDO} y ${TOKEN_VEHICULO}.`;
+  if (contar(texto, interes) > 1) {
+    return `El mensaje no puede incluir ${interes} más de una vez.`;
   }
   if (
-    texto.includes(TOKEN_VEHICULO) &&
-    texto.indexOf(TOKEN_SALUDO) > texto.indexOf(TOKEN_VEHICULO)
+    contar(texto, TOKEN_NOMBRE) > 0 ||
+    contar(texto, TOKEN_LINK) > 0 ||
+    contar(texto, ajeno) > 0
   ) {
-    return `${TOKEN_SALUDO} tiene que ir antes que ${TOKEN_VEHICULO}.`;
+    return `En este mensaje solo valen ${TOKEN_SALUDO} y ${interes}.`;
+  }
+  if (texto.includes(interes) && texto.indexOf(TOKEN_SALUDO) > texto.indexOf(interes)) {
+    return `${TOKEN_SALUDO} tiene que ir antes que ${interes}.`;
   }
   return null;
 }
 
 const configDeSeguimientoDeConsulta: ConfigDeAccion = {
-  draftVacio: () => ({ messageText: TEXTO_INICIAL_DE_CONSULTA }),
+  draftVacio: (esClinica = false) => ({
+    messageText: esClinica ? TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA : TEXTO_INICIAL_DE_CONSULTA,
+  }),
   draftDesde: (config) => ({
     messageText: typeof config.messageText === "string" ? config.messageText : "",
   }),

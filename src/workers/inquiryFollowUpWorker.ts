@@ -36,7 +36,18 @@ import {
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
 import { esNombreProvisorio, tieneLetras } from "../utils/nombreProvisorio";
 import { finDeLaVentanaDeWhatsapp, ventanaDeWhatsappAbierta } from "../utils/ventanaDeWhatsapp";
-import { TOKEN_SALUDO, TOKEN_VEHICULO, parametrosDePlantilla } from "../utils/whatsappTemplateText";
+import {
+  TOKEN_PRESTACION,
+  TOKEN_SALUDO,
+  TOKEN_VEHICULO,
+  parametrosDePlantilla,
+} from "../utils/whatsappTemplateText";
+import { findEdicionYRubro } from "../repositories/organization.repository";
+import {
+  MOTIVO_TURNO_DEL_PACIENTE,
+  prestacionParaElMensaje,
+  turnoFrenaElSeguimiento,
+} from "../clinicas/seguimientoDeConsultas";
 import {
   ErrorPermanenteDelSeguimiento,
   clasificarFallo as clasificarFalloDelSeguimientoQr,
@@ -89,6 +100,15 @@ export interface DepsDelSeguimientoDeConsulta {
   // haya bajado la participación de la IA.
   agenteRespondeSolo: (organizationId: string, conversationId: string) => Promise<boolean>;
   registrarEnConversacion?: (envio: EnvioDePlantilla) => Promise<void>;
+  // R15 (docs/rubros.md §9.1): si la organización es una clínica (siempre la
+  // plantilla, D7) y si un turno del contacto frena el seguimiento.
+  esClinica: (organizationId: string) => Promise<boolean>;
+  turnoFrena: (
+    organizationId: string,
+    automationId: string,
+    contactId: string,
+    ahora: Date,
+  ) => Promise<boolean>;
   ahora: () => Date;
 }
 
@@ -125,6 +145,10 @@ export const depsDelSeguimientoDeConsultaReales: DepsDelSeguimientoDeConsulta = 
       nivelEfectivo(agent, organization.edition) === "AUTONOMA"
     );
   },
+  esClinica: (organizationId) =>
+    findEdicionYRubro(organizationId).then((o) => o.industry === "CLINICA"),
+  turnoFrena: (organizationId, automationId, contactId, ahora) =>
+    turnoFrenaElSeguimiento(organizationId, automationId, contactId, ahora, true),
   ahora: () => new Date(),
 };
 
@@ -161,7 +185,8 @@ export function saludoParaElCliente(contacto: {
 // Pura: por qué el envío ya no corresponde, o null.
 export function motivoDeCancelacion(
   fila: Pick<InquiryFollowUpParaEnviar, "automation" | "contact" | "branch">,
-  estado: { respondio: boolean; oportunidadAbierta: boolean },
+  // turnoDelPaciente: R15, solo en una clínica.
+  estado: { respondio: boolean; oportunidadAbierta: boolean; turnoDelPaciente?: boolean },
 ): string | null {
   if (fila.automation.deletedAt !== null) {
     return "Se borró la automatización que lo agendó";
@@ -184,6 +209,9 @@ export function motivoDeCancelacion(
   if (estado.oportunidadAbierta) {
     return "El contacto ya tiene una oportunidad abierta";
   }
+  if (estado.turnoDelPaciente === true) {
+    return MOTIVO_TURNO_DEL_PACIENTE;
+  }
   return null;
 }
 
@@ -203,9 +231,21 @@ export async function procesarSeguimientoDeConsulta(
     throw new ErrorPermanenteDelSeguimiento("La fila del seguimiento agendado ya no existe");
   }
 
+  const clinica = await deps.esClinica(fila.organizationId);
   const motivo = motivoDeCancelacion(fila, {
     respondio: await deps.respondioDespues(fila.organizationId, fila.contactId, fila.lastInboundAt),
     oportunidadAbierta: await deps.hayOportunidadAbierta(fila.contactId, fila.organizationId),
+    // R15: solo una clínica lee los turnos.
+    ...(clinica
+      ? {
+          turnoDelPaciente: await deps.turnoFrena(
+            fila.organizationId,
+            fila.automationId,
+            fila.contactId,
+            deps.ahora(),
+          ),
+        }
+      : {}),
   });
   if (motivo !== null) {
     return { resultado: "CANCELADO", motivo };
@@ -237,7 +277,9 @@ export async function procesarSeguimientoDeConsulta(
 
   // Dentro de la ventana, texto libre del agente; fuera, la plantilla. El texto
   // libre, además, solo con un agente que responde solo (D9).
+  // R15 (D7): en una clínica, siempre la plantilla, también en AUTONOMA.
   if (
+    !clinica &&
     ventanaDeWhatsappAbierta(finDeLaVentanaDeWhatsapp(fila.lastInboundAt), ahora) &&
     (await deps.agenteRespondeSolo(fila.organizationId, fila.conversationId))
   ) {
@@ -268,6 +310,8 @@ export async function procesarSeguimientoDeConsulta(
   const parametros = parametrosDePlantilla(plantilla.bodyText, {
     [TOKEN_SALUDO]: saludoParaElCliente(fila.contact),
     [TOKEN_VEHICULO]: vehiculoParaElMensaje(fila.contact),
+    // R15: solo lo lleva la plantilla de una clínica.
+    [TOKEN_PRESTACION]: prestacionParaElMensaje(fila.contact),
   });
   const { wamid } = await deps.sendTemplate({
     phoneNumberId,

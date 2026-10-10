@@ -1,4 +1,10 @@
-import { Prisma, WhatsappTemplateHeaderFormat, WhatsappTemplateStatus } from "@prisma/client";
+import {
+  Prisma,
+  WhatsappTemplateHeaderFormat,
+  WhatsappTemplateStatus,
+  type OrganizationIndustry,
+} from "@prisma/client";
+import { findEdicionYRubro } from "../repositories/organization.repository";
 import { randomUUID } from "node:crypto";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
@@ -21,6 +27,7 @@ import { contenidoDelQr, qrPng, type TipoDeQr } from "../utils/qrImage";
 import {
   TOKEN_LINK,
   VARIABLES_DE_CONSULTA,
+  VARIABLES_DE_CONSULTA_DE_CLINICA,
   ejemplosDelCuerpo,
   formatoLlevaImagen,
   formatoLlevaLink,
@@ -92,6 +99,9 @@ export interface DepsDePlantillas {
   uploadSample: UploadTemplateSample;
   // El nombre único de una plantilla nueva. Inyectable para los tests.
   nombreNuevo?: (actionType: string, automationId: string) => string;
+  // R15: el rubro de la organización (en una clínica, el seguimiento de
+  // consultas lleva {prestacion}). Sin pasarlo, AUTOMOTORA: lo de siempre.
+  rubroDe?: (organizationId: string) => Promise<OrganizationIndustry>;
 }
 
 export const depsDePlantillasReales: DepsDePlantillas = {
@@ -102,6 +112,7 @@ export const depsDePlantillasReales: DepsDePlantillas = {
   delete: deleteWhatsappTemplateReal,
   getStatus: getWhatsappTemplateStatusReal,
   uploadSample: uploadTemplateSampleReal,
+  rubroDe: (organizationId) => findEdicionYRubro(organizationId).then((o) => o.industry),
 };
 
 const MENSAJE_SIN_CONEXION =
@@ -251,8 +262,11 @@ export const ACCIONES_CON_PLANTILLA: readonly string[] = [
 export function variablesDeLaAccion(
   actionType: string,
   formato: FormatoDeMensaje,
+  industry: OrganizationIndustry = "AUTOMOTORA",
 ): readonly VariableDePlantilla[] {
-  if (actionType === ACTION_INQUIRY_FOLLOW_UP) return VARIABLES_DE_CONSULTA;
+  if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
+    return industry === "CLINICA" ? VARIABLES_DE_CONSULTA_DE_CLINICA : VARIABLES_DE_CONSULTA;
+  }
   return variablesDeSeguimiento(formatoLlevaLink(formato));
 }
 
@@ -581,7 +595,8 @@ export async function sincronizarPlantillaDeLaRegla(
       // Una regla vieja sin messageText cuyo formato nuevo no admite su texto
       // (pasar a "solo imagen" con un {link} heredado): se dice, no se manda.
       const { formato } = mensajeDeLaRegla(regla.actionConfig);
-      const variables = variablesDeLaAccion(regla.actionType, formato);
+      const industry = deps.rubroDe ? await deps.rubroDe(organizationId) : "AUTOMOTORA";
+      const variables = variablesDeLaAccion(regla.actionType, formato, industry);
       const problema = validarTextoDePlantilla(deseada.bodyText, { variables });
       if (problema) throw new AppError(problema, 400);
 

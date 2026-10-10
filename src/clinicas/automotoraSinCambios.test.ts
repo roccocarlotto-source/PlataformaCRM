@@ -52,6 +52,13 @@ import { crearClienteGoogleCalendar } from "../services/googleCalendar.service";
 import { vocabularioDe } from "../config/vocabulario";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import {
+  ACTION_INQUIRY_FOLLOW_UP,
+  TEXTO_POR_DEFECTO as TEXTO_POR_DEFECTO_DE_CONSULTA,
+  configDeSeguimientoDeConsultaSchema,
+  crearAccionSeguimientoDeConsulta,
+} from "../services/automationActions/inquiryFollowUp";
+import { variablesDeLaAccion } from "../services/whatsappTemplate.service";
 
 // ---------------------------------------------------------------------------
 // Suite "automotora sin cambios" (docs/rubros.md §0.3 y §14.1), unitaria.
@@ -728,4 +735,76 @@ test("R8: la URL de autorización de una automotora con el rubro explícito es l
       "&prompt=consent" +
       "&state=state-firmado-de-prueba",
   );
+});
+
+// ---------------------------------------------------------------------------
+// R15 (docs/rubros.md §9.1): el seguimiento de consultas de una automotora es
+// el de siempre: su texto por defecto, sus variables, su schema, y la acción no
+// lee turnos. El barrido con un test drive agendado está en
+// seguimientoConTurnos.integration-test.ts.
+// ---------------------------------------------------------------------------
+
+test("R15: el seguimiento de consultas de una automotora no cambia", async () => {
+  assert.equal(
+    TEXTO_POR_DEFECTO_DE_CONSULTA,
+    "¡{saludo}! Te escribimos por tu consulta sobre {vehiculo}. ¿Seguís interesado? Si querés, te ayudamos a coordinar una visita o un test drive.",
+  );
+  assert.deepEqual(
+    variablesDeLaAccion(ACTION_INQUIRY_FOLLOW_UP, "LINK").map((v) => v.token),
+    ["{saludo}", "{vehiculo}"],
+  );
+  assert.equal(
+    configDeSeguimientoDeConsultaSchema.safeParse({
+      messageText: "¡{saludo}! Tu consulta sobre {prestacion}. Escribinos.",
+    }).success,
+    false,
+  );
+
+  let turnosLeidos = 0;
+  const agendados: unknown[] = [];
+  const accion = crearAccionSeguimientoDeConsulta({
+    leerContacto: async () => ({
+      id: "c1",
+      firstName: "Martín",
+      lastName: "Pérez",
+      ownerId: "vendedor",
+      deletedAt: null,
+      noInterestAt: null,
+      leadServiceOfInterest: null,
+      vehicleOfInterest: null,
+    }),
+    leerConversacion: async () => ({ status: "ACTIVE", assignedUserId: null }),
+    humanoHabloUltimo: async () => false,
+    hayOportunidadAbierta: async () => false,
+    respondioDespues: async () => false,
+    mensajesDelCliente: async () => [],
+    resolverAsignado: async () => "vendedor",
+    agendar: async (data) => {
+      agendados.push(data);
+      return true;
+    },
+    agendarYCrearTarea: async () => true,
+    esClinica: async () => false,
+    turnoFrena: async () => {
+      turnosLeidos++;
+      return true;
+    },
+    ahora: () => new Date("2026-10-09T15:00:00.000Z"),
+  });
+  await accion.handler({
+    organizationId: "org",
+    automationId: "regla",
+    config: { messageText: TEXTO_POR_DEFECTO_DE_CONSULTA },
+    payload: {
+      contactId: "11111111-1111-4111-8111-111111111111",
+      conversationId: "22222222-2222-4222-8222-222222222222",
+      channel: "WHATSAPP",
+      branchId: "33333333-3333-4333-8333-333333333333",
+      ownerId: null,
+      lastInboundAt: "2026-10-05T15:00:00.000Z",
+    },
+    outboxEventId: "44444444-4444-4444-8444-444444444444",
+  });
+  assert.equal(turnosLeidos, 0, "una automotora no lee turnos");
+  assert.equal(agendados.length, 1, "agenda como siempre");
 });

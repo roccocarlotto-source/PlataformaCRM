@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { OrganizationIndustry, Prisma } from "@prisma/client";
 import {
   countAutomations,
   countOtherActiveAutomationsByTrigger,
@@ -12,6 +12,7 @@ import {
   type SortOrder,
 } from "../repositories/automation.repository";
 import { AppError } from "../utils/AppError";
+import { findEdicionYRubro } from "../repositories/organization.repository";
 import {
   accionAdmiteTrigger,
   registroDeAcciones as registroPorDefecto,
@@ -166,6 +167,7 @@ function validarAccion(
   actionType: string,
   actionConfig: Record<string, unknown>,
   registro: RegistroDeAcciones,
+  industry: OrganizationIndustry,
 ): Record<string, unknown> {
   const accion = registro.obtener(actionType);
   if (!accion) {
@@ -178,7 +180,10 @@ function validarAccion(
     );
   }
 
-  const parsed = accion.schema.safeParse(actionConfig);
+  // R15: el schema del rubro, si la acción tiene uno (en una automotora, el de
+  // siempre).
+  const schema = accion.schemaPorRubro?.[industry] ?? accion.schema;
+  const parsed = schema.safeParse(actionConfig);
   if (!parsed.success) {
     throw new AppError(
       `actionConfig inválido para "${actionType}": ${parsed.error.issues.map((issue) => issue.message).join(", ")}`,
@@ -212,7 +217,8 @@ export async function createAutomation(
 
   assertTriggerConocido(input.triggerType);
   const triggerConfig = validarConfigDeTrigger(input.triggerType, input.triggerConfig ?? {});
-  const actionConfig = validarAccion(input.actionType, input.actionConfig, registro);
+  const { industry } = await findEdicionYRubro(organizationId);
+  const actionConfig = validarAccion(input.actionType, input.actionConfig, registro, industry);
   assertAccionAdmiteTrigger(input.actionType, input.triggerType, registro);
   await assertReglaUnica(organizationId, input.triggerType, input.isActive ?? true);
 
@@ -281,7 +287,8 @@ export async function updateAutomation(
   if (input.actionType !== undefined || configEntrante !== undefined) {
     const actionTypeEfectivo = input.actionType ?? existente.actionType;
     const configEfectivo = configEntrante ?? (existente.actionConfig as Record<string, unknown>);
-    actionConfig = validarAccion(actionTypeEfectivo, configEfectivo, registro);
+    const { industry } = await findEdicionYRubro(organizationId);
+    actionConfig = validarAccion(actionTypeEfectivo, configEfectivo, registro, industry);
   }
 
   if (input.triggerType !== undefined || input.actionType !== undefined) {

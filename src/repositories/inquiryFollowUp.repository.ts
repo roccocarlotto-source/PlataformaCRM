@@ -6,6 +6,7 @@ import {
   type ConversationStatus,
 } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
+import { sinTurnoQueFrene } from "../clinicas/seguimientoDeConsultas";
 import { VENTANA_DE_WHATSAPP_MS } from "../utils/ventanaDeWhatsapp";
 
 // ---------------------------------------------------------------------------
@@ -60,7 +61,13 @@ export async function findStalledInquiries(
   limite: Date,
   maxFollowUps: number,
   db: Db = prisma,
+  // R15 (docs/rubros.md §9.1): solo en una clínica, sin turno CONFIRMED futuro
+  // ni atendido en los últimos `dias`. Sin pasarlo, la consulta de siempre.
+  filtroDeTurnos?: { ahora: Date; dias: number },
 ): Promise<ConsultaEstancada[]> {
+  const turnos = filtroDeTurnos
+    ? sinTurnoQueFrene(filtroDeTurnos.ahora, filtroDeTurnos.dias)
+    : Prisma.empty;
   const filas = await db.$queryRaw<FilaEstancada[]>`
     SELECT c.id AS contact_id,
       c.owner_id,
@@ -113,6 +120,7 @@ export async function findStalledInquiries(
           AND f.status = 'SENT'::"InquiryFollowUpStatus"
           AND f.created_at > m.created_at
       ) < ${maxFollowUps}
+      ${turnos}
     ORDER BY m.created_at ASC, c.id ASC`;
   return filas.map((fila) => ({
     contactId: fila.contact_id,

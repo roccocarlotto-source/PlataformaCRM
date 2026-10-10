@@ -122,6 +122,7 @@ export function MensajeDeWhatsappCard({
   disabled,
   approval,
   automationId,
+  esClinica = false,
 }: {
   actionType: string;
   values: ConfigDraft;
@@ -129,12 +130,14 @@ export function MensajeDeWhatsappCard({
   disabled: boolean;
   approval: WhatsappApproval | null | undefined;
   automationId: string | undefined;
+  // R15: en una clínica, {prestacion} en lugar de {vehiculo}.
+  esClinica?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formato = values.whatsappFormat ?? "LINK";
   // Qué variables lleva este mensaje y si elige formato (ítem 185: el
   // seguimiento de una consulta es solo texto, con {saludo} y {vehiculo}).
-  const mensaje = mensajeDeLaAccion(actionType, formato);
+  const mensaje = mensajeDeLaAccion(actionType, formato, esClinica);
 
   function insertar(token: string) {
     const textarea = textareaRef.current;

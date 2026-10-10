@@ -1095,3 +1095,54 @@ describe("AutomationFormPage — por edición", () => {
     expect(screen.getByLabelText("Evento")).toHaveValue("Oportunidad ganada");
   });
 });
+
+// R15 (docs/rubros.md §9.1): en una clínica, el seguimiento de consultas lleva
+// {prestacion} en lugar de {vehiculo}.
+describe("AutomationFormPage — seguimiento de consultas en una clínica", () => {
+  function reglaDeConsultas(messageText: string) {
+    return http.get(`${baseUrl}/:id`, () =>
+      HttpResponse.json(
+        makeAutomation({
+          name: "Consultas",
+          triggerType: "contact.inquiry_stalled",
+          triggerConfig: { daysSinceLastMessage: 3, maxFollowUps: 1 },
+          actionType: "inquiry.follow_up",
+          actionConfig: { messageText },
+        }),
+      ),
+    );
+  }
+
+  it("una clínica ofrece {prestacion} y guarda su texto", async () => {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, industry: "CLINICA" } });
+    const bodies: unknown[] = [];
+    server.use(
+      reglaDeConsultas(
+        "¡{saludo}! Te escribimos por tu consulta sobre {prestacion}. ¿Te ayudamos?",
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makeAutomation());
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/au1/edit");
+
+    expect(
+      await screen.findByRole("button", { name: "Insertar {prestacion}" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Insertar {vehiculo}" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+  });
+
+  it("una automotora sigue con {vehiculo}", async () => {
+    server.use(
+      reglaDeConsultas("¡{saludo}! Te escribimos por tu consulta sobre {vehiculo}. ¿Seguís?"),
+    );
+    renderForm("/automations/au1/edit");
+    expect(await screen.findByRole("button", { name: "Insertar {vehiculo}" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Insertar {prestacion}" })).not.toBeInTheDocument();
+  });
+});

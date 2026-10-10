@@ -1582,6 +1582,25 @@ respuesta y **sin oportunidad OPEN**, y no mira los turnos.
    libre de la IA, tampoco en AUTONOMA. Es más estricto que ediciones D9 y lo
    compone ("el lado de menos IA"). En AUTOMOTORA sigue ediciones D9.
 
+> **Implementado en R15** (sin migración). Cómo quedó:
+>
+> - **Filtro:** `src/clinicas/seguimientoDeConsultas.ts`. Se excluye al contacto
+>   con un turno `CONFIRMED` con `startsAt` futuro, o `COMPLETED` (R10) que
+>   terminó en los últimos `daysSinceLastMessage` días de la regla. Un `NO_SHOW`
+>   o un `CANCELLED` no frenan. Se lee el estado del turno que dejan los
+>   servicios de R10 (no se consumen sus eventos: el filtro es una consulta, y el
+>   estado del turno es la fuente de verdad). Está en las tres barreras: el
+>   barrido (`findStalledInquiries` recibe el filtro solo en CLINICA), la acción
+>   y el worker antes de mandar (cancela con su motivo).
+> - **Texto y variables:** `{prestacion}` (`TOKEN_PRESTACION`), solo en
+>   CLINICA: la acción tiene un schema por rubro (`AccionRegistrada.schemaPorRubro`),
+>   que usan el CRUD, el despacho y el alta de la plantilla en Meta
+>   (`variablesDeLaAccion` con el rubro). Una clínica no acepta `{vehiculo}` y una
+>   automotora no acepta `{prestacion}`. El texto por defecto de clínica es
+>   `TEXTO_POR_DEFECTO_DE_CLINICA`; la tarea de los otros canales dice "Le
+>   interesa: <prestación>".
+> - **D7:** en CLINICA el worker nunca manda texto libre.
+
 ### 9.2 Qué hace cada nivel con lo nuevo
 
 | Pieza | AUTONOMA | PRIMER_CONTACTO | SOLO_SEGUIMIENTO | Sin nivel / inactivo |

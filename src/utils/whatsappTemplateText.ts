@@ -57,6 +57,9 @@ export const TOKEN_LINK = "{link}";
 // habría forma de saludar sin nombre a quien no lo dio.
 export const TOKEN_SALUDO = "{saludo}";
 export const TOKEN_VEHICULO = "{vehiculo}";
+// R15 (docs/rubros.md §9.1): en una clínica, la prestación que consultó (o
+// "lo que consultaste"), en lugar del vehículo. Solo la acepta una clínica.
+export const TOKEN_PRESTACION = "{prestacion}";
 
 // Tope del cuerpo de una plantilla en Meta, medido sobre el texto que viaja.
 export const LARGO_MAXIMO_DEL_CUERPO = 1024;
@@ -67,6 +70,7 @@ export const EJEMPLO_NOMBRE = "Ana";
 export const EJEMPLO_LINK = "https://g.page/r/ejemplo/review";
 export const EJEMPLO_SALUDO = "Hola Ana";
 export const EJEMPLO_VEHICULO = "Toyota Hilux SRV 2022";
+export const EJEMPLO_PRESTACION = "limpieza facial";
 
 export interface VariableDePlantilla {
   token: string;
@@ -98,12 +102,19 @@ export const VARIABLES_DE_CONSULTA: readonly VariableDePlantilla[] = [
   { token: TOKEN_VEHICULO, requerida: false, ejemplo: EJEMPLO_VEHICULO },
 ];
 
+// R15: las de una clínica, con la prestación en lugar del vehículo.
+export const VARIABLES_DE_CONSULTA_DE_CLINICA: readonly VariableDePlantilla[] = [
+  { token: TOKEN_SALUDO, requerida: true, ejemplo: EJEMPLO_SALUDO },
+  { token: TOKEN_PRESTACION, requerida: false, ejemplo: EJEMPLO_PRESTACION },
+];
+
 // Todos los tokens que el sistema traduce, para numerarlos por aparición.
 const TODOS_LOS_TOKENS: readonly string[] = [
   TOKEN_NOMBRE,
   TOKEN_LINK,
   TOKEN_SALUDO,
   TOKEN_VEHICULO,
+  TOKEN_PRESTACION,
 ];
 
 function contar(texto: string, token: string): number {

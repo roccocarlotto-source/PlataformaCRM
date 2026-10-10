@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { previewDePlantilla } from "./whatsappPreview";
 import {
   ACCIONES_POR_TRIGGER,
   ACTION_CREATE_FOLLOW_UP,
@@ -18,6 +19,7 @@ import {
   TRIGGER_OPPORTUNITY_WON,
   TRIGGER_OPTIONS,
   TEXTO_INICIAL_DE_CONSULTA,
+  TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA,
   mensajeDeLaAccion,
   validarMensajeDeConsulta,
   accionConMensajeDeWhatsapp,
@@ -491,5 +493,38 @@ describe("catálogo — rótulos por edición", () => {
   it("COMPLETA, los rótulos de siempre", () => {
     expect(triggerOptions(false)).toBe(TRIGGER_OPTIONS);
     expect(triggerLabel(TRIGGER_OPPORTUNITY_WON, false)).toBe("Oportunidad ganada");
+  });
+});
+
+// R15 (docs/rubros.md §9.1): el seguimiento de consultas de una clínica.
+describe("seguimiento de consultas por rubro", () => {
+  it("una automotora: el texto, las variables y la validación de siempre", () => {
+    expect(textoInicial(ACTION_INQUIRY_FOLLOW_UP, "LINK")).toBe(TEXTO_INICIAL_DE_CONSULTA);
+    expect(
+      mensajeDeLaAccion(ACTION_INQUIRY_FOLLOW_UP, "LINK").variables.map((v) => v.token),
+    ).toEqual(["{saludo}", "{vehiculo}"]);
+    expect(validarMensajeDeConsulta({ messageText: TEXTO_INICIAL_DE_CONSULTA })).toBeNull();
+    expect(validarMensajeDeConsulta({ messageText: TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA })).toMatch(
+      /solo valen \{saludo\} y \{vehiculo\}/,
+    );
+  });
+
+  it("una clínica: {prestacion} en lugar de {vehiculo}, con su texto inicial", () => {
+    expect(textoInicial(ACTION_INQUIRY_FOLLOW_UP, "LINK", true)).toBe(
+      TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA,
+    );
+    expect(
+      mensajeDeLaAccion(ACTION_INQUIRY_FOLLOW_UP, "LINK", true).variables.map((v) => v.token),
+    ).toEqual(["{saludo}", "{prestacion}"]);
+    expect(
+      validarMensajeDeConsulta({ messageText: TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA }, true),
+    ).toBeNull();
+    expect(validarMensajeDeConsulta({ messageText: TEXTO_INICIAL_DE_CONSULTA }, true)).toMatch(
+      /solo valen \{saludo\} y \{prestacion\}/,
+    );
+    expect(CONFIG_DE_ACCION[ACTION_INQUIRY_FOLLOW_UP].draftVacio(true).messageText).toBe(
+      TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA,
+    );
+    expect(previewDePlantilla(TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA)).toContain("limpieza facial");
   });
 });

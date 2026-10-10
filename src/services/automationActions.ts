@@ -1,3 +1,4 @@
+import type { OrganizationIndustry } from "@prisma/client";
 import type { z } from "zod";
 import type { TriggerType } from "./automationTriggers";
 
@@ -61,6 +62,10 @@ export type EsquemaDeAccion = z.ZodType<Record<string, unknown>, z.ZodTypeDef, u
 export interface AccionRegistrada {
   actionType: string;
   schema: EsquemaDeAccion;
+  // R15: el schema de un rubro, si difiere (en una clínica, el seguimiento de
+  // consultas acepta {prestacion} en lugar de {vehiculo}). Sin la clave, el
+  // de arriba para todos.
+  schemaPorRubro?: Partial<Record<OrganizationIndustry, EsquemaDeAccion>>;
   handler: AutomationAction;
   // Los triggers con los que la acción tiene sentido (ítem 76). Sin la clave,
   // cualquiera; con ella, el CRUD rechaza con 400 una regla que combine la
