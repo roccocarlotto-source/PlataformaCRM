@@ -17,6 +17,10 @@ import {
   daIndicacionClinica,
 } from "./guardrailsDeSalud";
 import { TOOLS_DE_AGENDA_DE_CLINICA } from "./toolsDeAgenda";
+import { TOOLS_DE_TURNOS_DE_CLINICA } from "./toolsDeTurnos";
+import { TERMINO_DEL_CONTACTO } from "./config/rubro";
+import { textosDeClinica } from "./config/textosDelAgente";
+import { leerConfiguracionDeClinica } from "./repositories/clinicSettings.repository";
 
 // ---------------------------------------------------------------------------
 // Las reglas del rubro CLINICA para el loop del agente (docs/rubros.md §5.3 y
@@ -75,4 +79,11 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
   },
   // §4.3 y §5.1 (R5): la agenda con profesionales.
   toolsPropias: TOOLS_DE_AGENDA_DE_CLINICA,
+  // §5.1 (R11): ver, reprogramar y cancelar los turnos del paciente.
+  toolsExclusivas: TOOLS_DE_TURNOS_DE_CLINICA,
+  // §3.2 (R11): sin autos, con el término del contacto de la organización.
+  async textosDelPrompt(organizationId, conGestionDeTurnos) {
+    const { contactTerm } = await leerConfiguracionDeClinica(organizationId);
+    return textosDeClinica(TERMINO_DEL_CONTACTO[contactTerm], conGestionDeTurnos);
+  },
 };

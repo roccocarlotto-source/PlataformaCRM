@@ -565,6 +565,9 @@ export async function cancelBooking(
   id: string,
   cliente?: ClienteGoogleCalendar,
   actor?: ActorConSedes,
+  // R11: lo que quien cancela suma en la misma transacción (la nota del
+  // agente de una clínica). Sin pasarlo, la escritura de siempre.
+  enLaTransaccion?: (tx: Prisma.TransactionClient) => Promise<void>,
 ) {
   const booking = await getBookingById(organizationId, id, actor);
 
@@ -594,6 +597,7 @@ export async function cancelBooking(
     if (await esClinica(organizationId, tx)) {
       await emitirEventoDeTurno(tx, EVENTO_TURNO_CANCELADO, { ...booking, status: "CANCELLED" });
     }
+    if (enLaTransaccion) await enLaTransaccion(tx);
   });
 
   if (booking.googleEventId) {

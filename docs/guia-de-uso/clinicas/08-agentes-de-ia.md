@@ -39,3 +39,24 @@ atendiendo.
 > (una dosis, un "aplicate…", un "parece ser…"), esa respuesta no sale: el
 > paciente recibe el mensaje de consulta clínica y la conversación te llega a
 > vos.
+
+## Cambiar o cancelar turnos por chat {#cambiar-o-cancelar-turnos}
+
+Si el asistente está en el nivel **Autónomo**, puede ver, reprogramar y
+cancelar los turnos del paciente con el que está hablando. Para eso, en
+**Acciones habilitadas** del asistente activá **Ver turnos del paciente**,
+**Reprogramar turno** y **Cancelar turno**. En el nivel **Primer contacto** el
+asistente no cambia turnos: toma los datos y lo hace la recepción.
+
+- Antes de cambiar o cancelar, el asistente le confirma al paciente qué turno
+  es y, si lo reprograma, el día, la hora y el profesional nuevos.
+- Solo ofrece horarios libres de la agenda: **nunca carga un sobreturno**.
+- Solo toca turnos de ese paciente y de la sede de la conversación.
+- Un turno que ya empezó o ya pasó no lo cambia. Por ahora no hay un plazo
+  mínimo de anticipación que se pueda configurar desde la pantalla.
+- Si algo no se puede (no hay horarios, el turno ya pasó, hay dudas), te pasa
+  la conversación.
+- Cada cambio queda en la ficha del paciente con **Asistente** como autor.
+- Si en el mismo mensaje el paciente cuenta un síntoma o una urgencia, eso va
+  primero: el asistente responde con el mensaje fijo de salud y no toca el
+  turno.

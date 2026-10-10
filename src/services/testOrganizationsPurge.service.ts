@@ -172,6 +172,10 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   ),
   patron("reprogramar-{etiqueta}-{ts}-{hex8}", "src/clinicas/reprogramar.integration-test.ts"),
   patron(
+    "tools-de-turnos-{etiqueta}-{ts}-{hex8}",
+    "src/clinicas/toolsDeTurnos.integration-test.ts",
+  ),
+  patron(
     "google-por-profesional-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/googlePorProfesional.integration-test.ts",
   ),

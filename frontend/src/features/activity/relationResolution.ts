@@ -29,6 +29,24 @@ export function resolveUserLabel(
   return "—";
 }
 
+// R11 (docs/rubros.md §5.1): el asunto de una nota que dejó el agente de una
+// clínica empieza con esta marca (MARCA_DEL_ASISTENTE en
+// src/clinicas/services/reprogramar.service.ts, ESPEJO A MANO). La firma una
+// persona porque authorId no admite nulos, pero el autor que se muestra es
+// "Asistente", nunca su nombre.
+export const MARCA_DEL_ASISTENTE = "[Asistente] ";
+export const AUTOR_ASISTENTE = "Asistente";
+
+/** El autor de una actividad para mostrar: "Asistente" si la dejó el agente,
+ *  si no la regla de resolveUserLabel. */
+export function autorDeLaActividad(
+  activity: { authorId: string; subject: string },
+  viewer: Parameters<typeof resolveUserLabel>[1],
+): string {
+  if (activity.subject.startsWith(MARCA_DEL_ASISTENTE)) return AUTOR_ASISTENTE;
+  return resolveUserLabel(activity.authorId, viewer);
+}
+
 export function useOpportunityNames(ids: readonly string[]) {
   const uniqueIds = Array.from(new Set(ids));
 

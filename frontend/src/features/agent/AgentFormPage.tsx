@@ -711,7 +711,7 @@ export function AgentFormPage() {
               id="agent-form-tools"
               label="Acciones habilitadas"
               value={values.enabledTools}
-              options={agentToolOptions(values.enabledTools)}
+              options={agentToolOptions(values.enabledTools, me?.industry === "CLINICA")}
               emptyLabel="Ninguna"
               onChange={(enabledTools) => setValues({ ...values, enabledTools })}
             />
@@ -813,11 +813,12 @@ export function AgentFormPage() {
         >
           <p className="ds-hint">Si algo no es lo que quisiste decir, volvé a editar.</p>
           <ul>
-            {resumirGuardrails(guardrailsDelPanel, agentToolOptions(values.enabledTools)).map(
-              (linea) => (
-                <li key={linea}>{linea}</li>
-              ),
-            )}
+            {resumirGuardrails(
+              guardrailsDelPanel,
+              agentToolOptions(values.enabledTools, me?.industry === "CLINICA"),
+            ).map((linea) => (
+              <li key={linea}>{linea}</li>
+            ))}
           </ul>
 
           {descartes.length > 0 ? (

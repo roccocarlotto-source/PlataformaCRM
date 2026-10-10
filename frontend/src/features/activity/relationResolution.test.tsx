@@ -6,7 +6,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeOpportunity } from "../../test/opportunityFixtures";
-import { useOpportunityNames } from "./relationResolution";
+import { MARCA_DEL_ASISTENTE, autorDeLaActividad, useOpportunityNames } from "./relationResolution";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -71,5 +71,29 @@ describe("activity/relationResolution — useOpportunityNames", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(requestCount).toBe(0);
+  });
+});
+
+// R11: una nota que dejó el agente de una clínica muestra "Asistente", nunca el
+// nombre de quien la firma.
+describe("activity/relationResolution — autorDeLaActividad", () => {
+  const viewer = { meId: "u1", isAdmin: true, names: new Map([["u2", "Persona Ejemplo"]]) };
+
+  it("con la marca del asistente, el autor es «Asistente», aunque la firme quien mira u otra persona", () => {
+    for (const authorId of ["u1", "u2"]) {
+      expect(
+        autorDeLaActividad(
+          { authorId, subject: `${MARCA_DEL_ASISTENTE}Turno reprogramado: Paciente Ejemplo` },
+          viewer,
+        ),
+      ).toBe("Asistente");
+    }
+  });
+
+  it("sin la marca, la regla de siempre", () => {
+    expect(autorDeLaActividad({ authorId: "u2", subject: "Llamar al paciente" }, viewer)).toBe(
+      "Persona Ejemplo",
+    );
+    expect(autorDeLaActividad({ authorId: "u1", subject: "Asistente: nota" }, viewer)).toBe("Vos");
   });
 });

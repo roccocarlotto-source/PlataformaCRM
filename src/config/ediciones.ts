@@ -618,6 +618,16 @@ export const MODULO_DE_LA_TOOL: Readonly<Record<string, Modulo>> = {
   get_payment_info: "sucursales",
 };
 
+/** Tools que existen solo en una clínica (R11, docs/rubros.md §5.1): no están
+ *  en CATALOGO_DE_TOOLS (el de una automotora no cambia) sino en
+ *  ReglasDelRubro.toolsExclusivas, con su módulo acá. Una automotora no las
+ *  tiene aunque enabledTools las nombre. */
+export const MODULO_DE_LA_TOOL_DE_CLINICA: Readonly<Record<string, Modulo>> = {
+  get_contact_bookings: "agenda_clinica",
+  reschedule_booking: "agenda_clinica",
+  cancel_booking: "agenda_clinica",
+};
+
 /** Tools que un rubro no tiene aunque tenga su módulo. En CLINICA el agente
  *  informa precios y medios de pago, pero no manda un link de pago
  *  (docs/rubros.md §5.1 y §5.5, B7). */
@@ -633,8 +643,12 @@ export function toolDelRubro(
   edition: OrganizationEdition,
   industry: OrganizationIndustry,
 ): boolean {
-  if (industry === "AUTOMOTORA") return true;
+  if (industry === "AUTOMOTORA") return !Object.hasOwn(MODULO_DE_LA_TOOL_DE_CLINICA, nombre);
   if (TOOLS_FUERA_DEL_RUBRO[industry].has(nombre)) return false;
-  const modulo = Object.hasOwn(MODULO_DE_LA_TOOL, nombre) ? MODULO_DE_LA_TOOL[nombre] : undefined;
+  const modulo = Object.hasOwn(MODULO_DE_LA_TOOL, nombre)
+    ? MODULO_DE_LA_TOOL[nombre]
+    : industry === "CLINICA" && Object.hasOwn(MODULO_DE_LA_TOOL_DE_CLINICA, nombre)
+      ? MODULO_DE_LA_TOOL_DE_CLINICA[nombre]
+      : undefined;
   return modulo !== undefined && modulosDe(edition, industry).has(modulo);
 }

@@ -66,8 +66,15 @@ export interface QuienReprograma extends ActorConSedes {
   role: RoleName;
   // Cómo queda en el historial: el nombre de la persona, o "el asistente" (R11).
   descripcion: string;
+  // R11: la nota lleva MARCA_DEL_ASISTENTE (la pantalla muestra "Asistente"
+  // como autor, no a quien la firma).
+  esAsistente?: boolean;
 }
 
+/** R11: el asunto de una nota que dejó el agente empieza con esto.
+ *  Activity.authorId no admite nulos y la firma una persona (toolsDeTurnos.ts),
+ *  pero la pantalla muestra "Asistente" como autor (frontend: autorDeLaActividad). */
+export const MARCA_DEL_ASISTENTE = "[Asistente] ";
 export const PREFIJO_NOTA_REPROGRAMADO = "Turno reprogramado: ";
 export const PREFIJO_TAREA_GOOGLE_DESINCRONIZADO = "Turno sin actualizar en Google: ";
 
@@ -235,7 +242,11 @@ export async function reprogramarTurno(
         contactId: original.contactId,
         opportunityId: null,
         branchId: original.branchId,
-        subject: `${PREFIJO_NOTA_REPROGRAMADO}${paciente}`.slice(0, 255),
+        subject:
+          `${quien.esAsistente ? MARCA_DEL_ASISTENTE : ""}${PREFIJO_NOTA_REPROGRAMADO}${paciente}`.slice(
+            0,
+            255,
+          ),
         body:
           `Antes: ${formato(original.startsAt, branch.timezone)} con ${origen?.name ?? "el profesional"}. ` +
           `Ahora: ${formato(startsAt, branch.timezone)} con ${destinoActual.name}. ` +

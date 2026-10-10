@@ -7,6 +7,7 @@ import {
   MODULOS_POR_EDICION,
   MODULOS_POR_RUBRO,
   MODULO_DE_LA_TOOL,
+  MODULO_DE_LA_TOOL_DE_CLINICA,
   RUTAS_POR_MODULO,
   modulosDe,
   motivoDeExclusion,
@@ -255,6 +256,26 @@ test("toolDelRubro en CLINICA coincide con la tabla de §5.1", () => {
     "mark_no_interest",
     "update_contact_custom_fields",
     "update_lead",
+  ]);
+});
+
+test("R11: las tools de turnos son solo de clínica, por su módulo agenda_clinica", () => {
+  for (const edition of EDICIONES) {
+    for (const [nombre, modulo] of Object.entries(MODULO_DE_LA_TOOL_DE_CLINICA)) {
+      assert.equal(modulo, "agenda_clinica");
+      assert.equal(
+        toolDelRubro(nombre, edition, "CLINICA"),
+        modulosDe(edition, "CLINICA").has(modulo),
+      );
+      assert.equal(toolDelRubro(nombre, edition, "AUTOMOTORA"), false);
+      // No están en el catálogo común: el de una automotora no cambia.
+      assert.equal(CATALOGO_DE_TOOLS.has(nombre), false);
+    }
+  }
+  assert.deepEqual(Object.keys(MODULO_DE_LA_TOOL_DE_CLINICA).sort(), [
+    "cancel_booking",
+    "get_contact_bookings",
+    "reschedule_booking",
   ]);
 });
 
