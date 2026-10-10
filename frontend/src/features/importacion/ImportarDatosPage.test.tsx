@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
-import { chooseSelectOption } from "../../test/chooseSelectOption";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 import { env } from "../../config/env";
 import { ImportarDatosPage } from "./ImportarDatosPage";
 import type { EstadoDelLote, FilaDelLote, Lote } from "./types";
@@ -732,5 +732,69 @@ describe("ImportarDatosPage", () => {
       await screen.findByText(/Guardalo como \.xlsx o \.csv y volvé a subirlo/),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ver la vista previa" })).not.toBeInTheDocument();
+  });
+});
+
+// Ediciones (docs/ediciones.md §2.2, paso E1): una organización destino
+// ESENCIAL no tiene empresas. El backend (paso G) rechaza el lote igual.
+describe("ImportarDatosPage — organización destino por edición", () => {
+  function destino(edition: "COMPLETA" | "ESENCIAL") {
+    server.use(
+      http.get(`${env.apiUrl}/api/admin/organizations`, () =>
+        HttpResponse.json([
+          {
+            id: ORG,
+            name: "Concesionaria Ejemplo",
+            slug: "concesionaria-ejemplo",
+            edition,
+            industry: "AUTOMOTORA",
+          },
+        ]),
+      ),
+    );
+  }
+
+  async function subirContactos(user: ReturnType<typeof userEvent.setup>) {
+    const tipo = await screen.findByRole("combobox", { name: "Qué se importa" });
+    await chooseSelectOption(user, tipo, "Contactos");
+    await user.type(screen.getByLabelText("Nombre del sistema de origen"), "Planilla");
+    await user.upload(
+      screen.getByLabelText(/Archivo/),
+      new File(["Nombre completo;Mail\nAna;ana@example.com\n"], "contactos.csv", {
+        type: "text/csv",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Subir y continuar" }));
+    await screen.findByRole("button", { name: "Ver la vista previa" });
+  }
+
+  it("ESENCIAL: no se ofrece importar empresas ni crearlas al importar contactos", async () => {
+    destino("ESENCIAL");
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}`);
+
+    const tipo = await screen.findByRole("combobox", { name: "Qué se importa" });
+    const opciones = await listSelectOptions(user, tipo);
+    expect(opciones).not.toContain("Empresas");
+    expect(opciones).toContain("Contactos");
+    await user.keyboard("{Escape}");
+    expect(screen.getByText(/^Primero stock/)).toBeInTheDocument();
+
+    await subirContactos(user);
+    expect(screen.queryByLabelText("Crear las empresas que no existen")).not.toBeInTheDocument();
+  });
+
+  it("COMPLETA: se ofrecen empresas y la casilla de crearlas, como siempre", async () => {
+    destino("COMPLETA");
+    const user = userEvent.setup();
+    renderPage(`/admin/imports?organizationId=${ORG}`);
+
+    const tipo = await screen.findByRole("combobox", { name: "Qué se importa" });
+    expect(await listSelectOptions(user, tipo)).toContain("Empresas");
+    await user.keyboard("{Escape}");
+    expect(screen.getByText(/^Primero empresas y stock/)).toBeInTheDocument();
+
+    await subirContactos(user);
+    expect(screen.getByLabelText("Crear las empresas que no existen")).toBeInTheDocument();
   });
 });

@@ -28,10 +28,13 @@ const ORIGENES: { value: Origen; label: string }[] = [
 export function PasoArchivo({
   organizationId,
   opciones,
+  sinEmpresas = false,
   onSubido,
 }: {
   organizationId: string;
   opciones: OpcionesDeImportacion;
+  // La organización destino no tiene empresas (ESENCIAL).
+  sinEmpresas?: boolean;
   onSubido: (subida: SubidaDeArchivo) => void;
 }) {
   const [tipo, setTipo] = useState<TipoImportable | "">("");
@@ -75,12 +78,14 @@ export function PasoArchivo({
         <Select
           label="Qué se importa"
           value={tipo}
-          options={TIPOS}
+          options={sinEmpresas ? TIPOS.filter((t) => t.value !== "COMPANY") : TIPOS}
           emptyOption={{ label: "Elegir…" }}
           onChange={setTipo}
         />
         <p className="ds-hint">
-          Primero empresas y stock, después contactos, por último historial.
+          {sinEmpresas
+            ? "Primero stock, después contactos, por último historial."
+            : "Primero empresas y stock, después contactos, por último historial."}
         </p>
         <Select
           label="Sistema de origen"

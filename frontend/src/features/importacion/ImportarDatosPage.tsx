@@ -48,11 +48,13 @@ function LoteEnCurso({
   organizationId,
   batchId,
   sugerido,
+  sinEmpresas,
   onNueva,
 }: {
   organizationId: string;
   batchId: string;
   sugerido: Record<string, string>;
+  sinEmpresas: boolean;
   onNueva: () => void;
 }) {
   const detalle = useLote(organizationId, batchId);
@@ -88,6 +90,7 @@ function LoteEnCurso({
           lote={lote}
           opciones={opciones.data}
           sugerido={sugerido}
+          sinEmpresas={sinEmpresas}
           muestra={(muestra.data?.data ?? []).map((f) => f.rawPayload)}
           onGuardado={() => setEditandoMapeo(false)}
           onCancelar={lote.status === "READY" ? () => setEditandoMapeo(false) : undefined}
@@ -161,6 +164,11 @@ export function ImportarDatosPage() {
   const batchId = params.get("batchId") ?? "";
   const organizaciones = usePlatformOrganizations();
   const opciones = useOpciones(organizationId);
+  // Ediciones (docs/ediciones.md §2.2, paso G): una organización destino
+  // ESENCIAL no tiene empresas. El backend rechaza el lote igual; esto solo
+  // evita ofrecerlo.
+  const sinEmpresas =
+    organizaciones.data?.find((o) => o.id === organizationId)?.edition === "ESENCIAL";
   // La sugerencia de mapeo solo viene en la respuesta de la subida.
   const [sugerido, setSugerido] = useState<Record<string, string>>({});
 
@@ -206,6 +214,7 @@ export function ImportarDatosPage() {
             organizationId={organizationId}
             batchId={batchId}
             sugerido={sugerido}
+            sinEmpresas={sinEmpresas}
             onNueva={() => ir({ batchId: "" })}
           />
         ) : null}
@@ -222,6 +231,7 @@ export function ImportarDatosPage() {
               <PasoArchivo
                 organizationId={organizationId}
                 opciones={opciones.data}
+                sinEmpresas={sinEmpresas}
                 onSubido={(subida) => {
                   setSugerido(subida.mapeoSugerido);
                   ir({ batchId: subida.lote.id });

@@ -1,3 +1,4 @@
+import { useModulo } from "../../auth/modulos";
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "../vehicle/labels";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -105,7 +106,10 @@ export function ContactListPage() {
       .filter((id): id is string => id !== null);
   }, [contactsQuery.data]);
 
-  const companyResolution = useCompaniesByIds(visibleCompanyIds);
+  // Ediciones (docs/ediciones.md §2.2): sin el módulo empresas no se muestra
+  // ni se pide nada de empresas (darían 403).
+  const tieneEmpresas = useModulo("empresas");
+  const companyResolution = useCompaniesByIds(tieneEmpresas ? visibleCompanyIds : []);
 
   // useOwnerNames vive en features/opportunity/relationResolution.ts y se importa
   // desde acá tal cual, sin relocalizarlo a un módulo "compartido": ya existe
@@ -206,23 +210,25 @@ export function ContactListPage() {
                 setPage(1);
               }}
             />
-            <CompanySelect
-              id="contact-filter-company"
-              label="Empresa"
-              value={companyId}
-              onChange={(id) => {
-                setCompanyId(id);
-                setPage(1);
-              }}
-              // Limpiar el filtro es seguro acá: es estado local del listado,
-              // sin ninguna implicancia de "limpiar a null" contra el backend
-              // (a diferencia de ContactFormPage).
-              onClear={() => {
-                setCompanyId(undefined);
-                setPage(1);
-              }}
-              clearLabel="Quitar filtro de empresa"
-            />
+            {tieneEmpresas ? (
+              <CompanySelect
+                id="contact-filter-company"
+                label="Empresa"
+                value={companyId}
+                onChange={(id) => {
+                  setCompanyId(id);
+                  setPage(1);
+                }}
+                // Limpiar el filtro es seguro acá: es estado local del listado,
+                // sin ninguna implicancia de "limpiar a null" contra el backend
+                // (a diferencia de ContactFormPage).
+                onClear={() => {
+                  setCompanyId(undefined);
+                  setPage(1);
+                }}
+                clearLabel="Quitar filtro de empresa"
+              />
+            ) : null}
             <Select
               label="Ordenar por"
               value={sortBy}
@@ -270,7 +276,7 @@ export function ContactListPage() {
               <thead>
                 <tr>
                   <th>Nombre</th>
-                  <th>Empresa</th>
+                  {tieneEmpresas ? <th>Empresa</th> : null}
                   <th>Email</th>
                   <th>Teléfono</th>
                   <th>Etapa</th>
@@ -301,7 +307,7 @@ export function ContactListPage() {
                           <Link to={`/contacts/${contact.id}/edit`}>{fullName}</Link>
                         </span>
                       </td>
-                      <td>{nombreDeEmpresa(contact.companyId)}</td>
+                      {tieneEmpresas ? <td>{nombreDeEmpresa(contact.companyId)}</td> : null}
                       <td>{contact.email ?? ""}</td>
                       <td>
                         <PhoneNumber value={contact.phone} />
@@ -386,7 +392,9 @@ export function ContactListPage() {
                   { label: "Email", value: detalle.email },
                   { label: "Teléfono", value: detalle.phone },
                   { label: "Puesto", value: detalle.jobTitle },
-                  { label: "Empresa", value: nombreDeEmpresa(detalle.companyId) },
+                  ...(tieneEmpresas
+                    ? [{ label: "Empresa", value: nombreDeEmpresa(detalle.companyId) }]
+                    : []),
                   { label: "Fuente", value: detalle.source },
                   {
                     label: "Etapa",

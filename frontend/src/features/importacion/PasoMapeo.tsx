@@ -125,6 +125,7 @@ export function PasoMapeo({
   lote,
   opciones,
   sugerido,
+  sinEmpresas = false,
   muestra,
   onGuardado,
   onCancelar,
@@ -133,6 +134,8 @@ export function PasoMapeo({
   lote: Lote;
   opciones: OpcionesDeImportacion;
   sugerido: Record<string, string>;
+  // La organización destino no tiene empresas (ESENCIAL): sin la casilla.
+  sinEmpresas?: boolean;
   muestra: Record<string, ValorDeCelda>[];
   onGuardado: () => void;
   onCancelar?: () => void;
@@ -484,7 +487,7 @@ export function PasoMapeo({
           onChange={(v) => v && setDuplicados(v)}
         />
         <p className="ds-hint">En la vista previa se puede cambiar fila por fila.</p>
-        {tipo === "CONTACT" ? (
+        {tipo === "CONTACT" && !sinEmpresas ? (
           <FormField label="Crear las empresas que no existen">
             <input
               type="checkbox"

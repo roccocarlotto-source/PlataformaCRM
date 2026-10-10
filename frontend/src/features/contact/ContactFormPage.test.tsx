@@ -9,6 +9,7 @@ import { env } from "../../config/env";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
+import { edicionDeMe } from "../../test/edicionFixtures";
 import { makeDefinicion } from "../../test/contactCustomFieldFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { ContactFormPage } from "./ContactFormPage";
@@ -794,5 +795,42 @@ describe("ContactFormPage — sin interés (ítem 185)", () => {
     expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/sin interés/));
     await waitFor(() => expect(patchedBody).toEqual({ noInterest: true }));
     confirmSpy.mockRestore();
+  });
+});
+
+// Ediciones (docs/ediciones.md §2.2, paso E1): ESENCIAL no tiene empresas.
+describe("ContactFormPage — por edición", () => {
+  function conEdicion(edition: "COMPLETA" | "ESENCIAL") {
+    const base = mockAuth();
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe(edition) } });
+  }
+
+  it("ESENCIAL: sin el selector de empresa, y el alta no manda companyId", async () => {
+    conEdicion("ESENCIAL");
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      usersHandler(),
+      http.post(contactsUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeContact(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/contacts/new");
+
+    await user.type(await screen.findByLabelText("Nombre"), "Nueva");
+    await user.type(screen.getByLabelText("Apellido"), "Persona");
+    expect(screen.queryByLabelText("Empresa")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
+    expect(postedBody).not.toHaveProperty("companyId");
+  });
+
+  it("COMPLETA: el selector de empresa está como siempre", async () => {
+    conEdicion("COMPLETA");
+    server.use(usersHandler());
+    renderForm("/contacts/new");
+    expect(await screen.findByLabelText("Empresa")).toBeInTheDocument();
   });
 });

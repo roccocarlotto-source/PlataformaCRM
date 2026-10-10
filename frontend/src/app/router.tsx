@@ -1,3 +1,4 @@
+import { ModuloRoute } from "../auth/modulos";
 import { createBrowserRouter } from "react-router-dom";
 import { AdminRoute } from "../auth/AdminRoute";
 import { WhatsappTemplateRedirect } from "../features/automation/WhatsappTemplateRedirect";
@@ -119,7 +120,12 @@ export const router = createBrowserRouter([
           // primera pantalla útil tras login/aceptación de invitación (ambos
           // ya redirigen acá, ver LoginPage/AcceptInvitationPage).
           { path: "/", element: <DashboardPage /> },
-          { path: "/companies", element: <CompanyListPage /> },
+          // Ediciones (docs/ediciones.md §7): sin el módulo, la ruta vuelve
+          // al inicio (ModuloRoute). El gate del backend es la garantía.
+          {
+            element: <ModuloRoute modulo="empresas" />,
+            children: [{ path: "/companies", element: <CompanyListPage /> }],
+          },
           { path: "/contacts", element: <ContactListPage /> },
           // Crear y editar contactos y oportunidades, FUERA de AdminRoute desde
           // D2 (OPUS-I-03, docs-privados, local): un USER crea y edita lo que
@@ -142,8 +148,13 @@ export const router = createBrowserRouter([
           // pantalla ES.
           { path: "/conversations", element: <ConversationListPage /> },
           { path: "/conversations/:id", element: <ConversationDetail /> },
-          { path: "/pipelines", element: <PipelineListPage /> },
-          { path: "/pipelines/:pipelineId/stages", element: <StageListPage /> },
+          {
+            element: <ModuloRoute modulo="procesos_de_venta" />,
+            children: [
+              { path: "/pipelines", element: <PipelineListPage /> },
+              { path: "/pipelines/:pipelineId/stages", element: <StageListPage /> },
+            ],
+          },
           { path: "/opportunities", element: <OpportunityListPage /> },
           // "Mis tareas" (ítem 25 de docs/frontend-cambios-pendientes.md): la
           // única pantalla de actividades para USER. GET /api/activities sigue
@@ -348,14 +359,24 @@ export const router = createBrowserRouter([
                 path: "/contact-custom-fields/:id/edit",
                 element: <ContactCustomFieldFormPage />,
               },
-              { path: "/companies/new", element: <CompanyFormPage /> },
-              { path: "/companies/:id/edit", element: <CompanyFormPage /> },
-              { path: "/pipelines/new", element: <PipelineFormPage /> },
-              { path: "/pipelines/:id/edit", element: <PipelineFormPage /> },
-              { path: "/pipelines/:pipelineId/stages/new", element: <StageFormPage /> },
               {
-                path: "/pipelines/:pipelineId/stages/:stageId/edit",
-                element: <StageFormPage />,
+                element: <ModuloRoute modulo="empresas" />,
+                children: [
+                  { path: "/companies/new", element: <CompanyFormPage /> },
+                  { path: "/companies/:id/edit", element: <CompanyFormPage /> },
+                ],
+              },
+              {
+                element: <ModuloRoute modulo="procesos_de_venta" />,
+                children: [
+                  { path: "/pipelines/new", element: <PipelineFormPage /> },
+                  { path: "/pipelines/:id/edit", element: <PipelineFormPage /> },
+                  { path: "/pipelines/:pipelineId/stages/new", element: <StageFormPage /> },
+                  {
+                    path: "/pipelines/:pipelineId/stages/:stageId/edit",
+                    element: <StageFormPage />,
+                  },
+                ],
               },
               // Listado completo de actividades de la organización (ítem 25 de
               // docs/frontend-cambios-pendientes.md): ADMIN-only. Hasta ese
