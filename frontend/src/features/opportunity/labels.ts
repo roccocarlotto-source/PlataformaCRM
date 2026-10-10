@@ -25,6 +25,18 @@ export const STATUS_LABEL: Record<OpportunityStatus, string> = {
   LOST: "Perdida",
 };
 
+// ESENCIAL (docs/ediciones.md §2.1): el mismo status, con los nombres de
+// sus tres etapas fijas. COMPLETA sigue con STATUS_LABEL.
+export const STATUS_LABEL_ESENCIAL: Record<OpportunityStatus, string> = {
+  OPEN: "En curso",
+  WON: "Vendida",
+  LOST: "Perdida",
+};
+
+export function etiquetasDeEstado(simple: boolean): Record<OpportunityStatus, string> {
+  return simple ? STATUS_LABEL_ESENCIAL : STATUS_LABEL;
+}
+
 // Color del Badge por status. Vivía en OpportunityListPage.tsx; se movió acá
 // en el §30 de docs/frontend-cambios-pendientes.md porque la tabla de
 // oportunidades recientes del Dashboard pinta el mismo status con la misma

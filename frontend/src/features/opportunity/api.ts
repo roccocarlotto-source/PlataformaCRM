@@ -2,6 +2,7 @@ import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type {
   CreateOpportunityInput,
+  CreateOpportunitySimpleInput,
   Opportunity,
   OpportunityDashboardSummary,
   OpportunityListQuery,
@@ -48,7 +49,9 @@ export function getOpportunity(id: string, signal?: AbortSignal): Promise<Opport
   return request<Opportunity>(`/opportunities/${id}`, { getAccessToken, signal });
 }
 
-export function createOpportunity(input: CreateOpportunityInput): Promise<Opportunity> {
+export function createOpportunity(
+  input: CreateOpportunityInput | CreateOpportunitySimpleInput,
+): Promise<Opportunity> {
   return request<Opportunity>("/opportunities", {
     method: "POST",
     body: input,

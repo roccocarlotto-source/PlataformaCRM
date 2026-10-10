@@ -130,6 +130,14 @@ export interface CreateOpportunityInput {
   financingInstallmentAmount?: number;
 }
 
+// ESENCIAL (docs/ediciones.md §2.1): sin proceso ni etapa (los pone el
+// servidor según el status), y sin empresa ni financiación (no son de la
+// edición; el gate los rechaza con 400). Lo que muestra el formulario simple.
+export type CreateOpportunitySimpleInput = Pick<
+  CreateOpportunityInput,
+  "title" | "amount" | "currency" | "status" | "contactId" | "ownerId" | "lostReason" | "vehicleId"
+>;
+
 // A diferencia de create: expectedCloseDate/actualCloseDate/lostReason
 // admiten `null` explícito acá (limpiar el campo — pensado para reabrir una
 // oportunidad WON/LOST de vuelta a OPEN sin arrastrar datos de un cierre

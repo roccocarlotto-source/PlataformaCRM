@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Target } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useModulo } from "../../auth/modulos";
 import { puedeEditarRegistro } from "../../auth/permisos";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
@@ -28,8 +29,8 @@ import {
   FINANCING_TYPE_LABELS,
   LEAD_SOURCE_LABELS,
   STATUS_BADGE_VARIANT,
-  STATUS_LABEL,
   STATUSES,
+  etiquetasDeEstado,
 } from "./labels";
 import { useDeleteOpportunity } from "./mutations";
 import { OpportunityAssociation } from "./OpportunityAssociation";
@@ -58,6 +59,9 @@ type View = "table" | "board";
 
 export function OpportunityListPage() {
   const [view, setView] = useState<View>("table");
+  // Ediciones (docs/ediciones.md §2.1, paso E2): sin procesos de venta
+  // (ESENCIAL) no hay embudo, solo la tabla.
+  const conProcesos = useModulo("procesos_de_venta");
 
   // "Nueva oportunidad" vive en el encabezado y no dentro de la vista de
   // tabla: así está en las dos vistas, a la derecha del título como en el
@@ -70,14 +74,16 @@ export function OpportunityListPage() {
         title="Oportunidades"
         actions={
           <>
-            <div className="ds-segmented" role="group" aria-label="Vista">
-              <Button aria-pressed={view === "table"} onClick={() => setView("table")}>
-                Vista de tabla
-              </Button>
-              <Button aria-pressed={view === "board"} onClick={() => setView("board")}>
-                Vista de embudo
-              </Button>
-            </div>
+            {conProcesos ? (
+              <div className="ds-segmented" role="group" aria-label="Vista">
+                <Button aria-pressed={view === "table"} onClick={() => setView("table")}>
+                  Vista de tabla
+                </Button>
+                <Button aria-pressed={view === "board"} onClick={() => setView("board")}>
+                  Vista de embudo
+                </Button>
+              </div>
+            ) : null}
             <Link to="/opportunities/new" className="ds-link-button">
               <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
               Nueva oportunidad
@@ -86,7 +92,7 @@ export function OpportunityListPage() {
         }
       />
 
-      {view === "table" ? <OpportunityTableView /> : <OpportunityBoardView />}
+      {view === "board" && conProcesos ? <OpportunityBoardView /> : <OpportunityTableView />}
     </div>
   );
 }
@@ -103,6 +109,12 @@ function OpportunityTableView() {
   // /api/users es ADMIN-only (user.routes.ts), así que useOwnerNames se
   // gatea con este mismo booleano — para USER, ese fetch nunca se dispara.
   const isAdmin = me?.role === "ADMIN";
+  // Ediciones (paso E2): sin el módulo, ni el filtro ni la columna ni el
+  // detalle, y sin pedir nombres que darían 403. En COMPLETA, todo true.
+  const conProcesos = useModulo("procesos_de_venta");
+  const tieneEmpresas = useModulo("empresas");
+  const tieneFinanciacion = useModulo("financiacion");
+  const STATUS_LABEL = etiquetasDeEstado(!conProcesos);
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -147,10 +159,10 @@ function OpportunityTableView() {
     [rows],
   );
 
-  const companyNames = useCompanyNames(visibleCompanyIds);
+  const companyNames = useCompanyNames(tieneEmpresas ? visibleCompanyIds : []);
   const contactNames = useContactNames(visibleContactIds);
-  const pipelineNames = usePipelineNames(visiblePipelineIds);
-  const stageNames = useStageNames(visibleStageRefs);
+  const pipelineNames = usePipelineNames(conProcesos ? visiblePipelineIds : []);
+  const stageNames = useStageNames(conProcesos ? visibleStageRefs : []);
   const ownerNames = useOwnerNames(isAdmin);
 
   // La fila del detalle sale del array ya cargado, sin un GET aparte: el
@@ -204,30 +216,34 @@ function OpportunityTableView() {
               setPage(1);
             }}
           />
-          <CompanySelect
-            id="opportunity-filter-company"
-            label="Empresa"
-            value={companyId}
-            onChange={(id) => {
-              setCompanyId(id);
-              setPage(1);
-            }}
-            onClear={() => {
-              setCompanyId(undefined);
-              setPage(1);
-            }}
-            clearLabel="Quitar filtro de empresa"
-          />
-          <PipelineSelect
-            id="opportunity-filter-pipeline"
-            label="Proceso de venta"
-            value={pipelineId}
-            emptyLabel="Todos"
-            onChange={(id) => {
-              setPipelineId(id || undefined);
-              setPage(1);
-            }}
-          />
+          {tieneEmpresas ? (
+            <CompanySelect
+              id="opportunity-filter-company"
+              label="Empresa"
+              value={companyId}
+              onChange={(id) => {
+                setCompanyId(id);
+                setPage(1);
+              }}
+              onClear={() => {
+                setCompanyId(undefined);
+                setPage(1);
+              }}
+              clearLabel="Quitar filtro de empresa"
+            />
+          ) : null}
+          {conProcesos ? (
+            <PipelineSelect
+              id="opportunity-filter-pipeline"
+              label="Proceso de venta"
+              value={pipelineId}
+              emptyLabel="Todos"
+              onChange={(id) => {
+                setPipelineId(id || undefined);
+                setPage(1);
+              }}
+            />
+          ) : null}
           <Select
             label="Ordenar por"
             value={sortBy}
@@ -275,7 +291,7 @@ function OpportunityTableView() {
               <tr>
                 <th>Título</th>
                 <th>Asociado</th>
-                <th>Embudo · Etapa</th>
+                {conProcesos ? <th>Embudo · Etapa</th> : null}
                 <th>Monto</th>
                 <th>Cierre</th>
                 {isAdmin ? <th>Asignado</th> : null}
@@ -312,13 +328,15 @@ function OpportunityTableView() {
                     <td>
                       <OpportunityAssociation companyName={companyName} contactName={contactName} />
                     </td>
-                    <td>
-                      <Badge variant="neutral">
-                        {`${pipelineNames.byId.get(opportunity.pipelineId) ?? "—"} · ${
-                          stageNames.byId.get(opportunity.stageId) ?? "—"
-                        }`}
-                      </Badge>
-                    </td>
+                    {conProcesos ? (
+                      <td>
+                        <Badge variant="neutral">
+                          {`${pipelineNames.byId.get(opportunity.pipelineId) ?? "—"} · ${
+                            stageNames.byId.get(opportunity.stageId) ?? "—"
+                          }`}
+                        </Badge>
+                      </td>
+                    ) : null}
                     <td>{formatAmount(opportunity.amount, opportunity.currency)}</td>
                     <td>
                       <span className="ds-cell-stack">
@@ -405,12 +423,16 @@ function OpportunityTableView() {
                 heading: "Oportunidad",
                 items: [
                   { label: "Título", value: detalle.title },
-                  {
-                    label: "Empresa",
-                    value: detalle.companyId
-                      ? (companyNames.byId.get(detalle.companyId)?.name ?? "—")
-                      : null,
-                  },
+                  ...(tieneEmpresas
+                    ? [
+                        {
+                          label: "Empresa",
+                          value: detalle.companyId
+                            ? (companyNames.byId.get(detalle.companyId)?.name ?? "—")
+                            : null,
+                        },
+                      ]
+                    : []),
                   {
                     label: "Contacto",
                     value: detalle.contactId
@@ -420,13 +442,17 @@ function OpportunityTableView() {
                 ],
               },
               {
-                heading: "Embudo y valor",
+                heading: conProcesos ? "Embudo y valor" : "Valor",
                 items: [
-                  {
-                    label: "Proceso de venta",
-                    value: pipelineNames.byId.get(detalle.pipelineId) ?? "—",
-                  },
-                  { label: "Etapa", value: stageNames.byId.get(detalle.stageId) ?? "—" },
+                  ...(conProcesos
+                    ? [
+                        {
+                          label: "Proceso de venta",
+                          value: pipelineNames.byId.get(detalle.pipelineId) ?? "—",
+                        },
+                        { label: "Etapa", value: stageNames.byId.get(detalle.stageId) ?? "—" },
+                      ]
+                    : []),
                   { label: "Monto", value: formatAmount(detalle.amount, detalle.currency) },
                   { label: "Moneda", value: detalle.currency },
                   {
@@ -449,12 +475,16 @@ function OpportunityTableView() {
                       "—"
                     ),
                   },
-                  {
-                    label: "Financiación",
-                    value: detalle.financingType
-                      ? FINANCING_TYPE_LABELS[detalle.financingType]
-                      : null,
-                  },
+                  ...(tieneFinanciacion
+                    ? [
+                        {
+                          label: "Financiación",
+                          value: detalle.financingType
+                            ? FINANCING_TYPE_LABELS[detalle.financingType]
+                            : null,
+                        },
+                      ]
+                    : []),
                   {
                     label: "Origen del cliente",
                     value: detalle.leadSource ? LEAD_SOURCE_LABELS[detalle.leadSource] : null,

@@ -1,7 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createOpportunity, deleteOpportunity, updateOpportunity } from "./api";
 import { opportunityKeys } from "./queries";
-import type { CreateOpportunityInput, UpdateOpportunityInput } from "./types";
+import type {
+  CreateOpportunityInput,
+  CreateOpportunitySimpleInput,
+  UpdateOpportunityInput,
+} from "./types";
 
 // Invalidación selectiva pura — a diferencia de Pipeline/Stage, ninguna
 // mutación de Opportunity escribe sobre otra tabla
@@ -13,7 +17,8 @@ import type { CreateOpportunityInput, UpdateOpportunityInput } from "./types";
 export function useCreateOpportunity() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateOpportunityInput) => createOpportunity(input),
+    mutationFn: (input: CreateOpportunityInput | CreateOpportunitySimpleInput) =>
+      createOpportunity(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: opportunityKeys.lists() });
     },
