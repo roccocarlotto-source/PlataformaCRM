@@ -50,7 +50,7 @@ export const MODULOS = [
   "campos_personalizados",
   "agente_interno",
   "ingesta",
-  // Reservado sin rutas todavía: el dashboard de atención es el PR 8 (§6.4).
+  // El dashboard de atención (§6.4), en las dos ediciones.
   "dashboard_atencion",
   // Solo COMPLETA.
   "procesos_de_venta",
@@ -232,13 +232,8 @@ export const PROCESO_DE_VENTA_FIJO = {
 } as const;
 
 /** Módulos sin rutas propias: el test de clasificación los tolera.
- *  dashboard_atencion está reservado (su ruta llega con el PR 8 y entonces
- *  sale de esta lista); financiacion y permutas son solo campos. */
-export const MODULOS_SIN_RUTAS: ReadonlySet<Modulo> = new Set<Modulo>([
-  "dashboard_atencion",
-  "financiacion",
-  "permutas",
-]);
+ *  financiacion y permutas son solo campos. */
+export const MODULOS_SIN_RUTAS: ReadonlySet<Modulo> = new Set<Modulo>(["financiacion", "permutas"]);
 
 export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   comun: ["GET /api/me", "GET /api/organization", "PATCH /api/organization"],
@@ -444,7 +439,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "GET /api/ingestion-events",
     "POST /api/ingestion-events/:id/retry",
   ],
-  dashboard_atencion: [],
+  dashboard_atencion: ["GET /api/dashboard/atencion"],
   procesos_de_venta: [
     "GET /api/pipelines",
     "POST /api/pipelines",

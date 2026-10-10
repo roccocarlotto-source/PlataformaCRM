@@ -213,6 +213,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("purga-orgs-{etiqueta}-{ts}-{hex8}", `${S}testOrganizationsPurge.integration-test.ts`),
   patron("m3-{etiqueta}-{ts}", `${S}user.service.integration-test.ts`),
   patron("veh-{etiqueta}-{ts}-{hex8}", `${S}vehicle.test-helper.ts`),
+  patron("dashboard-atencion-{ts}-{hex8}", `${S}dashboardAtencion.integration-test.ts`),
   patron("purga-visitantes-{ts}-{hex8}", `${S}widgetVisitorsPurge.integration-test.ts`),
   patron("worker-{etiqueta}-{ts}-{hex8}", `${W}agentInboundWorker.integration-test.ts`),
   patron("aviso-{ts}-{hex8}", `${W}avisoSinRespuestaWorker.integration-test.ts`),
