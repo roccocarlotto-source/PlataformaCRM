@@ -31,6 +31,11 @@ import { findResourceById } from "../../repositories/resource.repository";
 import { exigirSedeDelActor } from "../../services/permisos";
 import { AppError } from "../../utils/AppError";
 import {
+  MAX_HORAS_PARA_CAMBIAR_UN_TURNO,
+  configuracionDeClinicaDeLaSede,
+  configurarClinicaDeLaSede,
+} from "../services/configuracionDeSede.service";
+import {
   asignarCalendarioAlProfesional,
   listarCalendariosDeLaSede,
 } from "../services/googlePorProfesional.service";
@@ -328,3 +333,37 @@ function marcarHandler(estado: EstadoDeCierre) {
 
 export const marcarAtendidoHandler = marcarHandler("COMPLETED");
 export const marcarNoVinoHandler = marcarHandler("NO_SHOW");
+
+// ---------------------------------------------------------------------------
+// R11: la configuración de clínica de una sede (docs/rubros.md §5.1, D10).
+// ---------------------------------------------------------------------------
+
+const configuracionDeSedeBodySchema = z
+  .object({
+    // Entero ≥ 0, o null para "sin plazo" (D10: sin valor por defecto).
+    minHoursToChangeBooking: z
+      .number({ invalid_type_error: "minHoursToChangeBooking debe ser un número" })
+      .int("minHoursToChangeBooking debe ser un número entero")
+      .min(0, "minHoursToChangeBooking no puede ser negativo")
+      .max(
+        MAX_HORAS_PARA_CAMBIAR_UN_TURNO,
+        `minHoursToChangeBooking no puede superar ${MAX_HORAS_PARA_CAMBIAR_UN_TURNO}`,
+      )
+      .nullable(),
+  })
+  .strict();
+
+export const configuracionDeSedeHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const branchId = parseOrThrow(z.string().uuid("branchId inválido"), req.params.branchId);
+    res.status(200).json(await configuracionDeClinicaDeLaSede(req.auth.organizationId, branchId));
+  },
+);
+
+export const configurarSedeHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const branchId = parseOrThrow(z.string().uuid("branchId inválido"), req.params.branchId);
+    const input = parseOrThrow(configuracionDeSedeBodySchema, req.body);
+    res.status(200).json(await configurarClinicaDeLaSede(req.auth.organizationId, branchId, input));
+  },
+);

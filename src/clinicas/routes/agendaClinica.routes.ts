@@ -8,6 +8,8 @@ import {
   reprogramarTurnoHandler,
   turnosFuturosHandler,
   asignarCalendarioHandler,
+  configuracionDeSedeHandler,
+  configurarSedeHandler,
   listarCalendariosHandler,
   borrarBloqueoHandler,
   configurarSobreturnosHandler,
@@ -147,4 +149,22 @@ agendaClinicaRouter.patch(
   businessWriteRateLimiter,
   authorize("ADMIN", "RECEPCION"),
   marcarNoVinoHandler,
+);
+
+// R11 (docs/rubros.md §5.1, D10): la configuración de clínica de una sede (el
+// plazo mínimo para que el asistente cambie un turno). Configuración: solo
+// ADMIN. Del módulo agenda_clinica: una automotora recibe 403 con motivo RUBRO.
+agendaClinicaRouter.get(
+  "/clinica/sedes/:branchId/configuracion",
+  authenticate,
+  authorize("ADMIN"),
+  configuracionDeSedeHandler,
+);
+
+agendaClinicaRouter.put(
+  "/clinica/sedes/:branchId/configuracion",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  configurarSedeHandler,
 );

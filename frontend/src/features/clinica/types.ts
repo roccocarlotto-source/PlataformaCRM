@@ -27,3 +27,9 @@ export interface PrestacionesResponse {
 export interface ProfesionalesResponse {
   profesionales: Profesional[];
 }
+
+// R11: la configuración de clínica de una sede (GET/PUT /clinica/sedes/:id/configuracion).
+export interface ConfiguracionDeSede {
+  // null = sin plazo (docs/rubros.md D10: sin valor por defecto).
+  minHoursToChangeBooking: number | null;
+}

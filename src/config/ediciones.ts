@@ -499,6 +499,9 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     // R10: atendido / no vino.
     "PATCH /api/bookings/:id/attended",
     "PATCH /api/bookings/:id/no-show",
+    // R11: la configuración de clínica de una sede.
+    "GET /api/clinica/sedes/:branchId/configuracion",
+    "PUT /api/clinica/sedes/:branchId/configuracion",
   ],
 };
 

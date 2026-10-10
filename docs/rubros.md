@@ -1095,6 +1095,14 @@ En los mismos dos lugares: `toolsHabilitadas` (`agentTools.service.ts:2913`) y
 >   El mensaje de fuga bloqueada y el cierre por tope también son del rubro.
 >   Un test busca en el prompt de clínica que no quede ninguna mención a autos,
 >   permuta, financiación, vehículos ni "la unidad".
+> - **El plazo (D10) se configura** en el formulario de la sede, sección "Turnos
+>   por chat", solo ADMIN: `GET`/`PUT /api/clinica/sedes/:branchId/configuracion`
+>   (módulo `agenda_clinica`), entero de 0 a 8760 o `null`. Sin valor por
+>   defecto: una sede nueva no tiene plazo.
+> - **Detector de salud:** "costra*" con un error de tipeo agarraba "contraoferta",
+>   "contrato" o "en contra" (la raíz con tolerancia se comparaba contra el
+>   comienzo de cualquier palabra). Ahora, con un error de tipeo, lo que sigue a
+>   la raíz tiene que ser una terminación (`TERMINACIONES_CON_TOLERANCIA`).
 
 ### 5.2 Agendar con los niveles de IA (D2)
 
