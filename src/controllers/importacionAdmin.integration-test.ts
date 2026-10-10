@@ -569,6 +569,80 @@ test("empresas: se crean, la que no tiene nombre falla, y reimportar con otro fo
   }
 });
 
+// docs/ediciones.md §2.2 y §10 (paso G): una organización sin el módulo
+// empresas (ESENCIAL) no recibe empresas por importación.
+test("ESENCIAL: un lote de empresas se rechaza al subir, sin dejar nada", async () => {
+  const e = await montar("esencial-empresas");
+  try {
+    await prisma.organization.update({
+      where: { id: e.organizationId },
+      data: { edition: "ESENCIAL" },
+    });
+    const fuentesAntes = await prisma.source.count({ where: { organizationId: e.organizationId } });
+
+    const subida = await subir(
+      e,
+      await fixture("empresas.csv"),
+      { entityType: "COMPANY", sourceName: "Planilla de empresas" },
+      "empresas.csv",
+    );
+    assert.equal(subida.status, 400);
+    assert.match(JSON.stringify(subida.body), /no tiene empresas/);
+    assert.equal(
+      await prisma.importBatch.count({ where: { organizationId: e.organizationId } }),
+      0,
+    );
+    assert.equal(
+      await prisma.source.count({ where: { organizationId: e.organizationId } }),
+      fuentesAntes,
+    );
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ESENCIAL: en un lote de contactos la empresa se ignora con advertencia, y no se crea ninguna aunque el lote lo pida", async () => {
+  const e = await montar("esencial-contactos");
+  try {
+    await prisma.organization.update({
+      where: { id: e.organizationId },
+      data: { edition: "ESENCIAL" },
+    });
+    const { batchId } = await importarContactos(
+      e,
+      await fixture("contactos.csv", e.vendedorEmail),
+      { sourceName: "Planilla de contactos" },
+      { ...AJUSTES_DE_CONTACTOS, crearEmpresas: true },
+    );
+
+    const vistaPrevia = await filas(e, batchId);
+    const conEmpresa = vistaPrevia.find((fila) =>
+      fila.plan.advertencias.some((adv) =>
+        /no tiene empresas.*Compañía Ejemplo.*se ignora/.test(adv),
+      ),
+    );
+    assert.ok(conEmpresa, JSON.stringify(vistaPrevia.map((fila) => fila.plan)));
+    assert.equal(conEmpresa.plan.empresaNueva, undefined);
+    assert.equal(
+      vistaPrevia.some((fila) => fila.plan.empresaNueva !== undefined),
+      false,
+      "ninguna fila propone crear una empresa",
+    );
+
+    await confirmarYPromover(e, batchId);
+    assert.equal(await prisma.company.count({ where: { organizationId: e.organizationId } }), 0);
+    assert.equal(
+      await prisma.contact.count({
+        where: { organizationId: e.organizationId, companyId: { not: null } },
+      }),
+      0,
+    );
+    assert.ok((await prisma.contact.count({ where: { organizationId: e.organizationId } })) > 0);
+  } finally {
+    await desmontar(e);
+  }
+});
+
 test("seguridad: solo platform admin, un lote de otra organización es 404, y los pasos fuera de orden son 409", async () => {
   const e = await montar("seguridad");
   const otra = await montar("seguridad-otra");
