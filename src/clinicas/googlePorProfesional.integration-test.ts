@@ -603,6 +603,62 @@ test("asignar calendario: valida contra Google, rechaza el de la sede y el repet
   assert.equal(quitado.googleCalendarId, null);
 });
 
+test("asignar calendario abre el canal de Google en el momento; si falla, el worker lo abre en su pasada", async () => {
+  await limpiar();
+  await prisma.resource.update({ where: { id: clin.ana }, data: { googleCalendarId: null } });
+
+  const google = doblarGoogle();
+  const asignado = await asignarCalendarioAlProfesional(
+    clinica.id,
+    clin.ana,
+    "cal-ana",
+    google.cliente,
+  );
+  assert.equal(asignado.canalAbierto, true);
+  assert.deepEqual(
+    google.canalesCreados.map((c) => c.calendarId),
+    ["cal-ana"],
+    "se abrió en el momento, sin esperar al worker",
+  );
+  const fila = await prisma.googleCalendarChannel.findFirstOrThrow({
+    where: { organizationId: clinica.id, resourceId: clin.ana },
+  });
+  assert.equal(fila.channelId, google.canalesCreados[0].channelId);
+  // El worker no lo reabre: ya está vigente.
+  const pasada = doblarGoogle();
+  await renovarCanalesVencidos({ cliente: pasada.cliente, organizationId: clinica.id });
+  assert.ok(!pasada.canalesCreados.some((c) => c.calendarId === "cal-ana"));
+
+  // Con Google fallando al abrir el canal, la asignación vale igual y el
+  // worker (el respaldo) lo abre después.
+  await prisma.resource.update({ where: { id: clin.bruno }, data: { googleCalendarId: null } });
+  try {
+    const conFalla = doblarGoogle({ calendarioRoto: "cal-bruno" });
+    conFalla.cliente.consultarFreeBusy = () => Promise.resolve([]);
+    const deBruno = await asignarCalendarioAlProfesional(
+      clinica.id,
+      clin.bruno,
+      "cal-bruno",
+      conFalla.cliente,
+    );
+    assert.equal(deBruno.googleCalendarId, "cal-bruno");
+    assert.equal(deBruno.canalAbierto, false);
+    const sinCanal = await prisma.googleCalendarChannel.findFirstOrThrow({
+      where: { organizationId: clinica.id, resourceId: clin.bruno },
+    });
+    assert.equal(sinCanal.channelId, null);
+    assert.ok(sinCanal.lastErrorMessage);
+    const respaldo = doblarGoogle();
+    await renovarCanalesVencidos({ cliente: respaldo.cliente, organizationId: clinica.id });
+    assert.ok(respaldo.canalesCreados.some((c) => c.calendarId === "cal-bruno"));
+  } finally {
+    await prisma.googleCalendarChannel.deleteMany({
+      where: { organizationId: clinica.id, resourceId: clin.bruno },
+    });
+    await prisma.resource.update({ where: { id: clin.bruno }, data: { googleCalendarId: null } });
+  }
+});
+
 test("la lista de calendarios: con el scope, la de la cuenta; sin él, 409 para usar el respaldo", async () => {
   const conLista = await listarCalendariosDeLaSede(
     clinica.id,

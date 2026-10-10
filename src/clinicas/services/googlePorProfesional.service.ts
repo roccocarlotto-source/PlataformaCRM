@@ -65,9 +65,12 @@ export async function listarCalendariosDeLaSede(
 
 /** Asigna (o quita, con null) el calendario de Google de un profesional. Lo
  *  valida con un freebusy sobre ese calendario: si Google no lo puede leer con
- *  la cuenta conectada, 400. Cambiarlo detiene el canal del calendario viejo;
- *  el del nuevo lo abre el worker de renovación en su próxima pasada. Los
- *  turnos ya creados conservan su Booking.googleCalendarId. */
+ *  la cuenta conectada, 400. Cambiarlo detiene el canal del calendario viejo y
+ *  abre el del nuevo EN EL MOMENTO, para no quedar hasta una hora sin detectar
+ *  cambios hechos en Google. Si abrirlo falla, la asignación vale igual: el
+ *  error queda en la fila del canal y el worker de renovación lo reintenta en
+ *  su próxima pasada (es el respaldo). Los turnos ya creados conservan su
+ *  Booking.googleCalendarId. */
 export async function asignarCalendarioAlProfesional(
   organizationId: string,
   resourceId: string,
@@ -81,7 +84,7 @@ export async function asignarCalendarioAlProfesional(
   }
   const calendarId = calendarIdPedido?.trim() ? calendarIdPedido.trim() : null;
   if (calendarId === recurso.googleCalendarId) {
-    return { id: recurso.id, googleCalendarId: recurso.googleCalendarId };
+    return { id: recurso.id, googleCalendarId: recurso.googleCalendarId, canalAbierto: false };
   }
 
   if (calendarId !== null) {
@@ -141,7 +144,16 @@ export async function asignarCalendarioAlProfesional(
       );
     }
   }
-  return { id: recurso.id, googleCalendarId: calendarId };
+  const canalAbierto =
+    calendarId !== null &&
+    (
+      await renovarCanalesDeProfesionales(new Date(Date.now() + 1000), {
+        cliente,
+        organizationId,
+        resourceId,
+      })
+    ).renovados === 1;
+  return { id: recurso.id, googleCalendarId: calendarId, canalAbierto };
 }
 
 // ---------------------------------------------------------------------------
@@ -207,11 +219,12 @@ async function renovarCanalDeProfesional(fila: FilaDeCanal, cliente?: ClienteIny
  *  obtenerAccessToken. */
 export async function renovarCanalesDeProfesionales(
   limiteDeVencimiento: Date,
-  opciones: { cliente?: ClienteInyectado; organizationId?: string } = {},
+  opciones: { cliente?: ClienteInyectado; organizationId?: string; resourceId?: string } = {},
 ): Promise<{ renovados: number; fallidos: number }> {
   const resumen = { renovados: 0, fallidos: 0 };
   const filas = await asegurarFilasDeProfesionales(limiteDeVencimiento, {
     organizationId: opciones.organizationId,
+    resourceId: opciones.resourceId,
   });
   for (const fila of filas) {
     try {

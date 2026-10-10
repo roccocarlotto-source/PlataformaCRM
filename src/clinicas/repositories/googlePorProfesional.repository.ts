@@ -42,7 +42,9 @@ export function findCanalDeProfesionalPorChannelId(channelId: string, db: Db = p
  *  `alcance.organizationId`: solo para tests, como findConnectionsNeedingChannel. */
 export async function asegurarFilasDeProfesionales(
   limiteDeVencimiento: Date,
-  alcance: { organizationId?: string } = {},
+  // `resourceId`: solo ese profesional (abrir su canal al asignarle el
+  // calendario).
+  alcance: { organizationId?: string; resourceId?: string } = {},
   db: Db = prisma,
 ) {
   const profesionales = await db.resource.findMany({
@@ -51,6 +53,7 @@ export async function asegurarFilasDeProfesionales(
       deletedAt: null,
       organization: { industry: "CLINICA" },
       ...(alcance.organizationId ? { organizationId: alcance.organizationId } : {}),
+      ...(alcance.resourceId ? { id: alcance.resourceId } : {}),
     },
     select: { id: true, organizationId: true, branchId: true, googleCalendarId: true },
   });

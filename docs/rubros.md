@@ -680,7 +680,9 @@ model ResourceTimeOff {
 >   `/api/resources/:id/google-calendar`, para que la ruta sea del módulo de
 >   clínica). La elección valida con un `freebusy` sobre el calendario y
 >   rechaza el de la sede y uno que ya usa otro profesional. El canal del
->   calendario nuevo lo abre el worker en su próxima pasada.
+>   calendario nuevo **se abre en el momento** (pedido de Rocco, para no quedar
+>   hasta una hora sin detectar cambios); si Google falla, la asignación vale
+>   igual, el error queda en la fila y el worker lo reintenta en su pasada.
 > - **Scopes:** `scopesDeConexion(industry)`. Para una automotora, la URL es
 >   idéntica byte a byte (suite "automotora sin cambios").
 >   `include_granted_scopes=true` solo para clínicas.

@@ -52,8 +52,9 @@ sede. Sin canal, los cambios hechos en Google no llegan a la plataforma.
    - elegirle a Bruno el calendario de Ana → "Ese calendario ya es de Ana";
    - un ID inventado → "La cuenta de Google conectada no puede usar ese
      calendario".
-5. Esperá la próxima pasada del worker (hasta una hora): abre el canal del
-   calendario de Ana.
+5. Al guardar se abre en el momento el canal de notificaciones del calendario
+   de Ana. Si Google falló al abrirlo, el worker lo reintenta en su próxima
+   pasada (hasta una hora).
 
 ## 4. Disponibilidad
 
@@ -93,7 +94,7 @@ sede. Sin canal, los cambios hechos en Google no llegan a la plataforma.
 ## 7. Cambiar y quitar el calendario
 
 1. Cambiale a Ana el calendario a "Prueba Bruno" (o a otro). El canal viejo se
-   detiene; el nuevo lo abre el worker en su próxima pasada. El turno que ya
+   detiene y el nuevo se abre en el momento. El turno que ya
    estaba en "Prueba Ana" se sigue cancelando ahí.
 2. Quitale el calendario (**Sin calendario propio**). Ana vuelve a funcionar
    solo con la agenda de la plataforma.
