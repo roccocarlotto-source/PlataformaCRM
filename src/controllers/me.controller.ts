@@ -5,6 +5,8 @@ import { MODULOS, ROLES_POR_RUBRO, modulosDe } from "../config/ediciones";
 import { vocabularioDe } from "../config/vocabulario";
 import { findPlatformAdminByUserId } from "../repositories/platformAdmin.repository";
 import { findUserById } from "../repositories/user.repository";
+import { sedesDelActor } from "../services/permisos";
+import { prisma } from "../lib/prisma";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 
@@ -23,7 +25,8 @@ import { asyncHandler } from "../utils/asyncHandler";
 // siendo esos middlewares en cada llamada, nunca estos booleanos.
 //
 // Una clínica suma una lectura, la de su configuración (contactTerm,
-// docs/rubros.md §3), en la misma ida. Una automotora no la hace.
+// docs/rubros.md §3), en la misma ida, y la de los nombres de las sedes de una
+// Recepción (R20). Una automotora no hace ninguna de las dos.
 export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const { userId, email, fullName, organizationId, role, edition, industry } = req.auth;
   // internalAgentConfigured (OPUS-F-04 / FABLE-F-07, docs-privados, local): si
@@ -31,14 +34,23 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
   // agente interno pedía su configuración y sus mensajes para enterarse de que
   // no existía, y cada visita dejaba dos 404 en la consola. En la misma ida
   // que las otras dos lecturas.
-  const [platformAdmin, canUseInternalAgent, agenteInterno, clinica] = await Promise.all([
-    findPlatformAdminByUserId(userId),
-    role === "ADMIN"
-      ? Promise.resolve(true)
-      : findUserById(userId, organizationId).then((user) => user?.canUseInternalAgent === true),
-    findInternalAgentByOrganization(organizationId),
-    industry === "CLINICA" ? leerConfiguracionDeClinica(organizationId) : Promise.resolve(null),
-  ]);
+  const sedes = industry === "CLINICA" ? sedesDelActor(req.auth) : null;
+  const [platformAdmin, canUseInternalAgent, agenteInterno, clinica, sedesConNombre] =
+    await Promise.all([
+      findPlatformAdminByUserId(userId),
+      role === "ADMIN"
+        ? Promise.resolve(true)
+        : findUserById(userId, organizationId).then((user) => user?.canUseInternalAgent === true),
+      findInternalAgentByOrganization(organizationId),
+      industry === "CLINICA" ? leerConfiguracionDeClinica(organizationId) : Promise.resolve(null),
+      sedes !== null && sedes !== "todas" && sedes.length > 0
+        ? prisma.branch.findMany({
+            where: { organizationId, id: { in: [...sedes] }, deletedAt: null },
+            select: { id: true, name: true },
+            orderBy: [{ name: "asc" }, { id: "asc" }],
+          })
+        : Promise.resolve([]),
+    ]);
   res.status(200).json({
     id: userId,
     email,
@@ -66,5 +78,11 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     // `modulos`: la pantalla de usuarios e invitaciones no tiene una tabla
     // propia. Lo que decide es exigirRolDelRubro en cada pedido.
     rolesAsignables: ROLES_POR_RUBRO[industry],
+    // R20 (docs/rubros.md §11.5): las sedes de quien entra, solo en una
+    // clínica (una automotora no tiene la clave). "todas" para un ADMIN; para
+    // una Recepción, las suyas ([] = sin sedes: la pantalla muestra el aviso).
+    // Es para el selector de sede activa; lo que decide es sedesDelActor en
+    // cada pedido.
+    ...(sedes !== null ? { sedes: sedes === "todas" ? "todas" : sedesConNombre } : {}),
   });
 });

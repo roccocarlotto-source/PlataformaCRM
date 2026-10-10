@@ -5,6 +5,7 @@ import { findEtiquetasDeAgenda } from "../repositories/internalAgent.repository"
 import { findOrganizationById } from "../repositories/organization.repository";
 import { findOpportunitiesMatchingAllWords } from "../repositories/opportunity.repository";
 import { isoEnZona } from "../utils/timezone";
+import type { OrganizationIndustry } from "@prisma/client";
 import type { RoleName } from "../types/auth";
 import { createActivityAsActor } from "./activity.service";
 import {
@@ -48,6 +49,9 @@ export interface ContextoDeEjecucionDeToolInterna {
   // Su rol (req.auth.role): las tools que escriben aplican las MISMAS reglas
   // por rol que el panel (B-18: createActivityAsActor).
   role: RoleName;
+  // Rubro y sedes (R20): las lecturas por sede aplican lo mismo que el panel.
+  industry?: OrganizationIndustry;
+  sedes?: readonly string[];
 }
 
 export interface ToolInterna {
@@ -274,7 +278,12 @@ const createInternalTaskTool: ToolInterna = {
         oportunidad = resuelta.valor;
       }
 
-      const actor = { userId: contexto.userId, role: contexto.role };
+      const actor = {
+        userId: contexto.userId,
+        role: contexto.role,
+        ...(contexto.industry ? { industry: contexto.industry } : {}),
+        ...(contexto.sedes ? { sedes: contexto.sedes } : {}),
+      };
       const activity = await createActivityAsActor(contexto.organizationId, actor, {
         type: "TASK",
         subject: params.asunto,
@@ -410,13 +419,17 @@ const getAgendaTool: ToolInterna = {
         sucursal = resuelta.valor;
       }
 
-      const { data: turnos, pagination } = await listBookings(contexto.organizationId, {
-        page: 1,
-        pageSize: MAX_TURNOS_EN_AGENDA,
-        sortBy: "startsAt",
-        sortOrder: "asc",
-        filters: { branchId: sucursal?.id, desde: params.desde, hasta: params.hasta },
-      });
+      const { data: turnos, pagination } = await listBookings(
+        contexto.organizationId,
+        {
+          page: 1,
+          pageSize: MAX_TURNOS_EN_AGENDA,
+          sortBy: "startsAt",
+          sortOrder: "asc",
+          filters: { branchId: sucursal?.id, desde: params.desde, hasta: params.hasta },
+        },
+        contexto,
+      );
 
       if (turnos.length === 0) {
         return exito({

@@ -21,6 +21,11 @@ interface BranchSelectProps {
   // el dato esté a la vista y no se pueda tocar informa más que su ausencia.
   // Lo estrenó la edición de un agente de IA, cuyo branchId es inmutable.
   disabled?: boolean;
+  // R20 (docs/rubros.md §11.5): las sedes de una Recepción de clínica
+  // (sedesDeQuienEntra). Con una lista, ofrece solo esas: es su selector de
+  // sede activa en reservas, calendario y conversaciones. Sin pasarla (o null),
+  // todas, como siempre.
+  soloSedes?: readonly { id: string }[] | null;
 }
 
 // Selector de sucursal del módulo QR (docs/qr-integration.md, Fase 3,
@@ -43,6 +48,7 @@ export function BranchSelect({
   emptyOptionLabel = "Elegir sucursal…",
   required = false,
   disabled = false,
+  soloSedes = null,
 }: BranchSelectProps) {
   const branchesQuery = useBranches(BRANCHES_PARA_SELECT);
 
@@ -55,10 +61,12 @@ export function BranchSelect({
         label={label}
         value={value}
         onChange={onChange}
-        options={branchesQuery.data.data.map((branch) => ({
-          value: branch.id,
-          label: branch.name,
-        }))}
+        options={branchesQuery.data.data
+          .filter((branch) => soloSedes === null || soloSedes.some((s) => s.id === branch.id))
+          .map((branch) => ({
+            value: branch.id,
+            label: branch.name,
+          }))}
         emptyOption={{ label: emptyOptionLabel }}
         required={required}
         disabled={disabled}

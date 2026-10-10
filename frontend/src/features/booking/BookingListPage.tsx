@@ -30,6 +30,8 @@ import {
 import { useCancelBooking } from "./mutations";
 import { useBookings } from "./queries";
 import type { BookingSortBy, BookingStatus, SortOrder } from "./types";
+import { useAuth } from "../../auth/AuthContext";
+import { sedesDeQuienEntra } from "../clinica/sedes";
 
 const PAGE_SIZE = 20;
 
@@ -57,6 +59,8 @@ const SIN_RESOLVER = "—";
 // ---------------------------------------------------------------------------
 export function BookingListPage() {
   const confirm = useConfirm();
+  // R20: una Recepción de clínica filtra entre sus sedes.
+  const { me } = useAuth();
   const [page, setPage] = useState(1);
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
   const [resourceId, setResourceId] = useState<string | undefined>(undefined);
@@ -131,6 +135,7 @@ export function BookingListPage() {
             id="booking-list-branch"
             label="Sucursal"
             value={branchId}
+            soloSedes={sedesDeQuienEntra(me)}
             emptyOptionLabel="Todas"
             onChange={(nuevo) =>
               aplicarFiltro(() => {

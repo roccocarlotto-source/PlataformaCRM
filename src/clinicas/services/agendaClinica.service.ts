@@ -10,6 +10,7 @@ import { obtenerDisponibilidad, type TurnoDisponible } from "../../services/avai
 import { createBooking, type BookingActor } from "../../services/booking.service";
 import { getBranchById } from "../../services/branch.service";
 import type { ClienteGoogleCalendar } from "../../services/googleCalendar.service";
+import { exigirSedeDelActor, type ActorConSedes } from "../../services/permisos";
 import { getServiceTypeById } from "../../services/serviceType.service";
 import { AppError } from "../../utils/AppError";
 import { enParalelo } from "../../utils/enParalelo";
@@ -138,8 +139,11 @@ export async function disponibilidadDeLaPrestacion(
   organizationId: string,
   params: { serviceTypeId: string; resourceId?: string; desde: Date; hasta: Date },
   cliente?: ClienteGoogleCalendar,
+  actor?: ActorConSedes,
 ): Promise<TurnoConProfesional[]> {
   const prestacion = await getServiceTypeById(organizationId, params.serviceTypeId);
+  // R20: una prestación de otra sede, para una Recepción, no existe.
+  if (actor) exigirSedeDelActor(actor, prestacion.branchId, "Servicio no encontrado");
   const profesionales = await profesionalesDeLaPrestacion(organizationId, prestacion);
   const consultados = elegidos(profesionales, params.resourceId);
 
@@ -214,6 +218,7 @@ export async function crearTurnoDeClinica(
   actor?: BookingActor,
 ) {
   const prestacion = await getServiceTypeById(organizationId, input.serviceTypeId);
+  if (actor) exigirSedeDelActor(actor, prestacion.branchId, "Servicio no encontrado");
   const profesionales = await profesionalesDeLaPrestacion(organizationId, prestacion);
   const reservar = (resourceId: string) =>
     createBooking(

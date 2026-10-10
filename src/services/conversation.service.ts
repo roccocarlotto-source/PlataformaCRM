@@ -12,6 +12,7 @@ import {
   type SortOrder,
 } from "../repositories/conversation.repository";
 import { AppError } from "../utils/AppError";
+import { exigirSedeDelActor, filtroDeSedes, type ActorConSedes } from "./permisos";
 import {
   conversacionesConPedidoSinResponder,
   pedidoSinResponderDelHilo,
@@ -61,18 +62,22 @@ export interface ListConversationsParams {
   sortOrder: SortOrder;
 }
 
-export async function listConversations(organizationId: string, params: ListConversationsParams) {
-  const { page, pageSize, sortBy, sortOrder, ...filters } = params;
+// `actor` (R20): una Recepción de clínica ve solo las conversaciones de sus
+// sedes (filtroDeSedes); para cualquier otro usuario, la bandeja de antes.
+export async function listConversations(
+  organizationId: string,
+  params: ListConversationsParams,
+  actor?: ActorConSedes,
+) {
+  const { page, pageSize, sortBy, sortOrder, ...pedidos } = params;
+  const filters: ConversationFilters = actor
+    ? { ...pedidos, branchId: undefined, ...filtroDeSedes(actor, pedidos.branchId) }
+    : pedidos;
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyConversations(
-      organizationId,
-      filters as ConversationFilters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
-    countConversations(organizationId, filters as ConversationFilters),
+    findManyConversations(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
+    countConversations(organizationId, filters),
   ]);
   // La marca "pidió hablar con una persona · sin responder" (ver
   // avisoSinRespuesta.service.ts), para toda la página de una vez.
@@ -96,11 +101,18 @@ export async function listConversations(organizationId: string, params: ListConv
 // que todo el resto del CRUD: el WHERE ya lleva organizationId, así que la
 // fila simplemente no existe para quien pregunta — y responder 403 confirmaría
 // que ese id existe en algún lado.
-export async function getConversationById(organizationId: string, id: string) {
+// Una conversación de otra sede, para una Recepción de clínica, es el mismo
+// 404 (R20).
+export async function getConversationById(
+  organizationId: string,
+  id: string,
+  actor?: ActorConSedes,
+) {
   const conversation = await findConversationWithMessages(id, organizationId);
   if (!conversation) {
     throw new AppError("Conversación no encontrada", 404);
   }
+  if (actor) exigirSedeDelActor(actor, conversation.branchId, "Conversación no encontrada");
   return { ...conversation, ...(await estadoDeAtencion(conversation)) };
 }
 
@@ -167,8 +179,9 @@ export async function updateConversationBrief(
   id: string,
   userId: string,
   brief: string | null,
+  actor?: ActorConSedes,
 ) {
-  await getConversationById(organizationId, id);
+  await getConversationById(organizationId, id, actor);
 
   const texto = brief?.trim() ? brief.trim() : null;
   await updateConversation(id, organizationId, {
@@ -185,8 +198,12 @@ export async function updateConversationBrief(
 // botón, y tiene que poder ver que falló en vez de quedarse mirando un brief
 // que no cambió. El errorHandler traduce solo: LlmProviderError ya es 502 y el
 // proveedor sin configurar ya es 500.
-export async function generateConversationBrief(organizationId: string, id: string) {
-  await getConversationById(organizationId, id);
+export async function generateConversationBrief(
+  organizationId: string,
+  id: string,
+  actor?: ActorConSedes,
+) {
+  await getConversationById(organizationId, id, actor);
   await generarBriefDeConversacion(organizationId, id);
   return getConversationById(organizationId, id);
 }
@@ -209,8 +226,8 @@ export async function generateConversationBrief(organizationId: string, id: stri
 // transacción se cancelan los jobs del agente que todavía no corrieron sobre
 // esta conversación. El que ya estaba corriendo lo corta el worker al releer la
 // conversación bajo el lock, y derivar ya no reabre una CLOSED.
-export async function closeConversation(organizationId: string, id: string) {
-  await getConversationById(organizationId, id);
+export async function closeConversation(organizationId: string, id: string, actor?: ActorConSedes) {
+  await getConversationById(organizationId, id, actor);
   await prisma.$transaction(async (tx) => {
     const cierre = await closeConversationRepo(id, organizationId, tx);
     if (cierre.count === 1) {

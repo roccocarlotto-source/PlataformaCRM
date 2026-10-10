@@ -29,6 +29,9 @@ export interface User {
   updatedAt: string;
   deletedAt: string | null;
   role: Role;
+  // R20: las sedes vigentes del usuario, solo en una clínica ([] = sin sedes).
+  // Una automotora no tiene la clave.
+  branches?: { id: string; name: string }[];
 }
 
 export interface UserListPagination {
@@ -68,4 +71,7 @@ export interface UpdateUserInput {
   isActive?: boolean;
   role?: RoleName;
   canUseInternalAgent?: boolean;
+  // R20: las sedes de una Recepción de clínica. El backend las ignora en una
+  // automotora.
+  branchIds?: string[];
 }

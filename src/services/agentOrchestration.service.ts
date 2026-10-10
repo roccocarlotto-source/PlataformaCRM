@@ -16,6 +16,7 @@ import type {
 } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
+import { avisoDeRecepcion } from "../clinicas/services/sedesDeUsuarios.service";
 import { aplicarEstadosRetenidos } from "./estadosDeEntregaRetenidos.service";
 import { prisma, type Db } from "../lib/prisma";
 import { findAgentById } from "../repositories/agent.repository";
@@ -1773,6 +1774,24 @@ async function crearActivityDeAviso(
   const { organizationId, conversationId, branchId, contact, motivo } = input;
   let ownerId = ownerIdResuelto;
 
+  // R20 (docs/rubros.md §11.4): en una clínica el aviso es de la sede de la
+  // conversación y va a su Recepción (Responsable por defecto si es Recepción
+  // de la sede; si no, la de menos tareas abiertas). Si la sede no tiene
+  // Recepción, el camino de hoy. En una automotora `clinica` es null y nada
+  // cambia. Best-effort como el resto: si falla, se sigue como antes.
+  let clinica: Awaited<ReturnType<typeof avisoDeRecepcion>> = null;
+  try {
+    clinica = await avisoDeRecepcion(organizationId, branchId);
+  } catch (err) {
+    logger.warn(
+      { err, organizationId, conversationId, branchId },
+      "No se pudo resolver la recepción de la sede para el aviso: se sigue sin sede",
+    );
+  }
+  if (clinica?.recepcionistaId) {
+    ownerId = clinica.recepcionistaId;
+  }
+
   // FABLE-I-05 (docs-privados/auditoria-2026-10-05-FABLE.md, local): si el
   // contacto ya tiene una tarea del pedido ABIERTA, la derivación la reutiliza.
   // Antes cada ciclo derivación → aviso → derivación dejaba otra tarea: una
@@ -1827,6 +1846,7 @@ async function crearActivityDeAviso(
       ...(urgente ? { dueDate: new Date() } : {}),
       assigneeId: ownerId,
       contactId: contact.id,
+      ...(clinica ? { branchId: clinica.branchId } : {}),
     });
     return activity.id;
   } catch (err) {

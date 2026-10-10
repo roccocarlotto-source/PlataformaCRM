@@ -28,7 +28,14 @@ import {
   defaultOrganizationAdminDeps,
 } from "../services/organizationAdmin.service";
 import { SIN_REGLAS, reglasDelRubro } from "../services/reglasDelRubro";
-import { CAPACIDADES, puede } from "../services/permisos";
+import { canReadActivity, scopeActivityFiltersToActor } from "../services/activity.service";
+import {
+  CAPACIDADES,
+  estaEnSusSedes,
+  filtroDeSedes,
+  puede,
+  sedesDelActor,
+} from "../services/permisos";
 import { exigirRolDelRubro } from "../config/ediciones";
 import { crearClienteGoogleCalendar } from "../services/googleCalendar.service";
 import { vocabularioDe } from "../config/vocabulario";
@@ -527,6 +534,36 @@ test("en una automotora, asignar RECEPCION da 400; ADMIN y USER se siguen pudien
   );
   assert.doesNotThrow(() => exigirRolDelRubro("ADMIN", "AUTOMOTORA"));
   assert.doesNotThrow(() => exigirRolDelRubro("USER", "AUTOMOTORA"));
+});
+
+// ---------------------------------------------------------------------------
+// R20 (usuarios por sede, docs/rubros.md §11.5): en una automotora nadie queda
+// limitado por sede. sedesDelActor da "todas" para ADMIN y USER, el contexto
+// de autenticación no tiene la clave `sedes`, y los filtros de sede de los
+// listados son los que pidió el cliente, sin agregar nada. Las tareas de un
+// USER se acotan como antes (lo suyo), sin mirar la sede.
+// ---------------------------------------------------------------------------
+
+test("usuarios por sede: una automotora ve todas las sedes, como antes de R20", () => {
+  for (const role of ["ADMIN", "USER"] as const) {
+    const auth = { ...automotora("COMPLETA"), role };
+    assert.equal("sedes" in auth, false);
+    assert.equal(sedesDelActor(auth), "todas");
+    assert.deepEqual(filtroDeSedes(auth), {});
+    assert.deepEqual(filtroDeSedes(auth, "33333333-3333-3333-3333-333333333333"), {
+      branchId: "33333333-3333-3333-3333-333333333333",
+    });
+    assert.equal(estaEnSusSedes(auth, "33333333-3333-3333-3333-333333333333"), true);
+  }
+  const usuario = { ...automotora("COMPLETA"), role: "USER" as const };
+  assert.deepEqual(scopeActivityFiltersToActor(usuario, { assigneeId: "otra" }), {
+    assigneeId: usuario.userId,
+  });
+  assert.equal(
+    canReadActivity(usuario, { assigneeId: "otra", branchId: null }),
+    false,
+    "un USER sigue sin ver las tareas sin asignar",
+  );
 });
 
 // ---------------------------------------------------------------------------

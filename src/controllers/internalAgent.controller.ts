@@ -77,6 +77,8 @@ export const postInternalAgentMessageHandler = asyncHandler<AuthenticatedRequest
       organizationId: req.auth.organizationId,
       userId: req.auth.userId,
       role: req.auth.role,
+      industry: req.auth.industry,
+      ...(req.auth.sedes ? { sedes: req.auth.sedes } : {}),
       userFullName: req.auth.fullName,
       texto: input.content,
     });

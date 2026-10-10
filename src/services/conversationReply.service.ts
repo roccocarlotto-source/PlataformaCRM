@@ -1,6 +1,7 @@
 import type { Conversation, ConversationChannel, Message } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
+import { avisoDeRecepcion } from "../clinicas/services/sedesDeUsuarios.service";
 import { prisma, type Db } from "../lib/prisma";
 import { createActivity } from "../repositories/activity.repository";
 import { findAgentById } from "../repositories/agent.repository";
@@ -43,7 +44,7 @@ import { atencionFueraDeHorarioDeLaSucursal } from "./branchBusinessHours.servic
 import { aplicarEstadosRetenidos } from "./estadosDeEntregaRetenidos.service";
 import { marcarTokenRechazado, obtenerTokenParaEnviar } from "./metaPageConnection.service";
 import { MetaSendError, sendMetaTextReal, type SendMetaText } from "./metaSend.service";
-import { puede } from "./permisos";
+import { exigirSedeDelActor, puede, type ActorConSedes } from "./permisos";
 import {
   WhatsappGraphError,
   mensajeDeMeta,
@@ -120,7 +121,10 @@ export type Destino =
   | { canal: "META"; channel: ConversationChannel; pageId: string; recipientId: string }
   | { canal: "WEB" };
 
-export interface Actor {
+// `industry` y `sedes` (R20): una Recepción de clínica atiende solo las
+// conversaciones de sus sedes. Opcionales: los caminos de sistema no las pasan
+// y sedesDelActor falla cerrado para Recepción.
+export interface Actor extends ActorConSedes {
   userId: string;
   role: RoleName;
 }
@@ -191,6 +195,8 @@ async function conversacionQueAtiende(actor: Actor, organizationId: string, id: 
   if (!conversation) {
     throw new AppError("Conversación no encontrada", 404);
   }
+  // De otra sede (Recepción, R20): el mismo 404, antes del 403.
+  exigirSedeDelActor(actor, conversation.branchId, "Conversación no encontrada");
   if (!puedeAtenderLaConversacion(actor, conversation)) {
     throw new AppError(MENSAJE_SIN_PERMISO, 403);
   }
@@ -775,7 +781,12 @@ async function devolverYAvisar(
 // autor es el mismo ADMIN al que se le asigna.
 async function crearTareaSinRespuesta(actor: Actor | null, conversation: Conversation, tx: Db) {
   const { organizationId, contactId } = conversation;
-  const adminId = await findAdminParaLaTarea(organizationId, actor, tx);
+  // R20 (docs/rubros.md §11.4): en una clínica, la tarea es de la sede de la
+  // conversación y va a su Recepción; si la sede no tiene, lo de siempre. En
+  // una automotora `clinica` es null y nada cambia.
+  const clinica = await avisoDeRecepcion(organizationId, conversation.branchId, tx);
+  const adminId =
+    clinica?.recepcionistaId ?? (await findAdminParaLaTarea(organizationId, actor, tx));
   if (!adminId) {
     logger.warn(
       { organizationId, conversationId: conversation.id, contactId },
@@ -795,6 +806,7 @@ async function crearTareaSinRespuesta(actor: Actor | null, conversation: Convers
       contactId,
       opportunityId: null,
       subject: asuntoDeTareaSinRespuesta(nombre),
+      ...(clinica ? { branchId: clinica.branchId } : {}),
     },
     tx,
   );

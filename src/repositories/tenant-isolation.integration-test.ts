@@ -158,6 +158,15 @@ import {
   profesionalesDeLasPrestaciones,
   reemplazarProfesionales,
 } from "../clinicas/repositories/serviceTypeResource.repository";
+import {
+  copiarSedesDeLaInvitacion,
+  guardarSedesDeLaInvitacion,
+  recepcionDeLaSede,
+  reemplazarSedesDelUsuario,
+  sedesVigentesDeLaOrganizacion,
+  sedesVigentesPorInvitacion,
+  sedesVigentesPorUsuario,
+} from "../clinicas/repositories/sedesDeUsuarios.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -607,6 +616,9 @@ after(async () => {
   // Resource, ServiceType y Contact; WorkingHours y GoogleCalendarConnection
   // de Resource/Branch; ServiceType de Branch y Resource.
   await prisma.booking.deleteMany({ where: { organizationId: ambas } });
+  // R20: las sedes de usuarios e invitaciones cuelgan de Branch, User e Invitation.
+  await prisma.userBranch.deleteMany({ where: { organizationId: ambas } });
+  await prisma.invitationBranch.deleteMany({ where: { organizationId: ambas } });
   // R5: los profesionales de una prestación cuelgan de ServiceType y Resource.
   await prisma.serviceTypeResource.deleteMany({ where: { organizationId: ambas } });
   await prisma.workingHours.deleteMany({ where: { organizationId: ambas } });
@@ -2695,6 +2707,62 @@ test("H-01 ServiceTypeResource: A no lee, no borra ni crea profesionales en la p
     await prisma.serviceTypeResource.count({ where: { serviceTypeId: deB.id } }),
     1,
     "la fila de B sigue",
+  );
+});
+
+// R20 (docs/rubros.md §11.5): las sedes de usuarios e invitaciones. Con la
+// organización de A: las lecturas no ven las filas de B, reemplazar las sedes
+// de un usuario de B no borra las suyas, copiar las de una invitación de B no
+// copia nada, y la base rechaza una fila de A sobre el usuario, la invitación
+// o la sede de B (FKs compuestas).
+test("H-01 UserBranch e InvitationBranch: A no lee, no borra ni crea sedes de B", async () => {
+  await prisma.userBranch.create({
+    data: { organizationId: fx.orgB.id, userId: fx.userB.id, branchId: fx.branchB.id },
+  });
+  await prisma.invitationBranch.create({
+    data: { organizationId: fx.orgB.id, invitationId: fx.invitationB.id, branchId: fx.branchB.id },
+  });
+
+  assert.equal((await sedesVigentesPorUsuario(fx.orgA.id, [fx.userB.id])).size, 0);
+  assert.equal((await sedesVigentesPorInvitacion(fx.orgA.id, [fx.invitationB.id])).size, 0);
+  assert.deepEqual(await sedesVigentesDeLaOrganizacion(fx.orgA.id, [fx.branchB.id]), []);
+  assert.deepEqual(await recepcionDeLaSede(fx.orgA.id, fx.branchB.id), []);
+  assert.equal(
+    await copiarSedesDeLaInvitacion(fx.orgA.id, fx.invitationB.id, fx.userB.id, prisma),
+    0,
+  );
+
+  await reemplazarSedesDelUsuario(fx.orgA.id, fx.userB.id, [], prisma);
+  assert.equal(
+    await prisma.userBranch.count({ where: { userId: fx.userB.id } }),
+    1,
+    "la sede del usuario de B sigue",
+  );
+
+  // Con una sede de A (el par con la sede de B ya existe y lo rechazaría la PK,
+  // no la FK): A no puede colgar sus sedes del usuario ni de la invitación de
+  // B, ni las de B de un usuario de A.
+  const sedeA = await prisma.branch.create({
+    data: { organizationId: fx.orgA.id, name: "H-01 sede de A" },
+  });
+  await assertViolaFk(
+    () => reemplazarSedesDelUsuario(fx.orgA.id, fx.userB.id, [sedeA.id], prisma),
+    "UserBranch de A sobre el usuario de B",
+  );
+  await assertViolaFk(
+    () => guardarSedesDeLaInvitacion(fx.orgA.id, fx.invitationB.id, [sedeA.id], prisma),
+    "InvitationBranch de A sobre la invitación de B",
+  );
+  await assertViolaFk(
+    () =>
+      prisma.userBranch.create({
+        data: { organizationId: fx.orgB.id, userId: fx.userB.id, branchId: sedeA.id },
+      }),
+    "UserBranch de B sobre la sede de A",
+  );
+  assert.equal(
+    await prisma.invitationBranch.count({ where: { invitationId: fx.invitationB.id } }),
+    1,
   );
 });
 

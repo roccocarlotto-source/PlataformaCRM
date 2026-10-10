@@ -9,6 +9,9 @@ import { prisma, type Db } from "../lib/prisma";
 
 export interface BookingFilters {
   branchId?: string;
+  // Las sedes de una Recepción de clínica (filtroDeSedes, R20). Se combina con
+  // branchId solo si los dos vienen: filtroDeSedes nunca arma los dos juntos.
+  branchIds?: readonly string[];
   resourceId?: string;
   serviceTypeId?: string;
   contactId?: string;
@@ -25,6 +28,7 @@ function buildWhere(organizationId: string, filters: BookingFilters): Prisma.Boo
   return {
     organizationId,
     ...(filters.branchId ? { branchId: filters.branchId } : {}),
+    ...(filters.branchIds ? { branchId: { in: [...filters.branchIds] } } : {}),
     ...(filters.resourceId ? { resourceId: filters.resourceId } : {}),
     ...(filters.serviceTypeId ? { serviceTypeId: filters.serviceTypeId } : {}),
     ...(filters.contactId ? { contactId: filters.contactId } : {}),

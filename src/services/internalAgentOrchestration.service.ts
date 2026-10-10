@@ -1,4 +1,9 @@
-import type { InternalAgent, InternalAgentMessage, Prisma } from "@prisma/client";
+import type {
+  InternalAgent,
+  InternalAgentMessage,
+  OrganizationIndustry,
+  Prisma,
+} from "@prisma/client";
 import { logger } from "../lib/logger";
 import {
   createInternalAgentMessage,
@@ -131,6 +136,10 @@ export interface TurnoInternoInput {
   organizationId: string;
   userId: string;
   role: RoleName;
+  // El rubro y las sedes de quien escribe (R20): get_agenda le muestra a una
+  // Recepción de clínica solo los turnos de sus sedes, como el panel.
+  industry?: OrganizationIndustry;
+  sedes?: readonly string[];
   userFullName: string;
   texto: string;
 }
@@ -210,7 +219,13 @@ export async function runInternalAgentTurn(
   const toolsPorNombre = new Map(tools.map((t) => [t.definition.name, t]));
   const definiciones = tools.map((t) => t.definition);
   const existeLaTool = (nombre: string) => toolsPorNombre.has(nombre);
-  const contextoDeTools: ContextoDeEjecucionDeToolInterna = { organizationId, userId, role };
+  const contextoDeTools: ContextoDeEjecucionDeToolInterna = {
+    organizationId,
+    userId,
+    role,
+    ...(input.industry ? { industry: input.industry } : {}),
+    ...(input.sedes ? { sedes: input.sedes } : {}),
+  };
 
   // 4. El loop de tool-calling, con el mismo tope que el de cliente: una tool
   // que falla siempre no se arregla insistiendo.

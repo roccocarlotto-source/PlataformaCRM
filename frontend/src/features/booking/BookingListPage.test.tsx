@@ -17,6 +17,9 @@ import { BookingListPage } from "./BookingListPage";
 import { fechaAInstante, hoyComoFecha } from "./format";
 import type { Booking } from "./types";
 
+vi.mock("../../auth/AuthContext", () => ({
+  useAuth: () => ({ status: "authenticated", me: { role: "ADMIN", industry: "AUTOMOTORA" } }),
+}));
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));

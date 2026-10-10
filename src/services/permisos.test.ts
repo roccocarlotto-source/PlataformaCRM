@@ -33,10 +33,11 @@ test("ADMIN y USER: cada capacidad es lo que decía role === 'ADMIN'", () => {
   }
 });
 
-test("Recepción: edita cualquier contacto y atiende cualquier conversación; nada más", () => {
+test("Recepción: edita cualquier contacto, atiende cualquier conversación y opera las tareas de sus sedes; nada más", () => {
   assert.deepEqual([...CAPACIDADES_POR_ROL.RECEPCION].sort(), [
     "atender_cualquier_conversacion",
     "editar_cualquier_contacto",
+    "operar_tareas_de_sus_sedes",
   ]);
 });
 

@@ -329,6 +329,8 @@ export interface ConversationFilters {
   // buildWhere.
   search?: string;
   branchId?: string;
+  // Las sedes de una Recepción de clínica (filtroDeSedes, R20).
+  branchIds?: readonly string[];
   agentId?: string;
   contactId?: string;
   status?: ConversationStatus;
@@ -384,6 +386,7 @@ function buildWhere(
         }
       : {}),
     ...(filters.branchId ? { branchId: filters.branchId } : {}),
+    ...(filters.branchIds ? { branchId: { in: [...filters.branchIds] } } : {}),
     ...(filters.agentId ? { agentId: filters.agentId } : {}),
     ...(filters.contactId ? { contactId: filters.contactId } : {}),
     ...(filters.status ? { status: filters.status } : {}),

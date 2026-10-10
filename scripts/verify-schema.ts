@@ -122,7 +122,8 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // information_schema que se consultaba antes.
   [1, { descripcion: "C-1 · anon/authenticated sin escritura sobre public", esperado: "ninguno" }],
   [2, { descripcion: "C-1 · anon/authenticated sin lectura sobre public", esperado: "ninguno" }],
-  // Las 29 políticas de RLS comparadas por definición (cmd, permissive, roles,
+  // Las 53 políticas de RLS (50 de aislamiento uniforme + 3 especiales, al
+  // 2026-10-10 con las dos de usuarios por sede de R20) comparadas por definición (cmd, permissive, roles,
   // USING y WITH CHECK), con FULL OUTER JOIN para atrapar tanto la que falta
   // como la que sobra: 26 de aislamiento uniforme (10 originales + las 6 del
   // outbox y de agenda que agregó 20260901120000, M-5 + qr_codes, que agregó
@@ -141,7 +142,8 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // tablas de facturación del módulo QR estaban en el mismo caso que
   // platform_admins hasta que 20261001120000 las eliminó, ítem 135.)
   //
-  // El número de arriba es descriptivo: la fila no cuenta, compara firmas. Si
+  // El desglose de arriba es el histórico hasta knowledge_base_entries; el
+  // total actualizado es el de la primera línea. El número es descriptivo: la fila no cuenta, compara firmas. Si
   // queda desactualizado, lo que falla es la lectura de este comentario, no el
   // chequeo.
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
@@ -218,7 +220,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   [
     16,
     {
-      descripcion: "C-3 · las 88 FKs conocidas siguen apuntando a la tabla padre de su diseño",
+      descripcion: "C-3 · las 93 FKs conocidas siguen apuntando a la tabla padre de su diseño",
       esperado: "ninguna",
     },
   ],

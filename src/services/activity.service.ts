@@ -9,6 +9,7 @@ import {
   softDeleteActivity,
   updateActivity as updateActivityRepo,
   type ActivitySortBy,
+  type ActivityFilters,
   type SortOrder,
   type UpdateActivityData,
 } from "../repositories/activity.repository";
@@ -16,6 +17,7 @@ import { findOpportunityById } from "../repositories/opportunity.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
 import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { estaEnSusSedes, puede, sedesDelActor, type ActorConSedes } from "./permisos";
 
 export interface ListActivitiesParams {
   page: number;
@@ -45,9 +47,29 @@ export interface ListActivitiesParams {
   sortOrder: SortOrder;
 }
 
-export interface ActivityActor {
+export interface ActivityActor extends ActorConSedes {
   userId: string;
   role: RoleName;
+}
+
+// ---------------------------------------------------------------------------
+// Recepción de clínica (docs/rubros.md §11.2, R20). No es ADMIN ni USER: ve,
+// completa, edita y se asigna las tareas asignadas a sí misma, las de SUS
+// sedes y las que no tienen sede (las manuales y todas las anteriores a R20:
+// que ninguna tarea quede invisible para la recepción). Una tarea de otra sede
+// es 404, como un id inexistente. Asignarle una tarea a otra persona sigue
+// siendo de ADMIN (resolveAssigneeForActor). Para ADMIN y USER nada cambia:
+// esRecepcionDeClinica es false y se toman los caminos de antes.
+// ---------------------------------------------------------------------------
+function esRecepcionDeClinica(actor: ActivityActor): boolean {
+  return actor.role !== "ADMIN" && puede(actor, "operar_tareas_de_sus_sedes");
+}
+
+function recepcionVeLaTarea(
+  actor: ActivityActor,
+  activity: { assigneeId: string | null; branchId?: string | null },
+): boolean {
+  return activity.assigneeId === actor.userId || estaEnSusSedes(actor, activity.branchId ?? null);
 }
 
 // ---------------------------------------------------------------------------
@@ -73,21 +95,30 @@ export interface ActivityActor {
 export type ActivityReadFilters = Omit<
   ListActivitiesParams,
   "page" | "pageSize" | "sortBy" | "sortOrder"
->;
+> & { visibleParaRecepcion?: ActivityFilters["visibleParaRecepcion"] };
 
 export function scopeActivityFiltersToActor(
   actor: ActivityActor,
   filters: ActivityReadFilters,
 ): ActivityReadFilters {
   if (actor.role === "ADMIN") return filters;
+  if (esRecepcionDeClinica(actor)) {
+    // El assigneeId pedido se respeta ("Mis tareas" manda el propio), adentro
+    // de lo que ve.
+    return {
+      ...filters,
+      visibleParaRecepcion: { userId: actor.userId, branchIds: sedesDelActor(actor) },
+    };
+  }
   return { ...filters, assigneeId: actor.userId };
 }
 
 export function canReadActivity(
   actor: ActivityActor,
-  activity: { assigneeId: string | null },
+  activity: { assigneeId: string | null; branchId?: string | null },
 ): boolean {
   if (actor.role === "ADMIN") return true;
+  if (esRecepcionDeClinica(actor)) return recepcionVeLaTarea(actor, activity);
   return activity.assigneeId === actor.userId;
 }
 
@@ -230,6 +261,9 @@ export interface CreateActivityInput {
   companyId?: string;
   contactId?: string;
   opportunityId?: string;
+  // La sede (R20). Solo la pasan los caminos de sistema de una clínica (la
+  // tarea que nace de una conversación de una sede); el panel no la manda.
+  branchId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +324,7 @@ export async function createActivity(
     body: input.body,
     dueDate: input.dueDate,
     completedAt: input.completedAt,
+    ...(input.branchId ? { branchId: input.branchId } : {}),
   });
 }
 
@@ -306,7 +341,12 @@ export function createActivityAsActor(
   input: CreateActivityInput,
 ) {
   const assigneeId = resolveAssigneeForActor(actor, input.assigneeId) ?? undefined;
-  return createActivity(organizationId, actor.userId, { ...input, assigneeId });
+  // branchId no viene de una persona: lo escriben solo los caminos de sistema.
+  return createActivity(organizationId, actor.userId, {
+    ...input,
+    assigneeId,
+    branchId: undefined,
+  });
 }
 
 export interface UpdateActivityInput {
@@ -359,13 +399,23 @@ export interface UpdateActivityInput {
 // ---------------------------------------------------------------------------
 export function canUserPatchActivity(
   actor: ActivityActor,
-  activity: { assigneeId: string | null; authorId: string; completedAt: Date | null },
+  activity: {
+    assigneeId: string | null;
+    authorId: string;
+    completedAt: Date | null;
+    branchId?: string | null;
+  },
   input: UpdateActivityInput,
 ): boolean {
   if (actor.role === "ADMIN") return true;
 
   const fields = Object.keys(input);
   if (fields.length === 0 || fields.includes("confirmed")) return false;
+  // Recepción (R20): cualquier campo de una pendiente que ve. A quién la
+  // asigna lo sigue acotando resolveAssigneeForActor (a sí misma).
+  if (esRecepcionDeClinica(actor)) {
+    return recepcionVeLaTarea(actor, activity) && activity.completedAt === null;
+  }
   if (activity.assigneeId !== actor.userId || activity.completedAt !== null) return false;
 
   const onlyCompletedAt = fields.every((field) => field === "completedAt");
@@ -470,6 +520,12 @@ export async function updateActivity(
 ) {
   // 404 si no existe, no es de esta organización, o ya está eliminada.
   const activity = await requireActivity(organizationId, id);
+
+  // Una tarea que una Recepción no ve (de otra sede, R20) no existe para ella:
+  // 404, no 403.
+  if (esRecepcionDeClinica(actor) && !recepcionVeLaTarea(actor, activity)) {
+    throw new AppError("Actividad no encontrada", 404);
+  }
 
   // Autorización ANTES de tocar nada más: mismo mensaje y status que
   // authorize("ADMIN"), para que un USER sin permiso vea lo mismo que veía.

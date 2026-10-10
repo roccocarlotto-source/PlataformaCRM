@@ -90,12 +90,17 @@ export const definirProfesionalesHandler = asyncHandler<AuthenticatedRequest>(
 export const disponibilidadDeClinicaHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(disponibilidadQuerySchema, req.query);
-    const turnos = await disponibilidadDeLaPrestacion(req.auth.organizationId, {
-      serviceTypeId: query.serviceTypeId,
-      ...(query.resourceId ? { resourceId: query.resourceId } : {}),
-      desde: query.from,
-      hasta: query.to,
-    });
+    const turnos = await disponibilidadDeLaPrestacion(
+      req.auth.organizationId,
+      {
+        serviceTypeId: query.serviceTypeId,
+        ...(query.resourceId ? { resourceId: query.resourceId } : {}),
+        desde: query.from,
+        hasta: query.to,
+      },
+      undefined,
+      req.auth,
+    );
     res.status(200).json({
       availability: turnos.map((t) => ({
         startsAt: t.inicio.toISOString(),
@@ -110,9 +115,7 @@ export const disponibilidadDeClinicaHandler = asyncHandler<AuthenticatedRequest>
 export const crearTurnoDeClinicaHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(turnoBodySchema, req.body);
-    const booking = await crearTurnoDeClinica(req.auth.organizationId, input, undefined, {
-      role: req.auth.role,
-    });
+    const booking = await crearTurnoDeClinica(req.auth.organizationId, input, undefined, req.auth);
     res.status(201).json(booking);
   },
 );

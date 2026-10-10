@@ -28,6 +28,7 @@ import { estaDentroDelHorario, estaEnLaGrilla } from "../utils/workingHours";
 import { resolverContexto } from "./availability.service";
 import type { ClienteGoogleCalendar } from "./googleCalendar.service";
 import { borrarReservaDeGoogle, reflejarReservaEnGoogle } from "./googleCalendarConnection.service";
+import { estaEnSusSedes, exigirSedeDelActor, filtroDeSedes, type ActorConSedes } from "./permisos";
 
 // ---------------------------------------------------------------------------
 // Booking — creación y cancelación (P2.1, paso 3).
@@ -52,17 +53,27 @@ export interface ListBookingsParams {
   filters: BookingFilters;
 }
 
-export async function listBookings(organizationId: string, params: ListBookingsParams) {
+// `actor`: quien pide desde el panel (o el agente interno en su nombre). Una
+// Recepción de clínica ve solo los turnos de sus sedes (R20, filtroDeSedes);
+// sin actor (el agente de clientes) y para cualquier otro usuario, como antes.
+export async function listBookings(
+  organizationId: string,
+  params: ListBookingsParams,
+  actor?: ActorConSedes,
+) {
   const skip = (params.page - 1) * params.pageSize;
+  const filters: BookingFilters = actor
+    ? { ...params.filters, branchId: undefined, ...filtroDeSedes(actor, params.filters.branchId) }
+    : params.filters;
 
   const [data, total] = await Promise.all([
     findManyBookings(
       organizationId,
-      params.filters,
+      filters,
       { skip, take: params.pageSize },
       { sortBy: params.sortBy, sortOrder: params.sortOrder },
     ),
-    countBookings(organizationId, params.filters),
+    countBookings(organizationId, filters),
   ]);
 
   return {
@@ -76,11 +87,14 @@ export async function listBookings(organizationId: string, params: ListBookingsP
   };
 }
 
-export async function getBookingById(organizationId: string, id: string) {
+// Un turno de otra sede, para una Recepción de clínica: el mismo 404 que uno
+// inexistente (R20).
+export async function getBookingById(organizationId: string, id: string, actor?: ActorConSedes) {
   const booking = await findBookingById(id, organizationId);
   if (!booking) {
     throw new AppError("Reserva no encontrada", 404);
   }
+  if (actor) exigirSedeDelActor(actor, booking.branchId, "Reserva no encontrada");
   return booking;
 }
 
@@ -102,7 +116,7 @@ export interface CreateBookingInput {
 // solo de ADMIN. Siempre desde req.auth, nunca desde el body — mismo criterio
 // que ActivityActor. Es opcional porque la tool del agente de IA no manda
 // `force` y no tiene un rol humano detrás.
-export interface BookingActor {
+export interface BookingActor extends ActorConSedes {
   role: RoleName;
 }
 
@@ -230,6 +244,12 @@ export async function createBooking(
     }),
   ] as const);
   const { serviceType, resource, branch, franjasDeTrabajo } = contexto;
+
+  // R20: una Recepción de clínica agenda solo en profesionales de sus sedes.
+  // Un recurso de otra sede recibe el mismo error que uno inexistente.
+  if (actor && !estaEnSusSedes(actor, branch.id)) {
+    throw new AppError("El recurso indicado no existe o no pertenece a tu organización", 400);
+  }
 
   const endsAt = new Date(startsAt.getTime() + serviceType.durationMin * 60 * 1000);
 
@@ -423,8 +443,9 @@ export async function cancelBooking(
   organizationId: string,
   id: string,
   cliente?: ClienteGoogleCalendar,
+  actor?: ActorConSedes,
 ) {
-  const booking = await getBookingById(organizationId, id);
+  const booking = await getBookingById(organizationId, id, actor);
 
   if (booking.status !== "CONFIRMED") {
     // 409 y no un no-op silencioso, mismo criterio que revocar dos veces una
