@@ -1,4 +1,9 @@
 import { Prisma } from "@prisma/client";
+import { DateTime } from "luxon";
+import {
+  contarSobreturnos,
+  findBloqueosQueSeSuperponen,
+} from "../clinicas/repositories/bloqueos.repository";
 import { esProfesionalDeLaPrestacion } from "../clinicas/repositories/serviceTypeResource.repository";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
@@ -110,6 +115,12 @@ export interface CreateBookingInput {
   // integridad relacional ni la capacidad: dos reservas que se pisan sobre el
   // mismo recurso son un conflicto físico, no una preferencia de agenda.
   force?: boolean;
+  // R6 (docs/rubros.md §4.4): sobreturno de clínica, encima de un horario
+  // completo. Lo carga una persona (ADMIN o Recepción) desde el panel: el
+  // agente nunca lo manda. Saltea SOLO la capacidad, con el tope diario del
+  // profesional; valida todo lo demás (horario salvo `force`, grilla, pasado,
+  // bloqueos).
+  isOverbooking?: boolean;
 }
 
 // Quién pide, para la única regla de rol que tiene la creación: `force` es
@@ -177,6 +188,10 @@ export async function createBooking(
     throw new AppError("Solo un administrador puede forzar una reserva fuera de horario", 403);
   }
   const forzar = input.force === true;
+  const sobreturno = input.isOverbooking === true;
+  if (sobreturno && actor?.role !== "ADMIN" && actor?.role !== "RECEPCION") {
+    throw new AppError("Solo una persona del equipo puede cargar un sobreturno", 403);
+  }
 
   // Capturado UNA vez, al entrar: una sola noción de "ahora" para toda la
   // llamada, comparada como instante UTC — no depende de la zona de la sucursal.
@@ -333,7 +348,31 @@ export async function createBooking(
       tx,
     );
 
-    if (tomados >= serviceTypeActual.capacity) {
+    // R6 (docs/rubros.md §4.5): un bloqueo del profesional. Con el lock del
+    // recurso sostenido, que es el mismo que toma crear un bloqueo. Ni `force`
+    // lo saltea: el profesional no está. Una automotora no tiene bloqueos.
+    const bloqueos = await findBloqueosQueSeSuperponen(
+      organizationId,
+      input.resourceId,
+      startsAt,
+      endsAt,
+      tx,
+    );
+    if (bloqueos.length > 0) {
+      throw new AppError("El profesional no atiende en ese horario: tiene un bloqueo", 409);
+    }
+
+    if (sobreturno) {
+      await validarSobreturno({
+        organizationId,
+        resource: resourceActual,
+        capacidad: serviceTypeActual.capacity,
+        tomados,
+        startsAt,
+        zona: branch.timezone,
+        tx,
+      });
+    } else if (tomados >= serviceTypeActual.capacity) {
       throw new AppError(
         serviceTypeActual.capacity === 1
           ? "Ese horario ya está reservado"
@@ -352,6 +391,7 @@ export async function createBooking(
         opportunityId: input.opportunityId,
         startsAt,
         endsAt,
+        ...(sobreturno ? { isOverbooking: true } : {}),
       },
       tx,
     );
@@ -428,6 +468,43 @@ export async function createBooking(
   }
 
   return { ...booking, googleEventId };
+}
+
+// R6 (docs/rubros.md §4.4): un sobreturno solo existe encima de un horario
+// completo, de un profesional que los admite y sin pasar su tope diario (los
+// sobreturnos no cancelados que EMPIEZAN ese día calendario, en la zona de la
+// sede). Corre con el lock del recurso sostenido: dos sobreturnos simultáneos
+// no pueden pasar los dos el tope.
+async function validarSobreturno(params: {
+  organizationId: string;
+  resource: { id: string; allowsOverbooking: boolean; maxOverbookingsPerDay: number };
+  capacidad: number;
+  tomados: number;
+  startsAt: Date;
+  zona: string;
+  tx: Prisma.TransactionClient;
+}) {
+  const { organizationId, resource, startsAt, zona, tx } = params;
+  if (!resource.allowsOverbooking) {
+    throw new AppError("Este profesional no admite sobreturnos", 400);
+  }
+  if (params.tomados < params.capacidad) {
+    throw new AppError("Ese horario tiene lugar: agendá un turno normal", 400);
+  }
+  const dia = DateTime.fromJSDate(startsAt, { zone: zona }).startOf("day");
+  const cargados = await contarSobreturnos(
+    organizationId,
+    resource.id,
+    dia.toJSDate(),
+    dia.plus({ days: 1 }).toJSDate(),
+    tx,
+  );
+  if (cargados >= resource.maxOverbookingsPerDay) {
+    throw new AppError(
+      `Se alcanzó el tope de sobreturnos del día para este profesional (${resource.maxOverbookingsPerDay})`,
+      409,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -391,6 +391,18 @@ export function AppLayout() {
             <SidebarLink to="/agenda" icon={CalendarRange}>
               Calendario
             </SidebarLink>
+            {/* R6: bloqueos y sobreturnos, solo en una clínica (ADMIN y
+                Recepción). */}
+            {esClinica ? (
+              <>
+                <SidebarLink to="/clinica/bloqueos" icon={CalendarRange}>
+                  Bloqueos
+                </SidebarLink>
+                <SidebarLink to="/clinica/sobreturnos" icon={CalendarRange}>
+                  Sobreturnos
+                </SidebarLink>
+              </>
+            ) : null}
             {isAdmin && !esClinica ? (
               <>
                 <SidebarLink to="/resources" icon={Shapes}>

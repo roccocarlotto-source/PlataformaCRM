@@ -564,6 +564,28 @@ model ServiceTypeResource {
 
 ### 4.4 Sobreturnos (D9)
 
+> **Implementado en R6** (migración `20261106120000_clinicas_bloqueos_y_sobreturnos`).
+> Decisiones de Rocco del 2026-10-10 y cómo quedó:
+>
+> - **Solo por profesional:** `Resource.allowsOverbooking` (apagado por
+>   defecto) y `Resource.maxOverbookingsPerDay` (entero ≥ 1, default 1, CHECK
+>   en la base), los dos los fija un ADMIN en la ficha del profesional
+>   (`PUT /api/clinica/profesionales/:resourceId/sobreturnos`). No hay
+>   interruptor por sede.
+> - **El tope** cuenta los sobreturnos no cancelados del profesional que
+>   empiezan ese día calendario, en la zona de la sede. Al llegar al tope no se
+>   ofrecen más (409 si se intenta). Cancelar uno libera el cupo. Bajar el tope
+>   por debajo de los ya cargados no los toca.
+> - **Solo encima de un horario completo:** con lugar, el pedido da 400 ("agendá
+>   un turno normal"). Con el profesional elegido (nunca "el primero libre").
+>   Lo cargan ADMIN y Recepción desde `POST /api/clinica/turnos` con
+>   `isOverbooking: true`; el agente nunca: la tool no acepta el campo y
+>   `/api/clinica/disponibilidad` solo los ofrece con `sobreturnos=true`.
+> - Un sobreturno no cuenta para la capacidad de los turnos normales
+>   (`countOverlappingBookings` y `findConfirmedBookingsInRange` excluyen
+>   `isOverbooking`). Al ofrecerlos no se resta Google: el horario completo
+>   ya está ocupado en Google por el propio turno.
+
 **Qué es:** un turno que se superpone con otro del **mismo profesional** aunque
 la capacidad ya esté completa. No es `force`, que saltea horario y grilla pero
 nunca la capacidad.
@@ -583,6 +605,31 @@ model Booking  { isOverbooking     Boolean @default(false) } // aditiva
 - El calendario lo marca. El recordatorio sale igual.
 
 ### 4.5 Bloqueos puntuales
+
+> **Implementado en R6.** Cómo quedó, y dónde difiere de lo de abajo:
+>
+> - **Sin recurrencia** (no estaba prevista): cada bloqueo es un período real.
+> - **Misma regla que un evento ocupado de Google:** `calcularTurnos` descarta
+>   el turno que se superpone con un bloqueo (agente, `/api/availability` y
+>   `/api/clinica/disponibilidad`), y `createBooking` lo rechaza con 409
+>   bajo el lock del recurso (que es el mismo que toma crear un bloqueo). **Ni
+>   `force` lo saltea**: el profesional no está. Una automotora no tiene filas,
+>   así que su cuenta es la de antes (una consulta indexada más, vacía).
+> - **Turnos ya dados dentro de un bloqueo nuevo** (decisión de Rocco): no se
+>   cancelan. La respuesta los lista y se crea **una tarea por turno** para la
+>   Recepción de la sede (§11.4; con el `branchId` del profesional). Una por
+>   turno y no una sola: toda tarea cuelga de un contacto
+>   (`activities_related_entity_check`). Reprogramar es R9: hasta entonces la
+>   pantalla ofrece cancelar.
+> - Rutas `/api/clinica/profesionales/:resourceId/bloqueos` (GET, POST) y
+>   `/api/clinica/bloqueos/:id` (DELETE), `authorize("ADMIN", "RECEPCION")`,
+>   con el límite por sede de R20 (404 fuera de sus sedes).
+> - **Arreglo de R20 incluido:** `GET /api/availability` le da a una Recepción
+>   de clínica el mismo 400 que un recurso inexistente si el profesional es de
+>   otra sede. Para las automotoras no cambia (`sedesDelActor` = todas).
+> - Las columnas nuevas no salen en las respuestas de una automotora
+>   (`src/clinicas/camposDeClinica.ts`, el mismo criterio que `branchId` en
+>   las tareas de R20).
 
 ```prisma
 model ResourceTimeOff {

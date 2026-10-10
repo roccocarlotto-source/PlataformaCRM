@@ -101,6 +101,9 @@ export function countOverlappingBookings(
       organizationId,
       resourceId,
       status: "CONFIRMED",
+      // Un sobreturno no ocupa cupo (docs/rubros.md §4.4, R6). Una automotora
+      // no tiene: el conteo es el de antes.
+      isOverbooking: false,
       startsAt: { lt: fin },
       endsAt: { gt: inicio },
     },
@@ -122,6 +125,8 @@ export function findConfirmedBookingsInRange(
       organizationId,
       resourceId,
       status: "CONFIRMED",
+      // Ídem countOverlappingBookings: el sobreturno no le quita lugar a nadie.
+      isOverbooking: false,
       startsAt: { lt: hasta },
       endsAt: { gt: desde },
     },
@@ -185,6 +190,8 @@ export interface CreateBookingData {
   opportunityId?: string;
   startsAt: Date;
   endsAt: Date;
+  // R6: solo una clínica lo escribe en true.
+  isOverbooking?: boolean;
 }
 
 export function createBooking(data: CreateBookingData, db: Db = prisma) {

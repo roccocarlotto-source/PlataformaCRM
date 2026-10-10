@@ -65,6 +65,8 @@ import { ServiceTypeFormPage } from "../features/serviceType/ServiceTypeFormPage
 import { ServiceTypeListPage } from "../features/serviceType/ServiceTypeListPage";
 import { PrestacionesPage } from "../features/clinica/PrestacionesPage";
 import { ProfesionalesPage } from "../features/clinica/ProfesionalesPage";
+import { BloqueosPage } from "../features/clinica/BloqueosPage";
+import { SobreturnosPage } from "../features/clinica/SobreturnosPage";
 import { ContactCustomFieldFormPage } from "../features/contactCustomField/ContactCustomFieldFormPage";
 import { ContactCustomFieldListPage } from "../features/contactCustomField/ContactCustomFieldListPage";
 import { GuiaPage } from "../features/guia/GuiaPage";
@@ -206,6 +208,12 @@ export const router = createBrowserRouter([
           // POST /api/bookings, `authenticate` a secas. Forzar fuera de
           // horario es solo ADMIN, y eso lo decide el backend (403).
           { path: "/agenda", element: <BookingCalendarPage /> },
+          // R6 (docs/rubros.md §4.4, §4.5): bloqueos y sobreturnos de clínica,
+          // fuera de AdminRoute porque los carga también Recepción. El backend
+          // los reserva al rubro CLINICA (403 a una automotora) y el menú solo
+          // los muestra en una clínica.
+          { path: "/clinica/bloqueos", element: <BloqueosPage /> },
+          { path: "/clinica/sobreturnos", element: <SobreturnosPage /> },
           {
             // Restricción de UX/autorización visual — ver auth/AdminRoute.tsx.
             // La autorización real de escritura sigue siendo authorize("ADMIN")

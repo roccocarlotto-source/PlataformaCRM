@@ -8,6 +8,7 @@ import {
   listResources,
   updateResource,
 } from "../services/resource.service";
+import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClinica";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -61,11 +62,17 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
+// R6: las columnas de sobreturnos son de las clínicas; una automotora recibe
+// el recurso con las claves de antes (camposDeClinica.ts).
+function paraElRubro<T extends object>(resource: T, req: AuthenticatedRequest): T {
+  return sinCamposDeClinica(resource, req.auth.industry, CAMPOS_DE_CLINICA.resource);
+}
+
 export const createResourceHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createResourceSchema, req.body);
     const resource = await createResource(req.auth.organizationId, input);
-    res.status(201).json(resource);
+    res.status(201).json(paraElRubro(resource, req));
   },
 );
 
@@ -73,14 +80,14 @@ export const listResourcesHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listQuerySchema, req.query);
     const result = await listResources(req.auth.organizationId, query);
-    res.status(200).json(result);
+    res.status(200).json({ ...result, data: result.data.map((r) => paraElRubro(r, req)) });
   },
 );
 
 export const getResourceHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
   const resource = await getResourceById(req.auth.organizationId, id);
-  res.status(200).json(resource);
+  res.status(200).json(paraElRubro(resource, req));
 });
 
 export const updateResourceHandler = asyncHandler<AuthenticatedRequest>(
@@ -88,7 +95,7 @@ export const updateResourceHandler = asyncHandler<AuthenticatedRequest>(
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updateResourceSchema, req.body);
     const resource = await updateResource(req.auth.organizationId, id, input);
-    res.status(200).json(resource);
+    res.status(200).json(paraElRubro(resource, req));
   },
 );
 

@@ -8,6 +8,7 @@ import {
   getBookingById,
   listBookings,
 } from "../services/booking.service";
+import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClinica";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -53,12 +54,19 @@ export const getAvailabilityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(disponibilidadQuerySchema, req.query);
 
-    const turnos = await obtenerDisponibilidad(req.auth.organizationId, {
-      resourceId: query.resourceId,
-      serviceTypeId: query.serviceTypeId,
-      desde: query.from,
-      hasta: query.to,
-    });
+    // R6 (arreglo de R20): a una Recepción de clínica, un profesional de otra
+    // sede da 400; para una automotora, lo de siempre (sedesDelActor = todas).
+    const turnos = await obtenerDisponibilidad(
+      req.auth.organizationId,
+      {
+        resourceId: query.resourceId,
+        serviceTypeId: query.serviceTypeId,
+        desde: query.from,
+        hasta: query.to,
+      },
+      undefined,
+      req.auth,
+    );
 
     res.status(200).json({
       availability: turnos.map((turno) => ({
@@ -108,11 +116,17 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("asc"),
 });
 
+// R6: isOverbooking es de las clínicas; una automotora recibe la reserva con
+// las claves de antes (camposDeClinica.ts).
+function paraElRubro<T extends object>(booking: T, req: AuthenticatedRequest): T {
+  return sinCamposDeClinica(booking, req.auth.industry, CAMPOS_DE_CLINICA.booking);
+}
+
 export const createBookingHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createBookingSchema, req.body);
     const booking = await createBooking(req.auth.organizationId, input, undefined, req.auth);
-    res.status(201).json(booking);
+    res.status(201).json(paraElRubro(booking, req));
   },
 );
 
@@ -140,14 +154,14 @@ export const listBookingsHandler = asyncHandler<AuthenticatedRequest>(
       req.auth,
     );
 
-    res.status(200).json(result);
+    res.status(200).json({ ...result, data: result.data.map((b) => paraElRubro(b, req)) });
   },
 );
 
 export const getBookingHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
   const booking = await getBookingById(req.auth.organizationId, id, req.auth);
-  res.status(200).json(booking);
+  res.status(200).json(paraElRubro(booking, req));
 });
 
 // PATCH /:id/cancel y no DELETE /:id: cancelar NO borra nada — la reserva queda
@@ -157,6 +171,6 @@ export const cancelBookingHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const booking = await cancelBooking(req.auth.organizationId, id, undefined, req.auth);
-    res.status(200).json(booking);
+    res.status(200).json(paraElRubro(booking, req));
   },
 );

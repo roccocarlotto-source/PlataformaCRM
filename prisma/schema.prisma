@@ -758,6 +758,8 @@ model Organization {
   clinicSettings       ClinicSettings?
   clinicBranchSettings ClinicBranchSettings[]
   serviceTypeResources ServiceTypeResource[]
+  // Bloqueos de los profesionales de una clínica (docs/rubros.md §4.5, R6).
+  resourceTimeOffs     ResourceTimeOff[]
   // Usuarios por sede (docs/rubros.md §11.5, R20): solo las clínicas tienen filas.
   userBranches         UserBranch[]
   invitationBranches   InvitationBranch[]
@@ -2027,17 +2029,28 @@ model Branch {
 // ---------------------------------------------------------------------------
 
 model Resource {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  branchId       String       @map("branch_id") @db.Uuid
-  name           String       @db.VarChar(255)
-  type           ResourceType
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  deletedAt      DateTime?    @map("deleted_at")
+  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId        String       @map("organization_id") @db.Uuid
+  branchId              String       @map("branch_id") @db.Uuid
+  name                  String       @db.VarChar(255)
+  type                  ResourceType
+  // Sobreturnos (docs/rubros.md §4.4, D9, R6). Solo los usa una clínica: un
+  // turno de más encima de un horario completo, cargado por una persona (nunca
+  // por el agente). Apagado por defecto: con false, la agenda es la de antes.
+  // El tope cuenta los sobreturnos no cancelados del profesional en el día de
+  // la sede; bajarlo no toca los ya cargados. CHECK >= 1 en la migración
+  // 20261106120000.
+  allowsOverbooking     Boolean      @default(false) @map("allows_overbooking")
+  maxOverbookingsPerDay Int          @default(1) @map("max_overbookings_per_day")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  deletedAt             DateTime?    @map("deleted_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+
+  // Los bloqueos del profesional (docs/rubros.md §4.5, R6).
+  timeOffs ResourceTimeOff[]
 
   serviceTypes         ServiceType[]
   workingHours         WorkingHours[]
@@ -2464,6 +2477,11 @@ model Booking {
   // un error: la sucursal puede no tener Google conectado, o la llamada puede
   // haber fallado — §4 es explícito en que eso no bloquea la reserva.
   googleEventId String? @map("google_event_id") @db.VarChar(255)
+
+  // Sobreturno (docs/rubros.md §4.4, R6): no cuenta para la capacidad (no le
+  // quita lugar a los turnos normales) y sí para el tope diario del
+  // profesional. Una automotora nunca lo escribe.
+  isOverbooking Boolean @default(false) @map("is_overbooking")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -4907,4 +4925,38 @@ model InvitationBranch {
   @@index([organizationId, invitationId])
   @@index([organizationId, branchId])
   @@map("invitation_branches")
+}
+
+// ---------------------------------------------------------------------------
+// ResourceTimeOff — un bloqueo puntual de un profesional de clínica: vacaciones,
+// una ausencia, una reunión (docs/rubros.md §4.5, R6). Sin recurrencia (§4 no
+// la prevé): cada bloqueo es un período real, de un instante a otro.
+//
+// La disponibilidad lo resta al ofrecer y al aceptar, con la misma regla que
+// un evento ocupado de Google: un turno que se superpone no se ofrece ni se
+// acepta (ni con `force`: el profesional no está). Crear un bloqueo encima de
+// turnos ya dados NO los cancela: se listan y se crea una tarea por turno para
+// la Recepción de la sede.
+//
+// Solo lo escriben las rutas de agenda_clinica: una automotora no tiene filas.
+// FK COMPUESTA a resources (C-3), RESTRICT por la regla de 20260821140200
+// (columna NOT NULL); resources usa soft delete.
+// ---------------------------------------------------------------------------
+model ResourceTimeOff {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  resourceId     String   @map("resource_id") @db.Uuid
+  startsAt       DateTime @map("starts_at")
+  endsAt         DateTime @map("ends_at")
+  // Interno: nunca se le muestra al paciente ni al agente.
+  reason         String?  @db.VarChar(200)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  resource     Resource     @relation(fields: [organizationId, resourceId], references: [organizationId, id])
+
+  // "Los bloqueos de este profesional que se superponen con [desde, hasta)":
+  // la consulta de la disponibilidad y de la reserva.
+  @@index([organizationId, resourceId, startsAt])
+  @@map("resource_time_offs")
 }

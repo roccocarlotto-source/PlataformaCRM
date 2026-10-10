@@ -358,6 +358,10 @@ function CalendarColumn({
             </span>{" "}
             <span className="ds-calendar-booking-contact">{contactName}</span>
             {servicio ? <span className="ds-calendar-booking-service"> · {servicio}</span> : null}
+            {/* R6: el sobreturno de una clínica se marca (§4.4). */}
+            {booking.isOverbooking ? (
+              <span className="ds-calendar-booking-service"> · Sobreturno</span>
+            ) : null}
           </button>
         );
       })}

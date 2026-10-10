@@ -28,6 +28,8 @@ import {
   defaultOrganizationAdminDeps,
 } from "../services/organizationAdmin.service";
 import { SIN_REGLAS, reglasDelRubro } from "../services/reglasDelRubro";
+import { calcularTurnos } from "../services/availability.service";
+import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "./camposDeClinica";
 import { canReadActivity, scopeActivityFiltersToActor } from "../services/activity.service";
 import {
   CAPACIDADES,
@@ -563,6 +565,38 @@ test("usuarios por sede: una automotora ve todas las sedes, como antes de R20", 
     canReadActivity(usuario, { assigneeId: "otra", branchId: null }),
     false,
     "un USER sigue sin ver las tareas sin asignar",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// R6 (bloqueos y sobreturnos): sin bloqueos, la cuenta de la disponibilidad es
+// la de antes; y las filas de una automotora salen sin las columnas de clínica.
+// ---------------------------------------------------------------------------
+
+test("R6: calcularTurnos sin bloqueos da lo mismo que antes, y una automotora no ve columnas de clínica", () => {
+  const franja = {
+    inicio: new Date("2027-03-01T12:00:00Z"),
+    fin: new Date("2027-03-01T14:00:00Z"),
+  };
+  const base = {
+    franjasDeTrabajo: [franja],
+    ocupadosEnGoogle: [],
+    reservasConfirmadas: [],
+    duracionMin: 60,
+    capacidad: 1,
+  };
+  assert.deepEqual(calcularTurnos({ ...base, bloqueos: [] }), calcularTurnos(base));
+  assert.equal(calcularTurnos(base).length, 2);
+
+  const recurso = { id: "r", name: "Vendedor", allowsOverbooking: false, maxOverbookingsPerDay: 1 };
+  assert.deepEqual(sinCamposDeClinica(recurso, "AUTOMOTORA", CAMPOS_DE_CLINICA.resource), {
+    id: "r",
+    name: "Vendedor",
+  });
+  assert.deepEqual(sinCamposDeClinica(recurso, "CLINICA", CAMPOS_DE_CLINICA.resource), recurso);
+  assert.deepEqual(
+    sinCamposDeClinica({ id: "b", isOverbooking: false }, "AUTOMOTORA", CAMPOS_DE_CLINICA.booking),
+    { id: "b" },
   );
 });
 

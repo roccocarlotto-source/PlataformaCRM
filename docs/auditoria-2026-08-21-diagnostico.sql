@@ -273,7 +273,10 @@ from (
       ('service_type_resources'),
       -- Usuarios por sede (docs/rubros.md §11.5, migración 20261105120000):
       -- las dos tablas con organization_id propio y la política uniforme.
-      ('user_branches'), ('invitation_branches')
+      ('user_branches'), ('invitation_branches'),
+      -- Bloqueos de los profesionales de una clínica (docs/rubros.md §4.5,
+      -- migración 20261106120000).
+      ('resource_time_offs')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -416,7 +419,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 38 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 40 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -598,7 +601,14 @@ from (
     -- Canales de Google Calendar en su propia tabla (migración 20261103120000,
     -- docs/rubros.md §4.6): el mismo invariante que el de la conexión.
     ('google_calendar_channels_channel_all_or_none_check', 'google_calendar_channels',
-     'CHECK (channel_id IS NULL AND channel_resource_id IS NULL AND channel_expiration IS NULL OR channel_id IS NOT NULL AND channel_resource_id IS NOT NULL AND channel_expiration IS NOT NULL)')
+     'CHECK (channel_id IS NULL AND channel_resource_id IS NULL AND channel_expiration IS NULL OR channel_id IS NOT NULL AND channel_resource_id IS NOT NULL AND channel_expiration IS NOT NULL)'),
+    -- Bloqueos y sobreturnos de clínica (migración 20261106120000,
+    -- docs/rubros.md §4.4 y §4.5): el tope diario es al menos 1, y un bloqueo
+    -- es un período real, como una reserva.
+    ('resources_max_overbookings_per_day_check', 'resources',
+     'CHECK (max_overbookings_per_day >= 1)'),
+    ('resource_time_offs_time_range_check', 'resource_time_offs',
+     'CHECK (starts_at < ends_at)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -995,7 +1005,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 93 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 94 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -1019,7 +1029,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 93 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 94 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1230,7 +1240,11 @@ from (
     ('user_branches_organization_id_user_id_fkey|user_branches(organization_id,user_id)->users(organization_id,id)'),
     ('user_branches_organization_id_branch_id_fkey|user_branches(organization_id,branch_id)->branches(organization_id,id)'),
     ('invitation_branches_organization_id_invitation_id_fkey|invitation_branches(organization_id,invitation_id)->invitations(organization_id,id)'),
-    ('invitation_branches_organization_id_branch_id_fkey|invitation_branches(organization_id,branch_id)->branches(organization_id,id)')
+    ('invitation_branches_organization_id_branch_id_fkey|invitation_branches(organization_id,branch_id)->branches(organization_id,id)'),
+    -- Bloqueos de los profesionales (docs/rubros.md §4.5, migración
+    -- 20261106120000): el profesional de la misma organización. Una FK bien
+    -- formada hacia branches o service_types pasaría la fila 14 entera.
+    ('resource_time_offs_organization_id_resource_id_fkey|resource_time_offs(organization_id,resource_id)->resources(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
