@@ -348,3 +348,45 @@ describe("OrganizationSettingsPage — zona horaria", () => {
     await waitFor(() => expect(getPatchedBody()?.timezone).toBe("America/Argentina/Buenos_Aires"));
   });
 });
+
+// Rubros (docs/rubros.md §1.1 y §3): el rubro y la edición, de solo lectura; el
+// término del contacto, solo en una clínica.
+describe("OrganizationSettingsPage — rubro, edición y término del contacto", () => {
+  it("automotora: rubro y edición de solo lectura, sin término, y el guardado no lo manda", async () => {
+    const { getPatchedBody } = mockSettings(makeOrganizationSettings());
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Automotora")).toBeInTheDocument());
+    expect(screen.getByText("Completa")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", { name: "Cómo llamar a los contactos" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(getPatchedBody()).toBeDefined());
+    expect(getPatchedBody()).not.toHaveProperty("contactTerm");
+  });
+
+  it("clínica: elige paciente o cliente y lo manda al guardar", async () => {
+    const { getPatchedBody } = mockSettings(
+      makeOrganizationSettings({
+        name: "Clínica Demo",
+        edition: "ESENCIAL",
+        industry: "CLINICA",
+        contactTerm: "PACIENTE",
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const selector = await screen.findByRole("combobox", { name: "Cómo llamar a los contactos" });
+    expect(screen.getByText("Clínica")).toBeInTheDocument();
+    expect(screen.getByText("Esencial")).toBeInTheDocument();
+    expect(await listSelectOptions(user, selector)).toEqual(["Paciente", "Cliente"]);
+
+    await chooseSelectOption(user, selector, "Cliente");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(getPatchedBody()).toMatchObject({ contactTerm: "CLIENTE" }));
+  });
+});

@@ -1,3 +1,8 @@
+import type { ContactTerm, OrganizationEdition, OrganizationIndustry } from "@prisma/client";
+import {
+  guardarTerminoDelContacto,
+  leerConfiguracionDeClinica,
+} from "../clinicas/repositories/clinicSettings.repository";
 import {
   findLatestExchangeRates,
   findOrganizationById,
@@ -42,6 +47,12 @@ export interface OrganizationSettings {
   // nunca se configuró. La usan el dashboard y la fecha de cierre.
   timezone: string;
   exchangeRates: OrganizationExchangeRate[];
+  // Rubros (docs/rubros.md §1.1 y §3): la edición y el rubro, de solo lectura
+  // (los cambia el platform admin), y el término del contacto, que el ADMIN
+  // de una clínica elige acá. null en una automotora: no lo tiene.
+  edition: OrganizationEdition;
+  industry: OrganizationIndustry;
+  contactTerm: ContactTerm | null;
 }
 
 export async function getOrganizationSettings(
@@ -51,9 +62,14 @@ export async function getOrganizationSettings(
   if (!organization) {
     throw new AppError("Organización no encontrada", 404);
   }
-  const rates = await findLatestExchangeRates(
-    currenciesNeedingRate([organization.preferredCurrency, organization.alternateCurrency]),
-  );
+  const [rates, clinica] = await Promise.all([
+    findLatestExchangeRates(
+      currenciesNeedingRate([organization.preferredCurrency, organization.alternateCurrency]),
+    ),
+    organization.industry === "CLINICA"
+      ? leerConfiguracionDeClinica(organizationId)
+      : Promise.resolve(null),
+  ]);
   return {
     id: organization.id,
     name: organization.name,
@@ -66,6 +82,9 @@ export async function getOrganizationSettings(
       rate: row.rate.toString(),
       rateDate: row.rateDate.toISOString().slice(0, 10),
     })),
+    edition: organization.edition,
+    industry: organization.industry,
+    contactTerm: clinica?.contactTerm ?? null,
   };
 }
 
@@ -77,7 +96,12 @@ export interface UpdateOrganizationSettingsInput {
   defaultPhoneCountryCode?: string | null;
   // T-01. Zona IANA ya validada por el controller; undefined = no tocarla.
   timezone?: string;
+  // Rubros (docs/rubros.md §3): solo en una clínica (400 en una automotora).
+  contactTerm?: ContactTerm;
 }
+
+export const TERMINO_SOLO_EN_CLINICAS =
+  "El término del contacto solo se configura en una organización del rubro clínica";
 
 export const MONEDAS_IGUALES = "La moneda de preferencia y la alternativa no pueden ser la misma";
 
@@ -111,8 +135,17 @@ export async function updateOrganizationSettings(
   if (preferred !== null && alternate !== null && preferred === alternate) {
     throw new AppError(MONEDAS_IGUALES, 400);
   }
+  if (input.contactTerm !== undefined && organization.industry !== "CLINICA") {
+    throw new AppError(TERMINO_SOLO_EN_CLINICAS, 400);
+  }
 
-  await updateOrganizationSettingsRepo(organizationId, input);
+  const { contactTerm, ...deLaOrganizacion } = input;
+  if (Object.keys(deLaOrganizacion).length > 0) {
+    await updateOrganizationSettingsRepo(organizationId, deLaOrganizacion);
+  }
+  if (contactTerm !== undefined) {
+    await guardarTerminoDelContacto(organizationId, contactTerm);
+  }
 
   // §24: la cotización de lo que QUEDÓ configurado se busca ahora, a pedido,
   // sin esperar al worker (cuya primera pasada fue al arrancar el proceso,

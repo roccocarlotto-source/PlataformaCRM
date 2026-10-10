@@ -1,4 +1,5 @@
-import type { OrganizationEdition } from "@prisma/client";
+import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
+import type { RoleName } from "../types/auth";
 import { PROCESO_DE_VENTA_FIJO } from "../config/ediciones";
 import { prisma, type Db } from "../lib/prisma";
 
@@ -7,7 +8,12 @@ export function findOrganizationBySlug(slug: string, db: Db = prisma) {
 }
 
 export function createOrganization(
-  data: { name: string; slug: string; edition?: OrganizationEdition },
+  data: {
+    name: string;
+    slug: string;
+    edition?: OrganizationEdition;
+    industry?: OrganizationIndustry;
+  },
   db: Db = prisma,
 ) {
   return db.organization.create({ data });
@@ -41,6 +47,46 @@ export async function subirOrganizacionACompleta(organizationId: string, db: Db 
   return count;
 }
 
+// Cambio de rubro (docs/rubros.md §1.1, D1).
+export function rubroDeLaOrganizacionVigente(organizationId: string, db: Db = prisma) {
+  return db.organization.findFirst({
+    where: { id: organizationId, deletedAt: null },
+    select: { id: true, industry: true },
+  });
+}
+
+/** Contactos, turnos, conversaciones y vehículos de la organización, incluidos
+ *  los dados de baja. Para el cambio de rubro solo importa si hay alguno. */
+export async function contarDatosDeNegocio(organizationId: string, db: Db = prisma) {
+  const where = { organizationId };
+  const [contactos, turnos, conversaciones, vehiculos] = await Promise.all([
+    db.contact.count({ where }),
+    db.booking.count({ where }),
+    db.conversation.count({ where }),
+    db.vehicle.count({ where }),
+  ]);
+  return contactos + turnos + conversaciones + vehiculos;
+}
+
+/** Usuarios vigentes (sin baja) de la organización con alguno de esos roles. */
+export function contarUsuariosConRoles(
+  organizationId: string,
+  roles: readonly RoleName[],
+  db: Db = prisma,
+) {
+  return db.user.count({
+    where: { organizationId, deletedAt: null, role: { name: { in: [...roles] } } },
+  });
+}
+
+export function updateOrganizationIndustry(
+  organizationId: string,
+  industry: OrganizationIndustry,
+  db: Db,
+) {
+  return db.organization.update({ where: { id: organizationId }, data: { industry } });
+}
+
 export function findActiveOrganizationEdition(organizationId: string, db: Db = prisma) {
   return db.organization.findFirst({
     where: { id: organizationId, deletedAt: null },
@@ -54,7 +100,7 @@ export function findActiveOrganizationEdition(organizationId: string, db: Db = p
 export function listActiveOrganizations(db: Db = prisma) {
   return db.organization.findMany({
     where: { deletedAt: null },
-    select: { id: true, name: true, slug: true, edition: true },
+    select: { id: true, name: true, slug: true, edition: true, industry: true },
     orderBy: { name: "asc" },
   });
 }

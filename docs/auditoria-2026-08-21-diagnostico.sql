@@ -260,7 +260,11 @@ from (
       ('import_syncs'),
       -- Seguimiento automático de consultas estancadas (ítem 185, migración
       -- 20261029120000): organization_id propio y la política uniforme.
-      ('inquiry_follow_ups')
+      ('inquiry_follow_ups'),
+      -- Configuración de una clínica (docs/rubros.md §1.3, migración
+      -- 20261101120000): las dos tablas con organization_id propio y la
+      -- política uniforme.
+      ('clinic_settings'), ('clinic_branch_settings')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -403,7 +407,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 30 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 37 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -575,7 +579,13 @@ from (
     -- activo tiene nivel de participación de la IA. Transcripto de
     -- pg_get_constraintdef.
     ('agents_activo_requiere_nivel_check', 'agents',
-     'CHECK (NOT is_active OR participation IS NOT NULL)')
+     'CHECK (NOT is_active OR participation IS NOT NULL)'),
+    -- Configuración de la sede de una clínica (migración 20261101120000,
+    -- docs/rubros.md §6.2): las horas del recordatorio, acotadas.
+    ('clinic_branch_settings_reminder_hours_before_check', 'clinic_branch_settings',
+     'CHECK (reminder_hours_before >= 1 AND reminder_hours_before <= 72)'),
+    ('clinic_branch_settings_late_booking_hours_before_check', 'clinic_branch_settings',
+     'CHECK (late_booking_hours_before >= 1 AND late_booking_hours_before <= 23)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -960,7 +970,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 84 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 85 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -984,7 +994,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 84 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 85 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1173,7 +1183,10 @@ from (
     ('inquiry_follow_ups_organization_id_automation_id_fkey|inquiry_follow_ups(organization_id,automation_id)->automations(organization_id,id)'),
     ('inquiry_follow_ups_organization_id_branch_id_fkey|inquiry_follow_ups(organization_id,branch_id)->branches(organization_id,id)'),
     ('inquiry_follow_ups_organization_id_contact_id_fkey|inquiry_follow_ups(organization_id,contact_id)->contacts(organization_id,id)'),
-    ('inquiry_follow_ups_organization_id_conversation_id_fkey|inquiry_follow_ups(organization_id,conversation_id)->conversations(organization_id,id)')
+    ('inquiry_follow_ups_organization_id_conversation_id_fkey|inquiry_follow_ups(organization_id,conversation_id)->conversations(organization_id,id)'),
+    -- Configuración de la sede de una clínica (docs/rubros.md §1.3, migración
+    -- 20261101120000): la sede de la misma organización.
+    ('clinic_branch_settings_organization_id_branch_id_fkey|clinic_branch_settings(organization_id,branch_id)->branches(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

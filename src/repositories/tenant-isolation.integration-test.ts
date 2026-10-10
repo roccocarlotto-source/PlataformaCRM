@@ -142,6 +142,14 @@ import {
   softDeleteContactCustomFieldDefinition,
   updateContactCustomFieldDefinition,
 } from "./contactCustomFieldDefinition.repository";
+import {
+  CONFIGURACION_DE_CLINICA_POR_DEFECTO,
+  CONFIGURACION_DE_SEDE_POR_DEFECTO,
+  crearConfiguracionDeSede,
+  guardarTerminoDelContacto,
+  leerConfiguracionDeClinica,
+  leerConfiguracionDeSede,
+} from "../clinicas/repositories/clinicSettings.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -1816,6 +1824,16 @@ before(async () => {
     },
   });
 
+  // La configuración de una clínica y de su sede (docs/rubros.md §1.3, R3),
+  // con valores distintos de los defaults para que un lector que caiga en
+  // los defaults no se confunda con la fila de Y.
+  await prisma.clinicSettings.create({
+    data: { organizationId: org, contactTerm: "CLIENTE", privacyNoticeText: "Aviso de Y" },
+  });
+  await prisma.clinicBranchSettings.create({
+    data: { organizationId: org, branchId: branchY.id, reminderHoursBefore: 48 },
+  });
+
   nx = {
     orgX: orgX.id,
     orgY: orgY.id,
@@ -1885,6 +1903,8 @@ after(async () => {
   await prisma.message.deleteMany(w);
   await prisma.conversation.deleteMany(w);
   await prisma.branchBusinessHours.deleteMany(w);
+  await prisma.clinicBranchSettings.deleteMany(w);
+  await prisma.clinicSettings.deleteMany(w);
   await prisma.automationExecution.deleteMany(w);
   await prisma.outboxEvent.deleteMany(w);
   await prisma.automation.deleteMany(w);
@@ -1935,6 +1955,8 @@ const leerY = {
   importLink: () => prisma.externalRecordLink.findUniqueOrThrow({ where: { id: nx.importLinkY } }),
   photoImport: () =>
     prisma.vehiclePhotoImport.findUniqueOrThrow({ where: { id: nx.photoImportY } }),
+  clinica: () => prisma.clinicSettings.findUniqueOrThrow({ where: { organizationId: nx.orgY } }),
+  sede: () => prisma.clinicBranchSettings.findUniqueOrThrow({ where: { branchId: nx.branchY } }),
 };
 
 function reclamoCruzado(id: string) {
@@ -2543,6 +2565,46 @@ test("H-01 ImportSync: registrar, pausar, reanudar, borrar o leer la sincronizac
   assert.equal(await findSync(nx.orgX, nx.importSyncY), null);
   assert.ok((await listarSyncs(nx.orgX)).every((s) => s.id !== nx.importSyncY));
   assert.deepEqual(await leerY.importSync(), antes);
+});
+
+// R3 (docs/rubros.md §1.3): la configuración de una clínica es por
+// organización (su clave) y la de una sede cuelga de la sucursal con FK
+// compuesta. Con la organización de X: las lecturas no devuelven lo de Y
+// (caen en los defaults), escribir el término toca solo la fila de X, y la
+// base rechaza la configuración de X sobre la sede de Y.
+test("H-01 ClinicSettings: leer y guardar con la organización de X no ven ni tocan la configuración de Y", async () => {
+  const antes = await leerY.clinica();
+  assert.deepEqual(
+    await leerConfiguracionDeClinica(nx.orgX),
+    CONFIGURACION_DE_CLINICA_POR_DEFECTO,
+    "X no tiene fila: defaults, no la de Y",
+  );
+  await guardarTerminoDelContacto(nx.orgX, "PACIENTE");
+  assert.deepEqual(await leerY.clinica(), antes, "la fila de Y sigue igual");
+  assert.equal(
+    (await prisma.clinicSettings.findUniqueOrThrow({ where: { organizationId: nx.orgX } }))
+      .contactTerm,
+    "PACIENTE",
+  );
+});
+
+test("H-01 ClinicBranchSettings: X no lee la configuración de la sede de Y ni puede crearle una", async () => {
+  const antes = await leerY.sede();
+  assert.deepEqual(
+    await leerConfiguracionDeSede(nx.orgX, nx.branchY),
+    CONFIGURACION_DE_SEDE_POR_DEFECTO,
+  );
+  // Otra sede de Y, sin fila: con branchY el PK (branch_id) ya ocupado
+  // rechazaría antes que la FK y el test no probaría la FK compuesta.
+  const otraSedeY = await prisma.branch.create({
+    data: { organizationId: nx.orgY, name: "H-01 sede sin configuración", timezone: "UTC" },
+  });
+  await assertViolaFk(
+    () => crearConfiguracionDeSede(nx.orgX, otraSedeY.id, prisma),
+    "ClinicBranchSettings de X sobre la sede de Y",
+  );
+  assert.equal(await prisma.clinicBranchSettings.count({ where: { branchId: otraSedeY.id } }), 0);
+  assert.deepEqual(await leerY.sede(), antes);
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {

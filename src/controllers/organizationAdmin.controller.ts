@@ -1,11 +1,12 @@
 import type { Response } from "express";
-import { OrganizationEdition } from "@prisma/client";
+import { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import { z } from "zod";
-import { edicionesDisponibles } from "../config/ediciones";
+import { edicionesDisponibles, rubrosDisponibles } from "../config/ediciones";
 import { listActiveOrganizations } from "../repositories/organization.repository";
 import { DIAS_DE_LA_VISTA_DE_USO, gastoPorOrganizacion } from "../services/llmUsage.service";
 import {
   cambiarEdicionDeOrganizacion,
+  cambiarRubroDeOrganizacion,
   createOrganizationWithFoundingAdmin,
 } from "../services/organizationAdmin.service";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -40,6 +41,11 @@ export const createOrganizationSchema = z.object({
   // docs/ediciones.md §1.1. Opcional: sin ella, COMPLETA. Si es una edición
   // que todavía no se ofrece (ESENCIAL_HABILITADA), el service responde 400.
   edition: z.nativeEnum(OrganizationEdition, { invalid_type_error: "edition inválida" }).optional(),
+  // docs/rubros.md §1.1. Opcional: sin él, AUTOMOTORA. Si es un rubro que
+  // todavía no se ofrece (CLINICA_HABILITADA), el service responde 400.
+  industry: z
+    .nativeEnum(OrganizationIndustry, { invalid_type_error: "industry inválido" })
+    .optional(),
 });
 
 const organizationIdSchema = z.string().uuid("organizationId inválido");
@@ -49,6 +55,15 @@ const cambiarEdicionSchema = z
     edition: z.nativeEnum(OrganizationEdition, {
       required_error: "edition es requerida",
       invalid_type_error: "edition inválida",
+    }),
+  })
+  .strict();
+
+const cambiarRubroSchema = z
+  .object({
+    industry: z.nativeEnum(OrganizationIndustry, {
+      required_error: "industry es requerido",
+      invalid_type_error: "industry inválido",
     }),
   })
   .strict();
@@ -76,6 +91,23 @@ export const changeOrganizationEditionHandler = asyncHandler<AuthenticatedReques
     const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
     const { edition } = parseOrThrow(cambiarEdicionSchema, req.body);
     res.status(200).json(await cambiarEdicionDeOrganizacion(organizationId, edition));
+  },
+);
+
+// Los rubros que se pueden elegir hoy en el alta (docs/rubros.md §15, R3),
+// con el mismo criterio que las ediciones.
+export const listIndustriesHandler = asyncHandler<AuthenticatedRequest>(
+  async (_req, res: Response) => {
+    res.status(200).json({ industries: rubrosDisponibles() });
+  },
+);
+
+// Cambiar el rubro, solo sin datos de negocio (D1, ver cambiarRubroDeOrganizacion).
+export const changeOrganizationIndustryHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
+    const { industry } = parseOrThrow(cambiarRubroSchema, req.body);
+    res.status(200).json(await cambiarRubroDeOrganizacion(organizationId, industry));
   },
 );
 

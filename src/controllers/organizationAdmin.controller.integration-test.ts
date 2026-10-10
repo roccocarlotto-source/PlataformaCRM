@@ -229,6 +229,12 @@ test("platform admin: 201 con Organization + User ADMIN creados, identidad en au
         select: { industry: true },
       });
       assert.equal(org.industry, "AUTOMOTORA");
+      // R3 (docs/rubros.md §1.3): el alta de una automotora no crea nada de
+      // clínica.
+      assert.equal(
+        await prisma.clinicSettings.count({ where: { organizationId: creado.organization.id } }),
+        0,
+      );
 
       const { data, error } = await getSupabaseAdmin().auth.admin.getUserById(creado.admin.id);
       assert.equal(error, null);
@@ -337,6 +343,7 @@ test("listado: 403 para un ADMIN común; el platform admin ve las vigentes con i
         name: vigente.name,
         slug: vigente.slug,
         edition: "COMPLETA",
+        industry: "AUTOMOTORA",
       });
       assert.equal(
         lista.some((o) => o.id === deBaja.id),

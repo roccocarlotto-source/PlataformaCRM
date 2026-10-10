@@ -6,16 +6,28 @@
 // backend (GET /api/admin/organizations/editions): acá no hay una constante.
 export type OrganizationEdition = "COMPLETA" | "ESENCIAL";
 
+// docs/rubros.md §1.1. Mismo criterio: la lista de los que se pueden elegir
+// hoy la da el backend (GET /api/admin/organizations/industries).
+export type OrganizationIndustry = "AUTOMOTORA" | "CLINICA";
+
 export interface CreateOrganizationInput {
   organizationName: string;
   adminFullName: string;
   adminEmail: string;
   // Solo se manda si se pudo elegir (más de una edición disponible).
   edition?: OrganizationEdition;
+  // Ídem, con los rubros.
+  industry?: OrganizationIndustry;
 }
 
 export interface CreateOrganizationResponse {
-  organization: { id: string; name: string; slug: string; edition: OrganizationEdition };
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    edition: OrganizationEdition;
+    industry: OrganizationIndustry;
+  };
   admin: { id: string; email: string; fullName: string; role: "ADMIN" };
 }
 
@@ -58,11 +70,17 @@ export interface PlatformOrganization {
   name: string;
   slug: string;
   edition: OrganizationEdition;
+  industry: OrganizationIndustry;
 }
 
 // Contrato de GET /api/admin/organizations/editions.
 export interface EdicionesDisponibles {
   editions: OrganizationEdition[];
+}
+
+// Contrato de GET /api/admin/organizations/industries.
+export interface RubrosDisponibles {
+  industries: OrganizationIndustry[];
 }
 
 // Contrato de GET /api/admin/llm-usage (B4): el gasto en el modelo por

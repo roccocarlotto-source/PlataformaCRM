@@ -19,8 +19,20 @@ const editionsUrl = `${env.apiUrl}/api/admin/organizations/editions`;
 const editionUrl = (id: string) => `${env.apiUrl}/api/admin/organizations/${id}/edition`;
 
 const ORGS: PlatformOrganization[] = [
-  { id: "org-1", name: "Automotora Centro", slug: "automotora-centro", edition: "COMPLETA" },
-  { id: "org-2", name: "Automotora Norte", slug: "automotora-norte", edition: "ESENCIAL" },
+  {
+    id: "org-1",
+    name: "Automotora Centro",
+    slug: "automotora-centro",
+    edition: "COMPLETA",
+    industry: "AUTOMOTORA",
+  },
+  {
+    id: "org-2",
+    name: "Automotora Norte",
+    slug: "automotora-norte",
+    edition: "ESENCIAL",
+    industry: "AUTOMOTORA",
+  },
 ];
 
 function renderPage() {

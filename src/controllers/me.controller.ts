@@ -1,6 +1,8 @@
 import { findInternalAgentByOrganization } from "../repositories/internalAgent.repository";
 import type { Response } from "express";
+import { leerConfiguracionDeClinica } from "../clinicas/repositories/clinicSettings.repository";
 import { MODULOS, modulosDe } from "../config/ediciones";
+import { vocabularioDe } from "../config/vocabulario";
 import { findPlatformAdminByUserId } from "../repositories/platformAdmin.repository";
 import { findUserById } from "../repositories/user.repository";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -19,6 +21,9 @@ import { asyncHandler } from "../utils/asyncHandler";
 // canUseInternalAgent el mismo criterio que requireInternalAgentAccess (ADMIN
 // siempre, sin lectura; USER según la columna) — la autorización real sigue
 // siendo esos middlewares en cada llamada, nunca estos booleanos.
+//
+// Una clínica suma una lectura, la de su configuración (contactTerm,
+// docs/rubros.md §3), en la misma ida. Una automotora no la hace.
 export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const { userId, email, fullName, organizationId, role, edition, industry } = req.auth;
   // internalAgentConfigured (OPUS-F-04 / FABLE-F-07, docs-privados, local): si
@@ -26,12 +31,13 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
   // agente interno pedía su configuración y sus mensajes para enterarse de que
   // no existía, y cada visita dejaba dos 404 en la consola. En la misma ida
   // que las otras dos lecturas.
-  const [platformAdmin, canUseInternalAgent, agenteInterno] = await Promise.all([
+  const [platformAdmin, canUseInternalAgent, agenteInterno, clinica] = await Promise.all([
     findPlatformAdminByUserId(userId),
     role === "ADMIN"
       ? Promise.resolve(true)
       : findUserById(userId, organizationId).then((user) => user?.canUseInternalAgent === true),
     findInternalAgentByOrganization(organizationId),
+    industry === "CLINICA" ? leerConfiguracionDeClinica(organizationId) : Promise.resolve(null),
   ]);
   res.status(200).json({
     id: userId,
@@ -50,5 +56,10 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     edition,
     industry,
     modulos: MODULOS.filter((modulo) => modulosDe(edition, industry).has(modulo)),
+    // Rubros (docs/rubros.md §3): el término del contacto, solo en una clínica
+    // (una automotora no tiene la clave), y el vocabulario armado acá, por el
+    // mismo motivo que `modulos`.
+    ...(clinica ? { contactTerm: clinica.contactTerm } : {}),
+    vocabulario: vocabularioDe(industry, clinica?.contactTerm ?? null),
   });
 });

@@ -89,6 +89,7 @@ export async function borrarOrgDePrueba(org: OrgDePrueba | undefined): Promise<v
   await prisma.pipeline.deleteMany({ where });
   await prisma.contact.deleteMany({ where });
   await prisma.knowledgeBaseEntry.deleteMany({ where });
+  await prisma.clinicBranchSettings.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.organization.delete({ where: { id: org.id } });

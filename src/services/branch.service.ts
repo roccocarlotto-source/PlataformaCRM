@@ -1,3 +1,5 @@
+import type { OrganizationIndustry } from "@prisma/client";
+import { crearConfiguracionDeSede } from "../clinicas/repositories/clinicSettings.repository";
 import { prisma, type Db } from "../lib/prisma";
 import { countAgentsByBranch } from "../repositories/agent.repository";
 import { countConfirmedBookingsOf } from "../repositories/booking.repository";
@@ -86,7 +88,15 @@ export interface CreateBranchInput {
   bankTransferDetails?: string | null;
 }
 
-export async function createBranch(organizationId: string, input: CreateBranchInput) {
+// industry: el rubro de la organización (req.auth.industry). Una sede de una
+// clínica nace con su configuración (ClinicBranchSettings, docs/rubros.md
+// §1.3) en la misma transacción. Default AUTOMOTORA: los demás callers (tests,
+// scripts) crean sucursales de automotoras, como siempre.
+export async function createBranch(
+  organizationId: string,
+  input: CreateBranchInput,
+  industry: OrganizationIndustry = "AUTOMOTORA",
+) {
   // Sin unicidad de nombre: dos sucursales pueden llamarse igual ("Centro" en
   // dos ciudades). No hay ninguna constraint que traducir a 409, así que no hay
   // rethrowAsConflict que escribir — a diferencia de Pipeline, que sí tiene un
@@ -106,6 +116,9 @@ export async function createBranch(organizationId: string, input: CreateBranchIn
       tx,
     );
     await heredarZonaDeLaPrimeraSucursal(organizationId, otrasSucursales, branch.timezone, tx);
+    if (industry === "CLINICA") {
+      await crearConfiguracionDeSede(organizationId, branch.id, tx);
+    }
     return branch;
   });
 }
