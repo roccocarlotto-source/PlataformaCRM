@@ -10,6 +10,7 @@ import {
   RUTAS_POR_MODULO,
   SOLO_CLINICA,
   modulosDe,
+  toolDelRubro,
   type Modulo,
 } from "../config/ediciones";
 import { exigirModuloDeLaEdicion } from "../middlewares/moduloDeLaEdicion";
@@ -17,7 +18,15 @@ import {
   puedeEjecutarTool,
   type OrganizacionDelAgente,
 } from "../services/agentPermissions.service";
-import { armarSystemPrompt } from "../services/agentOrchestration.service";
+import {
+  INSTRUCCION_DE_CIERRE_POR_TOPE,
+  INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA,
+  INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
+  INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
+  MENSAJE_DE_FUGA_BLOQUEADA,
+  armarSystemPrompt,
+  textosDeAutomotora,
+} from "../services/agentOrchestration.service";
 import {
   CATALOGO_DE_TOOLS,
   toolsHabilitadas,
@@ -506,6 +515,74 @@ test("las reglas del rubro de una automotora están vacías: ningún verificador
     camposFueraDeLasTools: {},
     // R5: ninguna tool con versión propia (las de agenda de una clínica).
     toolsPropias: {},
+    // R11: ninguna tool exclusiva y los textos del prompt de siempre.
+    toolsExclusivas: {},
+    textosDelPrompt: null,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R11: las tools de turnos y los textos del rubro (§3.2) son solo de clínica.
+// ---------------------------------------------------------------------------
+
+const TOOLS_DE_TURNOS = ["get_contact_bookings", "reschedule_booking", "cancel_booking"];
+
+test("R11: una automotora no ve ni ejecuta las tools de turnos aunque enabledTools las nombre", () => {
+  for (const edition of EDICIONES) {
+    const organizacion: OrganizacionDelAgente = { edition, industry: "AUTOMOTORA" };
+    assert.deepEqual(
+      toolsHabilitadas([...TOOLS_DE_HOY, ...TOOLS_DE_TURNOS], organizacion).map(
+        (t) => t.definition.name,
+      ),
+      TOOLS_DE_HOY,
+    );
+    for (const nombre of TOOLS_DE_TURNOS) {
+      assert.equal(toolDelRubro(nombre, edition, "AUTOMOTORA"), false, nombre);
+      assert.equal(
+        puedeEjecutarTool({ enabledTools: [nombre], guardrails: {}, organizacion }, nombre, {}, {})
+          .allowed,
+        false,
+        `${edition}: ${nombre}`,
+      );
+    }
+  }
+});
+
+test("R11: el prompt de una automotora con los textos de automotora explícitos es el del snapshot, byte a byte", () => {
+  const agente = {
+    instructions:
+      "Sos el asistente de ventas de Automotora Ejemplo. Respondé consultas sobre stock y coordiná un test drive.",
+    tone: "Cordial y directo",
+    guardrails: { temasProhibidos: ["política"], accionesProhibidas: ["reserve_vehicle"] },
+  };
+  const contexto = { ahora: new Date("2026-10-09T15:00:00.000Z"), zona: "America/Montevideo" };
+  const porDefecto = armarSystemPrompt(agente, [], contexto);
+  const explicito = armarSystemPrompt(
+    agente,
+    [],
+    contexto,
+    undefined,
+    null,
+    [],
+    undefined,
+    [],
+    null,
+    reglasDelRubro("AUTOMOTORA").instruccionesDelPrompt,
+    true,
+    textosDeAutomotora(),
+  );
+  assert.equal(explicito, porDefecto);
+  assert.ok(
+    fs.readFileSync(SNAPSHOT_DEL_PROMPT, "utf8").startsWith(`${porDefecto}\n\n----- tools -----`),
+  );
+  // Los textos de automotora son las constantes de siempre.
+  assert.deepEqual(textosDeAutomotora(), {
+    sinAutoridadComercial: INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
+    soloLoQueTeConsta: INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
+    iniciativa: INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA,
+    gestionDeTurnos: null,
+    mensajeDeFugaBloqueada: MENSAJE_DE_FUGA_BLOQUEADA,
+    cierrePorTope: INSTRUCCION_DE_CIERRE_POR_TOPE,
   });
 });
 

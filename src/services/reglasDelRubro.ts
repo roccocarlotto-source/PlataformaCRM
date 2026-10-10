@@ -1,5 +1,6 @@
 import type { OrganizationIndustry } from "@prisma/client";
 import { REGLAS_DE_CLINICA } from "../clinicas/reglasDeClinica";
+import type { TextosDelPrompt } from "./agentOrchestration.service";
 import type { ToolDelAgente } from "./agentTools.service";
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,15 @@ export interface ReglasDelRubro {
    *  agente tiene la tool habilitada, se usa esta en su lugar (en una clínica,
    *  las de agenda con profesionales, docs/rubros.md §4.3 y §5.1). */
   toolsPropias: Readonly<Record<string, ToolDelAgente>>;
+  /** Tools que solo tiene este rubro (no están en el catálogo): se ofrecen si
+   *  el agente las tiene en enabledTools y pasan toolDelRubro y el nivel (en
+   *  una clínica, las de turnos de R11, docs/rubros.md §5.1). */
+  toolsExclusivas: Readonly<Record<string, ToolDelAgente>>;
+  /** Los textos del prompt del rubro (§3.2). null = los de una automotora,
+   *  las constantes de siempre. `conGestionDeTurnos`: si este turno se le
+   *  ofrece al modelo alguna de las toolsExclusivas. */
+  textosDelPrompt:
+    ((organizationId: string, conGestionDeTurnos: boolean) => Promise<TextosDelPrompt>) | null;
 }
 
 export const SIN_REGLAS: ReglasDelRubro = {
@@ -78,6 +88,8 @@ export const SIN_REGLAS: ReglasDelRubro = {
   instruccionesDelPrompt: [],
   camposFueraDeLasTools: {},
   toolsPropias: {},
+  toolsExclusivas: {},
+  textosDelPrompt: null,
 };
 
 const REGLAS_POR_RUBRO: Readonly<Record<OrganizationIndustry, ReglasDelRubro>> = {

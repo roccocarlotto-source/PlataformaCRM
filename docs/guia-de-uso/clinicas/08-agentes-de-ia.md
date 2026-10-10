@@ -39,3 +39,39 @@ atendiendo.
 > (una dosis, un "aplicate…", un "parece ser…"), esa respuesta no sale: el
 > paciente recibe el mensaje de consulta clínica y la conversación te llega a
 > vos.
+
+## Cambiar o cancelar turnos por chat {#cambiar-o-cancelar-turnos}
+
+Si el asistente está en el nivel **Autónomo**, puede ver, reprogramar y
+cancelar los turnos del paciente con el que está hablando. Para eso, en
+**Acciones habilitadas** del asistente activá **Ver turnos del paciente**,
+**Reprogramar turno** y **Cancelar turno**. En el nivel **Primer contacto** el
+asistente no cambia turnos: toma los datos y lo hace la recepción.
+
+- Antes de cambiar o cancelar, el asistente le confirma al paciente qué turno
+  es y, si lo reprograma, el día, la hora y el profesional nuevos.
+- Solo ofrece horarios libres de la agenda: **nunca carga un sobreturno**.
+- Solo toca turnos de ese paciente y de la sede de la conversación.
+- Un turno que ya empezó o ya pasó no lo cambia.
+- Si la sede tiene una **anticipación mínima**, con menos tiempo que ese el
+  asistente no cambia ni cancela el turno: se lo dice al paciente y te pasa la
+  conversación.
+- Si algo no se puede (no hay horarios, el turno ya pasó, hay dudas), te pasa
+  la conversación.
+- Cada cambio queda en la ficha del paciente con **Asistente** como autor.
+- Si en el mismo mensaje el paciente cuenta un síntoma o una urgencia, eso va
+  primero: el asistente responde con el mensaje fijo de salud y no toca el
+  turno.
+
+### Anticipación mínima para cambiar un turno {#anticipacion-minima}
+
+Lo configura un administrador, por sede:
+
+1. Entrá a [Sucursales](/branches) y abrí la sede.
+2. En **Turnos por chat**, completá **Anticipación mínima para cambiar un turno
+   (horas)**. Por ejemplo, con 24 el asistente no reprograma ni cancela un turno
+   que empieza en menos de 24 horas: le pasa la conversación a la recepción.
+3. Tocá **Guardar plazo**.
+
+Si lo dejás vacío no hay plazo, y el asistente puede cambiar un turno hasta que
+empieza. Es lo que tiene una sede nueva. Con 0 tampoco hay plazo.

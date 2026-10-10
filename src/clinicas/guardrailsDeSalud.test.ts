@@ -115,6 +115,74 @@ test("NINGUNO: turnos, precios, horarios y las frases parecidas que no son clín
   }
 });
 
+// R11: "costra*" con un error de tipeo agarraba cualquier palabra que empezara
+// con "contra". La raíz con tolerancia ahora exige que lo que sigue sea una
+// terminación.
+const FRASES_COMERCIALES = [
+  "hace una contraoferta",
+  "Te hago una contraoferta",
+  "Firmo el contrato",
+  "Olvidé mi contraseña",
+  "Estoy en contra",
+  "¿Pago contra reembolso?",
+  "¿Cuál es el precio?",
+  "¿Tienen alguna oferta?",
+  "La oferta vence hoy",
+  "Promoción de verano",
+  "¿Hay promo?",
+  "¿Me hacen descuento?",
+  "Descuento por pago en efectivo",
+  "Precio final con descuento",
+  "Consulta de precio",
+  "Quiero consultar el precio",
+  "¿Cuánto cuesta el paquete de 6 sesiones?",
+  "¿Tienen cuotas sin interés?",
+  "Pago con transferencia",
+  "Me pasás el presupuesto",
+  "¿La primera consulta es gratis?",
+  "Contratar el pack",
+  "Me contacto mañana",
+  "Costo total",
+  "Me costó caro",
+  "¿Puedo pagar la seña del turno?",
+  "Cambiar el turno",
+  "Cancelar el turno",
+];
+
+test("NINGUNO: frases comerciales comunes no disparan ningún término", () => {
+  for (const frase of FRASES_COMERCIALES) {
+    assert.equal(clasificarMensajeDeSalud(frase), "NINGUNO", frase);
+  }
+});
+
+test("la tolerancia a un error de tipeo sigue agarrando síntomas y urgencias con su terminación", () => {
+  for (const [frase, esperado] of [
+    ["me salieron costras", "CLINICA"],
+    ["tengo una cosrtra en la pierna", "CLINICA"],
+    ["me quedó un hematona", "CLINICA"],
+    ["tengo morretones", "CLINICA"],
+    ["me desmalle", "URGENCIA"],
+    ["me desmallé dos veces", "URGENCIA"],
+    ["tengo una hemorajia", "URGENCIA"],
+    ["me puse colorada y enrojesida", "CLINICA"],
+  ] as const) {
+    assert.equal(clasificarMensajeDeSalud(frase), esperado, frase);
+  }
+});
+
+test("un pedido de reprogramar con un síntoma o una urgencia adentro sigue disparando", () => {
+  assert.equal(
+    clasificarMensajeDeSalud(
+      "Te hago una contraoferta: cambiame el turno, que se me hinchó la cara",
+    ),
+    "URGENCIA",
+  );
+  assert.equal(
+    clasificarMensajeDeSalud("Quiero cambiar el turno, me arde mucho la zona"),
+    "CLINICA",
+  );
+});
+
 test("la urgencia gana sobre la consulta clínica en el mismo mensaje", () => {
   assert.equal(clasificarMensajeDeSalud("me arde la cara y se me hinchó la lengua"), "URGENCIA");
 });

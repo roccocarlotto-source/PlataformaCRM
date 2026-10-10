@@ -1,11 +1,33 @@
 import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
-import type { PrestacionesResponse, ProfesionalesResponse } from "./types";
+import type { ConfiguracionDeSede, PrestacionesResponse, ProfesionalesResponse } from "./types";
 
 // La agenda de clínica (docs/rubros.md §4.3). organizationId nunca viaja acá.
 
 export function listPrestaciones(signal?: AbortSignal): Promise<PrestacionesResponse> {
   return request<PrestacionesResponse>("/clinica/prestaciones", { getAccessToken, signal });
+}
+
+// R11: la configuración de clínica de una sede (solo ADMIN).
+export function getConfiguracionDeSede(
+  branchId: string,
+  signal?: AbortSignal,
+): Promise<ConfiguracionDeSede> {
+  return request<ConfiguracionDeSede>(`/clinica/sedes/${branchId}/configuracion`, {
+    getAccessToken,
+    signal,
+  });
+}
+
+export function guardarConfiguracionDeSede(
+  branchId: string,
+  body: ConfiguracionDeSede,
+): Promise<ConfiguracionDeSede> {
+  return request<ConfiguracionDeSede>(`/clinica/sedes/${branchId}/configuracion`, {
+    method: "PUT",
+    body,
+    getAccessToken,
+  });
 }
 
 export function definirProfesionales(

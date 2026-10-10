@@ -23,6 +23,7 @@ import { useContactNames, useOwnerNames } from "../opportunity/relationResolutio
 import { useConfirmActivity, useDeleteActivity } from "./mutations";
 import { useActivities } from "./queries";
 import {
+  autorDeLaActividad,
   resolveUserLabel as resolveUserLabelShared,
   useOpportunityNames,
 } from "./relationResolution";
@@ -145,6 +146,9 @@ export function ActivityListPage() {
   // desde el §30, compartida con el feed de actividad del Dashboard.
   const resolveUserLabel = (userId: string | null) =>
     resolveUserLabelShared(userId, { meId: me?.id, isAdmin, names: userNames.byId });
+  // R11: "Asistente" para una nota que dejó el agente de una clínica.
+  const resolveAuthorLabel = (activity: Activity) =>
+    autorDeLaActividad(activity, { meId: me?.id, isAdmin, names: userNames.byId });
 
   // La fila del detalle sale del array ya cargado, sin un GET aparte: el
   // listado trae el objeto Activity completo (§28). Si la fila desaparece
@@ -314,7 +318,7 @@ export function ActivityListPage() {
                       ? (opportunityNames.byId.get(activity.opportunityId) ?? "—")
                       : ""}
                   </td>
-                  <td>{resolveUserLabel(activity.authorId)}</td>
+                  <td>{resolveAuthorLabel(activity)}</td>
                   <td>{resolveUserLabel(activity.assigneeId)}</td>
                   <td>
                     <span className="ds-cell-inline">
@@ -423,7 +427,7 @@ export function ActivityListPage() {
                       ? (opportunityNames.byId.get(detalle.opportunityId) ?? "—")
                       : null,
                   },
-                  { label: "Autor", value: resolveUserLabel(detalle.authorId) },
+                  { label: "Autor", value: resolveAuthorLabel(detalle) },
                   { label: "Asignado a", value: resolveUserLabel(detalle.assigneeId) },
                   { label: "Vencimiento", value: formatDateTime(detalle.dueDate) },
                   { label: "Completada", value: formatDateTime(detalle.completedAt) },

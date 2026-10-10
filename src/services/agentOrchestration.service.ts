@@ -5,6 +5,7 @@ import {
   nivelEfectivo,
   toolDelNivel,
 } from "./agentNivelDeIa";
+import { toolDelRubro } from "../config/ediciones";
 import type {
   AgentParticipation,
   Contact,
@@ -477,6 +478,38 @@ export const INSTRUCCION_SOLO_LO_QUE_TE_CONSTA =
 // —cuando hay iniciativa— y NO ante una consulta de información, que es lo
 // que una validación sola no puede decirle.
 export const INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA = `Una oportunidad de venta (create_opportunity) y una reserva (create_booking, reserve_vehicle) se registran SOLO cuando el cliente toma la iniciativa de avanzar, y eso es exactamente una de estas cosas: ${enumerarIniciativas()}. Tené claro que ${CONSULTAS_QUE_NO_SON_INICIATIVA} NO es tomar la iniciativa, y que tampoco lo son un «me interesa» o un «qué lindo»: ahí contestás, y lo que busca y la unidad que le interesa quedan anotados en su ficha, sin crear ninguna oportunidad. Cuando aparece una de esas iniciativas, fijate si tenés el nombre Y el apellido de la persona: si el CRM no los tiene, o tiene solo uno, pedíselos en ese momento —nombre y apellido, con naturalidad, como parte de lo que necesitás para avanzar—, guardalos con update_lead y recién después registrá la oportunidad o la reserva. Si el CRM ya tiene nombre y apellido, no se los vuelvas a pedir. Y ante una consulta de información no le pidas el nombre: no hace falta para contestar.`;
+
+// ---------------------------------------------------------------------------
+// LOS TEXTOS DEL RUBRO (docs/rubros.md §3.2, R11)
+// ---------------------------------------------------------------------------
+// Las constantes de arriba que hablan de autos (permuta, financiación, "la
+// unidad", los vehículos) tienen su versión de clínica en
+// src/clinicas/config/textosDelAgente.ts. Para una automotora son estas
+// mismas constantes, sin tocarlas: el prompt queda byte a byte (snapshot en
+// src/clinicas/__snapshots__/prompt-automotora.txt).
+export interface TextosDelPrompt {
+  sinAutoridadComercial: string;
+  soloLoQueTeConsta: string;
+  // La regla de cuándo registrar una oportunidad o un turno (si el nivel lo
+  // permite, conInstruccionDeIniciativa).
+  iniciativa: string;
+  // Ver, reprogramar y cancelar turnos (R11). null = no va.
+  gestionDeTurnos: string | null;
+  mensajeDeFugaBloqueada: string;
+  cierrePorTope: string;
+}
+
+// Función y no constante: MENSAJE_DE_FUGA_BLOQUEADA se declara más abajo.
+export function textosDeAutomotora(): TextosDelPrompt {
+  return {
+    sinAutoridadComercial: INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
+    soloLoQueTeConsta: INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
+    iniciativa: INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA,
+    gestionDeTurnos: null,
+    mensajeDeFugaBloqueada: MENSAJE_DE_FUGA_BLOQUEADA,
+    cierrePorTope: INSTRUCCION_DE_CIERRE_POR_TOPE,
+  };
+}
 
 // La etiqueta con la que se le presenta al modelo lo que escribió el cliente
 // (ítem 97). Vive acá arriba porque INSTRUCCION_IDENTIDAD_INMUTABLE la nombra.
@@ -1126,6 +1159,8 @@ export function armarSystemPrompt(
   // Paso D: sin create_opportunity disponible (PRIMER_CONTACTO), la regla de
   // cuándo registrar una oportunidad no aplica. true = como siempre.
   conInstruccionDeIniciativa = true,
+  // R11 (§3.2): los textos del rubro. Sin pasarlo, los de una automotora.
+  textos: TextosDelPrompt = textosDeAutomotora(),
 ): string {
   const partes = [agent.instructions.trim()];
 
@@ -1202,7 +1237,7 @@ export function armarSystemPrompt(
   // Ítem 92: fija también, y justo después de la anterior. Las dos hablan de
   // lo mismo desde dos lados: usá lo que devolvió la herramienta (88) y no
   // inventes un precio distinto del que devolvió (92).
-  partes.push(INSTRUCCION_SIN_AUTORIDAD_COMERCIAL);
+  partes.push(textos.sinAutoridadComercial);
 
   // Ítem 100: pegada a las otras dos fijas. Las tres son la misma idea en
   // capas — usá la herramienta (88), no inventes el precio que devolvió (92),
@@ -1212,13 +1247,17 @@ export function armarSystemPrompt(
   // Ítem 108: la cuarta de la misma familia, y va acá por eso. Las tres de
   // arriba cubren lo que el agente HACE; esta cubre lo que el agente AFIRMA
   // sobre el negocio cuando nadie se lo dijo.
-  partes.push(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA);
+  partes.push(textos.soloLoQueTeConsta);
 
   // 08/10/2026: cuándo registrar una oportunidad o una reserva, y el nombre
   // en ese momento. Después de las cuatro de arriba porque es de la misma
   // familia —qué hacer con las herramientas— y antes de la de derivación.
   if (conInstruccionDeIniciativa) {
-    partes.push(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA);
+    partes.push(textos.iniciativa);
+  }
+  // R11: ver, reprogramar y cancelar turnos (solo una clínica con esas tools).
+  if (textos.gestionDeTurnos !== null) {
+    partes.push(textos.gestionDeTurnos);
   }
 
   const condiciones = listaDeGuardrails(agent.guardrails, "condicionesDeDerivacion");
@@ -2510,6 +2549,32 @@ export async function responderEnLaConversacion(
   const fueraDeHorario = sucursal
     ? atencionFueraDeHorario(franjasDeLaSucursal, sucursal.timezone, ahora)
     : null;
+  // Las tools con versión propia del rubro se reemplazan (en una clínica, las
+  // de agenda con profesionales, docs/rubros.md §4.3), las que solo tiene el
+  // rubro se suman (en una clínica, las de turnos, R11), y los argumentos que
+  // el rubro no ofrece se recortan de la definición y de lo que recibe la tool
+  // (§8.2). En AUTOMOTORA, las mismas tools del catálogo.
+  const exclusivas = agent.enabledTools
+    .filter(
+      (nombre) =>
+        Object.hasOwn(reglas.toolsExclusivas, nombre) &&
+        toolDelRubro(nombre, organizacion.edition, organizacion.industry),
+    )
+    .map((nombre) => reglas.toolsExclusivas[nombre]);
+  const tools = toolsSinCampos(
+    [...toolsHabilitadas(agent.enabledTools, organizacion), ...exclusivas]
+      // Paso D: las tools que permite el nivel (AUTONOMA: todas).
+      .filter((tool) => toolDelNivel(tool.definition.name, nivelDelTurno))
+      .map((tool) => reglas.toolsPropias[tool.definition.name] ?? tool),
+    reglas.camposFueraDeLasTools,
+  );
+  // §3.2 (R11): los textos del rubro. En AUTOMOTORA, las constantes de siempre.
+  const textos = reglas.textosDelPrompt
+    ? await reglas.textosDelPrompt(
+        organizationId,
+        tools.some((t) => Object.hasOwn(reglas.toolsExclusivas, t.definition.name)),
+      )
+    : textosDeAutomotora();
   const systemPrompt = armarSystemPrompt(
     agent,
     knowledgeBaseEntries,
@@ -2522,23 +2587,13 @@ export async function responderEnLaConversacion(
     contact.customFields,
     [...reglas.instruccionesDelPrompt, ...instruccionesDelNivel(nivelDelTurno)],
     toolDelNivel("create_opportunity", nivelDelTurno),
+    textos,
   );
   const mensajes = ordenarPendientesAlFinal(
     ultimosMensajes,
     new Set(options.entrantesPendientes ?? []),
   );
   const historial = aHistorial(mensajes, options.adjuntos);
-  // Las tools con versión propia del rubro se reemplazan (en una clínica, las
-  // de agenda con profesionales, docs/rubros.md §4.3), y los argumentos que el
-  // rubro no ofrece se recortan de la definición y de lo que recibe la tool
-  // (§8.2). En AUTOMOTORA, las mismas tools del catálogo.
-  const tools = toolsSinCampos(
-    toolsHabilitadas(agent.enabledTools, organizacion)
-      // Paso D: las tools que permite el nivel (AUTONOMA: todas).
-      .filter((tool) => toolDelNivel(tool.definition.name, nivelDelTurno))
-      .map((tool) => reglas.toolsPropias[tool.definition.name] ?? tool),
-    reglas.camposFueraDeLasTools,
-  );
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));
   // El catálogo filtrado por enabledTools + la tool del sistema, SIEMPRE.
   const definiciones = [...tools.map((t) => t.definition), REQUEST_HUMAN_HANDOFF_TOOL];
@@ -2752,7 +2807,7 @@ export async function responderEnLaConversacion(
     if (toolsExitosasDelTurno(auditoria).length > 0 && !presupuesto.aborted) {
       try {
         const cierre = await llm.complete({
-          systemPrompt: `${systemPrompt}\n\n${INSTRUCCION_DE_CIERRE_POR_TOPE}`,
+          systemPrompt: `${systemPrompt}\n\n${textos.cierrePorTope}`,
           messages: historial,
           tools: definiciones,
           toolChoice: "none",
@@ -2799,9 +2854,10 @@ export async function responderEnLaConversacion(
   if (
     revelaInstrucciones(respuestaFinal, [
       INSTRUCCION_USAR_HERRAMIENTAS,
-      INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
+      textos.sinAutoridadComercial,
       INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
-      INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
+      textos.soloLoQueTeConsta,
+      textos.gestionDeTurnos ?? "",
       INSTRUCCION_IDENTIDAD_INMUTABLE,
       ...reglas.instruccionesDelPrompt,
       ...instruccionesDelNivel(nivelDelTurno),
@@ -2813,7 +2869,7 @@ export async function responderEnLaConversacion(
       { organizationId, agentId, conversationId: conversation.id },
       "La respuesta del modelo repetía las instrucciones del sistema: se reemplazó antes de enviarla",
     );
-    respuestaFinal = MENSAJE_DE_FUGA_BLOQUEADA;
+    respuestaFinal = textos.mensajeDeFugaBloqueada;
   } else if (
     mencionaUnaTool(
       respuestaFinal,
@@ -2828,7 +2884,7 @@ export async function responderEnLaConversacion(
       { organizationId, agentId, conversationId: conversation.id },
       "La respuesta del modelo nombraba una tool interna: se reemplazó antes de enviarla",
     );
-    respuestaFinal = MENSAJE_DE_FUGA_BLOQUEADA;
+    respuestaFinal = textos.mensajeDeFugaBloqueada;
   } else if (deSalida !== null) {
     // La respuesta no sale: va el mensaje fijo de la regla y se deriva con su
     // aviso. Lo que el modelo había escrito queda en toolCalls, para auditar.

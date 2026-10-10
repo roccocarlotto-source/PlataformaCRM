@@ -1059,6 +1059,51 @@ En los mismos dos lugares: `toolsHabilitadas` (`agentTools.service.ts:2913`) y
   - el tope `MAX_RESERVAS_FUTURAS_POR_CONTACTO = 2`
     (`agentTools.service.ts:192`) sigue igual. Reprogramar no lo consume.
 
+> **Implementado en R11.** Cómo quedó, y dónde difiere de lo de arriba:
+>
+> - **Las tres tools NO están en `CATALOGO_DE_TOOLS`** (se aparta de lo de
+>   arriba): ese catálogo también arma el selector de `accionesProhibidas` y el
+>   prompt de traducción de guardrails, que una automotora usa. Viven en
+>   `src/clinicas/toolsDeTurnos.ts` y entran por
+>   `ReglasDelRubro.toolsExclusivas`; su módulo es `agenda_clinica`
+>   (`MODULO_DE_LA_TOOL_DE_CLINICA` en `config/ediciones.ts`), y
+>   `toolDelRubro(AUTOMOTORA)` da `false` para ellas. Consecuencia: en una
+>   clínica, la traducción de guardrails todavía no puede prohibirlas por
+>   nombre (se sacan de `enabledTools`).
+> - **Nivel:** solo AUTONOMA (no están en `TOOLS_DE_PRIMER_CONTACTO`).
+> - **Reglas, en este orden**, iguales para reprogramar y cancelar: candado de
+>   identidad (antes de mirar el turno), turno del contacto **y de la sede** de
+>   la conversación (si no, el mismo error que uno inexistente), `CONFIRMED` y
+>   futuro, y `minHoursToChangeBooking` contra el horario actual del turno.
+>   `get_contact_bookings` también pasa por el candado de identidad.
+> - **Reprogramar** llama a `reprogramarTurno` como una Recepción de la sede
+>   de la conversación, sin `isOverbooking` ni `force` (la tool no los
+>   acepta): nunca un sobreturno. **Cancelar** usa `cancelBooking` y suma la
+>   nota en su misma transacción. Los eventos (`booking.rescheduled`,
+>   `booking.cancelled`) salen de esos servicios.
+> - **Autor:** `Activity.authorId` no admite nulos. La nota la firma el
+>   responsable de la conversación, si no la Recepción de la sede, si no el
+>   ADMIN más antiguo. Su asunto empieza con `[Asistente] `
+>   (`MARCA_DEL_ASISTENTE`) y la pantalla muestra **"Asistente"** como autor,
+>   nunca el nombre de esa persona. El cuerpo dice "Reprogramó/Canceló: el
+>   asistente".
+> - **Textos del prompt (§3.2):** `armarSystemPrompt` recibe `textos` (último
+>   parámetro). AUTOMOTORA usa las constantes de siempre
+>   (`textosDeAutomotora()`, snapshot byte a byte); CLINICA, las de
+>   `src/clinicas/config/textosDelAgente.ts` con el término del contacto, más
+>   la instrucción de gestión de turnos si se ofrece alguna de las tres tools.
+>   El mensaje de fuga bloqueada y el cierre por tope también son del rubro.
+>   Un test busca en el prompt de clínica que no quede ninguna mención a autos,
+>   permuta, financiación, vehículos ni "la unidad".
+> - **El plazo (D10) se configura** en el formulario de la sede, sección "Turnos
+>   por chat", solo ADMIN: `GET`/`PUT /api/clinica/sedes/:branchId/configuracion`
+>   (módulo `agenda_clinica`), entero de 0 a 8760 o `null`. Sin valor por
+>   defecto: una sede nueva no tiene plazo.
+> - **Detector de salud:** "costra*" con un error de tipeo agarraba "contraoferta",
+>   "contrato" o "en contra" (la raíz con tolerancia se comparaba contra el
+>   comienzo de cualquier palabra). Ahora, con un error de tipeo, lo que sigue a
+>   la raíz tiene que ser una terminación (`TERMINACIONES_CON_TOLERANCIA`).
+
 ### 5.2 Agendar con los niveles de IA (D2)
 
 **Decidido:** la clínica agenda con el agente en **AUTONOMA**, con las tools
@@ -1090,7 +1135,7 @@ agenda", y el formulario del agente de clínicas lo dice así.
 > - **Capa 2:** `armarSystemPrompt` recibe un último parámetro,
 >   `instruccionesDelRubro`, que va antes de la instrucción de identidad. Vacío
 >   en AUTOMOTORA, así que el prompt es el mismo byte a byte (snapshot de
->   §14.1). El objeto `textos` de §3.2 queda para R11.
+>   §14.1). El objeto `textos` de §3.2 llegó en R11 (ver la nota de §5.1).
 > - **"Prioridad alta"**: `Activity` no tiene una columna de prioridad, y R4 no
 >   lleva migración. La tarea de una urgencia empieza con `URGENTE · `, vence
 >   en el acto (`dueDate` = ahora), no reutiliza una tarea abierta y se crea

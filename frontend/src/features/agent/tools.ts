@@ -102,6 +102,27 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
   },
 ];
 
+// R11 (docs/rubros.md §5.1): las tools que solo tiene una clínica
+// (MODULO_DE_LA_TOOL_DE_CLINICA en src/config/ediciones.ts, ESPEJO A MANO). No
+// están en AGENT_TOOL_OPTIONS: una automotora no las ve en el selector.
+export const AGENT_TOOL_OPTIONS_DE_CLINICA: MultiSelectOption<string>[] = [
+  {
+    value: "get_contact_bookings",
+    label: "Ver turnos del paciente",
+    subtitle: "Lista los próximos turnos del paciente de la conversación.",
+  },
+  {
+    value: "reschedule_booking",
+    label: "Reprogramar turno",
+    subtitle: "Cambia el día, la hora o el profesional de un turno del paciente.",
+  },
+  {
+    value: "cancel_booking",
+    label: "Cancelar turno",
+    subtitle: "Cancela un turno del paciente, con la anticipación mínima de la sede.",
+  },
+];
+
 // Las tools que un agente tiene habilitadas pueden incluir un nombre que no
 // esté en la lista de arriba: el backend valida la forma del nombre, no su
 // pertenencia al catálogo (toolNameSchema en agent.controller.ts), así que una
@@ -124,7 +145,11 @@ export const REQUEST_HUMAN_HANDOFF_TOOL_NAME = "request_human_handoff";
 // herramienta de diagnóstico es justamente lo que hay que poder leer.
 export function toolLabel(name: string): string {
   if (name === REQUEST_HUMAN_HANDOFF_TOOL_NAME) return "Derivar a una persona";
-  return AGENT_TOOL_OPTIONS.find((option) => option.value === name)?.label ?? name;
+  return (
+    [...AGENT_TOOL_OPTIONS, ...AGENT_TOOL_OPTIONS_DE_CLINICA].find(
+      (option) => option.value === name,
+    )?.label ?? name
+  );
 }
 
 // Las acciones que, antes de ejecutarse, exigen el nombre y el apellido del
@@ -150,8 +175,14 @@ export function avisoDeAccionesSinGuardarElNombre(enabledTools: string[]): strin
   return `${nombres} ${exigen.length === 1 ? "exige" : "exigen"} el nombre del cliente: habilitá «${toolLabel("update_lead")}» o «${toolLabel("create_lead")}» para que pueda guardarlo.`;
 }
 
-export function agentToolOptions(selected: string[]): MultiSelectOption<string>[] {
-  const conocidas = new Set(AGENT_TOOL_OPTIONS.map((option) => option.value));
+export function agentToolOptions(
+  selected: string[],
+  esClinica = false,
+): MultiSelectOption<string>[] {
+  const base = esClinica
+    ? [...AGENT_TOOL_OPTIONS, ...AGENT_TOOL_OPTIONS_DE_CLINICA]
+    : AGENT_TOOL_OPTIONS;
+  const conocidas = new Set(base.map((option) => option.value));
   const extras = selected
     .filter((value) => !conocidas.has(value))
     .map((value) => ({
@@ -159,5 +190,5 @@ export function agentToolOptions(selected: string[]): MultiSelectOption<string>[
       label: value,
       subtitle: "No está en el catálogo de tools de esta versión del backend.",
     }));
-  return [...AGENT_TOOL_OPTIONS, ...extras];
+  return [...base, ...extras];
 }

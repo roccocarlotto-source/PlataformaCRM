@@ -1,12 +1,23 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { vocabularioDe } from "../config/vocabulario";
 import { prisma } from "../lib/prisma";
 import { findRoleByName } from "../repositories/role.repository";
 import { createBranch } from "../services/branch.service";
 import { replaceWorkingHoursForResource } from "../services/workingHours.service";
 import { cerrarTurnosVencidos } from "./services/atendido.service";
+import {
+  INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
+  runAgentTurn,
+} from "../services/agentOrchestration.service";
+import {
+  resetLlmProviderParaTests,
+  setLlmProviderForTests,
+  type LlmCompletionRequest,
+  type LlmCompletionResult,
+  type LlmProvider,
+} from "../services/llmProvider.service";
 import {
   borrarOrgDePrueba,
   crearOrgDePrueba,
@@ -70,6 +81,7 @@ after(async () => {
     await prisma.serviceType.deleteMany({ where });
     await prisma.workingHours.deleteMany({ where });
     await prisma.resource.deleteMany({ where });
+    await prisma.message.deleteMany({ where });
     await prisma.conversation.deleteMany({ where });
     await prisma.agent.deleteMany({ where });
     await borrarOrgDePrueba(conSucursales);
@@ -562,4 +574,96 @@ test("R10: agendar y cancelar en una automotora no emiten eventos, y el cierre a
   );
   assert.equal(marcar.status, 403);
   assert.equal(marcar.json.error?.motivo, "RUBRO");
+});
+
+test("R11: el agente de una automotora no recibe las tools de turnos ni su texto, aunque enabledTools las nombre, y no puede ejecutarlas", async () => {
+  const sucursal = await prisma.branch.findFirstOrThrow({
+    where: { organizationId: conSucursales.id, deletedAt: null },
+  });
+  const contacto = await prisma.contact.create({
+    data: {
+      organizationId: conSucursales.id,
+      firstName: "Cliente",
+      lastName: "Ejemplo",
+      phone: "+59899000009",
+    },
+  });
+  const agente = await prisma.agent.create({
+    data: {
+      organizationId: conSucursales.id,
+      branchId: sucursal.id,
+      name: "Asistente",
+      instructions: "Sos el asistente de la automotora.",
+      modelProvider: "openrouter",
+      modelName: "doble/modelo",
+      enabledTools: [
+        "get_availability",
+        "get_contact_bookings",
+        "reschedule_booking",
+        "cancel_booking",
+      ],
+      channels: ["WHATSAPP"],
+      guardrails: {} as Prisma.InputJsonValue,
+      participation: "AUTONOMA",
+      participationChosenAt: new Date(),
+    },
+  });
+  const requests: LlmCompletionRequest[] = [];
+  const respuestas: LlmCompletionResult[] = [
+    {
+      text: null,
+      toolCalls: [
+        {
+          id: "c1",
+          name: "cancel_booking",
+          arguments: { bookingId: "11111111-1111-4111-8111-111111111111" },
+        },
+      ],
+    },
+    { text: "Te paso con una persona del equipo.", toolCalls: [] },
+  ];
+  const proveedor: LlmProvider = {
+    name: "guionado",
+    complete(request) {
+      requests.push(request);
+      return Promise.resolve(respuestas[Math.min(requests.length - 1, respuestas.length - 1)]);
+    },
+  };
+  // El brief usa el proveedor global: el mismo doble, para no llamar a ningún modelo real.
+  setLlmProviderForTests(proveedor);
+  try {
+    await runAgentTurn(
+      {
+        organizationId: conSucursales.id,
+        agentId: agente.id,
+        contactId: contacto.id,
+        channel: "WHATSAPP",
+        texto: "quiero cancelar mi turno",
+        externalThreadId: "hilo-automotora-r11",
+      },
+      { llmProvider: proveedor },
+    );
+  } finally {
+    resetLlmProviderParaTests();
+  }
+  assert.deepEqual(
+    requests[0].tools.map((t) => t.name),
+    ["get_availability", "request_human_handoff"],
+  );
+  assert.doesNotMatch(
+    requests[0].systemPrompt,
+    /get_contact_bookings|reschedule_booking|cancel_booking/,
+  );
+  assert.ok(requests[0].systemPrompt.includes(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA));
+  const saliente = await prisma.message.findFirstOrThrow({
+    where: {
+      organizationId: conSucursales.id,
+      senderType: "AGENT",
+      toolCalls: { not: Prisma.DbNull },
+    },
+  });
+  const llamada = (saliente.toolCalls as { name: string; allowed?: boolean }[]).find(
+    (t) => t.name === "cancel_booking",
+  );
+  assert.equal(llamada?.allowed, false, "una tool que no se ofreció no se ejecuta");
 });

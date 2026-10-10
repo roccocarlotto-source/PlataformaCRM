@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -18,12 +18,16 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-// Solo lo usa el bloque de AdminRoute del final: el formulario no consume
-// useAuth.
+// El formulario lee el rubro (R11: la sección de turnos por chat es solo de una
+// clínica) y el bloque de AdminRoute del final, el rol. Por defecto, un ADMIN
+// de una automotora.
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 
-function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
+function mockAuth(
+  role: "ADMIN" | "USER",
+  industry: "AUTOMOTORA" | "CLINICA" = "AUTOMOTORA",
+): AuthContextValue {
   return {
     status: "authenticated",
     me: {
@@ -32,6 +36,7 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
       fullName: "A",
       organizationId: "org-1",
       role,
+      industry,
       isPlatformAdmin: false,
       canUseInternalAgent: false,
     },
@@ -42,6 +47,10 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
     retryProfile: vi.fn(),
   };
 }
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+});
 
 const baseUrl = `${env.apiUrl}/api/branches`;
 const usersUrl = `${env.apiUrl}/api/users`;
@@ -1144,5 +1153,74 @@ describe("BranchFormPage — Horario de atención", () => {
       "No pudimos cargar el horario de atención: Sucursal no encontrada",
     );
     expect(screen.getByLabelText("Nombre")).toHaveValue("Casa Central");
+  });
+});
+
+// R11 (docs/rubros.md §5.1, D10): el plazo para que el asistente cambie un turno.
+describe("BranchFormPage — Turnos por chat (clínica)", () => {
+  const configUrl = `${env.apiUrl}/api/clinica/sedes/:id/configuracion`;
+  const sede = () =>
+    http.get(`${baseUrl}/:id`, () => HttpResponse.json(makeBranch({ id: "b1", name: "Centro" })));
+
+  it("una automotora no ve la sección", async () => {
+    renderForm("/branches/b1/edit", sede());
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Centro"));
+    expect(screen.queryByText("Turnos por chat")).not.toBeInTheDocument();
+  });
+
+  it("en una clínica muestra el plazo guardado con su ayuda, y lo guarda como entero o null", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", "CLINICA"));
+    const enviados: unknown[] = [];
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      sede(),
+      http.get(configUrl, () => HttpResponse.json({ minHoursToChangeBooking: 24 })),
+      http.put(configUrl, async ({ request }) => {
+        const body = (await request.json()) as { minHoursToChangeBooking: number | null };
+        enviados.push(body);
+        return HttpResponse.json(body);
+      }),
+    );
+
+    const campo = await screen.findByLabelText("Anticipación mínima para cambiar un turno (horas)");
+    expect(campo).toHaveValue(24);
+    expect(
+      screen.getByText(
+        "Horas mínimas de anticipación para que el asistente reprograme o cancele un turno. Con menos tiempo, deriva a Recepción.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.clear(campo);
+    await user.type(campo, "48");
+    await user.click(screen.getByRole("button", { name: "Guardar plazo" }));
+    await waitFor(() => expect(enviados).toEqual([{ minHoursToChangeBooking: 48 }]));
+    expect(await screen.findByText("El plazo quedó guardado.")).toBeInTheDocument();
+
+    await user.clear(campo);
+    await user.click(screen.getByRole("button", { name: "Guardar plazo" }));
+    await waitFor(() => expect(enviados).toHaveLength(2));
+    expect(enviados[1]).toEqual({ minHoursToChangeBooking: null });
+  });
+
+  it("un valor que no es entero no se manda", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", "CLINICA"));
+    const put = vi.fn();
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      sede(),
+      http.get(configUrl, () => HttpResponse.json({ minHoursToChangeBooking: null })),
+      http.put(configUrl, () => {
+        put();
+        return HttpResponse.json({ minHoursToChangeBooking: null });
+      }),
+    );
+    const campo = await screen.findByLabelText("Anticipación mínima para cambiar un turno (horas)");
+    expect(campo).toHaveValue(null);
+    await user.type(campo, "1.5");
+    await user.click(screen.getByRole("button", { name: "Guardar plazo" }));
+    expect(await screen.findByText(/Ingresá un número entero de horas/)).toBeInTheDocument();
+    expect(put).not.toHaveBeenCalled();
   });
 });

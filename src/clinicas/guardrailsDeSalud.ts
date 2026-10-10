@@ -46,7 +46,9 @@ export function normalizar(texto: string): string {
 //
 // Tolerancia a un error de tipeo (ya normalizado): una palabra completa de 7
 // letras o más, o una raíz con asterisco de 6 o más ("desmay*" agarra
-// "desmallé"), acepta una letra de más, de menos o cambiada. Las cortas son
+// "desmallé"), acepta una letra de más, de menos o cambiada. En la raíz, lo que
+// sigue tiene que ser una terminación (TERMINACIONES_CON_TOLERANCIA): una
+// palabra distinta que empieza parecido no cuenta. Las cortas son
 // exactas: con tolerancia, "dolor" confundiría "color", y "medico", "medio".
 // Dos letras invertidas ("nromal") cuentan como dos errores.
 // ---------------------------------------------------------------------------
@@ -75,14 +77,72 @@ function distanciaDeEdicion(a: string, b: string): number {
   return previa[b.length];
 }
 
+// Lo que puede seguir a una raíz aceptada CON un error de tipeo: una
+// terminación, no otra palabra. Sin esto, la raíz se comparaba contra el
+// comienzo de cualquier palabra larga, y "costra*" (a una letra de "contra")
+// disparaba con "contraoferta", "contrato", "contraseña" o "en contra" (R11).
+// La raíz sin error de tipeo ("costras", "hinchazón") no pasa por acá: sigue
+// aceptando cualquier final.
+const TERMINACIONES_CON_TOLERANCIA: ReadonlySet<string> = new Set([
+  "a",
+  "o",
+  "e",
+  "s",
+  "as",
+  "os",
+  "es",
+  "ia",
+  "ias",
+  "io",
+  "ios",
+  "ado",
+  "ada",
+  "ados",
+  "adas",
+  "ido",
+  "ida",
+  "idos",
+  "idas",
+  "ando",
+  "iendo",
+  "ar",
+  "er",
+  "ir",
+  "on",
+  "ones",
+  "cion",
+  "ciones",
+  "miento",
+  "mientos",
+  "imiento",
+  "imientos",
+  "ura",
+  "uras",
+  "oso",
+  "osa",
+  "osos",
+  "osas",
+  "ico",
+  "ica",
+  "icos",
+  "icas",
+]);
+
 function coincidePalabra(patron: string, palabra: string): boolean {
   if (patron.endsWith("*")) {
     const raiz = patron.slice(0, -1);
     if (palabra.startsWith(raiz)) return true;
     if (raiz.length < LARGO_MINIMO_DE_RAIZ_CON_TOLERANCIA) return false;
-    return [raiz.length - 1, raiz.length, raiz.length + 1].some(
-      (largo) => distanciaDeEdicion(raiz, palabra.slice(0, largo)) <= 1,
-    );
+    return [raiz.length - 1, raiz.length, raiz.length + 1].some((largo) => {
+      const comienzo = palabra.slice(0, largo);
+      if (distanciaDeEdicion(raiz, comienzo) > 1) return false;
+      const resto = palabra.slice(largo);
+      if (resto.length > 0) return TERMINACIONES_CON_TOLERANCIA.has(resto);
+      // La raíz sola con un error: en las largas, cualquiera ("hematona"); en
+      // las de 6, solo una letra de más ("cosrtra"), porque una cambiada deja
+      // "contra" a una de "costra".
+      return raiz.length >= LARGO_MINIMO_CON_TOLERANCIA || comienzo.length > raiz.length;
+    });
   }
   if (patron === palabra) return true;
   return patron.length >= LARGO_MINIMO_CON_TOLERANCIA && distanciaDeEdicion(patron, palabra) <= 1;
