@@ -158,14 +158,14 @@ export function motivoDeExclusion(
 }
 
 // ---------------------------------------------------------------------------
-// ESENCIAL todavía no se ofrece (docs/ediciones.md §10, PR 4): sin el PR 5
-// (crear oportunidades sin pipelineId/stageId), una organización ESENCIAL no
-// podría crear oportunidades. Es la ÚNICA llave: el alta la consulta por
-// edicionesDisponibles() y la pantalla de Plataforma se entera por
-// GET /api/admin/organizations/editions, sin una constante propia. EL PR 5 LA
-// PONE EN true.
+// ESENCIAL se ofrece desde H1 (docs/ediciones.md §10): el camino A–G ya dejó
+// todo lo que una organización ESENCIAL necesita. Es la ÚNICA llave: el alta
+// la consulta por edicionesDisponibles() y la pantalla de Plataforma se entera
+// por GET /api/admin/organizations/editions, sin una constante propia. En
+// false, el alta vuelve a rechazar ESENCIAL con 400 (las organizaciones que ya
+// existen no cambian).
 // ---------------------------------------------------------------------------
-export const ESENCIAL_HABILITADA = false;
+export const ESENCIAL_HABILITADA = true;
 
 /** Las ediciones que se pueden elegir al dar de alta una organización, en el
  *  orden en que se muestran. */

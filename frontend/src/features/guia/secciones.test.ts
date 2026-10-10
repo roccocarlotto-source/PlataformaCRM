@@ -18,6 +18,7 @@ import {
   buscarEnTitulos,
   filtrarPorModulos,
   MODULO_DE_ANCLA,
+  SOLO_SIN_MODULO,
   parsearSeccion,
   type Seccion,
   SECCIONES,
@@ -149,16 +150,24 @@ const CLINICA_COMPLETA = (modulo: string) =>
     modulo,
   );
 
-// Las pantallas que ESENCIAL no tiene (su ruta vuelve al inicio, ModuloRoute):
-// su "?" no se ve nunca en esa edición. Toda otra clave de AYUDA es de una
-// pantalla visible en ESENCIAL y tiene que apuntar a un ancla visible.
-const PANTALLAS_FUERA_DE_ESENCIAL: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
+// Las claves de AYUDA que una edición no usa nunca. En ESENCIAL: las pantallas
+// que no tiene (su ruta vuelve al inicio, ModuloRoute) y las de oportunidades
+// de COMPLETA (en ESENCIAL, esas pantallas usan las claves *Esencial). En
+// COMPLETA: las claves *Esencial. Toda otra clave es de una pantalla de esa
+// edición y tiene que apuntar a un ancla visible en ella.
+const FUERA_DE_ESENCIAL: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
   "empresas",
   "empresaForm",
   "procesosDeVenta",
   "procesoForm",
   "etapas",
   "etapaForm",
+  "oportunidades",
+  "oportunidadForm",
+]);
+const SOLO_DE_ESENCIAL: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
+  "oportunidadesEsencial",
+  "oportunidadEsencialForm",
 ]);
 
 function anclaVisible(secciones: Seccion[], destino: string): boolean {
@@ -173,6 +182,9 @@ describe("filtrarPorModulos", () => {
     [
       "# Oportunidades",
       "",
+      "## Oportunidades en la edición Esencial {#oportunidades-esencial}",
+      "Se elige el estado.",
+      "",
       "## Oportunidades {#oportunidades}",
       "Texto.",
       "",
@@ -182,60 +194,136 @@ describe("filtrarPorModulos", () => {
       "### Crear una cotización",
       "Paso a paso.",
       "",
-      "## Cerrar {#cerrar}",
-      "Se cierra así.",
+      "## Pedidos {#pedidos}",
+      "Siempre.",
     ].join("\n"),
   );
 
-  it("sin el módulo, saca el ## con su texto y sus ###; lo demás queda", () => {
-    const filtrada = filtrarPorModulos(seccion, (m) => m !== "cotizaciones");
-    expect(filtrada.encabezados.map((e) => e.ancla)).toEqual(["oportunidades", "cerrar"]);
+  it("sin el módulo, saca el ## con su texto y sus ###; lo de solo sin el módulo aparece", () => {
+    const filtrada = filtrarPorModulos(
+      seccion,
+      (m) => m !== "cotizaciones" && m !== "procesos_de_venta",
+    );
+    expect(filtrada.encabezados.map((e) => e.ancla)).toEqual(["oportunidades-esencial", "pedidos"]);
     expect(filtrada.markdown).not.toMatch(/cotiza/i);
-    expect(filtrada.markdown).toMatch(/Se cierra así\./);
+    expect(filtrada.markdown).toMatch(/Se elige el estado\./);
+    expect(filtrada.markdown).toMatch(/Siempre\./);
   });
 
-  it("con todos los módulos devuelve la misma sección, sin copiarla", () => {
-    expect(filtrarPorModulos(seccion, () => true)).toBe(seccion);
+  it("con todos los módulos saca solo lo de «sin el módulo»", () => {
+    const filtrada = filtrarPorModulos(seccion, () => true);
+    expect(filtrada.encabezados.map((e) => e.ancla)).toEqual([
+      "oportunidades",
+      "cotizaciones",
+      "crear-una-cotizacion",
+      "pedidos",
+    ]);
+    expect(filtrada.markdown).not.toMatch(/Se elige el estado/);
+  });
+
+  it("un ### con ancla propia se oculta hasta el próximo ### o ##", () => {
+    const stock = parsearSeccion(
+      "05-stock.md",
+      [
+        "# Stock",
+        "",
+        "## Nueva unidad {#nueva-unidad}",
+        "Pasos.",
+        "",
+        "### Desde una permuta {#desde-una-permuta}",
+        "Lo de la permuta.",
+        "",
+        "## La ficha {#ficha-de-unidad}",
+        "La ficha.",
+      ].join("\n"),
+    );
+    const filtrada = filtrarPorModulos(stock, (m) => m !== "permutas");
+    expect(filtrada.encabezados.map((e) => e.ancla)).toEqual(["nueva-unidad", "ficha-de-unidad"]);
+    expect(filtrada.markdown).toMatch(/Pasos\./);
+    expect(filtrada.markdown).not.toMatch(/permuta/i);
+    expect(filtrada.markdown).toMatch(/La ficha\./);
+    expect(filtrarPorModulos(stock, () => true)).toBe(stock);
   });
 });
 
 describe("la guía real por edición", () => {
-  it("cada ## de MODULO_DE_ANCLA existe en la guía (un rename lo rompe acá)", () => {
-    for (const destino of Object.keys(MODULO_DE_ANCLA)) {
+  it("cada bloque de MODULO_DE_ANCLA y SOLO_SIN_MODULO existe en la guía (un rename lo rompe acá)", () => {
+    for (const destino of [...Object.keys(MODULO_DE_ANCLA), ...Object.keys(SOLO_SIN_MODULO)]) {
       expect(anclaVisible(SECCIONES, destino), destino).toBe(true);
     }
   });
 
-  it("ESENCIAL no ve los ## de empresas, embudo, cotizaciones, pagos, permuta, entrega, procesos de venta y etapas", () => {
+  it("ESENCIAL no ve los bloques de los módulos que no tiene, y sí el de oportunidades simples", () => {
     const visibles = seccionesVisibles(true, ESENCIAL);
     for (const destino of Object.keys(MODULO_DE_ANCLA)) {
       expect(anclaVisible(visibles, destino), destino).toBe(false);
     }
+    for (const destino of Object.keys(SOLO_SIN_MODULO)) {
+      expect(anclaVisible(visibles, destino), destino).toBe(true);
+    }
     const oportunidades = visibles.find((s) => s.slug === "oportunidades-y-procesos-de-venta");
     expect(oportunidades?.markdown).not.toMatch(/^## Cotizaciones/m);
-    expect(oportunidades?.markdown).toMatch(/^## Cerrar una oportunidad/m);
+    expect(oportunidades?.markdown).not.toMatch(/no se elige a mano/);
+    expect(oportunidades?.markdown).toMatch(/^## Oportunidades en la edición Esencial/m);
   });
 
-  it("COMPLETA (también una clínica COMPLETA) ve exactamente la guía de siempre", () => {
+  it("COMPLETA (también una clínica COMPLETA) ve la guía de siempre: todo menos el bloque de Esencial", () => {
     for (const regla of [COMPLETA, CLINICA_COMPLETA]) {
       const visibles = seccionesVisibles(true, regla);
+      for (const destino of Object.keys(MODULO_DE_ANCLA)) {
+        expect(anclaVisible(visibles, destino), destino).toBe(true);
+      }
+      for (const destino of Object.keys(SOLO_SIN_MODULO)) {
+        expect(anclaVisible(visibles, destino), destino).toBe(false);
+      }
+      // Las secciones sin bloques de Esencial son las MISMAS, sin copiar ni
+      // reescribir links.
+      visibles.forEach((seccion, i) => {
+        const original = SECCIONES[i];
+        if (seccion.slug !== "oportunidades-y-procesos-de-venta") expect(seccion).toBe(original);
+      });
       expect(visibles).toEqual(seccionesVisibles(true));
-      visibles.forEach((seccion, i) => expect(seccion).toBe(seccionesVisibles(true)[i]));
     }
   });
 
-  it("cada '?' de una pantalla que ESENCIAL tiene apunta a un ancla visible en ESENCIAL", () => {
-    const visibles = seccionesVisibles(true, ESENCIAL);
+  it("cada '?' apunta a un ancla visible en su edición", () => {
+    const esencial = seccionesVisibles(true, ESENCIAL);
+    const completa = seccionesVisibles(true, COMPLETA);
     for (const [clave, destino] of Object.entries(AYUDA) as [ClaveDeAyuda, string][]) {
-      if (PANTALLAS_FUERA_DE_ESENCIAL.has(clave)) continue;
-      expect(anclaVisible(visibles, destino), `${clave} → ${destino}`).toBe(true);
+      if (!FUERA_DE_ESENCIAL.has(clave)) {
+        expect(anclaVisible(esencial, destino), `ESENCIAL ${clave} → ${destino}`).toBe(true);
+      }
+      if (!SOLO_DE_ESENCIAL.has(clave)) {
+        expect(anclaVisible(completa, destino), `COMPLETA ${clave} → ${destino}`).toBe(true);
+      }
     }
   });
 
-  it("las pantallas fuera de ESENCIAL son justamente las que su ancla oculta", () => {
-    const visibles = seccionesVisibles(true, ESENCIAL);
-    for (const clave of PANTALLAS_FUERA_DE_ESENCIAL) {
-      expect(anclaVisible(visibles, AYUDA[clave]), clave).toBe(false);
+  it("las claves fuera de ESENCIAL son justamente las que su ancla oculta", () => {
+    const esencial = seccionesVisibles(true, ESENCIAL);
+    const completa = seccionesVisibles(true, COMPLETA);
+    for (const clave of FUERA_DE_ESENCIAL) {
+      expect(anclaVisible(esencial, AYUDA[clave]), clave).toBe(false);
+    }
+    for (const clave of SOLO_DE_ESENCIAL) {
+      expect(anclaVisible(completa, AYUDA[clave]), clave).toBe(false);
+    }
+  });
+
+  it("en ninguna edición queda un link interno a un bloque que no se ve", () => {
+    const re = /\]\((?:\/ayuda\/([a-z0-9-]+))?(?:#([a-z0-9-]+))?\)/g;
+    for (const regla of [ESENCIAL, COMPLETA, CLINICA_COMPLETA]) {
+      const visibles = seccionesVisibles(true, regla);
+      for (const seccion of visibles) {
+        for (const match of seccion.markdown.matchAll(re)) {
+          const slug = match[1] ?? seccion.slug;
+          if (!match[2]) continue;
+          expect(
+            anclaVisible(visibles, `${slug}#${match[2]}`),
+            `${seccion.slug}: link a ${slug}#${match[2]}`,
+          ).toBe(true);
+        }
+      }
     }
   });
 });

@@ -51,9 +51,9 @@ const NOMBRE_DE_RUBRO: Record<OrganizationIndustry, string> = {
 export function NewOrganizationPage() {
   const createOrganizationMutation = useCreateOrganization();
   // La edición (docs/ediciones.md §1.1): el selector aparece solo si el
-  // backend ofrece más de una. Hoy ofrece solo COMPLETA (ESENCIAL_HABILITADA
-  // en false hasta el PR 5), así que la pantalla queda como siempre y el alta
-  // no manda edition.
+  // backend ofrece más de una. Desde H1 ofrece COMPLETA y ESENCIAL
+  // (ESENCIAL_HABILITADA en true), así que el selector aparece y es
+  // obligatorio. Con una sola, no aparece y el alta no manda edition.
   const ediciones = useEdicionesDisponibles().data?.editions ?? [];
   const eligeEdicion = ediciones.length > 1;
   // El rubro (docs/rubros.md §1.1), con el mismo criterio: hoy el backend

@@ -21,6 +21,9 @@ export const AYUDA = {
 
   oportunidades: "oportunidades-y-procesos-de-venta#oportunidades",
   oportunidadForm: "oportunidades-y-procesos-de-venta#ficha-de-oportunidad",
+  // Las mismas pantallas en la edición Esencial (sin procesos de venta).
+  oportunidadesEsencial: "oportunidades-y-procesos-de-venta#oportunidades-esencial",
+  oportunidadEsencialForm: "oportunidades-y-procesos-de-venta#nueva-oportunidad-esencial",
   procesosDeVenta: "oportunidades-y-procesos-de-venta#procesos-de-venta",
   procesoForm: "oportunidades-y-procesos-de-venta#procesos-de-venta",
   etapas: "oportunidades-y-procesos-de-venta#etapas",
@@ -71,6 +74,7 @@ export const AYUDA = {
   importarArchivo: "organizacion-y-sucursales#importar-archivo",
 
   nuevaOrganizacion: "plataforma#nueva-organizacion",
+  organizaciones: "plataforma#organizaciones",
   numeroDeWhatsapp: "plataforma#whatsapp",
   paginaDeFacebook: "plataforma#facebook",
   modeloDeIa: "plataforma#modelo-de-ia",

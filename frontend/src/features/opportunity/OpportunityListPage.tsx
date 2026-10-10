@@ -70,7 +70,7 @@ export function OpportunityListPage() {
   return (
     <div>
       <PageHeader
-        help={AYUDA.oportunidades}
+        help={conProcesos ? AYUDA.oportunidades : AYUDA.oportunidadesEsencial}
         title="Oportunidades"
         actions={
           <>

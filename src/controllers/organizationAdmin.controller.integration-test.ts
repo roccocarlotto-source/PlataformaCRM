@@ -357,18 +357,18 @@ test("listado: 403 para un ADMIN común; el platform admin ve las vigentes con i
 });
 
 // ---------------------------------------------------------------------------
-// Ediciones (docs/ediciones.md §10, PR 4). La llave ESENCIAL_HABILITADA está
-// en false hasta el PR 5: por la API, ESENCIAL se rechaza. El camino con la
-// llave en true se prueba llamando al service con la llave inyectada, contra
-// Postgres y GoTrue reales.
+// Ediciones (docs/ediciones.md §10). La llave ESENCIAL_HABILITADA está en
+// true desde H1: por la API, ESENCIAL se puede elegir. El camino con la llave
+// en false (400, sin invitación) lo cubre organizationAdmin.service.test.ts con
+// la llave inyectada.
 // ---------------------------------------------------------------------------
 
-test("la llave ESENCIAL_HABILITADA sigue en false hasta el PR 5", () => {
-  // El PR 5 la pone en true y cambia esta línea.
-  assert.equal(ESENCIAL_HABILITADA, false);
+test("la llave ESENCIAL_HABILITADA está en true desde H1", () => {
+  // H1 la puso en true y cambió esta línea.
+  assert.equal(ESENCIAL_HABILITADA, true);
 });
 
-test("GET /editions: el platform admin ve solo COMPLETA; un ADMIN común recibe 403", async () => {
+test("GET /editions: el platform admin ve COMPLETA y ESENCIAL; un ADMIN común recibe 403", async () => {
   identidad = comoUsuario(randomUUID(), randomUUID(), "ADMIN");
   try {
     assert.equal((await fetch(`${baseUrl}/api/admin/organizations/editions`)).status, 403);
@@ -376,36 +376,42 @@ test("GET /editions: el platform admin ve solo COMPLETA; un ADMIN común recibe 
       identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
       const res = await fetch(`${baseUrl}/api/admin/organizations/editions`);
       assert.equal(res.status, 200);
-      assert.deepEqual(await res.json(), { editions: ["COMPLETA"] });
+      assert.deepEqual(await res.json(), { editions: ["COMPLETA", "ESENCIAL"] });
     });
   } finally {
     identidad = undefined;
   }
 });
 
-test("alta con edition ESENCIAL y la llave en false: 400 y no se crea nada (ni la identidad)", async () => {
+test("alta con edition ESENCIAL por la API: 201, nace ESENCIAL con el proceso de venta fijo", async () => {
   await conPlatformAdmin(async (platformAdminUserId) => {
     identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
-    const email = emailDePrueba("esencial-cerrada");
+    let creado: Creado | undefined;
     try {
       const res = await post({
         organizationName: `Esencial Cerrada ${Date.now()}`,
         adminFullName: "Ana Pérez",
-        adminEmail: email,
+        adminEmail: emailDePrueba("esencial-cerrada"),
         edition: "ESENCIAL",
       });
-      assert.equal(res.status, 400);
-      const body = (await res.json()) as { error: { message: string } };
-      assert.match(body.error.message, /ESENCIAL todavía no está disponible/);
-      assert.equal(await prisma.user.findUnique({ where: { email } }), null);
-      const { data } = await getSupabaseAdmin().auth.admin.listUsers({ perPage: 1000 });
-      assert.equal(
-        data.users.some((u) => u.email === email),
-        false,
-        "no se mandó la invitación",
+      assert.equal(res.status, 201);
+      creado = (await res.json()) as Creado;
+      const org = await prisma.organization.findUniqueOrThrow({
+        where: { id: creado.organization.id },
+        include: { pipelines: { include: { stages: { orderBy: { order: "asc" } } } } },
+      });
+      assert.equal(org.edition, "ESENCIAL");
+      assert.deepEqual(
+        org.pipelines.map((p) => [p.name, p.isDefault, p.stages.map((st) => st.name)]),
+        [[PROCESO_DE_VENTA_FIJO.name, true, ["En curso", "Vendida", "Perdida"]]],
       );
     } finally {
       identidad = undefined;
+      if (creado) {
+        await prisma.stage.deleteMany({ where: { organizationId: creado.organization.id } });
+        await prisma.pipeline.deleteMany({ where: { organizationId: creado.organization.id } });
+        await limpiarCreado(creado);
+      }
     }
   });
 });
