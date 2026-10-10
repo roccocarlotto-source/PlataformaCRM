@@ -15,6 +15,7 @@ import {
 import { payloadComoObjeto } from "./automationDispatch.service";
 import {
   CONFIG_DE_TRIGGER,
+  MODULO_DEL_TRIGGER,
   TRIGGERS_CONOCIDOS,
   TRIGGERS_DE_REGLA_UNICA,
   TRIGGER_CONTACT_INQUIRY_STALLED,
@@ -79,11 +80,12 @@ test("dos registros creados con la factory no comparten estado", () => {
 // Catálogo de triggers
 // ---------------------------------------------------------------------------
 
-test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunity.stale y contact.inquiry_stalled", () => {
+test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunity.stale, contact.inquiry_stalled y booking.reminder_due (R13, solo clínicas)", () => {
   assert.deepEqual(
     [...TRIGGERS_CONOCIDOS],
-    ["opportunity.won", "opportunity.stale", "contact.inquiry_stalled"],
+    ["opportunity.won", "opportunity.stale", "contact.inquiry_stalled", "booking.reminder_due"],
   );
+  assert.deepEqual(MODULO_DEL_TRIGGER, { "booking.reminder_due": "recordatorios_de_turno" });
   assert.equal(esTriggerConocido("opportunity.won"), true);
   assert.equal(esTriggerConocido("opportunity.stale"), true);
   assert.equal(esTriggerConocido("contact.inquiry_stalled"), true);
@@ -127,10 +129,10 @@ test("opportunity.stale exige daysWithoutActivity entero entre 0 y 365 — sin d
   }
 });
 
-test("opportunity.stale y contact.inquiry_stalled son de regla única por organización; opportunity.won no", () => {
+test("opportunity.stale, contact.inquiry_stalled y booking.reminder_due son de regla única por organización; opportunity.won no", () => {
   assert.deepEqual(
     [...TRIGGERS_DE_REGLA_UNICA],
-    [TRIGGER_OPPORTUNITY_STALE, TRIGGER_CONTACT_INQUIRY_STALLED],
+    [TRIGGER_OPPORTUNITY_STALE, TRIGGER_CONTACT_INQUIRY_STALLED, "booking.reminder_due"],
   );
 });
 

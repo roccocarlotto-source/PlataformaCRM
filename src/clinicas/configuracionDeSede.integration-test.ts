@@ -61,7 +61,7 @@ after(async () => {
 test("sin valor por defecto: una sede nueva no tiene plazo", async () => {
   const r = await pedir(clinica, "GET", ruta(ids.sede), undefined, clinica.tokens[ADMIN]);
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json, { minHoursToChangeBooking: null });
+  assert.equal(r.json.minHoursToChangeBooking, null);
 });
 
 test("el ADMIN lo guarda, lo vuelve a sacar con null, y también en una sede sin fila", async () => {
@@ -74,11 +74,11 @@ test("el ADMIN lo guarda, lo vuelve a sacar con null, y también en una sede sin
     token,
   );
   assert.equal(guardado.status, 200);
-  assert.deepEqual(guardado.json, { minHoursToChangeBooking: 24 });
+  assert.equal(guardado.json.minHoursToChangeBooking, 24);
   assert.equal((await leerConfiguracionDeSede(clinica.id, ids.sede)).minHoursToChangeBooking, 24);
 
   const cero = await pedir(clinica, "PUT", ruta(ids.sede), { minHoursToChangeBooking: 0 }, token);
-  assert.deepEqual(cero.json, { minHoursToChangeBooking: 0 });
+  assert.equal(cero.json.minHoursToChangeBooking, 0);
 
   const sinPlazo = await pedir(
     clinica,
@@ -87,7 +87,7 @@ test("el ADMIN lo guarda, lo vuelve a sacar con null, y también en una sede sin
     { minHoursToChangeBooking: null },
     token,
   );
-  assert.deepEqual(sinPlazo.json, { minHoursToChangeBooking: null });
+  assert.equal(sinPlazo.json.minHoursToChangeBooking, null);
 
   const sinFila = await pedir(
     clinica,
@@ -111,7 +111,7 @@ test("validación: entero ≥ 0, sin otras claves", async () => {
     { minHoursToChangeBooking: "24" },
     { minHoursToChangeBooking: 100000 },
     {},
-    { minHoursToChangeBooking: 2, reminderHoursBefore: 3 },
+    { minHoursToChangeBooking: 2, noResponseTaskHours: 3 },
   ]) {
     const r = await pedir(clinica, "PUT", ruta(ids.sede), cuerpo, token);
     assert.equal(r.status, 400, JSON.stringify(cuerpo));

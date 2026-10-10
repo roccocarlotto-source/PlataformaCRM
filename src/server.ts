@@ -20,6 +20,7 @@ import { iniciarWorkerDeLotesDeImportacion } from "./workers/importBatchWorker";
 import { iniciarWorkerDeFotosImportadas } from "./workers/importPhotoWorker";
 import { registrarEventosDeTurno } from "./clinicas/services/eventosDeTurno";
 import { iniciarWorkerDeCierreAutomatico } from "./clinicas/workers/cierreAutomaticoWorker";
+import { iniciarWorkerDeRecordatorios } from "./clinicas/recordatorios/recordatorioWorker";
 import { iniciarWorkerDeSincronizaciones } from "./workers/importSyncWorker";
 
 const server = app.listen(env.PORT, () => {
@@ -145,6 +146,10 @@ const detenerWorkerDeCierreAutomatico = arrancarWorkers
   ? iniciarWorkerDeCierreAutomatico()
   : sinWorker;
 
+// El recordatorio de turno de clínica (R13, docs/rubros.md §6): manda WhatsApp a
+// pacientes reales, detrás de la misma guarda.
+const detenerWorkerDeRecordatorios = arrancarWorkers ? iniciarWorkerDeRecordatorios() : sinWorker;
+
 const detenerWorkerDeFotosImportadas = arrancarWorkers
   ? iniciarWorkerDeFotosImportadas()
   : sinWorker;
@@ -184,6 +189,7 @@ const shutdown = crearShutdown({
       detenerWorkerDeLotesDeImportacion(),
       detenerWorkerDeFotosImportadas(),
       detenerWorkerDeCierreAutomatico(),
+      detenerWorkerDeRecordatorios(),
       detenerWorkerDeSincronizaciones(),
       detenerWorkerDeCupones(),
       detenerWorkerDeConsultasSinAvance(),

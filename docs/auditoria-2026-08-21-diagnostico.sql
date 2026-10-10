@@ -276,7 +276,10 @@ from (
       ('user_branches'), ('invitation_branches'),
       -- Bloqueos de los profesionales de una clínica (docs/rubros.md §4.5,
       -- migración 20261106120000).
-      ('resource_time_offs')
+      ('resource_time_offs'),
+      -- Los mensajes de un turno de clínica: el recordatorio (docs/rubros.md §6,
+      -- migración 20261109120000).
+      ('booking_messages')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -405,7 +408,14 @@ from (
     -- él, la página que una organización desconectó (fila REVOKED) no la
     -- podría conectar nunca otra.
     ('meta_page_connections_page_id_active_unique',
-     'CREATE UNIQUE INDEX meta_page_connections_page_id_active_unique ON public.meta_page_connections USING btree (page_id) WHERE (status <> ''REVOKED''::"ConnectionStatus")')
+     'CREATE UNIQUE INDEX meta_page_connections_page_id_active_unique ON public.meta_page_connections USING btree (page_id) WHERE (status <> ''REVOKED''::"ConnectionStatus")'),
+    -- Recordatorio de turno de clínica (migración 20261109120000,
+    -- docs/rubros.md §6.1): un solo recordatorio vigente por turno y por
+    -- horario, y el wamid del envío es único (con él se cruza el botón).
+    ('booking_messages_vigente_key',
+     'CREATE UNIQUE INDEX booking_messages_vigente_key ON public.booking_messages USING btree (booking_id, kind, booking_starts_at) WHERE (status = ANY (ARRAY[''PENDING''::"BookingMessageStatus", ''SENT''::"BookingMessageStatus"]))'),
+    ('booking_messages_external_message_id_key',
+     'CREATE UNIQUE INDEX booking_messages_external_message_id_key ON public.booking_messages USING btree (external_message_id) WHERE (external_message_id IS NOT NULL)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
@@ -613,7 +623,14 @@ from (
     -- §4.8): cuándo y quién cerró el turno van juntos, y solo en COMPLETED o
     -- NO_SHOW.
     ('bookings_completed_check', 'bookings',
-     'CHECK (completed_at IS NULL AND completed_by IS NULL OR completed_at IS NOT NULL AND completed_by IS NOT NULL AND status = ANY (ARRAY[''COMPLETED'', ''NO_SHOW'']))')
+     'CHECK (completed_at IS NULL AND completed_by IS NULL OR completed_at IS NOT NULL AND completed_by IS NOT NULL AND status = ANY (ARRAY[''COMPLETED'', ''NO_SHOW'']))'),
+    -- Recordatorio de turno de clínica (migración 20261109120000,
+    -- docs/rubros.md §6): un mensaje SENT tiene cuándo salió, y la
+    -- respuesta por botón va entera o no va.
+    ('booking_messages_sent_check', 'booking_messages',
+     'CHECK (status <> ''SENT''::"BookingMessageStatus" OR sent_at IS NOT NULL)'),
+    ('booking_messages_response_check', 'booking_messages',
+     'CHECK (response IS NULL AND responded_at IS NULL AND response_external_id IS NULL OR response IS NOT NULL AND responded_at IS NOT NULL AND response_external_id IS NOT NULL)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -1253,7 +1270,13 @@ from (
     -- Un calendario de Google por profesional (docs/rubros.md §4.6, migración
     -- 20261107120000): el canal de un calendario apunta al profesional dueño.
     -- Una FK bien formada hacia branches o service_types pasaría la fila 14.
-    ('google_calendar_channels_organization_id_resource_id_fkey|google_calendar_channels(organization_id,resource_id)->resources(organization_id,id)')
+    ('google_calendar_channels_organization_id_resource_id_fkey|google_calendar_channels(organization_id,resource_id)->resources(organization_id,id)'),
+    -- Recordatorio de turno de clínica (docs/rubros.md §6, migración
+    -- 20261109120000): el turno, el paciente y la regla de la misma
+    -- organización.
+    ('booking_messages_organization_id_booking_id_fkey|booking_messages(organization_id,booking_id)->bookings(organization_id,id)'),
+    ('booking_messages_organization_id_contact_id_fkey|booking_messages(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('booking_messages_organization_id_automation_id_fkey|booking_messages(organization_id,automation_id)->automations(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
@@ -1323,6 +1346,12 @@ from (
     -- WhatsApp con el QR. Sin coalesce: next_attempt_at es NOT NULL.
     ('qr_follow_ups_claimable_idx',
      'CREATE INDEX qr_follow_ups_claimable_idx ON public.qr_follow_ups USING btree (next_attempt_at) WHERE (status = ''PENDING''::"QrFollowUpStatus")'),
+    -- Recordatorio de turno de clínica (migración 20261109120000): la cola y
+    -- la barrida de "sin respuesta" (docs/rubros.md §6.5).
+    ('booking_messages_claimable_idx',
+     'CREATE INDEX booking_messages_claimable_idx ON public.booking_messages USING btree (next_attempt_at) WHERE (status = ''PENDING''::"BookingMessageStatus")'),
+    ('booking_messages_sin_respuesta_idx',
+     'CREATE INDEX booking_messages_sin_respuesta_idx ON public.booking_messages USING btree (sent_at) WHERE ((status = ''SENT''::"BookingMessageStatus") AND (responded_at IS NULL) AND (no_response_task_at IS NULL))'),
     ('sources_org_created_at_idx',
      'CREATE INDEX sources_org_created_at_idx ON public.sources USING btree (organization_id, created_at) WHERE (deleted_at IS NULL)')
   ) as e(nombre, esperado)

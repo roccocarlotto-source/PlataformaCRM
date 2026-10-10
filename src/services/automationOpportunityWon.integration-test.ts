@@ -77,6 +77,8 @@ async function eventosDeOportunidad(opportunityId: string) {
 
 test("registrarAutomatizaciones deja un handler por trigger conocido y las acciones del catálogo", () => {
   assert.deepEqual(handlers.tiposRegistrados(), [
+    // R13: el trigger de clínica (nadie lo emite, pero tiene su handler).
+    "booking.reminder_due",
     "contact.inquiry_stalled",
     TRIGGER_OPPORTUNITY_STALE,
     TRIGGER_OPPORTUNITY_WON,
@@ -84,6 +86,8 @@ test("registrarAutomatizaciones deja un handler por trigger conocido y las accio
   assert.deepEqual(acciones.tiposRegistrados(), [
     "activity.create_follow_up",
     "agent.draft_follow_up",
+    // R13: solo clínicas (su módulo).
+    "booking.send_reminder",
     "inquiry.follow_up",
     "opportunity.send_discount_voucher",
     "opportunity.send_qr_followup",

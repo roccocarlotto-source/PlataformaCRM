@@ -15,6 +15,11 @@ export const TOKEN_SALUDO = "{saludo}";
 export const TOKEN_VEHICULO = "{vehiculo}";
 // R15 (docs/rubros.md §9.1): en una clínica, la prestación que consultó.
 export const TOKEN_PRESTACION = "{prestacion}";
+// R13: las del recordatorio de turno de una clínica.
+export const TOKEN_LUGAR = "{lugar}";
+export const TOKEN_DIA = "{dia}";
+export const TOKEN_HORA = "{hora}";
+export const TOKEN_PROFESIONAL = "{profesional}";
 
 // Los mismos ejemplos que el backend manda a Meta con el alta.
 export const EJEMPLO_NOMBRE = "Ana";
@@ -22,6 +27,10 @@ export const EJEMPLO_LINK = "https://g.page/r/ejemplo/review";
 export const EJEMPLO_SALUDO = "Hola Ana";
 export const EJEMPLO_VEHICULO = "Toyota Hilux SRV 2022";
 export const EJEMPLO_PRESTACION = "limpieza facial";
+export const EJEMPLO_LUGAR = "Clínica Ejemplo (sede Centro)";
+export const EJEMPLO_DIA = "lunes 1 de marzo";
+export const EJEMPLO_HORA = "10:30";
+export const EJEMPLO_PROFESIONAL = "Ana";
 
 // `link`: el ejemplo de lo que va en {link} (el del cupón no es el del QR).
 export function previewDePlantilla(texto: string, link: string = EJEMPLO_LINK): string {
@@ -36,7 +45,15 @@ export function previewDePlantilla(texto: string, link: string = EJEMPLO_LINK): 
     .split(TOKEN_VEHICULO)
     .join(EJEMPLO_VEHICULO)
     .split(TOKEN_PRESTACION)
-    .join(EJEMPLO_PRESTACION);
+    .join(EJEMPLO_PRESTACION)
+    .split(TOKEN_LUGAR)
+    .join(EJEMPLO_LUGAR)
+    .split(TOKEN_DIA)
+    .join(EJEMPLO_DIA)
+    .split(TOKEN_HORA)
+    .join(EJEMPLO_HORA)
+    .split(TOKEN_PROFESIONAL)
+    .join(EJEMPLO_PROFESIONAL);
 }
 
 // Inserta un token donde está el cursor (o reemplaza la selección). Devuelve

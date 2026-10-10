@@ -28,6 +28,7 @@ import {
   TOKEN_LINK,
   VARIABLES_DE_CONSULTA,
   VARIABLES_DE_CONSULTA_DE_CLINICA,
+  VARIABLES_DE_RECORDATORIO,
   ejemplosDelCuerpo,
   formatoLlevaImagen,
   formatoLlevaLink,
@@ -38,6 +39,10 @@ import {
   type VariableDePlantilla,
 } from "../utils/whatsappTemplateText";
 import { ACTION_INQUIRY_FOLLOW_UP } from "./automationActions/inquiryFollowUp";
+import {
+  ACTION_BOOKING_SEND_REMINDER,
+  BOTONES_DEL_RECORDATORIO,
+} from "../clinicas/recordatorios/config";
 import { mensajeDeLaRegla } from "./automationActions/mensajeDeWhatsapp";
 import { ACTION_SEND_DISCOUNT_VOUCHER } from "./automationActions/sendDiscountVoucherFollowup";
 import { ACTION_SEND_QR_FOLLOWUP } from "./automationActions/sendQrFollowup";
@@ -243,7 +248,18 @@ const CATEGORIA_DE_LA_ACCION: Record<string, CategoriaDePlantilla> = {
   [ACTION_SEND_QR_FOLLOWUP]: "MARKETING",
   [ACTION_SEND_DISCOUNT_VOUCHER]: "MARKETING",
   [ACTION_INQUIRY_FOLLOW_UP]: "MARKETING",
+  // R13 (docs/rubros.md §6.3): el recordatorio de un turno que pidió el
+  // paciente es UTILITY. La plantilla no lleva nada más que el turno.
+  [ACTION_BOOKING_SEND_REMINDER]: "UTILITY",
 };
+
+// R13: los botones de respuesta rápida de la plantilla de cada acción (el
+// texto). Solo el recordatorio; las demás, sin botones, como siempre.
+export function botonesDeLaAccion(actionType: string): string[] | undefined {
+  return actionType === ACTION_BOOKING_SEND_REMINDER
+    ? BOTONES_DEL_RECORDATORIO.map((b) => b.texto)
+    : undefined;
+}
 
 export function categoriaDeLaAccion(actionType: string): CategoriaDePlantilla {
   return CATEGORIA_DE_LA_ACCION[actionType] ?? "MARKETING";
@@ -254,6 +270,7 @@ export function categoriaDeLaAccion(actionType: string): CategoriaDePlantilla {
 export const ACCIONES_CON_PLANTILLA: readonly string[] = [
   ...Object.keys(QR_DE_LA_ACCION),
   ACTION_INQUIRY_FOLLOW_UP,
+  ACTION_BOOKING_SEND_REMINDER,
 ];
 
 // Las variables de la plantilla de cada acción (utils/whatsappTemplateText.ts):
@@ -267,6 +284,7 @@ export function variablesDeLaAccion(
   if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
     return industry === "CLINICA" ? VARIABLES_DE_CONSULTA_DE_CLINICA : VARIABLES_DE_CONSULTA;
   }
+  if (actionType === ACTION_BOOKING_SEND_REMINDER) return VARIABLES_DE_RECORDATORIO;
   return variablesDeSeguimiento(formatoLlevaLink(formato));
 }
 
@@ -278,6 +296,7 @@ const PREFIJO_DEL_NOMBRE: Record<string, string> = {
   [ACTION_SEND_QR_FOLLOWUP]: "seguimiento_qr",
   [ACTION_SEND_DISCOUNT_VOUCHER]: "cupon_descuento",
   [ACTION_INQUIRY_FOLLOW_UP]: "seguimiento_consulta",
+  [ACTION_BOOKING_SEND_REMINDER]: "recordatorio_turno",
 };
 
 // Minúsculas, números y guion bajo (regla de Meta), único en el WABA
@@ -557,6 +576,9 @@ async function crearVersionNueva(
       bodyText: textoParaMeta(deseada.bodyText),
       bodyExamples: ejemplosDelCuerpo(deseada.bodyText, variables),
       ...(headerImageHandle ? { headerImageHandle } : {}),
+      ...(botonesDeLaAccion(regla.actionType)
+        ? { quickReplyButtons: botonesDeLaAccion(regla.actionType) }
+        : {}),
     });
   } catch (err) {
     await discardWhatsappTemplateReservation(organizationId, reserva.id);

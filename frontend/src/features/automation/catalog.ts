@@ -2,9 +2,13 @@ import type { BadgeVariant } from "../../design-system/Badge";
 import type { SelectOption } from "../../design-system/Select";
 import type { WhatsappApproval, WhatsappFormat } from "./types";
 import {
+  TOKEN_DIA,
+  TOKEN_HORA,
   TOKEN_LINK,
+  TOKEN_LUGAR,
   TOKEN_NOMBRE,
   TOKEN_PRESTACION,
+  TOKEN_PROFESIONAL,
   TOKEN_SALUDO,
   TOKEN_VEHICULO,
 } from "./whatsappPreview";
@@ -48,6 +52,9 @@ import {
 export const TRIGGER_OPPORTUNITY_WON = "opportunity.won";
 export const TRIGGER_OPPORTUNITY_STALE = "opportunity.stale";
 export const TRIGGER_CONTACT_INQUIRY_STALLED = "contact.inquiry_stalled";
+// R13 (docs/rubros.md §6 y §7.3): solo clínicas. No está en TRIGGER_OPTIONS:
+// una automotora no lo ve.
+export const TRIGGER_BOOKING_REMINDER_DUE = "booking.reminder_due";
 
 export const TRIGGER_OPTIONS: SelectOption<string>[] = [
   {
@@ -75,10 +82,20 @@ const TRIGGER_OPTIONS_ESENCIAL: SelectOption<string>[] = TRIGGER_OPTIONS.map((op
     : option,
 );
 
+// R13: los triggers que solo tiene una clínica.
+export const TRIGGER_OPTIONS_DE_CLINICA: SelectOption<string>[] = [
+  {
+    value: TRIGGER_BOOKING_REMINDER_DUE,
+    label: "Recordatorio antes del turno",
+    subtitle: "Antes de cada turno, con las horas que configura cada sede",
+  },
+];
+
 /** Las opciones del selector de trigger. `simple`: sin procesos de venta
- *  (ESENCIAL). */
-export function triggerOptions(simple: boolean): SelectOption<string>[] {
-  return simple ? TRIGGER_OPTIONS_ESENCIAL : TRIGGER_OPTIONS;
+ *  (ESENCIAL). `esClinica` (R13): suma los de clínica. */
+export function triggerOptions(simple: boolean, esClinica = false): SelectOption<string>[] {
+  const base = simple ? TRIGGER_OPTIONS_ESENCIAL : TRIGGER_OPTIONS;
+  return esClinica ? [...base, ...TRIGGER_OPTIONS_DE_CLINICA] : base;
 }
 
 // El rótulo de un trigger en el listado. Un valor fuera de la lista —un
@@ -86,7 +103,7 @@ export function triggerOptions(simple: boolean): SelectOption<string>[] {
 // en vez de como "—": el dato real informa más que su ausencia, mismo criterio
 // que modelProviderLabel en features/agent/labels.ts.
 export function triggerLabel(value: string, simple = false): string {
-  return triggerOptions(simple).find((option) => option.value === value)?.label ?? value;
+  return triggerOptions(simple, true).find((option) => option.value === value)?.label ?? value;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +118,8 @@ export const ACTION_DRAFT_FOLLOW_UP = "agent.draft_follow_up";
 export const ACTION_SEND_QR_FOLLOWUP = "opportunity.send_qr_followup";
 export const ACTION_SEND_DISCOUNT_VOUCHER = "opportunity.send_discount_voucher";
 export const ACTION_INQUIRY_FOLLOW_UP = "inquiry.follow_up";
+// R13: solo clínicas (espejo de ACTION_BOOKING_SEND_REMINDER).
+export const ACTION_BOOKING_SEND_REMINDER = "booking.send_reminder";
 
 export const ACTION_OPTIONS: SelectOption<string>[] = [
   {
@@ -131,8 +150,20 @@ export const ACTION_OPTIONS: SelectOption<string>[] = [
   },
 ];
 
+// R13: las acciones que solo tiene una clínica.
+export const ACTION_OPTIONS_DE_CLINICA: SelectOption<string>[] = [
+  {
+    value: ACTION_BOOKING_SEND_REMINDER,
+    label: "Mandar el recordatorio por WhatsApp",
+    subtitle: "Con los botones Confirmo y Necesito cancelar",
+  },
+];
+
 export function actionLabel(value: string): string {
-  return ACTION_OPTIONS.find((option) => option.value === value)?.label ?? value;
+  return (
+    [...ACTION_OPTIONS, ...ACTION_OPTIONS_DE_CLINICA].find((option) => option.value === value)
+      ?.label ?? value
+  );
 }
 
 // Espejo de la compatibilidad que cada acción declara en el backend
@@ -152,6 +183,7 @@ export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
   ],
   [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
   [TRIGGER_CONTACT_INQUIRY_STALLED]: [ACTION_INQUIRY_FOLLOW_UP],
+  [TRIGGER_BOOKING_REMINDER_DUE]: [ACTION_BOOKING_SEND_REMINDER],
 };
 
 // Las acciones que el selector ofrece para un trigger. Un trigger que este
@@ -159,7 +191,9 @@ export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
 export function accionesParaTrigger(triggerType: string): SelectOption<string>[] {
   const permitidas = ACCIONES_POR_TRIGGER[triggerType];
   if (!permitidas) return ACTION_OPTIONS;
-  return ACTION_OPTIONS.filter((option) => permitidas.includes(option.value));
+  return [...ACTION_OPTIONS, ...ACTION_OPTIONS_DE_CLINICA].filter((option) =>
+    permitidas.includes(option.value),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +443,17 @@ export const TEXTO_INICIAL_DE_CONSULTA =
 export const TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA =
   "¡{saludo}! Te escribimos por tu consulta sobre {prestacion}. ¿Querés que te ayudemos a coordinar un turno?";
 
+// R13: el del recordatorio de turno, espejo de
+// TEXTO_POR_DEFECTO_DEL_RECORDATORIO (src/clinicas/recordatorios/config.ts).
+// Sin la prestación: es un dato de salud en la pantalla del teléfono.
+export const TEXTO_INICIAL_DEL_RECORDATORIO =
+  "Hola {nombre}, te recordamos tu turno en {lugar} el {dia} a las {hora} con {profesional}. ¿Nos confirmás si venís?";
+
+// Los botones que agrega la plantilla (espejo de BOTONES_DEL_RECORDATORIO).
+export const BOTONES_DEL_RECORDATORIO = ["Confirmo", "Necesito cancelar"] as const;
+
 export function textoInicial(actionType: string, formato: string, esClinica = false): string {
+  if (actionType === ACTION_BOOKING_SEND_REMINDER) return TEXTO_INICIAL_DEL_RECORDATORIO;
   if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
     return esClinica ? TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA : TEXTO_INICIAL_DE_CONSULTA;
   }
@@ -443,6 +487,22 @@ export function mensajeDeLaAccion(
   formato: string,
   esClinica = false,
 ): MensajeDeLaAccion {
+  if (actionType === ACTION_BOOKING_SEND_REMINDER) {
+    return {
+      conFormato: false,
+      variables: [
+        { token: TOKEN_NOMBRE, ayuda: "el nombre del paciente", obligatoria: true },
+        {
+          token: TOKEN_LUGAR,
+          ayuda: "la clínica, o «Clínica (sede)» si tiene más de una sede",
+          obligatoria: false,
+        },
+        { token: TOKEN_DIA, ayuda: "el día del turno («lunes 1 de marzo»)", obligatoria: true },
+        { token: TOKEN_HORA, ayuda: "la hora del turno («10:30»)", obligatoria: true },
+        { token: TOKEN_PROFESIONAL, ayuda: "el profesional", obligatoria: false },
+      ],
+    };
+  }
   if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
     return {
       conFormato: false,
@@ -544,6 +604,44 @@ export function validarMensajeDeConsulta(draft: ConfigDraft, esClinica = false):
   }
   return null;
 }
+
+// R13: el recordatorio de turno. {nombre}, {dia} y {hora} una vez; {lugar} y
+// {profesional} a lo sumo una; ninguna otra. El orden y las reglas de Meta las
+// valida el backend con su 400.
+const VARIABLES_DEL_RECORDATORIO = [
+  TOKEN_NOMBRE,
+  TOKEN_LUGAR,
+  TOKEN_DIA,
+  TOKEN_HORA,
+  TOKEN_PROFESIONAL,
+];
+
+export function validarMensajeDelRecordatorio(draft: ConfigDraft): string | null {
+  const texto = (draft.messageText ?? "").trim();
+  if (texto === "") return "Escribí el texto del mensaje de WhatsApp.";
+  for (const token of [TOKEN_NOMBRE, TOKEN_DIA, TOKEN_HORA]) {
+    if (contar(texto, token) !== 1) return `El mensaje tiene que incluir ${token} una vez.`;
+  }
+  for (const token of [TOKEN_LUGAR, TOKEN_PROFESIONAL]) {
+    if (contar(texto, token) > 1) return `El mensaje no puede incluir ${token} más de una vez.`;
+  }
+  const ajena = (texto.match(/\{[^{}]*\}/g) ?? []).find(
+    (t) => !VARIABLES_DEL_RECORDATORIO.includes(t),
+  );
+  if (ajena) {
+    return `"${ajena}" no va en este mensaje: solo valen ${VARIABLES_DEL_RECORDATORIO.join(", ")}.`;
+  }
+  return null;
+}
+
+const configDelRecordatorio: ConfigDeAccion = {
+  draftVacio: () => ({ messageText: TEXTO_INICIAL_DEL_RECORDATORIO }),
+  draftDesde: (config) => ({
+    messageText: typeof config.messageText === "string" ? config.messageText : "",
+  }),
+  validar: validarMensajeDelRecordatorio,
+  aPayload: (draft) => ({ messageText: (draft.messageText ?? "").trim() }),
+};
 
 const configDeSeguimientoDeConsulta: ConfigDeAccion = {
   draftVacio: (esClinica = false) => ({
@@ -679,6 +777,7 @@ export const CONFIG_DE_ACCION: Record<string, ConfigDeAccion> = {
   [ACTION_SEND_QR_FOLLOWUP]: configDeSeguimientoQr,
   [ACTION_SEND_DISCOUNT_VOUCHER]: configDeCupon,
   [ACTION_INQUIRY_FOLLOW_UP]: configDeSeguimientoDeConsulta,
+  [ACTION_BOOKING_SEND_REMINDER]: configDelRecordatorio,
 };
 
 // Las acciones que mandan un WhatsApp con plantilla: su formulario muestra el
@@ -688,7 +787,8 @@ export function accionConMensajeDeWhatsapp(actionType: string): boolean {
   return (
     actionType === ACTION_SEND_QR_FOLLOWUP ||
     actionType === ACTION_SEND_DISCOUNT_VOUCHER ||
-    actionType === ACTION_INQUIRY_FOLLOW_UP
+    actionType === ACTION_INQUIRY_FOLLOW_UP ||
+    actionType === ACTION_BOOKING_SEND_REMINDER
   );
 }
 
@@ -793,6 +893,8 @@ export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
   [TRIGGER_OPPORTUNITY_WON]: configVacia,
   [TRIGGER_OPPORTUNITY_STALE]: configDeEstancada,
   [TRIGGER_CONTACT_INQUIRY_STALLED]: configDeConsultaSinAvance,
+  // R13: sin configuración propia (las horas son de cada sede).
+  [TRIGGER_BOOKING_REMINDER_DUE]: configVacia,
 };
 
 // El default del formulario: la PRIMERA entrada de cada catálogo, no un valor

@@ -12,6 +12,7 @@ import { Select } from "../../design-system/Select";
 import { useAuth } from "../../auth/AuthContext";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { PlazoDeCambioSection } from "../clinica/PlazoDeCambioSection";
+import { RecordatoriosSection } from "../clinica/RecordatoriosSection";
 import { UserSelect } from "../user/UserSelect";
 import { BusinessHoursSection } from "./BusinessHoursSection";
 import { GoogleCalendarSection } from "./GoogleCalendarSection";
@@ -255,6 +256,8 @@ export function BranchFormPage() {
         {/* R11: el plazo para que el asistente cambie un turno. Solo en una
             clínica y en edición (cuelga del id). */}
         {isEditMode && esClinica ? <PlazoDeCambioSection branchId={id} /> : null}
+        {/* R13: el recordatorio de turno de la sede. */}
+        {isEditMode && esClinica ? <RecordatoriosSection branchId={id} /> : null}
 
         {error ? <ErrorState>{error}</ErrorState> : null}
 

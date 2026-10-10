@@ -1175,7 +1175,14 @@ describe("BranchFormPage — Turnos por chat (clínica)", () => {
     renderForm(
       "/branches/b1/edit",
       sede(),
-      http.get(configUrl, () => HttpResponse.json({ minHoursToChangeBooking: 24 })),
+      http.get(configUrl, () =>
+        HttpResponse.json({
+          minHoursToChangeBooking: 24,
+          reminderHoursBefore: 24,
+          lateBookingReminder: "NO_ENVIAR",
+          lateBookingHoursBefore: 2,
+        }),
+      ),
       http.put(configUrl, async ({ request }) => {
         const body = (await request.json()) as { minHoursToChangeBooking: number | null };
         enviados.push(body);
@@ -1210,7 +1217,14 @@ describe("BranchFormPage — Turnos por chat (clínica)", () => {
     renderForm(
       "/branches/b1/edit",
       sede(),
-      http.get(configUrl, () => HttpResponse.json({ minHoursToChangeBooking: null })),
+      http.get(configUrl, () =>
+        HttpResponse.json({
+          minHoursToChangeBooking: null,
+          reminderHoursBefore: 24,
+          lateBookingReminder: "NO_ENVIAR",
+          lateBookingHoursBefore: 2,
+        }),
+      ),
       http.put(configUrl, () => {
         put();
         return HttpResponse.json({ minHoursToChangeBooking: null });
@@ -1221,6 +1235,81 @@ describe("BranchFormPage — Turnos por chat (clínica)", () => {
     await user.type(campo, "1.5");
     await user.click(screen.getByRole("button", { name: "Guardar plazo" }));
     expect(await screen.findByText(/Ingresá un número entero de horas/)).toBeInTheDocument();
+    expect(put).not.toHaveBeenCalled();
+  });
+});
+
+// R13 (docs/rubros.md §6.2): el recordatorio de la sede.
+describe("BranchFormPage — Recordatorios (clínica)", () => {
+  const configUrl = `${env.apiUrl}/api/clinica/sedes/:id/configuracion`;
+  const sede = () =>
+    http.get(`${baseUrl}/:id`, () => HttpResponse.json(makeBranch({ id: "b1", name: "Centro" })));
+  const guardada = {
+    minHoursToChangeBooking: null,
+    reminderHoursBefore: 24,
+    lateBookingReminder: "NO_ENVIAR",
+    lateBookingHoursBefore: 2,
+  };
+
+  it("una automotora no ve la sección", async () => {
+    renderForm("/branches/b1/edit", sede());
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Centro"));
+    expect(screen.queryByText("Recordatorios")).not.toBeInTheDocument();
+  });
+
+  it("en una clínica guarda las horas y la política de turno tardío", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", "CLINICA"));
+    const enviados: unknown[] = [];
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      sede(),
+      http.get(configUrl, () => HttpResponse.json(guardada)),
+      http.put(configUrl, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        enviados.push(body);
+        return HttpResponse.json({ ...guardada, ...body });
+      }),
+    );
+    const horas = await screen.findByLabelText("Horas de anticipación del recordatorio");
+    expect(horas).toHaveValue(24);
+    await user.clear(horas);
+    await user.type(horas, "48");
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Si el turno se da con menos anticipación"),
+      "Mandarlo unas horas antes del turno",
+    );
+    const horasAntes = screen.getByLabelText("Horas antes del turno");
+    await user.clear(horasAntes);
+    await user.type(horasAntes, "3");
+    await user.click(screen.getByRole("button", { name: "Guardar recordatorios" }));
+    await waitFor(() =>
+      expect(enviados).toEqual([
+        { reminderHoursBefore: 48, lateBookingReminder: "HORAS_ANTES", lateBookingHoursBefore: 3 },
+      ]),
+    );
+    expect(await screen.findByText("Los recordatorios quedaron guardados.")).toBeInTheDocument();
+  });
+
+  it("fuera de rango no se manda", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", "CLINICA"));
+    const put = vi.fn();
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      sede(),
+      http.get(configUrl, () => HttpResponse.json(guardada)),
+      http.put(configUrl, () => {
+        put();
+        return HttpResponse.json(guardada);
+      }),
+    );
+    const horas = await screen.findByLabelText("Horas de anticipación del recordatorio");
+    await user.clear(horas);
+    await user.type(horas, "100");
+    await user.click(screen.getByRole("button", { name: "Guardar recordatorios" }));
+    expect(await screen.findByText(/entero de 1 a 72/)).toBeInTheDocument();
     expect(put).not.toHaveBeenCalled();
   });
 });

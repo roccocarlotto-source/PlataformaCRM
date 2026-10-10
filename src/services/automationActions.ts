@@ -1,4 +1,5 @@
 import type { OrganizationIndustry } from "@prisma/client";
+import type { Modulo } from "../config/ediciones";
 import type { z } from "zod";
 import type { TriggerType } from "./automationTriggers";
 
@@ -66,6 +67,10 @@ export interface AccionRegistrada {
   // consultas acepta {prestacion} en lugar de {vehiculo}). Sin la clave, el
   // de arriba para todos.
   schemaPorRubro?: Partial<Record<OrganizationIndustry, EsquemaDeAccion>>;
+  // R13: el módulo que necesita la acción. Sin la clave, cualquiera que tenga
+  // automatizaciones. Una organización sin el módulo no la ve: el CRUD la
+  // trata como inexistente.
+  modulo?: Modulo;
   handler: AutomationAction;
   // Los triggers con los que la acción tiene sentido (ítem 76). Sin la clave,
   // cualquiera; con ella, el CRUD rechaza con 400 una regla que combine la

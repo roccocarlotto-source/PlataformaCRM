@@ -53,6 +53,7 @@ import {
 import { AppError } from "../utils/AppError";
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
 import { cupoDeTurnosPorDefecto, maximoPorGrupoPorDefecto } from "../utils/limitadorDeTurnos";
+import { resolverRespuestaDelRecordatorio } from "../clinicas/recordatorios/respuesta.service";
 
 // ---------------------------------------------------------------------------
 // El worker de la cola del webhook de WhatsApp (ítem 125 de
@@ -480,6 +481,38 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
     }
 
     let salienteId = vigente.responseMessageId;
+    // R13 (docs/rubros.md §6.4): la respuesta por botón a un recordatorio de
+    // turno de una clínica. Se resuelve sin el modelo, con cualquier nivel y
+    // con el agente apagado, y su texto fijo sale por el camino de siempre.
+    // Una automotora no tiene recordatorios: devuelve null y nada cambia.
+    if (
+      salienteId === null &&
+      job.channel === ConversationChannel.WHATSAPP &&
+      entrante.externalMessageId
+    ) {
+      const respuesta = await resolverRespuestaDelRecordatorio(
+        organizationId,
+        entrante.externalMessageId,
+      );
+      if (respuesta) {
+        const saliente = await createMessage({
+          organizationId,
+          conversationId: conversacion.id,
+          direction: "OUTBOUND",
+          senderType: "AUTOMATION",
+          content: respuesta.texto,
+        });
+        await updateConversation(conversacion.id, organizationId, {
+          lastMessageAt: saliente.createdAt,
+        });
+        await atarRespuestaAlJob(job, saliente.id);
+        salienteId = saliente.id;
+        logger.info(
+          { jobId: job.id, organizationId, accion: respuesta.accion },
+          "Respuesta al recordatorio de turno resuelta sin el modelo",
+        );
+      }
+    }
     if (salienteId === null) {
       // OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): el
       // agente se apagó (o perdió el canal) entre el webhook y este turno.

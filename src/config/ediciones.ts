@@ -69,6 +69,8 @@ export const MODULOS = [
   // prestación (§4.3, R5); bloqueos, sobreturnos y lo demás de §4 se suman acá
   // con sus PR.
   "agenda_clinica",
+  // R13 (docs/rubros.md §6): el recordatorio de turno con confirmación.
+  "recordatorios_de_turno",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
@@ -96,7 +98,10 @@ export const MODULOS_POR_EDICION: Readonly<Record<OrganizationEdition, ReadonlyS
 // entran a MODULOS con el PR que les da rutas, y a SOLO_CLINICA para que
 // AUTOMOTORA no los tenga: agenda_clinica (R5); recordatorios_de_turno,
 // post_turno y recepcion llegan con los suyos.
-export const SOLO_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>(["agenda_clinica"]);
+export const SOLO_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>([
+  "agenda_clinica",
+  "recordatorios_de_turno",
+]);
 
 // Lo que una clínica no tiene (docs/rubros.md §2 y §2.1, D3): el stock de
 // vehículos (con sync-vehicles, que es del módulo stock), las oportunidades y
@@ -233,7 +238,13 @@ export const PROCESO_DE_VENTA_FIJO = {
 
 /** Módulos sin rutas propias: el test de clasificación los tolera.
  *  financiacion y permutas son solo campos. */
-export const MODULOS_SIN_RUTAS: ReadonlySet<Modulo> = new Set<Modulo>(["financiacion", "permutas"]);
+// R13: recordatorios_de_turno no tiene rutas propias (lo gatea el motor de
+// automatizaciones, MODULO_DEL_TRIGGER).
+export const MODULOS_SIN_RUTAS: ReadonlySet<Modulo> = new Set<Modulo>([
+  "financiacion",
+  "permutas",
+  "recordatorios_de_turno",
+]);
 
 export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   comun: ["GET /api/me", "GET /api/organization", "PATCH /api/organization"],
@@ -503,6 +514,10 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "GET /api/clinica/sedes/:branchId/configuracion",
     "PUT /api/clinica/sedes/:branchId/configuracion",
   ],
+  // R13: sin rutas propias. El recordatorio se configura en la sede (la ruta
+  // de agenda_clinica) y en la regla de automatización; lo gatea el motor
+  // (TRIGGER_BOOKING_REMINDER_DUE solo con este módulo).
+  recordatorios_de_turno: [],
 };
 
 /** Rutas sin sesión de usuario (sin `authenticate`). No dependen de la

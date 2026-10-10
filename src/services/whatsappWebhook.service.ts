@@ -17,6 +17,8 @@ import {
 import { aplicarEstadosRetenidos, retenerEstado } from "./estadosDeEntregaRetenidos.service";
 import { resolveWhatsappContact } from "./whatsappContact.service";
 import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service";
+import { esRespuestaDelBoton, type RespuestaDelBoton } from "../clinicas/recordatorios/config";
+import { esRecordatorioSinResponder, marcarRespuesta } from "../clinicas/recordatorios/repository";
 
 // ---------------------------------------------------------------------------
 // El procesamiento de un POST /webhooks/whatsapp ya verificado (ítem 81; paso
@@ -201,7 +203,11 @@ const mensajeBaseSchema = z.object({
   type: z.string(),
 });
 
-const botonSchema = z.object({ button: z.object({ text: z.string().optional() }) });
+const botonSchema = z.object({
+  button: z.object({ text: z.string().optional(), payload: z.string().optional() }),
+  // El mensaje al que responde (el wamid de la plantilla).
+  context: z.object({ id: z.string().optional() }).optional(),
+});
 const interactivoSchema = z.object({
   interactive: z.object({
     button_reply: z.object({ title: z.string().optional() }).optional(),
@@ -214,6 +220,10 @@ export interface MensajeLeido {
   waId: string;
   texto: string;
   media?: { id: string; mimeType: string };
+  // R13: el botón de respuesta rápida de una plantilla (su payload y el wamid
+  // de la plantilla). Lo usa el recordatorio de turno de una clínica; en
+  // cualquier otro caso el mensaje sigue siendo su texto, como siempre.
+  boton?: { payload: string; contextId: string };
 }
 
 // Pura, para probar sin base qué se procesa y cómo. null = tipo que no se
@@ -263,16 +273,25 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
 
   if (type === "button" || type === "interactive") {
     let tocado: string | undefined;
+    let delBoton: MensajeLeido["boton"];
     const boton = botonSchema.safeParse(crudo);
     if (type === "button" && boton.success) {
       tocado = boton.data.button.text;
+      const payload = boton.data.button.payload;
+      const contextId = boton.data.context?.id;
+      if (payload && contextId) delBoton = { payload, contextId };
     }
     const interactivo = interactivoSchema.safeParse(crudo);
     if (type === "interactive" && interactivo.success) {
       const { button_reply, list_reply } = interactivo.data.interactive;
       tocado = button_reply?.title ?? list_reply?.title;
     }
-    return { wamid, waId, texto: tocado?.trim() ? tocado.trim() : MARCADOR_BOTON_SIN_TEXTO };
+    return {
+      wamid,
+      waId,
+      texto: tocado?.trim() ? tocado.trim() : MARCADOR_BOTON_SIN_TEXTO,
+      ...(delBoton ? { boton: delBoton } : {}),
+    };
   }
 
   if (type in MARCADORES_NO_SOPORTADOS) {
@@ -448,6 +467,7 @@ interface MensajeEntrante {
   profileName: string | undefined;
   texto: string;
   media?: { id: string; mimeType: string };
+  boton?: { payload: string; contextId: string };
 }
 
 async function procesarMensaje(
@@ -476,7 +496,14 @@ async function procesarMensaje(
   // Se encola con el agente atendiendo, y también sin él si el rubro contesta
   // igual (la urgencia de una clínica, docs/rubros.md §5.3): el worker es el
   // que puede mandar la respuesta fija. En AUTOMOTORA, encola === atiende.
-  const encola = atiende || (await respondeSinAgente(organizationId));
+  // R13 (docs/rubros.md §6.4): la respuesta a un recordatorio de turno se
+  // resuelve sin el modelo y con cualquier nivel o el agente apagado, así que
+  // se encola siempre. En una automotora no hay recordatorios: false.
+  const respuestaDeRecordatorio =
+    mensaje.boton && esRespuestaDelBoton(mensaje.boton.payload)
+      ? await esRecordatorioSinResponder(organizationId, mensaje.boton.contextId)
+      : false;
+  const encola = atiende || respuestaDeRecordatorio || (await respondeSinAgente(organizationId));
 
   // 2. Dedup: Meta reintentando una entrega ya procesada. Es el atajo del
   //    caso común; la garantía real es el UNIQUE, más abajo.
@@ -516,8 +543,20 @@ async function procesarMensaje(
       // Sin job cuando nadie va a contestar: no hay turno que correr.
       encola
         ? {
-            enLaMismaTransaccion: (tx, entrante) =>
-              createAgentInboundJob(
+            enLaMismaTransaccion: async (tx, entrante) => {
+              // La respuesta al recordatorio queda marcada con el entrante,
+              // en la misma transacción (CAS: un solo entrante la resuelve).
+              if (respuestaDeRecordatorio && mensaje.boton) {
+                await marcarRespuesta(
+                  organizationId,
+                  mensaje.boton.contextId,
+                  mensaje.boton.payload as RespuestaDelBoton,
+                  mensaje.wamid,
+                  new Date(),
+                  tx,
+                );
+              }
+              await createAgentInboundJob(
                 {
                   organizationId,
                   messageId: entrante.id,
@@ -532,7 +571,8 @@ async function procesarMensaje(
                     : {}),
                 },
                 tx,
-              ),
+              );
+            },
           }
         : {},
     );
@@ -667,6 +707,7 @@ export async function procesarWebhookDeWhatsapp(
               profileName: nombres.get(m.waId),
               texto: m.texto,
               media: m.media,
+              ...(m.boton ? { boton: m.boton } : {}),
             },
             deps,
           );

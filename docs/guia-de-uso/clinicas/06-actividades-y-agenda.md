@@ -150,3 +150,9 @@ datos de salud** ni el motivo de la consulta.
   **No vino**.
 - Lo pueden hacer los administradores y la recepción, en los turnos de sus
   sedes. Un turno cancelado no se marca.
+
+## Confirmado por el paciente {#confirmado-por-el-paciente}
+
+Si la clínica usa el [recordatorio antes del turno](/ayuda/automatizaciones#recordatorio-de-turno)
+y el paciente tocó **Confirmo**, el detalle del turno en el **Calendario** dice
+**Confirmado por el paciente**.

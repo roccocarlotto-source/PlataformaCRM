@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { Modulo } from "../config/ediciones";
+import { TRIGGER_BOOKING_REMINDER_DUE as TRIGGER_DEL_RECORDATORIO } from "../clinicas/recordatorios/config";
 
 // ---------------------------------------------------------------------------
 // Catálogo de triggers del motor de automatizaciones
@@ -42,11 +44,17 @@ export const TRIGGER_OPPORTUNITY_STALE = "opportunity.stale";
 // como opportunity.stale: lo produce el barrido diario de
 // src/workers/inquiryStalledWorker.ts.
 export const TRIGGER_CONTACT_INQUIRY_STALLED = "contact.inquiry_stalled";
+// R13 (docs/rubros.md §6 y §7.3): "Recordatorio antes del turno", solo en
+// clínicas (MODULO_DEL_TRIGGER). Nadie lo emite como evento: la regla guarda
+// la plantilla y si está activa; el recordatorio lo agenda el consumidor de
+// booking.created / booking.rescheduled (src/clinicas/recordatorios).
+export const TRIGGER_BOOKING_REMINDER_DUE = TRIGGER_DEL_RECORDATORIO;
 
 export const TRIGGERS_CONOCIDOS = [
   TRIGGER_OPPORTUNITY_WON,
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_CONTACT_INQUIRY_STALLED,
+  TRIGGER_BOOKING_REMINDER_DUE,
 ] as const;
 
 export type TriggerType = (typeof TRIGGERS_CONOCIDOS)[number];
@@ -123,6 +131,14 @@ export const CONFIG_DE_TRIGGER: Record<TriggerType, EsquemaDeTrigger> = {
   [TRIGGER_OPPORTUNITY_WON]: configDeOportunidadGanadaSchema,
   [TRIGGER_OPPORTUNITY_STALE]: configDeOportunidadEstancadaSchema,
   [TRIGGER_CONTACT_INQUIRY_STALLED]: configDeConsultaSinAvanceSchema,
+  // R13: sin configuración propia (las horas son de la sede).
+  [TRIGGER_BOOKING_REMINDER_DUE]: z.object({}),
+};
+
+/** El módulo que necesita un trigger (R13). Sin entrada: lo tiene cualquiera
+ *  que tenga el módulo de automatizaciones. */
+export const MODULO_DEL_TRIGGER: Readonly<Partial<Record<TriggerType, Modulo>>> = {
+  [TRIGGER_BOOKING_REMINDER_DUE]: "recordatorios_de_turno",
 };
 
 // ---------------------------------------------------------------------------
@@ -141,4 +157,6 @@ export const CONFIG_DE_TRIGGER: Record<TriggerType, EsquemaDeTrigger> = {
 export const TRIGGERS_DE_REGLA_UNICA: readonly TriggerType[] = [
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_CONTACT_INQUIRY_STALLED,
+  // R13: una sola regla de recordatorio por organización.
+  TRIGGER_BOOKING_REMINDER_DUE,
 ];

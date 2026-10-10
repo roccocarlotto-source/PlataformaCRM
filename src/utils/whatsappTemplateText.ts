@@ -60,6 +60,13 @@ export const TOKEN_VEHICULO = "{vehiculo}";
 // R15 (docs/rubros.md §9.1): en una clínica, la prestación que consultó (o
 // "lo que consultaste"), en lugar del vehículo. Solo la acepta una clínica.
 export const TOKEN_PRESTACION = "{prestacion}";
+// R13 (docs/rubros.md §6.3): el recordatorio de un turno de clínica. {lugar}
+// lo arma el backend (la clínica, o "Clínica X (sede Y)" con más de una sede).
+// Sin la prestación: es un dato de salud en la pantalla del teléfono.
+export const TOKEN_LUGAR = "{lugar}";
+export const TOKEN_DIA = "{dia}";
+export const TOKEN_HORA = "{hora}";
+export const TOKEN_PROFESIONAL = "{profesional}";
 
 // Tope del cuerpo de una plantilla en Meta, medido sobre el texto que viaja.
 export const LARGO_MAXIMO_DEL_CUERPO = 1024;
@@ -71,6 +78,10 @@ export const EJEMPLO_LINK = "https://g.page/r/ejemplo/review";
 export const EJEMPLO_SALUDO = "Hola Ana";
 export const EJEMPLO_VEHICULO = "Toyota Hilux SRV 2022";
 export const EJEMPLO_PRESTACION = "limpieza facial";
+export const EJEMPLO_LUGAR = "Clínica Ejemplo (sede Centro)";
+export const EJEMPLO_DIA = "lunes 1 de marzo";
+export const EJEMPLO_HORA = "10:30";
+export const EJEMPLO_PROFESIONAL = "Ana";
 
 export interface VariableDePlantilla {
   token: string;
@@ -108,6 +119,25 @@ export const VARIABLES_DE_CONSULTA_DE_CLINICA: readonly VariableDePlantilla[] = 
   { token: TOKEN_PRESTACION, requerida: false, ejemplo: EJEMPLO_PRESTACION },
 ];
 
+// R13: las del recordatorio de turno, en este orden. {nombre}, {dia} y
+// {hora} obligatorias; {lugar} y {profesional}, opcionales.
+export const VARIABLES_DE_RECORDATORIO: readonly VariableDePlantilla[] = [
+  { token: TOKEN_NOMBRE, requerida: true, ejemplo: EJEMPLO_NOMBRE },
+  { token: TOKEN_LUGAR, requerida: false, ejemplo: EJEMPLO_LUGAR },
+  { token: TOKEN_DIA, requerida: true, ejemplo: EJEMPLO_DIA },
+  { token: TOKEN_HORA, requerida: true, ejemplo: EJEMPLO_HORA },
+  { token: TOKEN_PROFESIONAL, requerida: false, ejemplo: EJEMPLO_PROFESIONAL },
+];
+
+// La familia de {nombre} y {link} (el QR y el cupón): sus mensajes de error
+// hablan del link aunque el formato no lo lleve.
+function esFamiliaDelNombre(variables: readonly VariableDePlantilla[]): boolean {
+  return (
+    variables.some((v) => v.token === TOKEN_NOMBRE) &&
+    variables.every((v) => v.token === TOKEN_NOMBRE || v.token === TOKEN_LINK)
+  );
+}
+
 // Todos los tokens que el sistema traduce, para numerarlos por aparición.
 const TODOS_LOS_TOKENS: readonly string[] = [
   TOKEN_NOMBRE,
@@ -115,6 +145,10 @@ const TODOS_LOS_TOKENS: readonly string[] = [
   TOKEN_SALUDO,
   TOKEN_VEHICULO,
   TOKEN_PRESTACION,
+  TOKEN_LUGAR,
+  TOKEN_DIA,
+  TOKEN_HORA,
+  TOKEN_PROFESIONAL,
 ];
 
 function contar(texto: string, token: string): number {
@@ -126,7 +160,7 @@ function contar(texto: string, token: string): number {
 // no lleve link: el negocio puede tener el link escrito y el mensaje
 // siguiente ("sacá {link}") es el que lo guía.
 function descripcionDeVariables(variables: readonly VariableDePlantilla[]): string {
-  if (variables.some((v) => v.token === TOKEN_NOMBRE)) {
+  if (esFamiliaDelNombre(variables)) {
     return `${TOKEN_NOMBRE} y ${TOKEN_LINK}`;
   }
   return variables.map((v) => v.token).join(" y ");
@@ -159,7 +193,7 @@ export function validarTextoDePlantilla(
     if (permitidos.includes(encontrado)) continue;
     // El link escrito en un formato que no lo lleva: el mensaje que explica
     // por qué, y no "no es una variable válida".
-    if (encontrado === TOKEN_LINK && permitidos.includes(TOKEN_NOMBRE)) {
+    if (encontrado === TOKEN_LINK && esFamiliaDelNombre(variables)) {
       return `Con "solo imagen" el link no va en el texto: sacá ${TOKEN_LINK}`;
     }
     return `"${encontrado}" no es una variable válida: solo se pueden usar ${descripcionDeVariables(variables)}`;

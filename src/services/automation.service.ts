@@ -1,4 +1,5 @@
-import type { OrganizationIndustry, Prisma } from "@prisma/client";
+import type { OrganizationEdition, OrganizationIndustry, Prisma } from "@prisma/client";
+import { modulosDe } from "../config/ediciones";
 import {
   countAutomations,
   countOtherActiveAutomationsByTrigger,
@@ -13,6 +14,9 @@ import {
 } from "../repositories/automation.repository";
 import { AppError } from "../utils/AppError";
 import { findEdicionYRubro } from "../repositories/organization.repository";
+import { prisma } from "../lib/prisma";
+import { MOTIVO_REGLA_INACTIVA } from "../clinicas/recordatorios/config";
+import { cancelarPendientesDeLaRegla } from "../clinicas/recordatorios/repository";
 import {
   accionAdmiteTrigger,
   registroDeAcciones as registroPorDefecto,
@@ -20,6 +24,7 @@ import {
 } from "./automationActions";
 import {
   CONFIG_DE_TRIGGER,
+  MODULO_DEL_TRIGGER,
   TRIGGERS_CONOCIDOS,
   TRIGGERS_DE_REGLA_UNICA,
   esTriggerConocido,
@@ -97,10 +102,31 @@ export interface OpcionesDeValidacion {
   registro?: RegistroDeAcciones;
 }
 
-function assertTriggerConocido(triggerType: string): asserts triggerType is TriggerType {
-  if (!esTriggerConocido(triggerType)) {
+// R13: un trigger o una acción de un módulo que la organización no tiene
+// (booking.reminder_due fuera de una clínica) es, para ella, uno que no existe:
+// el mismo 400, con la lista de los que sí tiene. Para una automotora, la
+// lista y el mensaje de siempre.
+interface Rubro {
+  edition: OrganizationEdition;
+  industry: OrganizationIndustry;
+}
+
+function triggersDelRubro(rubro: Rubro): readonly string[] {
+  const modulos = modulosDe(rubro.edition, rubro.industry);
+  return TRIGGERS_CONOCIDOS.filter((t) => {
+    const modulo = MODULO_DEL_TRIGGER[t];
+    return modulo === undefined || modulos.has(modulo);
+  });
+}
+
+function assertTriggerConocido(
+  triggerType: string,
+  rubro: Rubro,
+): asserts triggerType is TriggerType {
+  const disponibles = triggersDelRubro(rubro);
+  if (!esTriggerConocido(triggerType) || !disponibles.includes(triggerType)) {
     throw new AppError(
-      `triggerType "${triggerType}" no existe: debe ser uno de ${TRIGGERS_CONOCIDOS.join(", ")}`,
+      `triggerType "${triggerType}" no existe: debe ser uno de ${disponibles.join(", ")}`,
       400,
     );
   }
@@ -167,11 +193,17 @@ function validarAccion(
   actionType: string,
   actionConfig: Record<string, unknown>,
   registro: RegistroDeAcciones,
-  industry: OrganizationIndustry,
+  rubro: Rubro,
 ): Record<string, unknown> {
-  const accion = registro.obtener(actionType);
+  const { industry } = rubro;
+  const modulos = modulosDe(rubro.edition, rubro.industry);
+  const delRubro = (tipo: string) => {
+    const modulo = registro.obtener(tipo)?.modulo;
+    return modulo === undefined || modulos.has(modulo);
+  };
+  const accion = delRubro(actionType) ? registro.obtener(actionType) : undefined;
   if (!accion) {
-    const disponibles = registro.tiposRegistrados();
+    const disponibles = registro.tiposRegistrados().filter(delRubro);
     throw new AppError(
       `actionType "${actionType}" no existe: debe ser ${
         disponibles.length > 0 ? `uno de ${disponibles.join(", ")}` : "una acción registrada"
@@ -215,10 +247,10 @@ export async function createAutomation(
 ) {
   const registro = opciones.registro ?? registroPorDefecto;
 
-  assertTriggerConocido(input.triggerType);
+  const rubro = await findEdicionYRubro(organizationId);
+  assertTriggerConocido(input.triggerType, rubro);
   const triggerConfig = validarConfigDeTrigger(input.triggerType, input.triggerConfig ?? {});
-  const { industry } = await findEdicionYRubro(organizationId);
-  const actionConfig = validarAccion(input.actionType, input.actionConfig, registro, industry);
+  const actionConfig = validarAccion(input.actionType, input.actionConfig, registro, rubro);
   assertAccionAdmiteTrigger(input.actionType, input.triggerType, registro);
   await assertReglaUnica(organizationId, input.triggerType, input.isActive ?? true);
 
@@ -253,10 +285,11 @@ export async function updateAutomation(
 ) {
   const registro = opciones.registro ?? registroPorDefecto;
   const existente = await getAutomationById(organizationId, id);
+  const rubro = await findEdicionYRubro(organizationId);
 
   const triggerEfectivo = input.triggerType ?? existente.triggerType;
   if (input.triggerType !== undefined) {
-    assertTriggerConocido(input.triggerType);
+    assertTriggerConocido(input.triggerType, rubro);
   }
 
   // Mismo razonamiento que el actionConfig de abajo, del lado del trigger:
@@ -269,7 +302,7 @@ export async function updateAutomation(
   if (input.triggerType !== undefined || triggerConfigEntrante !== undefined) {
     // Un trigger guardado que el catálogo ya no conoce no se puede revalidar:
     // editarle solo la config sin cambiarlo es un 400 con el mismo mensaje.
-    assertTriggerConocido(triggerEfectivo);
+    assertTriggerConocido(triggerEfectivo, rubro);
     triggerConfig = validarConfigDeTrigger(
       triggerEfectivo,
       triggerConfigEntrante ?? (existente.triggerConfig as Record<string, unknown>),
@@ -287,8 +320,7 @@ export async function updateAutomation(
   if (input.actionType !== undefined || configEntrante !== undefined) {
     const actionTypeEfectivo = input.actionType ?? existente.actionType;
     const configEfectivo = configEntrante ?? (existente.actionConfig as Record<string, unknown>);
-    const { industry } = await findEdicionYRubro(organizationId);
-    actionConfig = validarAccion(actionTypeEfectivo, configEfectivo, registro, industry);
+    actionConfig = validarAccion(actionTypeEfectivo, configEfectivo, registro, rubro);
   }
 
   if (input.triggerType !== undefined || input.actionType !== undefined) {
@@ -296,12 +328,28 @@ export async function updateAutomation(
   }
   await assertReglaUnica(organizationId, triggerEfectivo, input.isActive ?? existente.isActive, id);
 
-  const result = await updateAutomationRepo(id, organizationId, {
-    ...resto,
-    ...(actionConfig !== undefined ? { actionConfig: actionConfig as Prisma.InputJsonValue } : {}),
-    ...(triggerConfig !== undefined
-      ? { triggerConfig: triggerConfig as Prisma.InputJsonValue }
-      : {}),
+  // R13: desactivar la regla del recordatorio cancela sus pendientes, en la
+  // misma transacción. Las demás reglas: la escritura de siempre.
+  const desactiva = input.isActive === false && existente.isActive;
+  const result = await prisma.$transaction(async (tx) => {
+    const r = await updateAutomationRepo(
+      id,
+      organizationId,
+      {
+        ...resto,
+        ...(actionConfig !== undefined
+          ? { actionConfig: actionConfig as Prisma.InputJsonValue }
+          : {}),
+        ...(triggerConfig !== undefined
+          ? { triggerConfig: triggerConfig as Prisma.InputJsonValue }
+          : {}),
+      },
+      tx,
+    );
+    if (r.count > 0 && desactiva) {
+      await cancelarPendientesDeLaRegla(organizationId, id, MOTIVO_REGLA_INACTIVA, tx);
+    }
+    return r;
   });
   if (result.count === 0) {
     throw new AppError("Automatización no encontrada", 404);
@@ -315,9 +363,18 @@ export async function updateAutomation(
 // FK compuesta es RESTRICT, así que tampoco podrían borrarse por accidente.
 // Una regla borrada deja de despacharse de inmediato: el dispatcher filtra
 // deletedAt: null en cada evento.
+//
+// R13: los recordatorios PENDING de la regla se cancelan en la misma
+// transacción. Su historial (lo enviado) queda: la regla no se borra de verdad.
 export async function deleteAutomation(organizationId: string, id: string) {
   await getAutomationById(organizationId, id);
-  const result = await softDeleteAutomation(id, organizationId);
+  const result = await prisma.$transaction(async (tx) => {
+    const r = await softDeleteAutomation(id, organizationId, tx);
+    if (r.count > 0) {
+      await cancelarPendientesDeLaRegla(organizationId, id, MOTIVO_REGLA_INACTIVA, tx);
+    }
+    return r;
+  });
   if (result.count === 0) {
     throw new AppError("Automatización no encontrada", 404);
   }

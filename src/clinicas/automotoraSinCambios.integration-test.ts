@@ -7,6 +7,7 @@ import { findRoleByName } from "../repositories/role.repository";
 import { createBranch } from "../services/branch.service";
 import { replaceWorkingHoursForResource } from "../services/workingHours.service";
 import { cerrarTurnosVencidos } from "./services/atendido.service";
+import { createAutomation } from "../services/automation.service";
 import {
   INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
   runAgentTurn,
@@ -666,4 +667,31 @@ test("R11: el agente de una automotora no recibe las tools de turnos ni su texto
     (t) => t.name === "cancel_booking",
   );
   assert.equal(llamada?.allowed, false, "una tool que no se ofreció no se ejecuta");
+});
+
+test("R13: una automotora no puede crear la regla del recordatorio (el 400 de siempre) y sus reservas no agendan recordatorios", async () => {
+  await assert.rejects(
+    createAutomation(conSucursales.id, {
+      name: "Recordatorio",
+      triggerType: "booking.reminder_due",
+      actionType: "booking.send_reminder",
+      actionConfig: { messageText: "Hola {nombre}, tu turno es el {dia} a las {hora}." },
+    }),
+    /triggerType "booking.reminder_due" no existe: debe ser uno de opportunity.won, opportunity.stale, contact.inquiry_stalled$/,
+  );
+  await assert.rejects(
+    createAutomation(conSucursales.id, {
+      name: "Recordatorio",
+      triggerType: "opportunity.won",
+      actionType: "booking.send_reminder",
+      actionConfig: { messageText: "Hola {nombre}, tu turno es el {dia} a las {hora}." },
+    }),
+    (err: Error) =>
+      err.message.startsWith('actionType "booking.send_reminder" no existe') &&
+      !err.message.includes("booking.send_reminder,"),
+  );
+  assert.equal(
+    await prisma.bookingMessage.count({ where: { organizationId: conSucursales.id } }),
+    0,
+  );
 });

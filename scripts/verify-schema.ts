@@ -147,8 +147,8 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // queda desactualizado, lo que falla es la lectura de este comentario, no el
   // chequeo.
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
-  [7, { descripcion: "Los 13 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
-  [8, { descripcion: "Los 41 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
+  [7, { descripcion: "Los 15 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
+  [8, { descripcion: "Los 43 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
   [
     9,
     {
@@ -220,7 +220,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   [
     16,
     {
-      descripcion: "C-3 · las 95 FKs conocidas siguen apuntando a la tabla padre de su diseño",
+      descripcion: "C-3 · las 98 FKs conocidas siguen apuntando a la tabla padre de su diseño",
       esperado: "ninguna",
     },
   ],

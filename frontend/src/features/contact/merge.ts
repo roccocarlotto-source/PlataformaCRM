@@ -121,6 +121,7 @@ export const ETIQUETA_DE_LO_QUE_SE_MUEVE: Record<string, string> = {
   cuponesAgendados: "cupones agendados",
   seguimientosQr: "seguimientos con QR",
   seguimientosDeConsultas: "seguimientos de consultas",
+  recordatorios: "recordatorios de turno",
   eventos: "eventos de ingesta",
   identidades: "identidades de Messenger e Instagram",
   unidos: "contactos unidos antes",

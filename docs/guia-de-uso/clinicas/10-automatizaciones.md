@@ -32,3 +32,59 @@ El texto con el que arranca una regla nueva es:
 Si el seguimiento le toca a una conversación de Messenger, Instagram o la web, o
 a una que ya atiende una persona, en lugar del mensaje se crea una tarea, que
 dice qué prestación le interesa.
+
+## Recordatorio antes del turno {#recordatorio-de-turno}
+
+Antes de cada turno, el paciente recibe un WhatsApp para **confirmar** o
+**cancelar** con un botón. Lo usan solo las clínicas.
+
+### Cómo se activa
+
+1. En [Automatizaciones](/automations), creá una regla con el evento
+   **Recordatorio antes del turno** y la acción **Mandar el recordatorio por
+   WhatsApp**. Solo puede haber una activa.
+2. Revisá el texto. Al guardar la regla, el texto se manda a WhatsApp (Meta)
+   para que lo apruebe como mensaje de servicio (categoría UTILITY), con los
+   botones **Confirmo** y **Necesito cancelar**. La tarjeta de la regla muestra
+   si ya está aprobado. Hasta que lo aprueben, no sale ningún recordatorio.
+3. En cada sede ([Sucursales](/branches), sección **Recordatorios**) elegí con
+   cuántas horas de anticipación sale (de 1 a 72, por defecto 24) y qué pasa con
+   un turno que se da con menos anticipación: **no mandar recordatorio** (por
+   defecto), **mandarlo en el momento** o **mandarlo unas horas antes del
+   turno**. Cambiarlo no mueve los recordatorios que ya están programados.
+
+El texto con el que arranca la regla:
+
+> Hola {nombre}, te recordamos tu turno en {lugar} el {dia} a las {hora} con
+> {profesional}. ¿Nos confirmás si venís?
+
+| Variable | Qué va | |
+|---|---|---|
+| `{nombre}` | El nombre del paciente. | Obligatoria. |
+| `{lugar}` | El nombre de la clínica; si tiene más de una sede, "Clínica (sede Centro)". | Opcional. |
+| `{dia}` | El día del turno ("lunes 1 de marzo"). | Obligatoria. |
+| `{hora}` | La hora del turno ("10:30"). | Obligatoria. |
+| `{profesional}` | El profesional. | Opcional. |
+
+Van en ese orden. **El recordatorio no lleva la prestación ni ningún dato de
+salud**: se ve en la pantalla del teléfono.
+
+### Qué pasa con la respuesta
+
+- **Confirmo:** el turno queda **Confirmado por el paciente** (se ve en el
+  detalle del turno), con una nota en la ficha. El paciente recibe "¡Gracias!
+  Te esperamos."
+- **Necesito cancelar:** el turno se cancela y la recepción de la sede recibe
+  una tarea para ofrecerle otro horario. Si la sede tiene una **anticipación
+  mínima para cambiar un turno** y falta menos que eso, el turno **no** se
+  cancela: la recepción recibe una tarea para resolverlo con el paciente.
+- **Si escribe un mensaje en vez de tocar un botón**, lo atiende el asistente
+  como cualquier otro mensaje, y la tarea de "sin respuesta" sigue su curso.
+- **Si no responde**, el turno **no se cancela**: 4 horas después del
+  recordatorio (o 2 horas antes del turno, si eso es antes) la recepción de la
+  sede recibe una tarea "Confirmar por teléfono el turno de…". Si el turno es a
+  menos de 2 horas, no hay tarea. Si después confirma, la tarea se cierra sola.
+
+Los botones funcionan con cualquier nivel del asistente, y también con el
+asistente apagado. Si el turno se reprograma, el recordatorio se recalcula
+para el horario nuevo; si se cancela, no sale.

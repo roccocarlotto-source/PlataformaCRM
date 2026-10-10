@@ -70,6 +70,10 @@ export function BookingDetailDialog({
                 label: "Horario",
                 value: formatRangoDeReserva(booking.startsAt, booking.endsAt, zona),
               },
+              // R13: solo llega en una clínica (CAMPOS_DE_CLINICA).
+              ...(booking.patientConfirmedAt
+                ? [{ label: "Confirmación", value: "Confirmado por el paciente" }]
+                : []),
             ],
           },
         ]}

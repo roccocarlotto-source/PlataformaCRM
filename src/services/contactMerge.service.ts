@@ -65,6 +65,7 @@ import { appendLeadNotes, getContactById, mergeLeadAiData } from "./contact.serv
 
 export const FKS_A_CONTACTS = [
   "activities.contact_id",
+  "booking_messages.contact_id",
   "bookings.contact_id",
   "contact_channel_identities.contact_id",
   "contacts.merged_into_id",
@@ -393,6 +394,7 @@ export async function contarRelaciones(
     oportunidades,
     seguimientosQr,
     seguimientosDeConsultas,
+    recordatorios,
     unidos,
   ] = await Promise.all([
     db.activity.count({ where: { ...w, deletedAt: null } }),
@@ -405,6 +407,8 @@ export async function contarRelaciones(
     db.opportunity.count({ where: { ...w, deletedAt: null } }),
     db.qrFollowUp.count({ where: w }),
     db.inquiryFollowUp.count({ where: w }),
+    // R13: los recordatorios de turno de una clínica.
+    db.bookingMessage.count({ where: w }),
     db.contact.count({ where: { organizationId, mergedIntoId: contactId } }),
   ]);
   return {
@@ -418,6 +422,7 @@ export async function contarRelaciones(
     oportunidades,
     seguimientosQr,
     seguimientosDeConsultas,
+    recordatorios,
     unidos,
   };
 }
@@ -531,6 +536,7 @@ export async function unirContactos(
         seguimientosQr: (await tx.qrFollowUp.updateMany({ where: de, data: a })).count,
         seguimientosDeConsultas: (await tx.inquiryFollowUp.updateMany({ where: de, data: a }))
           .count,
+        recordatorios: (await tx.bookingMessage.updateMany({ where: de, data: a })).count,
         unidos: (
           await tx.contact.updateMany({
             where: { organizationId, mergedIntoId: absorbedId },
