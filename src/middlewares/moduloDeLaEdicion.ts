@@ -1,6 +1,7 @@
 import type { Request } from "express";
 import {
   CAMPOS_POR_RUTA,
+  SOLO_CLINICA,
   moduloDeLaRuta,
   modulosDe,
   motivoDeExclusion,
@@ -29,7 +30,8 @@ import { AppError } from "../utils/AppError";
 // (req.baseUrl + req.route.path, "/api/quotes/:id"), sin regex de paths.
 //
 // COMPLETA + AUTOMOTORA (todas las organizaciones de hoy) tiene todos los
-// módulos: para ella esto no hace NADA, ni siquiera buscar la ruta. En
+// módulos menos los solo de clínica: para ella esto no hace NADA salvo
+// rechazar una ruta de un módulo solo de clínica (403 con motivo RUBRO). En
 // cualquier otra combinación:
 //   - ruta de un módulo excluido → 403 MODULO_NO_INCLUIDO;
 //   - ruta sin clasificar → 403 MODULO_NO_INCLUIDO con modulo "sin_clasificar"
@@ -61,7 +63,21 @@ export function rutaDelRequest(req: Request): string {
 }
 
 export function exigirModuloDeLaEdicion(req: Request, auth: AuthContext): void {
-  if (auth.edition === "COMPLETA" && auth.industry === "AUTOMOTORA") return;
+  if (auth.edition === "COMPLETA" && auth.industry === "AUTOMOTORA") {
+    // Sigue siendo un no-op para COMPLETA + AUTOMOTORA, con UNA excepción
+    // desde R5: las rutas de un módulo solo de clínica (SOLO_CLINICA, hoy
+    // agenda_clinica) no son de una automotora. Todo lo demás (rutas sin
+    // clasificar, campos) queda como antes.
+    const modulo = moduloDeLaRuta(rutaDelRequest(req));
+    if (modulo !== undefined && SOLO_CLINICA.has(modulo)) {
+      throw new AppError(MENSAJE.RUBRO, 403, true, {
+        code: MODULO_NO_INCLUIDO,
+        modulo,
+        motivo: "RUBRO",
+      });
+    }
+    return;
+  }
 
   const permitidos = modulosDe(auth.edition, auth.industry);
   const ruta = rutaDelRequest(req);

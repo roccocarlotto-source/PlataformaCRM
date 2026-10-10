@@ -1,5 +1,6 @@
 import type { OrganizationIndustry } from "@prisma/client";
 import { REGLAS_DE_CLINICA } from "../clinicas/reglasDeClinica";
+import type { ToolDelAgente } from "./agentTools.service";
 
 // ---------------------------------------------------------------------------
 // Puntos de extensión del loop del agente por rubro (docs/rubros.md §0.3 y
@@ -63,6 +64,10 @@ export interface ReglasDelRubro {
   instruccionesDelPrompt: readonly string[];
   /** Argumentos que una tool no ofrece ni recibe en este rubro. */
   camposFueraDeLasTools: Readonly<Record<string, readonly string[]>>;
+  /** Versiones propias del rubro de tools del catálogo, por nombre: si el
+   *  agente tiene la tool habilitada, se usa esta en su lugar (en una clínica,
+   *  las de agenda con profesionales, docs/rubros.md §4.3 y §5.1). */
+  toolsPropias: Readonly<Record<string, ToolDelAgente>>;
 }
 
 export const SIN_REGLAS: ReglasDelRubro = {
@@ -72,6 +77,7 @@ export const SIN_REGLAS: ReglasDelRubro = {
   callaDespuesDeDerivar: false,
   instruccionesDelPrompt: [],
   camposFueraDeLasTools: {},
+  toolsPropias: {},
 };
 
 const REGLAS_POR_RUBRO: Readonly<Record<OrganizationIndustry, ReglasDelRubro>> = {

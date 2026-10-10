@@ -2401,10 +2401,14 @@ export async function responderEnLaConversacion(
     new Set(options.entrantesPendientes ?? []),
   );
   const historial = aHistorial(mensajes, options.adjuntos);
-  // Los argumentos que el rubro no ofrece se recortan de la definición y de
-  // lo que recibe la tool (docs/rubros.md §8.2). En AUTOMOTORA, las mismas.
+  // Las tools con versión propia del rubro se reemplazan (en una clínica, las
+  // de agenda con profesionales, docs/rubros.md §4.3), y los argumentos que el
+  // rubro no ofrece se recortan de la definición y de lo que recibe la tool
+  // (§8.2). En AUTOMOTORA, las mismas tools del catálogo.
   const tools = toolsSinCampos(
-    toolsHabilitadas(agent.enabledTools, organizacion),
+    toolsHabilitadas(agent.enabledTools, organizacion).map(
+      (tool) => reglas.toolsPropias[tool.definition.name] ?? tool,
+    ),
     reglas.camposFueraDeLasTools,
   );
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));

@@ -174,7 +174,7 @@ export const NOTA_DATOS_RESERVADOS_EN_WEB =
 
 // null = se puede seguir. Lee el contacto vigente: el update_lead de la misma
 // ronda ya quedó guardado.
-async function bloqueoPorIdentidad(
+export async function bloqueoPorIdentidad(
   contexto: ContextoDeEjecucionDeTool,
 ): Promise<ResultadoDeTool | null> {
   const contacto = await findContactById(contexto.conversation.contactId, contexto.organizationId);
@@ -253,7 +253,7 @@ export function exito(data: unknown): ResultadoDeTool {
 // más fuerte disponible sin cambiar de modelo, y es acumulativa con el prompt.
 // ---------------------------------------------------------------------------
 
-function exitoVacio(
+export function exitoVacio(
   data: Record<string, unknown>,
   queHacer: string,
   extra: Record<string, unknown> = {},
@@ -1383,7 +1383,7 @@ async function resolverRecursoDeLaSucursal(
 // Si la sucursal no se pudiera leer —caso residual, mismo criterio que
 // get_payment_info— se cae a UTC, que al menos es explícito y no una hora
 // local inventada.
-async function zonaDeLaSucursal(contexto: ContextoDeEjecucionDeTool): Promise<string> {
+export async function zonaDeLaSucursal(contexto: ContextoDeEjecucionDeTool): Promise<string> {
   const branch = await findBranchById(contexto.conversation.branchId, contexto.organizationId);
   return branch?.timezone ?? "UTC";
 }
@@ -1454,7 +1454,7 @@ export function normalizarNombre(texto: string): string {
 
 // Devuelve el serviceTypeId, o un fallo con la lista de nombres reales para
 // que el modelo pueda corregirse sin adivinar.
-async function resolverServicio(
+export async function resolverServicio(
   args: { serviceTypeId?: string; servicio?: string },
   contexto: ContextoDeEjecucionDeTool,
 ): Promise<{ ok: true; serviceTypeId: string } | { ok: false; resultado: ResultadoDeTool }> {
@@ -1556,7 +1556,7 @@ async function resolverRecursoDelServicio(
 // expresó mal un instante, se equivocó de orden, y taparlo escondería el bug.
 const VENTANA_POR_DEFECTO_MS = 24 * 60 * 60 * 1000;
 
-const getAvailabilityArgs = z
+export const getAvailabilityArgs = z
   .object({
     // Ítem 102: opcional. Si no viene, se deduce del serviceTypeId.
     resourceId: vacioComoAusente(uuid("resourceId")),
@@ -1655,7 +1655,7 @@ const getAvailabilityTool: ToolDelAgente = {
   },
 };
 
-const createBookingArgs = z.object({
+export const createBookingArgs = z.object({
   // Ítem 102: opcional, igual que en get_availability.
   resourceId: vacioComoAusente(uuid("resourceId")),
   serviceTypeId: vacioComoAusente(uuid("serviceTypeId")),
@@ -2405,7 +2405,7 @@ async function guardarIntencionDeBusqueda(
   }
 }
 
-const sinParametros = { type: "object", properties: {}, additionalProperties: false };
+export const sinParametros = { type: "object", properties: {}, additionalProperties: false };
 
 // Decimal de Prisma → number para el modelo (mismo criterio que budgetAmount
 // en ejecutarCalificacion). 14,2 cabe de sobra en un double.
@@ -2727,7 +2727,7 @@ const searchVehiclesTool: ToolDelAgente = {
 
 // Tope defensivo: una sucursal con más tipos de servicio que esto es un caso
 // que no existe hoy, y el prompt no tiene por qué cargar un catálogo entero.
-const MAX_TIPOS_DE_SERVICIO = 50;
+export const MAX_TIPOS_DE_SERVICIO = 50;
 
 const getServiceTypesTool: ToolDelAgente = {
   definition: {

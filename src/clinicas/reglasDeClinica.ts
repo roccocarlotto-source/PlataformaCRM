@@ -16,6 +16,7 @@ import {
   clasificarMensajeDeSalud,
   daIndicacionClinica,
 } from "./guardrailsDeSalud";
+import { TOOLS_DE_AGENDA_DE_CLINICA } from "./toolsDeAgenda";
 
 // ---------------------------------------------------------------------------
 // Las reglas del rubro CLINICA para el loop del agente (docs/rubros.md §5.3 y
@@ -72,4 +73,6 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
     create_lead: ["notes", "aiData"],
     update_lead: ["notes", "aiData"],
   },
+  // §4.3 y §5.1 (R5): la agenda con profesionales.
+  toolsPropias: TOOLS_DE_AGENDA_DE_CLINICA,
 };

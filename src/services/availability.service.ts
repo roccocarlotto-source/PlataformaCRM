@@ -1,3 +1,4 @@
+import { esProfesionalDeLaPrestacion } from "../clinicas/repositories/serviceTypeResource.repository";
 import { logger } from "../lib/logger";
 import { findConfirmedBookingsInRange } from "../repositories/booking.repository";
 import { findResourceById } from "../repositories/resource.repository";
@@ -251,7 +252,16 @@ export async function resolverContexto(
   // podría pedir disponibilidad de "corte de pelo" contra la sala de masajes, y
   // el resultado sería un horario que después POST /api/bookings rechaza — o
   // peor, acepta.
-  if (serviceType.resourceId !== resource.id) {
+  //
+  // En una clínica, una prestación la hacen varios profesionales
+  // (docs/rubros.md §4.3): además del principal, cualquiera de su tabla. La
+  // tabla se mira SOLO si el recurso no es el principal, así que para una
+  // automotora (que no tiene filas) el camino que acepta es el de siempre, y el
+  // que rechaza da el mismo 400.
+  if (
+    serviceType.resourceId !== resource.id &&
+    !(await esProfesionalDeLaPrestacion(organizationId, serviceType, resource.id))
+  ) {
     throw new AppError("El servicio indicado no lo provee ese recurso", 400);
   }
 
