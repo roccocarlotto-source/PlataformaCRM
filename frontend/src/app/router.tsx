@@ -62,6 +62,8 @@ import { ResourceFormPage } from "../features/resource/ResourceFormPage";
 import { ResourceListPage } from "../features/resource/ResourceListPage";
 import { ServiceTypeFormPage } from "../features/serviceType/ServiceTypeFormPage";
 import { ServiceTypeListPage } from "../features/serviceType/ServiceTypeListPage";
+import { PrestacionesPage } from "../features/clinica/PrestacionesPage";
+import { ProfesionalesPage } from "../features/clinica/ProfesionalesPage";
 import { ContactCustomFieldFormPage } from "../features/contactCustomField/ContactCustomFieldFormPage";
 import { ContactCustomFieldListPage } from "../features/contactCustomField/ContactCustomFieldListPage";
 import { GuiaPage } from "../features/guia/GuiaPage";
@@ -333,6 +335,12 @@ export const router = createBrowserRouter([
               { path: "/service-types", element: <ServiceTypeListPage /> },
               { path: "/service-types/new", element: <ServiceTypeFormPage /> },
               { path: "/service-types/:id/edit", element: <ServiceTypeFormPage /> },
+              // Agenda de clínica (docs/rubros.md §4.3, R5): quién atiende cada
+              // prestación y la lista de profesionales. Configuración ADMIN,
+              // como /service-types. El backend las reserva al rubro CLINICA
+              // (403 a una automotora) y el menú solo las muestra en una clínica.
+              { path: "/clinica/prestaciones", element: <PrestacionesPage /> },
+              { path: "/clinica/profesionales", element: <ProfesionalesPage /> },
               // B6: campos personalizados de contactos, ADMIN-only entera.
               { path: "/contact-custom-fields", element: <ContactCustomFieldListPage /> },
               { path: "/contact-custom-fields/new", element: <ContactCustomFieldFormPage /> },

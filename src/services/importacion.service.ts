@@ -38,6 +38,7 @@ import {
 } from "../utils/spreadsheet";
 import { parseOrThrow } from "../utils/validation";
 import { aDefinicionDeCampo } from "./contactCustomFieldDefinition.service";
+import { MENSAJE_SIN_EMPRESAS, organizacionSinEmpresas } from "./importacionEdicion";
 import { crearLoteConFilas } from "./importacionLote";
 import { crearSincronizacionDesdeLote, type PedidoDeSincronizar } from "./importacionSync.service";
 import {
@@ -119,6 +120,12 @@ export async function subirImportacion(
   archivo: { nombre: string; contenido: Buffer },
 ) {
   await exigirOrganizacion(organizationId);
+
+  // docs/ediciones.md §2.2: sin el módulo empresas (ESENCIAL), no se importan
+  // empresas. Antes de leer el archivo y de crear nada.
+  if (pedido.entityType === "COMPANY" && (await organizacionSinEmpresas(organizationId))) {
+    throw new AppError(MENSAJE_SIN_EMPRESAS, 400);
+  }
 
   // Primero el archivo: un archivo ilegible no tiene que dejar una fuente
   // nueva creada.

@@ -964,7 +964,7 @@ cada uno deja a COMPLETA igual que hoy:
 | D | `feat(agente): el loop respeta la edición y el nivel` | Parte 2 del PR 6. **Su diseño se muestra y se aprueba antes de escribir código.** |
 | E | `feat(ediciones): menú, pantallas y guía por edición` | PR 7, con la lista y el formulario simples de oportunidades del PR 5. |
 | F | `feat(dashboard): dashboard de atención` | PR 8: sin él, el dashboard de ESENCIAL queda roto (403). |
-| G | `feat(importacion): sin empresas en ESENCIAL` | PR 9. |
+| G | `feat(importacion): sin empresas en ESENCIAL` | **Hecho** (PR 9). La regla vive en `src/services/importacionEdicion.ts`, porque la importación no pasa por el gate: sin el módulo `empresas` en la organización destino (`modulosDe`), un lote de empresas da 400 al subirlo, antes de leer el archivo y sin crear la fuente. En un lote de contactos, la columna mapeada a empresa se ignora con una advertencia por fila en la vista previa, y no se crea ni se vincula ninguna empresa aunque el lote tenga `crearEmpresas`. La misma regla se aplica de nuevo al promover (escribe en la base). |
 | H | `feat(ediciones): habilitar ESENCIAL` | `ESENCIAL_HABILITADA = true` y la línea del test que fija su valor. Secciones **14 y 04** de la guía, con el ancla de "Organizaciones" y su `help` (`AYUDA`) en la pantalla. Test de punta a punta. **Antes de H** se escribe y se aprueba un plan de prueba de punta a punta con una organización ESENCIAL de prueba creada por el platform admin. |
 
 Antes de cada PR se repite `gh pr list --state open` por si apareció otro que

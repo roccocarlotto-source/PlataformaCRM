@@ -8,6 +8,7 @@ import {
   MODULOS,
   MODULO_DE_LA_TOOL,
   RUTAS_POR_MODULO,
+  SOLO_CLINICA,
   modulosDe,
   type Modulo,
 } from "../config/ediciones";
@@ -29,6 +30,7 @@ import {
 import { SIN_REGLAS, reglasDelRubro } from "../services/reglasDelRubro";
 import { CAPACIDADES, puede } from "../services/permisos";
 import { exigirRolDelRubro } from "../config/ediciones";
+import { crearClienteGoogleCalendar } from "../services/googleCalendar.service";
 import { vocabularioDe } from "../config/vocabulario";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
@@ -212,7 +214,14 @@ function errorDe(fn: () => void): AppError | undefined {
   }
 }
 
-const TODAS_LAS_RUTAS = MODULOS.flatMap((m: Modulo) => RUTAS_POR_MODULO[m]);
+// Las rutas de una automotora: todas menos las de los módulos solo de
+// clínica (R5 en adelante), que no existían antes y no son suyas (las prueba
+// el test de abajo). Que ningún módulo de una automotora termine en
+// SOLO_CLINICA lo fija el primer test (la lista fija de sus módulos).
+const TODAS_LAS_RUTAS = MODULOS.filter((m) => !SOLO_CLINICA.has(m)).flatMap(
+  (m: Modulo) => RUTAS_POR_MODULO[m],
+);
+const RUTAS_SOLO_DE_CLINICA = [...SOLO_CLINICA].flatMap((m: Modulo) => RUTAS_POR_MODULO[m]);
 
 test("gate, COMPLETA: no-op total, en todas las rutas, sin clasificar y con cualquier campo", () => {
   const id = "33333333-3333-3333-3333-333333333333";
@@ -254,6 +263,24 @@ test("gate, ESENCIAL: bloquea exactamente las 29 rutas de siempre, con el 403 de
     bloqueadas[ruta] = modulo as string;
   }
   assert.deepEqual(bloqueadas, BLOQUEADAS_EN_ESENCIAL);
+});
+
+test("gate: las rutas de los módulos solo de clínica dan 403 con motivo RUBRO a una automotora, en las dos ediciones", () => {
+  assert.ok(RUTAS_SOLO_DE_CLINICA.length > 0);
+  for (const edition of EDICIONES) {
+    for (const ruta of RUTAS_SOLO_DE_CLINICA) {
+      const [metodo, patron] = ruta.split(" ");
+      const err = errorDe(() =>
+        exigirModuloDeLaEdicion(pedido(metodo, patron), automotora(edition)),
+      );
+      assert.equal(err?.statusCode, 403, `${edition}: ${ruta}`);
+      assert.equal(err?.message, "Esta función no está disponible para tu rubro.");
+      const detalles = err?.details as Record<string, unknown>;
+      assert.equal(detalles.code, "MODULO_NO_INCLUIDO");
+      assert.equal(detalles.motivo, "RUBRO");
+      assert.ok(SOLO_CLINICA.has(detalles.modulo as Modulo), ruta);
+    }
+  }
 });
 
 test("gate, ESENCIAL: los bloqueos por campo son los de siempre; los del rubro no aplican", () => {
@@ -468,6 +495,8 @@ test("las reglas del rubro de una automotora están vacías: ningún verificador
     callaDespuesDeDerivar: false,
     instruccionesDelPrompt: [],
     camposFueraDeLasTools: {},
+    // R5: ninguna tool con versión propia (las de agenda de una clínica).
+    toolsPropias: {},
   });
 });
 
@@ -498,4 +527,32 @@ test("en una automotora, asignar RECEPCION da 400; ADMIN y USER se siguen pudien
   );
   assert.doesNotThrow(() => exigirRolDelRubro("ADMIN", "AUTOMOTORA"));
   assert.doesNotThrow(() => exigirRolDelRubro("USER", "AUTOMOTORA"));
+});
+
+// ---------------------------------------------------------------------------
+// R7 (canales de Google en su propia tabla, docs/rubros.md §4.6): el pedido de
+// autorización de Google de una automotora es EXACTAMENTE el de antes, con los
+// mismos dos scopes y los mismos parámetros. Una sucursal ya conectada no
+// tiene que volver a autorizar nada. El literal es la URL de antes de R7 con
+// una configuración y un state de prueba.
+// ---------------------------------------------------------------------------
+
+test("la URL de autorización de Google de una automotora es la de antes, con los mismos dos scopes", () => {
+  const url = crearClienteGoogleCalendar({
+    clientId: "client-id-de-prueba.apps.googleusercontent.com",
+    clientSecret: "secreto-de-prueba",
+    redirectUri: "https://api.example.com/api/integrations/google-calendar/callback",
+  }).construirUrlDeAutorizacion("state-firmado-de-prueba");
+
+  assert.equal(
+    url,
+    "https://accounts.google.com/o/oauth2/v2/auth" +
+      "?client_id=client-id-de-prueba.apps.googleusercontent.com" +
+      "&redirect_uri=https%3A%2F%2Fapi.example.com%2Fapi%2Fintegrations%2Fgoogle-calendar%2Fcallback" +
+      "&response_type=code" +
+      "&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events.freebusy" +
+      "&access_type=offline" +
+      "&prompt=consent" +
+      "&state=state-firmado-de-prueba",
+  );
 });

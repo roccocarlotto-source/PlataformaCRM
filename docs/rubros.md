@@ -481,6 +481,52 @@ horario partido y nombre. Las pantallas de clínica no ofrecen `ROOM` ni `CLASS`
 
 ### 4.3 Prestaciones con varios profesionales
 
+> **Implementado en R5.** Cómo quedó, y dónde difiere de lo de abajo:
+>
+> - **Tabla `service_type_resources`** (migración 20261102120000), con FKs
+>   compuestas a `service_types` y `resources` y RLS. **Los profesionales de
+>   una prestación son el principal más las filas de la tabla**: las lecturas
+>   hacen esa unión siempre. No hay trigger ni service que "garantice" la fila
+>   del principal, porque no hace falta.
+> - **Relleno:** la migración escribe el principal de cada prestación de una
+>   organización CLINICA. Hoy no hay ninguna, así que no escribe nada; queda
+>   por si se aplica sobre una base con clínicas. Las automotoras no tienen
+>   filas.
+> - **Aceptar a otro profesional:** `resolverContexto` (disponibilidad) y la
+>   relectura bajo lock de `createBooking` aceptan al principal o a un
+>   profesional de la tabla. La tabla se consulta **solo** si el recurso no es
+>   el principal: en el camino feliz de una automotora no hay ninguna consulta
+>   nueva, y el rechazo es el mismo 400.
+> - **El módulo de clínicas** (`src/clinicas/`):
+>   - `services/agendaClinica.service.ts`: la disponibilidad de una prestación
+>     es la unión de `obtenerDisponibilidad` por profesional, sin una segunda
+>     cuenta. El "primero libre" elige entre los que tienen ese turno libre
+>     según esa misma función, el de menos turnos ese día (en la zona de la
+>     sede); si otro pedido se lo gana (409), prueba con el siguiente.
+>   - Rutas `/api/clinica/*`: prestaciones, sus profesionales, disponibilidad
+>     y turno. Las cinco son del módulo nuevo `agenda_clinica`, en
+>     `SOLO_CLINICA`.
+> - **El gate:** para COMPLETA + AUTOMOTORA sigue siendo un no-op, con una
+>   única excepción. Una ruta de un módulo de `SOLO_CLINICA` da 403 con motivo
+>   RUBRO. Las rutas sin clasificar y los campos siguen igual que antes.
+> - **Tools del agente:** `ReglasDelRubro.toolsPropias` (R4) suma las
+>   versiones de clínica de `get_service_types`, `get_availability` y
+>   `create_booking` (`src/clinicas/toolsDeAgenda.ts`). Tienen el mismo nombre
+>   y los mismos argumentos, y `resourceId` es el profesional que eligió el
+>   paciente; sin él, se muestran todos los profesionales o se reserva al
+>   primero libre. Sin oportunidad: una clínica no tiene (§2.1). AUTOMOTORA no
+>   tiene tools propias.
+> - **Pantallas:** `features/clinica/` tiene Profesionales (la lista, con
+>   alta y horario en la pantalla de recursos que ya existe) y Prestaciones
+>   (elegir quién atiende). Las dos usan el vocabulario de `/me`. En una
+>   clínica el menú las muestra en lugar de Recursos y Tipos de servicio. **La
+>   pantalla de reservas del panel todavía no ofrece "el primero libre"**:
+>   reservar con otro profesional que el principal funciona por la API y por
+>   el agente; el panel queda para el PR de pantallas (R17).
+> - **Google:** la disponibilidad consulta el `freebusy` de la sucursal una
+>   vez por profesional (el mismo calendario). Restar solo lo de cada
+>   profesional es R8.
+
 `ServiceType.resourceId` es NOT NULL y apunta a **un** recurso. "Limpieza
 facial" la hacen dos cosmetólogas, y el paciente quiere "el primer turno libre
 con cualquiera".
@@ -557,6 +603,40 @@ model ResourceTimeOff {
 - Los crean ADMIN y Recepción.
 
 ### 4.6 Google Calendar: un calendario por profesional (D4)
+
+> **R7 implementado (canales en su propia tabla).** Cómo quedó, y dónde
+> difiere del modelo de abajo:
+>
+> - **`google_calendar_channels`** tiene `organizationId`, `branchId`,
+>   `calendarId`, los tres campos del canal (con el mismo CHECK de "van
+>   juntos"), `syncToken` y timestamps. `channelId` es `@unique` y hay un
+>   unique `(organizationId, branchId, calendarId)`.
+>   - **Sin `connectionId`.** Hay una conexión por sucursal, así que la FK
+>     compuesta va a `branches(organization_id, id)`, igual que la de la
+>     conexión. `google_calendar_connections` no tiene un unique
+>     `(organization_id, id)`, y agregarlo era tocar una tabla existente.
+>   - **Sin `resourceId` ni `lastError*`.** Son de R8, que los agrega con su
+>     migración junto con el uso.
+>   - **RLS sin políticas (deny-all)**, como la conexión y
+>     `meta_page_connections`.
+> - **Copia, no mueve.** La migración copia el canal y el `syncToken` de cada
+>   conexión que los tiene. El código de R7 **lee** la tabla nueva y **escribe
+>   las dos**, con las columnas viejas como espejo en la misma transacción.
+>   Volver al código anterior no pierde ningún canal renovado ni ningún
+>   `syncToken`. R21 borra las columnas y el espejo juntos.
+> - **Transición.** Entre que se aplica la migración y se despliega el código,
+>   el código viejo puede escribir las columnas viejas. Hay dos redes:
+>   - el webhook, si no encuentra el `channelId` en la tabla nueva, lo busca en
+>     las columnas viejas;
+>   - el worker de renovación, al empezar cada pasada, corre
+>     `reconciliarCanalesConLasColumnasViejas`, que adopta lo que el código
+>     viejo haya escrito (las columnas viejas ganan cuando difieren). En régimen
+>     no cambia ninguna fila.
+> - **Reconectar o desconectar** borra las filas de canal de la sucursal, en la
+>   misma transacción que limpia la conexión.
+> - Los repositorios conservan su firma. Webhook, sync y worker no cambiaron de
+>   forma, salvo `desconectar` (lee el canal de la tabla nueva) y la
+>   reconciliación al inicio de la pasada.
 
 #### El problema de hoy
 

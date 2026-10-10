@@ -48,6 +48,7 @@ import {
 } from "./vehicle.service";
 import { AppError } from "../utils/AppError";
 import { encolarFotosDelVehiculo, linksDeLaCelda } from "./importacionFotos.service";
+import { ajustesSinEmpresas, organizacionSinEmpresas } from "./importacionEdicion";
 
 // ---------------------------------------------------------------------------
 // Promoción de UNA fila del asistente de importación (docs/importacion-de-
@@ -790,12 +791,18 @@ export async function promoverFilaDelAsistente(
     throw new Error(
       `promoverFilaDelAsistente: el evento ${evento.id} no es de un lote del asistente`,
     );
-  const ajustes = ajustesDelLote(lote.config);
-  if (!ajustes) {
+  const ajustesDelArchivo = ajustesDelLote(lote.config);
+  if (!ajustesDelArchivo) {
     // Un lote confirmado siempre tiene ajustes (confirmar exige READY, y
     // READY sale de analizar con ajustes). Si no los tiene, es un bug.
     throw new Error(`promoverFilaDelAsistente: el lote ${lote.id} no tiene ajustes`);
   }
+  // docs/ediciones.md §2.2: la misma regla que el análisis, de nuevo acá
+  // porque esto escribe: sin el módulo empresas, ninguna empresa.
+  const ajustes =
+    lote.entityType === "CONTACT" && (await organizacionSinEmpresas(evento.organizationId, db))
+      ? ajustesSinEmpresas(ajustesDelArchivo)
+      : ajustesDelArchivo;
 
   const fila = evento.rawPayload as FilaCruda;
   const politica: Politica = (lote.decision as ImportRowDecision | null) ?? ajustes.duplicados;

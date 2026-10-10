@@ -96,7 +96,9 @@ test("un módulo sin rutas está declarado en MODULOS_SIN_RUTAS, y uno declarado
 
 test("COMPLETA tiene todos los módulos; ESENCIAL, todos menos los de solo COMPLETA", () => {
   assert.deepEqual([...MODULOS_POR_EDICION.COMPLETA].sort(), [...MODULOS].sort());
-  const fuera = MODULOS.filter((m) => !modulosDe("ESENCIAL", "AUTOMOTORA").has(m)).sort();
+  // Por edición sola: los módulos solo de clínica (agenda_clinica, R5) están
+  // en las dos ediciones; los saca el rubro, no la edición.
+  const fuera = MODULOS.filter((m) => !MODULOS_POR_EDICION.ESENCIAL.has(m)).sort();
   assert.deepEqual(fuera, [
     "cotizaciones",
     "dashboard_comercial",

@@ -64,6 +64,11 @@ export const MODULOS = [
   // columna del vehículo). Los cubre CAMPOS_POR_RUTA.
   "financiacion",
   "permutas",
+  // Solo CLINICA (docs/rubros.md §2): en las dos ediciones, y AUTOMOTORA no lo
+  // tiene (SOLO_CLINICA). La agenda de clínica: varios profesionales por
+  // prestación (§4.3, R5); bloqueos, sobreturnos y lo demás de §4 se suman acá
+  // con sus PR.
+  "agenda_clinica",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
@@ -88,10 +93,10 @@ export const MODULOS_POR_EDICION: Readonly<Record<OrganizationEdition, ReadonlyS
 // existía antes de los rubros: con ella, modulosDe(e, "AUTOMOTORA") es
 // exactamente lo que era modulosDe(e) (lo fija
 // src/clinicas/automotoraSinCambios.test.ts). Los módulos propios de clínica
-// (agenda_clinica, recordatorios_de_turno, post_turno, recepcion) entran a
-// MODULOS con el PR que les da rutas, y a SOLO_CLINICA para que AUTOMOTORA no
-// los tenga.
-const SOLO_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>([]);
+// entran a MODULOS con el PR que les da rutas, y a SOLO_CLINICA para que
+// AUTOMOTORA no los tenga: agenda_clinica (R5); recordatorios_de_turno,
+// post_turno y recepcion llegan con los suyos.
+export const SOLO_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>(["agenda_clinica"]);
 
 // Lo que una clínica no tiene (docs/rubros.md §2 y §2.1, D3): el stock de
 // vehículos (con sync-vehicles, que es del módulo stock), las oportunidades y
@@ -479,6 +484,13 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   ],
   financiacion: [],
   permutas: [],
+  agenda_clinica: [
+    "GET /api/clinica/prestaciones",
+    "GET /api/clinica/prestaciones/:serviceTypeId/profesionales",
+    "PUT /api/clinica/prestaciones/:serviceTypeId/profesionales",
+    "GET /api/clinica/disponibilidad",
+    "POST /api/clinica/turnos",
+  ],
 };
 
 /** Rutas sin sesión de usuario (sin `authenticate`). No dependen de la

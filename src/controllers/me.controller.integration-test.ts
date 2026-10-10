@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import express from "express";
-import { MODULOS } from "../config/ediciones";
+import { MODULOS, SOLO_CLINICA } from "../config/ediciones";
 import { env } from "../config/env";
 import { authenticate } from "../middlewares/authenticate";
 import { errorHandler } from "../middlewares/errorHandler";
@@ -207,10 +207,14 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     // columna User.canUseInternalAgent quede en el default false.
     assert.equal(body.canUseInternalAgent, true);
     // Una organización sin edición ni rubro explícitos es COMPLETA y
-    // AUTOMOTORA: tiene todos los módulos del catálogo.
+    // AUTOMOTORA: tiene todos los módulos del catálogo menos los solo de
+    // clínica (R5).
     assert.equal(body.edition, "COMPLETA");
     assert.equal(body.industry, "AUTOMOTORA");
-    assert.deepEqual(body.modulos, [...MODULOS]);
+    assert.deepEqual(
+      body.modulos,
+      MODULOS.filter((m) => !SOLO_CLINICA.has(m)),
+    );
   } finally {
     await close();
     await prisma.user.delete({ where: { id: fx.authUserId } });

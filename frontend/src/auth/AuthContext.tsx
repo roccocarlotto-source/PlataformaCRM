@@ -42,6 +42,30 @@ export interface MeResponse {
   // su rubro), en orden. Opcional: un backend anterior no lo manda, y
   // entonces son los de una automotora (ver features/user/roles.ts).
   rolesAsignables?: RoleName[];
+  // Rubros (docs/rubros.md §3, R3): el rubro de la organización y los textos
+  // que el backend arma para él. Opcionales: un backend anterior no los manda.
+  // R5 los usa en las pantallas de clínica y en el menú; el resto de las
+  // pantallas los adopta con R17.
+  industry?: "AUTOMOTORA" | "CLINICA";
+  vocabulario?: Vocabulario;
+}
+
+export interface TerminoDelVocabulario {
+  singular: string;
+  plural: string;
+  singularTitulo: string;
+  pluralTitulo: string;
+}
+
+// src/config/terminos.ts del backend.
+export interface Vocabulario {
+  marca: string;
+  contacto: TerminoDelVocabulario;
+  recurso: TerminoDelVocabulario;
+  tipoDeServicio: TerminoDelVocabulario;
+  reserva: TerminoDelVocabulario;
+  agenda: TerminoDelVocabulario;
+  responsable: TerminoDelVocabulario;
 }
 
 export type AuthStatus =

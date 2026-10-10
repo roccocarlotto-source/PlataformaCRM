@@ -6,6 +6,8 @@ import { createBooking as insertarReserva } from "../repositories/booking.reposi
 import {
   findConnectionByChannelId,
   findConnectionsNeedingChannel,
+  reconciliarCanalesConLasColumnasViejas,
+  upsertConnection,
 } from "../repositories/googleCalendarConnection.repository";
 import { AppError } from "../utils/AppError";
 import { getCifrador } from "../utils/encryption";
@@ -103,6 +105,7 @@ async function desmontar(escenario: Escenario) {
   const where = { organizationId: escenario.organizationId };
   await prisma.booking.deleteMany({ where });
   await prisma.workingHours.deleteMany({ where });
+  await prisma.googleCalendarChannel.deleteMany({ where });
   await prisma.googleCalendarConnection.deleteMany({ where });
   await prisma.serviceType.deleteMany({ where });
   await prisma.resource.deleteMany({ where });
@@ -1286,6 +1289,326 @@ test("B-7: si la sucursal se desconecta mientras Google crea el canal, no se pis
         resourceId: `recurso-de-${doble.canalesCreados[0].channelId.slice(0, 8)}`,
       },
     ]);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// R7 (docs/rubros.md §4.6): los canales en google_calendar_channels.
+//
+// LOS DATOS SON LOS MIGRADOS: cada escenario crea la conexión con el formato
+// de antes de R7 (canal y syncToken en las columnas de la conexión) y después
+// corre reconciliarCanalesConLasColumnasViejas, que es la misma copia que hace
+// la migración 20261103120000 (INSERT ... SELECT ... ON CONFLICT DO NOTHING).
+// Sobre eso se prueban el webhook, el sync, la renovación, la desconexión, la
+// transición (lo que escribe el código de antes después de la migración) y el
+// espejo que hace reversible el cambio.
+// ---------------------------------------------------------------------------
+
+async function conectarYMigrar(
+  escenario: Escenario,
+  extra: Parameters<typeof conectarGoogle>[1] = {},
+) {
+  const conexion = await conectarGoogle(escenario, extra);
+  await reconciliarCanalesConLasColumnasViejas({ organizationId: escenario.organizationId });
+  return conexion;
+}
+
+function leerCanal(escenario: Escenario) {
+  return prisma.googleCalendarChannel.findFirst({
+    where: { organizationId: escenario.organizationId, branchId: escenario.branchId },
+  });
+}
+
+function leerConexion(escenario: Escenario) {
+  return prisma.googleCalendarConnection.findFirstOrThrow({
+    where: { organizationId: escenario.organizationId, branchId: escenario.branchId },
+  });
+}
+
+// Lo que el código de antes de R7 leería: las cuatro columnas de la conexión.
+// Tienen que ser iguales a la fila de la tabla nueva después de cada escritura
+// del código de R7 (el espejo).
+async function assertEspejo(escenario: Escenario, contexto: string) {
+  const canal = await leerCanal(escenario);
+  const conexion = await leerConexion(escenario);
+  assert.deepEqual(
+    {
+      channelId: conexion.channelId,
+      channelResourceId: conexion.channelResourceId,
+      channelExpiration: conexion.channelExpiration,
+      syncToken: conexion.syncToken,
+    },
+    {
+      channelId: canal?.channelId ?? null,
+      channelResourceId: canal?.channelResourceId ?? null,
+      channelExpiration: canal?.channelExpiration ?? null,
+      syncToken: canal?.syncToken ?? null,
+    },
+    `${contexto}: las columnas viejas tienen que ser el espejo de la tabla nueva`,
+  );
+}
+
+test("R7: la copia de la migración lleva el canal y el syncToken tal cual, una fila por sucursal", async () => {
+  const escenario = await montar("r7-copia");
+  try {
+    const canal = randomUUID();
+    const vence = new Date(Date.now() + 3 * 86400000);
+    await conectarYMigrar(escenario, {
+      channelId: canal,
+      channelResourceId: "r-migrado",
+      channelExpiration: vence,
+      syncToken: "t-migrado",
+    });
+
+    const fila = await leerCanal(escenario);
+    assert.ok(fila);
+    assert.equal(fila.calendarId, "primary");
+    assert.equal(fila.channelId, canal);
+    assert.equal(fila.channelResourceId, "r-migrado");
+    assert.equal(fila.channelExpiration?.getTime(), vence.getTime());
+    assert.equal(fila.syncToken, "t-migrado");
+
+    // Correrla de nuevo no duplica ni cambia nada.
+    assert.deepEqual(
+      await reconciliarCanalesConLasColumnasViejas({ organizationId: escenario.organizationId }),
+      { creados: 0, actualizados: 0 },
+    );
+    assert.equal(
+      await prisma.googleCalendarChannel.count({
+        where: { organizationId: escenario.organizationId },
+      }),
+      1,
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("R7: una conexión sin canal ni syncToken no tiene fila (el worker la trata como 'sin canal', como antes)", async () => {
+  const escenario = await montar("r7-sin-canal");
+  try {
+    await conectarYMigrar(escenario);
+    assert.equal(await leerCanal(escenario), null);
+
+    const doble = doblarGoogle();
+    const resumen = await renovarCanalesVencidos({
+      cliente: doble.cliente,
+      organizationId: escenario.organizationId,
+    });
+    assert.deepEqual(resumen, { renovados: 1, fallidos: 0 });
+    assert.equal((await leerCanal(escenario))?.channelId, doble.canalesCreados[0].channelId);
+    await assertEspejo(escenario, "después de crear el canal");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("R7: el webhook de un canal migrado lee el syncToken de la TABLA NUEVA y escribe el siguiente en las dos", async () => {
+  const escenario = await montar("r7-webhook");
+  try {
+    const canal = randomUUID();
+    await conectarYMigrar(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+    // Para distinguir de dónde lee: el syncToken de la conexión pasa a ser otro.
+    // Si el sync leyera las columnas viejas, llamaría a Google con este.
+    await prisma.googleCalendarConnection.updateMany({
+      where: { branchId: escenario.branchId },
+      data: { syncToken: "t0-de-las-columnas-viejas" },
+    });
+
+    const doble = doblarGoogle({ nextSyncToken: "t1" });
+    const resultado = await notificar(escenario, canal, doble);
+
+    assert.equal(resultado.accion, "sin-cambios");
+    assert.deepEqual(doble.listadosConSyncToken, ["t0"]);
+    assert.equal((await leerCanal(escenario))?.syncToken, "t1");
+    await assertEspejo(escenario, "después del sync");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("R7: un canal migrado que vence se renueva en las dos tablas y el viejo se detiene", async () => {
+  const escenario = await montar("r7-renovar");
+  try {
+    const viejo = randomUUID();
+    await conectarYMigrar(escenario, {
+      channelId: viejo,
+      channelResourceId: "r-viejo",
+      channelExpiration: new Date(Date.now() + 60 * 60 * 1000),
+      syncToken: "t0",
+    });
+
+    const doble = doblarGoogle();
+    const resumen = await renovarCanalesVencidos({
+      cliente: doble.cliente,
+      organizationId: escenario.organizationId,
+    });
+
+    assert.deepEqual(resumen, { renovados: 1, fallidos: 0 });
+    const fila = await leerCanal(escenario);
+    assert.equal(fila?.channelId, doble.canalesCreados[0].channelId);
+    assert.equal(fila?.syncToken, "t0", "renovar el canal no toca el syncToken");
+    assert.deepEqual(doble.canalesDetenidos, [{ channelId: viejo, resourceId: "r-viejo" }]);
+    await assertEspejo(escenario, "después de renovar");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("R7: un canal migrado lejos de vencer no se toca: nada se abre ni se cierra en Google", async () => {
+  const escenario = await montar("r7-vigente");
+  try {
+    const canal = randomUUID();
+    await conectarYMigrar(escenario, {
+      channelId: canal,
+      channelResourceId: "r-vigente",
+      channelExpiration: new Date(Date.now() + 6 * 86400000),
+    });
+
+    const doble = doblarGoogle();
+    const resumen = await renovarCanalesVencidos({
+      cliente: doble.cliente,
+      organizationId: escenario.organizationId,
+    });
+
+    assert.deepEqual(resumen, { renovados: 0, fallidos: 0 });
+    assert.equal(doble.canalesCreados.length, 0);
+    assert.equal(doble.canalesDetenidos.length, 0);
+    assert.equal((await leerCanal(escenario))?.channelId, canal);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("R7, transición: un canal que abre el código de antes DESPUÉS de la migración se procesa igual y el worker lo adopta", async () => {
+  const escenario = await montar("r7-transicion");
+  try {
+    const migrado = randomUUID();
+    await conectarYMigrar(escenario, {
+      channelId: migrado,
+      channelResourceId: "r-migrado",
+      channelExpiration: new Date(Date.now() + 60 * 60 * 1000),
+      syncToken: "t0",
+    });
+
+    // El código de antes de R7 renueva el canal y avanza el syncToken: escribe
+    // SOLO las columnas viejas. La tabla nueva queda con lo de la migración.
+    const delCodigoViejo = randomUUID();
+    const vence = new Date(Date.now() + 7 * 86400000);
+    await prisma.googleCalendarConnection.updateMany({
+      where: { branchId: escenario.branchId },
+      data: {
+        channelId: delCodigoViejo,
+        channelResourceId: "r-del-codigo-viejo",
+        channelExpiration: vence,
+        syncToken: "t-del-codigo-viejo",
+      },
+    });
+
+    // Una notificación de ese canal: el webhook la encuentra en las columnas
+    // viejas y sincroniza con su syncToken.
+    const doble = doblarGoogle({ nextSyncToken: "t-siguiente" });
+    const resultado = await notificar(escenario, delCodigoViejo, doble);
+    assert.equal(resultado.accion, "sin-cambios");
+    assert.deepEqual(doble.listadosConSyncToken, ["t-del-codigo-viejo"]);
+
+    // La pasada del worker reconcilia primero: adopta el canal del código de
+    // antes en lugar de renovar el migrado (que en la tabla nueva vencía).
+    const resumen = await renovarCanalesVencidos({
+      cliente: doble.cliente,
+      organizationId: escenario.organizationId,
+    });
+    assert.deepEqual(resumen, { renovados: 0, fallidos: 0 });
+    assert.equal(doble.canalesCreados.length, 0);
+    const fila = await leerCanal(escenario);
+    assert.equal(fila?.channelId, delCodigoViejo);
+    assert.equal(fila?.channelExpiration?.getTime(), vence.getTime());
+    assert.equal(fila?.syncToken, "t-siguiente");
+    await assertEspejo(escenario, "después de reconciliar");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("R7: en régimen la reconciliación no cambia nada (el espejo va en la misma transacción)", async () => {
+  const escenario = await montar("r7-regimen");
+  try {
+    const canal = randomUUID();
+    await conectarYMigrar(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+    await notificar(escenario, canal, doblarGoogle({ nextSyncToken: "t1" }));
+    await renovarCanalesVencidos({
+      cliente: doblarGoogle().cliente,
+      organizationId: escenario.organizationId,
+    });
+
+    assert.deepEqual(
+      await reconciliarCanalesConLasColumnasViejas({ organizationId: escenario.organizationId }),
+      { creados: 0, actualizados: 0 },
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("R7: desconectar cierra el canal de la TABLA NUEVA y borra su fila", async () => {
+  const escenario = await montar("r7-desconectar");
+  try {
+    const canal = randomUUID();
+    await conectarYMigrar(escenario, {
+      channelId: canal,
+      channelResourceId: "r-a-cerrar",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+    // Para distinguir de dónde lee: la conexión ya no tiene canal.
+    await prisma.googleCalendarConnection.updateMany({
+      where: { branchId: escenario.branchId },
+      data: { channelId: null, channelResourceId: null, channelExpiration: null },
+    });
+
+    const doble = doblarGoogle();
+    await desconectar(escenario.organizationId, escenario.branchId, doble.cliente);
+
+    assert.deepEqual(doble.canalesDetenidos, [{ channelId: canal, resourceId: "r-a-cerrar" }]);
+    assert.equal(await leerCanal(escenario), null);
+    assert.equal((await leerConexion(escenario)).status, "REVOKED");
+    await assertEspejo(escenario, "después de desconectar");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("R7: reconectar (upsertConnection) borra el canal y el syncToken de la tabla nueva, como de la conexión", async () => {
+  const escenario = await montar("r7-reconectar");
+  try {
+    await conectarYMigrar(escenario, {
+      channelId: randomUUID(),
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    await upsertConnection({
+      organizationId: escenario.organizationId,
+      branchId: escenario.branchId,
+      refreshToken: getCifrador().encrypt("1//otro-refresh"),
+      calendarId: "primary",
+    });
+
+    assert.equal(await leerCanal(escenario), null);
+    await assertEspejo(escenario, "después de reconectar");
   } finally {
     await desmontar(escenario);
   }

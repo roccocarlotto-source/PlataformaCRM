@@ -27,6 +27,8 @@ import {
   setConnectionChannel,
   clearConnectionChannel,
   setConnectionSyncToken,
+  findCanalDeLaSucursal,
+  reconciliarCanalesConLasColumnasViejas,
 } from "./googleCalendarConnection.repository";
 import {
   markOutboxEventProcessed,
@@ -150,6 +152,12 @@ import {
   leerConfiguracionDeClinica,
   leerConfiguracionDeSede,
 } from "../clinicas/repositories/clinicSettings.repository";
+import {
+  contarTurnosPorRecurso,
+  esProfesionalDeLaPrestacion,
+  profesionalesDeLasPrestaciones,
+  reemplazarProfesionales,
+} from "../clinicas/repositories/serviceTypeResource.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -464,6 +472,9 @@ before(async () => {
       syncToken: "m4-org-b-sync-token",
     },
   });
+  // R7: la fila de GoogleCalendarChannel de esa conexión, copiada como lo hace
+  // la migración 20261103120000 (la reconciliación es la misma copia).
+  await reconciliarCanalesConLasColumnasViejas({ organizationId: orgB.id });
   // Directo por Prisma: emitOutboxEvent exige una transacción abierta a
   // propósito y no aporta nada acá.
   const outboxEventB = await prisma.outboxEvent.create({
@@ -596,7 +607,10 @@ after(async () => {
   // Resource, ServiceType y Contact; WorkingHours y GoogleCalendarConnection
   // de Resource/Branch; ServiceType de Branch y Resource.
   await prisma.booking.deleteMany({ where: { organizationId: ambas } });
+  // R5: los profesionales de una prestación cuelgan de ServiceType y Resource.
+  await prisma.serviceTypeResource.deleteMany({ where: { organizationId: ambas } });
   await prisma.workingHours.deleteMany({ where: { organizationId: ambas } });
+  await prisma.googleCalendarChannel.deleteMany({ where: { organizationId: ambas } });
   await prisma.googleCalendarConnection.deleteMany({ where: { organizationId: ambas } });
   await prisma.serviceType.deleteMany({ where: { organizationId: ambas } });
   await prisma.resource.deleteMany({ where: { organizationId: ambas } });
@@ -1151,10 +1165,45 @@ test("markBookingCancelled: id de Organization B + organizationId de Organizatio
 // La clave del WHERE acá es branchId, no id: se llama con la sucursal de B y
 // la organización de A. La conexión del fixture tiene canal y syncToken
 // seteados para que "no cambió nada" sea una afirmación real en las cinco.
+//
+// R7: el canal y el syncToken viven en GoogleCalendarChannel (y en espejo en
+// la conexión). La lectura trae las dos filas, así "no cambió nada" vale para
+// las dos tablas.
 
-function leerConexionB() {
-  return prisma.googleCalendarConnection.findUniqueOrThrow({ where: { id: fx.gcalB.id } });
+async function leerConexionB() {
+  return {
+    conexion: await prisma.googleCalendarConnection.findUniqueOrThrow({
+      where: { id: fx.gcalB.id },
+    }),
+    canal: await prisma.googleCalendarChannel.findFirstOrThrow({
+      where: { organizationId: fx.orgB.id, branchId: fx.branchB.id },
+    }),
+  };
 }
+
+test("GoogleCalendarChannel: el canal de B existe (copiado de la conexión) y A no lo ve", async () => {
+  const { conexion, canal } = await leerConexionB();
+  assert.equal(canal.channelId, conexion.channelId);
+  assert.equal(canal.syncToken, conexion.syncToken);
+  assert.equal(await findCanalDeLaSucursal(fx.branchB.id, fx.orgA.id), null);
+});
+
+test("reconciliarCanalesConLasColumnasViejas: acotada a A no toca el canal de B", async () => {
+  const antes = await leerConexionB();
+  await prisma.googleCalendarConnection.update({
+    where: { id: fx.gcalB.id },
+    data: { syncToken: "m4-org-b-sync-token-del-codigo-viejo" },
+  });
+  try {
+    await reconciliarCanalesConLasColumnasViejas({ organizationId: fx.orgA.id });
+    assert.deepEqual((await leerConexionB()).canal, antes.canal);
+  } finally {
+    await prisma.googleCalendarConnection.update({
+      where: { id: fx.gcalB.id },
+      data: { syncToken: antes.conexion.syncToken },
+    });
+  }
+});
 
 test("markConnectionRevoked: branchId de Organization B + organizationId de Organization A no revoca la conexión", async () => {
   await assertCrossTenantWriteNoOp(
@@ -2605,6 +2654,48 @@ test("H-01 ClinicBranchSettings: X no lee la configuración de la sede de Y ni p
   );
   assert.equal(await prisma.clinicBranchSettings.count({ where: { branchId: otraSedeY.id } }), 0);
   assert.deepEqual(await leerY.sede(), antes);
+});
+
+// R5 (docs/rubros.md §4.3): los profesionales de una prestación. Con la
+// organización de A: las lecturas no ven la prestación ni los profesionales
+// de B, reemplazar no borra las filas de B y la base rechaza una fila de A
+// sobre la prestación de B (FK compuesta).
+test("H-01 ServiceTypeResource: A no lee, no borra ni crea profesionales en la prestación de B", async () => {
+  const otroDeB = await prisma.resource.create({
+    data: {
+      organizationId: fx.orgB.id,
+      branchId: fx.branchB.id,
+      name: "H-01 profesional de B",
+      type: "PERSON",
+    },
+  });
+  await prisma.serviceTypeResource.create({
+    data: { organizationId: fx.orgB.id, serviceTypeId: fx.serviceTypeB.id, resourceId: otroDeB.id },
+  });
+  const deB = { id: fx.serviceTypeB.id, resourceId: fx.resourceB.id };
+
+  assert.deepEqual(
+    (await profesionalesDeLasPrestaciones(fx.orgA.id, [deB])).get(deB.id),
+    [],
+    "con A no se ven los profesionales de B",
+  );
+  assert.equal(await esProfesionalDeLaPrestacion(fx.orgA.id, deB, otroDeB.id), false);
+  assert.equal(
+    (await contarTurnosPorRecurso(fx.orgA.id, [fx.resourceB.id], new Date(0), new Date())).size,
+    0,
+  );
+
+  await assertViolaFk(
+    // Un par que todavía no existe: el ya existente lo saltaría skipDuplicates
+    // (tampoco insertaría nada), y el test no llegaría a la FK.
+    () => reemplazarProfesionales(fx.orgA.id, deB.id, [fx.resourceB.id], prisma),
+    "ServiceTypeResource de A sobre la prestación de B",
+  );
+  assert.equal(
+    await prisma.serviceTypeResource.count({ where: { serviceTypeId: deB.id } }),
+    1,
+    "la fila de B sigue",
+  );
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {
