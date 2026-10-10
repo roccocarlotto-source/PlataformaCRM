@@ -23,9 +23,9 @@ test("rubrosDisponibles: con la llave en true, AUTOMOTORA primero y después CLI
   assert.deepEqual(rubrosDisponibles(false), ["AUTOMOTORA"]);
 });
 
-test("ROLES_POR_RUBRO: una automotora admite los roles de hoy; una clínica, solo ADMIN hasta R12", () => {
+test("ROLES_POR_RUBRO: una automotora admite los roles de hoy; una clínica, ADMIN y Recepción (R12)", () => {
   assert.deepEqual(ROLES_POR_RUBRO.AUTOMOTORA, ["ADMIN", "USER"]);
-  assert.deepEqual(ROLES_POR_RUBRO.CLINICA, ["ADMIN"]);
+  assert.deepEqual(ROLES_POR_RUBRO.CLINICA, ["ADMIN", "RECEPCION"]);
 });
 
 test("los defaults del código son los de las columnas de la migración", () => {

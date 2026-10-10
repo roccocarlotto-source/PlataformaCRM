@@ -22,5 +22,12 @@ export function puedeEditarRegistro(me: Yo, registro: { ownerId: string | null }
   return me.role === "ADMIN" || registro.ownerId === me.id;
 }
 
+// Un contacto, además, lo edita cualquier persona de Recepción: en una clínica
+// nadie es dueño de un paciente (R12, docs/rubros.md §11.2; backend:
+// editar_cualquier_contacto en src/services/permisos.ts). Ni ella lo reasigna.
+export function puedeEditarContacto(me: Yo, contacto: { ownerId: string | null }): boolean {
+  return puedeEditarRegistro(me, contacto) || me?.role === "RECEPCION";
+}
+
 export const AVISO_SOLO_LECTURA =
   "Está asignado a otra persona: solo quien lo tiene asignado o un administrador puede editarlo.";

@@ -1,7 +1,7 @@
 import { findInternalAgentByOrganization } from "../repositories/internalAgent.repository";
 import type { Response } from "express";
 import { leerConfiguracionDeClinica } from "../clinicas/repositories/clinicSettings.repository";
-import { MODULOS, modulosDe } from "../config/ediciones";
+import { MODULOS, ROLES_POR_RUBRO, modulosDe } from "../config/ediciones";
 import { vocabularioDe } from "../config/vocabulario";
 import { findPlatformAdminByUserId } from "../repositories/platformAdmin.repository";
 import { findUserById } from "../repositories/user.repository";
@@ -61,5 +61,10 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     // mismo motivo que `modulos`.
     ...(clinica ? { contactTerm: clinica.contactTerm } : {}),
     vocabulario: vocabularioDe(industry, clinica?.contactTerm ?? null),
+    // R12 (docs/rubros.md §11.1): los roles que el ADMIN puede asignar en esta
+    // organización, en el orden en que se muestran. Mismo criterio que
+    // `modulos`: la pantalla de usuarios e invitaciones no tiene una tabla
+    // propia. Lo que decide es exigirRolDelRubro en cada pedido.
+    rolesAsignables: ROLES_POR_RUBRO[industry],
   });
 });

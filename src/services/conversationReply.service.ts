@@ -43,6 +43,7 @@ import { atencionFueraDeHorarioDeLaSucursal } from "./branchBusinessHours.servic
 import { aplicarEstadosRetenidos } from "./estadosDeEntregaRetenidos.service";
 import { marcarTokenRechazado, obtenerTokenParaEnviar } from "./metaPageConnection.service";
 import { MetaSendError, sendMetaTextReal, type SendMetaText } from "./metaSend.service";
+import { puede } from "./permisos";
 import {
   WhatsappGraphError,
   mensajeDeMeta,
@@ -130,7 +131,9 @@ export function puedeAtenderLaConversacion(
   actor: Actor,
   conversation: Pick<Conversation, "assignedUserId">,
 ): boolean {
-  return actor.role === "ADMIN" || conversation.assignedUserId === actor.userId;
+  return (
+    puede(actor, "atender_cualquier_conversacion") || conversation.assignedUserId === actor.userId
+  );
 }
 
 // Pura: por qué no se puede mandar texto libre ahora, o null si se puede. El

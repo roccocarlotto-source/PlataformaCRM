@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
-import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarRegistro } from "../../auth/permisos";
+import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarContacto } from "../../auth/permisos";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
@@ -238,7 +238,7 @@ export function ContactFormPage() {
   // D2: un USER que abre el contacto de otro lo ve, pero no lo guarda (el
   // backend respondería 403).
   const soloLectura =
-    isEditMode && contactQuery.data !== undefined && !puedeEditarRegistro(me, contactQuery.data);
+    isEditMode && contactQuery.data !== undefined && !puedeEditarContacto(me, contactQuery.data);
 
   if (isEditMode && contactQuery.isLoading) {
     return <LoadingState variant="lines" />;

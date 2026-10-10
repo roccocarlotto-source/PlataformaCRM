@@ -10,5 +10,7 @@ export function puedeAtender(
   conversation: Pick<Conversation, "assignedUserId">,
 ): boolean {
   if (!me) return false;
-  return me.role === "ADMIN" || conversation.assignedUserId === me.id;
+  // R12: Recepción atiende cualquier conversación, asignada o no (backend:
+  // atender_cualquier_conversacion, src/services/permisos.ts).
+  return me.role === "ADMIN" || me.role === "RECEPCION" || conversation.assignedUserId === me.id;
 }

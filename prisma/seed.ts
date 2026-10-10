@@ -17,6 +17,13 @@ const ROLES = [
     name: "USER",
     description: "Usuario estándar: gestiona sus propios registros dentro de la organización.",
   },
+  // docs/rubros.md §11 (R12). La migración 20261104120000 también la inserta:
+  // producción no depende de que alguien corra el seed.
+  {
+    name: "RECEPCION",
+    description:
+      "Recepción de una clínica: agenda, pacientes, conversaciones y tareas. No configura nada.",
+  },
 ] as const;
 
 async function main() {
@@ -31,7 +38,7 @@ async function main() {
 
 main()
   .then(async () => {
-    console.log("Seed completado: catálogo de roles (ADMIN, USER).");
+    console.log("Seed completado: catálogo de roles (ADMIN, USER, RECEPCION).");
     await prisma.$disconnect();
   })
   .catch(async (err) => {

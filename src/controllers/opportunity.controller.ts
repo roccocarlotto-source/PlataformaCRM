@@ -270,7 +270,7 @@ export const updateOpportunityHandler = asyncHandler<AuthenticatedRequest>(
     // etapa, ganarla o perderla incluido), y no las reasigna.
     if (req.auth.role !== "ADMIN") {
       const actual = await getOpportunityById(req.auth.organizationId, id);
-      assertPuedeEditar(req.auth, actual, input.ownerId);
+      assertPuedeEditar(req.auth, actual, input.ownerId, "editar_cualquier_oportunidad");
     }
     const opportunity = await updateOpportunity(
       req.auth.organizationId,

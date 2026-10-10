@@ -171,11 +171,11 @@ export const updateContactHandler = asyncHandler<AuthenticatedRequest>(
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updateContactSchema, req.body);
     // D2: un USER edita solo los contactos que tiene asignados, y no los
-    // reasigna. La lectura extra es solo para un USER; el 404 de un contacto
+    // reasigna. Recepción (R12) edita cualquiera, pero tampoco reasigna. La lectura extra es solo para un USER; el 404 de un contacto
     // que no existe sale de acá igual que antes salía del service.
     if (req.auth.role !== "ADMIN") {
       const actual = await getContactById(req.auth.organizationId, id);
-      assertPuedeEditar(req.auth, actual, input.ownerId);
+      assertPuedeEditar(req.auth, actual, input.ownerId, "editar_cualquier_contacto");
     }
     const contact = await updateContact(req.auth.organizationId, req.auth.userId, id, input);
     res.status(200).json(contact);

@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus, Users } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
-import { puedeEditarRegistro } from "../../auth/permisos";
+import { puedeEditarContacto } from "../../auth/permisos";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
@@ -335,7 +335,7 @@ export function ContactListPage() {
                             },
                             // D2: editar, quien lo tiene asignado o un ADMIN;
                             // eliminar, solo un ADMIN.
-                            ...(puedeEditarRegistro(me, contact)
+                            ...(puedeEditarContacto(me, contact)
                               ? [{ label: "Editar", to: `/contacts/${contact.id}/edit` }]
                               : []),
                             ...(isAdmin

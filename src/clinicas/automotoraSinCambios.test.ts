@@ -28,6 +28,8 @@ import {
   defaultOrganizationAdminDeps,
 } from "../services/organizationAdmin.service";
 import { SIN_REGLAS, reglasDelRubro } from "../services/reglasDelRubro";
+import { CAPACIDADES, puede } from "../services/permisos";
+import { exigirRolDelRubro } from "../config/ediciones";
 import { crearClienteGoogleCalendar } from "../services/googleCalendar.service";
 import { vocabularioDe } from "../config/vocabulario";
 import type { AuthContext } from "../types/auth";
@@ -503,6 +505,28 @@ test("las tools de una automotora no se recortan: son los mismos objetos del cat
   const recortadas = toolsSinCampos(tools, reglasDelRubro("AUTOMOTORA").camposFueraDeLasTools);
   assert.equal(recortadas.length, tools.length);
   recortadas.forEach((tool, i) => assert.equal(tool, tools[i]));
+});
+
+// ---------------------------------------------------------------------------
+// R12 (rol Recepción, docs/rubros.md §11): ADMIN y USER pueden exactamente lo
+// mismo que antes (cada capacidad de permisos.ts es el `role === "ADMIN"` que
+// reemplazó), y una automotora no admite el rol nuevo.
+// ---------------------------------------------------------------------------
+
+test("permisos de ADMIN y USER: los de antes de R12", () => {
+  for (const capacidad of CAPACIDADES) {
+    assert.equal(puede({ role: "ADMIN" }, capacidad), true, capacidad);
+    assert.equal(puede({ role: "USER" }, capacidad), false, capacidad);
+  }
+});
+
+test("en una automotora, asignar RECEPCION da 400; ADMIN y USER se siguen pudiendo asignar", () => {
+  assert.throws(
+    () => exigirRolDelRubro("RECEPCION", "AUTOMOTORA"),
+    (err: unknown) => err instanceof AppError && err.statusCode === 400,
+  );
+  assert.doesNotThrow(() => exigirRolDelRubro("ADMIN", "AUTOMOTORA"));
+  assert.doesNotThrow(() => exigirRolDelRubro("USER", "AUTOMOTORA"));
 });
 
 // ---------------------------------------------------------------------------
