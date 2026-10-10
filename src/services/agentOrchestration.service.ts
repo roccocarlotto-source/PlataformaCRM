@@ -1,4 +1,12 @@
+import {
+  INSTRUCCION_DE_PRIMER_CONTACTO,
+  TEXTO_DEL_WIDGET_SIN_IA,
+  decidirAtencion,
+  nivelEfectivo,
+  toolDelNivel,
+} from "./agentNivelDeIa";
 import type {
+  AgentParticipation,
   Contact,
   Conversation,
   ConversationChannel,
@@ -22,6 +30,7 @@ import {
 } from "../repositories/conversation.repository";
 import { findActiveKnowledgeBaseEntriesByBranch } from "../repositories/knowledgeBaseEntry.repository";
 import {
+  contarRespuestasDelAgenteDesdeLaUltimaPersona,
   createMessage,
   findLastAgentMessage,
   findLastMessages,
@@ -1113,6 +1122,9 @@ export function armarSystemPrompt(
   // salud, docs/rubros.md §5.3 capa 2). Vacío en AUTOMOTORA: el prompt es el
   // de siempre, byte a byte.
   instruccionesDelRubro: readonly string[] = [],
+  // Paso D: sin create_opportunity disponible (PRIMER_CONTACTO), la regla de
+  // cuándo registrar una oportunidad no aplica. true = como siempre.
+  conInstruccionDeIniciativa = true,
 ): string {
   const partes = [agent.instructions.trim()];
 
@@ -1204,7 +1216,9 @@ export function armarSystemPrompt(
   // 08/10/2026: cuándo registrar una oportunidad o una reserva, y el nombre
   // en ese momento. Después de las cuatro de arriba porque es de la misma
   // familia —qué hacer con las herramientas— y antes de la de derivación.
-  partes.push(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA);
+  if (conInstruccionDeIniciativa) {
+    partes.push(INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA);
+  }
 
   const condiciones = listaDeGuardrails(agent.guardrails, "condicionesDeDerivacion");
   // El tercer disparador fijo es del ítem 110. Caso real: ante "son todos unos
@@ -1926,6 +1940,60 @@ type AgenteDelTurno = NonNullable<Awaited<ReturnType<typeof findAgentById>>>;
 
 // Lo que todo turno exige del agente y del contacto antes de empezar. Un
 // AppError de acá es permanente: el worker de WhatsApp no lo reintenta.
+// Las instrucciones de rol del nivel (docs/ediciones.md §6.2). AUTONOMA:
+// ninguna, el prompt de siempre.
+function instruccionesDelNivel(nivel: AgentParticipation): string[] {
+  return nivel === "PRIMER_CONTACTO" ? [INSTRUCCION_DE_PRIMER_CONTACTO] : [];
+}
+
+// Derivar por el nivel de IA, sin modelo (docs/ediciones.md §4.2): la tarea
+// para una persona con el motivo del nivel. En el widget web, que espera una
+// respuesta, queda además un texto fijo como saliente del agente; en los
+// otros canales no sale ningún mensaje (atiende una persona).
+async function derivarPorElNivel(entrada: {
+  motivo: string;
+  agentName: string;
+  contact: Contact;
+  conversation: Conversation;
+  mensajesVistos: string[];
+}): Promise<RespuestaEnLaConversacion> {
+  const { motivo, agentName, contact, conversation, mensajesVistos } = entrada;
+  const organizationId = conversation.organizationId;
+  const { activityId } = await ejecutarHandoff({
+    organizationId,
+    conversationId: conversation.id,
+    branchId: conversation.branchId,
+    contact,
+    agentName,
+    motivo,
+  });
+  let respuesta: string | null = null;
+  let salienteId: string | null = null;
+  if (conversation.channel === "WEB") {
+    respuesta = TEXTO_DEL_WIDGET_SIN_IA;
+    const saliente = await createMessage({
+      organizationId,
+      conversationId: conversation.id,
+      direction: "OUTBOUND",
+      senderType: "AGENT",
+      content: respuesta,
+    });
+    salienteId = saliente.id;
+  }
+  return {
+    resultado: {
+      conversationId: conversation.id,
+      status: "TRANSFERRED_TO_HUMAN",
+      respuesta,
+      toolCalls: [],
+      handoff: true,
+      handoffActivityId: activityId,
+    },
+    salienteId,
+    mensajesVistos,
+  };
+}
+
 export async function cargarAgenteYContacto(
   organizationId: string,
   agentId: string,
@@ -2335,6 +2403,44 @@ export async function responderEnLaConversacion(
     return sinRespuesta;
   }
 
+  // NIVEL DE IA (docs/ediciones.md §4, paso D). AUTONOMA no evalúa nada: es el
+  // camino de siempre. Con otro nivel, decidirAtencion dice si el agente
+  // atiende o deriva SIN llamar al modelo, con un motivo propio. Un agente
+  // inactivo, sin el canal o borrado no llega acá (sigue como siempre).
+  const nivel = nivelEfectivo(agent, organizacion.edition);
+  if (nivel !== "AUTONOMA") {
+    const dentroDeHorario =
+      franjasDeLaSucursal.length === 0 ||
+      !sucursal ||
+      atencionFueraDeHorario(franjasDeLaSucursal, sucursal.timezone, new Date()) === null;
+    const decision = decidirAtencion({
+      nivel,
+      conversacionDerivada: conversation.status === "TRANSFERRED_TO_HUMAN",
+      onlyOutsideBusinessHours: agent.onlyOutsideBusinessHours,
+      dentroDeHorario,
+      respuestasDelAgente:
+        nivel === "PRIMER_CONTACTO"
+          ? await contarRespuestasDelAgenteDesdeLaUltimaPersona(
+              conversation.id,
+              organizationId,
+              conversation.transferredToHumanAt,
+            )
+          : 0,
+    });
+    if (!decision.atiende) {
+      if (!decision.deriva) return sinRespuesta;
+      return derivarPorElNivel({
+        motivo: decision.motivo,
+        agentName: agent.name,
+        contact,
+        conversation,
+        mensajesVistos: ultimosMensajes.map((m) => m.id),
+      });
+    }
+  }
+  // Si llegó acá, atiende: el nivel nunca es null (decidirAtencion deriva).
+  const nivelDelTurno = nivel ?? "SOLO_SEGUIMIENTO";
+
   const deEntrada = primeraDecisionDeEntrada(reglas.entrada, entrantesDelTurno, contextoDeLaRegla);
   if (deEntrada) {
     return responderConDecisionDelRubro({
@@ -2394,7 +2500,8 @@ export async function responderEnLaConversacion(
     conversation.channel,
     camposPersonalizados,
     contact.customFields,
-    reglas.instruccionesDelPrompt,
+    [...reglas.instruccionesDelPrompt, ...instruccionesDelNivel(nivelDelTurno)],
+    toolDelNivel("create_opportunity", nivelDelTurno),
   );
   const mensajes = ordenarPendientesAlFinal(
     ultimosMensajes,
@@ -2406,9 +2513,10 @@ export async function responderEnLaConversacion(
   // rubro no ofrece se recortan de la definición y de lo que recibe la tool
   // (§8.2). En AUTOMOTORA, las mismas tools del catálogo.
   const tools = toolsSinCampos(
-    toolsHabilitadas(agent.enabledTools, organizacion).map(
-      (tool) => reglas.toolsPropias[tool.definition.name] ?? tool,
-    ),
+    toolsHabilitadas(agent.enabledTools, organizacion)
+      // Paso D: las tools que permite el nivel (AUTONOMA: todas).
+      .filter((tool) => toolDelNivel(tool.definition.name, nivelDelTurno))
+      .map((tool) => reglas.toolsPropias[tool.definition.name] ?? tool),
     reglas.camposFueraDeLasTools,
   );
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));
@@ -2557,7 +2665,7 @@ export async function responderEnLaConversacion(
       const entrada: ToolCallDelTurno =
         indice < MAX_TOOL_CALLS_PER_ROUND
           ? await resolverToolCall(llamada, {
-              agent: { ...agent, organizacion },
+              agent: { ...agent, organizacion, nivel: nivelDelTurno },
               toolsPorNombre,
               datosDisponibles,
               contextoDeTools,
@@ -2676,6 +2784,7 @@ export async function responderEnLaConversacion(
       INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
       INSTRUCCION_IDENTIDAD_INMUTABLE,
       ...reglas.instruccionesDelPrompt,
+      ...instruccionesDelNivel(nivelDelTurno),
       agent.instructions,
       typeof agent.guardrailsText === "string" ? agent.guardrailsText : "",
     ])

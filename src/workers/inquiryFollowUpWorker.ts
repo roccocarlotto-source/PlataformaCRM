@@ -1,7 +1,11 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { soloDigitos } from "../lib/telefono";
-import { findBranchWhatsappPhoneNumberId } from "../repositories/agent.repository";
+import {
+  findAgentDeLaConversacionParaElNivel,
+  findBranchWhatsappPhoneNumberId,
+} from "../repositories/agent.repository";
+import { nivelEfectivo } from "../services/agentNivelDeIa";
 import {
   claimNextInquiryFollowUp,
   existsInboundSince,
@@ -79,6 +83,11 @@ export interface DepsDelSeguimientoDeConsulta {
   sendText: SendWhatsappText;
   // El texto libre del agente para la ventana de 24 h.
   generarTexto: (fila: InquiryFollowUpParaEnviar, ahora: Date) => Promise<string>;
+  // D9 (docs/ediciones.md §4.5): si el agente de la conversación responde
+  // solo (AUTONOMA, activo y no borrado). Si no, la plantilla aprobada aunque
+  // la ventana esté abierta: un texto libre de la IA no le llega a nadie que
+  // haya bajado la participación de la IA.
+  agenteRespondeSolo: (organizationId: string, conversationId: string) => Promise<boolean>;
   registrarEnConversacion?: (envio: EnvioDePlantilla) => Promise<void>;
   ahora: () => Date;
 }
@@ -106,6 +115,16 @@ export const depsDelSeguimientoDeConsultaReales: DepsDelSeguimientoDeConsulta = 
       fila.lastInboundAt,
       { ahora },
     ),
+  agenteRespondeSolo: async (organizationId, conversationId) => {
+    const fila = await findAgentDeLaConversacionParaElNivel(conversationId, organizationId);
+    if (!fila) return false;
+    const { agent, organization } = fila;
+    return (
+      agent.isActive &&
+      agent.deletedAt === null &&
+      nivelEfectivo(agent, organization.edition) === "AUTONOMA"
+    );
+  },
   ahora: () => new Date(),
 };
 
@@ -216,8 +235,12 @@ export async function procesarSeguimientoDeConsulta(
     destino,
   };
 
-  // Dentro de la ventana, texto libre del agente; fuera, la plantilla.
-  if (ventanaDeWhatsappAbierta(finDeLaVentanaDeWhatsapp(fila.lastInboundAt), ahora)) {
+  // Dentro de la ventana, texto libre del agente; fuera, la plantilla. El texto
+  // libre, además, solo con un agente que responde solo (D9).
+  if (
+    ventanaDeWhatsappAbierta(finDeLaVentanaDeWhatsapp(fila.lastInboundAt), ahora) &&
+    (await deps.agenteRespondeSolo(fila.organizationId, fila.conversationId))
+  ) {
     const texto = await deps.generarTexto(fila, ahora);
     const { wamid } = await deps.sendText({
       phoneNumberId,

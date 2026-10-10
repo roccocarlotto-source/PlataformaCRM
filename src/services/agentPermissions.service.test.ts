@@ -274,3 +274,32 @@ test("(3) real: Contact.budgetAmount bloquea el argumento budgetAmount de update
   );
   assert.equal(enCreate.allowed, false);
 });
+
+// ---------------------------------------------------------------------------
+// (1c) El nivel de IA (docs/ediciones.md §4.2, paso D)
+// ---------------------------------------------------------------------------
+
+test("(1c) PRIMER_CONTACTO: una acción que compromete algo se rechaza aunque esté habilitada", () => {
+  const decision = puedeEjecutarTool(
+    agente({ nivel: "PRIMER_CONTACTO" }),
+    "create_opportunity",
+    {},
+    SIN_DATOS,
+  );
+  assert.equal(decision.allowed, false);
+  assert.match(decision.reason ?? "", /la hace una persona/);
+  assert.equal(
+    puedeEjecutarTool(agente({ nivel: "PRIMER_CONTACTO" }), "get_availability", {}, SIN_DATOS)
+      .allowed,
+    true,
+  );
+});
+
+test("(1c) AUTONOMA o sin nivel: nada cambia", () => {
+  for (const nivel of ["AUTONOMA", undefined] as const) {
+    assert.equal(
+      puedeEjecutarTool(agente({ nivel }), "create_opportunity", {}, SIN_DATOS).allowed,
+      true,
+    );
+  }
+});
