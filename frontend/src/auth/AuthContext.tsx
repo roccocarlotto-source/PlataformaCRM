@@ -38,6 +38,11 @@ export interface MeResponse {
   // pantallas del agente interno no piden lo que no existe. Opcional: un
   // backend anterior no lo manda, y entonces se pregunta como antes.
   internalAgentConfigured?: boolean;
+  // Ediciones (docs/ediciones.md §7): la edición de la organización y los
+  // módulos que incluye. Opcionales: un backend anterior no los manda. Solo
+  // deciden qué se muestra; lo que decide es el gate de cada request.
+  edition?: "COMPLETA" | "ESENCIAL";
+  modulos?: string[];
   // R12: los roles que el ADMIN puede asignar en esta organización (los de
   // su rubro), en orden. Opcional: un backend anterior no lo manda, y
   // entonces son los de una automotora (ver features/user/roles.ts).

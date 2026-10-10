@@ -1,5 +1,5 @@
 import { LARGO_MAXIMO_DEL_AVISO } from "../services/avisoSinRespuesta.service";
-import { ConversationChannel } from "@prisma/client";
+import { AgentParticipation, ConversationChannel } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
 import {
@@ -139,6 +139,15 @@ const unansweredHandoffNoticeTextSchema = z
   )
   .transform((texto) => (texto === "" ? null : texto));
 
+// Los niveles que el backend sabe aplicar. BORRADOR es la fase 2 (D4): no
+// está en el enum.
+const participationSchema = z.nativeEnum(AgentParticipation, {
+  errorMap: () => ({
+    message:
+      "participation inválido: elegí AUTONOMA, PRIMER_CONTACTO o SOLO_SEGUIMIENTO (un nivel elegido no vuelve a quedar sin elegir)",
+  }),
+});
+
 const createAgentSchema = z.object({
   branchId: z.string().uuid("branchId inválido"),
   name: nameSchema,
@@ -161,6 +170,10 @@ const createAgentSchema = z.object({
   allowedOrigins: allowedOriginsSchema.default([]),
   whatsappPhoneNumberId: whatsappPhoneNumberIdSchema.optional(),
   isActive: z.boolean().optional(),
+  // Nivel de IA (docs/ediciones.md §1.2). participation_chosen_at NO está:
+  // lo escribe solo el service.
+  participation: participationSchema.optional(),
+  onlyOutsideBusinessHours: z.boolean().optional(),
 });
 
 // Sin branchId: un Agent no cambia de sucursal — ver la nota en
@@ -183,6 +196,9 @@ const updateAgentSchema = z
     allowedOrigins: allowedOriginsSchema,
     whatsappPhoneNumberId: whatsappPhoneNumberIdSchema,
     isActive: z.boolean(),
+    // Sin .nullable(): un nivel elegido no vuelve a «sin elegir» (D3).
+    participation: participationSchema,
+    onlyOutsideBusinessHours: z.boolean(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {

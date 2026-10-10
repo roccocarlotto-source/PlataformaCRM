@@ -65,10 +65,17 @@ export interface Agent {
   // lo asigna un platform admin (ítem 173). null = sin página.
   facebookPageId: string | null;
   isActive: boolean;
+  // Nivel de IA (docs/ediciones.md §1.2). null = sin elegir (solo ESENCIAL).
+  participation: AgentParticipation | null;
+  participationChosenAt: string | null;
+  onlyOutsideBusinessHours: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
 }
+
+// Cuánto hace la IA con el cliente (docs/ediciones.md §4). BORRADOR es la fase 2.
+export type AgentParticipation = "AUTONOMA" | "PRIMER_CONTACTO" | "SOLO_SEGUIMIENTO";
 
 export interface AgentListPagination {
   page: number;
@@ -132,6 +139,11 @@ export interface CreateAgentInput {
   // admin (PUT /api/admin/agents/:agentId/whatsapp-phone-number), y el backend
   // rechaza con 403 un POST/PATCH del tenant que intente cambiarlo.
   isActive?: boolean;
+  // Nivel de IA: hoy solo lo manda una organización ESENCIAL (el selector se
+  // muestra en COMPLETA recién con el paso D). participationChosenAt no: lo
+  // escribe el backend.
+  participation?: AgentParticipation;
+  onlyOutsideBusinessHours?: boolean;
 }
 
 // updateAgentSchema: los mismos campos, parciales, al menos uno — SALVO

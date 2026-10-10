@@ -75,6 +75,8 @@ let plataforma: FixtureUser;
 // B-05: un ADMIN propio para esos tests, así no le comen el cupo de escrituras
 // (businessWriteRateLimiter, por usuario) al resto del archivo.
 let adminModelo: FixtureUser;
+// Paso C (nivel de IA): un ADMIN propio, por el mismo motivo que adminModelo.
+let adminNivel: FixtureUser;
 let baseUrl: string;
 let closeApp: () => Promise<void>;
 
@@ -210,6 +212,7 @@ before(async () => {
   adminB = await createFixtureUser("admin-b", orgB.id, "ADMIN");
   plataforma = await createFixtureUser("plataforma", orgB.id, "USER");
   adminModelo = await createFixtureUser("admin-modelo", orgA.id, "ADMIN");
+  adminNivel = await createFixtureUser("admin-nivel", orgA.id, "ADMIN");
   await prisma.platformAdmin.create({ data: { userId: plataforma.authUserId } });
 });
 
@@ -232,7 +235,7 @@ after(async () => {
     await prisma.user.deleteMany({ where: { organizationId: org.id } });
     await prisma.organization.delete({ where: { id: org.id } });
   }
-  for (const u of [adminA, userA, adminB, plataforma, adminModelo]) {
+  for (const u of [adminA, userA, adminB, plataforma, adminModelo, adminNivel]) {
     if (u) await getSupabaseAdmin().auth.admin.deleteUser(u.authUserId);
   }
 });
@@ -1585,5 +1588,155 @@ test("POST /api/agents/guardrails/translate — una respuesta ininteligible es 5
     assert.match(await mensajeDeError(res), /No se pudo interpretar la traducción del modelo/);
   } finally {
     resetLlmProviderParaTests();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Nivel de IA por la API (docs/ediciones.md §1.2, D3; paso C de §10). Que el
+// agente lo RESPETE al atender es D: acá solo las reglas de crear y editar.
+// ---------------------------------------------------------------------------
+
+async function nivelEnLaBase(id: string) {
+  return prisma.agent.findUniqueOrThrow({
+    where: { id },
+    select: {
+      isActive: true,
+      participation: true,
+      participationChosenAt: true,
+      onlyOutsideBusinessHours: true,
+    },
+  });
+}
+
+test("COMPLETA queda igual: sin nivel nace AUTONOMA sin fecha; editar otra cosa no toca el nivel", async () => {
+  const agente = await crearAgentePorHttp(adminNivel.accessToken, orgA.branchId);
+  const antes = await nivelEnLaBase(agente.id as string);
+  assert.equal(antes.participation, "AUTONOMA");
+  assert.equal(antes.participationChosenAt, null);
+  assert.equal(antes.isActive, true);
+
+  const patch = await call("PATCH", `/api/agents/${agente.id as string}`, adminNivel.accessToken, {
+    name: "Otro nombre",
+  });
+  assert.equal(patch.status, 200);
+  assert.deepEqual(await nivelEnLaBase(agente.id as string), antes);
+});
+
+test("COMPLETA: elegir un nivel lo guarda con participation_chosen_at; la fecha del cliente se ignora", async () => {
+  const fechaDelCliente = "2020-01-01T00:00:00.000Z";
+  const agente = await crearAgentePorHttp(adminNivel.accessToken, orgA.branchId, {
+    participation: "PRIMER_CONTACTO",
+    participationChosenAt: fechaDelCliente,
+  });
+  const fila = await nivelEnLaBase(agente.id as string);
+  assert.equal(fila.participation, "PRIMER_CONTACTO");
+  assert.ok(fila.participationChosenAt);
+  assert.notEqual(fila.participationChosenAt.toISOString(), fechaDelCliente);
+});
+
+test("un nivel elegido no vuelve a null, y BORRADOR no existe todavía: 400", async () => {
+  const agente = await crearAgentePorHttp(adminNivel.accessToken, orgA.branchId);
+  for (const participation of [null, "BORRADOR"]) {
+    const res = await call("PATCH", `/api/agents/${agente.id as string}`, adminNivel.accessToken, {
+      participation,
+    });
+    assert.equal(res.status, 400, String(participation));
+  }
+  assert.equal((await nivelEnLaBase(agente.id as string)).participation, "AUTONOMA");
+});
+
+test("ESENCIAL: sin nivel nace inactivo; activo sin nivel es 400 NIVEL_DE_IA_SIN_ELEGIR; con el nivel elegido se activa", async () => {
+  const org = await crearOrganizacion("esencial-nivel");
+  await prisma.organization.update({ where: { id: org.id }, data: { edition: "ESENCIAL" } });
+  const admin = await createFixtureUser("admin-esencial", org.id, "ADMIN");
+  try {
+    // Sin nivel: 201, inactivo y sin nivel (no el 500 del CHECK).
+    const agente = await crearAgentePorHttp(admin.accessToken, org.branchId);
+    assert.equal(agente.isActive, false);
+    const id = agente.id as string;
+    assert.deepEqual(await nivelEnLaBase(id), {
+      isActive: false,
+      participation: null,
+      participationChosenAt: null,
+      onlyOutsideBusinessHours: false,
+    });
+
+    // Pedirlo activo sin nivel, al crear o al editar: 400 con el código.
+    const crearActivo = await call(
+      "POST",
+      "/api/agents",
+      admin.accessToken,
+      cuerpoMinimo(org.branchId, { isActive: true }),
+    );
+    assert.equal(crearActivo.status, 400);
+    const cuerpo = (await crearActivo.json()) as { error: { code?: string } };
+    assert.equal(cuerpo.error.code, "NIVEL_DE_IA_SIN_ELEGIR");
+    const activar = await call("PATCH", `/api/agents/${id}`, admin.accessToken, { isActive: true });
+    assert.equal(activar.status, 400);
+    assert.equal((await nivelEnLaBase(id)).isActive, false);
+
+    // Elegir el nivel y activar en el mismo PATCH.
+    const elegir = await call("PATCH", `/api/agents/${id}`, admin.accessToken, {
+      participation: "SOLO_SEGUIMIENTO",
+      isActive: true,
+    });
+    assert.equal(elegir.status, 200);
+    const fila = await nivelEnLaBase(id);
+    assert.equal(fila.participation, "SOLO_SEGUIMIENTO");
+    assert.equal(fila.isActive, true);
+    assert.ok(fila.participationChosenAt);
+
+    // Con nivel al crear, activo de una.
+    const conNivel = await crearAgentePorHttp(admin.accessToken, org.branchId, {
+      participation: "AUTONOMA",
+      isActive: true,
+    });
+    assert.equal(conNivel.isActive, true);
+  } finally {
+    await prisma.agent.deleteMany({ where: { organizationId: org.id } });
+    await prisma.user.deleteMany({ where: { organizationId: org.id } });
+    await prisma.branch.deleteMany({ where: { organizationId: org.id } });
+    await prisma.organization.delete({ where: { id: org.id } });
+    await getSupabaseAdmin().auth.admin.deleteUser(admin.authUserId);
+  }
+});
+
+test("«solo fuera de horario»: solo con PRIMER_CONTACTO y con el horario de la sucursal cargado", async () => {
+  const sinHorario = await call(
+    "POST",
+    "/api/agents",
+    adminNivel.accessToken,
+    cuerpoMinimo(orgA.branchId, {
+      participation: "PRIMER_CONTACTO",
+      onlyOutsideBusinessHours: true,
+    }),
+  );
+  assert.equal(sinHorario.status, 400, "la sucursal no tiene horario");
+
+  const conAutonoma = await call(
+    "POST",
+    "/api/agents",
+    adminNivel.accessToken,
+    cuerpoMinimo(orgA.branchId, { participation: "AUTONOMA", onlyOutsideBusinessHours: true }),
+  );
+  assert.equal(conAutonoma.status, 400, "solo con primer contacto");
+
+  await prisma.branchBusinessHours.create({
+    data: {
+      organizationId: orgA.id,
+      branchId: orgA.branchId,
+      weekday: "MONDAY",
+      startMinute: 9 * 60,
+      endMinute: 18 * 60,
+    },
+  });
+  try {
+    const agente = await crearAgentePorHttp(adminNivel.accessToken, orgA.branchId, {
+      participation: "PRIMER_CONTACTO",
+      onlyOutsideBusinessHours: true,
+    });
+    assert.equal((await nivelEnLaBase(agente.id as string)).onlyOutsideBusinessHours, true);
+  } finally {
+    await prisma.branchBusinessHours.deleteMany({ where: { branchId: orgA.branchId } });
   }
 });

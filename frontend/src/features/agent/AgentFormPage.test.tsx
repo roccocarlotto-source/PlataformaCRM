@@ -1064,3 +1064,115 @@ describe("AgentFormPage — bajo AdminRoute", () => {
     expect(await screen.findByRole("heading", { name: "Nuevo agente" })).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Nivel de IA (paso C de docs/ediciones.md §10): el bloque "Cuánto hace la
+// IA" se muestra SOLO en una organización ESENCIAL. En COMPLETA el formulario
+// queda igual y no manda nada nuevo (el agente respeta el nivel recién con D).
+// ---------------------------------------------------------------------------
+
+describe("AgentFormPage — cuánto hace la IA", () => {
+  function conEdicion(edition: "COMPLETA" | "ESENCIAL") {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, edition } });
+  }
+
+  function servidor(bodies: Record<string, unknown>[]) {
+    server.use(
+      mockBranches(),
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent(), { status: 201 });
+      }),
+    );
+  }
+
+  it("COMPLETA: no hay selector de nivel, y el POST no lleva participation ni onlyOutsideBusinessHours", async () => {
+    conEdicion("COMPLETA");
+    const bodies: Record<string, unknown>[] = [];
+    servidor(bodies);
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+
+    expect(screen.queryByText("Cuánto hace la IA")).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Cuánto hace la IA" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Activo")).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).not.toHaveProperty("participation");
+    expect(bodies[0]).not.toHaveProperty("onlyOutsideBusinessHours");
+    expect(bodies[0].isActive).toBe(true);
+  });
+
+  it("ESENCIAL, sin elegir: ningún nivel marcado, «Activo» deshabilitado, y se guarda inactivo sin nivel", async () => {
+    conEdicion("ESENCIAL");
+    const bodies: Record<string, unknown>[] = [];
+    servidor(bodies);
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+
+    const grupo = screen.getByRole("radiogroup", { name: "Cuánto hace la IA" });
+    for (const radio of within(grupo).getAllByRole("radio")) expect(radio).not.toBeChecked();
+    expect(screen.getByLabelText("Activo")).toBeDisabled();
+    expect(screen.getByLabelText("Activo")).not.toBeChecked();
+    expect(screen.getByText("Elegí cuánto hace la IA para poder activarlo.")).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Solo fuera del horario de la sucursal"),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].isActive).toBe(false);
+    expect(bodies[0]).not.toHaveProperty("participation");
+    expect(bodies[0].onlyOutsideBusinessHours).toBe(false);
+  });
+
+  it("ESENCIAL: elegir Primer contacto habilita «Activo» y el interruptor de horario, y manda los dos", async () => {
+    conEdicion("ESENCIAL");
+    const bodies: Record<string, unknown>[] = [];
+    servidor(bodies);
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+
+    await user.click(screen.getByRole("radio", { name: "Primer contacto" }));
+    expect(screen.getByLabelText("Activo")).toBeEnabled();
+    expect(screen.getByLabelText("Activo")).toBeChecked();
+    await user.click(screen.getByLabelText("Solo fuera del horario de la sucursal"));
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].participation).toBe("PRIMER_CONTACTO");
+    expect(bodies[0].onlyOutsideBusinessHours).toBe(true);
+    expect(bodies[0].isActive).toBe(true);
+    expect(bodies[0]).not.toHaveProperty("participationChosenAt");
+  });
+
+  it("ESENCIAL: el interruptor de horario no viaja prendido si el nivel no es Primer contacto", async () => {
+    conEdicion("ESENCIAL");
+    const bodies: Record<string, unknown>[] = [];
+    servidor(bodies);
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+
+    await user.click(screen.getByRole("radio", { name: "Primer contacto" }));
+    await user.click(screen.getByLabelText("Solo fuera del horario de la sucursal"));
+    await user.click(screen.getByRole("radio", { name: "Solo seguimiento" }));
+    expect(
+      screen.queryByLabelText("Solo fuera del horario de la sucursal"),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].participation).toBe("SOLO_SEGUIMIENTO");
+    expect(bodies[0].onlyOutsideBusinessHours).toBe(false);
+  });
+});

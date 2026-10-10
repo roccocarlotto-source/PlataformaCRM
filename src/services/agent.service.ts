@@ -1,3 +1,12 @@
+import type { AgentParticipation } from "@prisma/client";
+import { findBusinessHoursByBranch } from "../repositories/branchBusinessHours.repository";
+import { findActiveOrganizationEdition } from "../repositories/organization.repository";
+import {
+  decidirNivelDeIa,
+  type NivelActual,
+  type NivelAEscribir,
+  type NivelPedido,
+} from "./agentNivelDeIa";
 import { Prisma, type ConversationChannel } from "@prisma/client";
 import { logger } from "../lib/logger";
 import { prisma, type Db } from "../lib/prisma";
@@ -109,6 +118,8 @@ export interface CreateAgentInput {
   allowedOrigins: string[];
   whatsappPhoneNumberId?: string | null;
   isActive?: boolean;
+  participation?: AgentParticipation;
+  onlyOutsideBusinessHours?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +168,35 @@ function traducirNumeroDeWhatsappDuplicado(err: unknown): never {
   throw err;
 }
 
+// La edición de la organización (no viene del cliente) y, si el agente queda
+// "solo fuera de horario", que su sucursal tenga horario cargado: sin horario,
+// "fuera de horario" no está definido (docs/ediciones.md §4.2 c).
+async function aplicarNivelDeIa(
+  organizationId: string,
+  branchId: string,
+  actual: NivelActual | null,
+  pedido: NivelPedido,
+): Promise<NivelAEscribir> {
+  const org = await findActiveOrganizationEdition(organizationId);
+  if (!org) throw new AppError("Organización no encontrada", 404);
+  const { data, exigeHorarioDeLaSucursal } = decidirNivelDeIa({
+    edition: org.edition,
+    actual,
+    pedido,
+    ahora: new Date(),
+  });
+  if (exigeHorarioDeLaSucursal) {
+    const horario = await findBusinessHoursByBranch(branchId, organizationId);
+    if (horario.length === 0) {
+      throw new AppError(
+        "«Solo fuera del horario de la sucursal» necesita que la sucursal tenga su horario cargado.",
+        400,
+      );
+    }
+  }
+  return data;
+}
+
 export async function createAgent(organizationId: string, input: CreateAgentInput) {
   // Un agente nace sin número: solo se acepta que el body diga eso mismo.
   assertNumeroDeWhatsappSinCambios(null, input.whatsappPhoneNumberId);
@@ -166,6 +206,14 @@ export async function createAgent(organizationId: string, input: CreateAgentInpu
 
   // 400 rápido en el caso común, sin abrir transacción.
   await validateBranchId(organizationId, input.branchId);
+
+  // Nivel de IA (docs/ediciones.md §1.2): en COMPLETA sin nivel no escribe
+  // nada (el trigger pone AUTONOMA); en ESENCIAL sin nivel, inactivo.
+  const nivel = await aplicarNivelDeIa(organizationId, input.branchId, null, {
+    participation: input.participation,
+    onlyOutsideBusinessHours: input.onlyOutsideBusinessHours,
+    isActive: input.isActive,
+  });
 
   return prisma.$transaction(async (tx) => {
     // Mismo lock que createResource: serializa contra deleteBranch para que
@@ -205,6 +253,7 @@ export async function createAgent(organizationId: string, input: CreateAgentInpu
         guardrails: input.guardrails as Prisma.InputJsonValue,
         guardrailsText: input.guardrailsText,
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...nivel,
       },
       tx,
     );
@@ -237,6 +286,8 @@ export interface UpdateAgentInput {
   allowedOrigins?: string[];
   whatsappPhoneNumberId?: string | null;
   isActive?: boolean;
+  participation?: AgentParticipation;
+  onlyOutsideBusinessHours?: boolean;
 }
 
 // Las tres claves de guardrails que la pantalla YA NO PUEDE ESCRIBIR desde el
@@ -289,12 +340,30 @@ export async function updateAgent(organizationId: string, id: string, input: Upd
 
   // El mismo número que ya tiene (el formulario lo reenvía) pasa y no se
   // escribe; otro es 403. Nunca llega al repositorio.
-  const { guardrails, whatsappPhoneNumberId, modelProvider, modelName, ...resto } = input;
+  const {
+    guardrails,
+    whatsappPhoneNumberId,
+    modelProvider,
+    modelName,
+    participation,
+    onlyOutsideBusinessHours,
+    isActive,
+    ...resto
+  } = input;
   assertNumeroDeWhatsappSinCambios(actual.whatsappPhoneNumberId, whatsappPhoneNumberId);
   // B-05: lo mismo con el modelo. El mismo que tiene pasa y no se escribe.
   assertModeloSinCambios(actual, { modelProvider, modelName });
+  // Nivel de IA: activar sin nivel es 400; elegir o cambiar el nivel escribe
+  // participation_chosen_at. Un PATCH que no toca nada de esto pasa igual.
+  const nivel = await aplicarNivelDeIa(organizationId, actual.branchId, actual, {
+    participation,
+    onlyOutsideBusinessHours,
+    isActive,
+  });
   const result = await updateAgentRepo(id, organizationId, {
     ...resto,
+    ...(isActive !== undefined ? { isActive } : {}),
+    ...nivel,
     ...(guardrails !== undefined
       ? {
           guardrails: preservarGuardrailsHeredados(

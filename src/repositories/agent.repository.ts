@@ -1,4 +1,4 @@
-import type { ConversationChannel, Prisma } from "@prisma/client";
+import type { AgentParticipation, ConversationChannel, Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 export interface AgentFilters {
@@ -163,6 +163,11 @@ export interface CreateAgentData {
   // del tenant lo escriba. Lo mismo facebookPageId (ítem 169) con
   // setAgentFacebookPageId.
   isActive?: boolean;
+  // Nivel de IA (docs/ediciones.md §1.2): solo los escribe el service, con
+  // las reglas de agentNivelDeIa.ts. Sin participation, el trigger decide.
+  participation?: AgentParticipation;
+  participationChosenAt?: Date;
+  onlyOutsideBusinessHours?: boolean;
 }
 
 export function createAgent(data: CreateAgentData, db: Db = prisma) {
@@ -191,6 +196,10 @@ export interface UpdateAgentData {
   // Se actualiza SIEMPRE junto con guardrails — updateAgentSchema lo exige.
   guardrailsText?: string;
   isActive?: boolean;
+  // Nivel de IA: ver CreateAgentData.
+  participation?: AgentParticipation;
+  participationChosenAt?: Date;
+  onlyOutsideBusinessHours?: boolean;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir
