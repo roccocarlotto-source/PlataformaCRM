@@ -1,3 +1,4 @@
+import { useModulo } from "../../auth/modulos";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { formatDateTime } from "../../design-system/detailFormat";
@@ -518,10 +519,15 @@ export function VehicleFormPage() {
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // Ediciones (docs/ediciones.md §2.2): sin el módulo permutas (ESENCIAL) no
+  // hay permuta vinculada a una oportunidad: ni el contexto de la URL ni la
+  // nota. "Acepta permuta" es un dato de la unidad y se queda.
+  const tienePermutas = useModulo("permutas");
   // Solo en creación; un valor inválido lo rechaza el backend con su 400.
-  const tradeInOpportunityId = isEditMode
-    ? undefined
-    : searchParams.get("tradeInOpportunityId") || undefined;
+  const tradeInOpportunityId =
+    isEditMode || !tienePermutas
+      ? undefined
+      : searchParams.get("tradeInOpportunityId") || undefined;
 
   const vehicleQuery = useVehicle(isEditMode ? id : undefined);
   const createVehicleMutation = useCreateVehicle();
@@ -658,7 +664,7 @@ export function VehicleFormPage() {
       <PageHeader help={AYUDA.unidadForm} title={isEditMode ? "Editar unidad" : "Nueva unidad"} />
       {tradeInOpportunityId ? (
         <TradeInOpportunityNote opportunityId={tradeInOpportunityId} pending />
-      ) : vehicle?.tradeInOpportunityId ? (
+      ) : tienePermutas && vehicle?.tradeInOpportunityId ? (
         <TradeInOpportunityNote opportunityId={vehicle.tradeInOpportunityId} pending={false} />
       ) : null}
       <div className="ds-stack">

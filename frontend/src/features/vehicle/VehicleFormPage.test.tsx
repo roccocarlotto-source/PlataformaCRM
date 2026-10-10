@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -19,10 +19,42 @@ import {
 import { VehicleFormPage } from "./VehicleFormPage";
 import type { VehiclePhoto } from "./types";
 import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
+import { edicionDeMe } from "../../test/edicionFixtures";
+import type { AuthContextValue } from "../../auth/AuthContext";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
+
+// La ficha lee los módulos de la edición (permuta vinculada, paso E1 de
+// docs/ediciones.md). Por defecto, una automotora COMPLETA: lo de siempre.
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+function mockAuth(edition: "COMPLETA" | "ESENCIAL" = "COMPLETA"): AuthContextValue {
+  return {
+    status: "authenticated",
+    me: {
+      id: "u1",
+      email: "a@x.com",
+      fullName: "A",
+      organizationId: "org-1",
+      role: "ADMIN",
+      isPlatformAdmin: false,
+      canUseInternalAgent: false,
+      ...edicionDeMe(edition),
+    },
+    accountUnavailableReason: null,
+    profileError: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    retryProfile: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth());
+});
 
 const baseUrl = `${env.apiUrl}/api/vehicles`;
 const usersUrl = `${env.apiUrl}/api/users`;
@@ -1499,5 +1531,61 @@ describe("VehicleFormPage — permuta (§41)", () => {
     await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
     expect(patchedBody).toMatchObject({ origin: "TRADE_IN", mileage: 120000 });
     expect(patchedBody).not.toHaveProperty("tradeInOpportunityId");
+  });
+});
+
+// Ediciones (docs/ediciones.md §2.2, paso E1): ESENCIAL no tiene el circuito
+// de permuta vinculada a una oportunidad. "Acepta permuta" es un dato de la
+// unidad y se queda.
+describe("VehicleFormPage — permuta por edición", () => {
+  it("ESENCIAL: con ?tradeInOpportunityId no hay nota, no pide la oportunidad y el POST va sin vínculo", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ESENCIAL"));
+    let pedidas = 0;
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, () => {
+        pedidas += 1;
+        return HttpResponse.json(makeOpportunity());
+      }),
+      http.post(baseUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/vehicles/new?tradeInOpportunityId=op1");
+
+    await fillRequired(user);
+    expect(screen.queryByText(/Se va a vincular a la oportunidad/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Origen")).toHaveValue("");
+    expect(screen.getByLabelText("Acepta permuta")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(postedBody).not.toHaveProperty("tradeInOpportunityId");
+    expect(pedidas).toBe(0);
+  });
+
+  it("ESENCIAL: una unidad con tradeInOpportunityId no muestra la nota de permuta", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ESENCIAL"));
+    let pedidas = 0;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${baseUrl}/v1`, () =>
+        HttpResponse.json(makeVehicleDetail({ id: "v1", tradeInOpportunityId: "op1" })),
+      ),
+      http.get(`${opportunitiesUrl}/:id`, () => {
+        pedidas += 1;
+        return HttpResponse.json(makeOpportunity());
+      }),
+    );
+
+    renderForm("/vehicles/v1/edit");
+
+    expect(await screen.findByLabelText("Acepta permuta")).toBeInTheDocument();
+    expect(screen.queryByText(/Recibida en permuta/)).not.toBeInTheDocument();
+    expect(pedidas).toBe(0);
   });
 });

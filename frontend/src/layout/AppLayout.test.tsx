@@ -10,6 +10,7 @@ import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./AppLayout";
 import { ThemeProvider } from "../theme/ThemeContext";
 import type { AuthContextValue } from "../auth/AuthContext";
+import { edicionDeMe } from "../test/edicionFixtures";
 
 // Primer test de componente propio de AppLayout (gap heredado desde M2,
 // ver M6 informe de deuda técnica) — se agrega ahora porque M7 introduce
@@ -813,5 +814,39 @@ describe("AppLayout — agenda por rubro (R5)", () => {
       "/clinica/prestaciones",
     );
     expect(screen.queryByRole("link", { name: "Recursos" })).not.toBeInTheDocument();
+  });
+});
+
+// Ediciones (docs/ediciones.md §7, paso E1): sin el módulo, el link no aparece.
+describe("AppLayout — menú por edición", () => {
+  function conEdicion(edition: "COMPLETA" | "ESENCIAL") {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe(edition) } });
+  }
+
+  it("ESENCIAL: sin Empresas ni Procesos de venta; Contactos, Oportunidades y Stock siguen", async () => {
+    const user = userEvent.setup();
+    conEdicion("ESENCIAL");
+    renderLayout();
+    await openContactos(user);
+
+    expect(screen.queryByText("Empresas")).not.toBeInTheDocument();
+    expect(screen.queryByText("Procesos de venta")).not.toBeInTheDocument();
+    expect(screen.getByText("Contactos")).toBeInTheDocument();
+    expect(screen.getByText("Oportunidades")).toBeInTheDocument();
+    expect(screen.getByText("Stock")).toBeInTheDocument();
+  });
+
+  it("COMPLETA: Empresas y Procesos de venta como siempre", async () => {
+    const user = userEvent.setup();
+    conEdicion("COMPLETA");
+    renderLayout();
+    await openContactos(user);
+
+    expect(screen.getByRole("link", { name: "Empresas" })).toHaveAttribute("href", "/companies");
+    expect(screen.getByRole("link", { name: "Procesos de venta" })).toHaveAttribute(
+      "href",
+      "/pipelines",
+    );
   });
 });

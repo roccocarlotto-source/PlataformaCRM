@@ -1,3 +1,4 @@
+import { useModulo } from "../auth/modulos";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
@@ -213,6 +214,9 @@ export function AppLayout() {
   // gatea por la allowlist global (isPlatformAdmin de /me), no por el rol —
   // mismo criterio de renderizado condicional que el grupo Administración.
   const isPlatformAdmin = me?.isPlatformAdmin === true;
+  // Ediciones (docs/ediciones.md §7): sin el módulo, el link no aparece.
+  const tieneEmpresas = useModulo("empresas");
+  const tieneProcesosDeVenta = useModulo("procesos_de_venta");
   // Ediciones (docs/ediciones.md §7): "Organizaciones" (con "Pasar a edición
   // completa") aparece recién cuando el backend ofrece ESENCIAL. Solo se
   // pregunta si es platform admin.
@@ -324,16 +328,20 @@ export function AppLayout() {
               <SidebarLink to="/conversations" icon={MessagesSquare}>
                 Conversaciones
               </SidebarLink>
-              <SidebarLink to="/companies" icon={Building2}>
-                Empresas
-              </SidebarLink>
+              {tieneEmpresas ? (
+                <SidebarLink to="/companies" icon={Building2}>
+                  Empresas
+                </SidebarLink>
+              ) : null}
               <SidebarLink to="/opportunities" icon={Target}>
                 Oportunidades
               </SidebarLink>
             </SidebarSection>
-            <SidebarLink to="/pipelines" icon={Columns3}>
-              Procesos de venta
-            </SidebarLink>
+            {tieneProcesosDeVenta ? (
+              <SidebarLink to="/pipelines" icon={Columns3}>
+                Procesos de venta
+              </SidebarLink>
+            ) : null}
             {/* Stock de vehículos (Fase 3a): visible para ambos roles, como
                 /companies — GET /api/vehicles es lectura abierta. */}
             <SidebarLink to="/vehicles" icon={Car}>

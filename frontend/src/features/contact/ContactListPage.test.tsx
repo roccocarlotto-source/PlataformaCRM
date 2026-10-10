@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
+import { edicionDeMe } from "../../test/edicionFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { cellByHeader } from "../../test/cellByHeader";
 import { openActionsMenu } from "../../test/openActionsMenu";
@@ -727,5 +728,54 @@ describe("ContactListPage — pestañas", () => {
 
     expect(await screen.findByText("No hay consultas sin identificar")).toBeInTheDocument();
     expect(captured.every((url) => url.searchParams.get("vista") === "consultas")).toBe(true);
+  });
+});
+
+// Ediciones (docs/ediciones.md §2.2, paso E1): ESENCIAL no tiene empresas.
+describe("ContactListPage — por edición", () => {
+  function conEdicion(edition: "COMPLETA" | "ESENCIAL") {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe(edition) } });
+  }
+
+  function handlers(pedidasDeEmpresas: { n: number }) {
+    return [
+      usersHandler(),
+      http.get(contactsUrl, () =>
+        HttpResponse.json({
+          data: [makeContact({ id: "ct-1", firstName: "Juana", companyId: "co-1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${companiesUrl}/:id`, () => {
+        pedidasDeEmpresas.n += 1;
+        return HttpResponse.json(makeCompany({ id: "co-1", name: "Acme SA" }));
+      }),
+    ];
+  }
+
+  it("ESENCIAL: sin filtro ni columna de empresa, y sin pedir empresas", async () => {
+    conEdicion("ESENCIAL");
+    const pedidas = { n: 0 };
+    server.use(...handlers(pedidas));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(/Juana/)).toBeInTheDocument());
+    expect(screen.queryByRole("columnheader", { name: "Empresa" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Empresa")).not.toBeInTheDocument();
+    expect(screen.queryByText("Acme SA")).not.toBeInTheDocument();
+    expect(pedidas.n).toBe(0);
+  });
+
+  it("COMPLETA: filtro y columna de empresa como siempre", async () => {
+    conEdicion("COMPLETA");
+    const pedidas = { n: 0 };
+    server.use(...handlers(pedidas));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Acme SA")).toBeInTheDocument());
+    expect(screen.getByRole("columnheader", { name: "Empresa" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Empresa")).toBeInTheDocument();
+    expect(pedidas.n).toBe(1);
   });
 });

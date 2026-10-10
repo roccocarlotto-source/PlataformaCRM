@@ -1,3 +1,4 @@
+import { useModulo } from "../../auth/modulos";
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -172,6 +173,9 @@ function vehiculoDeInteresGuardado(contact: Contact | undefined) {
 // un Badge: Badge es solo para mostrar el estado, no para elegirlo. Va suelto,
 // sin FormField, por el mismo motivo que los demás selectores.
 export function ContactFormPage() {
+  // Ediciones (docs/ediciones.md §2.2): sin el módulo empresas, sin el
+  // selector (y sin pedir la lista de empresas, que daría 403).
+  const tieneEmpresas = useModulo("empresas");
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
@@ -362,12 +366,14 @@ export function ContactFormPage() {
                   onChange={(event) => setValues({ ...values, jobTitle: event.target.value })}
                 />
               </FormField>
-              <CompanySelect
-                id="contact-form-company"
-                label="Empresa"
-                value={values.companyId}
-                onChange={(companyId) => setValues({ ...values, companyId })}
-              />
+              {tieneEmpresas ? (
+                <CompanySelect
+                  id="contact-form-company"
+                  label="Empresa"
+                  value={values.companyId}
+                  onChange={(companyId) => setValues({ ...values, companyId })}
+                />
+              ) : null}
               <FormField label="Fuente">
                 <input
                   type="text"
