@@ -27,6 +27,7 @@ import type {
   CreateAgentInput,
   GuardrailsTranslation,
   UpdateAgentInput,
+  AgentParticipation,
 } from "./types";
 
 // El aviso "nadie disponible": el tope de la columna y el texto de siempre
@@ -59,7 +60,29 @@ interface AgentFormValues {
   // Sin whatsappPhoneNumberId desde el ítem 127: el número lo asigna la
   // plataforma y acá solo se muestra, leído del agente.
   isActive: boolean;
+  // Nivel de IA (docs/ediciones.md §1.2). "" = sin elegir.
+  participation: AgentParticipation | "";
+  onlyOutsideBusinessHours: boolean;
 }
+
+// Los tres niveles que el backend sabe aplicar, con una línea cada uno.
+const NIVELES_DE_IA: { value: AgentParticipation; label: string; hint: string }[] = [
+  {
+    value: "AUTONOMA",
+    label: "Responde sola",
+    hint: "La IA conversa con el cliente y usa sus acciones.",
+  },
+  {
+    value: "PRIMER_CONTACTO",
+    label: "Primer contacto",
+    hint: "Responde hasta 2 veces, toma los datos y pasa con una persona.",
+  },
+  {
+    value: "SOLO_SEGUIMIENTO",
+    label: "Solo seguimiento",
+    hint: "No conversa con el cliente: todo lo atiende una persona.",
+  },
+];
 
 // Lo que el ADMIN ya vio y aceptó: el texto sobre el que confirmó y el objeto
 // que se le mostró. Van juntos porque la pregunta que se le hace al enviar es
@@ -86,6 +109,9 @@ const EMPTY_FORM: AgentFormValues = {
   channels: [],
   guardrailsText: "",
   isActive: true,
+  // Sin nivel por defecto (D3): en ESENCIAL lo elige el ADMIN.
+  participation: "",
+  onlyOutsideBusinessHours: false,
 };
 
 // Solo las tres cosas que el sistema verifica con código antes de dejar pasar
@@ -137,6 +163,8 @@ function toFormValues(agent: Agent): AgentFormValues {
     channels: agent.channels,
     guardrailsText: agent.guardrailsText,
     isActive: agent.isActive,
+    participation: agent.participation ?? "",
+    onlyOutsideBusinessHours: agent.onlyOutsideBusinessHours ?? false,
   };
 }
 
@@ -255,12 +283,26 @@ export function AgentFormPage() {
   // se guarda por su propio endpoint (PUT /api/admin/agents/:id/model).
   const { me } = useAuth();
   const puedeElegirModelo = me?.isPlatformAdmin === true;
+  // Nivel de IA (paso C de docs/ediciones.md §10): el bloque se muestra SOLO
+  // en una organización ESENCIAL. En COMPLETA el agente todavía no respeta el
+  // nivel (eso es el paso D), así que ahí no se ofrece ni se manda nada.
+  const muestraNivel = me?.edition === "ESENCIAL";
   const assignModelMutation = useAssignAgentModel();
 
   const [values, setValues] = useFormDraft<AgentFormValues>(
     agentQuery.data?.id,
     agentQuery.data ? toFormValues(agentQuery.data) : EMPTY_FORM,
   );
+  // Sin nivel elegido no se puede activar (D3): el backend lo rechaza con 400.
+  const sinNivel = muestraNivel && values.participation === "";
+  const activoEfectivo = sinNivel ? false : values.isActive;
+  const nivelParaEnviar = muestraNivel
+    ? {
+        ...(values.participation !== "" ? { participation: values.participation } : {}),
+        onlyOutsideBusinessHours:
+          values.participation === "PRIMER_CONTACTO" && values.onlyOutsideBusinessHours,
+      }
+    : {};
   const [error, setError] = useState<string | null>(null);
   // La traducción que está esperando confirmación. null = el panel está
   // cerrado; no hace falta un booleano aparte para eso.
@@ -328,7 +370,8 @@ export function AgentFormPage() {
           // rige no puedan quedar diciendo cosas distintas.
           guardrails,
           guardrailsText,
-          isActive: values.isActive,
+          isActive: activoEfectivo,
+          ...nivelParaEnviar,
         };
         await updateAgentMutation.mutateAsync(input);
         await guardarModelo(id ?? "", agentQuery.data?.modelName ?? "", modelName);
@@ -347,7 +390,8 @@ export function AgentFormPage() {
           channels: values.channels,
           guardrails,
           guardrailsText,
-          isActive: values.isActive,
+          isActive: activoEfectivo,
+          ...nivelParaEnviar,
         };
         const creado = await createAgentMutation.mutateAsync(input);
         await guardarModelo(creado.id, creado.modelName, modelName);
@@ -540,13 +584,56 @@ export function AgentFormPage() {
               <FormField label="Activo">
                 <input
                   type="checkbox"
-                  checked={values.isActive}
+                  checked={activoEfectivo}
+                  disabled={sinNivel}
                   onChange={(event) => setValues({ ...values, isActive: event.target.checked })}
                 />
               </FormField>
+              {sinNivel ? (
+                <p className="ds-hint">Elegí cuánto hace la IA para poder activarlo.</p>
+              ) : null}
             </div>
           </div>
         </Card>
+
+        {muestraNivel ? (
+          <Card heading="Cuánto hace la IA">
+            <div className="ds-field-grid">
+              <div className="ds-field ds-field-grid--full">
+                <span className="ds-field-label ds-required">Nivel</span>
+                <div className="ds-radio-cards" role="radiogroup" aria-label="Cuánto hace la IA">
+                  {NIVELES_DE_IA.map((nivel) => (
+                    <div className="ds-radio-card" key={nivel.value}>
+                      <label>
+                        <input
+                          type="radio"
+                          name="agent-participation"
+                          checked={values.participation === nivel.value}
+                          onChange={() => setValues({ ...values, participation: nivel.value })}
+                        />{" "}
+                        {nivel.label}
+                      </label>
+                      <p className="ds-radio-card-hint">{nivel.hint}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {values.participation === "PRIMER_CONTACTO" ? (
+                <div className="ds-field-grid--full">
+                  <FormField label="Solo fuera del horario de la sucursal">
+                    <input
+                      type="checkbox"
+                      checked={values.onlyOutsideBusinessHours}
+                      onChange={(event) =>
+                        setValues({ ...values, onlyOutsideBusinessHours: event.target.checked })
+                      }
+                    />
+                  </FormField>
+                </div>
+              ) : null}
+            </div>
+          </Card>
+        ) : null}
 
         <Card heading="Instrucciones">
           <div className="ds-field-grid">
