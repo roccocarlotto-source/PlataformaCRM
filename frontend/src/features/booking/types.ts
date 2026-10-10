@@ -28,6 +28,8 @@ export interface Booking {
   // R10: cuándo y quién cerró el turno (solo clínica).
   completedAt?: string | null;
   completedBy?: "PERSONA" | "AUTO" | null;
+  // R13: el paciente tocó "Confirmo" en el recordatorio (solo clínica).
+  patientConfirmedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

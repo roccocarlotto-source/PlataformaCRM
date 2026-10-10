@@ -7,7 +7,9 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { env } from "../../config/env";
 import {
+  ACTION_BOOKING_SEND_REMINDER,
   ACTION_SEND_DISCOUNT_VOUCHER,
+  BOTONES_DEL_RECORDATORIO,
   ESTADOS_DE_APROBACION,
   FORMATOS_DE_MENSAJE,
   formatoLlevaImagen,
@@ -104,6 +106,12 @@ function VistaPrevia({ actionType, values }: { actionType: string; values: Confi
         ) : null}
         {previewDePlantilla(values.messageText ?? "", link) || "…"}
       </div>
+      {/* R13: los botones que agrega la plantilla del recordatorio. */}
+      {actionType === ACTION_BOOKING_SEND_REMINDER ? (
+        <p className="ds-hint">
+          Con los botones: {BOTONES_DEL_RECORDATORIO.map((b) => `«${b}»`).join(" y ")}.
+        </p>
+      ) : null}
     </div>
   );
 }

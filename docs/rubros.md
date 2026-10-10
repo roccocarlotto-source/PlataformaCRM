@@ -1278,6 +1278,44 @@ de la configuración del rubro. En AUTOMOTORA no cambian.
 **Solo CLINICA en la v1 (D13).** Módulo `recordatorios_de_turno`. Las
 automotoras no tienen la tabla, las rutas, el trigger ni las plantillas.
 
+> **Implementado en R13** (migración `20261109120000_clinicas_recordatorios`).
+> Cómo quedó, y dónde difiere de lo de abajo:
+>
+> - **Módulo `recordatorios_de_turno`** (SOLO_CLINICA, sin rutas propias). El
+>   trigger `booking.reminder_due` y la acción `booking.send_reminder` llevan su
+>   módulo (`MODULO_DEL_TRIGGER`, `AccionRegistrada.modulo`). Para una
+>   automotora no existen: el CRUD le da el 400 de siempre ("no existe"), con
+>   la lista de siempre.
+> - **La regla guarda la plantilla y si está activa.** Nadie emite
+>   `booking.reminder_due`: el recordatorio lo agendan los consumidores de los
+>   eventos de R10 (`registrarEventosDeTurno`). `created` programa,
+>   `rescheduled` cancela el del horario viejo y agenda el nuevo (por el evento,
+>   no dentro de `reprogramarTurno` como decía §4.7), `cancelled` anula, y
+>   `completed`/`no_show` no hacen nada.
+> - **Idempotente por turno y por horario:** `booking_messages` tiene
+>   `booking_starts_at` (el horario que recuerda) y un UNIQUE parcial
+>   `(booking_id, kind, booking_starts_at)` mientras esté PENDING o SENT.
+> - **Variables:** una sola `{lugar}` armada por el backend (la clínica, o
+>   "Clínica X (sede Y)" con más de una sede; decisión de Rocco del
+>   2026-10-10) en lugar de `{clinica}`, más `{nombre}`, `{dia}`, `{hora}` y
+>   `{profesional}`. **Sin `{prestacion}`** en R13 (decisión del 2026-10-10).
+> - **La respuesta del botón:** el webhook lee el `payload` y el
+>   `context.id` y marca la respuesta en `booking_messages` (CAS, en la misma
+>   transacción que el entrante y su job). El worker de turnos del agente la
+>   resuelve antes que nada, sin el modelo, y manda el texto fijo. Cancelar
+>   usa `cancelBooking` con la tarea en su misma transacción.
+> - **Sin respuesta:** la tarea va a `min(envío + noResponseTaskHours, turno −
+>   2 h)` a la Recepción de la sede (§11.4). Con el turno a menos de 2 h no hay
+>   tarea (decisión del 2026-10-10).
+> - **Borrados:** las FKs son RESTRICT y no se disparan en el uso normal (las
+>   reglas y los contactos tienen soft delete; el borrado de datos personales
+>   anonimiza la fila; los turnos no se borran). Desactivar o borrar la regla
+>   cancela sus pendientes en la misma transacción; borrar los datos de un
+>   paciente cancela los suyos y limpia el `last_error`. `last_error` va sin
+>   tokens y cortado a 500 caracteres.
+> - **En el calendario,** solo "Confirmado por el paciente" en el detalle del
+>   turno; las marcas "sin confirmar" y "sin recordatorio" quedan para R17.
+
 ### 6.1 Modelo: una cola de mensajes del turno
 
 ```prisma

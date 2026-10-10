@@ -20,6 +20,7 @@ import {
   TRIGGER_OPTIONS,
   TEXTO_INICIAL_DE_CONSULTA,
   TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA,
+  TEXTO_INICIAL_DEL_RECORDATORIO,
   mensajeDeLaAccion,
   validarMensajeDeConsulta,
   accionConMensajeDeWhatsapp,
@@ -78,6 +79,8 @@ describe("catálogo de triggers y acciones", () => {
       ],
       [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
       [TRIGGER_CONTACT_INQUIRY_STALLED]: [ACTION_INQUIRY_FOLLOW_UP],
+      // R13: solo clínicas.
+      "booking.reminder_due": ["booking.send_reminder"],
     });
     // Un trigger que el espejo no conoce no restringe: decide el backend.
     expect(accionesParaTrigger("booking.reminder")).toEqual(ACTION_OPTIONS);
@@ -526,5 +529,45 @@ describe("seguimiento de consultas por rubro", () => {
       TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA,
     );
     expect(previewDePlantilla(TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA)).toContain("limpieza facial");
+  });
+});
+
+// R13 (docs/rubros.md §6): el recordatorio de turno, solo en una clínica.
+describe("recordatorio de turno (clínica)", () => {
+  it("una automotora no ve el trigger ni la acción; una clínica sí", () => {
+    expect(triggerOptions(false).map((o) => o.value)).not.toContain("booking.reminder_due");
+    expect(triggerOptions(true).map((o) => o.value)).not.toContain("booking.reminder_due");
+    expect(triggerOptions(false, true).map((o) => o.value)).toContain("booking.reminder_due");
+    for (const trigger of ["opportunity.won", "opportunity.stale", "contact.inquiry_stalled"]) {
+      expect(accionesParaTrigger(trigger).map((o) => o.value)).not.toContain(
+        "booking.send_reminder",
+      );
+    }
+    expect(accionesParaTrigger("booking.reminder_due").map((o) => o.value)).toEqual([
+      "booking.send_reminder",
+    ]);
+    expect(triggerLabel("booking.reminder_due")).toBe("Recordatorio antes del turno");
+    expect(actionLabel("booking.send_reminder")).toBe("Mandar el recordatorio por WhatsApp");
+  });
+
+  it("el texto inicial, las variables y la validación", () => {
+    const config = CONFIG_DE_ACCION["booking.send_reminder"];
+    const draft = config.draftVacio();
+    expect(draft.messageText).toBe(TEXTO_INICIAL_DEL_RECORDATORIO);
+    expect(config.validar(draft)).toBeNull();
+    expect(draft.messageText).not.toMatch(/prestaci/);
+    expect(
+      mensajeDeLaAccion("booking.send_reminder", "LINK").variables.map((v) => v.token),
+    ).toEqual(["{nombre}", "{lugar}", "{dia}", "{hora}", "{profesional}"]);
+    expect(config.validar({ messageText: "Hola {nombre}, tu turno es el {dia}." })).toMatch(
+      /\{hora\}/,
+    );
+    expect(
+      config.validar({ messageText: "Hola {nombre}, el {dia} a las {hora} por {prestacion}." }),
+    ).toMatch(/no va en este mensaje/);
+    expect(accionConMensajeDeWhatsapp("booking.send_reminder")).toBe(true);
+    expect(previewDePlantilla(TEXTO_INICIAL_DEL_RECORDATORIO)).toContain(
+      "Clínica Ejemplo (sede Centro)",
+    );
   });
 });

@@ -1,6 +1,11 @@
 import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
-import type { ConfiguracionDeSede, PrestacionesResponse, ProfesionalesResponse } from "./types";
+import type {
+  CambiosDeConfiguracionDeSede,
+  ConfiguracionDeSede,
+  PrestacionesResponse,
+  ProfesionalesResponse,
+} from "./types";
 
 // La agenda de clínica (docs/rubros.md §4.3). organizationId nunca viaja acá.
 
@@ -21,7 +26,7 @@ export function getConfiguracionDeSede(
 
 export function guardarConfiguracionDeSede(
   branchId: string,
-  body: ConfiguracionDeSede,
+  body: CambiosDeConfiguracionDeSede,
 ): Promise<ConfiguracionDeSede> {
   return request<ConfiguracionDeSede>(`/clinica/sedes/${branchId}/configuracion`, {
     method: "PUT",

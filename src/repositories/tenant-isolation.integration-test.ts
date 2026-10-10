@@ -181,6 +181,14 @@ import {
   guardarCalendarioDelProfesional,
   quitarFilaDelProfesional,
 } from "../clinicas/repositories/googlePorProfesional.repository";
+import {
+  cancelarPendientesDeLaRegla,
+  cancelarPendientesDelTurno,
+  esRecordatorioSinResponder,
+  leerRecordatorioParaEnviar,
+  marcarRespuesta,
+  reclamarRecordatorio,
+} from "../clinicas/recordatorios/repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -629,6 +637,11 @@ after(async () => {
   // M-20 — el módulo de agenda, en orden de FKs: Booking depende de Branch,
   // Resource, ServiceType y Contact; WorkingHours y GoogleCalendarConnection
   // de Resource/Branch; ServiceType de Branch y Resource.
+  // R13: los recordatorios cuelgan de Booking, Contact y Automation.
+  await prisma.bookingMessage.deleteMany({ where: { organizationId: ambas } });
+  await prisma.automation.deleteMany({
+    where: { organizationId: ambas, triggerType: "booking.reminder_due" },
+  });
   await prisma.booking.deleteMany({ where: { organizationId: ambas } });
   // R6: los bloqueos cuelgan de Resource.
   await prisma.resourceTimeOff.deleteMany({ where: { organizationId: ambas } });
@@ -2913,5 +2926,84 @@ test("H-01: todo modelo con organizationId del schema aparece en este archivo", 
     faltan,
     [],
     `modelos con organizationId sin prueba de aislamiento: ${faltan.join(", ")}`,
+  );
+});
+
+// R13 (docs/rubros.md §6): el recordatorio de un turno. Con la organización de
+// A: no se reclama, no se lee, no se cancela ni se responde el recordatorio de
+// B, y la base rechaza uno de A sobre el turno, el paciente o la regla de B
+// (FKs compuestas).
+test("H-01 BookingMessage: A no reclama, no lee, no cancela ni responde el recordatorio de B", async () => {
+  const reglaB = await prisma.automation.create({
+    data: {
+      organizationId: fx.orgB.id,
+      name: "Recordatorio B",
+      triggerType: "booking.reminder_due",
+      actionType: "booking.send_reminder",
+      actionConfig: {},
+      triggerConfig: {},
+    },
+  });
+  const turnoB = await prisma.booking.findUniqueOrThrow({ where: { id: fx.bookingB.id } });
+  const ahora = new Date();
+  const deB = await prisma.bookingMessage.create({
+    data: {
+      organizationId: fx.orgB.id,
+      bookingId: turnoB.id,
+      contactId: turnoB.contactId,
+      automationId: reglaB.id,
+      kind: "REMINDER",
+      bookingStartsAt: turnoB.startsAt,
+      scheduledFor: ahora,
+      nextAttemptAt: ahora,
+    },
+  });
+
+  assert.equal(await reclamarRecordatorio(60_000, ahora, { organizationId: fx.orgA.id }), null);
+  assert.equal(await leerRecordatorioParaEnviar(deB.id, fx.orgA.id), null);
+  assert.equal(
+    (await cancelarPendientesDelTurno(fx.orgA.id, turnoB.id, "intento cruzado")).count,
+    0,
+  );
+  assert.equal(
+    (await cancelarPendientesDeLaRegla(fx.orgA.id, reglaB.id, "intento cruzado")).count,
+    0,
+  );
+  await prisma.bookingMessage.update({
+    where: { id: deB.id },
+    data: { status: "SENT", sentAt: ahora, externalMessageId: `wamid.h01.${randomUUID()}` },
+  });
+  const enviado = await prisma.bookingMessage.findUniqueOrThrow({ where: { id: deB.id } });
+  assert.equal(
+    await marcarRespuesta(
+      fx.orgA.id,
+      enviado.externalMessageId!,
+      "CONFIRMAR",
+      `wamid.h01.r.${randomUUID()}`,
+      ahora,
+    ),
+    null,
+  );
+  assert.equal(await esRecordatorioSinResponder(fx.orgA.id, enviado.externalMessageId!), false);
+  const igual = await prisma.bookingMessage.findUniqueOrThrow({ where: { id: deB.id } });
+  assert.equal(igual.respondedAt, null);
+  assert.equal(igual.status, "SENT");
+
+  await assertViolaFk(
+    () =>
+      prisma.bookingMessage.create({
+        data: {
+          organizationId: fx.orgA.id,
+          bookingId: turnoB.id,
+          contactId: fx.contactA.id,
+          automationId: reglaB.id,
+          kind: "REMINDER",
+          // Otro horario: que lo frene la FK y no el UNIQUE del vigente.
+          bookingStartsAt: new Date(turnoB.startsAt.getTime() + 60_000),
+          scheduledFor: ahora,
+          nextAttemptAt: ahora,
+        },
+      }),
+    "BookingMessage de A sobre el turno y la regla de B",
   );
 });

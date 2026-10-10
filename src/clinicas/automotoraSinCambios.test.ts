@@ -58,7 +58,12 @@ import {
   configDeSeguimientoDeConsultaSchema,
   crearAccionSeguimientoDeConsulta,
 } from "../services/automationActions/inquiryFollowUp";
-import { variablesDeLaAccion } from "../services/whatsappTemplate.service";
+import {
+  botonesDeLaAccion,
+  categoriaDeLaAccion,
+  variablesDeLaAccion,
+} from "../services/whatsappTemplate.service";
+import { validarTextoDePlantilla } from "../utils/whatsappTemplateText";
 
 // ---------------------------------------------------------------------------
 // Suite "automotora sin cambios" (docs/rubros.md §0.3 y §14.1), unitaria.
@@ -807,4 +812,38 @@ test("R15: el seguimiento de consultas de una automotora no cambia", async () =>
   });
   assert.equal(turnosLeidos, 0, "una automotora no lee turnos");
   assert.equal(agendados.length, 1, "agenda como siempre");
+});
+
+// ---------------------------------------------------------------------------
+// R13 (docs/rubros.md §6): el recordatorio de turno es solo de clínica. Una
+// automotora no tiene el módulo, sus plantillas siguen sin botones y con su
+// categoría, sus textos se validan con los mensajes de siempre, y sus
+// reservas no muestran patientConfirmedAt.
+// ---------------------------------------------------------------------------
+
+test("R13: una automotora no tiene recordatorios y sus plantillas no cambian", () => {
+  for (const edition of EDICIONES) {
+    assert.equal(modulosDe(edition, "AUTOMOTORA").has("recordatorios_de_turno"), false);
+  }
+  for (const accion of [
+    "opportunity.send_qr_followup",
+    "opportunity.send_discount_voucher",
+    ACTION_INQUIRY_FOLLOW_UP,
+  ]) {
+    assert.equal(categoriaDeLaAccion(accion), "MARKETING", accion);
+    assert.equal(botonesDeLaAccion(accion), undefined, accion);
+  }
+  assert.equal(
+    validarTextoDePlantilla("Hola {nombre}, mirá {link}.", { conLink: false }),
+    'Con "solo imagen" el link no va en el texto: sacá {link}',
+  );
+  assert.equal(
+    validarTextoDePlantilla("Hola {nombre}, tu turno es el {dia}.", { conLink: true }),
+    '"{dia}" no es una variable válida: solo se pueden usar {nombre} y {link}',
+  );
+  const reserva = { id: "b1", patientConfirmedAt: new Date(), completedAt: null };
+  assert.deepEqual(
+    Object.keys(sinCamposDeClinica(reserva, "AUTOMOTORA", CAMPOS_DE_CLINICA.booking)),
+    ["id"],
+  );
 });

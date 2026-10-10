@@ -8,6 +8,7 @@ import { accionRedactarSeguimiento } from "./automationActions/draftFollowUpMess
 import { accionSeguimientoDeConsulta } from "./automationActions/inquiryFollowUp";
 import { accionCupon } from "./automationActions/sendDiscountVoucherFollowup";
 import { accionSeguimientoQr } from "./automationActions/sendQrFollowup";
+import { accionRecordatorio } from "../clinicas/recordatorios/accion";
 import { despacharAutomatizaciones } from "./automationDispatch.service";
 import { TRIGGERS_CONOCIDOS } from "./automationTriggers";
 import {
@@ -45,6 +46,8 @@ export const ACCIONES_INCORPORADAS: readonly AccionRegistrada[] = [
   accionSeguimientoQr,
   accionCupon,
   accionSeguimientoDeConsulta,
+  // R13: solo clínicas (su módulo).
+  accionRecordatorio,
 ];
 
 export interface RegistrosDeAutomatizacion {

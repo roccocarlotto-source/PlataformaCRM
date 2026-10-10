@@ -213,6 +213,7 @@ after(async () => {
     if (!id) continue;
     const where = { organizationId: id };
     await prisma.activity.deleteMany({ where });
+    await prisma.bookingMessage.deleteMany({ where });
     await prisma.booking.deleteMany({ where });
     await prisma.contactChannelIdentity.deleteMany({ where });
     await prisma.agentInboundJob.deleteMany({ where });
@@ -297,7 +298,7 @@ async function colgarDeTodo(contactId: string) {
       subject: "Llamar",
     },
   });
-  await prisma.booking.create({
+  const turno = await prisma.booking.create({
     data: {
       organizationId: orgId,
       branchId,
@@ -306,6 +307,19 @@ async function colgarDeTodo(contactId: string) {
       contactId,
       startsAt: new Date("2026-11-10T12:00:00Z"),
       endsAt: new Date("2026-11-10T12:30:00Z"),
+    },
+  });
+  // R13: el recordatorio del turno.
+  await prisma.bookingMessage.create({
+    data: {
+      organizationId: orgId,
+      bookingId: turno.id,
+      contactId,
+      automationId,
+      kind: "REMINDER",
+      bookingStartsAt: turno.startsAt,
+      scheduledFor: new Date(),
+      nextAttemptAt: new Date(),
     },
   });
   await prisma.contactChannelIdentity.create({
@@ -358,6 +372,7 @@ async function contarDe(contactId: string) {
   return {
     activities: await prisma.activity.count({ where: w }),
     bookings: await prisma.booking.count({ where: w }),
+    booking_messages: await prisma.bookingMessage.count({ where: w }),
     contact_channel_identities: await prisma.contactChannelIdentity.count({ where: w }),
     conversations: await prisma.conversation.count({ where: w }),
     discount_voucher_follow_ups: await prisma.discountVoucherFollowUp.count({ where: w }),

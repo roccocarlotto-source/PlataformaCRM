@@ -349,9 +349,32 @@ const configuracionDeSedeBodySchema = z
         MAX_HORAS_PARA_CAMBIAR_UN_TURNO,
         `minHoursToChangeBooking no puede superar ${MAX_HORAS_PARA_CAMBIAR_UN_TURNO}`,
       )
-      .nullable(),
+      .nullable()
+      .optional(),
+    // R13 (docs/rubros.md §6.2): el recordatorio. Los mismos rangos que los
+    // CHECK de clinic_branch_settings.
+    reminderHoursBefore: z
+      .number({ invalid_type_error: "reminderHoursBefore debe ser un número" })
+      .int("reminderHoursBefore debe ser un número entero")
+      .min(1, "reminderHoursBefore tiene que ser al menos 1")
+      .max(72, "reminderHoursBefore no puede superar 72")
+      .optional(),
+    lateBookingReminder: z
+      .enum(["NO_ENVIAR", "EN_EL_MOMENTO", "HORAS_ANTES"], {
+        errorMap: () => ({
+          message: "lateBookingReminder debe ser NO_ENVIAR, EN_EL_MOMENTO o HORAS_ANTES",
+        }),
+      })
+      .optional(),
+    lateBookingHoursBefore: z
+      .number({ invalid_type_error: "lateBookingHoursBefore debe ser un número" })
+      .int("lateBookingHoursBefore debe ser un número entero")
+      .min(1, "lateBookingHoursBefore tiene que ser al menos 1")
+      .max(23, "lateBookingHoursBefore no puede superar 23")
+      .optional(),
   })
-  .strict();
+  .strict()
+  .refine((c) => Object.keys(c).length > 0, { message: "No hay nada para guardar" });
 
 export const configuracionDeSedeHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {

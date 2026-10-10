@@ -61,6 +61,7 @@ import {
   tieneNombreCompleto,
   vieneDeUnPerfilDeCanal,
 } from "../utils/nombreProvisorio";
+import { limpiarRecordatoriosDelContacto } from "../clinicas/recordatorios/repository";
 
 // Las dos pestañas de Contactos (ítem 184). Sin `vista`, el listado es el de
 // siempre, con todos los contactos: el selector de contacto de oportunidades
@@ -743,6 +744,9 @@ export async function erasePersonalData(
     // como identidad y su nombre en las notas. Sus eventos de ingesta ya
     // pasaron a este contacto al unir, así que los cubre la línea de arriba.
     const unidos = await erasePersonalDataDeLosUnidos(id, organizationId, tx);
+    // R13: sus recordatorios de turno pendientes no salen y el historial queda
+    // sin last_error (podía tener un dato del envío). Una automotora no tiene.
+    await limpiarRecordatoriosDelContacto(organizationId, id, tx);
 
     return {
       contactId: id,

@@ -5,7 +5,7 @@ import {
   guardarConfiguracionDeSede,
   listPrestaciones,
 } from "./api";
-import type { ConfiguracionDeSede } from "./types";
+import type { CambiosDeConfiguracionDeSede } from "./types";
 
 export const clinicaKeys = {
   all: ["clinica"] as const,
@@ -24,7 +24,7 @@ export function useConfiguracionDeSede(branchId: string) {
 export function useGuardarConfiguracionDeSede(branchId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: ConfiguracionDeSede) => guardarConfiguracionDeSede(branchId, body),
+    mutationFn: (body: CambiosDeConfiguracionDeSede) => guardarConfiguracionDeSede(branchId, body),
     onSuccess: (data) => {
       queryClient.setQueryData(clinicaKeys.configuracionDeSede(branchId), data);
     },

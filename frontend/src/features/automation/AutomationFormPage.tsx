@@ -627,7 +627,7 @@ export function AutomationFormPage() {
               id="automation-form-trigger"
               label="Evento"
               value={values.triggerType}
-              options={opcionesCon(triggerOptions(!conProcesos), values.triggerType)}
+              options={opcionesCon(triggerOptions(!conProcesos, esClinica), values.triggerType)}
               onChange={(triggerType) => {
                 if (!triggerType) return;
                 // Cambiar de evento cambia la forma de SU config —se arranca

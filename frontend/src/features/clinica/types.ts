@@ -29,7 +29,16 @@ export interface ProfesionalesResponse {
 }
 
 // R11: la configuración de clínica de una sede (GET/PUT /clinica/sedes/:id/configuracion).
+export type PoliticaDeTurnoTardio = "NO_ENVIAR" | "EN_EL_MOMENTO" | "HORAS_ANTES";
+
 export interface ConfiguracionDeSede {
   // null = sin plazo (docs/rubros.md D10: sin valor por defecto).
   minHoursToChangeBooking: number | null;
+  // R13 (§6.2): el recordatorio.
+  reminderHoursBefore: number;
+  lateBookingReminder: PoliticaDeTurnoTardio;
+  lateBookingHoursBefore: number;
 }
+
+// Lo que manda un PUT: solo lo que cambia.
+export type CambiosDeConfiguracionDeSede = Partial<ConfiguracionDeSede>;

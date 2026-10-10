@@ -156,6 +156,25 @@ enum BookingCompletedBy {
   AUTO
 }
 
+// R13 (docs/rubros.md §6.1): la cola de mensajes de un turno de clínica. Hoy
+// solo REMINDER; CONTROL y REVIEW_QR entran en R14 con su migración.
+enum BookingMessageKind {
+  REMINDER
+}
+
+enum BookingMessageStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+// El botón que tocó el paciente en el recordatorio (§6.4).
+enum BookingMessageResponse {
+  CONFIRMAR
+  CANCELAR
+}
+
 enum ResourceType {
   PERSON
   ROOM
@@ -815,6 +834,7 @@ model Organization {
 
   qrCodes                       QrCode[]
   qrFollowUps                   QrFollowUp[]
+  bookingMessages               BookingMessage[]
   // Cupones de descuento de un solo uso (ítem 176), y los agendados para
   // mandarse por WhatsApp (ítem 177).
   discountVouchers              DiscountVoucher[]
@@ -1122,6 +1142,7 @@ model Contact {
   bookings                 Booking[]
   conversations            Conversation[]
   qrFollowUps              QrFollowUp[]
+  bookingMessages          BookingMessage[]
   // Cupones de descuento emitidos a su nombre (ítem 176) y los agendados para
   // mandarle (ítem 177).
   discountVouchers         DiscountVoucher[]
@@ -1804,6 +1825,7 @@ model Automation {
   organization             Organization              @relation(fields: [organizationId], references: [id])
   executions               AutomationExecution[]
   qrFollowUps              QrFollowUp[]
+  bookingMessages          BookingMessage[]
   // Los cupones que emitió esta regla (ítem 176) y los que agendó (ítem 177).
   discountVouchers         DiscountVoucher[]
   discountVoucherFollowUps DiscountVoucherFollowUp[]
@@ -2525,6 +2547,11 @@ model Booking {
   completedAt DateTime?           @map("completed_at")
   completedBy BookingCompletedBy? @map("completed_by")
 
+  // R13 (docs/rubros.md §6.1): el paciente tocó "Confirmo" en el recordatorio.
+  // No es un estado: CONFIRMED ya significa "turno dado". Solo clínica
+  // (CAMPOS_DE_CLINICA lo saca de las respuestas de una automotora).
+  patientConfirmedAt DateTime? @map("patient_confirmed_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -2535,6 +2562,10 @@ model Booking {
   contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
   opportunity  Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
 
+  messages BookingMessage[]
+
+  // R13: para la FK compuesta de booking_messages.
+  @@unique([organizationId, id])
   // LA CONSULTA CALIENTE DEL MÓDULO: "¿qué reservas del recurso R se superponen
   // con [inicio, fin)?". La responden la validación de capacidad de
   // POST /api/bookings y el cálculo de disponibilidad, que son los dos caminos
@@ -5004,4 +5035,61 @@ model ResourceTimeOff {
   // la consulta de la disponibilidad y de la reserva.
   @@index([organizationId, resourceId, startsAt])
   @@map("resource_time_offs")
+}
+
+// ---------------------------------------------------------------------------
+// R13 (docs/rubros.md §6): los mensajes de un turno de clínica. Una cola con
+// el patrón de QrFollowUp (reclamar con lease, reintentar, cancelar). La agenda
+// el consumidor de booking.created / booking.rescheduled y la manda
+// src/clinicas/recordatorios/recordatorioWorker.ts.
+//
+// UN SOLO RECORDATORIO POR TURNO Y POR HORARIO: el índice único parcial
+// booking_messages_vigente_key (booking_id, kind, booking_starts_at) mientras
+// esté PENDING o SENT (en la migración: Prisma no expresa un índice parcial).
+// Reprogramar cancela el del horario viejo y agenda el del nuevo.
+//
+// Solo clínicas: una automotora no tiene filas. El webhook de WhatsApp cruza
+// la respuesta del botón por external_message_id (el wamid del envío).
+// ---------------------------------------------------------------------------
+model BookingMessage {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  bookingId      String @map("booking_id") @db.Uuid
+  contactId      String @map("contact_id") @db.Uuid
+  // La regla "Recordatorio antes del turno": de ahí sale la plantilla.
+  automationId   String @map("automation_id") @db.Uuid
+
+  kind              BookingMessageKind
+  // El horario que este mensaje recuerda.
+  bookingStartsAt   DateTime             @map("booking_starts_at")
+  scheduledFor      DateTime             @map("scheduled_for")
+  nextAttemptAt     DateTime             @map("next_attempt_at")
+  status            BookingMessageStatus @default(PENDING)
+  attempts          Int                  @default(0)
+  // Sin tokens y cortado a 500 (mensajeDeError en recordatorios).
+  lastError         String?              @map("last_error")
+  sentAt            DateTime?            @map("sent_at")
+  // El wamid del envío: lo trae el context.id de la respuesta del botón.
+  externalMessageId String?              @map("external_message_id") @db.VarChar(255)
+
+  // La respuesta por botón (§6.4): cuál, cuándo y el wamid del entrante.
+  response           BookingMessageResponse?
+  respondedAt        DateTime?               @map("responded_at")
+  responseExternalId String?                 @map("response_external_id") @db.VarChar(255)
+
+  // Ya se creó la tarea "sin respuesta" (§6.5): una sola por mensaje.
+  noResponseTaskAt DateTime? @map("no_response_task_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  booking      Booking      @relation(fields: [organizationId, bookingId], references: [organizationId, id])
+  contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  automation   Automation   @relation(fields: [organizationId, automationId], references: [organizationId, id])
+
+  @@index([organizationId, bookingId])
+  @@index([organizationId, contactId])
+  @@index([organizationId, automationId])
+  @@map("booking_messages")
 }

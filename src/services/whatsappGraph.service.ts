@@ -207,6 +207,9 @@ export interface SendWhatsappTemplateInput {
   // ella, una plantilla así es un 400 de Meta (#132012) — el worker no la
   // omite nunca.
   headerImageUrl?: string;
+  // R13: el payload de cada botón de respuesta rápida, en orden (vuelve en el
+  // webhook cuando el cliente lo toca). Sin ellos, el cuerpo de siempre.
+  quickReplyPayloads?: string[];
   accessToken: string;
 }
 
@@ -253,6 +256,14 @@ export function cuerpoDePlantilla(
       })),
     });
   }
+  (input.quickReplyPayloads ?? []).forEach((payload, index) => {
+    components.push({
+      type: "button",
+      sub_type: "quick_reply",
+      index: String(index),
+      parameters: [{ type: "payload", payload }],
+    });
+  });
   return {
     to: input.to,
     type: "template",
@@ -303,6 +314,9 @@ export interface CreateWhatsappTemplateInput {
   // Resumable Upload API (uploadTemplateSampleReal). Meta lo exige en el alta
   // y lo mira quien revisa. Sin él, la plantilla es solo texto.
   headerImageHandle?: string;
+  // R13: botones de respuesta rápida (QUICK_REPLY), con su texto. Sin ellos,
+  // el cuerpo del alta es el de siempre.
+  quickReplyButtons?: string[];
 }
 
 export interface PlantillaEnMeta {
@@ -347,6 +361,14 @@ export function cuerpoDeAltaDePlantilla(
         // un example vacío.
         ...(input.bodyExamples.length > 0 ? { example: { body_text: [input.bodyExamples] } } : {}),
       },
+      ...(input.quickReplyButtons && input.quickReplyButtons.length > 0
+        ? [
+            {
+              type: "BUTTONS",
+              buttons: input.quickReplyButtons.map((text) => ({ type: "QUICK_REPLY", text })),
+            },
+          ]
+        : []),
     ],
   };
 }

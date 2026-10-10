@@ -8,6 +8,7 @@ import {
   registroDeHandlers as handlersPorDefecto,
   type RegistroDeHandlers,
 } from "../../services/outboxHandlers";
+import { alCancelarse, alProgramarse } from "../recordatorios/programacion.service";
 
 // ---------------------------------------------------------------------------
 // Los eventos del turno de una clínica (docs/rubros.md §4.8, R10). SOLO
@@ -25,9 +26,9 @@ import {
 // (esCorreccion: true) o un cierre automático (automatico: true) no tienen que
 // reenviar un mensaje que ya salió.
 //
-// R10 no construye ninguna acción: registra un handler que los consume sin
-// hacer nada, para que no terminen en DEAD_LETTER. Cuando R13/R14 los sumen
-// como triggers de clínica en el motor, ese PR reemplaza este registro.
+// R10 los dejó con un handler sin acción. R13 suma el recordatorio
+// (created/rescheduled/cancelled, src/clinicas/recordatorios); completed y
+// no_show siguen sin acción hasta R14.
 // ---------------------------------------------------------------------------
 
 export const EVENTO_TURNO_CREADO = "booking.created";
@@ -91,9 +92,17 @@ export async function emitirEventoDeTurno(
   );
 }
 
-/** Registra un handler sin acción para cada evento de turno (ver arriba). */
+/**
+ * Registra los consumidores de los eventos de turno. R13 (docs/rubros.md §6.2):
+ * created y rescheduled programan el recordatorio, cancelled lo anula. Los
+ * demás (completed, no_show) todavía no tienen acción (R14): se consumen sin
+ * hacer nada, para que no vayan a DEAD_LETTER.
+ */
 export function registrarEventosDeTurno(handlers: RegistroDeHandlers = handlersPorDefecto): void {
-  for (const tipo of EVENTOS_DE_TURNO) {
+  handlers.registrar(EVENTO_TURNO_CREADO, alProgramarse);
+  handlers.registrar(EVENTO_TURNO_REPROGRAMADO, alProgramarse);
+  handlers.registrar(EVENTO_TURNO_CANCELADO, alCancelarse);
+  for (const tipo of [EVENTO_TURNO_ATENDIDO, EVENTO_TURNO_NO_VINO]) {
     handlers.registrar(tipo, (evento) => {
       logger.debug(
         { eventType: tipo, outboxEventId: evento.id },
