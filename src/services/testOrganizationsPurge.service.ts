@@ -167,6 +167,10 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "src/clinicas/usuariosPorSede.integration-test.ts",
   ),
   patron(
+    "google-por-profesional-{etiqueta}-{ts}-{hex8}",
+    "src/clinicas/googlePorProfesional.integration-test.ts",
+  ),
+  patron(
     "bloqueos-sobreturnos-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/bloqueosYSobreturnos.integration-test.ts",
   ),

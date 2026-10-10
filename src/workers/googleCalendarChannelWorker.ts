@@ -1,3 +1,4 @@
+import { renovarCanalesDeProfesionales } from "../clinicas/services/googlePorProfesional.service";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import {
@@ -136,6 +137,20 @@ export async function renovarCanalesVencidos(
         "No se pudo crear o renovar el canal de notificaciones de esta sucursal; se sigue con las demás",
       );
     }
+  }
+
+  // R8 (docs/rubros.md §4.6): después, los calendarios de los profesionales de
+  // clínica, cada uno con su canal. Una automotora no tiene: la pasada de
+  // arriba es la de siempre. Si esto falla entero, las sedes ya se renovaron.
+  try {
+    const deProfesionales = await renovarCanalesDeProfesionales(limite, {
+      cliente: opciones.cliente,
+      organizationId: opciones.organizationId,
+    });
+    resumen.renovados += deProfesionales.renovados;
+    resumen.fallidos += deProfesionales.fallidos;
+  } catch (err) {
+    logger.error({ err }, "No se pudieron renovar los canales de los calendarios de profesionales");
   }
 
   return resumen;

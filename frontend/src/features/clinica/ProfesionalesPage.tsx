@@ -12,6 +12,7 @@ import { usePrestaciones } from "./queries";
 import { useVocabularioDeClinica } from "./vocabulario";
 import { useState } from "react";
 import { SobreturnosDelProfesionalDialog } from "./SobreturnosDelProfesionalDialog";
+import { CalendarioDelProfesionalDialog } from "./CalendarioDelProfesionalDialog";
 import type { Resource } from "../resource/types";
 
 const SIN_RESOLVER = "—";
@@ -44,6 +45,8 @@ export function ProfesionalesPage() {
   const termino = vocabulario.recurso;
   // R6: el diálogo de sobreturnos de un profesional.
   const [deSobreturnos, setDeSobreturnos] = useState<Resource | null>(null);
+  // R8: el diálogo del calendario de Google de un profesional.
+  const [deCalendario, setDeCalendario] = useState<Resource | null>(null);
 
   return (
     <div>
@@ -79,6 +82,7 @@ export function ProfesionalesPage() {
                 <th>Sede</th>
                 <th>{vocabulario.tipoDeServicio.pluralTitulo}</th>
                 <th>Sobreturnos</th>
+                <th>Calendario de Google</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -93,11 +97,13 @@ export function ProfesionalesPage() {
                       ? `Hasta ${String(r.maxOverbookingsPerDay ?? 1)} por día`
                       : "No"}
                   </td>
+                  <td className="ds-cell-muted">{r.googleCalendarId ?? SIN_RESOLVER}</td>
                   <td>
                     <ActionsMenu
                       actions={[
                         { label: "Editar y horario", to: `/resources/${r.id}/edit` },
                         { label: "Sobreturnos", onClick: () => setDeSobreturnos(r) },
+                        { label: "Calendario de Google", onClick: () => setDeCalendario(r) },
                       ]}
                     />
                   </td>
@@ -107,6 +113,12 @@ export function ProfesionalesPage() {
           </Table>
         ) : null}
       </div>
+      {deCalendario ? (
+        <CalendarioDelProfesionalDialog
+          profesional={deCalendario}
+          onClose={() => setDeCalendario(null)}
+        />
+      ) : null}
       {deSobreturnos ? (
         <SobreturnosDelProfesionalDialog
           profesional={deSobreturnos}

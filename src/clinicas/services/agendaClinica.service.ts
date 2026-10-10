@@ -175,6 +175,8 @@ export async function disponibilidadDeLaPrestacion(
           serviceTypeId: prestacion.id,
           desde: params.desde,
           hasta: params.hasta,
+          // R8: a cada profesional, solo su propio calendario de Google.
+          googlePorProfesional: true,
         },
         cliente,
       ).then((turnos) => turnos.map((t) => ({ ...t, profesional: { id: p.id, name: p.name } }))),

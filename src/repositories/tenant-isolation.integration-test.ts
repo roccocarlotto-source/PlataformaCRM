@@ -174,6 +174,13 @@ import {
   findBloqueosQueSeSuperponen,
   guardarSobreturnosDelProfesional,
 } from "../clinicas/repositories/bloqueos.repository";
+import {
+  asegurarFilasDeProfesionales,
+  desvincularEventoDeGoogle,
+  findOtroProfesionalConElCalendario,
+  guardarCalendarioDelProfesional,
+  quitarFilaDelProfesional,
+} from "../clinicas/repositories/googlePorProfesional.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -2820,6 +2827,73 @@ test("H-01 ResourceTimeOff: A no lee, no borra ni crea bloqueos del profesional 
   assert.equal(await prisma.resourceTimeOff.count({ where: { id: deB.id } }), 1);
   const recursoB = await prisma.resource.findUniqueOrThrow({ where: { id: fx.resourceB.id } });
   assert.equal(recursoB.allowsOverbooking, false);
+});
+
+// R8 (docs/rubros.md §4.6): el calendario de Google de un profesional y su
+// fila de canal. Con la organización de A: no se cambia el calendario del
+// profesional de B, no se le borra su fila de canal, no se ve su calendario
+// como "ya usado", no se desvincula el evento de una reserva de B, y la base
+// rechaza una fila de canal de A sobre el profesional de B (FK compuesta).
+test("H-01 calendario por profesional: A no toca el calendario ni el canal del profesional de B", async () => {
+  await prisma.resource.update({
+    where: { id: fx.resourceB.id },
+    data: { googleCalendarId: "cal-h01-b" },
+  });
+  const filaB = await prisma.googleCalendarChannel.create({
+    data: {
+      organizationId: fx.orgB.id,
+      branchId: fx.branchB.id,
+      calendarId: "cal-h01-b",
+      resourceId: fx.resourceB.id,
+    },
+  });
+  try {
+    assert.equal(
+      (await guardarCalendarioDelProfesional(fx.orgA.id, fx.resourceB.id, "cal-de-a")).count,
+      0,
+    );
+    assert.deepEqual(await quitarFilaDelProfesional(fx.orgA.id, fx.resourceB.id), []);
+    assert.equal(await prisma.googleCalendarChannel.count({ where: { id: filaB.id } }), 1);
+    assert.equal(
+      await findOtroProfesionalConElCalendario(
+        fx.orgA.id,
+        fx.branchB.id,
+        "cal-h01-b",
+        randomUUID(),
+      ),
+      null,
+    );
+    assert.deepEqual(
+      await asegurarFilasDeProfesionales(new Date(Date.now() + 86400000), {
+        organizationId: fx.orgA.id,
+      }),
+      [],
+    );
+    const reservaB = await prisma.booking.findFirstOrThrow({
+      where: { organizationId: fx.orgB.id },
+    });
+    assert.equal((await desvincularEventoDeGoogle(reservaB.id, fx.orgA.id)).count, 0);
+    await assertViolaFk(
+      () =>
+        prisma.googleCalendarChannel.create({
+          data: {
+            organizationId: fx.orgA.id,
+            branchId: fx.branchB.id,
+            calendarId: "cal-cruzado",
+            resourceId: fx.resourceB.id,
+          },
+        }),
+      "GoogleCalendarChannel de A sobre el profesional de B",
+    );
+    const recursoB = await prisma.resource.findUniqueOrThrow({ where: { id: fx.resourceB.id } });
+    assert.equal(recursoB.googleCalendarId, "cal-h01-b");
+  } finally {
+    await prisma.googleCalendarChannel.deleteMany({ where: { id: filaB.id } });
+    await prisma.resource.update({
+      where: { id: fx.resourceB.id },
+      data: { googleCalendarId: null },
+    });
+  }
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {

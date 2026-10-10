@@ -217,10 +217,13 @@ export function setGoogleEventId(
   organizationId: string,
   googleEventId: string,
   db: Db = prisma,
+  // R8: el calendario del profesional donde quedó el evento. Sin pasarlo, no
+  // se escribe (null = el de la sede, como siempre).
+  googleCalendarId?: string,
 ) {
   return db.booking.updateMany({
     where: { id, organizationId, status: "CONFIRMED" },
-    data: { googleEventId },
+    data: { googleEventId, ...(googleCalendarId ? { googleCalendarId } : {}) },
   });
 }
 

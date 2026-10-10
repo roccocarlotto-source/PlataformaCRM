@@ -18,6 +18,10 @@ import {
   crearBloqueoDeProfesional,
   listarBloqueos,
 } from "../services/bloqueos.service";
+import {
+  asignarCalendarioAlProfesional,
+  listarCalendariosDeLaSede,
+} from "../services/googlePorProfesional.service";
 
 // ---------------------------------------------------------------------------
 // Agenda de clínica (docs/rubros.md §4.3, R5): prestaciones con sus
@@ -205,5 +209,40 @@ export const configurarSobreturnosHandler = asyncHandler<AuthenticatedRequest>(
     const resourceId = parseOrThrow(resourceIdSchema, req.params.resourceId);
     const input = parseOrThrow(sobreturnosBodySchema, req.body);
     res.status(200).json(await configurarSobreturnos(req.auth.organizationId, resourceId, input));
+  },
+);
+
+// ---------------------------------------------------------------------------
+// R8: el calendario de Google de cada profesional (docs/rubros.md §4.6).
+// ---------------------------------------------------------------------------
+
+const branchIdSchema = z.string().uuid("branchId inválido");
+
+const calendarioBodySchema = z
+  .object({
+    calendarId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(255, "El ID no puede superar los 255 caracteres")
+      .nullable(),
+  })
+  .strict();
+
+export const listarCalendariosHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const branchId = parseOrThrow(branchIdSchema, req.params.branchId);
+    const calendarios = await listarCalendariosDeLaSede(req.auth.organizationId, branchId);
+    res.status(200).json({ calendarios });
+  },
+);
+
+export const asignarCalendarioHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const resourceId = parseOrThrow(resourceIdSchema, req.params.resourceId);
+    const { calendarId } = parseOrThrow(calendarioBodySchema, req.body);
+    res
+      .status(200)
+      .json(await asignarCalendarioAlProfesional(req.auth.organizationId, resourceId, calendarId));
   },
 );

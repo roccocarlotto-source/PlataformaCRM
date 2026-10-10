@@ -401,6 +401,8 @@ export async function createBooking(
   // FASE 3 — ya commiteado. La reserva EXISTE y vale, pase lo que pase acá.
   // -------------------------------------------------------------------------
 
+  const calendarioDelProfesional = resource.googleCalendarId ?? undefined;
+
   const googleEventId = await reflejarReservaEnGoogle(
     organizationId,
     resource.branchId,
@@ -411,6 +413,9 @@ export async function createBooking(
       fin: endsAt,
     },
     cliente,
+    // R8: el calendario propio del profesional de una clínica. Sin él (toda
+    // automotora), el de la sede, como siempre.
+    calendarioDelProfesional,
   );
 
   if (!googleEventId) {
@@ -421,7 +426,13 @@ export async function createBooking(
 
   let enlazado: { count: number };
   try {
-    enlazado = await setGoogleEventId(booking.id, organizationId, googleEventId);
+    enlazado = await setGoogleEventId(
+      booking.id,
+      organizationId,
+      googleEventId,
+      undefined,
+      calendarioDelProfesional,
+    );
   } catch (err) {
     // V-4 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — (organization_id, google_event_id)
     // es ÚNICO desde la migración 20260902140000. Un P2002 acá significa que
@@ -443,7 +454,13 @@ export async function createBooking(
         { bookingId: booking.id, organizationId, branchId: resource.branchId, googleEventId },
         "Otra reserva de la organización ya tiene este googleEventId: no se enlaza y se borra el evento recién creado — revisar los calendarios conectados, no es mala suerte",
       );
-      await borrarReservaDeGoogle(organizationId, resource.branchId, googleEventId, cliente);
+      await borrarReservaDeGoogle(
+        organizationId,
+        resource.branchId,
+        googleEventId,
+        cliente,
+        calendarioDelProfesional,
+      );
       return booking;
     }
     throw err;
@@ -463,11 +480,21 @@ export async function createBooking(
       { bookingId: booking.id, organizationId, googleEventId },
       "La reserva se canceló mientras Google creaba el evento: se borra el evento recién creado para no dejarlo huérfano",
     );
-    await borrarReservaDeGoogle(organizationId, resource.branchId, googleEventId, cliente);
+    await borrarReservaDeGoogle(
+      organizationId,
+      resource.branchId,
+      googleEventId,
+      cliente,
+      calendarioDelProfesional,
+    );
     return getBookingById(organizationId, booking.id);
   }
 
-  return { ...booking, googleEventId };
+  return {
+    ...booking,
+    googleEventId,
+    ...(calendarioDelProfesional ? { googleCalendarId: calendarioDelProfesional } : {}),
+  };
 }
 
 // R6 (docs/rubros.md §4.4): un sobreturno solo existe encima de un horario
@@ -547,7 +574,15 @@ export async function cancelBooking(
   }
 
   if (booking.googleEventId) {
-    await borrarReservaDeGoogle(organizationId, booking.branchId, booking.googleEventId, cliente);
+    // R8: en el calendario donde quedó el evento (el del profesional de una
+    // clínica); null = el de la sede, como siempre.
+    await borrarReservaDeGoogle(
+      organizationId,
+      booking.branchId,
+      booking.googleEventId,
+      cliente,
+      booking.googleCalendarId ?? undefined,
+    );
   } else {
     logger.debug(
       { bookingId: id, organizationId },

@@ -1,3 +1,7 @@
+import {
+  findCanalesAbiertosDeProfesionales,
+  registrarErrorDelCalendario,
+} from "../clinicas/repositories/googlePorProfesional.repository";
 import { randomUUID } from "node:crypto";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
@@ -72,10 +76,13 @@ export interface InicioDeConexion {
 // cliente de API pueda consumir—. La URL en el cuerpo deja que el frontend haga
 // `window.location.href = authorizationUrl`, que es el único camino que funciona
 // de verdad, y de paso hace el endpoint probable sin un navegador.
+// `industry` (R8): una clínica pide además el scope de la lista de calendarios
+// (scopesDeConexion). Una automotora, la URL de siempre.
 export async function iniciarConexion(
   organizationId: string,
   branchId: string,
   cliente?: ClienteInyectado,
+  industry?: "AUTOMOTORA" | "CLINICA",
 ): Promise<InicioDeConexion> {
   // 404 si la sucursal no existe o es de otra organización. Va PRIMERO: no tiene
   // sentido firmar un state para una sucursal que no se puede tocar, y esto es
@@ -84,7 +91,12 @@ export async function iniciarConexion(
 
   const state = await firmarState({ organizationId, branchId });
 
-  return { authorizationUrl: resolverCliente(cliente).construirUrlDeAutorizacion(state) };
+  return {
+    authorizationUrl:
+      industry === "CLINICA"
+        ? resolverCliente(cliente).construirUrlDeAutorizacion(state, industry)
+        : resolverCliente(cliente).construirUrlDeAutorizacion(state),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +243,20 @@ export async function desconectar(
   // R7: el canal sale de google_calendar_channels. Si ahí no hay uno, el de las
   // columnas viejas: el que abrió el código de antes de R7 y todavía no se
   // reconcilió (con el espejo, en régimen son el mismo).
+  // R8: los canales de los calendarios de los profesionales de la sede (una
+  // clínica). Se cierran antes de revocar, igual que el de la sede. Una
+  // automotora no tiene.
+  for (const delProfesional of await findCanalesAbiertosDeProfesionales(organizationId, branchId)) {
+    if (delProfesional.channelId && delProfesional.channelResourceId) {
+      await detenerCanalDeConexion(
+        organizationId,
+        branchId,
+        { channelId: delProfesional.channelId, resourceId: delProfesional.channelResourceId },
+        cliente,
+      );
+    }
+  }
+
   const canal = await findCanalDeLaSucursal(branchId, organizationId);
   const channelId = canal?.channelId ?? conexion.channelId;
   const channelResourceId = canal?.channelResourceId ?? conexion.channelResourceId;
@@ -430,11 +456,16 @@ export async function obtenerAccessToken(
 // punta a punta y probados juntos, en vez de ser piezas que recién se enteran de
 // si encajan cuando alguien construya la disponibilidad.
 // ---------------------------------------------------------------------------
+// `calendarIdPropio` (R8, docs/rubros.md §4.6): el calendario de un profesional
+// de clínica en lugar del de la sede. Un error de ESE calendario (se borró, le
+// sacaron el permiso) queda en su fila de canal y NO marca la conexión de la
+// sede en ERROR: los demás profesionales siguen funcionando.
 export async function consultarDisponibilidad(
   organizationId: string,
   branchId: string,
   rango: { timeMin: string; timeMax: string },
   cliente?: ClienteInyectado,
+  calendarIdPropio?: string,
 ): Promise<IntervaloOcupado[]> {
   const branch = await getBranchById(organizationId, branchId);
 
@@ -443,7 +474,7 @@ export async function consultarDisponibilidad(
   try {
     return await resolverCliente(cliente).consultarFreeBusy({
       accessToken,
-      calendarIds: [calendarId],
+      calendarIds: [calendarIdPropio ?? calendarId],
       timeMin: rango.timeMin,
       timeMax: rango.timeMax,
       // La zona de la SUCURSAL, nunca la del servidor — §4 del documento es
@@ -455,6 +486,10 @@ export async function consultarDisponibilidad(
     // Mismo criterio que obtenerAccessToken: un calendario que se borró o al que
     // se le quitó el permiso es un grant efectivamente roto, y tiene que quedar
     // registrado en la fila. Un Google caído, no.
+    if (err instanceof GoogleAuthError && calendarIdPropio) {
+      await registrarErrorDelCalendario(organizationId, branchId, calendarIdPropio, err.message);
+      throw err;
+    }
     if (err instanceof GoogleAuthError && err.grantInvalido) {
       await markConnectionError(branchId, organizationId, err.message);
     }
@@ -521,6 +556,8 @@ export async function reflejarReservaEnGoogle(
   branchId: string,
   evento: { titulo: string; descripcion?: string; inicio: Date; fin: Date },
   cliente?: ClienteInyectado,
+  // R8: el calendario del profesional de una clínica. Sin él, el de la sede.
+  calendarIdPropio?: string,
 ): Promise<string | undefined> {
   try {
     const branch = await getBranchById(organizationId, branchId);
@@ -528,7 +565,7 @@ export async function reflejarReservaEnGoogle(
 
     return await resolverCliente(cliente).crearEvento({
       accessToken,
-      calendarId,
+      calendarId: calendarIdPropio ?? calendarId,
       titulo: evento.titulo,
       descripcion: evento.descripcion,
       inicio: evento.inicio,
@@ -563,13 +600,16 @@ export async function borrarReservaDeGoogle(
   branchId: string,
   googleEventId: string,
   cliente?: ClienteInyectado,
+  // R8: el calendario donde quedó el evento (Booking.googleCalendarId). Sin
+  // él, el de la sede.
+  calendarIdPropio?: string,
 ): Promise<void> {
   try {
     const { accessToken, calendarId } = await obtenerAccessToken(organizationId, branchId, cliente);
 
     await resolverCliente(cliente).eliminarEvento({
       accessToken,
-      calendarId,
+      calendarId: calendarIdPropio ?? calendarId,
       eventId: googleEventId,
     });
   } catch (err) {

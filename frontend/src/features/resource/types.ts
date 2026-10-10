@@ -16,6 +16,9 @@ export interface Resource {
   // clínica. Una automotora no tiene las claves.
   allowsOverbooking?: boolean;
   maxOverbookingsPerDay?: number;
+  // R8 (docs/rubros.md §4.6): el calendario de Google propio del profesional,
+  // solo en una clínica.
+  googleCalendarId?: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

@@ -23,6 +23,8 @@ export interface Booking {
   // R6 (docs/rubros.md §4.4): solo en una clínica. Una automotora no tiene la
   // clave.
   isOverbooking?: boolean;
+  // R8: el calendario del profesional donde quedó el evento (solo clínica).
+  googleCalendarId?: string | null;
   createdAt: string;
   updatedAt: string;
 }

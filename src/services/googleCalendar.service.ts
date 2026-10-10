@@ -61,7 +61,26 @@ export const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events.freebusy",
 ] as const;
 
+// R8 (docs/rubros.md §4.6, D4): el scope para LISTAR los calendarios de la
+// cuenta y elegir el de cada profesional (calendarList.list). Lo pide SOLO una
+// conexión de clínica: la URL de autorización de una automotora sigue pidiendo
+// exactamente GOOGLE_CALENDAR_SCOPES. Todo lo demás por profesional (freebusy,
+// events.insert/delete y events.watch sobre otro calendario) anda con los dos
+// scopes de siempre. Un refresh token conserva los scopes con que se otorgó:
+// las sucursales ya conectadas no reconectan nada.
+export const GOOGLE_CALENDAR_SCOPE_LISTA_DE_CALENDARIOS =
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
+
+/** Los scopes del pedido de autorización según el rubro. AUTOMOTORA (y sin
+ *  rubro): los dos de siempre, en el mismo orden. */
+export function scopesDeConexion(industry?: "AUTOMOTORA" | "CLINICA"): readonly string[] {
+  return industry === "CLINICA"
+    ? [...GOOGLE_CALENDAR_SCOPES, GOOGLE_CALENDAR_SCOPE_LISTA_DE_CALENDARIOS]
+    : GOOGLE_CALENDAR_SCOPES;
+}
+
 const URL_AUTORIZACION = "https://accounts.google.com/o/oauth2/v2/auth";
+const URL_LISTA_DE_CALENDARIOS = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const URL_TOKEN = "https://oauth2.googleapis.com/token";
 const URL_REVOCACION = "https://oauth2.googleapis.com/revoke";
 const URL_FREEBUSY = "https://www.googleapis.com/calendar/v3/freeBusy";
@@ -218,8 +237,10 @@ async function describirFallo(res: Response): Promise<{ mensaje: string; codigo?
 }
 
 export interface ClienteGoogleCalendar {
-  // Pura, sin red: arma la URL a la que hay que mandar al usuario.
-  construirUrlDeAutorizacion(state: string): string;
+  // Pura, sin red: arma la URL a la que hay que mandar al usuario. `industry`
+  // (R8): CLINICA suma el scope de la lista de calendarios e
+  // include_granted_scopes; sin pasarlo (o AUTOMOTORA), la URL de siempre.
+  construirUrlDeAutorizacion(state: string, industry?: "AUTOMOTORA" | "CLINICA"): string;
   // Canjea el `code` del callback por tokens.
   intercambiarCodigo(code: string): Promise<TokensDeGoogle>;
   // Cambia un refresh token por un access token fresco.
@@ -240,6 +261,28 @@ export interface ClienteGoogleCalendar {
   detenerCanal(canal: CanalADetener): Promise<void>;
   // events.list con syncToken. PAGINA INTERNAMENTE; ver su implementación.
   listarCambios(consulta: ConsultaDeCambios): Promise<CambiosDeCalendario>;
+  // R8: calendarList.list con minAccessRole=writer — los calendarios donde la
+  // cuenta conectada puede crear eventos. OPCIONAL en la interfaz: solo lo usa
+  // la elección de calendario de una clínica, y los dobles de los tests que no
+  // la ejercitan no tienen por qué implementarlo. Sin el scope de la lista
+  // (una conexión anterior), lanza GoogleScopeInsuficienteError.
+  listarCalendarios?(accessToken: string): Promise<CalendarioDeLaCuenta[]>;
+}
+
+export interface CalendarioDeLaCuenta {
+  id: string;
+  summary: string;
+  accessRole: string;
+}
+
+// R8: la conexión no tiene el scope de la lista de calendarios (se conectó
+// antes de R8, o la persona lo destildó). 409: hay que reconectar, o usar el
+// respaldo de pegar el ID del calendario.
+export class GoogleScopeInsuficienteError extends AppError {
+  constructor() {
+    super("Reconectá Google para ver la lista de calendarios, o pegá el ID del calendario", 409);
+    Object.setPrototypeOf(this, GoogleScopeInsuficienteError.prototype);
+  }
 }
 
 export interface CanalACrear {
@@ -408,12 +451,12 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
   }
 
   return {
-    construirUrlDeAutorizacion(state) {
+    construirUrlDeAutorizacion(state, industry) {
       const parametros = new URLSearchParams({
         client_id: config.clientId,
         redirect_uri: config.redirectUri,
         response_type: "code",
-        scope: GOOGLE_CALENDAR_SCOPES.join(" "),
+        scope: scopesDeConexion(industry).join(" "),
 
         // access_type=offline ES LO QUE PIDE EL REFRESH TOKEN. Sin esto Google
         // devuelve solo un access token de una hora y la integración se muere
@@ -438,6 +481,12 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
         // saber qué sucursal inició el flujo, porque Google no reenvía el JWT.
         state,
       });
+      // R8: solo en una clínica. Deja que una clínica conectada antes sume el
+      // scope de la lista reconectando, sin perder lo ya otorgado. El pedido
+      // de una automotora queda idéntico al de siempre.
+      if (industry === "CLINICA") {
+        parametros.set("include_granted_scopes", "true");
+      }
 
       return `${URL_AUTORIZACION}?${parametros.toString()}`;
     },
@@ -856,6 +905,49 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
       }
 
       return { eventos, nextSyncToken };
+    },
+
+    // -----------------------------------------------------------------------
+    // calendarList.list (R8) — los calendarios donde la cuenta puede escribir.
+    // Pagina hasta 10 páginas de 250: una cuenta con más calendarios que eso
+    // no es el caso de una clínica, y el respaldo de pegar el ID sigue ahí.
+    // -----------------------------------------------------------------------
+    async listarCalendarios(accessToken) {
+      const calendarios: CalendarioDeLaCuenta[] = [];
+      let pageToken: string | undefined;
+      for (let pagina = 0; pagina < 10; pagina++) {
+        const parametros = new URLSearchParams({ minAccessRole: "writer", maxResults: "250" });
+        if (pageToken) parametros.set("pageToken", pageToken);
+        const res = await pedir(`${URL_LISTA_DE_CALENDARIOS}?${parametros.toString()}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (res.status === 403) {
+          // insufficientPermissions / ACCESS_TOKEN_SCOPE_INSUFFICIENT: la
+          // conexión no tiene el scope de la lista.
+          throw new GoogleScopeInsuficienteError();
+        }
+        if (!res.ok) {
+          const { mensaje, codigo } = await describirFallo(res);
+          throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
+        }
+        const datos = (await res.json()) as {
+          items?: { id?: unknown; summary?: unknown; accessRole?: unknown }[];
+          nextPageToken?: unknown;
+        };
+        for (const item of datos.items ?? []) {
+          if (typeof item.id === "string") {
+            calendarios.push({
+              id: item.id,
+              summary: typeof item.summary === "string" ? item.summary : item.id,
+              accessRole: typeof item.accessRole === "string" ? item.accessRole : "",
+            });
+          }
+        }
+        if (typeof datos.nextPageToken !== "string") break;
+        pageToken = datos.nextPageToken;
+      }
+      return calendarios;
     },
   };
 }
