@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { esProfesionalDeLaPrestacion } from "../clinicas/repositories/serviceTypeResource.repository";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import {
@@ -289,7 +290,13 @@ export async function createBooking(
     if (!serviceTypeActual) {
       throw new AppError("El servicio indicado no existe o no pertenece a tu organización", 400);
     }
-    if (serviceTypeActual.resourceId !== resourceActual.id) {
+    // La misma regla que resolverContexto, releída bajo el lock: el principal,
+    // o en una clínica cualquiera de los profesionales de la prestación
+    // (docs/rubros.md §4.3). La tabla se mira solo si no es el principal.
+    if (
+      serviceTypeActual.resourceId !== resourceActual.id &&
+      !(await esProfesionalDeLaPrestacion(organizationId, serviceTypeActual, resourceActual.id, tx))
+    ) {
       throw new AppError("El servicio indicado no lo provee ese recurso", 400);
     }
 

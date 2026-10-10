@@ -264,7 +264,11 @@ from (
       -- Configuración de una clínica (docs/rubros.md §1.3, migración
       -- 20261101120000): las dos tablas con organization_id propio y la
       -- política uniforme.
-      ('clinic_settings'), ('clinic_branch_settings')
+      ('clinic_settings'), ('clinic_branch_settings'),
+      -- Los profesionales de una prestación de clínica (docs/rubros.md §4.3,
+      -- migración 20261102120000): organization_id propio y la política
+      -- uniforme.
+      ('service_type_resources')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -970,7 +974,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 85 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 87 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -994,7 +998,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 85 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 87 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1186,7 +1190,12 @@ from (
     ('inquiry_follow_ups_organization_id_conversation_id_fkey|inquiry_follow_ups(organization_id,conversation_id)->conversations(organization_id,id)'),
     -- Configuración de la sede de una clínica (docs/rubros.md §1.3, migración
     -- 20261101120000): la sede de la misma organización.
-    ('clinic_branch_settings_organization_id_branch_id_fkey|clinic_branch_settings(organization_id,branch_id)->branches(organization_id,id)')
+    ('clinic_branch_settings_organization_id_branch_id_fkey|clinic_branch_settings(organization_id,branch_id)->branches(organization_id,id)'),
+    -- Los profesionales de una prestación de clínica (docs/rubros.md §4.3,
+    -- migración 20261102120000): la prestación y el profesional de la misma
+    -- organización.
+    ('service_type_resources_organization_id_service_type_id_fkey|service_type_resources(organization_id,service_type_id)->service_types(organization_id,id)'),
+    ('service_type_resources_organization_id_resource_id_fkey|service_type_resources(organization_id,resource_id)->resources(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
