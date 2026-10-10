@@ -1,3 +1,4 @@
+import { useModulo } from "../../auth/useModulo";
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
@@ -38,7 +39,7 @@ import {
   MIN_FOLLOW_UPS,
   TRIGGER_CONTACT_INQUIRY_STALLED,
   TRIGGER_OPPORTUNITY_STALE,
-  TRIGGER_OPTIONS,
+  triggerOptions,
   UNIDAD_DE_DEMORA_OPTIONS,
   accionConMensajeDeWhatsapp,
   accionesParaTrigger,
@@ -475,6 +476,9 @@ export function AutomationFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  // Ediciones (docs/ediciones.md §8): en ESENCIAL la venta se nombra
+  // "Venta registrada". En COMPLETA, los rótulos de siempre.
+  const conProcesos = useModulo("procesos_de_venta");
 
   const automationQuery = useAutomation(isEditMode ? id : undefined);
   const createAutomationMutation = useCreateAutomation();
@@ -615,7 +619,7 @@ export function AutomationFormPage() {
               id="automation-form-trigger"
               label="Evento"
               value={values.triggerType}
-              options={opcionesCon(TRIGGER_OPTIONS, values.triggerType)}
+              options={opcionesCon(triggerOptions(!conProcesos), values.triggerType)}
               onChange={(triggerType) => {
                 if (!triggerType) return;
                 // Cambiar de evento cambia la forma de SU config —se arranca

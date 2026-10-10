@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Search } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { tieneModulo } from "../../auth/useModulo";
 import { EmptyState } from "../../design-system/EmptyState";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "./anclas";
 import { renderizarMarkdown } from "./markdown";
 import {
   buscarEnTitulos,
-  seccionPorSlug,
   seccionesVisibles,
   type Seccion,
   type ResultadoDeBusqueda,
@@ -21,12 +21,16 @@ import {
 export function GuiaPage() {
   const { seccion: slug } = useParams();
   const { me } = useAuth();
-  const secciones = seccionesVisibles(me?.isPlatformAdmin === true);
+  // Ediciones (docs/ediciones.md §9): sin los ## de módulos que la
+  // organización no tiene. En COMPLETA, la guía de siempre.
+  const secciones = seccionesVisibles(me?.isPlatformAdmin === true, (modulo) =>
+    tieneModulo(me, modulo),
+  );
 
   if (!slug) return <Indice secciones={secciones} />;
 
-  const seccion = seccionPorSlug(slug);
-  if (!seccion || !secciones.includes(seccion)) {
+  const seccion = secciones.find((candidata) => candidata.slug === slug);
+  if (!seccion) {
     return (
       <div>
         <PageHeader title="Ayuda" back={{ to: "/ayuda", label: "Ayuda" }} />

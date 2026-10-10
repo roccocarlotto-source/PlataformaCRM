@@ -1,3 +1,4 @@
+import { useModulo } from "../../auth/useModulo";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Zap } from "lucide-react";
@@ -38,6 +39,9 @@ const PAGE_SIZE = 20;
 // segundo trigger es un <Select> más sobre TRIGGER_OPTIONS, que ya existe.
 export function AutomationListPage() {
   const confirm = useConfirm();
+  // Ediciones (docs/ediciones.md §8): en ESENCIAL la venta se nombra
+  // "Venta registrada". En COMPLETA, los rótulos de siempre.
+  const conProcesos = useModulo("procesos_de_venta");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [isActive, setIsActive] = useState<"" | "true" | "false">("");
@@ -171,7 +175,7 @@ export function AutomationListPage() {
                       "Oportunidad ganada", no "opportunity.won". Un valor que
                       este catálogo todavía no conoce se muestra crudo — ver
                       triggerLabel/actionLabel. */}
-                  <td>{triggerLabel(automation.triggerType)}</td>
+                  <td>{triggerLabel(automation.triggerType, !conProcesos)}</td>
                   <td>{actionLabel(automation.actionType)}</td>
                   <td>
                     {/* Estado real y editable: una regla inactiva existe, se

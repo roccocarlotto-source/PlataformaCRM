@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -16,13 +16,15 @@ import type { AuthContextValue } from "../../auth/AuthContext";
 import { AutomationFormPage } from "./AutomationFormPage";
 import { textoInicial } from "./catalog";
 import type { WhatsappApproval } from "./types";
+import { edicionDeMe } from "../../test/edicionFixtures";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-// Solo lo usa el bloque de AdminRoute del final: el formulario no consume
-// useAuth.
+// La pantalla lee `me` solo por la edición (los rótulos de ESENCIAL,
+// docs/ediciones.md §8); por defecto, un ADMIN sin datos de edición, que ve lo
+// de siempre. Los casos de AdminRoute del final fijan el rol.
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 
@@ -45,6 +47,10 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
     retryProfile: vi.fn(),
   };
 }
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+});
 
 const baseUrl = `${env.apiUrl}/api/automations`;
 
@@ -1060,5 +1066,32 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
     expect(
       await screen.findByRole("heading", { name: "Editar automatización" }),
     ).toBeInTheDocument();
+  });
+});
+
+// Ediciones (docs/ediciones.md §8): el mismo catálogo; en ESENCIAL la venta se
+// nombra "Venta registrada".
+describe("AutomationFormPage — por edición", () => {
+  function conEdicion(edition: "COMPLETA" | "ESENCIAL") {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe(edition) } });
+  }
+
+  it("ESENCIAL: el evento de la venta es «Venta registrada», con los mismos tres eventos", async () => {
+    conEdicion("ESENCIAL");
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+    expect(screen.getByLabelText("Evento")).toHaveValue("Venta registrada");
+    expect(await listSelectOptions(user, screen.getByLabelText("Evento"))).toEqual([
+      "Venta registrada",
+      "Oportunidad sin movimiento",
+      "Consulta sin avance",
+    ]);
+  });
+
+  it("COMPLETA: «Oportunidad ganada», como siempre", async () => {
+    conEdicion("COMPLETA");
+    renderForm("/automations/new");
+    expect(screen.getByLabelText("Evento")).toHaveValue("Oportunidad ganada");
   });
 });

@@ -7,6 +7,7 @@ import { delay, http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeActivity } from "../../test/activityFixtures";
+import { edicionDeMe } from "../../test/edicionFixtures";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeDashboardSummary, makeRevenueSeries } from "../../test/dashboardFixtures";
 import { makeOpportunity } from "../../test/opportunityFixtures";
@@ -675,6 +676,47 @@ describe("DashboardPage — dashboard de atención (ESENCIAL)", () => {
     expect(screen.queryByRole("region", { name: "Resumen comercial" })).not.toBeInTheDocument();
     expect(await screen.findByText("Llamar a Ana")).toBeInTheDocument();
     expect(pedidosComerciales).toEqual([]);
+  });
+
+  it("ESENCIAL: sin acciones rápidas ni links a empresas o procesos de venta, y sin pedir empresas aunque una actividad traiga una", async () => {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe("ESENCIAL") } });
+    const pedidasDeEmpresas: string[] = [];
+    server.use(
+      vehiclesSummaryHandler(),
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: [makeActivity({ id: "act-vieja", subject: "Llamar a Ana", companyId: "co-1" })],
+          pagination: { page: 1, pageSize: 8, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(atencionUrl, () =>
+        HttpResponse.json({
+          periodo: { label: "octubre 2026", start: "", end: "" },
+          conversacionesNuevas: {
+            total: 0,
+            porCanal: { WHATSAPP: 0, WEB: 0, INSTAGRAM: 0, MESSENGER: 0 },
+          },
+          derivaciones: 0,
+          derivacionesSinRespuesta: 0,
+          consultasPendientes: { esperandoRespuesta: 0, seguimientosAgendados: 0 },
+          tareasVencidas: 0,
+        }),
+      ),
+      http.get(`${companiesUrl}/:id`, ({ request }) => {
+        pedidasDeEmpresas.push(request.url);
+        return HttpResponse.json({}, { status: 403 });
+      }),
+    );
+
+    renderDashboard();
+
+    expect(await screen.findByText("Llamar a Ana")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Acciones rápidas" })).not.toBeInTheDocument();
+    for (const link of screen.queryAllByRole("link")) {
+      expect(link.getAttribute("href") ?? "").not.toMatch(/^\/(companies|pipelines)/);
+    }
+    expect(pedidasDeEmpresas).toEqual([]);
   });
 
   it("con dashboard_comercial en los módulos (COMPLETA), el dashboard de siempre", async () => {

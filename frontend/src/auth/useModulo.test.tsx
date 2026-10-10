@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { ModuloRoute, useModulo } from "./modulos";
+import { ModuloRoute } from "./ModuloRoute";
+import { useModulo } from "./useModulo";
 import { edicionDeMe, MODULOS_COMPLETA } from "../test/edicionFixtures";
 import type { AuthContextValue, MeResponse } from "./AuthContext";
 

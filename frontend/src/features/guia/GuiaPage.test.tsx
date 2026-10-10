@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { GuiaPage } from "./GuiaPage";
 import { SECCIONES } from "./secciones";
+import { edicionDeMe } from "../../test/edicionFixtures";
 
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
@@ -108,5 +109,43 @@ describe("GuiaPage — una sección", () => {
     useAuthMock.mockReturnValue(mockAuth(false));
     renderEn("/ayuda/no-existe");
     expect(screen.getByText("Esta sección no existe")).toBeInTheDocument();
+  });
+});
+
+// Ediciones (docs/ediciones.md §9): sin los ## de módulos que la organización
+// no tiene, en la sección y en su índice. COMPLETA, la guía de siempre.
+describe("GuiaPage — por edición", () => {
+  function conEdicion(edition: "COMPLETA" | "ESENCIAL") {
+    const base = mockAuth(false);
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe(edition) } });
+  }
+
+  it("ESENCIAL: la sección de oportunidades no muestra Cotizaciones ni Procesos de venta", () => {
+    conEdicion("ESENCIAL");
+    renderEn("/ayuda/oportunidades-y-procesos-de-venta");
+    expect(screen.getByRole("heading", { level: 2, name: "Oportunidades" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "Cotizaciones" })).toBeNull();
+    expect(screen.queryByRole("heading", { level: 2, name: "Procesos de venta" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Cotizaciones" })).toBeNull();
+  });
+
+  it("ESENCIAL: el buscador no encuentra lo oculto", async () => {
+    const user = userEvent.setup();
+    conEdicion("ESENCIAL");
+    renderEn("/ayuda");
+    await user.type(screen.getByRole("searchbox", { name: "Buscar en la guía" }), "cotiza");
+    expect(screen.queryByRole("link", { name: "Cotizaciones" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Crear una cotización" })).toBeNull();
+    // La cotización del dólar (Organización) no es el módulo de cotizaciones.
+    expect(screen.getByRole("link", { name: "Cotización vigente" })).toBeInTheDocument();
+  });
+
+  it("COMPLETA: la sección de oportunidades con Cotizaciones y Procesos de venta, como siempre", () => {
+    conEdicion("COMPLETA");
+    renderEn("/ayuda/oportunidades-y-procesos-de-venta");
+    expect(screen.getByRole("heading", { level: 2, name: "Cotizaciones" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Procesos de venta" }),
+    ).toBeInTheDocument();
   });
 });

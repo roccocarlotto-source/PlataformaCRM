@@ -1,3 +1,4 @@
+import { useModulo } from "../../auth/useModulo";
 import { useAuth } from "../../auth/AuthContext";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { Badge } from "../../design-system/Badge";
@@ -30,8 +31,13 @@ export function ActivityFeed() {
   const query = useActivities(FEED_QUERY);
   const rows = query.data?.data ?? [];
 
+  // Ediciones (docs/ediciones.md §2.2): sin el módulo empresas (ESENCIAL) no
+  // se piden ni se muestran (darían 403). En COMPLETA, como siempre.
+  const tieneEmpresas = useModulo("empresas");
   const companyNames = useCompaniesByIds(
-    rows.map((activity) => activity.companyId).filter((id): id is string => id !== null),
+    tieneEmpresas
+      ? rows.map((activity) => activity.companyId).filter((id): id is string => id !== null)
+      : [],
   );
   const contactNames = useContactNames(
     rows.map((activity) => activity.contactId).filter((id): id is string => id !== null),
@@ -62,7 +68,9 @@ export function ActivityFeed() {
             // A quién/qué está relacionada: las relaciones que tenga, en el
             // mismo orden que las columnas de "Actividades".
             const related = [
-              activity.companyId ? (companyNames.byId.get(activity.companyId)?.name ?? "—") : null,
+              tieneEmpresas && activity.companyId
+                ? (companyNames.byId.get(activity.companyId)?.name ?? "—")
+                : null,
               activity.contactId ? (contactNames.byId.get(activity.contactId) ?? "—") : null,
               activity.opportunityId
                 ? (opportunityNames.byId.get(activity.opportunityId) ?? "—")

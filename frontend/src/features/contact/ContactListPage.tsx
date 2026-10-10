@@ -1,4 +1,4 @@
-import { useModulo } from "../../auth/modulos";
+import { useModulo } from "../../auth/useModulo";
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "../vehicle/labels";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";

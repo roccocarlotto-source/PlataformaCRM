@@ -1,4 +1,4 @@
-import { useModulo } from "../../auth/modulos";
+import { useModulo } from "../../auth/useModulo";
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";

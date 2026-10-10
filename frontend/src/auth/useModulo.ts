@@ -1,5 +1,4 @@
-import { Navigate, Outlet } from "react-router-dom";
-import { useAuth } from "./AuthContext";
+import { useAuth, type MeResponse } from "./AuthContext";
 
 // ---------------------------------------------------------------------------
 // Ediciones (docs/ediciones.md §7): qué módulos tiene la organización, según
@@ -13,18 +12,14 @@ import { useAuth } from "./AuthContext";
 // Sin `me` o sin `modulos` (un backend anterior), también true.
 // ---------------------------------------------------------------------------
 
-export function useModulo(modulo: string): boolean {
-  const { me } = useAuth();
+/** La regla, sin React: la usan el hook y lo que filtra fuera de un
+ *  componente (la guía de uso). */
+export function tieneModulo(me: MeResponse | null | undefined, modulo: string): boolean {
   if (me?.edition !== "ESENCIAL" || me.modulos === undefined) return true;
   return me.modulos.includes(modulo);
 }
 
-// Envuelve las rutas de un módulo: si la organización no lo tiene, vuelve al
-// inicio. Como AdminRoute, vive DENTRO de ProtectedRoute (sesión resuelta).
-export function ModuloRoute({ modulo }: { modulo: string }) {
-  const tiene = useModulo(modulo);
-  if (!tiene) {
-    return <Navigate to="/" replace />;
-  }
-  return <Outlet />;
+export function useModulo(modulo: string): boolean {
+  const { me } = useAuth();
+  return tieneModulo(me, modulo);
 }

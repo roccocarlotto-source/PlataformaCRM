@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Target } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
-import { useModulo } from "../../auth/modulos";
+import { useModulo } from "../../auth/useModulo";
 import { puedeEditarRegistro } from "../../auth/permisos";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
