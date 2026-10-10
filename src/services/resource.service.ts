@@ -14,7 +14,12 @@ import {
   type SortOrder,
 } from "../repositories/resource.repository";
 import { countActiveServiceTypesByResource } from "../repositories/serviceType.repository";
+import type { OrganizationIndustry } from "@prisma/client";
 import { quitarFilaDelProfesional } from "../clinicas/repositories/googlePorProfesional.repository";
+import {
+  asignadoParaLaSede,
+  tareasPorTurnosFuturosDelProfesional,
+} from "../clinicas/services/reprogramar.service";
 import { AppError } from "../utils/AppError";
 import type { ClienteGoogleCalendar } from "./googleCalendar.service";
 import { detenerCanalDeConexion } from "./googleCalendarConnection.service";
@@ -151,12 +156,20 @@ export async function updateResource(
 // archivado vale igual: queda en el log, el canal vence solo, y una
 // notificación suya ya no encuentra fila y se ignora. Una automotora no tiene
 // esas filas. `cliente`: solo para tests.
+//
+// R9: en una CLÍNICA, los turnos futuros del profesional archivado NO se
+// cancelan solos: se crea una tarea por turno para la Recepción de la sede, en
+// la misma transacción (como con los bloqueos de R6). En una automotora el
+// archivado es exactamente el de antes.
 export async function deleteResource(
   organizationId: string,
   id: string,
   cliente?: ClienteGoogleCalendar,
+  industry?: OrganizationIndustry,
 ) {
-  await getResourceById(organizationId, id);
+  const recurso = await getResourceById(organizationId, id);
+  const asignadoDeLasTareas =
+    industry === "CLINICA" ? await asignadoParaLaSede(organizationId, recurso.branchId) : null;
 
   const canales = await prisma.$transaction(async (tx) => {
     await lockResourceForUpdate(id, organizationId, tx);
@@ -177,6 +190,9 @@ export async function deleteResource(
     const result = await softDeleteResource(id, organizationId, tx);
     if (result.count === 0) {
       throw new AppError("Recurso no encontrado", 404);
+    }
+    if (asignadoDeLasTareas) {
+      await tareasPorTurnosFuturosDelProfesional(organizationId, resource, asignadoDeLasTareas, tx);
     }
     return quitarFilaDelProfesional(organizationId, id, tx);
   });

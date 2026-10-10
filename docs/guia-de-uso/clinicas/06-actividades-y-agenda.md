@@ -110,3 +110,28 @@ Google**.
 > recepción de la sede le llega una tarea con el paciente, el profesional, la
 > fecha y lo que pasó en Google, para que lo resuelva (reprogramar, cancelar o
 > avisarle al paciente).
+
+## Reprogramar un turno {#reprogramar}
+
+En el **Calendario**, abrí el turno y tocá **Reprogramar**. Elegí el
+profesional (cualquiera de los que atienden esa prestación), el día y el
+horario nuevo. Solo aparecen los horarios libres de verdad: respetan el horario
+del profesional, sus bloqueos y su calendario de Google. Si el profesional
+admite sobreturnos, también aparecen los horarios completos, marcados como
+**(sobreturno)**.
+
+- Es el **mismo turno**: en la ficha del paciente queda una nota con el horario
+  anterior, el nuevo y quién lo reprogramó.
+- Si la sede tiene Google conectado, el evento se mueve solo (o pasa al
+  calendario del profesional nuevo). Si Google falla, a la recepción de la sede
+  le llega una tarea para avisarle al profesional.
+- Lo pueden hacer los administradores y la recepción, en los turnos de sus
+  sedes. Solo se reprograma un turno confirmado que todavía no empezó.
+
+## Archivar un profesional {#archivar-profesional}
+
+En [Profesionales](/clinica/profesionales), menú de la fila, **Archivar**.
+Antes de confirmar, la pantalla avisa cuántos turnos futuros tiene. Esos turnos
+**no se cancelan**: a la recepción de la sede le queda una tarea por cada uno
+para reprogramarlo con otro profesional o cancelarlo. Si tenía calendario de
+Google, se deja de seguir.

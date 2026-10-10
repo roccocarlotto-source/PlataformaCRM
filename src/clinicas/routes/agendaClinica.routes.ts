@@ -3,6 +3,8 @@ import { authenticate } from "../../middlewares/authenticate";
 import { authorize } from "../../middlewares/authorize";
 import { businessWriteRateLimiter } from "../../middlewares/rateLimit";
 import {
+  reprogramarTurnoHandler,
+  turnosFuturosHandler,
   asignarCalendarioHandler,
   listarCalendariosHandler,
   borrarBloqueoHandler,
@@ -105,4 +107,23 @@ agendaClinicaRouter.put(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   asignarCalendarioHandler,
+);
+
+// R9 (docs/rubros.md §4.7, §11.2): reprogramar lo hacen ADMIN y Recepción, en
+// sus sedes (el service da 404 fuera de ellas). Del módulo agenda_clinica: una
+// automotora recibe 403 con motivo RUBRO. Los turnos futuros de un profesional
+// (el aviso antes de archivarlo) son de configuración: ADMIN.
+agendaClinicaRouter.patch(
+  "/bookings/:id/reschedule",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN", "RECEPCION"),
+  reprogramarTurnoHandler,
+);
+
+agendaClinicaRouter.get(
+  "/clinica/profesionales/:resourceId/turnos-futuros",
+  authenticate,
+  authorize("ADMIN"),
+  turnosFuturosHandler,
 );

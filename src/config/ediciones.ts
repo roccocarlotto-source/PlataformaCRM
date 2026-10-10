@@ -493,6 +493,9 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     // R8: el calendario de Google de cada profesional.
     "GET /api/branches/:branchId/google-calendar/calendars",
     "PUT /api/clinica/profesionales/:resourceId/google-calendar",
+    // R9: reprogramar y los turnos futuros de un profesional.
+    "PATCH /api/bookings/:id/reschedule",
+    "GET /api/clinica/profesionales/:resourceId/turnos-futuros",
   ],
 };
 

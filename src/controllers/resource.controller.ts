@@ -102,7 +102,7 @@ export const updateResourceHandler = asyncHandler<AuthenticatedRequest>(
 export const deleteResourceHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    await deleteResource(req.auth.organizationId, id);
+    await deleteResource(req.auth.organizationId, id, undefined, req.auth.industry);
     res.status(204).send();
   },
 );

@@ -13,6 +13,10 @@ import { useVocabularioDeClinica } from "./vocabulario";
 import { useState } from "react";
 import { SobreturnosDelProfesionalDialog } from "./SobreturnosDelProfesionalDialog";
 import { CalendarioDelProfesionalDialog } from "./CalendarioDelProfesionalDialog";
+import { getAccessToken } from "../../auth/getAccessToken";
+import { useConfirm } from "../../design-system/useConfirm";
+import { request } from "../../lib/api";
+import { useDeleteResource } from "../resource/mutations";
 import type { Resource } from "../resource/types";
 
 const SIN_RESOLVER = "—";
@@ -47,6 +51,27 @@ export function ProfesionalesPage() {
   const [deSobreturnos, setDeSobreturnos] = useState<Resource | null>(null);
   // R8: el diálogo del calendario de Google de un profesional.
   const [deCalendario, setDeCalendario] = useState<Resource | null>(null);
+  // R9: archivar avisa antes cuántos turnos futuros tiene el profesional.
+  const confirm = useConfirm();
+  const archivar = useDeleteResource();
+  async function handleArchivar(r: Resource) {
+    const { cantidad } = await request<{ cantidad: number }>(
+      `/clinica/profesionales/${r.id}/turnos-futuros`,
+      { getAccessToken },
+    );
+    const aviso =
+      cantidad > 0
+        ? `${r.name} tiene ${cantidad} ${cantidad === 1 ? "turno futuro" : "turnos futuros"}. No se cancelan: a la recepción de la sede le queda una tarea por cada uno para reprogramarlo o cancelarlo.`
+        : `${r.name} no tiene turnos futuros.`;
+    if (
+      !(await confirm(`${aviso} ¿Archivar a ${r.name}?`, {
+        confirmLabel: "Archivar",
+        danger: true,
+      }))
+    )
+      return;
+    archivar.mutate(r.id);
+  }
 
   return (
     <div>
@@ -104,6 +129,12 @@ export function ProfesionalesPage() {
                         { label: "Editar y horario", to: `/resources/${r.id}/edit` },
                         { label: "Sobreturnos", onClick: () => setDeSobreturnos(r) },
                         { label: "Calendario de Google", onClick: () => setDeCalendario(r) },
+                        {
+                          label: "Archivar",
+                          onClick: () => void handleArchivar(r),
+                          destructive: true,
+                          disabled: archivar.isPending,
+                        },
                       ]}
                     />
                   </td>

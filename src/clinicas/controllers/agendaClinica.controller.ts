@@ -19,6 +19,13 @@ import {
   listarBloqueos,
 } from "../services/bloqueos.service";
 import {
+  contarTurnosFuturosDelProfesional,
+  reprogramarTurno,
+} from "../services/reprogramar.service";
+import { findResourceById } from "../../repositories/resource.repository";
+import { exigirSedeDelActor } from "../../services/permisos";
+import { AppError } from "../../utils/AppError";
+import {
   asignarCalendarioAlProfesional,
   listarCalendariosDeLaSede,
 } from "../services/googlePorProfesional.service";
@@ -244,5 +251,42 @@ export const asignarCalendarioHandler = asyncHandler<AuthenticatedRequest>(
     res
       .status(200)
       .json(await asignarCalendarioAlProfesional(req.auth.organizationId, resourceId, calendarId));
+  },
+);
+
+// ---------------------------------------------------------------------------
+// R9: reprogramar (docs/rubros.md §4.7) y los turnos futuros de un profesional.
+// ---------------------------------------------------------------------------
+
+const reprogramarBodySchema = z
+  .object({
+    startsAt: instanteSchema,
+    resourceId: z.string().uuid("resourceId inválido").optional(),
+    isOverbooking: z.boolean().optional(),
+    force: z.boolean().optional(),
+  })
+  .strict();
+
+export const reprogramarTurnoHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(z.string().uuid("id inválido"), req.params.id);
+    const input = parseOrThrow(reprogramarBodySchema, req.body);
+    const booking = await reprogramarTurno(req.auth.organizationId, id, input, {
+      ...req.auth,
+      descripcion: req.auth.fullName,
+    });
+    res.status(200).json(booking);
+  },
+);
+
+export const turnosFuturosHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const resourceId = parseOrThrow(resourceIdSchema, req.params.resourceId);
+    const recurso = await findResourceById(resourceId, req.auth.organizationId);
+    if (!recurso) throw new AppError("Profesional no encontrado", 404);
+    exigirSedeDelActor(req.auth, recurso.branchId, "Profesional no encontrado");
+    res.status(200).json({
+      cantidad: await contarTurnosFuturosDelProfesional(req.auth.organizationId, resourceId),
+    });
   },
 );
