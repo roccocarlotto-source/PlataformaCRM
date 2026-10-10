@@ -53,6 +53,10 @@ export interface MeResponse {
   // pantallas los adopta con R17.
   industry?: "AUTOMOTORA" | "CLINICA";
   vocabulario?: Vocabulario;
+  // R20 (docs/rubros.md §11.5): las sedes de quien entra, solo en una clínica.
+  // "todas" para un ADMIN; para una Recepción, las suyas ([] = sin sedes). Una
+  // automotora no tiene la clave. Ver features/clinica/sedes.ts.
+  sedes?: "todas" | { id: string; name: string }[];
 }
 
 export interface TerminoDelVocabulario {

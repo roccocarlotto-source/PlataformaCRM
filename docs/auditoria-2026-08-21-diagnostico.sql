@@ -270,7 +270,10 @@ from (
       -- Los profesionales de una prestación de clínica (docs/rubros.md §4.3,
       -- migración 20261102120000): organization_id propio y la política
       -- uniforme.
-      ('service_type_resources')
+      ('service_type_resources'),
+      -- Usuarios por sede (docs/rubros.md §11.5, migración 20261105120000):
+      -- las dos tablas con organization_id propio y la política uniforme.
+      ('user_branches'), ('invitation_branches')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -908,7 +911,19 @@ from (
       end as problema
     from (values
       ('stages_organization_id_pipeline_id_fkey', 'c',
-       'un Stage es una composición estricta de su Pipeline, no una referencia — única excepción declarada a la regla de 20260821140200')
+       'un Stage es una composición estricta de su Pipeline, no una referencia — excepción declarada a la regla de 20260821140200'),
+      -- Usuarios por sede (docs/rubros.md §11.5, migración 20261105120000): la
+      -- fila es una ASIGNACIÓN (qué usuario o qué invitación atiende qué sede),
+      -- no un dato de negocio; si se borra cualquiera de los dos lados no
+      -- queda nada que conservar.
+      ('user_branches_organization_id_user_id_fkey', 'c',
+       'la sede de un usuario es una asignación, no una referencia: se va con el usuario (R20)'),
+      ('user_branches_organization_id_branch_id_fkey', 'c',
+       'la sede de un usuario es una asignación, no una referencia: se va con la sede (R20)'),
+      ('invitation_branches_organization_id_invitation_id_fkey', 'c',
+       'la sede de una invitación es una asignación, no una referencia: se va con la invitación (R20)'),
+      ('invitation_branches_organization_id_branch_id_fkey', 'c',
+       'la sede de una invitación es una asignación, no una referencia: se va con la sede (R20)')
     ) as exc(conname, del, motivo)
     full outer join (
       select
@@ -980,7 +995,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 88 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 93 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -1004,7 +1019,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 88 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 93 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1205,7 +1220,17 @@ from (
     -- Canales de Google Calendar en su propia tabla (docs/rubros.md §4.6,
     -- migración 20261103120000): la sucursal de la misma organización, igual
     -- que la conexión.
-    ('google_calendar_channels_organization_id_branch_id_fkey|google_calendar_channels(organization_id,branch_id)->branches(organization_id,id)')
+    ('google_calendar_channels_organization_id_branch_id_fkey|google_calendar_channels(organization_id,branch_id)->branches(organization_id,id)'),
+    -- Usuarios por sede (docs/rubros.md §11.5, migración 20261105120000). La
+    -- sede de una tarea y las sedes de un usuario o de una invitación: las
+    -- cuatro apuntan a branches o a su dueño. Una FK bien formada hacia
+    -- resources o hacia agents (que también tienen UNIQUE (organization_id,
+    -- id)) pasaría la fila 14 entera.
+    ('activities_organization_id_branch_id_fkey|activities(organization_id,branch_id)->branches(organization_id,id)'),
+    ('user_branches_organization_id_user_id_fkey|user_branches(organization_id,user_id)->users(organization_id,id)'),
+    ('user_branches_organization_id_branch_id_fkey|user_branches(organization_id,branch_id)->branches(organization_id,id)'),
+    ('invitation_branches_organization_id_invitation_id_fkey|invitation_branches(organization_id,invitation_id)->invitations(organization_id,id)'),
+    ('invitation_branches_organization_id_branch_id_fkey|invitation_branches(organization_id,branch_id)->branches(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

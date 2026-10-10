@@ -59,7 +59,7 @@ const listQuerySchema = z.object({
 export const listConversationsHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listQuerySchema, req.query);
-    const result = await listConversations(req.auth.organizationId, query);
+    const result = await listConversations(req.auth.organizationId, query, req.auth);
     res.status(200).json(result);
   },
 );
@@ -67,7 +67,7 @@ export const listConversationsHandler = asyncHandler<AuthenticatedRequest>(
 export const getConversationHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    const conversation = await getConversationById(req.auth.organizationId, id);
+    const conversation = await getConversationById(req.auth.organizationId, id, req.auth);
     res.status(200).json(conversation);
   },
 );
@@ -101,6 +101,7 @@ export const updateConversationBriefHandler = asyncHandler<AuthenticatedRequest>
       id,
       req.auth.userId,
       brief,
+      req.auth,
     );
     res.status(200).json(conversation);
   },
@@ -115,7 +116,7 @@ export const updateConversationBriefHandler = asyncHandler<AuthenticatedRequest>
 export const generateConversationBriefHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    const conversation = await generateConversationBrief(req.auth.organizationId, id);
+    const conversation = await generateConversationBrief(req.auth.organizationId, id, req.auth);
     res.status(200).json(conversation);
   },
 );
@@ -131,7 +132,7 @@ export const generateConversationBriefHandler = asyncHandler<AuthenticatedReques
 export const closeConversationHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    const conversation = await closeConversation(req.auth.organizationId, id);
+    const conversation = await closeConversation(req.auth.organizationId, id, req.auth);
     res.status(200).json(conversation);
   },
 );
@@ -156,7 +157,12 @@ const replySchema = z.object({
 const messageIdParamSchema = z.string().uuid("messageId inválido");
 
 function actorDe(req: AuthenticatedRequest) {
-  return { userId: req.auth.userId, role: req.auth.role };
+  return {
+    userId: req.auth.userId,
+    role: req.auth.role,
+    industry: req.auth.industry,
+    ...(req.auth.sedes ? { sedes: req.auth.sedes } : {}),
+  };
 }
 
 export function createConversationReplyHandlers(

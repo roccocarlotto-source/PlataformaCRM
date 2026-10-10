@@ -14,6 +14,8 @@ import { EMPTY_VALUE, formatDateTime, formatShortDateTime } from "../../design-s
 import { AGENTS_PARA_SELECT, useAgents } from "../agent/queries";
 import { CHANNEL_LABEL, CHANNEL_OPTIONS } from "../agent/labels";
 import { BranchSelect } from "../branch/BranchSelect";
+import { useAuth } from "../../auth/AuthContext";
+import { sedesDeQuienEntra } from "../clinica/sedes";
 import { ConversationDetail } from "./ConversationDetail";
 import { MARCA_SIN_RESPUESTA, STATUS_BADGE_VARIANT, STATUS_LABEL, STATUS_OPTIONS } from "./labels";
 import { useConversations } from "./queries";
@@ -53,6 +55,8 @@ const PAGE_SIZE = 20;
 // en el backend.
 // ---------------------------------------------------------------------------
 export function ConversationListPage() {
+  // R20: una Recepción de clínica filtra entre sus sedes.
+  const { me } = useAuth();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<ConversationStatus | "">("");
@@ -127,6 +131,7 @@ export function ConversationListPage() {
             id="conversation-list-branch"
             label="Sucursal"
             value={branchId}
+            soloSedes={sedesDeQuienEntra(me)}
             emptyOptionLabel="Todas"
             onChange={(nuevo) => aplicarFiltro(() => setBranchId(nuevo || undefined))}
           />

@@ -1,3 +1,9 @@
+import type { OrganizationIndustry } from "@prisma/client";
+import {
+  reemplazarSedesDelUsuario,
+  sedesVigentesPorUsuario,
+} from "../clinicas/repositories/sedesDeUsuarios.repository";
+import { resolverSedesDelRol } from "../clinicas/services/sedesDeUsuarios.service";
 import { prisma } from "../lib/prisma";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import {
@@ -12,7 +18,7 @@ import {
   type UserSortBy,
 } from "../repositories/user.repository";
 import { findRoleByName } from "../repositories/role.repository";
-import type { RoleName } from "../types/auth";
+import { isRoleName, type RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { olvidarContextoDeAuth } from "./auth.service";
 
@@ -25,14 +31,21 @@ export interface ListUsersParams {
   sortOrder: SortOrder;
 }
 
-export async function listUsers(organizationId: string, params: ListUsersParams) {
+// `industry` (R20): en una clínica, cada usuario viaja con sus sedes vigentes
+// (`branches`). En una automotora la respuesta es la de antes, sin la clave.
+export async function listUsers(
+  organizationId: string,
+  params: ListUsersParams,
+  industry?: OrganizationIndustry,
+) {
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
-  const [data, total] = await Promise.all([
+  const [usuarios, total] = await Promise.all([
     findManyUsers(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countUsers(organizationId, filters),
   ]);
+  const data = await conSedesSiEsClinica(organizationId, usuarios, industry);
 
   return {
     data,
@@ -74,6 +87,24 @@ export interface UpdateUserInput {
   isActive?: boolean;
   role?: RoleName;
   canUseInternalAgent?: boolean;
+  // Las sedes de una Recepción de clínica (R20). Se ignora en una automotora.
+  branchIds?: string[];
+}
+
+// En una clínica, los usuarios con sus sedes vigentes (`branches`, [] si no
+// tiene: la pantalla marca a la Recepción sin sedes). En una automotora, tal
+// cual: ni una clave más.
+async function conSedesSiEsClinica<T extends { id: string }>(
+  organizationId: string,
+  usuarios: T[],
+  industry: OrganizationIndustry | undefined,
+): Promise<(T | (T & { branches: { id: string; name: string }[] }))[]> {
+  if (industry !== "CLINICA") return usuarios;
+  const sedes = await sedesVigentesPorUsuario(
+    organizationId,
+    usuarios.map((u) => u.id),
+  );
+  return usuarios.map((u) => ({ ...u, branches: sedes.get(u.id) ?? [] }));
 }
 
 // No es un editor genérico: solo isActive (activar/desactivar, reversible)
@@ -86,9 +117,15 @@ export async function updateUser(
   actorUserId: string,
   id: string,
   input: UpdateUserInput,
+  industry?: OrganizationIndustry,
 ) {
   try {
-    return await actualizarUsuario(organizationId, actorUserId, id, input);
+    const [usuario] = await conSedesSiEsClinica(
+      organizationId,
+      [await actualizarUsuario(organizationId, actorUserId, id, input, industry)],
+      industry,
+    );
+    return usuario;
   } finally {
     // El cambio de rol o de estado vale desde el próximo request de ese
     // usuario, sin esperar a que venza la caché de autenticación. DESPUÉS de
@@ -104,6 +141,7 @@ async function actualizarUsuario(
   actorUserId: string,
   id: string,
   input: UpdateUserInput,
+  industry: OrganizationIndustry | undefined,
 ) {
   if (id === actorUserId) {
     throw new AppError("No podés modificar tu propio usuario (rol o estado activo)", 400);
@@ -132,6 +170,16 @@ async function actualizarUsuario(
     }
     data.roleId = role.id;
   }
+
+  // R20: las sedes, solo en una clínica (null = no se tocan). Pasar a alguien a
+  // Recepción exige sedes; un ADMIN queda sin ninguna (ve todas).
+  const rolFinal = input.role ?? (isRoleName(user.role.name) ? user.role.name : undefined);
+  const sedes =
+    industry !== undefined && rolFinal !== undefined
+      ? await resolverSedesDelRol(organizationId, industry, rolFinal, input.branchIds, {
+          obligatorias: input.role === "RECEPCION" && user.role.name !== "RECEPCION",
+        })
+      : null;
 
   const wasActiveAdmin = user.isActive && user.role.name === "ADMIN";
   const willStayActiveAdmin = staysActiveAdmin(user, input.isActive, input.role);
@@ -166,6 +214,9 @@ async function actualizarUsuario(
       if (result.count === 0) {
         throw new AppError("Usuario no encontrado", 404);
       }
+      if (sedes !== null) {
+        await reemplazarSedesDelUsuario(organizationId, id, sedes, tx);
+      }
 
       // updateMany no admite `include` — reconstruye la respuesta (con rol)
       // con una lectura dentro de la misma transacción, solo después de
@@ -178,9 +229,27 @@ async function actualizarUsuario(
     });
   }
 
-  const result = await updateUserRepo(id, organizationId, data);
-  if (result.count === 0) {
-    throw new AppError("Usuario no encontrado", 404);
+  if (sedes === null) {
+    // Lo de siempre (y lo único que pasa en una automotora).
+    const result = await updateUserRepo(id, organizationId, data);
+    if (result.count === 0) {
+      throw new AppError("Usuario no encontrado", 404);
+    }
+  } else {
+    // Clínica: el rol y las sedes en la misma transacción, para que una
+    // Recepción no quede con el rol nuevo y sin las sedes pedidas.
+    // Un PATCH con solo `branchIds` no tiene otra columna que escribir: un
+    // updateMany sin datos devuelve count 0 y sería un 404 falso (el usuario
+    // ya se validó con getUserById).
+    await prisma.$transaction(async (tx) => {
+      if (Object.keys(data).length > 0) {
+        const result = await updateUserRepo(id, organizationId, data, tx);
+        if (result.count === 0) {
+          throw new AppError("Usuario no encontrado", 404);
+        }
+      }
+      await reemplazarSedesDelUsuario(organizationId, id, sedes, tx);
+    });
   }
 
   return getUserById(organizationId, id);

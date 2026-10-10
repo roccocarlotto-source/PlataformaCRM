@@ -20,6 +20,10 @@ export interface ActivityFilters {
   // del ADMIN es completed=true&confirmed=false; "Mis tareas" pide
   // confirmed=false (pendientes + completadas sin confirmar).
   confirmed?: boolean;
+  // Lo que ve una Recepción de clínica (R20, activity.service): lo asignado a
+  // sí misma, lo que no tiene sede y lo de sus sedes ("todas" = cualquier
+  // sede). Se combina con AND con el resto de los filtros.
+  visibleParaRecepcion?: { userId: string; branchIds: readonly string[] | "todas" };
 }
 
 export type ActivitySortBy =
@@ -73,6 +77,22 @@ function buildWhere(organizationId: string, filters: ActivityFilters): Prisma.Ac
       : {}),
     ...(filters.confirmed !== undefined
       ? { confirmedAt: filters.confirmed ? { not: null } : null }
+      : {}),
+    // AND y no OR suelto: `search` ya usa la clave OR de este mismo objeto.
+    ...(filters.visibleParaRecepcion
+      ? {
+          AND: [
+            {
+              OR: [
+                { assigneeId: filters.visibleParaRecepcion.userId },
+                { branchId: null },
+                ...(filters.visibleParaRecepcion.branchIds === "todas"
+                  ? [{ branchId: { not: null } }]
+                  : [{ branchId: { in: [...filters.visibleParaRecepcion.branchIds] } }]),
+              ],
+            },
+          ],
+        }
       : {}),
   };
 }
@@ -136,6 +156,8 @@ export interface CreateActivityData {
   body?: string;
   dueDate?: Date;
   completedAt?: Date;
+  // La sede de la tarea (R20): solo la escriben los flujos de clínica.
+  branchId?: string | null;
 }
 
 export function createActivity(data: CreateActivityData, db: Db = prisma) {

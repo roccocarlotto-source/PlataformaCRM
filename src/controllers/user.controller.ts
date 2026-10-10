@@ -1,3 +1,4 @@
+import type { OrganizationIndustry } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
 import { exigirRolDelRubro } from "../config/ediciones";
@@ -38,26 +39,44 @@ const updateUserSchema = z
     // tiene), pero se guarda igual: si después se lo degrada a USER, conserva
     // lo que el ADMIN haya decidido para él.
     canUseInternalAgent: z.boolean(),
+    // Las sedes de una Recepción de clínica (docs/rubros.md §11.5, R20). En
+    // una automotora se ignora.
+    branchIds: z.array(z.string().uuid("branchId inválido")).max(100),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",
   });
 
+// En una automotora `branchIds` no existe (R20): se saca ANTES de validar, así
+// un body que solo trae eso da el mismo 400 de siempre ("al menos un campo").
+export function sinSedesFueraDeClinica(body: unknown, industry: OrganizationIndustry): unknown {
+  if (industry === "CLINICA" || typeof body !== "object" || body === null) return body;
+  const resto: Record<string, unknown> = { ...(body as Record<string, unknown>) };
+  delete resto.branchIds;
+  return resto;
+}
+
 export const listUsersHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const query = parseOrThrow(listQuerySchema, req.query);
-  const result = await listUsers(req.auth.organizationId, query);
+  const result = await listUsers(req.auth.organizationId, query, req.auth.industry);
   res.status(200).json(result);
 });
 
 export const updateUserHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
-  const input = parseOrThrow(updateUserSchema, req.body);
+  const input = parseOrThrow(updateUserSchema, sinSedesFueraDeClinica(req.body, req.auth.industry));
   // R12: pasar a alguien a un rol que el rubro no admite → 400.
   if (input.role !== undefined) {
     exigirRolDelRubro(input.role, req.auth.industry);
   }
-  const user = await updateUser(req.auth.organizationId, req.auth.userId, id, input);
+  const user = await updateUser(
+    req.auth.organizationId,
+    req.auth.userId,
+    id,
+    input,
+    req.auth.industry,
+  );
   res.status(200).json(user);
 });
 

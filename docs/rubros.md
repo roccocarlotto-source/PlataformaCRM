@@ -1432,7 +1432,7 @@ administran (ADMIN) y quienes atienden la recepción (Recepción). El rol USER
 sigue existiendo porque lo usan las automotoras, y para ellas no se borra ni
 cambia nada.
 
-> **Implementado en R12 (sin sedes: eso es R20).** Cómo quedó, y dónde difiere
+> **Implementado en R12 (las sedes llegaron con R20, §11.5).** Cómo quedó, y dónde difiere
 > de lo de abajo:
 >
 > - **Rol:** fila `RECEPCION` en `roles` (migración `20261104120000_rol_recepcion`
@@ -1546,6 +1546,12 @@ dueño de sus clientes. En una clínica nadie es dueño de un paciente, así que
   tarea sin `branchId` (una tarea manual que un ADMIN cargó sobre un paciente) la
   ve solo si está asignada a esa persona.
 
+  > **Cambio de Rocco (2026-10-10, R20):** una tarea sin `branchId` (las
+  > manuales y todas las anteriores a R20) la ven y la toman **todas** las
+  > Recepciones de la organización, para que ninguna tarea quede invisible. Una
+  > Recepción sin sedes ve las suyas y las sin sede; la agenda y las
+  > conversaciones, vacías.
+
 ### 11.3 Cómo se implementa sin tocar a ADMIN ni a USER
 
 Hoy hay 16 chequeos `role === "ADMIN"` sueltos (en `activity.service.ts`,
@@ -1611,6 +1617,40 @@ Como Recepción ve las tareas de sus sedes, cualquier persona de Recepción de e
 sede puede tomar una asignada a otra. No hace falta una columna de "cola".
 
 ### 11.5 Usuarios por sede (D19)
+
+> **Implementado en R20** (migración `20261105120000_usuarios_por_sede`). Cómo
+> quedó, y dónde difiere de lo de abajo:
+>
+> - **Modelo:** `user_branches` e `invitation_branches` llevan
+>   `organization_id` (RLS y política uniforme), FKs compuestas y **ON DELETE
+>   CASCADE** (excepciones declaradas en la fila 14 del diagnóstico: una fila es
+>   una asignación). `invitations` suma `UNIQUE (organization_id, id)` para la FK
+>   compuesta. `activities.branch_id` es nullable, NO ACTION.
+> - **`sedesDelActor`** y los helpers `estaEnSusSedes`, `exigirSedeDelActor`
+>   (404) y `filtroDeSedes` viven en `src/services/permisos.ts`. Fallan cerrado:
+>   un actor de Recepción sin `sedes` ve vacío.
+> - **AuthContext:** `sedes` es opcional y solo existe para Recepción en una
+>   clínica (subconsulta en el mismo SELECT de `findUserForAuth`). Cambiar las
+>   sedes de un usuario pasa por `updateUser`, que ya hacía
+>   `olvidarContextoDeAuth`.
+> - **Límite aplicado en:** turnos (listar, ver, cancelar, crear, y la
+>   disponibilidad y el turno de clínica), conversaciones (listar, ver, brief,
+>   cerrar, responder, reintentar, devolver), tareas (§11.2) y `get_agenda` del
+>   agente interno. Los pacientes no tienen límite.
+> - **Usuarios e invitaciones:** `branchIds`. 400 `SEDES_OBLIGATORIAS` (Recepción
+>   sin sedes), `SEDES_INVALIDAS` (de otra organización o borrada) y
+>   `ADMIN_SIN_SEDES`. Pasar a alguien a ADMIN borra sus filas. En una
+>   automotora `branchIds` se ignora antes de validar: un body con solo eso da
+>   el 400 de siempre.
+> - **Respuestas:** `/me` suma `sedes` (`"todas"` o la lista) y los listados de
+>   usuarios e invitaciones suman `branches`, **solo en una clínica**. La tarea
+>   sale sin `branchId` en una automotora: sus respuestas no cambian (lo fija
+>   `automotoraSinCambios.integration-test.ts`).
+> - **Avisos (§11.4):** la tarea sin respuesta (devolver al agente) y la de la
+>   derivación del agente, en una clínica, llevan la sede de la conversación y
+>   van a su Recepción (`avisoDeRecepcion`, `src/clinicas/services/`).
+> - **Frontend:** la sede activa es el filtro **Sucursal** de Reservas,
+>   Calendario y Conversaciones, que a una Recepción le ofrece solo sus sedes.
 
 ```prisma
 model UserBranch {

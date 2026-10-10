@@ -27,8 +27,9 @@ import { createBranch } from "../services/branch.service";
 //   - Recepción contra cada pantalla de §11.2: lo de configurar da 403; lo
 //     operativo (pacientes, conversaciones, tareas, agenda) anda, incluido
 //     lo que un USER no puede (editar un paciente ajeno, devolver al agente
-//     una conversación asignada a otra persona). Hasta R20, sin límite de
-//     sede.
+//     una conversación asignada a otra persona). Con R20, Recepción trabaja
+//     dentro de sus sedes: acá tiene la sede de cada fixture (el límite por
+//     sede se prueba en usuariosPorSede.integration-test.ts).
 // ---------------------------------------------------------------------------
 
 let clinica: OrgDePrueba;
@@ -37,6 +38,8 @@ let baseUrl: string;
 let cerrar: () => Promise<void>;
 const pedir = crearPedir(() => baseUrl);
 const emailsInvitados: string[] = [];
+// La sede de la clínica: invitar o pasar a alguien a Recepción exige sedes (R20).
+let sedeDeLaClinica: { id: string };
 
 // El token de cada persona: el primero es el ADMIN, el segundo la Recepción
 // (o el USER en la automotora).
@@ -55,6 +58,10 @@ before(async () => {
     throw new Error("Faltan los roles RECEPCION o USER (migración o seed)");
   await prisma.user.update({ where: { id: clinica.authIds[1] }, data: { roleId: recepcion.id } });
   await prisma.user.update({ where: { id: automotora.authIds[1] }, data: { roleId: usuario.id } });
+  sedeDeLaClinica = await createBranch(clinica.id, {
+    name: "Sede Principal",
+    timezone: "America/Montevideo",
+  });
 });
 
 after(async () => {
@@ -62,6 +69,8 @@ after(async () => {
   for (const org of [clinica, automotora]) {
     if (!org) continue;
     const where = { organizationId: org.id };
+    await prisma.userBranch.deleteMany({ where });
+    await prisma.invitationBranch.deleteMany({ where });
     await prisma.invitation.deleteMany({ where });
     await prisma.message.deleteMany({ where });
     await prisma.conversation.deleteMany({ where });
@@ -128,7 +137,7 @@ test("invitaciones: USER en la clínica y RECEPCION en la automotora dan 400; RE
     clinica,
     "POST",
     "/api/invitations",
-    { email: email(), role: "RECEPCION" },
+    { email: email(), role: "RECEPCION", branchIds: [sedeDeLaClinica.id] },
     comoAdmin(clinica),
   );
   assert.equal(deLaClinica.status, 201, JSON.stringify(deLaClinica.json));
@@ -166,7 +175,7 @@ test("cambio de rol: pasar a USER en la clínica o a RECEPCION en la automotora 
       clinica,
       "PATCH",
       `/api/users/${clinica.authIds[1]}`,
-      { role },
+      role === "RECEPCION" ? { role, branchIds: [sedeDeLaClinica.id] } : { role },
       comoAdmin(clinica),
     );
     assert.equal(r.status, 200, `${role}: ${JSON.stringify(r.json)}`);
@@ -280,7 +289,7 @@ test("§11.2: Recepción devuelve al agente una conversación asignada a otra pe
         guardrails: {} as Prisma.InputJsonValue,
       },
     });
-    return prisma.conversation.create({
+    const conversacion = await prisma.conversation.create({
       data: {
         organizationId: org.id,
         branchId: branch.id,
@@ -291,6 +300,13 @@ test("§11.2: Recepción devuelve al agente una conversación asignada a otra pe
         assignedUserId: org.authIds[0],
       },
     });
+    // La Recepción atiende las conversaciones de sus sedes (R20).
+    if (org.industry === "CLINICA") {
+      await prisma.userBranch.create({
+        data: { organizationId: org.id, userId: org.authIds[1], branchId: branch.id },
+      });
+    }
+    return conversacion;
   }
 
   const deLaClinica = await conversacionAsignadaAlAdmin(clinica);

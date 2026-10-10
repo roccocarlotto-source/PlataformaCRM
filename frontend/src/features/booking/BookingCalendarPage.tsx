@@ -31,6 +31,7 @@ import { CreateBookingPanel } from "./CreateBookingPanel";
 import { hoyComoFecha } from "./format";
 import { useBookings } from "./queries";
 import type { Booking } from "./types";
+import { sedesDeQuienEntra, sucursalesDeQuienEntra } from "../clinica/sedes";
 
 const SIN_RESOLVER = "—";
 
@@ -95,7 +96,9 @@ export function BookingCalendarPage() {
   const [abierta, setAbierta] = useState<ReservaAbierta | null>(null);
 
   const branchesQuery = useBranches(BRANCHES_PARA_SELECT);
-  const sucursales = branchesQuery.data?.data ?? [];
+  // R20: una Recepción de clínica, solo sus sedes (y la primera de ellas por
+  // defecto).
+  const sucursales = sucursalesDeQuienEntra(branchesQuery.data?.data ?? [], me);
   // Sin elección todavía, la primera sucursal: un calendario vacío que pide
   // "elegí una sucursal" es un paso de más para la organización de una sola.
   const branchId = branchIdElegida ?? sucursales[0]?.id;
@@ -135,6 +138,7 @@ export function BookingCalendarPage() {
             id="booking-calendar-branch"
             label="Sucursal"
             value={branchId}
+            soloSedes={sedesDeQuienEntra(me)}
             onChange={(nuevo) => {
               setBranchIdElegida(nuevo || undefined);
               setResourceId(undefined);

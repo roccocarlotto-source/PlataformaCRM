@@ -43,6 +43,7 @@ import { useEsencialOfrecida } from "../features/platformAdmin/queries";
 import { Button } from "../design-system/Button";
 import { ErrorState } from "../design-system/ErrorState";
 import { ThemeToggle } from "../design-system/ThemeToggle";
+import { AvisoSinSedes } from "../features/clinica/AvisoSinSedes";
 
 // Ícono + href + label de cada link, para no repetir el patrón de NavLink
 // (className por isActive) en cada ítem. Los labels son EXACTAMENTE los que
@@ -605,6 +606,9 @@ export function AppLayout() {
           </Link>
         </header>
         <main>
+          {/* R20: el aviso de una Recepción de clínica sin sedes; para el
+              resto no renderiza nada. */}
+          <AvisoSinSedes />
           <Outlet />
         </main>
       </div>

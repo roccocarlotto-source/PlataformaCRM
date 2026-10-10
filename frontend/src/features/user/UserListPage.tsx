@@ -20,6 +20,7 @@ import { useDeleteUser, useUpdateUser } from "./mutations";
 import { useUsers } from "./queries";
 import type { User, UserSortBy, SortOrder } from "./types";
 import { esRolAsignable, roleLabel, rolesAsignables } from "./roles";
+import { SedesDelUsuarioDialog } from "../clinica/SedesDelUsuarioDialog";
 
 const PAGE_SIZE = 20;
 
@@ -40,10 +41,14 @@ function UserRow({
   user,
   isSelf,
   roles,
+  esClinica,
   onVerDetalle,
 }: {
   user: User;
   isSelf: boolean;
+  // R20: en una clínica, la columna Sedes y su edición. Una automotora no ve
+  // ningún cambio.
+  esClinica: boolean;
   // Los roles del rubro (R12): los que se pueden asignar.
   roles: readonly RoleName[];
   onVerDetalle: () => void;
@@ -51,9 +56,18 @@ function UserRow({
   const confirm = useConfirm();
   const updateUserMutation = useUpdateUser(user.id);
   const deleteUserMutation = useDeleteUser();
+  // R20: el diálogo de sedes, para editarlas o al pasar a alguien a Recepción.
+  const [sedesAbiertas, setSedesAbiertas] = useState<null | "editar" | "pasar">(null);
+  const esRecepcion = user.role.name === "RECEPCION";
 
   function handleRoleChange(role: RoleName) {
     if (role === user.role.name) return;
+    // Una Recepción de clínica no existe sin sedes: se eligen antes de cambiar
+    // el rol, y van en el mismo PATCH.
+    if (esClinica && role === "RECEPCION") {
+      setSedesAbiertas("pasar");
+      return;
+    }
     updateUserMutation.mutate({ role });
   }
 
@@ -105,6 +119,17 @@ function UserRow({
           />
         )}
       </td>
+      {esClinica ? (
+        <td>
+          {user.role.name === "ADMIN" ? (
+            <span className="ds-cell-muted">Todas</span>
+          ) : esRecepcion && (user.branches?.length ?? 0) === 0 ? (
+            <Badge variant="danger">Sin sedes</Badge>
+          ) : (
+            (user.branches ?? []).map((b) => b.name).join(", ")
+          )}
+        </td>
+      ) : null}
       <td>
         {/* Mapeo explícito, como en el resto de los listados: Inactivo no es
             un error ni un peligro, solo un estado neutro. */}
@@ -150,6 +175,9 @@ function UserRow({
               // Primero "Ver detalle": la acción de consulta, antes que las
               // de escritura (§28).
               { label: "Ver detalle", onClick: onVerDetalle },
+              ...(esClinica && esRecepcion
+                ? [{ label: "Editar sedes", onClick: () => setSedesAbiertas("editar") }]
+                : []),
               {
                 label: user.isActive ? "Desactivar" : "Activar",
                 onClick: handleToggleActive,
@@ -174,6 +202,13 @@ function UserRow({
               : "No pudimos actualizar el usuario."}
           </ErrorState>
         ) : null}
+        {sedesAbiertas ? (
+          <SedesDelUsuarioDialog
+            user={user}
+            pasarARecepcion={sedesAbiertas === "pasar"}
+            onClose={() => setSedesAbiertas(null)}
+          />
+        ) : null}
         {deleteUserMutation.isError && deleteUserMutation.variables === user.id ? (
           <ErrorState>
             {deleteUserMutation.error instanceof Error
@@ -189,6 +224,7 @@ function UserRow({
 export function UserListPage() {
   const { me } = useAuth();
   const roles = rolesAsignables(me);
+  const esClinica = me?.industry === "CLINICA";
 
   const [page, setPage] = useState(1);
   const [role, setRole] = useState<RoleName | "">("");
@@ -287,6 +323,7 @@ export function UserListPage() {
                 <th>Nombre</th>
                 <th>Email</th>
                 <th>Rol</th>
+                {esClinica ? <th>Sedes</th> : null}
                 <th>Estado</th>
                 <th>Acceso al agente interno</th>
                 <th>Acciones</th>
@@ -299,6 +336,7 @@ export function UserListPage() {
                   user={user}
                   isSelf={user.id === me?.id}
                   roles={roles}
+                  esClinica={esClinica}
                   onVerDetalle={() => setDetalleAbierto(user.id)}
                 />
               ))}

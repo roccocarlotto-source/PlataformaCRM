@@ -39,6 +39,8 @@ export interface Invitation {
   acceptedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // R20: las sedes de la invitación, solo en una clínica.
+  branches?: { id: string; name: string }[];
 }
 
 export interface InvitationListPagination {
@@ -73,4 +75,6 @@ export interface InvitationListQuery {
 export interface CreateInvitationInput {
   email: string;
   role: RoleName;
+  // R20: obligatorias para invitar a una Recepción de clínica.
+  branchIds?: string[];
 }

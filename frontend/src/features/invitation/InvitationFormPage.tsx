@@ -12,6 +12,7 @@ import { useCreateInvitation } from "./mutations";
 import type { CreateInvitationInput } from "./types";
 import { useAuth, type RoleName } from "../../auth/AuthContext";
 import { roleLabel, rolesAsignables, rolOperativo } from "../user/roles";
+import { SedesSelect } from "../clinica/SedesSelect";
 
 interface InvitationFormValues {
   email: string;
@@ -40,12 +41,20 @@ export function InvitationFormPage() {
     role: rolOperativo(roles),
   });
   const [error, setError] = useState<string | null>(null);
+  // R20: las sedes de una Recepción de clínica (obligatorias). En una
+  // automotora el campo no existe.
+  const [branchIds, setBranchIds] = useState<string[]>([]);
+  const pideSedes = me?.industry === "CLINICA" && values.role === "RECEPCION";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     try {
-      const input: CreateInvitationInput = { email: values.email, role: values.role };
+      const input: CreateInvitationInput = {
+        email: values.email,
+        role: values.role,
+        ...(pideSedes ? { branchIds } : {}),
+      };
       await createInvitationMutation.mutateAsync(input);
       navigate("/invitations");
     } catch (err) {
@@ -83,6 +92,11 @@ export function InvitationFormPage() {
                 }}
               />
             </div>
+            {pideSedes ? (
+              <div className="ds-field-grid--full">
+                <SedesSelect id="invitation-sedes" value={branchIds} onChange={setBranchIds} />
+              </div>
+            ) : null}
           </div>
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
@@ -91,7 +105,7 @@ export function InvitationFormPage() {
           <Button
             type="submit"
             variant="primary"
-            disabled={createInvitationMutation.isPending}
+            disabled={createInvitationMutation.isPending || (pideSedes && branchIds.length === 0)}
             loading={createInvitationMutation.isPending}
           >
             {createInvitationMutation.isPending ? "Enviando…" : "Enviar invitación"}

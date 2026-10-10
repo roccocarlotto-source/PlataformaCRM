@@ -18,7 +18,10 @@ import { prisma, type Db } from "../lib/prisma";
 // resolveAuthContext mira: los estados del usuario, el deletedAt de la
 // organización y el nombre del rol. Y la edición de la organización
 // (docs/ediciones.md §5.2) y su rubro (docs/rubros.md §1.2): viajan en el
-// mismo JOIN, así el gate de módulos no suma ninguna consulta.
+// mismo JOIN, así el gate de módulos no suma ninguna consulta. Y las sedes de
+// una Recepción de clínica (docs/rubros.md §11.5, R20): una subconsulta en el
+// mismo SELECT que solo corre para ese rol en ese rubro (para el resto el CASE
+// devuelve NULL sin tocar user_branches), sin las sedes borradas.
 export interface UsuarioParaAuth {
   id: string;
   organizationId: string;
@@ -32,6 +35,8 @@ export interface UsuarioParaAuth {
     industry: OrganizationIndustry;
   };
   role: { name: string };
+  // null salvo para Recepción en una clínica ([] si no tiene sedes).
+  sedes: string[] | null;
 }
 
 interface FilaUsuarioParaAuth {
@@ -45,6 +50,7 @@ interface FilaUsuarioParaAuth {
   organization_edition: OrganizationEdition;
   organization_industry: OrganizationIndustry;
   role_name: string;
+  sedes: string[] | null;
 }
 
 export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth | null> {
@@ -53,7 +59,16 @@ export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth |
            o.deleted_at AS organization_deleted_at,
            o.edition::text AS organization_edition,
            o.industry::text AS organization_industry,
-           r.name AS role_name
+           r.name AS role_name,
+           CASE WHEN o.industry = 'CLINICA' AND r.name = 'RECEPCION' THEN
+             COALESCE((SELECT array_agg(ub.branch_id::text ORDER BY ub.branch_id)
+                         FROM user_branches ub
+                         JOIN branches b ON b.organization_id = ub.organization_id
+                                        AND b.id = ub.branch_id
+                                        AND b.deleted_at IS NULL
+                        WHERE ub.organization_id = u.organization_id
+                          AND ub.user_id = u.id), ARRAY[]::text[])
+           END AS sedes
     FROM users u
     JOIN organizations o ON o.id = u.organization_id
     JOIN roles r ON r.id = u.role_id
@@ -73,6 +88,7 @@ export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth |
       industry: fila.organization_industry,
     },
     role: { name: fila.role_name },
+    sedes: fila.sedes,
   };
 }
 

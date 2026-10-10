@@ -111,9 +111,7 @@ const listQuerySchema = z.object({
 export const createBookingHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createBookingSchema, req.body);
-    const booking = await createBooking(req.auth.organizationId, input, undefined, {
-      role: req.auth.role,
-    });
+    const booking = await createBooking(req.auth.organizationId, input, undefined, req.auth);
     res.status(201).json(booking);
   },
 );
@@ -122,21 +120,25 @@ export const listBookingsHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listQuerySchema, req.query);
 
-    const result = await listBookings(req.auth.organizationId, {
-      page: query.page,
-      pageSize: query.pageSize,
-      sortBy: query.sortBy,
-      sortOrder: query.sortOrder,
-      filters: {
-        branchId: query.branchId,
-        resourceId: query.resourceId,
-        serviceTypeId: query.serviceTypeId,
-        contactId: query.contactId,
-        status: query.status,
-        desde: query.from,
-        hasta: query.to,
+    const result = await listBookings(
+      req.auth.organizationId,
+      {
+        page: query.page,
+        pageSize: query.pageSize,
+        sortBy: query.sortBy,
+        sortOrder: query.sortOrder,
+        filters: {
+          branchId: query.branchId,
+          resourceId: query.resourceId,
+          serviceTypeId: query.serviceTypeId,
+          contactId: query.contactId,
+          status: query.status,
+          desde: query.from,
+          hasta: query.to,
+        },
       },
-    });
+      req.auth,
+    );
 
     res.status(200).json(result);
   },
@@ -144,7 +146,7 @@ export const listBookingsHandler = asyncHandler<AuthenticatedRequest>(
 
 export const getBookingHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
-  const booking = await getBookingById(req.auth.organizationId, id);
+  const booking = await getBookingById(req.auth.organizationId, id, req.auth);
   res.status(200).json(booking);
 });
 
@@ -154,7 +156,7 @@ export const getBookingHandler = asyncHandler<AuthenticatedRequest>(async (req, 
 export const cancelBookingHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    const booking = await cancelBooking(req.auth.organizationId, id);
+    const booking = await cancelBooking(req.auth.organizationId, id, undefined, req.auth);
     res.status(200).json(booking);
   },
 );

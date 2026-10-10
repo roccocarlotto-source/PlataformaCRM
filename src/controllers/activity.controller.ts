@@ -1,4 +1,4 @@
-import { ActivityType } from "@prisma/client";
+import { ActivityType, type OrganizationIndustry } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
 import {
@@ -14,6 +14,19 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
+
+// R20 (docs/rubros.md §11.2): activities.branch_id es de las clínicas. Una
+// automotora recibe la tarea con las claves de antes, sin `branchId` (que para
+// ella siempre es null): su respuesta no cambia.
+function paraElRubro<T extends { branchId?: string | null }>(
+  activity: T,
+  industry: OrganizationIndustry,
+): T | Omit<T, "branchId"> {
+  if (industry === "CLINICA") return activity;
+  const resto: Omit<T, "branchId"> & { branchId?: string | null } = { ...activity };
+  delete resto.branchId;
+  return resto;
+}
 
 // z.nativeEnum sobre el enum real de Prisma: si ActivityType cambia en
 // schema.prisma, este schema se actualiza solo, sin duplicar los valores a
@@ -131,7 +144,12 @@ const listQuerySchema = z
 // del PATCH; a quién puede asignar al crear, B-18). Siempre desde req.auth,
 // nunca desde la query ni el body.
 function actorFromRequest(req: AuthenticatedRequest): ActivityActor {
-  return { userId: req.auth.userId, role: req.auth.role };
+  return {
+    userId: req.auth.userId,
+    role: req.auth.role,
+    industry: req.auth.industry,
+    ...(req.auth.sedes ? { sedes: req.auth.sedes } : {}),
+  };
 }
 
 export const createActivityHandler = asyncHandler<AuthenticatedRequest>(
@@ -144,7 +162,7 @@ export const createActivityHandler = asyncHandler<AuthenticatedRequest>(
       actorFromRequest(req),
       input,
     );
-    res.status(201).json(activity);
+    res.status(201).json(paraElRubro(activity, req.auth.industry));
   },
 );
 
@@ -154,14 +172,17 @@ export const listActivitiesHandler = asyncHandler<AuthenticatedRequest>(
     // El actor decide qué se ve (activity.service.ts): un USER recibe solo
     // lo suyo aunque la query traiga otro assigneeId o ninguno.
     const result = await listActivities(req.auth.organizationId, query, actorFromRequest(req));
-    res.status(200).json(result);
+    res.status(200).json({
+      ...result,
+      data: result.data.map((a) => paraElRubro(a, req.auth.industry)),
+    });
   },
 );
 
 export const getActivityHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
   const activity = await getActivityById(req.auth.organizationId, id, actorFromRequest(req));
-  res.status(200).json(activity);
+  res.status(200).json(paraElRubro(activity, req.auth.industry));
 });
 
 export const updateActivityHandler = asyncHandler<AuthenticatedRequest>(
@@ -176,7 +197,7 @@ export const updateActivityHandler = asyncHandler<AuthenticatedRequest>(
       input,
       actorFromRequest(req),
     );
-    res.status(200).json(activity);
+    res.status(200).json(paraElRubro(activity, req.auth.industry));
   },
 );
 

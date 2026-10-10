@@ -1,4 +1,10 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type OrganizationIndustry } from "@prisma/client";
+import {
+  copiarSedesDeLaInvitacion,
+  guardarSedesDeLaInvitacion,
+  sedesVigentesPorInvitacion,
+} from "../clinicas/repositories/sedesDeUsuarios.repository";
+import { resolverSedesDelRol } from "../clinicas/services/sedesDeUsuarios.service";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
@@ -37,7 +43,13 @@ export interface ListInvitationsParams {
   sortOrder: SortOrder;
 }
 
-export async function listInvitations(organizationId: string, params: ListInvitationsParams) {
+// `industry` (R20): en una clínica cada invitación viaja con sus sedes
+// (`branches`). En una automotora, la respuesta de antes.
+export async function listInvitations(
+  organizationId: string,
+  params: ListInvitationsParams,
+  industry?: OrganizationIndustry,
+) {
   // Perezoso: antes de listar, cualquier PENDING vencida de esta
   // organización pasa a EXPIRED — así el listado siempre refleja el estado
   // real, no el estado al momento de crearse.
@@ -46,10 +58,11 @@ export async function listInvitations(organizationId: string, params: ListInvita
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
-  const [data, total] = await Promise.all([
+  const [invitaciones, total] = await Promise.all([
     findManyInvitations(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countInvitations(organizationId, filters),
   ]);
+  const data = await conSedesSiEsClinica(organizationId, invitaciones, industry);
 
   return {
     data,
@@ -65,6 +78,22 @@ export async function listInvitations(organizationId: string, params: ListInvita
 export interface CreateInvitationInput {
   email: string;
   role: RoleName;
+  // Las sedes de una Recepción de clínica (R20): obligatorias para ese rol, se
+  // ignoran en una automotora.
+  branchIds?: string[];
+}
+
+async function conSedesSiEsClinica<T extends { id: string }>(
+  organizationId: string,
+  invitaciones: T[],
+  industry: OrganizationIndustry | undefined,
+): Promise<(T | (T & { branches: { id: string; name: string }[] }))[]> {
+  if (industry !== "CLINICA") return invitaciones;
+  const sedes = await sedesVigentesPorInvitacion(
+    organizationId,
+    invitaciones.map((i) => i.id),
+  );
+  return invitaciones.map((i) => ({ ...i, branches: sedes.get(i.id) ?? [] }));
 }
 
 // Estrategia de consistencia (no "atómica" — dos sistemas sin transacción
@@ -87,6 +116,7 @@ export async function createInvitation(
   organizationId: string,
   actorUserId: string,
   input: CreateInvitationInput,
+  industry?: OrganizationIndustry,
 ) {
   const email = normalizeEmail(input.email);
 
@@ -117,15 +147,31 @@ export async function createInvitation(
     );
   }
 
+  // R20: una Recepción de clínica se invita con al menos una sede (400 antes
+  // de crear nada ni mandar el mail). null o [] = no se guarda ninguna.
+  const sedes = industry
+    ? await resolverSedesDelRol(organizationId, industry, input.role, input.branchIds, {
+        obligatorias: true,
+      })
+    : null;
+
+  const datos = {
+    organizationId,
+    email,
+    roleId: role.id,
+    invitedById: actorUserId,
+    expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
+  };
   let invitation;
   try {
-    invitation = await createInvitationRepo({
-      organizationId,
-      email,
-      roleId: role.id,
-      invitedById: actorUserId,
-      expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
-    });
+    invitation =
+      sedes === null || sedes.length === 0
+        ? await createInvitationRepo(datos)
+        : await prisma.$transaction(async (tx) => {
+            const creada = await createInvitationRepo(datos, tx);
+            await guardarSedesDeLaInvitacion(organizationId, creada.id, sedes, tx);
+            return creada;
+          });
   } catch (err) {
     // Invitation tiene un único índice único (el parcial de arriba) — a
     // diferencia de Stage/Contact no hace falta inspeccionar err.meta.target
@@ -176,7 +222,8 @@ export async function createInvitation(
     throw new AppError("No se pudo enviar la invitación", 500);
   }
 
-  return invitation;
+  const [conSedes] = await conSedesSiEsClinica(organizationId, [invitation], industry);
+  return conSedes;
 }
 
 // Traduce un estado terminal (no PENDING) de Invitation al AppError
@@ -377,7 +424,7 @@ export async function acceptInvitation(
         throw acceptConflictError(current.status);
       }
 
-      return createUser(
+      const usuario = await createUser(
         {
           id: userId,
           organizationId: invitation.organizationId,
@@ -387,6 +434,10 @@ export async function acceptInvitation(
         },
         tx,
       );
+      // R20: las sedes de la invitación (solo una Recepción de clínica tiene)
+      // pasan a ser las del usuario, en esta misma transacción.
+      await copiarSedesDeLaInvitacion(invitation.organizationId, invitation.id, userId, tx);
+      return usuario;
     });
 
     // B-18: el 410 de "venció tras el CAS" se lanza DESPUÉS del commit — así

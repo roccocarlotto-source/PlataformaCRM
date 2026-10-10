@@ -30,6 +30,9 @@ const createInvitationSchema = z.object({
     .email("email inválido")
     .max(255, "email no puede superar los 255 caracteres"),
   role: roleSchema,
+  // Las sedes de una Recepción de clínica (docs/rubros.md §11.5, R20):
+  // obligatorias para ese rol. En una automotora se ignoran.
+  branchIds: z.array(z.string().uuid("branchId inválido")).max(100).optional(),
 });
 
 const listQuerySchema = z.object({
@@ -47,7 +50,12 @@ export const createInvitationHandler = asyncHandler<AuthenticatedRequest>(
     // R12: USER en una clínica o RECEPCION en una automotora → 400, antes de
     // crear nada ni mandar el mail.
     exigirRolDelRubro(input.role, req.auth.industry);
-    const invitation = await createInvitation(req.auth.organizationId, req.auth.userId, input);
+    const invitation = await createInvitation(
+      req.auth.organizationId,
+      req.auth.userId,
+      req.auth.industry === "CLINICA" ? input : { email: input.email, role: input.role },
+      req.auth.industry,
+    );
     res.status(201).json(invitation);
   },
 );
@@ -55,7 +63,7 @@ export const createInvitationHandler = asyncHandler<AuthenticatedRequest>(
 export const listInvitationsHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listQuerySchema, req.query);
-    const result = await listInvitations(req.auth.organizationId, query);
+    const result = await listInvitations(req.auth.organizationId, query, req.auth.industry);
     res.status(200).json(result);
   },
 );

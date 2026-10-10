@@ -758,6 +758,9 @@ model Organization {
   clinicSettings       ClinicSettings?
   clinicBranchSettings ClinicBranchSettings[]
   serviceTypeResources ServiceTypeResource[]
+  // Usuarios por sede (docs/rubros.md §11.5, R20): solo las clínicas tienen filas.
+  userBranches         UserBranch[]
+  invitationBranches   InvitationBranch[]
 
   users         User[]
   companies     Company[]
@@ -928,6 +931,9 @@ model User {
   // que recibió — el hilo es por usuario.
   internalAgentMessages InternalAgentMessage[] @relation("InternalAgentMessageUser")
 
+  // Las sedes de una Recepción de clínica (docs/rubros.md §11.5, R20).
+  userBranches UserBranch[]
+
   @@unique([organizationId, id])
   @@index([organizationId])
   @@map("users")
@@ -957,11 +963,17 @@ model Invitation {
   role         Role         @relation(fields: [roleId], references: [id])
   invitedBy    User         @relation("InvitationInvitedBy", fields: [organizationId, invitedById], references: [organizationId, id])
 
+  // Las sedes del invitado (docs/rubros.md §11.5, R20): pasan a UserBranch al
+  // aceptar.
+  branches InvitationBranch[]
+
   // Único (organization_id, email) WHERE status = 'PENDING' — índice único
   // parcial; vive en la migración
   // 20260821140000_incorporate_manual_ddl_into_migrations (C-2), con
   // manual_constraints.sql como red de seguridad idempotente además
   // (Prisma no soporta índices únicos parciales en su DSL).
+  // El UNIQUE que habilita la FK compuesta de invitation_branches (C-3, R20).
+  @@unique([organizationId, id])
   @@index([organizationId])
   @@index([email])
   @@index([organizationId, status])
@@ -1383,6 +1395,11 @@ model Activity {
   // las dos la escribe el cliente: las calcula el service (quién y cuándo).
   confirmedAt    DateTime?    @map("confirmed_at")
   confirmedById  String?      @map("confirmed_by_id") @db.Uuid
+  // La sede de la tarea (docs/rubros.md §11.2, R20). Nullable y sin default:
+  // la escriben SOLO los flujos de clínica (las tareas que nacen de una
+  // conversación de una sede). Una automotora nunca la llena, y una tarea sin
+  // sede la ve y la toma cualquier Recepción de la organización.
+  branchId       String?      @map("branch_id") @db.Uuid
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   deletedAt      DateTime?    @map("deleted_at")
@@ -1396,6 +1413,8 @@ model Activity {
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   contact      Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
   opportunity  Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
+  // Nullable, y por eso NO ACTION (la regla de 20260821140200).
+  branch       Branch?      @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
 
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL OR
   // opportunity_id IS NOT NULL) vive en la migración
@@ -1415,6 +1434,9 @@ model Activity {
   @@index([organizationId, deletedAt, createdAt])
   // La línea de tiempo, ordenada por cuándo pasó.
   @@index([organizationId, deletedAt, occurredAt])
+  // "Las tareas de estas sedes" (Recepción, R20) y el lado referenciante de la
+  // FK a branches.
+  @@index([organizationId, branchId])
   @@map("activities")
 }
 
@@ -1980,6 +2002,12 @@ model Branch {
   // fue QrCode), y sigue sin cambiar el alcance acotado de arriba: Contact,
   // Company, Opportunity y Activity siguen sin branchId.
   vehicles Vehicle[]
+
+  // Usuarios por sede (docs/rubros.md §11.5, R20) y la sede de las tareas de
+  // clínica (§11.2).
+  userBranches       UserBranch[]
+  invitationBranches InvitationBranch[]
+  activities         Activity[]
 
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3).
   @@unique([organizationId, id])
@@ -4828,4 +4856,55 @@ model ServiceTypeResource {
   // resources.
   @@index([organizationId, resourceId])
   @@map("service_type_resources")
+}
+
+// ---------------------------------------------------------------------------
+// UserBranch — las sedes de una Recepción de clínica (docs/rubros.md §11.5,
+// D19, R20). Solo las clínicas tienen filas: sedesDelActor
+// (src/services/permisos.ts) devuelve "todas" para cualquier usuario de una
+// automotora y para cualquier ADMIN, sin mirar esta tabla.
+//
+// FKs COMPUESTAS por organización (C-3) y ON DELETE CASCADE: la fila no es un
+// dato de negocio sino una asignación; si se borra el usuario o la sede no
+// queda nada que conservar. Users y branches usan soft delete, así que en la
+// práctica el CASCADE solo corre al purgar una organización de test. Una sede
+// borrada (deleted_at) NO borra las filas: sedesDelActor la ignora.
+// ---------------------------------------------------------------------------
+model UserBranch {
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Cascade)
+
+  @@id([userId, branchId])
+  // "Las sedes de este usuario" y el lado referenciante de la FK a users.
+  @@index([organizationId, userId])
+  // "La Recepción de esta sede" (avisos, §11.4) y la FK a branches.
+  @@index([organizationId, branchId])
+  @@map("user_branches")
+}
+
+// ---------------------------------------------------------------------------
+// InvitationBranch — las sedes de una invitación de Recepción (§11.5, R20).
+// Se copian a UserBranch al aceptar, en la misma transacción que crea el
+// usuario. Mismo criterio de FKs que UserBranch.
+// ---------------------------------------------------------------------------
+model InvitationBranch {
+  organizationId String   @map("organization_id") @db.Uuid
+  invitationId   String   @map("invitation_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitation   Invitation   @relation(fields: [organizationId, invitationId], references: [organizationId, id], onDelete: Cascade)
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Cascade)
+
+  @@id([invitationId, branchId])
+  @@index([organizationId, invitationId])
+  @@index([organizationId, branchId])
+  @@map("invitation_branches")
 }
