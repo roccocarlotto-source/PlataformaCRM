@@ -600,3 +600,128 @@ describe("DashboardPage — conteo de llegada (§37)", () => {
     expect(valuesOf("Resumen de stock")).toEqual(["12", "5"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ediciones (docs/ediciones.md §6.4): sin el módulo dashboard_comercial
+// (ESENCIAL), el inicio muestra el dashboard de atención y no pide nada de
+// oportunidades, procesos de venta ni empresas (darían 403).
+// ---------------------------------------------------------------------------
+
+describe("DashboardPage — dashboard de atención (ESENCIAL)", () => {
+  const atencionUrl = `${env.apiUrl}/api/dashboard/atencion`;
+
+  function conModulos(modulos: string[]) {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, edition: "ESENCIAL", modulos } });
+  }
+
+  it("muestra las tarjetas de atención y no dispara ningún pedido de oportunidades", async () => {
+    conModulos(["comun", "contactos", "conversaciones", "stock", "tareas", "dashboard_atencion"]);
+    const pedidosComerciales: string[] = [];
+    const granularidades: string[] = [];
+    const prohibido = (url: string) =>
+      http.get(url, ({ request }) => {
+        pedidosComerciales.push(request.url);
+        return HttpResponse.json({}, { status: 403 });
+      });
+    server.use(
+      vehiclesSummaryHandler(),
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: [makeActivity({ id: "act-feed", subject: "Llamar a Ana", companyId: null })],
+          pagination: { page: 1, pageSize: 8, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(atencionUrl, ({ request }) => {
+        granularidades.push(new URL(request.url).searchParams.get("granularity") ?? "");
+        return HttpResponse.json({
+          periodo: { label: "octubre 2026", start: "", end: "" },
+          conversacionesNuevas: {
+            total: 3,
+            porCanal: { WHATSAPP: 2, WEB: 1, INSTAGRAM: 0, MESSENGER: 0 },
+          },
+          derivaciones: 2,
+          derivacionesSinRespuesta: 1,
+          consultasPendientes: { esperandoRespuesta: 4, seguimientosAgendados: 5 },
+          tareasVencidas: 6,
+        });
+      }),
+      prohibido(summaryUrl),
+      prohibido(revenueSeriesUrl),
+      prohibido(opportunitiesUrl),
+      prohibido(pipelinesUrl),
+      prohibido(stagesUrl),
+      prohibido(companiesUrl),
+    );
+
+    renderDashboard();
+
+    const resumen = await screen.findByRole("region", { name: "Resumen de atención" });
+    await waitFor(() =>
+      expect(within(resumen).getByText("WhatsApp 2 · Web 1")).toBeInTheDocument(),
+    );
+    for (const [label, valor] of [
+      ["Conversaciones nuevas", "3"],
+      ["Derivadas a una persona", "2"],
+      ["Sin respuesta a tiempo", "1"],
+      ["Consultas esperando respuesta", "4"],
+      ["Seguimientos agendados", "5"],
+      ["Tareas vencidas", "6"],
+    ]) {
+      const tarjeta = within(resumen).getByText(label).closest(".ds-kpi") as HTMLElement;
+      expect(within(tarjeta).getByText(valor)).toBeInTheDocument();
+    }
+    expect(granularidades).toEqual(["month"]);
+    expect(screen.queryByRole("region", { name: "Resumen comercial" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Llamar a Ana")).toBeInTheDocument();
+    expect(pedidosComerciales).toEqual([]);
+  });
+
+  it("con dashboard_comercial en los módulos (COMPLETA), el dashboard de siempre", async () => {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: {
+        ...base.me!,
+        edition: "COMPLETA",
+        modulos: ["dashboard_comercial", "dashboard_atencion"],
+      },
+    });
+    let pidioAtencion = false;
+    server.use(
+      vehiclesSummaryHandler(),
+      summaryHandler(),
+      revenueSeriesHandler(),
+      opportunitiesHandler(),
+      activitiesHandler(),
+      http.get(atencionUrl, () => {
+        pidioAtencion = true;
+        return HttpResponse.json({});
+      }),
+      http.get(companiesUrl, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+      http.get(pipelinesUrl, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+      http.get(usersUrl, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+    );
+
+    renderDashboard();
+
+    expect(await screen.findByRole("region", { name: "Resumen comercial" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Resumen de atención" })).not.toBeInTheDocument();
+    expect(pidioAtencion).toBe(false);
+  });
+});

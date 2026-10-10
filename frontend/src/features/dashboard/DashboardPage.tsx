@@ -1,6 +1,8 @@
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { useState } from "react";
+import { useAuth } from "../../auth/AuthContext";
+import { AtencionKpiCards } from "./AtencionKpiCards";
 import type { OpportunityRevenueGranularity } from "../opportunity/types";
 import { VehicleSummaryCards } from "../vehicle/VehicleSummaryCards";
 import { ActivityFeed } from "./ActivityFeed";
@@ -46,20 +48,39 @@ import { TopDealsList } from "./TopDealsList";
 // por pipeline y multi-moneda.
 export function DashboardPage() {
   const [granularity, setGranularity] = useState<OpportunityRevenueGranularity>("month");
+  // Ediciones (docs/ediciones.md §6.4): sin el módulo dashboard_comercial
+  // (ESENCIAL), las tarjetas de atención reemplazan a todo lo que sale de
+  // oportunidades. Sin `modulos` (un backend anterior), el de siempre.
+  const { me } = useAuth();
+  const comercial = me?.modulos === undefined || me.modulos.includes("dashboard_comercial");
+
+  // La misma clase que los listados para "título + acción a la derecha"
+  // (CompanyListPage y el resto): el selector es un control de página.
+  const encabezado = (
+    <PageHeader
+      help={AYUDA.dashboard}
+      title="Dashboard"
+      actions={<PeriodToggle value={granularity} onChange={setGranularity} />}
+    />
+  );
+
+  // ESENCIAL: ni se montan los componentes que leen oportunidades (darían 403).
+  if (!comercial) {
+    return (
+      <div>
+        {encabezado}
+        <div className="ds-stack">
+          <VehicleSummaryCards countUp />
+          <AtencionKpiCards granularity={granularity} />
+          <ActivityFeed />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      {/* La misma clase que los listados para "título + acción a la derecha"
-          (CompanyListPage y el resto): el selector es un control de página. */}
-      <PageHeader
-        help={AYUDA.dashboard}
-        title="Dashboard"
-        actions={
-          <>
-            <PeriodToggle value={granularity} onChange={setGranularity} />
-          </>
-        }
-      />
+      {encabezado}
       <div className="ds-stack">
         <VehicleSummaryCards countUp />
         <OpportunityKpiCards granularity={granularity} />

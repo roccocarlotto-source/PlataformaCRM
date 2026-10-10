@@ -24,6 +24,7 @@ import { meRouter } from "./me.routes";
 import { metaPageConnectionRouter } from "./metaPageConnection.routes";
 import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
+import { dashboardAtencionRouter } from "./dashboardAtencion.routes";
 import { organizationRouter } from "./organization.routes";
 import { organizationAdminRouter } from "./organizationAdmin.routes";
 import { importacionAdminRouter } from "./importacionAdmin.routes";
@@ -58,6 +59,8 @@ routes.use("/api", contactRouter);
 routes.use("/api", pipelineRouter);
 routes.use("/api", stageRouter);
 routes.use("/api", opportunityRouter);
+// Dashboard de atención (docs/ediciones.md §6.4).
+routes.use("/api", dashboardAtencionRouter);
 // Cotizaciones (§39 de docs/frontend-cambios-pendientes.md): sub-recurso de la
 // oportunidad, con su misma forma de permisos. Va pegada a ella.
 routes.use("/api", quoteRouter);
