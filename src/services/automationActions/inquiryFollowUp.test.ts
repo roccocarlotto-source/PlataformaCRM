@@ -162,6 +162,9 @@ function deps(extra: Partial<DependenciasDelSeguimientoDeConsulta> = {}): {
       registro.tareas.push(tarea);
       return true;
     },
+    // R15: una automotora por defecto.
+    esClinica: async () => false,
+    turnoFrena: async () => false,
     ahora: () => AHORA,
     ...extra,
   };

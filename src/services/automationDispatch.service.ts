@@ -12,6 +12,7 @@ import {
   type RegistroDeAcciones,
 } from "./automationActions";
 import type { EventoAEntregar } from "./outboxHandlers";
+import { findEdicionYRubro } from "../repositories/organization.repository";
 
 // ---------------------------------------------------------------------------
 // Despacho de automatizaciones (docs/automations-architecture.md §6): la
@@ -102,7 +103,13 @@ async function ejecutarAutomatizacion(
   // Defensa en profundidad: el CRUD ya validó este config al guardar la regla,
   // pero el schema de una acción puede cambiar después. Mejor un error legible
   // acá que un handler corriendo con un config que no entiende.
-  const config = accion.schema.safeParse(automation.actionConfig);
+  // R15: con el schema del rubro si la acción tiene uno (solo entonces se lee
+  // el rubro de la organización).
+  const schema = accion.schemaPorRubro
+    ? (accion.schemaPorRubro[(await findEdicionYRubro(evento.organizationId)).industry] ??
+      accion.schema)
+    : accion.schema;
+  const config = schema.safeParse(automation.actionConfig);
   if (!config.success) {
     throw new Error(
       `actionConfig de la regla ya no pasa el schema de "${automation.actionType}": ${config.error.issues.map((issue) => issue.message).join(", ")}`,
