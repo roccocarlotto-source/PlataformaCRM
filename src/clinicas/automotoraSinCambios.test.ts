@@ -8,6 +8,7 @@ import {
   MODULOS,
   MODULO_DE_LA_TOOL,
   RUTAS_POR_MODULO,
+  SOLO_CLINICA,
   modulosDe,
   type Modulo,
 } from "../config/ediciones";
@@ -210,7 +211,14 @@ function errorDe(fn: () => void): AppError | undefined {
   }
 }
 
-const TODAS_LAS_RUTAS = MODULOS.flatMap((m: Modulo) => RUTAS_POR_MODULO[m]);
+// Las rutas de una automotora: todas menos las de los módulos solo de
+// clínica (R5 en adelante), que no existían antes y no son suyas (las prueba
+// el test de abajo). Que ningún módulo de una automotora termine en
+// SOLO_CLINICA lo fija el primer test (la lista fija de sus módulos).
+const TODAS_LAS_RUTAS = MODULOS.filter((m) => !SOLO_CLINICA.has(m)).flatMap(
+  (m: Modulo) => RUTAS_POR_MODULO[m],
+);
+const RUTAS_SOLO_DE_CLINICA = [...SOLO_CLINICA].flatMap((m: Modulo) => RUTAS_POR_MODULO[m]);
 
 test("gate, COMPLETA: no-op total, en todas las rutas, sin clasificar y con cualquier campo", () => {
   const id = "33333333-3333-3333-3333-333333333333";
@@ -252,6 +260,24 @@ test("gate, ESENCIAL: bloquea exactamente las 29 rutas de siempre, con el 403 de
     bloqueadas[ruta] = modulo as string;
   }
   assert.deepEqual(bloqueadas, BLOQUEADAS_EN_ESENCIAL);
+});
+
+test("gate: las rutas de los módulos solo de clínica dan 403 con motivo RUBRO a una automotora, en las dos ediciones", () => {
+  assert.ok(RUTAS_SOLO_DE_CLINICA.length > 0);
+  for (const edition of EDICIONES) {
+    for (const ruta of RUTAS_SOLO_DE_CLINICA) {
+      const [metodo, patron] = ruta.split(" ");
+      const err = errorDe(() =>
+        exigirModuloDeLaEdicion(pedido(metodo, patron), automotora(edition)),
+      );
+      assert.equal(err?.statusCode, 403, `${edition}: ${ruta}`);
+      assert.equal(err?.message, "Esta función no está disponible para tu rubro.");
+      const detalles = err?.details as Record<string, unknown>;
+      assert.equal(detalles.code, "MODULO_NO_INCLUIDO");
+      assert.equal(detalles.motivo, "RUBRO");
+      assert.ok(SOLO_CLINICA.has(detalles.modulo as Modulo), ruta);
+    }
+  }
 });
 
 test("gate, ESENCIAL: los bloqueos por campo son los de siempre; los del rubro no aplican", () => {
@@ -466,6 +492,8 @@ test("las reglas del rubro de una automotora están vacías: ningún verificador
     callaDespuesDeDerivar: false,
     instruccionesDelPrompt: [],
     camposFueraDeLasTools: {},
+    // R5: ninguna tool con versión propia (las de agenda de una clínica).
+    toolsPropias: {},
   });
 });
 

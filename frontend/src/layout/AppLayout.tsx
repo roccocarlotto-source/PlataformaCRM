@@ -205,6 +205,10 @@ export function AppLayout() {
   // link solo para que rebote siempre a un USER sería mala UX. No es un
   // RBAC genérico, es un booleano ya expuesto por AuthContext.
   const isAdmin = me?.role === "ADMIN";
+  // Rubros (docs/rubros.md §4.3, R5): en una clínica, la configuración de la
+  // agenda son Profesionales y Prestaciones (con los textos del rubro). El
+  // menú completo por rubro es R17; una automotora lo ve como siempre.
+  const esClinica = me?.industry === "CLINICA";
   // Fase 4a del módulo SaaS: el link a la herramienta de platform admin se
   // gatea por la allowlist global (isPlatformAdmin de /me), no por el rol —
   // mismo criterio de renderizado condicional que el grupo Administración.
@@ -347,6 +351,7 @@ export function AppLayout() {
               "/agenda",
               "/resources",
               "/service-types",
+              "/clinica",
             ]}
           >
             {/* Listado completo "Actividades" (ítem 25): solo ADMIN, como
@@ -377,13 +382,26 @@ export function AppLayout() {
             <SidebarLink to="/agenda" icon={CalendarRange}>
               Calendario
             </SidebarLink>
-            {isAdmin ? (
+            {isAdmin && !esClinica ? (
               <>
                 <SidebarLink to="/resources" icon={Shapes}>
                   Recursos
                 </SidebarLink>
                 <SidebarLink to="/service-types" icon={Clock}>
                   Tipos de servicio
+                </SidebarLink>
+              </>
+            ) : null}
+            {isAdmin && esClinica ? (
+              <>
+                <SidebarLink to="/clinica/profesionales" icon={Shapes}>
+                  {me?.vocabulario?.recurso.pluralTitulo ?? "Profesionales"}
+                </SidebarLink>
+                <SidebarLink to="/clinica/prestaciones" icon={Clock}>
+                  {me?.vocabulario?.tipoDeServicio.pluralTitulo ?? "Prestaciones"}
+                </SidebarLink>
+                <SidebarLink to="/service-types" icon={Clock}>
+                  {`Configurar ${me?.vocabulario?.tipoDeServicio.plural ?? "prestaciones"}`}
                 </SidebarLink>
               </>
             ) : null}

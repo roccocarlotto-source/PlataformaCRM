@@ -754,3 +754,64 @@ describe("AppLayout — selector de tema en el pie de la sidebar (ítem 31)", ()
     }
   });
 });
+
+// Rubros (docs/rubros.md §4.3, R5): en una clínica, la configuración de la
+// agenda son Profesionales y Prestaciones, con los textos del rubro. Una
+// automotora ve Recursos y Tipos de servicio, como siempre.
+describe("AppLayout — agenda por rubro (R5)", () => {
+  it("una automotora (sin industry o AUTOMOTORA) ve Recursos y Tipos de servicio, y nada de clínica", async () => {
+    for (const industry of [undefined, "AUTOMOTORA" as const]) {
+      const user = userEvent.setup();
+      const auth = mockAuth("ADMIN");
+      useAuthMock.mockReturnValue({ ...auth, me: { ...auth.me!, industry } });
+      const { unmount } = renderLayout();
+      await openSection(user, "Actividades");
+      expect(screen.getByRole("link", { name: "Recursos" })).toHaveAttribute("href", "/resources");
+      expect(screen.getByRole("link", { name: "Tipos de servicio" })).toHaveAttribute(
+        "href",
+        "/service-types",
+      );
+      expect(screen.queryByRole("link", { name: "Profesionales" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Prestaciones" })).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("una clínica ve Profesionales y Prestaciones con el vocabulario del rubro", async () => {
+    const user = userEvent.setup();
+    const auth = mockAuth("ADMIN");
+    const t = (singular: string, plural: string) => ({
+      singular,
+      plural,
+      singularTitulo: singular[0].toUpperCase() + singular.slice(1),
+      pluralTitulo: plural[0].toUpperCase() + plural.slice(1),
+    });
+    useAuthMock.mockReturnValue({
+      ...auth,
+      me: {
+        ...auth.me!,
+        industry: "CLINICA",
+        vocabulario: {
+          marca: "Plataforma CRM",
+          contacto: t("paciente", "pacientes"),
+          recurso: t("profesional", "profesionales"),
+          tipoDeServicio: t("prestación", "prestaciones"),
+          reserva: t("turno", "turnos"),
+          agenda: t("agenda", "agendas"),
+          responsable: t("responsable", "responsables"),
+        },
+      },
+    });
+    renderLayout();
+    await openSection(user, "Actividades");
+    expect(screen.getByRole("link", { name: "Profesionales" })).toHaveAttribute(
+      "href",
+      "/clinica/profesionales",
+    );
+    expect(screen.getByRole("link", { name: "Prestaciones" })).toHaveAttribute(
+      "href",
+      "/clinica/prestaciones",
+    );
+    expect(screen.queryByRole("link", { name: "Recursos" })).not.toBeInTheDocument();
+  });
+});
