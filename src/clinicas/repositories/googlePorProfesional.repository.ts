@@ -120,10 +120,22 @@ export function guardarSyncTokenDelCanal(id: string, syncToken: string, db: Db =
   return db.googleCalendarChannel.updateMany({ where: { id }, data: { syncToken } });
 }
 
+/** El texto que se guarda como error de un canal: solo el error de Google
+ *  (o de esta integración), nunca un token. Por las dudas se tapan las formas
+ *  de un access token ("ya29."), de un refresh token ("1//") y de un header
+ *  Bearer, y se corta a 500. PURA. */
+export function mensajeDeErrorDelCanal(mensaje: string): string {
+  return mensaje
+    .replace(/Bearer\s+[\w.~+/=-]+/gi, "Bearer [oculto]")
+    .replace(/ya29\.[\w.-]+/g, "[token oculto]")
+    .replace(/1\/\/[\w.-]+/g, "[token oculto]")
+    .slice(0, 500);
+}
+
 export function registrarErrorDelCanal(id: string, mensaje: string, db: Db = prisma) {
   return db.googleCalendarChannel.updateMany({
     where: { id },
-    data: { lastErrorAt: new Date(), lastErrorMessage: mensaje.slice(0, 500) },
+    data: { lastErrorAt: new Date(), lastErrorMessage: mensajeDeErrorDelCanal(mensaje) },
   });
 }
 
@@ -138,7 +150,7 @@ export function registrarErrorDelCalendario(
 ) {
   return db.googleCalendarChannel.updateMany({
     where: { organizationId, branchId, calendarId, resourceId: { not: null } },
-    data: { lastErrorAt: new Date(), lastErrorMessage: mensaje.slice(0, 500) },
+    data: { lastErrorAt: new Date(), lastErrorMessage: mensajeDeErrorDelCanal(mensaje) },
   });
 }
 

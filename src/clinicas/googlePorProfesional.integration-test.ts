@@ -20,7 +20,7 @@ import {
   type EventoCambiado,
 } from "../services/googleCalendar.service";
 import { procesarNotificacion } from "../services/googleCalendarSync.service";
-import { createResource } from "../services/resource.service";
+import { createResource, deleteResource } from "../services/resource.service";
 import { createServiceType } from "../services/serviceType.service";
 import { replaceWorkingHoursForResource } from "../services/workingHours.service";
 import { getCifrador } from "../utils/encryption";
@@ -696,4 +696,87 @@ test("las rutas de R8 son de agenda_clinica: una automotora recibe 403 con motiv
     clinica.tokens[1],
   );
   assert.equal(deRecepcion.status, 403);
+});
+
+// ---------------------------------------------------------------------------
+// Archivar un profesional (el "eliminar" de recursos es un soft delete).
+// ---------------------------------------------------------------------------
+
+test("archivar un profesional con calendario y bloqueos: se borra su fila de canal, se detiene el canal en Google y los bloqueos quedan", async () => {
+  await limpiar();
+  const carla = await createResource(clinica.id, {
+    branchId: clin.sede,
+    name: "Carla",
+    type: "PERSON",
+  });
+  await prisma.resource.update({
+    where: { id: carla.id },
+    data: { googleCalendarId: "cal-carla" },
+  });
+  await prisma.resourceTimeOff.create({
+    data: {
+      organizationId: clinica.id,
+      resourceId: carla.id,
+      startsAt: LUNES(9),
+      endsAt: LUNES(10),
+    },
+  });
+  try {
+    await renovarCanalesVencidos({ cliente: doblarGoogle().cliente, organizationId: clinica.id });
+    const fila = await prisma.googleCalendarChannel.findFirstOrThrow({
+      where: { organizationId: clinica.id, resourceId: carla.id },
+    });
+    assert.ok(fila.channelId);
+
+    const google = doblarGoogle();
+    await deleteResource(clinica.id, carla.id, google.cliente);
+
+    const archivada = await prisma.resource.findUniqueOrThrow({ where: { id: carla.id } });
+    assert.ok(archivada.deletedAt, "se archiva, no se borra la fila");
+    assert.deepEqual(google.canalesDetenidos, [fila.channelId]);
+    assert.equal(await prisma.googleCalendarChannel.count({ where: { id: fila.id } }), 0);
+    assert.equal(
+      await prisma.resourceTimeOff.count({ where: { resourceId: carla.id } }),
+      1,
+      "los bloqueos quedan como historia: con soft delete el RESTRICT no se dispara",
+    );
+
+    // Una notificación tardía de ese canal ya no encuentra fila.
+    const token = await firmarWebhookToken({
+      organizationId: clinica.id,
+      branchId: clin.sede,
+      channelId: fila.channelId!,
+    });
+    const tardia = await procesarNotificacion(
+      { channelId: fila.channelId!, resourceState: "exists", token },
+      doblarGoogle().cliente,
+    );
+    assert.equal(tardia.accion, "canal-desconocido");
+    // Y el worker no lo vuelve a abrir.
+    const pasada = doblarGoogle();
+    await renovarCanalesVencidos({ cliente: pasada.cliente, organizationId: clinica.id });
+    assert.ok(!pasada.canalesCreados.some((c) => c.calendarId === "cal-carla"));
+  } finally {
+    await prisma.resourceTimeOff.deleteMany({ where: { resourceId: carla.id } });
+  }
+});
+
+test("archivar un recurso aunque Google falle al detener el canal: el archivado vale igual", async () => {
+  await limpiar();
+  const dario = await createResource(clinica.id, {
+    branchId: clin.sede,
+    name: "Darío",
+    type: "PERSON",
+  });
+  await prisma.resource.update({
+    where: { id: dario.id },
+    data: { googleCalendarId: "cal-dario" },
+  });
+  await renovarCanalesVencidos({ cliente: doblarGoogle().cliente, organizationId: clinica.id });
+  const google = doblarGoogle();
+  google.cliente.detenerCanal = () => Promise.reject(new Error("Google caído"));
+  await deleteResource(clinica.id, dario.id, google.cliente);
+  const archivado = await prisma.resource.findUniqueOrThrow({ where: { id: dario.id } });
+  assert.ok(archivado.deletedAt);
+  assert.equal(await prisma.googleCalendarChannel.count({ where: { resourceId: dario.id } }), 0);
 });

@@ -14,7 +14,10 @@ import {
   type SortOrder,
 } from "../repositories/resource.repository";
 import { countActiveServiceTypesByResource } from "../repositories/serviceType.repository";
+import { quitarFilaDelProfesional } from "../clinicas/repositories/googlePorProfesional.repository";
 import { AppError } from "../utils/AppError";
+import type { ClienteGoogleCalendar } from "./googleCalendar.service";
+import { detenerCanalDeConexion } from "./googleCalendarConnection.service";
 
 export interface ListResourcesParams {
   page: number;
@@ -137,10 +140,25 @@ export async function updateResource(
 // RESTRICT lógico: no se borra un recurso que tiene servicios activos
 // apuntándole. Mismo criterio, mismo formato de error y mismo lock de fila que
 // deleteBranch y que los dos RESTRICT de ALTO-8.
-export async function deleteResource(organizationId: string, id: string) {
+//
+// "Eliminar" un recurso es ARCHIVARLO (soft delete): la fila queda, así que ni
+// el RESTRICT de sus bloqueos (R6) ni la FK de su canal de Google (R8) se
+// disparan nunca. Sus bloqueos quedan como historia (un recurso archivado no
+// ofrece turnos). Lo que sí se va es el canal del calendario de Google de un
+// profesional de clínica (docs/rubros.md §4.6): su fila se borra en la misma
+// transacción que el archivado, y el canal se detiene en Google DESPUÉS del
+// commit (nada de red adentro de una transacción). Si detenerlo falla, el
+// archivado vale igual: queda en el log, el canal vence solo, y una
+// notificación suya ya no encuentra fila y se ignora. Una automotora no tiene
+// esas filas. `cliente`: solo para tests.
+export async function deleteResource(
+  organizationId: string,
+  id: string,
+  cliente?: ClienteGoogleCalendar,
+) {
   await getResourceById(organizationId, id);
 
-  await prisma.$transaction(async (tx) => {
+  const canales = await prisma.$transaction(async (tx) => {
     await lockResourceForUpdate(id, organizationId, tx);
 
     const resource = await findResourceById(id, organizationId, tx);
@@ -160,5 +178,18 @@ export async function deleteResource(organizationId: string, id: string) {
     if (result.count === 0) {
       throw new AppError("Recurso no encontrado", 404);
     }
+    return quitarFilaDelProfesional(organizationId, id, tx);
   });
+
+  for (const canal of canales) {
+    if (canal.channelId && canal.channelResourceId) {
+      // Best-effort y nunca lanza (detenerCanalDeConexion).
+      await detenerCanalDeConexion(
+        organizationId,
+        canal.branchId,
+        { channelId: canal.channelId, resourceId: canal.channelResourceId },
+        cliente,
+      );
+    }
+  }
 }
