@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { useModulo } from "../../auth/modulos";
 import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarRegistro } from "../../auth/permisos";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
@@ -25,12 +26,19 @@ import { TradeInSection } from "../vehicle/TradeInSection";
 import { VehicleSelect } from "../vehicle/VehicleSelect";
 import { todayIsoDate } from "./boardMove";
 import { ContactSelect } from "./ContactSelect";
-import { FINANCING_TYPE_LABELS, LEAD_SOURCE_LABELS, STATUS_LABEL } from "./labels";
+import {
+  FINANCING_TYPE_LABELS,
+  LEAD_SOURCE_LABELS,
+  STATUS_LABEL,
+  STATUS_LABEL_ESENCIAL,
+  STATUSES,
+} from "./labels";
 import { useCreateOpportunity, useUpdateOpportunity } from "./mutations";
 import { useOpportunity } from "./queries";
 import { stageStatusChange } from "./stageStatus";
 import type {
   CreateOpportunityInput,
+  CreateOpportunitySimpleInput,
   Opportunity,
   OpportunityFinancingType,
   OpportunityLeadSource,
@@ -169,6 +177,39 @@ function toUpdateInput(values: OpportunityFormValues): UpdateOpportunityInput {
   };
 }
 
+// ESENCIAL (docs/ediciones.md §2.1, paso E2): el formulario simple manda solo
+// lo que muestra. Sin pipelineId/stageId (el servidor ubica la oportunidad en
+// la etapa fija que corresponde al status), sin empresa ni financiación (el
+// gate los rechazaría con 400), y sin tocar lo que no se ve (fechas, origen
+// del cliente): un PATCH con null los borraría. La fecha real de cierre y el
+// motivo los completa o limpia el servidor en cada cambio de estado
+// (resolverCamposDeCierre).
+function toCreateInputSimple(values: OpportunityFormValues): CreateOpportunitySimpleInput {
+  return {
+    title: values.title,
+    amount: values.amount ? Number(values.amount) : undefined,
+    currency: values.currency || undefined,
+    status: values.status,
+    lostReason: values.status === "LOST" ? values.lostReason || undefined : undefined,
+    contactId: values.contactId,
+    ownerId: values.ownerId || undefined,
+    vehicleId: values.vehicleId,
+  };
+}
+
+function toUpdateInputSimple(values: OpportunityFormValues): UpdateOpportunityInput {
+  return {
+    title: values.title,
+    amount: values.amount ? Number(values.amount) : undefined,
+    currency: values.currency || undefined,
+    status: values.status,
+    lostReason: values.status === "LOST" ? values.lostReason || null : null,
+    contactId: values.contactId,
+    ownerId: values.ownerId || undefined,
+    vehicleId: values.vehicleId ?? null,
+  };
+}
+
 // Valores del formulario derivados de un registro ya persistido. Antes esto
 // vivía adentro de un useEffect que hacía setValues; ahora es una función pura
 // y el estado local aparece recién cuando el usuario edita algo — ver
@@ -244,6 +285,18 @@ export function OpportunityFormPage() {
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
   const { me } = useAuth();
+  // Ediciones (docs/ediciones.md §2.1, paso E2): sin procesos de venta
+  // (ESENCIAL) el formulario es el simple: el Estado se elige a mano (En curso,
+  // Vendida, Perdida) y no hay proceso, etapa, fechas ni origen del cliente.
+  // Cada módulo excluido saca lo suyo. En COMPLETA todos son true: lo de
+  // siempre.
+  const simple = !useModulo("procesos_de_venta");
+  const tieneEmpresas = useModulo("empresas");
+  const tieneFinanciacion = useModulo("financiacion");
+  const tieneCotizaciones = useModulo("cotizaciones");
+  const tieneEntregas = useModulo("entregas");
+  const tienePermutas = useModulo("permutas");
+  const tienePagos = useModulo("pagos");
 
   const opportunityQuery = useOpportunity(isEditMode ? id : undefined);
   const createOpportunityMutation = useCreateOpportunity();
@@ -293,7 +346,7 @@ export function OpportunityFormPage() {
   // (useStageOptions, stage/queries.ts), así que comparten queryKey y esto no
   // agrega ni una request: el selector ya trajo la lista y acá se lee del
   // caché. Sin pipeline la query está desactivada y `stages` queda undefined.
-  const stagesQuery = useStageOptions(values.pipelineId);
+  const stagesQuery = useStageOptions(simple ? undefined : values.pipelineId);
   const stages = stagesQuery.data?.data;
 
   // Cambiar pipelineId limpia stageId — justificado por una regla real del
@@ -413,6 +466,25 @@ export function OpportunityFormPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    if (simple) {
+      // Sin empresa, el contacto es obligatorio: la oportunidad necesita
+      // empresa o contacto (CHECK de la tabla, docs/ediciones.md §2.2).
+      if (!values.contactId) {
+        setError("Elegí un contacto antes de guardar.");
+        return;
+      }
+      try {
+        if (isEditMode) {
+          await updateOpportunityMutation.mutateAsync(toUpdateInputSimple(values));
+        } else {
+          await createOpportunityMutation.mutateAsync(toCreateInputSimple(values));
+        }
+        navigate("/opportunities");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "No pudimos guardar la oportunidad");
+      }
+      return;
+    }
     // Pipeline y Etapa son obligatorios en el contrato (opportunity.service.ts
     // los valida) y sus selectores llevan `required` (asterisco + bloqueo nativo
     // del navegador). Pero ese bloqueo tiene huecos: el selector solo existe
@@ -528,12 +600,14 @@ export function OpportunityFormPage() {
                   />
                 </FormField>
               </div>
-              <CompanySelect
-                id="opportunity-form-company"
-                label="Empresa"
-                value={values.companyId}
-                onChange={handleCompanyChange}
-              />
+              {tieneEmpresas ? (
+                <CompanySelect
+                  id="opportunity-form-company"
+                  label="Empresa"
+                  value={values.companyId}
+                  onChange={handleCompanyChange}
+                />
+              ) : null}
               <ContactSelect
                 id="opportunity-form-contact"
                 label="Contacto"
@@ -543,23 +617,27 @@ export function OpportunityFormPage() {
             </div>
           </Card>
 
-          <Card heading="Embudo y valor">
+          <Card heading={simple ? "Valor" : "Embudo y valor"}>
             <div className="ds-field-grid">
-              <PipelineSelect
-                id="opportunity-form-pipeline"
-                label="Proceso de venta"
-                value={values.pipelineId}
-                onChange={handlePipelineChange}
-                required
-              />
-              <StageSelect
-                id="opportunity-form-stage"
-                label="Etapa"
-                pipelineId={values.pipelineId}
-                value={values.stageId}
-                onChange={handleStageChange}
-                required
-              />
+              {simple ? null : (
+                <>
+                  <PipelineSelect
+                    id="opportunity-form-pipeline"
+                    label="Proceso de venta"
+                    value={values.pipelineId}
+                    onChange={handlePipelineChange}
+                    required
+                  />
+                  <StageSelect
+                    id="opportunity-form-stage"
+                    label="Etapa"
+                    pipelineId={values.pipelineId}
+                    value={values.stageId}
+                    onChange={handleStageChange}
+                    required
+                  />
+                </>
+              )}
               {/* Monto + Moneda siguen en su .ds-field-row, que acá es una
                 celda de la grilla: la fila queda (Monto | Moneda) | Fecha. */}
               <div>
@@ -607,25 +685,29 @@ export function OpportunityFormPage() {
                 celda: el checkbox va debajo del input, como FormField propio
                 (label > checkbox), que el CSS del sistema de diseño ya pone
                 en fila. */}
-              <div>
-                <FormField label="Fecha estimada de cierre">
-                  <input
-                    type="date"
-                    value={values.expectedCloseDate}
-                    disabled={expectedCloseDateUnknown}
-                    onChange={(event) =>
-                      setValues({ ...values, expectedCloseDate: event.target.value })
-                    }
-                  />
-                </FormField>
-                <FormField label="Fecha desconocida">
-                  <input
-                    type="checkbox"
-                    checked={expectedCloseDateUnknown}
-                    onChange={(event) => handleExpectedCloseDateUnknownChange(event.target.checked)}
-                  />
-                </FormField>
-              </div>
+              {simple ? null : (
+                <div>
+                  <FormField label="Fecha estimada de cierre">
+                    <input
+                      type="date"
+                      value={values.expectedCloseDate}
+                      disabled={expectedCloseDateUnknown}
+                      onChange={(event) =>
+                        setValues({ ...values, expectedCloseDate: event.target.value })
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Fecha desconocida">
+                    <input
+                      type="checkbox"
+                      checked={expectedCloseDateUnknown}
+                      onChange={(event) =>
+                        handleExpectedCloseDateUnknownChange(event.target.checked)
+                      }
+                    />
+                  </FormField>
+                </div>
+              )}
               {/* "Sin asignar" solo aparece si el registro no tiene dueño
                 (Opportunity.ownerId no es nullable en la API, así que en la
                 práctica solo con datos viejos): con clearable={false} y un
@@ -643,6 +725,38 @@ export function OpportunityFormPage() {
                   clearable={false}
                 />
               ) : null}
+              {simple ? (
+                <>
+                  <Select
+                    label="Estado"
+                    value={values.status}
+                    options={STATUSES.map((status) => ({
+                      value: status,
+                      label: STATUS_LABEL_ESENCIAL[status],
+                    }))}
+                    onChange={(status) =>
+                      status &&
+                      setValues({
+                        ...values,
+                        status,
+                        lostReason: status === "LOST" ? values.lostReason : "",
+                      })
+                    }
+                  />
+                  {values.status === "LOST" ? (
+                    <FormField label="Motivo de pérdida">
+                      <input
+                        type="text"
+                        value={values.lostReason}
+                        maxLength={255}
+                        onChange={(event) =>
+                          setValues({ ...values, lostReason: event.target.value })
+                        }
+                      />
+                    </FormField>
+                  ) : null}
+                </>
+              ) : null}
             </div>
           </Card>
 
@@ -652,7 +766,7 @@ export function OpportunityFormPage() {
             required — una oportunidad sin unidad vinculada sigue siendo
             válida. El selector va a lo ancho: su resultado (unidad + precio +
             estado + "Quitar vínculo") no entra en media columna. */}
-          <Card heading="Vehículo vinculado">
+          <Card heading={simple ? "Vehículo" : "Vehículo vinculado"}>
             <div className="ds-field-grid">
               <div className="ds-field-grid--full">
                 <VehicleSelect
@@ -662,34 +776,38 @@ export function OpportunityFormPage() {
                   onChange={handleVehicleChange}
                 />
               </div>
-              <Select
-                label="Financiación"
-                value={values.financingType}
-                options={FINANCING_TYPE_OPTIONS.map((financingType) => ({
-                  value: financingType,
-                  label: FINANCING_TYPE_LABELS[financingType],
-                }))}
-                emptyOption={{ label: "Sin especificar" }}
-                onChange={(financingType) => setValues({ ...values, financingType })}
-              />
+              {tieneFinanciacion ? (
+                <Select
+                  label="Financiación"
+                  value={values.financingType}
+                  options={FINANCING_TYPE_OPTIONS.map((financingType) => ({
+                    value: financingType,
+                    label: FINANCING_TYPE_LABELS[financingType],
+                  }))}
+                  emptyOption={{ label: "Sin especificar" }}
+                  onChange={(financingType) => setValues({ ...values, financingType })}
+                />
+              ) : null}
               {/* "Origen del cliente" es solo el texto visible (ítem 18.D):
                 leadSource/OpportunityLeadSource/LEAD_SOURCE_* son nombres
                 internos y siguen igual. */}
-              <Select
-                label="Origen del cliente"
-                value={values.leadSource}
-                options={LEAD_SOURCE_OPTIONS.map((leadSource) => ({
-                  value: leadSource,
-                  label: LEAD_SOURCE_LABELS[leadSource],
-                }))}
-                emptyOption={{ label: "Sin especificar" }}
-                onChange={(leadSource) => setValues({ ...values, leadSource })}
-              />
+              {simple ? null : (
+                <Select
+                  label="Origen del cliente"
+                  value={values.leadSource}
+                  options={LEAD_SOURCE_OPTIONS.map((leadSource) => ({
+                    value: leadSource,
+                    label: LEAD_SOURCE_LABELS[leadSource],
+                  }))}
+                  emptyOption={{ label: "Sin especificar" }}
+                  onChange={(leadSource) => setValues({ ...values, leadSource })}
+                />
+              )}
               {/* Detalle del plan (§42), solo con una financiación elegida (ver
                 hasFinancing). De a pares como el resto de la grilla: Entidad +
                 Entrega, Cuotas + Monto de cuota. Sin cálculo automático entre
                 ellos: se cargan los números que da el banco. */}
-              {hasFinancing(values.financingType) ? (
+              {tieneFinanciacion && hasFinancing(values.financingType) ? (
                 <>
                   <FormField label="Entidad financiera">
                     <input
@@ -748,7 +866,7 @@ export function OpportunityFormPage() {
             Etapa elegida—, así que mostrarla en edición era una tarjeta con
             un solo dato redundante. Vuelve a desaparecer al elegir una etapa
             normal, porque ahí el estado vuelve a "OPEN". */}
-          {isClosed(values.status) ? (
+          {!simple && isClosed(values.status) ? (
             <Card heading="Estado y cierre">
               <div className="ds-field-grid">
                 {/* El Estado es DERIVADO, no editable (§51): lo fija la Etapa
@@ -801,7 +919,7 @@ export function OpportunityFormPage() {
 
           {error ? <ErrorState>{error}</ErrorState> : null}
           <div>
-            {isClosed(values.status) ? null : (
+            {simple || isClosed(values.status) ? null : (
               <p className="ds-hint">
                 Para cerrarla, elegí una etapa de cierre o movela en el embudo.
               </p>
@@ -825,10 +943,10 @@ export function OpportunityFormPage() {
       </form>
       {isEditMode && opportunityQuery.data ? (
         <>
-          <QuoteSection opportunity={opportunityQuery.data} />
-          <DeliverySection opportunity={opportunityQuery.data} />
-          <TradeInSection opportunity={opportunityQuery.data} />
-          <PaymentSection opportunity={opportunityQuery.data} />
+          {tieneCotizaciones ? <QuoteSection opportunity={opportunityQuery.data} /> : null}
+          {tieneEntregas ? <DeliverySection opportunity={opportunityQuery.data} /> : null}
+          {tienePermutas ? <TradeInSection opportunity={opportunityQuery.data} /> : null}
+          {tienePagos ? <PaymentSection opportunity={opportunityQuery.data} /> : null}
         </>
       ) : null}
       {creandoCupon && opportunityQuery.data ? (

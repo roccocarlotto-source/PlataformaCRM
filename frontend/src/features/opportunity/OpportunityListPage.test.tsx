@@ -9,6 +9,7 @@ import { env } from "../../config/env";
 import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
+import { edicionDeMe } from "../../test/edicionFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
@@ -606,5 +607,100 @@ describe("OpportunityListPage", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+// Ediciones (docs/ediciones.md §2.1, paso E2): sin procesos de venta
+// (ESENCIAL) la lista es simple. COMPLETA, lo de siempre.
+describe("OpportunityListPage — por edición", () => {
+  function conEdicion(edition: "COMPLETA" | "ESENCIAL") {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe(edition) } });
+  }
+
+  function handlers(pedidas: string[]) {
+    const contar = (que: string, respuesta: () => Response) => () => {
+      pedidas.push(que);
+      return respuesta();
+    };
+    return [
+      usersHandler(),
+      http.get(opportunitiesUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeOpportunity({
+              id: "op1",
+              title: "Hilux para Ana",
+              companyId: "co1",
+              contactId: "ct1",
+              status: "WON",
+            }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeContact({ id: params.id as string, firstName: "Juana", lastName: "Gómez" }),
+        ),
+      ),
+      http.get(
+        `${companiesUrl}/:id`,
+        contar("company", () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+      ),
+      http.get(
+        `${pipelinesUrl}/:id`,
+        contar("pipeline", () => HttpResponse.json(makePipeline({ id: "pl1", name: "Ventas" }))),
+      ),
+      http.get(
+        `${stagesUrl}/:id`,
+        contar("stage", () =>
+          HttpResponse.json(makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto" })),
+        ),
+      ),
+      http.get(
+        pipelinesUrl,
+        contar("pipelines", () =>
+          HttpResponse.json({
+            data: [makePipeline({ id: "pl1", name: "Ventas" })],
+            pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+          }),
+        ),
+      ),
+    ];
+  }
+
+  it("ESENCIAL: sin embudo, sin filtros de empresa ni proceso, sin columna de etapa; estado Vendida; no pide empresas, procesos ni etapas", async () => {
+    conEdicion("ESENCIAL");
+    const pedidas: string[] = [];
+    server.use(...handlers(pedidas));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Hilux para Ana")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Juana Gómez/)).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Vista de embudo" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Empresa")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Proceso de venta")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Embudo · Etapa" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Acme Corp")).not.toBeInTheDocument();
+    const fila = screen.getByText("Hilux para Ana").closest("tr")!;
+    expect(within(fila).getByText("Vendida")).toBeInTheDocument();
+    expect(pedidas).toEqual([]);
+  });
+
+  it("COMPLETA: embudo, filtros, columna de etapa y estado Ganada, como siempre", async () => {
+    conEdicion("COMPLETA");
+    const pedidas: string[] = [];
+    server.use(...handlers(pedidas));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Vista de embudo" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Empresa")).toBeInTheDocument();
+    expect(screen.getByLabelText("Proceso de venta")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Embudo · Etapa" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Ventas · Prospecto")).toBeInTheDocument());
+    const fila = screen.getByText("Hilux para Ana").closest("tr")!;
+    expect(within(fila).getByText("Ganada")).toBeInTheDocument();
   });
 });

@@ -9,6 +9,8 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeOpportunity } from "../../test/opportunityFixtures";
+import { makeContact } from "../../test/contactFixtures";
+import { edicionDeMe } from "../../test/edicionFixtures";
 import { makeQuote, makeQuoteList } from "../../test/quoteFixtures";
 import { makeDelivery } from "../../test/deliveryFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
@@ -1941,5 +1943,217 @@ describe("OpportunityFormPage", () => {
     expect(await screen.findByRole("heading", { name: "Nueva oportunidad" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Pagos" })).not.toBeInTheDocument();
     expect(pedidas).toBe(0);
+  });
+});
+
+// Ediciones (docs/ediciones.md §2.1, paso E2): sin procesos de venta
+// (ESENCIAL) el formulario es el simple. COMPLETA, lo de siempre.
+describe("OpportunityFormPage — por edición", () => {
+  function conEdicion(edition: "COMPLETA" | "ESENCIAL") {
+    const base = mockAuth();
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe(edition) } });
+  }
+
+  // Lo que el formulario simple no debe pedir nunca (darían 403 en ESENCIAL).
+  function contadorDeExcluidos() {
+    const pedidas: string[] = [];
+    const contar = (que: string) => () => {
+      pedidas.push(que);
+      return HttpResponse.json({ data: [] });
+    };
+    return {
+      pedidas,
+      handlers: [
+        http.get(pipelinesUrl, contar("pipelines")),
+        http.get(stagesUrl, contar("stages")),
+        http.get(quotesUrl, contar("quotes")),
+        http.get(deliveriesUrl, contar("deliveries")),
+        http.get(paymentsUrl, contar("payments")),
+        http.get(`${env.apiUrl}/api/companies`, contar("companies")),
+      ],
+    };
+  }
+
+  function contactHandlers() {
+    return [
+      http.get(`${env.apiUrl}/api/contacts`, () =>
+        HttpResponse.json({
+          data: [makeContact({ id: "ct1", firstName: "Juana", lastName: "Gómez" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${env.apiUrl}/api/contacts/ct1`, () =>
+        HttpResponse.json(makeContact({ id: "ct1", firstName: "Juana", lastName: "Gómez" })),
+      ),
+      http.get(usersUrl, () =>
+        HttpResponse.json({
+          data: [makeUser({ id: "u1", fullName: "Ana Pérez" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    ];
+  }
+
+  it("ESENCIAL, alta: contacto, título, monto, estado a mano y asignado; sin proceso, etapa, empresa ni financiación, y el POST sin pipelineId ni stageId", async () => {
+    conEdicion("ESENCIAL");
+    const excluidos = contadorDeExcluidos();
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...excluidos.handlers,
+      ...contactHandlers(),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new");
+
+    await user.type(screen.getByLabelText("Título"), "Hilux para Ana");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre o email…"), "ana");
+    await waitFor(() => expect(screen.getByText("Juana Gómez")).toBeInTheDocument());
+    await user.click(screen.getByText("Juana Gómez"));
+
+    for (const ausente of [
+      "Empresa",
+      "Proceso de venta",
+      "Etapa",
+      "Fecha estimada de cierre",
+      "Financiación",
+      "Origen del cliente",
+    ]) {
+      expect(screen.queryByLabelText(ausente)).not.toBeInTheDocument();
+    }
+    expect(screen.getByLabelText("Unidad de stock")).toBeInTheDocument();
+    expect(screen.getByLabelText("Monto")).toBeInTheDocument();
+    expect(screen.getByLabelText("Asignado")).toBeInTheDocument();
+
+    const estado = screen.getByRole("combobox", { name: "Estado" });
+    expect(await listSelectOptions(user, estado)).toEqual(["En curso", "Vendida", "Perdida"]);
+    await user.keyboard("{Escape}");
+    await chooseSelectOption(user, estado, "Perdida");
+    await user.type(screen.getByLabelText("Motivo de pérdida"), "Compró en otro lado");
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(screen.getByText("lista de oportunidades")).toBeInTheDocument());
+
+    expect(postedBody).toEqual({
+      title: "Hilux para Ana",
+      currency: "USD",
+      status: "LOST",
+      lostReason: "Compró en otro lado",
+      contactId: "ct1",
+      ownerId: "u1",
+    });
+    expect(excluidos.pedidas).toEqual([]);
+  });
+
+  it("ESENCIAL, alta sin contacto: no hay POST y avisa", async () => {
+    conEdicion("ESENCIAL");
+    let posts = 0;
+    server.use(
+      ...contadorDeExcluidos().handlers,
+      ...contactHandlers(),
+      http.post(opportunitiesUrl, () => {
+        posts += 1;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new");
+
+    await user.type(screen.getByLabelText("Título"), "Sin contacto");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    expect(await screen.findByText("Elegí un contacto antes de guardar.")).toBeInTheDocument();
+    expect(posts).toBe(0);
+  });
+
+  it("ESENCIAL, edición: el PATCH lleva solo lo visible, y no hay cotización, entrega, permuta ni pagos", async () => {
+    conEdicion("ESENCIAL");
+    const excluidos = contadorDeExcluidos();
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...excluidos.handlers,
+      ...contactHandlers(),
+      http.get(`${opportunitiesUrl}/op1`, () =>
+        HttpResponse.json(
+          makeOpportunity({
+            id: "op1",
+            title: "Hilux para Ana",
+            companyId: null,
+            contactId: "ct1",
+            ownerId: "u1",
+            amount: "25000.00",
+            status: "OPEN",
+            expectedCloseDate: "2026-12-01T00:00:00.000Z",
+          }),
+        ),
+      ),
+      http.patch(`${opportunitiesUrl}/op1`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity({ id: "op1" }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/op1/edit");
+
+    const estado = await screen.findByRole("combobox", { name: "Estado" });
+    expect(estado).toHaveValue("En curso");
+    for (const seccion of ["Cotización", "Entrega", "Permuta", "Pagos"]) {
+      expect(screen.queryByRole("region", { name: seccion })).not.toBeInTheDocument();
+    }
+    await chooseSelectOption(user, estado, "Vendida");
+    expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(patchedBody).toBeDefined());
+    expect(patchedBody).toEqual({
+      title: "Hilux para Ana",
+      amount: 25000,
+      currency: "USD",
+      status: "WON",
+      lostReason: null,
+      contactId: "ct1",
+      ownerId: "u1",
+      vehicleId: null,
+    });
+    expect(excluidos.pedidas).toEqual([]);
+  });
+
+  it("COMPLETA: proceso, etapa, empresa, financiación y las secciones de la ficha, como siempre; el Estado no se elige a mano", async () => {
+    conEdicion("COMPLETA");
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/op1`, () => HttpResponse.json(makeOpportunity({ id: "op1" }))),
+      http.get(`${env.apiUrl}/api/companies/co1`, () =>
+        HttpResponse.json({
+          id: "co1",
+          organizationId: "org-1",
+          ownerId: null,
+          name: "Acme Corp",
+          domain: null,
+          industry: null,
+          phone: null,
+          city: null,
+          country: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          deletedAt: null,
+        }),
+      ),
+    );
+    renderForm("/opportunities/op1/edit");
+
+    expect(await screen.findByRole("combobox", { name: "Proceso de venta" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Etapa")).toBeInTheDocument();
+    expect(screen.getByLabelText("Empresa")).toBeInTheDocument();
+    expect(screen.getByLabelText("Financiación")).toBeInTheDocument();
+    expect(screen.getByLabelText("Origen del cliente")).toBeInTheDocument();
+    expect(screen.getByLabelText("Fecha estimada de cierre")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Estado" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Cotización" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Pagos" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Permuta" })).toBeInTheDocument();
   });
 });
