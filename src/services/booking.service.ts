@@ -1,6 +1,12 @@
 import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import {
+  EVENTO_TURNO_CANCELADO,
+  EVENTO_TURNO_CREADO,
+  emitirEventoDeTurno,
+  esClinica,
+} from "../clinicas/services/eventosDeTurno";
+import {
   contarSobreturnos,
   findBloqueosQueSeSuperponen,
 } from "../clinicas/repositories/bloqueos.repository";
@@ -381,7 +387,7 @@ export async function createBooking(
       );
     }
 
-    return createBookingRepo(
+    const creada = await createBookingRepo(
       {
         organizationId,
         branchId: resource.branchId,
@@ -395,6 +401,14 @@ export async function createBooking(
       },
       tx,
     );
+    // R10 (docs/rubros.md §4.8): en una clínica, booking.created en la misma
+    // transacción. Una automotora no emite nada, como siempre.
+    if (await esClinica(organizationId, tx)) {
+      await emitirEventoDeTurno(tx, EVENTO_TURNO_CREADO, creada, {
+        isOverbooking: creada.isOverbooking,
+      });
+    }
+    return creada;
   });
 
   // -------------------------------------------------------------------------
@@ -570,11 +584,17 @@ export async function cancelBooking(
   // concurrentes no se pisan: la segunda actualiza 0 filas. Es el mismo recurso
   // que hace innecesario un lock acá — a diferencia de la creación, cancelar no
   // decide sobre un conteo, solo transiciona una fila.
-  const result = await markBookingCancelled(id, organizationId);
-
-  if (result.count === 0) {
-    throw new AppError("Esta reserva ya estaba cancelada", 409);
-  }
+  // R10: el cambio de estado y, en una clínica, booking.cancelled, en la misma
+  // transacción. Para una automotora es la misma escritura de siempre.
+  await prisma.$transaction(async (tx) => {
+    const result = await markBookingCancelled(id, organizationId, tx);
+    if (result.count === 0) {
+      throw new AppError("Esta reserva ya estaba cancelada", 409);
+    }
+    if (await esClinica(organizationId, tx)) {
+      await emitirEventoDeTurno(tx, EVENTO_TURNO_CANCELADO, { ...booking, status: "CANCELLED" });
+    }
+  });
 
   if (booking.googleEventId) {
     // R8: en el calendario donde quedó el evento (el del profesional de una

@@ -19,6 +19,7 @@ import type { RoleName } from "../../types/auth";
 import { AppError } from "../../utils/AppError";
 import { estaDentroDelHorario, estaEnLaGrilla } from "../../utils/workingHours";
 import { findBloqueosQueSeSuperponen } from "../repositories/bloqueos.repository";
+import { EVENTO_TURNO_REPROGRAMADO, emitirEventoDeTurno } from "./eventosDeTurno";
 import { recepcionistaParaElAviso } from "./sedesDeUsuarios.service";
 
 // ---------------------------------------------------------------------------
@@ -242,6 +243,16 @@ export async function reprogramarTurno(
       },
       tx,
     );
+    // R10: booking.rescheduled (reprogramar es solo de clínicas), con el
+    // horario y el profesional de antes.
+    await emitirEventoDeTurno(tx, EVENTO_TURNO_REPROGRAMADO, fila, {
+      anterior: {
+        startsAt: original.startsAt.toISOString(),
+        endsAt: original.endsAt.toISOString(),
+        resourceId: original.resourceId,
+      },
+      isOverbooking: fila.isOverbooking,
+    });
     return fila;
   });
 

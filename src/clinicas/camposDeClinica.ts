@@ -18,7 +18,7 @@ export const CAMPOS_DE_CLINICA = {
   resource: ["allowsOverbooking", "maxOverbookingsPerDay", "googleCalendarId"],
   // R6: el turno es un sobreturno. R8: el calendario del profesional donde
   // quedó el evento.
-  booking: ["isOverbooking", "googleCalendarId"],
+  booking: ["isOverbooking", "googleCalendarId", "completedAt", "completedBy"],
 } as const;
 
 export function sinCamposDeClinica<T extends object>(

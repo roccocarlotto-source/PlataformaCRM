@@ -17,6 +17,8 @@ import { SERVICE_TYPES_PARA_SELECT, useServiceTypes } from "../serviceType/queri
 import type { ServiceType } from "../serviceType/types";
 import { BookingDetailDialog } from "./BookingDetailDialog";
 import { ReprogramarTurnoDialog } from "../clinica/ReprogramarTurnoDialog";
+import { MarcarTurno } from "../clinica/MarcarTurno";
+import { ROTULO_DE_ESTADO } from "../clinica/estadosDeTurno";
 import {
   estaAbierto,
   formatearMinuto,
@@ -227,6 +229,7 @@ export function BookingCalendarPage() {
                   onBookingClick={(booking, contactName) =>
                     setAbierta({ booking, resource, contactName })
                   }
+                  esClinica={me?.industry === "CLINICA"}
                 />
               ))}
             </div>
@@ -257,6 +260,17 @@ export function BookingCalendarPage() {
           resourceName={abierta.resource.name}
           zona={sucursal.timezone}
           onClose={() => setAbierta(null)}
+          // R10: atendido / no vino, solo en una clínica y para un turno que
+          // ya empezó.
+          {...(me?.industry === "CLINICA" &&
+          abierta.booking.status !== "CANCELLED" &&
+          new Date(abierta.booking.startsAt).getTime() <= ahora
+            ? {
+                accionesDeClinica: (
+                  <MarcarTurno booking={abierta.booking} onDone={() => setAbierta(null)} />
+                ),
+              }
+            : {})}
           // R9: reprogramar, solo en una clínica y para un turno confirmado
           // y futuro.
           {...(me?.industry === "CLINICA" &&
@@ -287,6 +301,8 @@ interface CalendarColumnProps {
   serviceTypes: readonly ServiceType[];
   onSlotClick: (minuto: number, franjas: FranjaEnMinutos[]) => void;
   onBookingClick: (booking: Booking, contactName: string) => void;
+  // R10: en una clínica se ven también los turnos marcados.
+  esClinica?: boolean;
 }
 
 function CalendarColumn({
@@ -298,14 +314,17 @@ function CalendarColumn({
   serviceTypes,
   onSlotClick,
   onBookingClick,
+  esClinica = false,
 }: CalendarColumnProps) {
   const workingHoursQuery = useWorkingHours(resource.id);
   // `from`/`to` filtran sobre startsAt: una reserva que empezó el día anterior
   // y cruza la medianoche no aparece acá. Con el horario de un mostrador no
   // pasa; queda anotado por si alguna vez sí.
+  // R10: en una clínica también se ven los turnos ya marcados (atendido / no
+  // vino); una automotora ve los CONFIRMED, como siempre.
   const bookingsQuery = useBookings({
     resourceId: resource.id,
-    status: "CONFIRMED",
+    ...(esClinica ? {} : { status: "CONFIRMED" as const }),
     from: instanteLocal(fecha, 0, zona).toISOString(),
     to: instanteLocal(fecha, MINUTOS_DEL_DIA, zona).toISOString(),
     pageSize: 100,
@@ -314,7 +333,7 @@ function CalendarColumn({
   });
 
   const franjas = franjasDelDia(workingHoursQuery.data?.workingHours ?? [], fecha);
-  const bookings = bookingsQuery.data?.data ?? [];
+  const bookings = (bookingsQuery.data?.data ?? []).filter((b) => b.status !== "CANCELLED");
   const contactNames = useContactNames(bookings.map((b) => b.contactId));
   const bloques = ubicarEnCarriles(bookings, fecha, zona);
 
@@ -377,6 +396,13 @@ function CalendarColumn({
             <span className="ds-calendar-booking-contact">{contactName}</span>
             {servicio ? <span className="ds-calendar-booking-service"> · {servicio}</span> : null}
             {/* R6: el sobreturno de una clínica se marca (§4.4). */}
+            {/* R10: el turno marcado se ve distinto. */}
+            {ROTULO_DE_ESTADO[booking.status] ? (
+              <span className="ds-calendar-booking-service">
+                {" "}
+                · {ROTULO_DE_ESTADO[booking.status]}
+              </span>
+            ) : null}
             {booking.isOverbooking ? (
               <span className="ds-calendar-booking-service"> · Sobreturno</span>
             ) : null}

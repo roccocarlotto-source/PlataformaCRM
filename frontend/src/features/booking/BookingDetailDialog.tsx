@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useConfirm } from "../../design-system/useConfirm";
 import { Button } from "../../design-system/Button";
 import { DetailList } from "../../design-system/DetailList";
@@ -17,6 +18,8 @@ interface BookingDetailDialogProps {
   // R9 (docs/rubros.md §4.7): solo una clínica lo pasa, para un turno
   // confirmado y futuro. Sin él, el diálogo es el de siempre.
   onReprogramar?: () => void;
+  // R10: lo propio de una clínica (atendido / no vino). Sin pasarlo, nada.
+  accionesDeClinica?: ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +40,7 @@ export function BookingDetailDialog({
   zona,
   onClose,
   onReprogramar,
+  accionesDeClinica,
 }: BookingDetailDialogProps) {
   const confirm = useConfirm();
   const cancelBookingMutation = useCancelBooking();
@@ -80,6 +84,7 @@ export function BookingDetailDialog({
         </ErrorState>
       ) : null}
 
+      {accionesDeClinica}
       {onReprogramar ? (
         <Button variant="secondary" onClick={onReprogramar}>
           Reprogramar

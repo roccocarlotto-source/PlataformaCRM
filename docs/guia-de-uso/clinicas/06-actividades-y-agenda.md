@@ -135,3 +135,18 @@ Antes de confirmar, la pantalla avisa cuántos turnos futuros tiene. Esos turnos
 **no se cancelan**: a la recepción de la sede le queda una tarea por cada uno
 para reprogramarlo con otro profesional o cancelarlo. Si tenía calendario de
 Google, se deja de seguir.
+
+## Atendido y No vino {#atendido-no-vino}
+
+Cuando un turno ya empezó, en el **Calendario** abrí el turno y marcá
+**Atendido** o **No vino**. Podés sumar una nota corta (opcional). **No cargues
+datos de salud** ni el motivo de la consulta.
+
+- En el calendario el turno queda marcado como **Atendido** o **No vino**.
+- Si te equivocaste, abrilo de nuevo y tocá **Corregir a No vino** (o a
+  Atendido). La corrección queda en la ficha del paciente, con quién la hizo.
+- Si nadie lo marca, **3 horas después de terminar** el turno se cierra solo
+  como atendido, con una nota en la ficha. Si el paciente no vino, corregilo a
+  **No vino**.
+- Lo pueden hacer los administradores y la recepción, en los turnos de sus
+  sedes. Un turno cancelado no se marca.

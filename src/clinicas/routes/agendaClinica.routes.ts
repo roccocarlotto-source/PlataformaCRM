@@ -3,6 +3,8 @@ import { authenticate } from "../../middlewares/authenticate";
 import { authorize } from "../../middlewares/authorize";
 import { businessWriteRateLimiter } from "../../middlewares/rateLimit";
 import {
+  marcarAtendidoHandler,
+  marcarNoVinoHandler,
   reprogramarTurnoHandler,
   turnosFuturosHandler,
   asignarCalendarioHandler,
@@ -126,4 +128,23 @@ agendaClinicaRouter.get(
   authenticate,
   authorize("ADMIN"),
   turnosFuturosHandler,
+);
+
+// R10 (docs/rubros.md §4.8, §11.2): atendido / no vino lo marcan ADMIN y
+// Recepción, en sus sedes. Del módulo agenda_clinica: una automotora recibe 403
+// con motivo RUBRO. El agente no marca nada.
+agendaClinicaRouter.patch(
+  "/bookings/:id/attended",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN", "RECEPCION"),
+  marcarAtendidoHandler,
+);
+
+agendaClinicaRouter.patch(
+  "/bookings/:id/no-show",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN", "RECEPCION"),
+  marcarNoVinoHandler,
 );

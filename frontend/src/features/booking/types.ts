@@ -25,6 +25,9 @@ export interface Booking {
   isOverbooking?: boolean;
   // R8: el calendario del profesional donde quedó el evento (solo clínica).
   googleCalendarId?: string | null;
+  // R10: cuándo y quién cerró el turno (solo clínica).
+  completedAt?: string | null;
+  completedBy?: "PERSONA" | "AUTO" | null;
   createdAt: string;
   updatedAt: string;
 }

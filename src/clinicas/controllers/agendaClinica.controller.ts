@@ -22,6 +22,11 @@ import {
   contarTurnosFuturosDelProfesional,
   reprogramarTurno,
 } from "../services/reprogramar.service";
+import {
+  LARGO_MAXIMO_DE_NOTA,
+  marcarTurno,
+  type EstadoDeCierre,
+} from "../services/atendido.service";
 import { findResourceById } from "../../repositories/resource.repository";
 import { exigirSedeDelActor } from "../../services/permisos";
 import { AppError } from "../../utils/AppError";
@@ -290,3 +295,36 @@ export const turnosFuturosHandler = asyncHandler<AuthenticatedRequest>(
     });
   },
 );
+
+// ---------------------------------------------------------------------------
+// R10: atendido / no vino (docs/rubros.md §4.8). Nota opcional y corta; la
+// pantalla avisa que no se carguen datos de salud.
+// ---------------------------------------------------------------------------
+
+const marcaBodySchema = z
+  .object({
+    nota: z
+      .string()
+      .trim()
+      .max(LARGO_MAXIMO_DE_NOTA, `La nota no puede superar los ${LARGO_MAXIMO_DE_NOTA} caracteres`)
+      .nullish(),
+  })
+  .strict();
+
+function marcarHandler(estado: EstadoDeCierre) {
+  return asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+    const id = parseOrThrow(z.string().uuid("id inválido"), req.params.id);
+    const { nota } = parseOrThrow(marcaBodySchema, req.body ?? {});
+    const booking = await marcarTurno(
+      req.auth.organizationId,
+      id,
+      estado,
+      { ...req.auth, descripcion: req.auth.fullName },
+      nota,
+    );
+    res.status(200).json(booking);
+  });
+}
+
+export const marcarAtendidoHandler = marcarHandler("COMPLETED");
+export const marcarNoVinoHandler = marcarHandler("NO_SHOW");
