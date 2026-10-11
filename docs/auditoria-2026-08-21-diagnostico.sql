@@ -415,7 +415,11 @@ from (
     ('booking_messages_vigente_key',
      'CREATE UNIQUE INDEX booking_messages_vigente_key ON public.booking_messages USING btree (booking_id, kind, booking_starts_at) WHERE (status = ANY (ARRAY[''PENDING''::"BookingMessageStatus", ''SENT''::"BookingMessageStatus"]))'),
     ('booking_messages_external_message_id_key',
-     'CREATE UNIQUE INDEX booking_messages_external_message_id_key ON public.booking_messages USING btree (external_message_id) WHERE (external_message_id IS NOT NULL)')
+     'CREATE UNIQUE INDEX booking_messages_external_message_id_key ON public.booking_messages USING btree (external_message_id) WHERE (external_message_id IS NOT NULL)'),
+    -- La tarea después del turno de una clínica (migración 20261113120000,
+    -- docs/rubros.md §7.3): una sola tarea por regla y por turno.
+    ('activities_follow_up_por_turno_key',
+     'CREATE UNIQUE INDEX activities_follow_up_por_turno_key ON public.activities USING btree (source_automation_id, source_booking_id) WHERE (source_booking_id IS NOT NULL)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
@@ -1280,7 +1284,11 @@ from (
     -- organización.
     ('booking_messages_organization_id_booking_id_fkey|booking_messages(organization_id,booking_id)->bookings(organization_id,id)'),
     ('booking_messages_organization_id_contact_id_fkey|booking_messages(organization_id,contact_id)->contacts(organization_id,id)'),
-    ('booking_messages_organization_id_automation_id_fkey|booking_messages(organization_id,automation_id)->automations(organization_id,id)')
+    ('booking_messages_organization_id_automation_id_fkey|booking_messages(organization_id,automation_id)->automations(organization_id,id)'),
+    -- La tarea después del turno de una clínica (docs/rubros.md §7.3,
+    -- migración 20261113120000): el turno y la regla de la misma organización.
+    ('activities_organization_id_source_booking_id_fkey|activities(organization_id,source_booking_id)->bookings(organization_id,id)'),
+    ('activities_organization_id_source_automation_id_fkey|activities(organization_id,source_automation_id)->automations(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

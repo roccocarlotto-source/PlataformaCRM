@@ -15,6 +15,7 @@ import {
   cancelarPostTurnoPendiente,
 } from "./repository";
 import { MOTIVO_NO_VINO } from "../postTurno/config";
+import { cerrarTareasDelTurno } from "../postTurno/tarea";
 
 // ---------------------------------------------------------------------------
 // Programar, recalcular y anular el recordatorio de un turno (docs/rubros.md
@@ -156,8 +157,10 @@ export async function alNoVenir(evento: { organizationId: string; payload: unkno
     bookingId,
     MOTIVO_NO_VINO,
   );
+  // §7.3: la tarea después del turno, si estaba abierta, se cierra con una nota.
+  const tareas = await cerrarTareasDelTurno(evento.organizationId, bookingId);
   logger.debug(
-    { organizationId: evento.organizationId, bookingId, cancelados: count },
+    { organizationId: evento.organizationId, bookingId, cancelados: count, tareas },
     "No vino: QR de reseña y control pendientes cancelados",
   );
 }

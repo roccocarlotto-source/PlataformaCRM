@@ -3,6 +3,9 @@ import { after, before, test } from "node:test";
 import { Prisma } from "@prisma/client";
 import { vocabularioDe } from "../config/vocabulario";
 import { prisma } from "../lib/prisma";
+import { crearRegistroDeAcciones } from "../services/automationActions";
+import { registrarAutomatizaciones } from "../services/automationRegistrations";
+import { crearRegistroDeHandlers } from "../services/outboxHandlers";
 import { findRoleByName } from "../repositories/role.repository";
 import { createBranch } from "../services/branch.service";
 import { replaceWorkingHoursForResource } from "../services/workingHours.service";
@@ -763,4 +766,36 @@ test("R14: una automotora no puede usar booking.completed (el 400 de siempre) y 
   );
   assert.equal(control.status, 403);
   assert.equal((control.json.error as { motivo?: string } | undefined)?.motivo, "RUBRO");
+});
+
+// ---------------------------------------------------------------------------
+// Tarea después del turno (docs/rubros.md §7.3): la acción de siempre ahora
+// también admite booking.completed, pero una automotora no tiene ese trigger:
+// el 400 de siempre, y su tarea de venta ganada sigue igual.
+// ---------------------------------------------------------------------------
+
+test("§7.3: una automotora no puede colgar la tarea de booking.completed (el 400 de siempre)", async () => {
+  await assert.rejects(
+    createAutomation(conSucursales.id, {
+      name: "Tarea después del turno",
+      triggerType: "booking.completed",
+      actionType: "activity.create_follow_up",
+      actionConfig: { subject: "Llamar", daysUntilDue: 3 },
+    }),
+    /triggerType "booking.completed" no existe: debe ser uno de opportunity.won, opportunity.stale, contact.inquiry_stalled$/,
+  );
+  const registro = crearRegistroDeAcciones();
+  registrarAutomatizaciones({ acciones: registro, handlers: crearRegistroDeHandlers() });
+  const ganada = await createAutomation(
+    conSucursales.id,
+    {
+      name: "Tarea de venta ganada",
+      triggerType: "opportunity.won",
+      actionType: "activity.create_follow_up",
+      actionConfig: { subject: "Llamar para coordinar la entrega", daysUntilDue: 3 },
+    },
+    { registro },
+  );
+  assert.equal(ganada.triggerType, "opportunity.won");
+  await prisma.automation.delete({ where: { id: ganada.id } });
 });
