@@ -303,11 +303,14 @@ function CamposDeLaAccion({
   values,
   onChange,
   disabled,
+  esClinica = false,
 }: {
   actionType: string;
   values: ConfigDraft;
   onChange: (values: ConfigDraft) => void;
   disabled: boolean;
+  // §7.3: en una clínica la tarea es después del turno (otro ejemplo).
+  esClinica?: boolean;
 }) {
   switch (actionType) {
     case ACTION_CREATE_FOLLOW_UP:
@@ -318,7 +321,9 @@ function CamposDeLaAccion({
               type="text"
               value={values.subject ?? ""}
               maxLength={MAX_SUBJECT}
-              placeholder="Llamar para coordinar la entrega"
+              placeholder={
+                esClinica ? "Llamar para ver cómo siguió" : "Llamar para coordinar la entrega"
+              }
               onChange={(event) => onChange({ ...values, subject: event.target.value })}
               disabled={disabled}
               required
@@ -692,6 +697,7 @@ export function AutomationFormPage() {
               values={values.actionConfig}
               onChange={(actionConfig) => setValues({ ...values, actionConfig })}
               disabled={isSubmitting}
+              esClinica={esClinica}
             />
           </div>
         </Card>

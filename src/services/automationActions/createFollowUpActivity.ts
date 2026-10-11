@@ -3,7 +3,8 @@ import { z } from "zod";
 import { findOpportunityById } from "../../repositories/opportunity.repository";
 import { createActivity } from "../activity.service";
 import type { AccionRegistrada } from "../automationActions";
-import { TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
+import { TRIGGER_BOOKING_COMPLETED, TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
+import { crearTareaDespuesDelTurno } from "../../clinicas/postTurno/tarea";
 
 // ---------------------------------------------------------------------------
 // Acción `activity.create_follow_up` — la primera del catálogo
@@ -69,6 +70,14 @@ export const payloadDeOportunidadSchema = z.object({
   ownerId: z.string().uuid("payload.ownerId debe ser un UUID"),
 });
 
+// booking.completed (docs/rubros.md §7.3, solo clínicas): el payload del turno.
+// El handler no recibe el triggerType: lo distingue la forma del payload. Sin
+// bookingId sigue el camino de la oportunidad, con su mensaje de error de
+// siempre.
+const payloadDelTurnoSchema = z.object({
+  bookingId: z.string().uuid("payload.bookingId debe ser un UUID"),
+});
+
 // Aritmética de calendario en UTC: `0` = vence hoy. Exportada para probarla
 // sin base.
 export function fechaDeVencimiento(ahora: Date, diasHastaVencer: number): Date {
@@ -84,13 +93,30 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
   // misma tarea todos los días: esta acción no deja la marca anti-redraft
   // (Opportunity.lastStaleFollowUpDraftedAt), así que el worker de
   // oportunidades estancadas volvería a emitir el evento en cada pasada.
-  triggers: [TRIGGER_OPPORTUNITY_WON],
-  async handler({ organizationId, config, payload }) {
+  //
+  // booking.completed (docs/rubros.md §7.3): la tarea después del turno de una
+  // clínica. El trigger es del módulo post_turno: una automotora no lo puede
+  // elegir (MODULO_DEL_TRIGGER), así que para ella la acción es la de siempre.
+  // La lógica del turno vive en src/clinicas/postTurno/tarea.ts.
+  triggers: [TRIGGER_OPPORTUNITY_WON, TRIGGER_BOOKING_COMPLETED],
+  async handler({ organizationId, automationId, config, payload }) {
     // El dispatcher ya validó `config` contra el schema de arriba; se vuelve a
     // parsear acá solo para recuperar el TIPO (config llega como
     // Record<string, unknown>), no porque se desconfíe. Es un objeto de dos
     // campos: el costo es nulo y el handler queda autocontenido.
     const { subject, daysUntilDue, notes } = configDeSeguimientoSchema.parse(config);
+    if (payload && typeof payload === "object" && "bookingId" in payload) {
+      const { bookingId } = payloadDelTurnoSchema.parse(payload);
+      await crearTareaDespuesDelTurno({
+        organizationId,
+        automationId,
+        bookingId,
+        subject,
+        daysUntilDue,
+        ...(notes === undefined ? {} : { notes }),
+      });
+      return;
+    }
     const { opportunityId, ownerId } = payloadDeOportunidadSchema.parse(payload);
 
     // Por createActivity() de activity.service.ts y no por el repositorio: sus

@@ -82,7 +82,11 @@ describe("catálogo de triggers y acciones", () => {
       // R13: solo clínicas.
       "booking.reminder_due": ["booking.send_reminder"],
       // R14: solo clínicas.
-      "booking.completed": ["booking.send_qr_review", "booking.schedule_control"],
+      "booking.completed": [
+        "booking.send_qr_review",
+        "booking.schedule_control",
+        ACTION_CREATE_FOLLOW_UP,
+      ],
     });
     // Un trigger que el espejo no conoce no restringe: decide el backend.
     expect(accionesParaTrigger("booking.reminder")).toEqual(ACTION_OPTIONS);

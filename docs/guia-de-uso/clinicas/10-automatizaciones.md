@@ -225,7 +225,7 @@ para el horario nuevo; si se cancela, no sale.
 
 Con el evento **Cuando se atiende un turno** (cuando lo marcás **Atendido**, o
 cuando se cierra solo a las 3 horas; ver
-[Atendido y No vino](/ayuda/actividades-y-agenda#atendido-no-vino)) hay dos
+[Atendido y No vino](/ayuda/actividades-y-agenda#atendido-no-vino)) hay tres
 acciones:
 
 - **Pedir una reseña con un QR:** un WhatsApp con el QR de reseñas que elijas.
@@ -234,6 +234,11 @@ acciones:
 - **Recordar el control:** si la prestación tiene **Recordar control a los N
   días** (en [Prestaciones](/clinica/prestaciones), de 1 a 730 días), el paciente
   recibe un WhatsApp para agendar el próximo turno a los N días.
+- **Crear actividad de seguimiento:** una tarea para la recepción de la sede del
+  turno, con el paciente, que vence a los días que elijas desde que el turno se
+  marcó atendido. Es una sola por turno. Si después lo marcás **No vino**, la
+  tarea se cierra sola con una nota; si lo volvés a marcar **Atendido**, se
+  reabre. No manda nada al paciente.
 
 Texto propuesto del control (sin datos de salud):
 
