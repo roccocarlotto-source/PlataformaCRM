@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { AuthApiError } from "@supabase/supabase-js";
 import { ForgotPasswordPage } from "./ForgotPasswordPage";
 
 // ForgotPasswordPage no usa useAuth ni AuthProvider — solo llama a
@@ -81,5 +82,23 @@ describe("ForgotPasswordPage — R1.3", () => {
       ),
     );
     expect(screen.queryByText(/revisá tu email/i)).not.toBeInTheDocument();
+  });
+
+  it("el límite de emails de Supabase (en inglés) se muestra en castellano", async () => {
+    resetPasswordForEmail.mockResolvedValueOnce({
+      error: new AuthApiError("Email rate limit exceeded", 429, "over_email_send_rate_limit"),
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByLabelText("Email"), "a@example.com");
+    await user.click(screen.getByRole("button", { name: /enviar enlace/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Ya te enviamos varios emails. Esperá unos minutos antes de pedir otro.",
+      ),
+    );
+    expect(screen.queryByText(/rate limit/i)).not.toBeInTheDocument();
   });
 });

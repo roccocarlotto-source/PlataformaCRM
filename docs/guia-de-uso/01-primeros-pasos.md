@@ -42,6 +42,12 @@ Qué puede pasar:
   [Recuperar la contraseña](#recuperar-contrasena).
 - **"No pudimos verificar tu cuenta"**: la app no pudo confirmar tus datos
   (por ejemplo, se cortó internet). Tocá **Reintentar**.
+- **Te invitaron y todavía no aceptaste la invitación**: después de
+  **Ingresar** vas directo a **Completá tu cuenta** para terminar de
+  [aceptarla](#aceptar-invitacion).
+- **"Tu cuenta todavía no está activada. Contactá a tu administrador."**: tu
+  cuenta no tiene una invitación pendiente para aceptar. Pedile a un
+  administrador que te invite de nuevo.
 - **Tu cuenta no está disponible**: si un administrador desactivó tu cuenta,
   el sistema te lo avisa y no te deja entrar. Hablá con un administrador de
   tu organización.
@@ -102,6 +108,10 @@ Qué puede pasar:
   navegador donde ya hay una sesión abierta. Si la invitación es para esa
   misma cuenta, podés configurar la contraseña ahí mismo. Si es para otra
   persona, primero cerrá sesión y volvé a abrir el enlace.
+- **Ya elegiste una contraseña** (por ejemplo, con **¿Olvidaste tu
+  contraseña?**) e ingresaste con ella: la pantalla **Completá tu cuenta**
+  solo te pide el **Nombre completo**. Escribilo y tocá **Aceptar
+  invitación**; seguís ingresando con la contraseña que ya tenías.
 - **"Tu cuenta ya fue creada. Solo falta configurar tu contraseña"**: algo se
   interrumpió a mitad de camino (por ejemplo, se recargó la página). No hace
   falta volver a empezar: completá la contraseña y tocá **Guardar

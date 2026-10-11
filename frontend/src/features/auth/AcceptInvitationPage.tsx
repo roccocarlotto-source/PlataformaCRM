@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { esMismaContrasena, mensajeDeAuth } from "../../auth/mensajesDeAuth";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
@@ -55,6 +56,7 @@ function clearPendingPasswordMarker() {
 // antes que updateUser({password}), nunca al revés).
 type Step =
   | "form" // fullName + password + confirm, primera vez — submit -> accept
+  //          (o solo fullName si la sesión ya se abrió con contraseña, ver yaTieneContrasena)
   | "accepting" // POST /invitations/accept en curso
   | "accept-failed" // accept falló — reintentar es seguro, todavía no se creó nada
   | "password-only" // recuperado tras F5 (accept ya tuvo éxito antes) — solo password + confirm
@@ -65,7 +67,14 @@ type Step =
   | "done";
 
 export function AcceptInvitationPage() {
-  const { status, me, retryProfile } = useAuth();
+  const { status, me, retryProfile, sesionConContrasena } = useAuth();
+
+  // La sesión se abrió con signInWithPassword (claim amr, ver
+  // auth/sesionConContrasena.ts): la persona ya tiene contraseña — por
+  // ejemplo, la eligió con "¿Olvidaste tu contraseña?" antes de aceptar. No
+  // se le pide ni se le cambia: solo el nombre y "Aceptar invitación". Sin
+  // esa señal (abrió el link de la invitación) se pide como siempre.
+  const yaTieneContrasena = sesionConContrasena === true;
 
   const [step, setStep] = useState<Step>("form");
   const [fullName, setFullName] = useState("");
@@ -175,12 +184,18 @@ export function AcceptInvitationPage() {
       // Punto de no-retorno: Invitation ACCEPTED y User ya creados del lado
       // del backend. A partir de acá ningún camino de error vuelve a llamar
       // a acceptInvitation.
+      if (yaTieneContrasena) {
+        // Ya tiene contraseña: no hay nada que configurar, y updateUser no se
+        // llama nunca (ver yaTieneContrasena).
+        resolveProfile();
+        return;
+      }
       if (data.user?.email) {
         setPendingPasswordMarker(data.user.email);
       }
       await runSetPassword();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pudimos aceptar la invitación");
+      setError(mensajeDeAuth(err, "No pudimos aceptar la invitación"));
       setStep("accept-failed");
     }
   }
@@ -190,17 +205,25 @@ export function AcceptInvitationPage() {
     setError(null);
     try {
       const { error: updateError } = await supabase.auth.updateUser({ password });
-      if (updateError) {
+      // same_password: la cuenta ya tenía exactamente esta contraseña (la
+      // eligió antes, por ejemplo con "¿Olvidaste tu contraseña?"). Lo que
+      // este paso busca —que la cuenta quede con esa contraseña— ya está
+      // hecho: se sigue como un éxito, no como un error.
+      if (updateError && !esMismaContrasena(updateError)) {
         throw updateError;
       }
       clearPendingPasswordMarker();
-      resolvingBaselineStatusRef.current = status;
-      setStep("resolving-profile");
-      retryProfile();
+      resolveProfile();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pudimos configurar la contraseña");
+      setError(mensajeDeAuth(err, "No pudimos configurar la contraseña"));
       setStep("password-failed");
     }
+  }
+
+  function resolveProfile() {
+    resolvingBaselineStatusRef.current = status;
+    setStep("resolving-profile");
+    retryProfile();
   }
 
   function handleRetryProfile() {
@@ -212,7 +235,7 @@ export function AcceptInvitationPage() {
 
   async function handleFormSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validationError = validatePasswords();
+    const validationError = yaTieneContrasena ? null : validatePasswords();
     if (validationError) {
       setError(validationError);
       return;
@@ -387,6 +410,33 @@ export function AcceptInvitationPage() {
           {error ? <ErrorState>{error}</ErrorState> : null}
           <Button type="submit" variant="primary" disabled={isBusy} loading={isBusy}>
             {isBusy ? "Procesando…" : "Guardar contraseña"}
+          </Button>
+        </form>
+      </AuthShell>
+    );
+  }
+
+  // step: "form" | "accepting" | "resolving-profile", con contraseña ya puesta
+  if (yaTieneContrasena) {
+    return (
+      <AuthShell>
+        <form onSubmit={handleFormSubmit}>
+          <h1>Completá tu cuenta</h1>
+          <p className="ds-auth-text">
+            Ya tenés una contraseña: vas a seguir ingresando con ella. Solo falta tu nombre.
+          </p>
+          <FormField label="Nombre completo">
+            <input
+              type="text"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              required
+              maxLength={255}
+            />
+          </FormField>
+          {error ? <ErrorState>{error}</ErrorState> : null}
+          <Button type="submit" variant="primary" disabled={isBusy} loading={isBusy}>
+            {isBusy ? "Procesando…" : "Aceptar invitación"}
           </Button>
         </form>
       </AuthShell>
