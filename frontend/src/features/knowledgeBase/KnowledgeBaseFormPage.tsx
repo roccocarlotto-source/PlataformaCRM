@@ -21,8 +21,11 @@ import {
   EXTENSIONES_ARCHIVO_SOPORTADAS,
   type CreateKnowledgeBaseEntryInput,
   type KnowledgeBaseEntry,
+  type KnowledgeBaseEntryKind,
   type UpdateKnowledgeBaseEntryInput,
 } from "./types";
+import { useAuth } from "../../auth/AuthContext";
+import { Select } from "../../design-system/Select";
 
 // Los mismos topes que el backend (knowledgeBaseEntry.controller.ts). El
 // maxLength del navegador es comodidad, no la garantía: quien valida es Zod.
@@ -34,6 +37,8 @@ interface KnowledgeBaseFormValues {
   title: string;
   content: string;
   isActive: boolean;
+  // R18: solo se manda en una clínica.
+  kind: KnowledgeBaseEntryKind;
 }
 
 const EMPTY_FORM: KnowledgeBaseFormValues = {
@@ -41,7 +46,14 @@ const EMPTY_FORM: KnowledgeBaseFormValues = {
   title: "",
   content: "",
   isActive: true,
+  kind: "GENERAL",
 };
+
+// R18 (docs/rubros.md §5.4): el agente transcribe las indicaciones tal cual.
+const OPCIONES_DE_TIPO: { value: KnowledgeBaseEntryKind; label: string }[] = [
+  { value: "GENERAL", label: "Información general" },
+  { value: "INDICACIONES", label: "Indicaciones antes o después de una prestación" },
+];
 
 const PLACEHOLDER_CONTENIDO =
   "Ej.: Atendemos de lunes a viernes de 9 a 18 y los sábados de 9 a 13. El último turno se da media hora antes del cierre.";
@@ -68,6 +80,7 @@ function toFormValues(entry: KnowledgeBaseEntry): KnowledgeBaseFormValues {
     title: entry.title,
     content: entry.content,
     isActive: entry.isActive,
+    kind: entry.kind ?? "GENERAL",
   };
 }
 
@@ -107,6 +120,9 @@ function validar(values: KnowledgeBaseFormValues): string | null {
 // src/services/knowledgeBaseEntry.service.ts.
 // ---------------------------------------------------------------------------
 export function KnowledgeBaseFormPage() {
+  // R18: el tipo (indicaciones) es solo de una clínica.
+  const { me } = useAuth();
+  const esClinica = me?.industry === "CLINICA";
   const confirm = useConfirm();
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -237,6 +253,8 @@ export function KnowledgeBaseFormPage() {
       title: values.title.trim(),
       content: values.content.trim(),
       isActive: values.isActive,
+      // R18: una automotora no manda el campo.
+      ...(esClinica ? { kind: values.kind } : {}),
     };
 
     try {
@@ -334,6 +352,25 @@ export function KnowledgeBaseFormPage() {
             <p className="ds-hint ds-field-grid--full">
               Desactivada, el agente deja de leerla sin borrarse.
             </p>
+
+            {esClinica ? (
+              <div className="ds-field-grid--full">
+                <Select<KnowledgeBaseEntryKind>
+                  id="knowledge-base-kind"
+                  label="Tipo"
+                  value={values.kind}
+                  options={OPCIONES_DE_TIPO}
+                  onChange={(kind) => {
+                    if (kind) setValues({ ...values, kind });
+                  }}
+                />
+                <p className="ds-hint">
+                  Lo que cargues acá lo puede repetir el agente textualmente. Las indicaciones las
+                  transcribe tal cual, sin explicarlas ni adaptarlas a cada paciente. No cargues
+                  datos de pacientes.
+                </p>
+              </div>
+            ) : null}
           </div>
         </Card>
 

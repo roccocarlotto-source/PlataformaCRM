@@ -161,6 +161,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "guardrails-salud-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/guardrailsDeSalud.integration-test.ts",
   ),
+  patron("indicaciones-kb-{etiqueta}-{ts}-{hex8}", "src/clinicas/indicaciones.integration-test.ts"),
   patron(
     "aviso-privacidad-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/avisoDePrivacidad.integration-test.ts",

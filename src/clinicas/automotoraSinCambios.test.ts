@@ -26,6 +26,7 @@ import {
   MENSAJE_DE_FUGA_BLOQUEADA,
   armarSystemPrompt,
   textosDeAutomotora,
+  ENCABEZADO_INDICACIONES,
 } from "../services/agentOrchestration.service";
 import {
   CATALOGO_DE_TOOLS,
@@ -846,6 +847,19 @@ test("R13: una automotora no tiene recordatorios y sus plantillas no cambian", (
     Object.keys(sinCamposDeClinica(reserva, "AUTOMOTORA", CAMPOS_DE_CLINICA.booking)),
     ["id"],
   );
+});
+
+test("R18: una entrada de la base de conocimiento de una automotora sale sin kind, y su prompt no tiene el bloque de indicaciones", () => {
+  const entrada = { id: "e1", title: "Horarios", kind: "GENERAL" };
+  assert.deepEqual(
+    Object.keys(sinCamposDeClinica(entrada, "AUTOMOTORA", CAMPOS_DE_CLINICA.knowledgeBaseEntry)),
+    ["id", "title"],
+  );
+  const prompt = armarSystemPrompt(
+    { instructions: "Sos el asistente.", tone: null, guardrails: {} },
+    [{ title: "Horarios", content: "9 a 18.", kind: "GENERAL" }],
+  );
+  assert.ok(!prompt.includes(ENCABEZADO_INDICACIONES));
 });
 
 test("R16: un contacto de una automotora sale sin la fecha del aviso de privacidad", () => {

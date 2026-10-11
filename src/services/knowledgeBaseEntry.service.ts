@@ -1,3 +1,4 @@
+import type { KnowledgeBaseEntryKind } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 import { findBranchById, lockBranchForUpdate } from "../repositories/branch.repository";
 import {
@@ -94,6 +95,8 @@ export interface CreateKnowledgeBaseEntryInput {
   title: string;
   content: string;
   isActive?: boolean;
+  // R18: solo una clínica lo manda (el controller lo frena en una automotora).
+  kind?: KnowledgeBaseEntryKind;
 }
 
 export async function createKnowledgeBaseEntry(
@@ -120,6 +123,7 @@ export async function createKnowledgeBaseEntry(
         title: input.title,
         content: input.content,
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...(input.kind !== undefined ? { kind: input.kind } : {}),
       },
       tx,
     );
@@ -143,6 +147,7 @@ export interface UpdateKnowledgeBaseEntryInput {
   title?: string;
   content?: string;
   isActive?: boolean;
+  kind?: KnowledgeBaseEntryKind;
 }
 
 export async function updateKnowledgeBaseEntry(

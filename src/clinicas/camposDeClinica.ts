@@ -26,6 +26,8 @@ export const CAMPOS_DE_CLINICA = {
     // R13: el paciente confirmó por el recordatorio.
     "patientConfirmedAt",
   ],
+  // R18: indicaciones de la base de conocimiento.
+  knowledgeBaseEntry: ["kind"],
   // R16: cuándo se le mandó el aviso de privacidad de la clínica.
   contact: ["privacyNoticeSentAt"],
   // R14: "Recordar control a los N días".

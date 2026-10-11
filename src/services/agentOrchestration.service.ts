@@ -1048,7 +1048,17 @@ export function bloqueDeCupones(
 export interface EntradaDeKnowledgeBase {
   title: string;
   content: string;
+  // R18 (docs/rubros.md §5.4): INDICACIONES va en su propio bloque. Ausente o
+  // GENERAL: el bloque de siempre.
+  kind?: "GENERAL" | "INDICACIONES";
 }
+
+// R18: el bloque de las indicaciones de una clínica, aparte del resto de la
+// base de conocimiento. Se transcriben: el agente no las explica ni las adapta
+// al caso del paciente. Una consulta de salud no llega acá (la deriva la capa
+// 1, docs/rubros.md §5.3), y la capa 3 es la red si el modelo parafrasea.
+export const ENCABEZADO_INDICACIONES =
+  "Indicaciones de la clínica antes y después de cada prestación. Si el paciente pide una, TRANSCRIBILA tal cual está cargada: no expliques, no resumas, no agregues ni adaptes nada a su caso. Si pregunta algo que no está escrito acá, o cuenta cómo se siente, no lo respondas: derivá a una persona del equipo.";
 
 // Ítem 132 (B-04/I-01): el tope GLOBAL de caracteres de la base de
 // conocimiento en el prompt, sumando todas las entradas que entran. No corta
@@ -1102,7 +1112,12 @@ export function entradasDeKnowledgeBaseParaElPrompt(
     );
   }
 
-  return sinStockDuplicado.map(({ title, content }) => ({ title, content }));
+  // R18: el tipo pasa tal cual (las indicaciones van en su propio bloque).
+  return sinStockDuplicado.map(({ title, content, kind }) => ({
+    title,
+    content,
+    ...(kind !== undefined ? { kind } : {}),
+  }));
 }
 
 // instructions + tono + el contexto del negocio + lo que gobierna lo que el
@@ -1213,11 +1228,20 @@ export function armarSystemPrompt(
   // (findActiveKnowledgeBaseEntriesByBranch), y el de las sincronizadas del
   // stock en entradasDeKnowledgeBaseParaElPrompt (ítem 132): acá no se vuelve
   // a decidir qué entra, solo cómo se escribe.
-  if (knowledgeBaseEntries.length > 0) {
-    const bloques = knowledgeBaseEntries
+  const generales = knowledgeBaseEntries.filter((entrada) => entrada.kind !== "INDICACIONES");
+  const indicaciones = knowledgeBaseEntries.filter((entrada) => entrada.kind === "INDICACIONES");
+  if (generales.length > 0) {
+    const bloques = generales
       .map((entrada) => `### ${entrada.title.trim()}\n${entrada.content.trim()}`)
       .join("\n\n");
     partes.push(`${ENCABEZADO_KNOWLEDGE_BASE}\n\n${bloques}`);
+  }
+  // R18: solo una clínica tiene indicaciones (una automotora nunca las carga).
+  if (indicaciones.length > 0) {
+    const bloques = indicaciones
+      .map((entrada) => `### ${entrada.title.trim()}\n${entrada.content.trim()}`)
+      .join("\n\n");
+    partes.push(`${ENCABEZADO_INDICACIONES}\n\n${bloques}`);
   }
 
   const temas = listaDeGuardrails(agent.guardrails, "temasProhibidos");
