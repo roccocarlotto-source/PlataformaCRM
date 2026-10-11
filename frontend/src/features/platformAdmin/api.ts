@@ -18,6 +18,7 @@ import type {
   MetaAuthorization,
   MetaConnectionPendiente,
   OrganizationEdition,
+  PlatformAgentDeOrganizacion,
   PlatformOrganization,
 } from "./types";
 
@@ -128,6 +129,18 @@ export function assignInternalAgentModel({
 // Las organizaciones vigentes, para el selector de las pantallas de plataforma.
 export function listOrganizations(signal?: AbortSignal): Promise<PlatformOrganization[]> {
   return request<PlatformOrganization[]>("/admin/organizations", { getAccessToken, signal });
+}
+
+// Los agentes de una organización elegida, para el selector de "Modelo de IA".
+// 404 si la organización no existe o está borrada.
+export function listAgentesDeOrganizacion(
+  organizationId: string,
+  signal?: AbortSignal,
+): Promise<PlatformAgentDeOrganizacion[]> {
+  return request<PlatformAgentDeOrganizacion[]>(
+    `/admin/organizations/${encodeURIComponent(organizationId)}/agents`,
+    { getAccessToken, signal },
+  );
 }
 
 // B4: el gasto en el modelo por organización de los últimos 30 días.

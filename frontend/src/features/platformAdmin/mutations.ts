@@ -91,6 +91,8 @@ export function useAssignAgentModel() {
     mutationFn: (input: AssignAgentModelInput) => assignAgentModel(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      // El selector de "Modelo de IA" muestra el modelo de cada agente.
+      void queryClient.invalidateQueries({ queryKey: platformAdminKeys.agentesDeOrganizaciones() });
     },
   });
 }

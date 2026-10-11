@@ -5,6 +5,7 @@ import {
   asignarModeloDeAgente,
   asignarNumeroDeWhatsapp,
   asignarPaginaDeFacebook,
+  listarAgentesDeOrganizacionParaPlataforma,
 } from "../services/agent.service";
 import { asignarModeloDeAgenteInterno } from "../services/internalAgent.service";
 import { OPENROUTER_PROVIDER_NAME } from "../services/llmProvider.service";
@@ -106,6 +107,15 @@ export const asignarModeloDeAgenteHandler = asyncHandler<AuthenticatedRequest>(
 );
 
 const organizationIdParamSchema = z.string().uuid("organizationId inválido");
+
+// Los agentes de una organización, para elegir a cuál cambiarle el modelo sin
+// pegar su id a mano.
+export const listarAgentesDeOrganizacionHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdParamSchema, req.params.organizationId);
+    res.status(200).json(await listarAgentesDeOrganizacionParaPlataforma(organizationId));
+  },
+);
 
 export const asignarModeloDeAgenteInternoHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {

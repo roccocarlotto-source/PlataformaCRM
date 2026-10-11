@@ -272,6 +272,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "PUT /api/admin/agents/:agentId/model",
     "PUT /api/admin/agents/:agentId/whatsapp-phone-number",
     "PUT /api/admin/organizations/:organizationId/internal-agent/model",
+    // Los agentes de una organización, para el selector de "Modelo de IA".
+    "GET /api/admin/organizations/:organizationId/agents",
     "GET /api/admin/organizations/:organizationId/integrations/meta",
     "DELETE /api/admin/organizations/:organizationId/integrations/meta",
     "POST /api/admin/organizations/:organizationId/integrations/meta/connect",

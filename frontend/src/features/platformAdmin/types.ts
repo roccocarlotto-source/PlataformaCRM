@@ -78,6 +78,18 @@ export interface AssignInternalAgentModelInput {
   modelName: string;
 }
 
+// Contrato de GET /api/admin/organizations/:organizationId/agents
+// (src/controllers/agentAdmin.controller.ts): los agentes vigentes de una
+// organización, ordenados por nombre, para el selector de "Modelo de IA".
+export interface PlatformAgentDeOrganizacion {
+  id: string;
+  name: string;
+  branchName: string;
+  modelProvider: string;
+  modelName: string;
+  isActive: boolean;
+}
+
 // Contrato de GET /api/admin/organizations
 // (src/controllers/organizationAdmin.controller.ts): las organizaciones
 // vigentes, para el selector de las pantallas de plataforma.
