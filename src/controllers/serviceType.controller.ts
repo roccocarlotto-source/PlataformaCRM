@@ -8,6 +8,7 @@ import {
   updateServiceType,
 } from "../services/serviceType.service";
 import type { AuthenticatedRequest } from "../types/auth";
+import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClinica";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
@@ -78,11 +79,17 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
+// R14: el control de una prestación es de las clínicas; una automotora recibe
+// la prestación con las claves de antes (camposDeClinica.ts).
+function paraElRubro<T extends object>(serviceType: T, req: AuthenticatedRequest): T {
+  return sinCamposDeClinica(serviceType, req.auth.industry, CAMPOS_DE_CLINICA.serviceType);
+}
+
 export const createServiceTypeHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createServiceTypeSchema, req.body);
     const serviceType = await createServiceType(req.auth.organizationId, input);
-    res.status(201).json(serviceType);
+    res.status(201).json(paraElRubro(serviceType, req));
   },
 );
 
@@ -90,7 +97,7 @@ export const listServiceTypesHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listQuerySchema, req.query);
     const result = await listServiceTypes(req.auth.organizationId, query);
-    res.status(200).json(result);
+    res.status(200).json({ ...result, data: result.data.map((s) => paraElRubro(s, req)) });
   },
 );
 
@@ -98,7 +105,7 @@ export const getServiceTypeHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const serviceType = await getServiceTypeById(req.auth.organizationId, id);
-    res.status(200).json(serviceType);
+    res.status(200).json(paraElRubro(serviceType, req));
   },
 );
 
@@ -107,7 +114,7 @@ export const updateServiceTypeHandler = asyncHandler<AuthenticatedRequest>(
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updateServiceTypeSchema, req.body);
     const serviceType = await updateServiceType(req.auth.organizationId, id, input);
-    res.status(200).json(serviceType);
+    res.status(200).json(paraElRubro(serviceType, req));
   },
 );
 

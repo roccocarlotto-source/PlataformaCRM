@@ -58,6 +58,8 @@ export interface PrestacionConProfesionales {
   // `profesionales`.
   resourceId: string;
   profesionales: Profesional[];
+  // R14: "Recordar control a los N días" (null = sin control).
+  followUpAfterDays: number | null;
 }
 
 /** Las prestaciones (de una sucursal, si se indica), con sus profesionales. */
@@ -80,6 +82,7 @@ export async function listarPrestaciones(
     capacity: p.capacity,
     resourceId: p.resourceId,
     profesionales: porPrestacion.get(p.id) ?? [],
+    followUpAfterDays: p.followUpAfterDays,
   }));
 }
 

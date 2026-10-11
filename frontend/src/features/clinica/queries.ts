@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  configurarControl,
   definirProfesionales,
   getConfiguracionDeSede,
   guardarConfiguracionDeSede,
@@ -48,6 +49,22 @@ export function useDefinirProfesionales() {
       serviceTypeId: string;
       resourceIds: string[];
     }) => definirProfesionales(serviceTypeId, resourceIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: clinicaKeys.prestaciones() });
+    },
+  });
+}
+
+export function useConfigurarControl() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      serviceTypeId,
+      followUpAfterDays,
+    }: {
+      serviceTypeId: string;
+      followUpAfterDays: number | null;
+    }) => configurarControl(serviceTypeId, followUpAfterDays),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: clinicaKeys.prestaciones() });
     },

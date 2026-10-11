@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
-import { logger } from "../../lib/logger";
 import type { Db } from "../../lib/prisma";
 import { findEdicionYRubro } from "../../repositories/organization.repository";
 import { emitOutboxEvent } from "../../repositories/outboxEvent.repository";
@@ -8,7 +7,7 @@ import {
   registroDeHandlers as handlersPorDefecto,
   type RegistroDeHandlers,
 } from "../../services/outboxHandlers";
-import { alCancelarse, alProgramarse } from "../recordatorios/programacion.service";
+import { alCancelarse, alProgramarse, alNoVenir } from "../recordatorios/programacion.service";
 
 // ---------------------------------------------------------------------------
 // Los eventos del turno de una clínica (docs/rubros.md §4.8, R10). SOLO
@@ -26,9 +25,9 @@ import { alCancelarse, alProgramarse } from "../recordatorios/programacion.servi
 // (esCorreccion: true) o un cierre automático (automatico: true) no tienen que
 // reenviar un mensaje que ya salió.
 //
-// R10 los dejó con un handler sin acción. R13 suma el recordatorio
-// (created/rescheduled/cancelled, src/clinicas/recordatorios); completed y
-// no_show siguen sin acción hasta R14.
+// R13 suma el recordatorio (created/rescheduled/cancelled,
+// src/clinicas/recordatorios) y R14 el después del turno (completed como
+// trigger del motor, no_show cancela lo pendiente).
 // ---------------------------------------------------------------------------
 
 export const EVENTO_TURNO_CREADO = "booking.created";
@@ -93,22 +92,18 @@ export async function emitirEventoDeTurno(
 }
 
 /**
- * Registra los consumidores de los eventos de turno. R13 (docs/rubros.md §6.2):
- * created y rescheduled programan el recordatorio, cancelled lo anula. Los
- * demás (completed, no_show) todavía no tienen acción (R14): se consumen sin
- * hacer nada, para que no vayan a DEAD_LETTER.
+ * Registra los consumidores de los eventos de turno que no son triggers del
+ * motor:
+ *   - R13 (docs/rubros.md §6.2): created y rescheduled programan el
+ *     recordatorio, cancelled lo anula;
+ *   - R14 (§7): no_show (también una corrección a No vino) cancela el QR y el
+ *     control pendientes del turno.
+ * booking.completed es un trigger del motor (R14): lo registra
+ * registrarAutomatizaciones, que lo despacha a las acciones de post_turno.
  */
 export function registrarEventosDeTurno(handlers: RegistroDeHandlers = handlersPorDefecto): void {
   handlers.registrar(EVENTO_TURNO_CREADO, alProgramarse);
   handlers.registrar(EVENTO_TURNO_REPROGRAMADO, alProgramarse);
   handlers.registrar(EVENTO_TURNO_CANCELADO, alCancelarse);
-  for (const tipo of [EVENTO_TURNO_ATENDIDO, EVENTO_TURNO_NO_VINO]) {
-    handlers.registrar(tipo, (evento) => {
-      logger.debug(
-        { eventType: tipo, outboxEventId: evento.id },
-        "Evento de turno consumido (todavía sin acciones)",
-      );
-      return Promise.resolve();
-    });
-  }
+  handlers.registrar(EVENTO_TURNO_NO_VINO, alNoVenir);
 }

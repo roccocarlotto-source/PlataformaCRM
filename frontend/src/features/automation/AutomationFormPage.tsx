@@ -20,6 +20,7 @@ import {
   ACTION_DRAFT_FOLLOW_UP,
   ACTION_INQUIRY_FOLLOW_UP,
   ACTION_SEND_DISCOUNT_VOUCHER,
+  ACTION_BOOKING_SEND_QR_REVIEW,
   ACTION_SEND_QR_FOLLOWUP,
   CONFIG_DE_ACCION,
   CONFIG_DE_TRIGGER,
@@ -373,6 +374,7 @@ function CamposDeLaAccion({
         </p>
       );
     case ACTION_SEND_QR_FOLLOWUP:
+    case ACTION_BOOKING_SEND_QR_REVIEW:
       return (
         <>
           {/* Suelto, sin FormField: QrSelect trae su propio <label htmlFor>
@@ -393,8 +395,9 @@ function CamposDeLaAccion({
             disabled={disabled}
           />
           <p className="ds-hint ds-field-grid--full">
-            Le llega al cliente por WhatsApp cuando la oportunidad se gana (hasta 30 días de
-            espera).
+            {actionType === ACTION_BOOKING_SEND_QR_REVIEW
+              ? "Le llega al paciente por WhatsApp después del turno atendido (al menos 3 horas después; si el turno se cerró solo, 24 horas después)."
+              : "Le llega al cliente por WhatsApp cuando la oportunidad se gana (hasta 30 días de espera)."}
           </p>
         </>
       );

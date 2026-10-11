@@ -81,6 +81,8 @@ describe("catálogo de triggers y acciones", () => {
       [TRIGGER_CONTACT_INQUIRY_STALLED]: [ACTION_INQUIRY_FOLLOW_UP],
       // R13: solo clínicas.
       "booking.reminder_due": ["booking.send_reminder"],
+      // R14: solo clínicas.
+      "booking.completed": ["booking.send_qr_review", "booking.schedule_control"],
     });
     // Un trigger que el espejo no conoce no restringe: decide el backend.
     expect(accionesParaTrigger("booking.reminder")).toEqual(ACTION_OPTIONS);
@@ -568,6 +570,36 @@ describe("recordatorio de turno (clínica)", () => {
     expect(accionConMensajeDeWhatsapp("booking.send_reminder")).toBe(true);
     expect(previewDePlantilla(TEXTO_INICIAL_DEL_RECORDATORIO)).toContain(
       "Clínica Ejemplo (sede Centro)",
+    );
+  });
+});
+
+// R14 (docs/rubros.md §7): el QR de reseña y el control, solo en una clínica.
+describe("después del turno (clínica)", () => {
+  it("una automotora no ve el trigger ni las acciones", () => {
+    expect(triggerOptions(false).map((o) => o.value)).not.toContain("booking.completed");
+    expect(triggerOptions(false, true).map((o) => o.value)).toContain("booking.completed");
+    expect(accionesParaTrigger("opportunity.won").map((o) => o.value)).not.toContain(
+      "booking.send_qr_review",
+    );
+  });
+
+  it("el QR de reseña exige al menos 3 horas de espera", () => {
+    const config = CONFIG_DE_ACCION["booking.send_qr_review"];
+    const draft = { ...config.draftVacio(), qrCodeId: "qr1" };
+    expect(config.validar(draft)).toBeNull();
+    expect(config.validar({ ...draft, delayAmount: "2" })).toMatch(/al menos 3 horas/);
+    expect(config.aPayload(draft)).toMatchObject({ qrCodeId: "qr1", delayMinutes: 180 });
+  });
+
+  it("el control: texto inicial sin datos de salud y sus variables", () => {
+    const config = CONFIG_DE_ACCION["booking.schedule_control"];
+    expect(config.validar(config.draftVacio())).toBeNull();
+    expect(
+      mensajeDeLaAccion("booking.schedule_control", "LINK").variables.map((v) => v.token),
+    ).toEqual(["{nombre}", "{semanas}", "{lugar}"]);
+    expect(config.validar({ messageText: "Hola {nombre}, tu {prestacion}." })).toMatch(
+      /no va en este mensaje/,
     );
   });
 });
