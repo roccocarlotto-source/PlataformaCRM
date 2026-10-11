@@ -59,6 +59,9 @@ import {
 // Caso de R6 (bloqueos y sobreturnos): GET /api/availability de un USER sobre
 // un recurso de cualquier sucursal sigue respondiendo, y recursos y reservas
 // salen con las claves de antes (sin las columnas de sobreturnos).
+//
+// Caso de los textos de borrar una sede (§15): una automotora recibe los
+// mensajes de error de siempre al borrar una sucursal.
 // ---------------------------------------------------------------------------
 
 let completa: OrgDePrueba;
@@ -876,5 +879,31 @@ test("R19: el alta común de una automotora es la de siempre (sin nada de la Cl�
       await prisma.organization.deleteMany({ where: { id: creado.organization.id as string } });
       await getSupabaseAdmin().auth.admin.deleteUser(creado.admin.id);
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Textos de borrar una sede (docs/rubros.md §15): deleteBranch tiene los
+// mensajes por rubro, y una automotora recibe los de siempre, byte por byte.
+// El par de la clínica está en configuracionDeSede.integration-test.ts.
+// ---------------------------------------------------------------------------
+
+test("§15: borrar una sucursal con recursos activos, o una que no existe, da los mensajes de siempre", async () => {
+  const sucursal = await createBranch(completa.id, { name: "Con recurso", timezone: "UTC" });
+  const recurso = await prisma.resource.create({
+    data: { organizationId: completa.id, branchId: sucursal.id, name: "Box 1", type: "PERSON" },
+  });
+  try {
+    const bloqueado = await pedir(completa, "DELETE", `/api/branches/${sucursal.id}`);
+    assert.equal(bloqueado.status, 400);
+    assert.equal(
+      bloqueado.json.error?.message,
+      "No se puede eliminar una sucursal que tiene recursos activos. Eliminá primero sus recursos.",
+    );
+    const inexistente = await pedir(completa, "DELETE", `/api/branches/${randomUUID()}`);
+    assert.equal(inexistente.status, 404);
+    assert.equal(inexistente.json.error?.message, "Sucursal no encontrada");
+  } finally {
+    await prisma.resource.deleteMany({ where: { id: recurso.id } });
   }
 });

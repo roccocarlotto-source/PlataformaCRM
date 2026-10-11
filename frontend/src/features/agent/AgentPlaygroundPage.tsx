@@ -1,5 +1,7 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useAuth } from "../../auth/AuthContext";
+import { esClinica, vocabularioDe } from "../../auth/vocabulario";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Notice } from "../../design-system/Notice";
@@ -113,6 +115,12 @@ function entradasDelTurno(resultado: TestMessageResult): EntradaSinId[] {
 export function AgentPlaygroundPage() {
   const { id } = useParams<{ id: string }>();
   const agentId = id ?? "";
+  // En una clínica se escribe como el paciente (o el término de la
+  // organización); en una automotora, como "el contacto", como siempre.
+  const { me } = useAuth();
+  const clinica = esClinica(me);
+  const contacto = clinica ? vocabularioDe(me).contacto.singular : "contacto";
+  const Contacto = contacto.charAt(0).toUpperCase() + contacto.slice(1);
 
   const agentQuery = useAgent(id);
   const testMessageMutation = useTestMessage(agentId);
@@ -243,8 +251,9 @@ export function AgentPlaygroundPage() {
           datos reales, y que un lector de pantalla la anuncie antes que el
           resto es exactamente lo que se busca. */}
       <Notice tone="warning">
-        No es una prueba aislada: la conversación es real y el agente puede crear oportunidades,
-        reservar o derivar.
+        {clinica
+          ? `No es una prueba aislada: la conversación es real y el agente puede dar ${vocabularioDe(me).reserva.plural} o derivar.`
+          : "No es una prueba aislada: la conversación es real y el agente puede crear oportunidades, reservar o derivar."}
       </Notice>
 
       {sinCanales ? (
@@ -264,7 +273,7 @@ export function AgentPlaygroundPage() {
             <div className="ds-stack">
               <ContactSelect
                 id="agent-playground-contact"
-                label="Contacto"
+                label={Contacto}
                 value={contactId}
                 onChange={handleContacto}
               />
@@ -299,14 +308,14 @@ export function AgentPlaygroundPage() {
           <Card heading="Conversación">
             <div className="ds-stack">
               <p className="ds-hint">
-                Escribís <strong>como el contacto</strong>, no como vos. El hilo completo está en{" "}
-                <Link to="/conversations">Conversaciones</Link>.
+                Escribís <strong>{`como el ${contacto}`}</strong>, no como vos. El hilo completo
+                está en <Link to="/conversations">Conversaciones</Link>.
               </p>
 
               {entradas.length === 0 ? (
                 <EmptyState>
                   {contactId === undefined
-                    ? "Elegí un contacto para empezar."
+                    ? `Elegí un ${contacto} para empezar.`
                     : "Escribí un mensaje para empezar."}
                 </EmptyState>
               ) : (
@@ -322,7 +331,7 @@ export function AgentPlaygroundPage() {
                       ) : (
                         <div className="ds-chat-bubble">
                           <span className="ds-chat-author">
-                            {entrada.tipo === "contacto" ? "Contacto (vos)" : agent.name}
+                            {entrada.tipo === "contacto" ? `${Contacto} (vos)` : agent.name}
                           </span>
                           {entrada.texto}
                         </div>
@@ -348,7 +357,7 @@ export function AgentPlaygroundPage() {
 
               <form className="ds-chat-form" onSubmit={handleSubmit}>
                 <label className="ds-sr-only" htmlFor="agent-playground-message">
-                  Mensaje del contacto
+                  {`Mensaje del ${contacto}`}
                 </label>
                 <textarea
                   id="agent-playground-message"
@@ -358,8 +367,8 @@ export function AgentPlaygroundPage() {
                   disabled={!puedeEscribir || enviando}
                   placeholder={
                     contactId === undefined
-                      ? "Elegí un contacto para poder escribir…"
-                      : "Escribí como si fueras el contacto…"
+                      ? `Elegí un ${contacto} para poder escribir…`
+                      : `Escribí como si fueras el ${contacto}…`
                   }
                   onChange={(event) => setTexto(event.target.value)}
                   onKeyDown={handleKeyDown}

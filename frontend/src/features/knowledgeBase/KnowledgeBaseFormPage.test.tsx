@@ -902,10 +902,11 @@ describe("KnowledgeBaseFormPage — entrada generada desde el Stock", () => {
 // R18 (docs/rubros.md §5.4): el tipo de entrada (indicaciones), solo en una
 // clínica.
 describe("KnowledgeBaseFormPage — indicaciones (clínica)", () => {
-  async function cargar(user: ReturnType<typeof userEvent.setup>) {
+  // "Sucursal" en una automotora, "Sede" en una clínica.
+  async function cargar(user: ReturnType<typeof userEvent.setup>, rotulo = "Sucursal") {
     await user.type(screen.getByLabelText("Título"), "Antes de la depilación láser");
-    await waitFor(() => expect(screen.getByLabelText("Sucursal")).toBeInTheDocument());
-    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Sucursal Chuy");
+    await waitFor(() => expect(screen.getByLabelText(rotulo)).toBeInTheDocument());
+    await chooseSelectOption(user, screen.getByLabelText(rotulo), "Sucursal Chuy");
     await escribirContenido(user, "Venir con la zona rasurada.");
   }
 
@@ -939,7 +940,7 @@ describe("KnowledgeBaseFormPage — indicaciones (clínica)", () => {
     );
     const user = userEvent.setup();
     renderForm("/knowledge-base/new");
-    await cargar(user);
+    await cargar(user, "Sede");
     expect(screen.getByText(/lo puede repetir el agente textualmente/)).toBeInTheDocument();
     await chooseSelectOption(
       user,

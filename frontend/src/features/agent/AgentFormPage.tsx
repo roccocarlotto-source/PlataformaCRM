@@ -22,7 +22,7 @@ import { useCreateAgent, useUpdateAgent } from "./mutations";
 import { useAgent } from "./queries";
 import { agentToolOptions, avisoDeAccionesSinGuardarElNombre } from "./tools";
 import { tieneModulo } from "../../auth/useModulo";
-import { vocabularioDe } from "../../auth/vocabulario";
+import { concordancia, vocabularioDe, type Termino } from "../../auth/vocabulario";
 import type {
   Agent,
   ConversationChannel,
@@ -67,12 +67,15 @@ interface AgentFormValues {
   onlyOutsideBusinessHours: boolean;
 }
 
-// Los tres niveles que el backend sabe aplicar, con una línea cada uno.
-const NIVELES_DE_IA: { value: AgentParticipation; label: string; hint: string }[] = [
+// Los tres niveles que el backend sabe aplicar, con una línea cada uno, con el
+// término del contacto del rubro ("cliente" en una automotora).
+const nivelesDeIa = (
+  contacto: Termino,
+): { value: AgentParticipation; label: string; hint: string }[] => [
   {
     value: "AUTONOMA",
     label: "Responde sola",
-    hint: "La IA conversa con el cliente y usa sus acciones.",
+    hint: `La IA conversa con ${concordancia(contacto).el} ${contacto.singular} y usa sus acciones.`,
   },
   {
     value: "PRIMER_CONTACTO",
@@ -82,7 +85,7 @@ const NIVELES_DE_IA: { value: AgentParticipation; label: string; hint: string }[
   {
     value: "SOLO_SEGUIMIENTO",
     label: "Solo seguimiento",
-    hint: "No conversa con el cliente: todo lo atiende una persona.",
+    hint: `No conversa con ${concordancia(contacto).el} ${contacto.singular}: todo lo atiende una persona.`,
   },
 ];
 
@@ -616,7 +619,7 @@ export function AgentFormPage() {
               <div className="ds-field ds-field-grid--full">
                 <span className="ds-field-label ds-required">Nivel</span>
                 <div className="ds-radio-cards" role="radiogroup" aria-label="Cuánto hace la IA">
-                  {NIVELES_DE_IA.map((nivel) => (
+                  {nivelesDeIa(vocabulario.contacto).map((nivel) => (
                     <div className="ds-radio-card" key={nivel.value}>
                       <label>
                         <input
@@ -634,7 +637,9 @@ export function AgentFormPage() {
               </div>
               {values.participation === "PRIMER_CONTACTO" ? (
                 <div className="ds-field-grid--full">
-                  <FormField label="Solo fuera del horario de la sucursal">
+                  <FormField
+                    label={`Solo fuera del horario ${concordancia(vocabulario.sucursal).del} ${vocabulario.sucursal.singular}`}
+                  >
                     <input
                       type="checkbox"
                       checked={values.onlyOutsideBusinessHours}
@@ -747,9 +752,17 @@ export function AgentFormPage() {
               Sin canales, el agente no atiende por ningún lado.
             </p>
 
-            {avisoDeAccionesSinGuardarElNombre(values.enabledTools) ? (
+            {avisoDeAccionesSinGuardarElNombre(
+              values.enabledTools,
+              me?.industry === "CLINICA",
+              vocabulario,
+            ) ? (
               <p className="ds-hint ds-field-grid--full" role="alert">
-                {avisoDeAccionesSinGuardarElNombre(values.enabledTools)}
+                {avisoDeAccionesSinGuardarElNombre(
+                  values.enabledTools,
+                  me?.industry === "CLINICA",
+                  vocabulario,
+                )}
               </p>
             ) : null}
 

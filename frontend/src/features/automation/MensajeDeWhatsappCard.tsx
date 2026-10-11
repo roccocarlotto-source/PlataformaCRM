@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import type { Termino } from "../../auth/vocabulario";
 import { QrCode } from "lucide-react";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -131,6 +132,7 @@ export function MensajeDeWhatsappCard({
   approval,
   automationId,
   esClinica = false,
+  contacto,
 }: {
   actionType: string;
   values: ConfigDraft;
@@ -140,12 +142,14 @@ export function MensajeDeWhatsappCard({
   automationId: string | undefined;
   // R15: en una clínica, {prestacion} en lugar de {vehiculo}.
   esClinica?: boolean;
+  // El término del contacto de una clínica, para la ayuda de las variables.
+  contacto?: Termino;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formato = values.whatsappFormat ?? "LINK";
   // Qué variables lleva este mensaje y si elige formato (ítem 185: el
   // seguimiento de una consulta es solo texto, con {saludo} y {vehiculo}).
-  const mensaje = mensajeDeLaAccion(actionType, formato, esClinica);
+  const mensaje = mensajeDeLaAccion(actionType, formato, esClinica, contacto);
 
   function insertar(token: string) {
     const textarea = textareaRef.current;

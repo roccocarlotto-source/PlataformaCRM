@@ -14,6 +14,7 @@ import { formatDuracion } from "../serviceType/format";
 import { useConfigurarControl, useDefinirProfesionales, usePrestaciones } from "./queries";
 import { FormField } from "../../design-system/FormField";
 import type { PrestacionConProfesionales } from "./types";
+import { concordancia } from "../../auth/vocabulario";
 import { useVocabularioDeClinica } from "./vocabulario";
 
 const SIN_RESOLVER = "—";
@@ -201,6 +202,7 @@ function ControlDialog({
   prestacion: PrestacionConProfesionales;
   onClose: () => void;
 }) {
+  const vocabulario = useVocabularioDeClinica();
   const [dias, setDias] = useState(
     prestacion.followUpAfterDays === null ? "" : String(prestacion.followUpAfterDays),
   );
@@ -242,8 +244,9 @@ function ControlDialog({
         />
       </FormField>
       <p className="ds-hint">
-        Después de un turno atendido, el paciente recibe un WhatsApp para agendar el próximo. Hace
-        falta una regla activa «Recordar el control» en Automatizaciones. Vacío: sin control.
+        Después de un turno atendido, {concordancia(vocabulario.contacto).el}{" "}
+        {vocabulario.contacto.singular} recibe un WhatsApp para agendar el próximo. Hace falta una
+        regla activa «Recordar el control» en Automatizaciones. Vacío: sin control.
       </p>
       {error ? <ErrorState>{error}</ErrorState> : null}
       {configurar.isError ? (

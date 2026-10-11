@@ -2310,7 +2310,7 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
   - ~~Tareas: la lista y el formulario muestran Empresa y Oportunidad.~~ Hecho
     (por rubro y no por módulo: una automotora ESENCIAL no tiene `empresas` y
     sigue igual).
-  - Textos fijos de automotora: el formulario del profesional
+  - ~~Textos fijos de automotora: el formulario del profesional
     (`/resources/:id/edit`: "recurso", "Sucursal") y Configurar prestaciones
     (`/service-types`); los estados del turno en femenino ("Confirmada",
     "Cancelada"); "Sucursal" en el QR, en Crear cupón y en el formulario de
@@ -2319,7 +2319,13 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
     contactos; la confirmación de desconectar Google Calendar y el horario
     por defecto de la sede; los hints de "Cuánto hace la IA" y el probador del
     agente; la acción "Reservar turno"; los mensajes de error de borrar una
-    sede (backend).
+    sede (backend).~~ Hecho: con el vocabulario del rubro y el término del
+    contacto de la organización (paciente o cliente). El test de §3.1 recorre
+    también esas pantallas, prohíbe auto, vehículo, unidad, permuta,
+    financiación, test drive, tasación y concesionaria, y tiene una variante
+    con contactTerm CLIENTE que falla si aparece "paciente" fijo. La
+    automotora no cambia: los snapshots de las pantallas nuevas se tomaron
+    sobre master, antes del cambio.
   - ~~Cobro en la sede: la tarjeta se muestra, pero en una clínica el agente no
     manda datos de cobro (`get_payment_info` fuera del rubro, §5.5).~~ Hecho:
     no se muestra, y lo cargado viaja igual al guardar.

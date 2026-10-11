@@ -135,8 +135,9 @@ async function irAlLunes() {
   fireEvent.change(await screen.findByLabelText("Fecha"), { target: { value: LUNES } });
 }
 
-async function elegirContacto(user: UserEvent, panel: HTMLElement) {
-  await user.type(within(panel).getByLabelText("Contacto"), "Ana");
+// "Contacto" en una automotora; en una clínica, el término del contacto.
+async function elegirContacto(user: UserEvent, panel: HTMLElement, rotulo = "Contacto") {
+  await user.type(within(panel).getByLabelText(rotulo), "Ana");
   await user.click(await within(panel).findByRole("button", { name: "Ana Pérez" }));
   await within(panel).findByText(/Seleccionado: Ana/);
 }
@@ -447,7 +448,7 @@ describe("BookingCalendarPage en una clínica", () => {
     expect(within(panel).getByRole("option", { name: "Consulta general" })).toBeInTheDocument();
     await user.click(await within(panel).findByRole("option", { name: "Control" }));
 
-    await elegirContacto(user, panel);
+    await elegirContacto(user, panel, "Paciente");
     await user.click(within(panel).getByRole("button", { name: "Reservar" }));
 
     await waitFor(() => expect(bodies).toHaveLength(1));

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAccessToken } from "../../auth/getAccessToken";
+import type { VocabularioCompleto } from "../../auth/vocabulario";
 import { request } from "../../lib/api";
 import { conversationKeys } from "../conversation/queries";
 import { LIFECYCLE_STAGE_LABELS } from "./labels";
@@ -83,22 +84,54 @@ export interface ResultadoDeLaUnion {
   chatsWebCortados?: number;
 }
 
+/** Los textos de la unión que cambian con el rubro (docs/rubros.md §3). Sin
+ *  pasarlos, los de siempre. */
+export interface TextosDeLaUnion {
+  // "contacto" en una automotora; en una clínica, el término de la
+  // organización ("paciente" o "cliente").
+  contacto: string;
+  // Cómo se llaman las reservas que pasan al que queda.
+  reservas: string;
+  // Una clínica no tiene empresas (§2.1): la fila no se ofrece.
+  conEmpresa: boolean;
+}
+
+export const TEXTOS_DE_LA_UNION: TextosDeLaUnion = {
+  contacto: "contacto",
+  reservas: "reservas",
+  conEmpresa: true,
+};
+
+export function textosDeLaUnionDeClinica(v: VocabularioCompleto): TextosDeLaUnion {
+  return { contacto: v.contacto.singular, reservas: v.reserva.plural, conEmpresa: false };
+}
+
+export function camposDeLaUnion(textos: TextosDeLaUnion): readonly CampoDeLaUnion[] {
+  return textos.conEmpresa
+    ? CAMPOS_DE_LA_UNION
+    : CAMPOS_DE_LA_UNION.filter((campo) => campo !== "companyId");
+}
+
+export function etiquetaDeLoQueSeMueve(clave: string, textos: TextosDeLaUnion): string {
+  if (clave === "reservas") return textos.reservas;
+  return ETIQUETA_DE_LO_QUE_SE_MUEVE[clave] ?? clave;
+}
+
 // Lo que se le advierte a la persona ANTES de confirmar la unión: qué pasa al
 // contacto que queda, con sus cantidades, y qué se corta. Pura, para probarla
 // sin montar el diálogo.
 export function advertenciaDeLaUnion(
   nombreDelDuplicado: string,
   vista: VistaPreviaDeLaUnion,
+  textos: TextosDeLaUnion = TEXTOS_DE_LA_UNION,
 ): string {
   const seMueve = Object.entries(vista.aMover)
     .filter(([, cantidad]) => cantidad > 0)
-    .map(
-      ([clave, cantidad]) => `${String(cantidad)} ${ETIQUETA_DE_LO_QUE_SE_MUEVE[clave] ?? clave}`,
-    );
+    .map(([clave, cantidad]) => `${String(cantidad)} ${etiquetaDeLoQueSeMueve(clave, textos)}`);
   const partes = [
-    `Se va a unir "${nombreDelDuplicado}" a este contacto y "${nombreDelDuplicado}" se da de baja.`,
+    `Se va a unir "${nombreDelDuplicado}" a este ${textos.contacto} y "${nombreDelDuplicado}" se da de baja.`,
     seMueve.length > 0
-      ? `Pasan a este contacto: ${seMueve.join(", ")}.`
+      ? `Pasan a este ${textos.contacto}: ${seMueve.join(", ")}.`
       : "El duplicado no tiene registros asociados.",
   ];
   if ((vista.chatsWebACortar ?? 0) > 0) {

@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AuthContextValue } from "../../auth/AuthContext";
+import { sesionDePrueba } from "../../test/sesionFixtures";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,6 +17,13 @@ import type { WorkingHoursPayload, WorkingHoursSlot } from "./types";
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
+
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(sesionDePrueba());
+});
 
 const baseUrl = `${env.apiUrl}/api/resources`;
 const branchesUrl = `${env.apiUrl}/api/branches`;

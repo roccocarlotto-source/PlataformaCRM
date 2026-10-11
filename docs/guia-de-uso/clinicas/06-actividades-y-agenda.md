@@ -45,8 +45,7 @@ Qué se ve en cada columna:
 - Un horario que **ya empezó** no se puede tocar: no se dan turnos en el
   pasado.
 
-Tocar un turno abre su detalle: **Contacto** (el paciente), **Servicio** (la
-prestación), **Profesional**, **Horario** y, si el paciente confirmó por
+Tocar un turno abre su detalle: **Paciente**, **Prestación**, **Profesional**, **Horario** y, si el paciente confirmó por
 WhatsApp, **Confirmación**. Desde ahí, según el momento del turno:
 
 - **Reprogramar**, si todavía no empezó (ver [Reprogramar un
@@ -84,7 +83,7 @@ Hay dos formas:
    calcula con la duración de la
    prestación. Si dice "Este profesional todavía no tiene prestaciones.", un
    administrador tiene que crearlas.
-4. Elegí el paciente en **Contacto** (se busca por nombre o email).
+4. Elegí el **Paciente** (se busca por nombre o email).
 5. Tocá **Reservar**.
 
 El sistema rechaza el turno si se pisa con otro y la prestación no tiene cupo,
@@ -176,21 +175,20 @@ elegido en el anterior), **Estado**, **Desde**, **Hasta** y **Ordenar por**
 **Fecha del turno** o **Fecha en que se dio**.
 
 Columnas: **Turno** (día y hora, en la zona horaria de la sede),
-**Contacto** (el paciente), **Servicio** (la prestación), **Profesional**,
-**Sede** y **Estado**.
+**Paciente**, **Prestación**, **Profesional**, **Sede** y **Estado**.
 
 Estados de un turno:
 
 | Estado | Qué significa |
 |---|---|
-| Confirmada | El turno está dado. |
-| Cancelada | Se canceló; el horario quedó libre. |
-| Completada | El paciente vino (en la agenda se ve como **Atendido**). |
-| No se presentó | El paciente no vino (en la agenda se ve como **No vino**). |
+| Confirmado | El turno está dado. |
+| Cancelado | Se canceló; el horario quedó libre. |
+| Atendido | El paciente vino. |
+| No vino | El paciente no vino. |
 
 ### Cancelar un turno
 
-Solo un turno **Confirmada** se puede cancelar:
+Solo un turno **Confirmado** se puede cancelar:
 
 1. Tocá **Cancelar** en la fila.
 2. Confirmá con **Cancelar turno** (o **Volver** para no hacerlo).

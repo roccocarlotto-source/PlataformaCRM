@@ -260,13 +260,14 @@ export function BranchFormPage() {
             sucursal. */}
         {/* Horario de atención: también solo en edición (cuelga del id) y
             con su propio botón de guardar, ver BusinessHoursSection. */}
-        {isEditMode ? <BusinessHoursSection branchId={id} /> : null}
+        {isEditMode ? <BusinessHoursSection branchId={id} sucursal={vocabulario.sucursal} /> : null}
 
         {isEditMode ? (
           <GoogleCalendarSection
             branchId={id}
             resultadoDelCallback={resultadoDelCallback}
             reserva={vocabulario.reserva}
+            sucursal={vocabulario.sucursal}
           />
         ) : null}
 

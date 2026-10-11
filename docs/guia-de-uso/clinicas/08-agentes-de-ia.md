@@ -515,7 +515,7 @@ agente escribiendo como si fueras el paciente, y ver qué contesta y qué hace.
 > conversación a recepción. Usá un contacto de prueba propio (por ejemplo, uno
 > con tu nombre), nunca un paciente real.
 
-1. Elegí el **Contacto** con el que vas a conversar.
+1. Elegí el **Paciente** con el que vas a conversar.
 2. Si el agente atiende por más de un canal, elegí el **Canal**. Si tiene uno
    solo, ya está elegido. Si no tiene ninguno, la pantalla te manda a editar
    el agente: sin canales no hay nada que probar. Lo mismo si el agente está
@@ -523,7 +523,7 @@ agente escribiendo como si fueras el paciente, y ver qué contesta y qué hace.
 3. Escribí en el cuadro de abajo como si fueras el paciente y tocá **Enviar**
    (Enter manda; Shift+Enter hace un salto de línea).
 
-En la transcripción ves tus mensajes (como **Contacto (vos)**), las
+En la transcripción ves tus mensajes (como **Paciente (vos)**), las
 respuestas del agente y, entre medio, lo que hizo en cada paso:
 
 - Cada acción que intentó, con su nombre (por ejemplo, **Consultar

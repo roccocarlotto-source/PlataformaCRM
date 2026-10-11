@@ -1,4 +1,9 @@
 import { useState } from "react";
+import {
+  concordancia,
+  VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+  type Termino,
+} from "../../auth/vocabulario";
 import { useConfirm } from "../../design-system/useConfirm";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -16,6 +21,8 @@ import { useBranchBusinessHours } from "./queries";
 
 interface BusinessHoursSectionProps {
   branchId: string;
+  // "Sucursal" o "sede" (docs/rubros.md §3). Sin el prop, "sucursal".
+  sucursal?: Termino;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +46,11 @@ interface BusinessHoursSectionProps {
 // defecto es guardar la semana vacía ([]); por eso guardar el editor sin
 // ninguna franja tiene el mismo efecto.
 // ---------------------------------------------------------------------------
-export function BusinessHoursSection({ branchId }: BusinessHoursSectionProps) {
+export function BusinessHoursSection({
+  branchId,
+  sucursal = VOCABULARIO_AUTOMOTORA_POR_DEFECTO.sucursal,
+}: BusinessHoursSectionProps) {
+  const cs = concordancia(sucursal);
   const confirm = useConfirm();
   const hoursQuery = useBranchBusinessHours(branchId);
   const replaceMutation = useReplaceBranchBusinessHours(branchId);
@@ -112,13 +123,13 @@ export function BusinessHoursSection({ branchId }: BusinessHoursSectionProps) {
   async function handleVolverAlDefault() {
     if (
       !(await confirm(
-        "¿Volver al horario por defecto? Se borra el horario de atención cargado para esta sucursal.",
+        `¿Volver al horario por defecto? Se borra el horario de atención cargado para ${cs.este} ${sucursal.singular}.`,
         { confirmLabel: "Volver al horario por defecto", danger: true },
       ))
     ) {
       return;
     }
-    void guardar([], "La sucursal volvió al horario por defecto.");
+    void guardar([], `${cs.El} ${sucursal.singular} volvió al horario por defecto.`);
   }
 
   return (

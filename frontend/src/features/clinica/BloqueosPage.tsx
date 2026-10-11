@@ -18,6 +18,7 @@ import { useResources } from "../resource/queries";
 import type { BloqueoCreado } from "./agendaApi";
 import { useBloqueos, useBorrarBloqueo, useCrearBloqueo } from "./agendaQueries";
 import { sedesDeQuienEntra } from "./sedes";
+import { concordancia } from "../../auth/vocabulario";
 import { useVocabularioDeClinica } from "./vocabulario";
 
 // ---------------------------------------------------------------------------
@@ -132,6 +133,7 @@ export function BloqueosPage() {
 }
 
 function NuevoBloqueo({ resourceId }: { resourceId: string }) {
+  const vocabulario = useVocabularioDeClinica();
   const crear = useCrearBloqueo(resourceId);
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
@@ -179,7 +181,9 @@ function NuevoBloqueo({ resourceId }: { resourceId: string }) {
               />
             </FormField>
             <div className="ds-field-grid--full">
-              <FormField label="Motivo (interno, el paciente no lo ve)">
+              <FormField
+                label={`Motivo (interno, ${concordancia(vocabulario.contacto).el} ${vocabulario.contacto.singular} no lo ve)`}
+              >
                 <input
                   type="text"
                   maxLength={200}
@@ -210,18 +214,20 @@ function NuevoBloqueo({ resourceId }: { resourceId: string }) {
 }
 
 function TurnosAfectados({ resultado }: { resultado: BloqueoCreado }) {
+  const vocabulario = useVocabularioDeClinica();
   const cancelar = useCancelBooking();
   const [cancelados, setCancelados] = useState<string[]>([]);
   return (
     <Card heading="Turnos dentro del bloqueo">
       <Notice tone="warning" alert={false}>
         Estos turnos siguen en pie: no se cancelaron. A la recepción de la sede le quedó una tarea
-        por cada uno para avisarle al paciente.
+        por cada uno para avisarle {concordancia(vocabulario.contacto).al}{" "}
+        {vocabulario.contacto.singular}.
       </Notice>
       <Table>
         <thead>
           <tr>
-            <th>Paciente</th>
+            <th>{vocabulario.contacto.singularTitulo}</th>
             <th>Prestación</th>
             <th>Turno</th>
             <th>Acciones</th>

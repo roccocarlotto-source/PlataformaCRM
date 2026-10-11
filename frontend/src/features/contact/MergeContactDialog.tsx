@@ -7,14 +7,16 @@ import { ContactSelect } from "../opportunity/ContactSelect";
 import type { LifecycleStage } from "./types";
 import {
   advertenciaDeLaUnion,
-  CAMPOS_DE_LA_UNION,
+  camposDeLaUnion,
   ETIQUETA_DEL_CAMPO,
-  ETIQUETA_DE_LO_QUE_SE_MUEVE,
+  etiquetaDeLoQueSeMueve,
+  TEXTOS_DE_LA_UNION,
   useMergeContacts,
   useMergePreview,
   valorParaMostrar,
   type Elecciones,
   type ResultadoDeLaUnion,
+  type TextosDeLaUnion,
 } from "./merge";
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,9 @@ export interface MergeContactDialogProps {
   // Los rótulos de las etapas con el término del contacto del rubro
   // (etiquetasDeEtapa). Sin el prop, los de siempre.
   etiquetasDeEtapa?: Record<LifecycleStage, string>;
+  // Los textos del rubro (textosDeLaUnionDeClinica). Sin el prop, los de
+  // siempre.
+  textos?: TextosDeLaUnion;
 }
 
 export function MergeContactDialog({
@@ -50,7 +55,10 @@ export function MergeContactDialog({
   onClose,
   onMerged,
   etiquetasDeEtapa,
+  textos = TEXTOS_DE_LA_UNION,
 }: MergeContactDialogProps) {
+  const contacto = textos.contacto;
+  const Contacto = contacto.charAt(0).toUpperCase() + contacto.slice(1);
   const confirm = useConfirm();
   const [otroId, setOtroId] = useState<string | undefined>(undefined);
   // Solo lo que el usuario cambió; el resto es el default del backend. Se
@@ -81,7 +89,7 @@ export function MergeContactDialog({
     const nombre = `${vista.absorbed.firstName} ${vista.absorbed.lastName}`.trim();
     // La advertencia dice QUÉ se mueve (conversaciones, cupones, tareas,
     // oportunidades…) y qué se corta, no solo que "todo pasa acá".
-    const ok = await confirm(advertenciaDeLaUnion(nombre, vista), {
+    const ok = await confirm(advertenciaDeLaUnion(nombre, vista, textos), {
       confirmLabel: "Unir",
       danger: true,
     });
@@ -93,7 +101,7 @@ export function MergeContactDialog({
 
   return (
     <Modal
-      title={seUne ? "Unir con un contacto existente" : "Unir con otro contacto"}
+      title={seUne ? `Unir con un ${contacto} existente` : `Unir con otro ${contacto}`}
       onClose={onClose}
       closeLabel="Cancelar"
       primaryAction={{
@@ -107,16 +115,16 @@ export function MergeContactDialog({
       <div className="ds-stack">
         <p className="ds-hint">
           {seUne
-            ? "La consulta se da de baja y todo lo suyo pasa al contacto elegido."
-            : "El contacto elegido se da de baja y todo lo suyo pasa acá."}
+            ? `La consulta se da de baja y todo lo suyo pasa al ${contacto} elegido.`
+            : `El ${contacto} elegido se da de baja y todo lo suyo pasa acá.`}
         </p>
         <ContactSelect
           id="merge-contact-other"
-          label={seUne ? "Contacto existente" : "Contacto duplicado"}
+          label={seUne ? `${Contacto} existente` : `${Contacto} duplicado`}
           value={otroId}
           onChange={elegirOtro}
         />
-        {mismo ? <ErrorState>Elegí otro contacto: es el mismo de esta ficha.</ErrorState> : null}
+        {mismo ? <ErrorState>Elegí otro {contacto}: es el mismo de esta ficha.</ErrorState> : null}
         {preview.isLoading && otroId && !mismo ? <LoadingState variant="lines" /> : null}
         {preview.error ? (
           <ErrorState>
@@ -130,7 +138,7 @@ export function MergeContactDialog({
             {/* Un bloque por campo, con las dos opciones una debajo de la otra: el
                 panel es angosto y una tabla de tres columnas no entra. */}
             <div className="ds-stack" role="group" aria-label="Qué valor queda en cada campo">
-              {CAMPOS_DE_LA_UNION.map((campo) => (
+              {camposDeLaUnion(textos).map((campo) => (
                 <div
                   key={campo}
                   className="ds-field"
@@ -151,7 +159,7 @@ export function MergeContactDialog({
                           name={`merge-${campo}`}
                           checked={elecciones[campo] === lado}
                           onChange={() => setCambios({ ...cambios, [campo]: lado })}
-                          aria-label={`${ETIQUETA_DEL_CAMPO[campo]}: ${lado === "kept" ? (seUne ? "el contacto existente" : "este contacto") : seUne ? "esta consulta" : "el duplicado"}`}
+                          aria-label={`${ETIQUETA_DEL_CAMPO[campo]}: ${lado === "kept" ? (seUne ? `el ${contacto} existente` : `este ${contacto}`) : seUne ? "esta consulta" : "el duplicado"}`}
                         />{" "}
                         {lado === "kept"
                           ? seUne
@@ -172,11 +180,11 @@ export function MergeContactDialog({
             </p>
             {aMover.length > 0 ? (
               <div>
-                <p>Pasan a este contacto:</p>
+                <p>Pasan a este {contacto}:</p>
                 <ul>
                   {aMover.map(([clave, n]) => (
                     <li key={clave}>
-                      {n} {ETIQUETA_DE_LO_QUE_SE_MUEVE[clave] ?? clave}
+                      {n} {etiquetaDeLoQueSeMueve(clave, textos)}
                     </li>
                   ))}
                 </ul>

@@ -203,6 +203,67 @@ export async function updateBranch(organizationId: string, id: string, input: Up
   return getBranchById(organizationId, id);
 }
 
+// Los textos de los errores de deleteBranch, por rubro (docs/rubros.md §15).
+// Frases enteras y no armadas con el vocabulario (src/config/vocabulario.ts):
+// el adjetivo concuerda con el término ("recursos activos", "prestaciones
+// activas") y AUTOMOTORA tiene que quedar byte por byte como antes — lo fijan
+// branch.service.test.ts y automotoraSinCambios.integration-test.ts.
+// vehiculosEnStock no debería dispararse nunca en una clínica (no tiene stock);
+// queda con un texto razonable porque el chequeo corre igual.
+type MensajesDeBorrado = Readonly<{
+  noEncontrada: string;
+  recursosActivos: string;
+  serviciosActivos: string;
+  qrsActivos: string;
+  agentes: string;
+  vehiculosEnStock: string;
+  entradasDeKb: string;
+  conversacionesAbiertas: string;
+  reservasConfirmadas: string;
+  googleCalendar: string;
+}>;
+
+const MENSAJES_DE_BORRADO: Readonly<Record<OrganizationIndustry, MensajesDeBorrado>> = {
+  AUTOMOTORA: {
+    noEncontrada: "Sucursal no encontrada",
+    recursosActivos:
+      "No se puede eliminar una sucursal que tiene recursos activos. Eliminá primero sus recursos.",
+    serviciosActivos:
+      "No se puede eliminar una sucursal que tiene servicios activos. Eliminá primero sus servicios.",
+    qrsActivos: "No se puede eliminar una sucursal que tiene QRs activos. Eliminá primero sus QRs.",
+    agentes: "No se puede eliminar una sucursal que tiene agentes. Eliminá primero sus agentes.",
+    vehiculosEnStock:
+      "No se puede eliminar una sucursal que tiene vehículos en stock. Eliminá primero sus vehículos o pasalos a otra sucursal.",
+    entradasDeKb:
+      "No se puede eliminar una sucursal que tiene entradas en la base de conocimiento. Eliminá primero sus entradas.",
+    conversacionesAbiertas:
+      "No se puede eliminar una sucursal que tiene conversaciones abiertas. Cerralas primero desde la bandeja.",
+    reservasConfirmadas:
+      "No se puede eliminar una sucursal que tiene reservas confirmadas. Cancelalas primero.",
+    googleCalendar:
+      "No se puede eliminar una sucursal que todavía tiene Google Calendar conectado, aunque la conexión esté en error. Desconectalo primero.",
+  },
+  CLINICA: {
+    noEncontrada: "Sede no encontrada",
+    recursosActivos:
+      "No se puede eliminar una sede que tiene profesionales activos. Eliminá primero sus profesionales.",
+    serviciosActivos:
+      "No se puede eliminar una sede que tiene prestaciones activas. Eliminá primero sus prestaciones.",
+    qrsActivos: "No se puede eliminar una sede que tiene QRs activos. Eliminá primero sus QRs.",
+    agentes: "No se puede eliminar una sede que tiene agentes. Eliminá primero sus agentes.",
+    vehiculosEnStock:
+      "No se puede eliminar una sede que tiene vehículos en stock. Eliminá primero sus vehículos o pasalos a otra sede.",
+    entradasDeKb:
+      "No se puede eliminar una sede que tiene entradas en la base de conocimiento. Eliminá primero sus entradas.",
+    conversacionesAbiertas:
+      "No se puede eliminar una sede que tiene conversaciones abiertas. Cerralas primero desde la bandeja.",
+    reservasConfirmadas:
+      "No se puede eliminar una sede que tiene turnos confirmados. Cancelalos primero.",
+    googleCalendar:
+      "No se puede eliminar una sede que todavía tiene Google Calendar conectado, aunque la conexión esté en error. Desconectalo primero.",
+  },
+};
+
 // RESTRICT lógico, el criterio ya establecido en ALTO-8: no se borra una
 // sucursal que tiene recursos, servicios o QRs activos colgando, agentes,
 // stock, entradas de la KB, reservas confirmadas (ítem 167) o conversaciones
@@ -215,17 +276,31 @@ export async function updateBranch(organizationId: string, id: string, input: Up
 // createServiceType, esos conteos se quedan viejos entre que se leen y que se
 // escribe, y el bloqueo sería evitable con solo llegar primero. Es la misma
 // clase de bug que H-1.
-export async function deleteBranch(organizationId: string, id: string) {
+//
+// industry: el rubro de la organización (req.auth.industry). Solo cambia el
+// texto de los errores (docs/rubros.md §15): una clínica lee "sede",
+// "profesionales", "prestaciones" y "turnos". La lógica y el orden de los
+// chequeos son los mismos. Default AUTOMOTORA, como createBranch.
+export async function deleteBranch(
+  organizationId: string,
+  id: string,
+  industry: OrganizationIndustry = "AUTOMOTORA",
+) {
+  const mensajes = MENSAJES_DE_BORRADO[industry];
+
   // 404 rápido, sin abrir transacción — mismo criterio que deletePipeline. No
-  // es la defensa: se revalida adentro, con el lock sostenido.
-  await getBranchById(organizationId, id);
+  // es la defensa: se revalida adentro, con el lock sostenido. Es el chequeo
+  // de getBranchById, con el 404 en el vocabulario del rubro.
+  if (!(await findBranchById(id, organizationId))) {
+    throw new AppError(mensajes.noEncontrada, 404);
+  }
 
   await prisma.$transaction(async (tx) => {
     await lockBranchForUpdate(id, organizationId, tx);
 
     const branch = await findBranchById(id, organizationId, tx);
     if (!branch) {
-      throw new AppError("Sucursal no encontrada", 404);
+      throw new AppError(mensajes.noEncontrada, 404);
     }
 
     // Los recursos primero: un ServiceType siempre cuelga de un Resource de la
@@ -234,10 +309,7 @@ export async function deleteBranch(organizationId: string, id: string) {
     // accionable — es el nivel por el que hay que empezar a limpiar.
     const recursosActivos = await countActiveResourcesByBranch(id, organizationId, tx);
     if (recursosActivos > 0) {
-      throw new AppError(
-        "No se puede eliminar una sucursal que tiene recursos activos. Eliminá primero sus recursos.",
-        400,
-      );
+      throw new AppError(mensajes.recursosActivos, 400);
     }
 
     // Redundante mientras el invariante de arriba se sostenga —sin recursos no
@@ -245,10 +317,7 @@ export async function deleteBranch(organizationId: string, id: string) {
     // sobrevive a que alguien afloje la relación entre ServiceType y Resource.
     const serviciosActivos = await countActiveServiceTypesByBranch(id, organizationId, tx);
     if (serviciosActivos > 0) {
-      throw new AppError(
-        "No se puede eliminar una sucursal que tiene servicios activos. Eliminá primero sus servicios.",
-        400,
-      );
+      throw new AppError(mensajes.serviciosActivos, 400);
     }
 
     // TERCER RESTRICT: no se borra una sucursal que todavía tiene QRs activos
@@ -269,10 +338,7 @@ export async function deleteBranch(organizationId: string, id: string) {
     // de Google Calendar, que se destraba con un solo click.
     const qrsActivos = await countActiveQrCodesByBranch(id, organizationId, tx);
     if (qrsActivos > 0) {
-      throw new AppError(
-        "No se puede eliminar una sucursal que tiene QRs activos. Eliminá primero sus QRs.",
-        400,
-      );
+      throw new AppError(mensajes.qrsActivos, 400);
     }
 
     // DEL QUINTO AL NOVENO RESTRICT — ítems 167 y 168 de
@@ -311,29 +377,20 @@ export async function deleteBranch(organizationId: string, id: string) {
     // porque es el que para la atención en vivo.
     const agentes = await countAgentsByBranch(id, organizationId, tx);
     if (agentes > 0) {
-      throw new AppError(
-        "No se puede eliminar una sucursal que tiene agentes. Eliminá primero sus agentes.",
-        400,
-      );
+      throw new AppError(mensajes.agentes, 400);
     }
 
     // SOLD y DELIVERED no bloquean: esa unidad ya no está en la sucursal.
     const vehiculosEnStock = await countVehiclesInStockByBranch(id, organizationId, tx);
     if (vehiculosEnStock > 0) {
-      throw new AppError(
-        "No se puede eliminar una sucursal que tiene vehículos en stock. Eliminá primero sus vehículos o pasalos a otra sucursal.",
-        400,
-      );
+      throw new AppError(mensajes.vehiculosEnStock, 400);
     }
 
     // Manuales o generadas por la sincronización del stock (ítem 132): las
     // dos quedarían huérfanas.
     const entradasDeKb = await countKnowledgeBaseEntriesByBranch(id, organizationId, tx);
     if (entradasDeKb > 0) {
-      throw new AppError(
-        "No se puede eliminar una sucursal que tiene entradas en la base de conocimiento. Eliminá primero sus entradas.",
-        400,
-      );
+      throw new AppError(mensajes.entradasDeKb, 400);
     }
 
     // ACTIVE o TRANSFERRED_TO_HUMAN (ítem 168): alguien —el agente o una
@@ -350,10 +407,7 @@ export async function deleteBranch(organizationId: string, id: string) {
       tx,
     );
     if (conversacionesAbiertas > 0) {
-      throw new AppError(
-        "No se puede eliminar una sucursal que tiene conversaciones abiertas. Cerralas primero desde la bandeja.",
-        400,
-      );
+      throw new AppError(mensajes.conversacionesAbiertas, 400);
     }
 
     // Solo CONFIRMED, mismo criterio que el RESTRICT de deleteServiceType.
@@ -363,10 +417,7 @@ export async function deleteBranch(organizationId: string, id: string) {
       tx,
     );
     if (reservasConfirmadas > 0) {
-      throw new AppError(
-        "No se puede eliminar una sucursal que tiene reservas confirmadas. Cancelalas primero.",
-        400,
-      );
+      throw new AppError(mensajes.reservasConfirmadas, 400);
     }
 
     // CUARTO RESTRICT (P2.1, paso 2): no se borra una sucursal que todavía tiene
@@ -396,15 +447,12 @@ export async function deleteBranch(organizationId: string, id: string) {
     // borrar la sucursal.
     const conexionesConSecreto = await countConnectionsWithSecretByBranch(id, organizationId, tx);
     if (conexionesConSecreto > 0) {
-      throw new AppError(
-        "No se puede eliminar una sucursal que todavía tiene Google Calendar conectado, aunque la conexión esté en error. Desconectalo primero.",
-        400,
-      );
+      throw new AppError(mensajes.googleCalendar, 400);
     }
 
     const result = await softDeleteBranch(id, organizationId, tx);
     if (result.count === 0) {
-      throw new AppError("Sucursal no encontrada", 404);
+      throw new AppError(mensajes.noEncontrada, 404);
     }
   });
 }

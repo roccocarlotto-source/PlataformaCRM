@@ -1,3 +1,8 @@
+import {
+  concordancia,
+  VOCABULARIO_DE_CLINICA_POR_DEFECTO,
+  type Termino,
+} from "../../auth/vocabulario";
 import type { BadgeVariant } from "../../design-system/Badge";
 import type { SelectOption } from "../../design-system/Select";
 import type { WhatsappApproval, WhatsappFormat } from "./types";
@@ -181,7 +186,7 @@ export const ACTION_OPTIONS_DE_CLINICA: SelectOption<string>[] = [
   {
     value: ACTION_BOOKING_SEND_QR_REVIEW,
     label: "Pedir una reseña con un QR",
-    subtitle: "Un WhatsApp al paciente con el QR, unas horas después del turno",
+    subtitle: "Un WhatsApp con el QR, unas horas después del turno",
   },
   {
     value: ACTION_BOOKING_SCHEDULE_CONTROL,
@@ -536,12 +541,18 @@ export function mensajeDeLaAccion(
   actionType: string,
   formato: string,
   esClinica = false,
+  // El término del contacto de una clínica ("paciente" o "cliente").
+  contacto: Termino = VOCABULARIO_DE_CLINICA_POR_DEFECTO.contacto,
 ): MensajeDeLaAccion {
   if (actionType === ACTION_BOOKING_SCHEDULE_CONTROL) {
     return {
       conFormato: false,
       variables: [
-        { token: TOKEN_NOMBRE, ayuda: "el nombre del paciente", obligatoria: true },
+        {
+          token: TOKEN_NOMBRE,
+          ayuda: `el nombre ${concordancia(contacto).del} ${contacto.singular}`,
+          obligatoria: true,
+        },
         {
           token: TOKEN_SEMANAS,
           ayuda: "las semanas de control de la prestación",
@@ -559,7 +570,11 @@ export function mensajeDeLaAccion(
     return {
       conFormato: false,
       variables: [
-        { token: TOKEN_NOMBRE, ayuda: "el nombre del paciente", obligatoria: true },
+        {
+          token: TOKEN_NOMBRE,
+          ayuda: `el nombre ${concordancia(contacto).del} ${contacto.singular}`,
+          obligatoria: true,
+        },
         {
           token: TOKEN_LUGAR,
           ayuda: "la clínica, o «Clínica (sede)» si tiene más de una sede",
@@ -578,7 +593,7 @@ export function mensajeDeLaAccion(
         {
           token: TOKEN_SALUDO,
           ayuda: esClinica
-            ? "el saludo con el nombre del paciente («Hola Ana»), o «Hola» a secas si no lo dio"
+            ? `el saludo con el nombre ${concordancia(contacto).del} ${contacto.singular} («Hola Ana»), o «Hola» a secas si no lo dio`
             : "el saludo con el nombre del cliente («Hola Ana»), o «Hola» a secas si no lo dio",
           obligatoria: true,
         },
@@ -655,7 +670,7 @@ export function validarMensajeDeConsulta(draft: ConfigDraft, esClinica = false):
   const ajeno = esClinica ? TOKEN_VEHICULO : TOKEN_PRESTACION;
   if (texto === "") return "Escribí el texto del mensaje de WhatsApp.";
   if (contar(texto, TOKEN_SALUDO) !== 1) {
-    return `El mensaje tiene que incluir ${TOKEN_SALUDO} una vez: ahí va el saludo con el nombre del ${esClinica ? "paciente" : "cliente"}, o «Hola» si no lo dio.`;
+    return `El mensaje tiene que incluir ${TOKEN_SALUDO} una vez: ahí va el saludo con el nombre${esClinica ? "" : " del cliente"}, o «Hola» si no lo dio.`;
   }
   if (contar(texto, interes) > 1) {
     return `El mensaje no puede incluir ${interes} más de una vez.`;

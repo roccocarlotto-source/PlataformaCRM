@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../../auth/AuthContext";
+import { concordancia, esClinica, vocabularioDe } from "../../auth/vocabulario";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
@@ -70,6 +72,15 @@ export function ServiceTypeFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  // Vocabulario del rubro. Una automotora dice "servicio" a secas en algunos
+  // textos (no "tipo de servicio"): esos quedan tal cual para ella.
+  const { me } = useAuth();
+  const { recurso, sucursal, tipoDeServicio } = vocabularioDe(me);
+  const cr = concordancia(recurso);
+  const cs = concordancia(sucursal);
+  const ct = concordancia(tipoDeServicio);
+  const delServicio = esClinica(me) ? `${ct.del} ${tipoDeServicio.singular}` : "del servicio";
+  const esteServicio = esClinica(me) ? `${ct.este} ${tipoDeServicio.singular}` : "este servicio";
 
   const serviceTypeQuery = useServiceType(isEditMode ? id : undefined);
   const createMutation = useCreateServiceType();
@@ -90,11 +101,11 @@ export function ServiceTypeFormPage() {
     // Los selectores: mientras sus listas cargan no hay ningún input que el
     // navegador pueda frenar (el hueco que BranchSelect documenta).
     if (!values.branchId) {
-      setError("Elegí la sucursal del servicio.");
+      setError(`Elegí ${cs.el} ${sucursal.singular} ${delServicio}.`);
       return;
     }
     if (!values.resourceId) {
-      setError("Elegí el recurso que atiende este servicio.");
+      setError(`Elegí ${cr.el} ${recurso.singular} que atiende ${esteServicio}.`);
       return;
     }
     const durationMin = enteroPositivo(values.durationMin);
@@ -124,7 +135,11 @@ export function ServiceTypeFormPage() {
       }
       navigate("/service-types");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pudimos guardar el tipo de servicio");
+      setError(
+        err instanceof Error
+          ? err.message
+          : `No pudimos guardar ${ct.el} ${tipoDeServicio.singular}`,
+      );
     }
   }
 
@@ -135,7 +150,7 @@ export function ServiceTypeFormPage() {
   if (isEditMode && serviceTypeQuery.isError) {
     return (
       <ErrorState>
-        No pudimos cargar el tipo de servicio
+        No pudimos cargar {ct.el} {tipoDeServicio.singular}
         {serviceTypeQuery.error instanceof Error ? `: ${serviceTypeQuery.error.message}` : "."}
       </ErrorState>
     );
@@ -145,10 +160,14 @@ export function ServiceTypeFormPage() {
     <form onSubmit={handleSubmit} className="ds-form">
       <PageHeader
         help={AYUDA.tipoDeServicioForm}
-        title={isEditMode ? "Editar tipo de servicio" : "Nuevo tipo de servicio"}
+        title={
+          isEditMode
+            ? `Editar ${tipoDeServicio.singular}`
+            : `${ct.Nuevo} ${tipoDeServicio.singular}`
+        }
       />
       <div className="ds-stack">
-        <Card heading="Datos del servicio">
+        <Card heading={`Datos ${delServicio}`}>
           <div className="ds-field-grid">
             <FormField label={<span className="ds-required">Nombre</span>}>
               <input
@@ -165,7 +184,8 @@ export function ServiceTypeFormPage() {
                 propio <label htmlFor> y FormField ES un <label>. */}
             <BranchSelect
               id="service-type-form-branch"
-              label="Sucursal"
+              label={sucursal.singularTitulo}
+              emptyOptionLabel={`Elegir ${sucursal.singular}…`}
               value={values.branchId}
               onChange={(branchId) =>
                 setValues({
@@ -181,7 +201,8 @@ export function ServiceTypeFormPage() {
 
             <ResourceSelect
               id="service-type-form-resource"
-              label="Recurso"
+              label={recurso.singularTitulo}
+              emptyOptionLabel={`Elegir ${recurso.singular}…`}
               value={values.resourceId}
               branchId={values.branchId}
               onChange={(resourceId) =>
@@ -192,8 +213,12 @@ export function ServiceTypeFormPage() {
             />
             <p className="ds-hint ds-field-grid--full">
               {values.branchId
-                ? "Solo recursos de la sucursal elegida."
-                : "Elegí primero la sucursal: el recurso tiene que ser de la misma."}
+                ? `Solo ${recurso.plural} de ${cs.el} ${sucursal.singular} ${
+                    sucursal.genero === "femenino" ? "elegida" : "elegido"
+                  }.`
+                : `Elegí primero ${cs.el} ${sucursal.singular}: ${cr.el} ${recurso.singular} tiene que ser de ${
+                    sucursal.genero === "femenino" ? "la misma" : "el mismo"
+                  }.`}
             </p>
 
             <FormField label={<span className="ds-required">Duración (minutos)</span>}>

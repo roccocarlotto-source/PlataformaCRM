@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { concordancia } from "../../auth/vocabulario";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -7,6 +8,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { Select } from "../../design-system/Select";
 import { useConfiguracionDeSede, useGuardarConfiguracionDeSede } from "./queries";
 import type { PoliticaDeTurnoTardio } from "./types";
+import { useVocabularioDeClinica } from "./vocabulario";
 
 // ---------------------------------------------------------------------------
 // R13 (docs/rubros.md §6.2): el recordatorio de turno de la sede. Una sección
@@ -33,6 +35,7 @@ function enteroEn(texto: string, min: number, max: number): number | null {
 }
 
 export function RecordatoriosSection({ branchId }: { branchId: string }) {
+  const { contacto } = useVocabularioDeClinica();
   const configuracion = useConfiguracionDeSede(branchId);
   const guardar = useGuardarConfiguracionDeSede(branchId);
   const [borrador, setBorrador] = useState<Borrador | null>(null);
@@ -107,8 +110,9 @@ export function RecordatoriosSection({ branchId }: { branchId: string }) {
     <Card heading="Recordatorios">
       <div className="ds-stack">
         <p className="ds-hint">
-          Antes de cada turno, el paciente recibe un WhatsApp para confirmar o cancelar. Hace falta
-          una regla activa «Recordatorio antes del turno» en Automatizaciones.
+          Antes de cada turno, {concordancia(contacto).el} {contacto.singular} recibe un WhatsApp
+          para confirmar o cancelar. Hace falta una regla activa «Recordatorio antes del turno» en
+          Automatizaciones.
         </p>
         <FormField label="Horas de anticipación del recordatorio">
           <input

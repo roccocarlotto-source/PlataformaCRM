@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../../auth/AuthContext";
+import { esClinica as esDeClinica, vocabularioDe } from "../../auth/vocabulario";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
@@ -92,6 +94,12 @@ export function ContactCustomFieldFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  // En una clínica, el campo es del paciente (o del término de la
+  // organización), y el ejemplo no es de autos. Una automotora, como siempre.
+  const { me } = useAuth();
+  const esClinica = esDeClinica(me);
+  const { contacto } = vocabularioDe(me);
+  const deQuien = esClinica ? contacto.singular : "contacto";
 
   const campoQuery = useContactCustomField(isEditMode ? id : undefined);
   const createMutation = useCreateContactCustomField();
@@ -249,7 +257,7 @@ export function ContactCustomFieldFormPage() {
       ) : null}
       <PageHeader
         help={AYUDA.campoForm}
-        title={isEditMode ? "Editar campo de contacto" : "Nuevo campo de contacto"}
+        title={isEditMode ? `Editar campo de ${deQuien}` : `Nuevo campo de ${deQuien}`}
       />
       <div className="ds-stack">
         <Card heading="Datos del campo">
@@ -259,7 +267,7 @@ export function ContactCustomFieldFormPage() {
                 type="text"
                 value={values.label}
                 maxLength={MAX_LABEL}
-                placeholder="Patente del auto"
+                placeholder={esClinica ? "Obra social" : "Patente del auto"}
                 onChange={(event) => setValues({ ...values, label: event.target.value })}
                 required
               />

@@ -124,7 +124,7 @@ export const updateBranchHandler = asyncHandler<AuthenticatedRequest>(
 export const deleteBranchHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    await deleteBranch(req.auth.organizationId, id);
+    await deleteBranch(req.auth.organizationId, id, req.auth.industry);
     res.status(204).send();
   },
 );
