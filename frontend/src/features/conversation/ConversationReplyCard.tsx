@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -8,6 +9,11 @@ import { formatDateTime } from "../../design-system/detailFormat";
 import { useReplyToConversation, useReturnConversationToAgent } from "./mutations";
 import { puedeAtender } from "./permissions";
 import type { ConversationDetail } from "./types";
+import {
+  avisoVentanaVencida,
+  avisoVentanaVencidaMeta,
+  confirmarDevolverSinResponder,
+} from "./textosDeRespuesta";
 
 // ---------------------------------------------------------------------------
 // Responder desde el CRM (I-03 de
@@ -30,11 +36,6 @@ import type { ConversationDetail } from "./types";
 //   - Si no: el cuadro para escribir.
 // ---------------------------------------------------------------------------
 
-export const AVISO_VENTANA_VENCIDA =
-  "Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp solo permite plantillas aprobadas.";
-export const AVISO_VENTANA_VENCIDA_META =
-  "Pasaron más de 24 h desde el último mensaje del cliente: Messenger e Instagram no dejan escribirle hasta que vuelva a escribir.";
-
 // Por dónde sale la respuesta, según el canal.
 const COMO_SALE: Record<ConversationDetail["channel"], string> = {
   WHATSAPP: "Sale por WhatsApp desde el número del negocio.",
@@ -48,9 +49,8 @@ const COMO_SALE: Record<ConversationDetail["channel"], string> = {
 // que antes se confirma. En un Modal del design system con acción principal
 // —el mismo patrón que la confirmación de AgentFormPage—, no un confirm()
 // nativo: el panel no se cierra con un click afuera ni con Escape, así que
-// devolver o no es siempre un click explícito.
-export const CONFIRMAR_DEVOLVER_SIN_RESPONDER =
-  "No le respondiste al cliente. Se le va a avisar que lo contactan más tarde y la tarea queda pendiente. ¿Devolver igual?";
+// devolver o no es siempre un click explícito. El texto está en
+// textosDeRespuesta.ts.
 
 export interface ConversationReplyCardProps {
   conversation: ConversationDetail;
@@ -65,6 +65,8 @@ export function ConversationReplyCard({
   const [texto, setTexto] = useState("");
   const [confirmandoDevolver, setConfirmandoDevolver] = useState(false);
   const { me } = useAuth();
+  const vocabulario = vocabularioDe(me);
+  const contacto = vocabulario.contacto.singular;
   const responder = useReplyToConversation(conversation.id);
   const devolver = useReturnConversationToAgent(conversation.id);
 
@@ -111,12 +113,12 @@ export function ConversationReplyCard({
 
   function aviso(): string | null {
     if (!atiende) {
-      return "Solo el vendedor asignado a esta conversación o un administrador pueden responderla.";
+      return `Solo el ${vocabulario.responsable.singular} asignado a esta conversación o un administrador pueden responderla.`;
     }
     if (!ventanaAbierta) {
       return conversation.channel === "WHATSAPP"
-        ? AVISO_VENTANA_VENCIDA
-        : AVISO_VENTANA_VENCIDA_META;
+        ? avisoVentanaVencida(contacto)
+        : avisoVentanaVencidaMeta(contacto);
     }
     return null;
   }
@@ -133,7 +135,7 @@ export function ConversationReplyCard({
 
         {atiende ? (
           <label>
-            <span className="ds-sr-only">Mensaje para el cliente</span>
+            <span className="ds-sr-only">{`Mensaje para el ${contacto}`}</span>
             <textarea
               rows={3}
               value={texto}
@@ -189,7 +191,7 @@ export function ConversationReplyCard({
             onClose={() => setConfirmandoDevolver(false)}
             primaryAction={{ label: "Devolver igual", onClick: confirmarDevolver }}
           >
-            <p>{CONFIRMAR_DEVOLVER_SIN_RESPONDER}</p>
+            <p>{confirmarDevolverSinResponder(contacto)}</p>
           </Modal>
         ) : null}
         {devolver.error ? (

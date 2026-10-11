@@ -55,6 +55,7 @@ test("vocabulario de una clínica: paciente por defecto, cliente si lo eligió, 
     plural: "pacientes",
     singularTitulo: "Paciente",
     pluralTitulo: "Pacientes",
+    genero: "masculino",
   });
   assert.equal(vocabularioDe("CLINICA", "PACIENTE").contacto.plural, "pacientes");
   assert.equal(vocabularioDe("CLINICA", "CLIENTE").contacto.pluralTitulo, "Clientes");

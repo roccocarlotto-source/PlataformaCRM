@@ -28,6 +28,15 @@ export const LIFECYCLE_STAGE_LABELS: Record<LifecycleStage, string> = {
   CHURNED: "Perdido",
 };
 
+/** Los rótulos con el término del contacto del rubro (docs/rubros.md §3.1):
+ *  CUSTOMER es "Cliente" en una automotora (el de siempre) y "Paciente" en una
+ *  clínica. */
+export function etiquetasDeEtapa(contacto: {
+  singularTitulo: string;
+}): Record<LifecycleStage, string> {
+  return { ...LIFECYCLE_STAGE_LABELS, CUSTOMER: contacto.singularTitulo };
+}
+
 // Orden de las opciones = orden de las claves del mapa (el orden natural del
 // embudo). Agregar un valor al mapa es agregar la opción en form y filtro.
 export const LIFECYCLE_STAGES = Object.keys(LIFECYCLE_STAGE_LABELS) as LifecycleStage[];

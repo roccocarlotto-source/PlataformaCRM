@@ -1,3 +1,8 @@
+import {
+  concordancia,
+  VOCABULARIO_DE_CLINICA_POR_DEFECTO,
+  type VocabularioCompleto,
+} from "../../auth/vocabulario";
 import type { MultiSelectOption } from "../../design-system/MultiSelect";
 
 // ---------------------------------------------------------------------------
@@ -175,12 +180,58 @@ export function avisoDeAccionesSinGuardarElNombre(enabledTools: string[]): strin
   return `${nombres} ${exigen.length === 1 ? "exige" : "exigen"} el nombre del cliente: habilitá «${toolLabel("update_lead")}» o «${toolLabel("create_lead")}» para que pueda guardarlo.`;
 }
 
+// Las tools de AGENT_TOOL_OPTIONS que una clínica no tiene (ESPEJO A MANO de
+// toolDelRubro en src/config/ediciones.ts: las de stock y oportunidades por su
+// módulo, get_payment_info por TOOLS_FUERA_DEL_RUBRO). El backend no se las
+// ofrece al modelo aunque estén habilitadas; el selector no las muestra.
+const TOOLS_FUERA_DE_CLINICA: ReadonlySet<string> = new Set([
+  "create_opportunity",
+  "update_opportunity",
+  "reserve_vehicle",
+  "search_vehicles",
+  "get_payment_info",
+]);
+
+// Los textos que nombran al contacto, al recurso o al tipo de servicio, con
+// el vocabulario de la clínica (docs/rubros.md §3.1).
+function conTextosDeClinica(
+  option: MultiSelectOption<string>,
+  v: VocabularioCompleto,
+): MultiSelectOption<string> {
+  switch (option.value) {
+    case "get_availability":
+      return {
+        ...option,
+        subtitle: `Consulta los turnos libres de ${concordancia(v.recurso).un} ${v.recurso.singular}.`,
+      };
+    case "get_service_types":
+      return {
+        ...option,
+        label: `Ver ${v.tipoDeServicio.plural}`,
+        subtitle: `Lista ${concordancia(v.tipoDeServicio).los} ${v.tipoDeServicio.plural} ${concordancia(v.sucursal).del} ${v.sucursal.singular}.`,
+      };
+    case "mark_no_interest":
+      return {
+        ...option,
+        subtitle: `Marca «sin interés» cuando el ${v.contacto.singular} dice que no quiere seguir.`,
+      };
+    default:
+      return option;
+  }
+}
+
 export function agentToolOptions(
   selected: string[],
   esClinica = false,
+  vocabulario: VocabularioCompleto = VOCABULARIO_DE_CLINICA_POR_DEFECTO,
 ): MultiSelectOption<string>[] {
   const base = esClinica
-    ? [...AGENT_TOOL_OPTIONS, ...AGENT_TOOL_OPTIONS_DE_CLINICA]
+    ? [
+        ...AGENT_TOOL_OPTIONS.filter((option) => !TOOLS_FUERA_DE_CLINICA.has(option.value)).map(
+          (option) => conTextosDeClinica(option, vocabulario),
+        ),
+        ...AGENT_TOOL_OPTIONS_DE_CLINICA,
+      ]
     : AGENT_TOOL_OPTIONS;
   const conocidas = new Set(base.map((option) => option.value));
   const extras = selected

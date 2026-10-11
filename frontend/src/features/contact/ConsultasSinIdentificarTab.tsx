@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { MessageCircleQuestion } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
+import { tieneModulo } from "../../auth/useModulo";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { ActionsMenu, type ActionsMenuAction } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { EMPTY_VALUE, formatDateTime, formatRelativeTime } from "../../design-system/detailFormat";
@@ -19,7 +21,7 @@ import { useOwnerNames } from "../opportunity/relationResolution";
 import { UserSelect } from "../user/UserSelect";
 import { AsignarVendedorDialog } from "./AsignarVendedorDialog";
 import { listConsultasSinIdentificar } from "./api";
-import { etiquetaDelVehiculo } from "./labels";
+import { etiquetaDelVehiculo, etiquetasDeEtapa } from "./labels";
 import { MergeContactDialog } from "./MergeContactDialog";
 import { useDescartarConsulta } from "./mutations";
 import { contactKeys } from "./queries";
@@ -46,6 +48,11 @@ export function ConsultasSinIdentificarTab() {
   const confirm = useConfirm();
   const { me } = useAuth();
   const isAdmin = me?.role === "ADMIN";
+  // Rubros (docs/rubros.md §3.1): "Vendedor" o "Responsable", y sin vehículo
+  // de interés donde no hay stock (una clínica).
+  const vocabulario = vocabularioDe(me);
+  const responsable = vocabulario.responsable;
+  const conStock = tieneModulo(me, "stock");
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -98,7 +105,9 @@ export function ConsultasSinIdentificarTab() {
             },
           ]
         : []),
-      ...(isAdmin ? [{ label: "Asignar vendedor", onClick: () => setAsignando(consulta) }] : []),
+      ...(isAdmin
+        ? [{ label: `Asignar ${responsable.singular}`, onClick: () => setAsignando(consulta) }]
+        : []),
       {
         label: "Crear tarea de seguimiento",
         to: `/activities/new?contactId=${encodeURIComponent(consulta.id)}`,
@@ -150,7 +159,7 @@ export function ConsultasSinIdentificarTab() {
           {isAdmin ? (
             <UserSelect
               id="consultas-filter-owner"
-              label="Vendedor"
+              label={responsable.singularTitulo}
               value={ownerId}
               onChange={(id) => {
                 setOwnerId(id || undefined);
@@ -195,8 +204,8 @@ export function ConsultasSinIdentificarTab() {
                 <th>Canal</th>
                 <th>Último mensaje</th>
                 <th>Escribió</th>
-                <th>Vehículo de interés</th>
-                {isAdmin ? <th>Vendedor</th> : null}
+                {conStock ? <th>Vehículo de interés</th> : null}
+                {isAdmin ? <th>{responsable.singularTitulo}</th> : null}
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -242,7 +251,9 @@ export function ConsultasSinIdentificarTab() {
                         EMPTY_VALUE
                       )}
                     </td>
-                    <td>{etiquetaDelVehiculo(consulta.vehicleOfInterest) || EMPTY_VALUE}</td>
+                    {conStock ? (
+                      <td>{etiquetaDelVehiculo(consulta.vehicleOfInterest) || EMPTY_VALUE}</td>
+                    ) : null}
                     {isAdmin ? (
                       <td>
                         {vendedor ? (
@@ -283,12 +294,14 @@ export function ConsultasSinIdentificarTab() {
           contactId={asignando.id}
           ownerId={asignando.ownerId}
           onClose={() => setAsignando(null)}
+          responsable={responsable}
         />
       ) : null}
       {uniendo ? (
         <MergeContactDialog
           contactId={uniendo}
           modo="seUne"
+          etiquetasDeEtapa={etiquetasDeEtapa(vocabulario.contacto)}
           onClose={() => setUniendo(null)}
           onMerged={(resultado) => {
             setUniendo(null);

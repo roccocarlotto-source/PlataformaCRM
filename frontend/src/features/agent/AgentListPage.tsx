@@ -1,3 +1,5 @@
+import { useAuth } from "../../auth/AuthContext";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Bot, Plus } from "lucide-react";
@@ -36,6 +38,8 @@ const SIN_RESOLVER = "—";
 // rechazaría.
 export function AgentListPage() {
   const confirm = useConfirm();
+  // Rubros (docs/rubros.md §3.1): "Sucursal" o "Sede".
+  const sucursal = vocabularioDe(useAuth().me).sucursal;
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
@@ -112,7 +116,7 @@ export function AgentListPage() {
           </label>
           <BranchSelect
             id="agent-list-branch"
-            label="Sucursal"
+            label={sucursal.singularTitulo}
             value={branchId}
             emptyOptionLabel="Todas"
             onChange={(nuevo) => {
@@ -174,7 +178,7 @@ export function AgentListPage() {
             <thead>
               <tr>
                 <th>Nombre</th>
-                <th>Sucursal</th>
+                <th>{sucursal.singularTitulo}</th>
                 <th>Estado</th>
                 <th>Canales</th>
                 <th>Modelo</th>

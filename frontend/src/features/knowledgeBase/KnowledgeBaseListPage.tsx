@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useAuth } from "../../auth/AuthContext";
+import { tieneModulo } from "../../auth/useModulo";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { Link } from "react-router-dom";
 import { BookOpen, Plus, RefreshCw } from "lucide-react";
 import { useConfirm } from "../../design-system/useConfirm";
@@ -77,6 +80,11 @@ function textoDelResultado(resultado: {
 // uno.
 export function KnowledgeBaseListPage() {
   const confirm = useConfirm();
+  // Rubros (docs/rubros.md §2, §3.1): sin stock (una clínica) no hay
+  // "Sincronizar stock"; y "sucursal" o "sede".
+  const { me } = useAuth();
+  const conStock = tieneModulo(me, "stock");
+  const sucursal = vocabularioDe(me).sucursal;
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
@@ -211,18 +219,20 @@ export function KnowledgeBaseListPage() {
         title="Base de conocimiento"
         actions={
           <>
-            <Button
-              onClick={() => void handleSync()}
-              disabled={!branchId || isBusy}
-              loading={syncMutation.isPending}
-            >
-              {/* Mientras sincroniza, el spinner del botón ocupa el lugar del
+            {conStock ? (
+              <Button
+                onClick={() => void handleSync()}
+                disabled={!branchId || isBusy}
+                loading={syncMutation.isPending}
+              >
+                {/* Mientras sincroniza, el spinner del botón ocupa el lugar del
                 ícono: dos marcas redondas juntas se leen como un error. */}
-              {syncMutation.isPending ? null : (
-                <RefreshCw size={16} strokeWidth={1.5} aria-hidden="true" />
-              )}
-              {syncMutation.isPending ? "Sincronizando…" : "Sincronizar stock"}
-            </Button>
+                {syncMutation.isPending ? null : (
+                  <RefreshCw size={16} strokeWidth={1.5} aria-hidden="true" />
+                )}
+                {syncMutation.isPending ? "Sincronizando…" : "Sincronizar stock"}
+              </Button>
+            ) : null}
             <Link to="/knowledge-base/new" className="ds-link-button">
               <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
               Nueva entrada
@@ -247,7 +257,7 @@ export function KnowledgeBaseListPage() {
           </label>
           <BranchSelect
             id="knowledge-base-list-branch"
-            label="Sucursal"
+            label={sucursal.singularTitulo}
             value={branchId}
             emptyOptionLabel="Todas"
             onChange={(nuevo) => aplicarFiltro(() => setBranchId(nuevo || undefined))}
@@ -286,7 +296,7 @@ export function KnowledgeBaseListPage() {
         {/* El porqué del botón deshabilitado, al lado del filtro que lo
             habilita y no arriba junto al botón: lo que falta elegir es
             justamente esta Sucursal. */}
-        {!branchId ? (
+        {conStock && !branchId ? (
           <p className="ds-hint">Elegí una sucursal para sincronizar su stock.</p>
         ) : null}
 
@@ -369,7 +379,7 @@ export function KnowledgeBaseListPage() {
                   />
                 </th>
                 <th>Título</th>
-                <th>Sucursal</th>
+                <th>{sucursal.singularTitulo}</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>

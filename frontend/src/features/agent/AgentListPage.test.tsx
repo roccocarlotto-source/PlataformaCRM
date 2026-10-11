@@ -26,6 +26,12 @@ vi.mock("../../auth/getAccessToken", () => ({
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 
+// R17b: la pantalla lee el vocabulario del rubro de la sesión; sin otra
+// indicación, una automotora (sin industry), como antes.
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+});
+
 function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   return {
     status: "authenticated",
