@@ -37,6 +37,26 @@ El **slug** de la sección (la parte de la URL, `/ayuda/<slug>`) es el nombre
 del archivo sin el prefijo numérico ni la extensión. No se renombran archivos:
 los links de la app apuntan a ese slug.
 
+## La guía de una clínica
+
+En una organización de rubro **clínica**, la pantalla Ayuda arma la guía con
+`clinicas/` (docs/rubros.md §1.3):
+
+- cada archivo de `clinicas/` **reemplaza entero** al de la raíz con el mismo
+  número, y tiene que llevar el mismo nombre (mismo slug, para que los links y
+  los "?" de las pantallas sigan andando);
+- las secciones de la raíz sin versión de clínica se muestran solo si la
+  clínica tiene su módulo; Stock y Oportunidades no se muestran nunca;
+- una automotora ve exactamente la guía de la raíz.
+
+Como reemplaza la sección entera, cada archivo de `clinicas/` cubre todo lo
+que una clínica usa de esa pantalla, con las mismas anclas que usan los "?"
+(`frontend/src/features/guia/anclas.ts`). Se escribe para el personal de una
+clínica (administración y recepción), con su vocabulario: pacientes,
+profesionales, prestaciones, turnos, agenda, sedes y responsable. Sin nada de
+autos: un test falla si aparecen "cliente", "vehículo", "stock",
+"oportunidad" o "vendedor". Los roles son **Administrador** y **Recepción**.
+
 ## Formato
 
 - El archivo empieza con un único `# Título de la sección`.

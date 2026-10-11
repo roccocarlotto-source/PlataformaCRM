@@ -6,6 +6,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Table } from "../../design-system/Table";
 import { BRANCHES_PARA_SELECT, useBranches } from "../branch/queries";
 import { useResources } from "../resource/queries";
@@ -38,7 +39,7 @@ export function PrestacionesPage() {
 
   return (
     <div>
-      <PageHeader title={prestacion.pluralTitulo} />
+      <PageHeader help={AYUDA.prestaciones} title={prestacion.pluralTitulo} />
 
       <div className="ds-list-card">
         {prestacionesQuery.isLoading ? <LoadingState variant="rows" /> : null}

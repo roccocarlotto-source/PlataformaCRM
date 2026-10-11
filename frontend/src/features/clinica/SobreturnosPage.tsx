@@ -7,6 +7,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Notice } from "../../design-system/Notice";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Select } from "../../design-system/Select";
 import { Table } from "../../design-system/Table";
 import { formatDateTime } from "../../design-system/detailFormat";
@@ -68,7 +69,7 @@ export function SobreturnosPage() {
 
   return (
     <div>
-      <PageHeader title="Sobreturnos" />
+      <PageHeader help={AYUDA.sobreturnos} title="Sobreturnos" />
       <div className="ds-list-card">
         <div className="ds-filters">
           <Select
