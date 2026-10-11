@@ -75,6 +75,20 @@ export function guardarTerminoDelContacto(
   });
 }
 
+/** R16 (docs/rubros.md §8.1): el aviso de privacidad (texto y link). null =
+ *  borrarlo. Crea la fila si faltaba. */
+export function guardarAvisoDePrivacidad(
+  organizationId: string,
+  datos: { privacyNoticeText?: string | null; privacyPolicyUrl?: string | null },
+  db: Db = prisma,
+) {
+  return db.clinicSettings.upsert({
+    where: { organizationId },
+    create: { organizationId, ...datos },
+    update: datos,
+  });
+}
+
 /** Crea la fila de una sede con los defaults. La FK compuesta exige que la
  *  sucursal sea de esta organización. */
 export function crearConfiguracionDeSede(organizationId: string, branchId: string, db: Db) {

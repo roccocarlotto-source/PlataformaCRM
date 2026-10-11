@@ -167,6 +167,27 @@ describe("widget main (integración)", () => {
     expect(agentMessages()[0].textContent).toMatch(/derivada a una persona/);
   });
 
+  it("R16: el aviso de privacidad de una clínica va como primer mensaje de la respuesta", async () => {
+    server.use(
+      http.post(url, () =>
+        HttpResponse.json({
+          conversationId: "conv-1",
+          respuesta: "¡Hola! ¿En qué te ayudo?",
+          avisoDePrivacidad:
+            "Usamos tus datos para gestionar tus turnos.\n\nhttps://example.com/privacidad",
+        }),
+      ),
+    );
+    await loadWidget();
+    openPanel();
+
+    typeAndSend("hola");
+    await vi.waitFor(() => expect(agentMessages()).toHaveLength(2));
+
+    expect(agentMessages()[0].textContent).toMatch(/^Usamos tus datos/);
+    expect(agentMessages()[1].textContent).toBe("¡Hola! ¿En qué te ayudo?");
+  });
+
   it("la respuesta del agente se inserta como texto literal, nunca como markup", async () => {
     const payload = '<script>alert(1)</script><img src=x onerror="alert(1)">';
     server.use(widgetSuccessHandler(url, payload));

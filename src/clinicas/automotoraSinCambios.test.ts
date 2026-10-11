@@ -847,3 +847,15 @@ test("R13: una automotora no tiene recordatorios y sus plantillas no cambian", (
     ["id"],
   );
 });
+
+test("R16: un contacto de una automotora sale sin la fecha del aviso de privacidad", () => {
+  const contacto = { id: "c1", firstName: "Ana", privacyNoticeSentAt: null };
+  assert.deepEqual(
+    Object.keys(sinCamposDeClinica(contacto, "AUTOMOTORA", CAMPOS_DE_CLINICA.contact)),
+    ["id", "firstName"],
+  );
+  assert.deepEqual(
+    Object.keys(sinCamposDeClinica(contacto, "CLINICA", CAMPOS_DE_CLINICA.contact)),
+    ["id", "firstName", "privacyNoticeSentAt"],
+  );
+});

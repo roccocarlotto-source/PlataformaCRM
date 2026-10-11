@@ -26,6 +26,8 @@ export const CAMPOS_DE_CLINICA = {
     // R13: el paciente confirmó por el recordatorio.
     "patientConfirmedAt",
   ],
+  // R16: cuándo se le mandó el aviso de privacidad de la clínica.
+  contact: ["privacyNoticeSentAt"],
 } as const;
 
 export function sinCamposDeClinica<T extends object>(

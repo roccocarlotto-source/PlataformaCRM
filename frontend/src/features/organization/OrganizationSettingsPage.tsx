@@ -7,6 +7,7 @@ import { DetailList } from "../../design-system/DetailList";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Notice } from "../../design-system/Notice";
 import { Select } from "../../design-system/Select";
 import { useToast } from "../../design-system/useToast";
 import { CURRENCY_OPTIONS, isKnownCurrency } from "../../lib/currencies";
@@ -48,6 +49,9 @@ interface OrganizationFormValues {
   timezone: string;
   // Solo cuenta en una clínica.
   contactTerm: ContactTerm;
+  // R16: el aviso de privacidad, solo en una clínica. "" = sin cargar.
+  privacyNoticeText: string;
+  privacyPolicyUrl: string;
 }
 
 const EMPTY_FORM: OrganizationFormValues = {
@@ -56,7 +60,21 @@ const EMPTY_FORM: OrganizationFormValues = {
   defaultPhoneCountryCode: "",
   timezone: "UTC",
   contactTerm: "PACIENTE",
+  privacyNoticeText: "",
+  privacyPolicyUrl: "",
 };
+
+// R16 (docs/rubros.md §8.1): un texto de ejemplo para empezar. Es un BORRADOR:
+// no es asesoramiento legal y lo tiene que revisar un profesional antes de
+// usarlo. No se guarda solo: se carga con el botón y se guarda con el resto.
+const AVISO_DE_PRIVACIDAD_DE_EJEMPLO =
+  "Antes de seguir: usamos los datos que nos compartas por este chat solo para " +
+  "gestionar tus turnos y responder tus consultas. No compartas acá información " +
+  "sobre tu salud. Podés pedirnos ver, corregir o borrar tus datos cuando quieras. " +
+  "Más información en nuestra política de privacidad:";
+
+const MAX_AVISO = 1000;
+const MAX_LINK = 500;
 
 function toFormValues(settings: OrganizationSettings): OrganizationFormValues {
   return {
@@ -65,6 +83,22 @@ function toFormValues(settings: OrganizationSettings): OrganizationFormValues {
     defaultPhoneCountryCode: settings.defaultPhoneCountryCode ?? "",
     timezone: settings.timezone,
     contactTerm: settings.contactTerm ?? "PACIENTE",
+    privacyNoticeText: settings.privacyNoticeText ?? "",
+    privacyPolicyUrl: settings.privacyPolicyUrl ?? "",
+  };
+}
+
+// R16: solo lo que cambió respecto de lo guardado. Así guardar la moneda no
+// toca el aviso (borrarlo con agentes activos es un 409).
+function cambiosDelAviso(
+  settings: OrganizationSettings,
+  values: OrganizationFormValues,
+): { privacyNoticeText?: string | null; privacyPolicyUrl?: string | null } {
+  const texto = values.privacyNoticeText.trim() || null;
+  const link = values.privacyPolicyUrl.trim() || null;
+  return {
+    ...(texto !== (settings.privacyNoticeText ?? null) ? { privacyNoticeText: texto } : {}),
+    ...(link !== (settings.privacyPolicyUrl ?? null) ? { privacyPolicyUrl: link } : {}),
   };
 }
 
@@ -134,7 +168,9 @@ export function OrganizationSettingsPage() {
         timezone: values.timezone,
         // El término del contacto solo existe en una clínica: a una automotora
         // no se le manda (el backend respondería 400).
-        ...(settingsQuery.data?.industry === "CLINICA" ? { contactTerm: values.contactTerm } : {}),
+        ...(settingsQuery.data?.industry === "CLINICA"
+          ? { contactTerm: values.contactTerm, ...cambiosDelAviso(settingsQuery.data, values) }
+          : {}),
       });
       toast.show("Configuración guardada");
     } catch (err) {
@@ -264,6 +300,62 @@ export function OrganizationSettingsPage() {
             <p className="ds-hint">El rubro y la edición los cambia el equipo de la plataforma.</p>
           </div>
         </Card>
+
+        {settings.industry === "CLINICA" ? (
+          <Card heading="Aviso de privacidad">
+            <div className="ds-stack">
+              <p className="ds-hint">
+                El agente lo manda una sola vez a cada contacto, como mensaje aparte, antes de su
+                primera respuesta. Sin el aviso y el link no se puede activar un agente.
+              </p>
+              <Notice tone="warning" alert={false}>
+                El texto de ejemplo es un borrador: no es asesoramiento legal. Revisalo con un
+                profesional antes de usarlo.
+              </Notice>
+              <div className="ds-field-grid">
+                <div className="ds-field-grid--full">
+                  <FormField label="Texto del aviso">
+                    <textarea
+                      rows={4}
+                      maxLength={MAX_AVISO}
+                      value={values.privacyNoticeText}
+                      onChange={(event) =>
+                        setValues({ ...values, privacyNoticeText: event.target.value })
+                      }
+                    />
+                  </FormField>
+                </div>
+                <div className="ds-field-grid--full">
+                  <FormField label="Link a la política de privacidad">
+                    <input
+                      type="url"
+                      maxLength={MAX_LINK}
+                      placeholder="https://"
+                      value={values.privacyPolicyUrl}
+                      onChange={(event) =>
+                        setValues({ ...values, privacyPolicyUrl: event.target.value })
+                      }
+                    />
+                  </FormField>
+                </div>
+              </div>
+              {values.privacyNoticeText.trim() === "" ? (
+                <div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      setValues({ ...values, privacyNoticeText: AVISO_DE_PRIVACIDAD_DE_EJEMPLO })
+                    }
+                  >
+                    Usar el texto de ejemplo
+                  </Button>
+                </div>
+              ) : null}
+              <p className="ds-hint">El link va abajo del texto, en el mismo mensaje.</p>
+            </div>
+          </Card>
+        ) : null}
 
         <Card heading="Cotización vigente">
           {settings.exchangeRates.length === 0 ? (

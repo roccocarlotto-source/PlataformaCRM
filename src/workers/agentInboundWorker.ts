@@ -54,6 +54,7 @@ import { AppError } from "../utils/AppError";
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
 import { cupoDeTurnosPorDefecto, maximoPorGrupoPorDefecto } from "../utils/limitadorDeTurnos";
 import { resolverRespuestaDelRecordatorio } from "../clinicas/recordatorios/respuesta.service";
+import { avisosDePrivacidadSinEnviar } from "../clinicas/avisoDePrivacidad";
 
 // ---------------------------------------------------------------------------
 // El worker de la cola del webhook de WhatsApp (ítem 125 de
@@ -613,6 +614,12 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
         return "respondido";
       }
       const inicioDelEnvio = Date.now();
+      // R16 (docs/rubros.md §8.1): el aviso de privacidad de una clínica sale
+      // antes de la respuesta, también en un reintento (queda sin enviar hasta
+      // que sale). Una automotora no tiene avisos: la lista viene vacía.
+      for (const aviso of await avisosDePrivacidadSinEnviar(organizationId, conversacion.id)) {
+        await enviarRespuesta(aviso, job, pageAccessToken, deps);
+      }
       await enviarRespuesta(saliente, job, pageAccessToken, deps);
       tiempos.envioMs = Date.now() - inicioDelEnvio;
     }

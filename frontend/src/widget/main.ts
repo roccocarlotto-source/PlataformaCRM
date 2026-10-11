@@ -177,6 +177,10 @@ function mount(config: WidgetConfig): void {
     try {
       const result = await sendWidgetMessage(config, sessionId, text);
       clearTyping(ui.messages);
+      // R16: el aviso de privacidad de una clínica, como primer mensaje.
+      if (result.avisoDePrivacidad) {
+        renderMessage(ui.messages, { role: "agent", text: result.avisoDePrivacidad });
+      }
       renderMessage(ui.messages, { role: "agent", text: result.respuesta ?? HANDOFF_NOTICE });
     } catch (err) {
       clearTyping(ui.messages);

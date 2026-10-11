@@ -367,6 +367,10 @@ enum MessageNoticeType {
   // (avisoSinRespuesta.service.ts): ancla la marca "Pidió hablar con una
   // persona · sin responder".
   UNANSWERED_HANDOFF
+  // R16 (docs/rubros.md §8.1): el aviso de privacidad de una clínica, una vez
+  // por contacto, antes de la primera respuesta del agente
+  // (src/clinicas/avisoDePrivacidad.ts).
+  PRIVACY_NOTICE
 }
 
 enum MessageDeliveryStatus {
@@ -1129,8 +1133,12 @@ model Contact {
   // agente con mark_no_interest o una persona desde la ficha, y se quita a
   // mano. Mientras está, ningún seguimiento automático le escribe. La nota es
   // lo que dijo, para que el vendedor lo vea.
-  noInterestAt   DateTime? @map("no_interest_at")
-  noInterestNote String?   @map("no_interest_note") @db.VarChar(200)
+  noInterestAt        DateTime? @map("no_interest_at")
+  // R16 (docs/rubros.md §8.1): cuándo se le mandó el aviso de privacidad de la
+  // clínica (una vez por contacto). Solo lo escribe código de clínicas; una
+  // automotora no lo ve (CAMPOS_DE_CLINICA).
+  privacyNoticeSentAt DateTime? @map("privacy_notice_sent_at")
+  noInterestNote      String?   @map("no_interest_note") @db.VarChar(200)
 
   organization Organization @relation(fields: [organizationId], references: [id])
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)

@@ -390,3 +390,55 @@ describe("OrganizationSettingsPage — rubro, edición y término del contacto",
     await waitFor(() => expect(getPatchedBody()).toMatchObject({ contactTerm: "CLIENTE" }));
   });
 });
+
+// R16 (docs/rubros.md §8.1): el aviso de privacidad de una clínica.
+describe("OrganizationSettingsPage — aviso de privacidad", () => {
+  it("automotora: no ve la tarjeta y el guardado no manda el aviso", async () => {
+    const { getPatchedBody } = mockSettings(makeOrganizationSettings());
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Automotora")).toBeInTheDocument());
+    expect(screen.queryByText("Aviso de privacidad")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(getPatchedBody()).toBeDefined());
+    expect(getPatchedBody()).not.toHaveProperty("privacyNoticeText");
+    expect(getPatchedBody()).not.toHaveProperty("privacyPolicyUrl");
+  });
+
+  it("clínica: el texto de ejemplo es un borrador que no se guarda solo; cargado, viaja con el link", async () => {
+    const { getPatchedBody } = mockSettings(
+      makeOrganizationSettings({
+        industry: "CLINICA",
+        contactTerm: "PACIENTE",
+        privacyNoticeText: null,
+        privacyPolicyUrl: null,
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const texto = await screen.findByLabelText("Texto del aviso");
+    expect(texto).toHaveValue("");
+    expect(screen.getByText(/no es asesoramiento legal/)).toBeInTheDocument();
+
+    // Guardar sin tocar el aviso no lo manda.
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(getPatchedBody()).toBeDefined());
+    expect(getPatchedBody()).not.toHaveProperty("privacyNoticeText");
+
+    await user.click(screen.getByRole("button", { name: "Usar el texto de ejemplo" }));
+    expect((texto as HTMLTextAreaElement).value).toMatch(/política de privacidad/);
+    await user.type(
+      screen.getByLabelText("Link a la política de privacidad"),
+      "https://example.com/privacidad",
+    );
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() =>
+      expect(getPatchedBody()).toMatchObject({
+        privacyNoticeText: expect.stringMatching(/política de privacidad/) as unknown,
+        privacyPolicyUrl: "https://example.com/privacidad",
+      }),
+    );
+  });
+});

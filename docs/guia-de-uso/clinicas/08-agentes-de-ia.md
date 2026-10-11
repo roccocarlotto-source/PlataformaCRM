@@ -75,3 +75,28 @@ Lo configura un administrador, por sede:
 
 Si lo dejás vacío no hay plazo, y el asistente puede cambiar un turno hasta que
 empieza. Es lo que tiene una sede nueva. Con 0 tampoco hay plazo.
+
+## Aviso de privacidad {#aviso-de-privacidad}
+
+Antes de activar un agente, la clínica tiene que cargar su **aviso de
+privacidad** y el **link a su política de privacidad**. Se cargan en
+**Configuración → Organización**, en la tarjeta **Aviso de privacidad**. Sin
+los dos, el agente se puede guardar pero no activar.
+
+- El agente manda el aviso **una sola vez a cada contacto**, como mensaje
+  aparte, justo antes de su primera respuesta. El link va abajo del texto.
+- Queda registrado cuándo se le mandó. Si unís dos contactos, queda la fecha
+  más vieja y el aviso no se repite.
+- Si el primer mensaje es una **urgencia**, sale primero el mensaje de urgencia
+  y el aviso va con la primera respuesta del agente que siga.
+- En el chat del sitio web, el aviso aparece como primer mensaje de esa
+  respuesta.
+- Mientras haya agentes activos, el aviso y el link no se pueden borrar.
+
+El botón **Usar el texto de ejemplo** carga un borrador para empezar. **No es
+asesoramiento legal**: revisalo con un profesional antes de usarlo.
+
+**Pendiente:** antes del primer paciente real, un profesional tiene que revisar
+el texto y los puntos de privacidad de la ley 18.331 (si alcanza con informar o
+hace falta un consentimiento expreso, plazos, transferencias, y el resto de la
+lista de verificación del diseño). Hasta entonces, el aviso solo informa.

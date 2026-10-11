@@ -1563,6 +1563,20 @@ model ServiceType {
 - El aviso **informa**. Si además hace falta un consentimiento expreso, y cómo
   se registra, lo responde el profesional legal (§10).
 
+> **Implementado en R16.** El aviso es un `Message` de AUTOMATION con
+> `noticeType = PRIVACY_NOTICE` (valor nuevo del enum), creado justo antes de la
+> respuesta del modelo. `privacyNoticeSentAt` se escribe con un CAS (solo si
+> estaba en NULL) en la misma transacción: dos turnos a la vez no mandan dos
+> avisos. El worker de WhatsApp manda los avisos sin enviar antes de la
+> respuesta, también en un reintento. En el widget web, la respuesta del POST
+> trae `avisoDePrivacidad` y el widget lo pinta primero; el sondeo no lo
+> repite. No sale con la respuesta fija de una regla del rubro (urgencia o
+> derivación clínica). Unir contactos conserva la fecha más vieja. Borrar el
+> aviso o el link con agentes activos da 409. El texto de ejemplo de la
+> pantalla es un borrador (no asesoramiento legal) que se carga con un botón y
+> no se guarda solo. **Pendiente:** la revisión profesional de §10 antes del
+> primer cliente real.
+
 ### 8.2 Qué datos se guardan y dónde
 
 | Dato | Dónde | Clínica |
