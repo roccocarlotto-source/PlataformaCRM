@@ -119,7 +119,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     signal: options.signal,
   });
 
-  return handleResponse<T>(res);
+  return handleResponse<T>(res, Boolean(token));
 }
 
 // El manejo de la RESPUESTA, compartido por request() y uploadFile().
@@ -131,7 +131,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 //
 // El comportamiento es idéntico al que request() tenía inline: este cambio no
 // altera nada para los call sites existentes.
-async function handleResponse<T>(res: Response): Promise<T> {
+//
+// `conToken`: si el request salió con Authorization. Ver la nota del 401.
+async function handleResponse<T>(res: Response, conToken: boolean): Promise<T> {
   if (!res.ok) {
     // 401 = el propio token ya no es válido (vencido más allá de lo que el
     // auto-refresh de Supabase pudo cubrir, revocado, etc.) — a diferencia
@@ -140,7 +142,14 @@ async function handleResponse<T>(res: Response): Promise<T> {
     // cerrar la sesión. 204/205/304 no llegan nunca a esta rama (!res.ok
     // exige status >= 400), así que no hay riesgo de dispararlo fuera de un
     // error real.
-    if (res.status === 401) {
+    //
+    // Solo si el request llevó token: un 401 de un request que salió SIN
+    // token no dice nada de ninguna sesión — no había sesión que cerrar. Y
+    // cerrarla igual hacía daño: el signOut de esta pestaña viaja por el
+    // BroadcastChannel de supabase-js y la pestaña que SÍ tenía sesión (la
+    // del link de recuperación o de invitación) la daba por cerrada (ver
+    // AuthContext, onAuthStateChange). El ApiError se lanza igual.
+    if (res.status === 401 && conToken) {
       unauthorizedHandler?.();
     }
     const { message, details } = await extractError(res);
@@ -189,7 +198,8 @@ export async function downloadFile(
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(buildUrl(path), { headers, signal: options.signal });
   if (!res.ok) {
-    if (res.status === 401) unauthorizedHandler?.();
+    // Mismo criterio que handleResponse: sin token no hay sesión que cerrar.
+    if (res.status === 401 && token) unauthorizedHandler?.();
     const { message, details } = await extractError(res);
     throw new ApiError(res.status, message, details);
   }
@@ -216,5 +226,5 @@ export async function uploadFile<T>(
     signal: options.signal,
   });
 
-  return handleResponse<T>(res);
+  return handleResponse<T>(res, Boolean(token));
 }

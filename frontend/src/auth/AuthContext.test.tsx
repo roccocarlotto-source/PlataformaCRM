@@ -23,6 +23,11 @@ interface MockSession {
   access_token: string;
 }
 
+// currentSession es el sessionStorage de ESTA pestaña: lo que devuelve
+// getSession(). emit() es un evento propio (supabase-js ya guardó o borró la
+// sesión antes de avisar); emitDesdeOtraPestana() es el que llega por el
+// BroadcastChannel desde otra pestaña, con la sesión de ESA pestaña, sin tocar
+// el storage de esta (ver AuthContext, onAuthStateChange).
 const mock = vi.hoisted(() => {
   let callback: ((event: string, session: MockSession | null) => void) | null = null;
   let currentSession: MockSession | null = null;
@@ -42,6 +47,9 @@ const mock = vi.hoisted(() => {
     signOut,
     emit: (event: string, session: MockSession | null) => {
       currentSession = session;
+      callback?.(event, session);
+    },
+    emitDesdeOtraPestana: (event: string, session: MockSession | null) => {
       callback?.(event, session);
     },
     reset: () => {
@@ -112,6 +120,11 @@ function Probe() {
       <span data-testid="profile-error">{auth.profileError?.message ?? ""}</span>
       <span data-testid="logout-error">{logoutError ?? ""}</span>
       <button onClick={handleLogout}>logout</button>
+      <button
+        onClick={() => void auth.login("a@example.com", "password123").catch(() => undefined)}
+      >
+        login
+      </button>
       <button onClick={auth.retryProfile}>retry</button>
     </div>
   );
@@ -129,6 +142,14 @@ function renderAuthProvider() {
     </QueryClientProvider>,
   );
   return queryClient;
+}
+
+// AuthContext relee la sesión de la pestaña en un setTimeout(…, 0) después de
+// cada evento: esto deja correr esa relectura dentro de act().
+async function aplicarEventos(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 }
 
 beforeEach(() => {
@@ -150,12 +171,25 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
   });
 
   it("2. INITIAL_SESSION sin sesión pasa a unauthenticated sin llamar a /api/me", async () => {
-    renderAuthProvider();
+    // Antes se verificaba con "getSession no se llamó" (lo llamaba solo
+    // getAccessToken, antes de pedir /api/me). Ahora AuthContext también lo
+    // llama para leer la sesión de la pestaña, así que se cuentan los requests.
+    let requestCount = 0;
+    const onRequestStart = () => {
+      requestCount += 1;
+    };
+    server.events.on("request:start", onRequestStart);
+    try {
+      renderAuthProvider();
 
-    mock.emit("INITIAL_SESSION", null);
+      mock.emit("INITIAL_SESSION", null);
 
-    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("unauthenticated"));
-    expect(mock.getSession).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("unauthenticated"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(requestCount).toBe(0);
+    } finally {
+      server.events.removeListener("request:start", onRequestStart);
+    }
   });
 
   it("5. Evento repetido para la misma identidad no limpia el cache ni refetchea", async () => {
@@ -168,7 +202,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     expect(clearSpy).toHaveBeenCalledTimes(1);
 
     mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
-    await Promise.resolve();
+    await aplicarEventos();
 
     expect(clearSpy).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("status").textContent).toBe("authenticated");
@@ -265,6 +299,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     await act(async () => {
       mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
     });
+    await aplicarEventos();
 
     // Confirma que el fetch de A realmente arrancó (in-flight) antes de
     // cambiar a B — sin este chequeo, React 18+ podría batchear los dos
@@ -275,6 +310,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     await act(async () => {
       mock.emit("SIGNED_IN", sessionFor("user-b", "token-b"));
     });
+    await aplicarEventos();
 
     await waitFor(() => expect(screen.getByTestId("me-id").textContent).toBe("user-b"));
 
@@ -390,5 +426,138 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
 
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("authenticated"));
     expect(screen.getByTestId("me-id").textContent).toBe("user-a");
+  });
+});
+
+// Sesión por pestaña: la sesión vive en el sessionStorage de cada pestaña, pero
+// supabase-js reenvía los eventos de una pestaña a las demás por un
+// BroadcastChannel. Bug real: una pestaña sin sesión (en /forgot-password)
+// recibía el PASSWORD_RECOVERY de la pestaña del link, pedía /api/me sin token,
+// el 401 cerraba "la sesión" y ese SIGNED_OUT volteaba a la pestaña del link.
+describe("AuthProvider — sesión por pestaña", () => {
+  it("un evento de otra pestaña, sin sesión propia: sigue unauthenticated, sin /api/me ni signOut", async () => {
+    server.use(meErrorHandler(401, "Falta el token"));
+    let requestCount = 0;
+    const onRequestStart = () => {
+      requestCount += 1;
+    };
+    server.events.on("request:start", onRequestStart);
+    try {
+      renderAuthProvider();
+      mock.emit("INITIAL_SESSION", null);
+      await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("unauthenticated"));
+
+      mock.emitDesdeOtraPestana("PASSWORD_RECOVERY", sessionFor("user-a", "token-a"));
+      mock.emitDesdeOtraPestana("SIGNED_IN", sessionFor("user-a", "token-a"));
+      await aplicarEventos();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(screen.getByTestId("status").textContent).toBe("unauthenticated");
+      expect(requestCount).toBe(0);
+      expect(mock.signOut).not.toHaveBeenCalled();
+    } finally {
+      server.events.removeListener("request:start", onRequestStart);
+    }
+  });
+
+  it("un SIGNED_OUT de otra pestaña no cierra la sesión que esta pestaña tiene guardada", async () => {
+    server.use(meSuccessHandler(profileA, "token-a"));
+    const queryClient = renderAuthProvider();
+    mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("authenticated"));
+    const clearSpy = vi.spyOn(queryClient, "clear");
+
+    mock.emitDesdeOtraPestana("SIGNED_OUT", null);
+    await aplicarEventos();
+
+    expect(screen.getByTestId("status").textContent).toBe("authenticated");
+    expect(screen.getByTestId("me-id").textContent).toBe("user-a");
+    expect(clearSpy).not.toHaveBeenCalled();
+  });
+
+  it("un login en otra pestaña con otro usuario no cambia la identidad de esta", async () => {
+    server.use(
+      meByTokenHandler({
+        "token-a": { profile: profileA },
+        "token-b": { profile: profileB },
+      }),
+    );
+    const queryClient = renderAuthProvider();
+    mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
+    await waitFor(() => expect(screen.getByTestId("me-id").textContent).toBe("user-a"));
+    const clearSpy = vi.spyOn(queryClient, "clear");
+
+    mock.emitDesdeOtraPestana("SIGNED_IN", sessionFor("user-b", "token-b"));
+    await aplicarEventos();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Ni siquiera hay cambio de identidad: el cache de A queda intacto.
+    expect(clearSpy).not.toHaveBeenCalled();
+    expect(screen.getByTestId("me-id").textContent).toBe("user-a");
+    expect(screen.getByTestId("status").textContent).toBe("authenticated");
+  });
+
+  it("la invitación sale de la sesión de esta pestaña, no de la del evento", async () => {
+    server.use(
+      meErrorHandler(
+        403,
+        "Tu cuenta todavía no está activada. Contactá a tu administrador.",
+        "CUENTA_NO_ACTIVADA",
+      ),
+    );
+    renderAuthProvider();
+    // Esta pestaña: sesión sin invitationId. Otra pestaña: una sesión invitada.
+    mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
+    await waitFor(() =>
+      expect(screen.getByTestId("status").textContent).toBe("account-unavailable"),
+    );
+
+    mock.emitDesdeOtraPestana("SIGNED_IN", {
+      user: { id: "user-a", user_metadata: { invitationId: "inv-otra" } },
+      access_token: "token-otra",
+    });
+    await aplicarEventos();
+
+    expect(screen.getByTestId("debe-aceptar").textContent).toBe("false");
+  });
+});
+
+// Un usuario de una automotora, en una sola pestaña: el login y el logout de
+// siempre, con el SDK guardando la sesión antes de avisar (como el real).
+describe("automotora sin cambios", () => {
+  const perfilAutomotora: MeResponse = {
+    ...profileA,
+    industry: "AUTOMOTORA",
+    edition: "COMPLETA",
+  };
+
+  it("automotora sin cambios: login → authenticated con el perfil de /me; logout → unauthenticated", async () => {
+    const user = userEvent.setup();
+    server.use(meSuccessHandler(perfilAutomotora, "token-a"));
+    mock.signInWithPassword.mockImplementationOnce(async () => {
+      mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
+      return { error: null };
+    });
+    mock.signOut.mockImplementationOnce(async () => {
+      mock.emit("SIGNED_OUT", null);
+      return { error: null };
+    });
+
+    renderAuthProvider();
+    mock.emit("INITIAL_SESSION", null);
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("unauthenticated"));
+
+    await user.click(screen.getByText("login"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("authenticated"));
+    expect(screen.getByTestId("me-id").textContent).toBe("user-a");
+    expect(mock.signInWithPassword).toHaveBeenCalledWith({
+      email: "a@example.com",
+      password: "password123",
+    });
+
+    await user.click(screen.getByText("logout"));
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("unauthenticated"));
+    expect(screen.getByTestId("me-id").textContent).toBe("");
+    expect(mock.signOut).toHaveBeenCalledWith({ scope: "local" });
   });
 });
