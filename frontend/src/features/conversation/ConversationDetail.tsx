@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
@@ -260,7 +261,7 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
             </>
           ),
         },
-        { label: "Sucursal", value: conversation.branch.name },
+        { label: vocabularioDe(me).sucursal.singularTitulo, value: conversation.branch.name },
         { label: "Agente", value: conversation.agent.name },
         { label: "Inicio", value: formatDateTime(conversation.createdAt) },
         { label: "Último mensaje", value: formatDateTime(conversation.lastMessageAt) },

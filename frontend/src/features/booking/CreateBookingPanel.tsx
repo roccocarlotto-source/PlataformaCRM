@@ -1,3 +1,8 @@
+import {
+  concordancia,
+  VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+  type VocabularioCompleto,
+} from "../../auth/vocabulario";
 import { useId, useState, type FormEvent } from "react";
 import { DetailList } from "../../design-system/DetailList";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -17,6 +22,8 @@ import {
 import { useCreateBooking } from "./mutations";
 
 interface CreateBookingPanelProps {
+  // Los textos del rubro. Sin el prop, los de una automotora.
+  vocabulario?: VocabularioCompleto;
   resource: Resource;
   fecha: string;
   minuto: number;
@@ -42,6 +49,7 @@ interface CreateBookingPanelProps {
 // para un no-ADMIN lo decide el backend contra el rol del JWT.
 // ---------------------------------------------------------------------------
 export function CreateBookingPanel({
+  vocabulario = VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
   resource,
   fecha,
   minuto,
@@ -56,6 +64,7 @@ export function CreateBookingPanel({
   const [contactId, setContactId] = useState<string | undefined>(undefined);
   const [forzar, setForzar] = useState(false);
   const createBookingMutation = useCreateBooking();
+  const { reserva, recurso, tipoDeServicio } = vocabulario;
 
   // Mismo criterio que el select "Tipo de servicio" de BookingListPage: los
   // servicios que provee ESE recurso.
@@ -101,7 +110,7 @@ export function CreateBookingPanel({
 
   return (
     <Modal
-      title="Nueva reserva"
+      title={`${concordancia(reserva).Nuevo} ${reserva.singular}`}
       onClose={onClose}
       closeLabel="Cerrar"
       primaryAction={{
@@ -115,7 +124,7 @@ export function CreateBookingPanel({
         sections={[
           {
             items: [
-              { label: "Recurso", value: resource.name },
+              { label: recurso.singularTitulo, value: resource.name },
               { label: "Fecha", value: fechaLegible },
               { label: "Hora", value: hora },
             ],
@@ -126,7 +135,7 @@ export function CreateBookingPanel({
       <form id={formId} onSubmit={handleSubmit} noValidate>
         <Select
           id={`${formId}-service-type`}
-          label="Tipo de servicio"
+          label={tipoDeServicio.singularTitulo}
           value={serviceTypeId}
           options={servicios.map((s) => ({ value: s.id, label: s.name }))}
           emptyOption={{ label: "Elegir servicio…" }}
@@ -137,7 +146,9 @@ export function CreateBookingPanel({
           }}
         />
         {servicios.length === 0 ? (
-          <p className="ds-hint">Este recurso todavía no tiene tipos de servicio.</p>
+          <p className="ds-hint">
+            {`${concordancia(recurso).Este} ${recurso.singular} todavía no tiene ${tipoDeServicio.plural}.`}
+          </p>
         ) : null}
 
         <ContactSelect
@@ -165,7 +176,7 @@ export function CreateBookingPanel({
 
       {createBookingMutation.isError ? (
         <ErrorState>
-          No pudimos crear la reserva
+          No pudimos crear {concordancia(reserva).el} {reserva.singular}
           {createBookingMutation.error instanceof Error
             ? `: ${createBookingMutation.error.message}`
             : "."}

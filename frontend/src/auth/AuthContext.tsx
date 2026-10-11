@@ -64,6 +64,9 @@ export interface TerminoDelVocabulario {
   plural: string;
   singularTitulo: string;
   pluralTitulo: string;
+  // R17: para el artículo ("la reserva", "el turno"). Opcional: un backend
+  // anterior no lo manda (vocabularioDe lo completa).
+  genero?: "masculino" | "femenino";
 }
 
 // src/config/terminos.ts del backend.
@@ -75,6 +78,9 @@ export interface Vocabulario {
   reserva: TerminoDelVocabulario;
   agenda: TerminoDelVocabulario;
   responsable: TerminoDelVocabulario;
+  // R17: "sucursal" o "sede". Opcional: un backend anterior no lo manda
+  // (vocabularioDe completa lo que falta).
+  sucursal?: TerminoDelVocabulario;
 }
 
 export type AuthStatus =

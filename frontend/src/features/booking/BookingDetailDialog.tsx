@@ -1,3 +1,8 @@
+import {
+  concordancia,
+  VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+  type VocabularioCompleto,
+} from "../../auth/vocabulario";
 import type { ReactNode } from "react";
 import { useConfirm } from "../../design-system/useConfirm";
 import { Button } from "../../design-system/Button";
@@ -9,6 +14,9 @@ import { useCancelBooking } from "./mutations";
 import type { Booking } from "./types";
 
 interface BookingDetailDialogProps {
+  // Los textos del rubro (reserva o turno, recurso o profesional). Sin el
+  // prop, los de una automotora.
+  vocabulario?: VocabularioCompleto;
   booking: Booking;
   contactName: string;
   serviceName: string;
@@ -33,6 +41,7 @@ interface BookingDetailDialogProps {
 // Reservas.
 // ---------------------------------------------------------------------------
 export function BookingDetailDialog({
+  vocabulario = VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
   booking,
   contactName,
   serviceName,
@@ -44,28 +53,33 @@ export function BookingDetailDialog({
 }: BookingDetailDialogProps) {
   const confirm = useConfirm();
   const cancelBookingMutation = useCancelBooking();
+  const reserva = vocabulario.reserva;
+  const r = concordancia(reserva);
 
   async function handleCancel() {
     if (
-      !(await confirm("¿Cancelar esta reserva? El turno queda libre y no se puede deshacer.", {
-        confirmLabel: "Cancelar reserva",
-        cancelLabel: "Volver",
-        danger: true,
-      }))
+      !(await confirm(
+        `¿Cancelar ${r.este} ${reserva.singular}? El turno queda libre y no se puede deshacer.`,
+        {
+          confirmLabel: `Cancelar ${reserva.singular}`,
+          cancelLabel: "Volver",
+          danger: true,
+        },
+      ))
     )
       return;
     cancelBookingMutation.mutate(booking.id, { onSuccess: onClose });
   }
 
   return (
-    <Modal variant="dialog" title="Reserva" onClose={onClose}>
+    <Modal variant="dialog" title={reserva.singularTitulo} onClose={onClose}>
       <DetailList
         sections={[
           {
             items: [
               { label: "Contacto", value: contactName },
               { label: "Servicio", value: serviceName },
-              { label: "Recurso", value: resourceName },
+              { label: vocabulario.recurso.singularTitulo, value: resourceName },
               {
                 label: "Horario",
                 value: formatRangoDeReserva(booking.startsAt, booking.endsAt, zona),
@@ -81,7 +95,7 @@ export function BookingDetailDialog({
 
       {cancelBookingMutation.isError ? (
         <ErrorState>
-          No pudimos cancelar la reserva
+          No pudimos cancelar {r.el} {reserva.singular}
           {cancelBookingMutation.error instanceof Error
             ? `: ${cancelBookingMutation.error.message}`
             : "."}
@@ -100,7 +114,7 @@ export function BookingDetailDialog({
         disabled={cancelBookingMutation.isPending}
         loading={cancelBookingMutation.isPending}
       >
-        Cancelar reserva
+        {`Cancelar ${reserva.singular}`}
       </Button>
     </Modal>
   );

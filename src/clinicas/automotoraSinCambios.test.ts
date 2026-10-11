@@ -432,36 +432,51 @@ test("vocabulario de una automotora: los textos de hoy, con o sin término del c
       plural: "clientes",
       singularTitulo: "Cliente",
       pluralTitulo: "Clientes",
+      genero: "masculino",
     },
     recurso: {
       singular: "recurso",
       plural: "recursos",
       singularTitulo: "Recurso",
       pluralTitulo: "Recursos",
+      genero: "masculino",
     },
     tipoDeServicio: {
       singular: "tipo de servicio",
       plural: "tipos de servicio",
       singularTitulo: "Tipo de servicio",
       pluralTitulo: "Tipos de servicio",
+      genero: "masculino",
     },
     reserva: {
       singular: "reserva",
       plural: "reservas",
       singularTitulo: "Reserva",
       pluralTitulo: "Reservas",
+      genero: "femenino",
     },
     agenda: {
       singular: "calendario",
       plural: "calendarios",
       singularTitulo: "Calendario",
       pluralTitulo: "Calendarios",
+      genero: "masculino",
     },
     responsable: {
       singular: "vendedor",
       plural: "vendedores",
       singularTitulo: "Vendedor",
       pluralTitulo: "Vendedores",
+      genero: "masculino",
+    },
+    // R17b: el término nuevo trae el texto de siempre (y cada término, su
+    // género para el artículo).
+    sucursal: {
+      singular: "sucursal",
+      plural: "sucursales",
+      singularTitulo: "Sucursal",
+      pluralTitulo: "Sucursales",
+      genero: "femenino",
     },
   };
   assert.deepEqual(vocabularioDe("AUTOMOTORA", null), esperado);

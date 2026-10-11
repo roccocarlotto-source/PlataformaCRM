@@ -10,6 +10,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { useAuth } from "../../auth/AuthContext";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { PlazoDeCambioSection } from "../clinica/PlazoDeCambioSection";
 import { RecordatoriosSection } from "../clinica/RecordatoriosSection";
@@ -86,6 +87,11 @@ export function BranchFormPage() {
 
   // R11: la sección de turnos por chat es solo de una clínica.
   const { me } = useAuth();
+  // Rubros (docs/rubros.md §3.1): sucursal o sede, vendedor o responsable,
+  // cliente o paciente.
+  const vocabulario = vocabularioDe(me);
+  const sucursal = vocabulario.sucursal;
+  const responsable = vocabulario.responsable;
   const esClinica = me?.industry === "CLINICA";
   const branchQuery = useBranch(isEditMode ? id : undefined);
   const createBranchMutation = useCreateBranch();
@@ -126,7 +132,7 @@ export function BranchFormPage() {
       }
       navigate("/branches");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pudimos guardar la sucursal");
+      setError(err instanceof Error ? err.message : `No pudimos guardar la ${sucursal.singular}`);
     }
   }
 
@@ -137,7 +143,7 @@ export function BranchFormPage() {
   if (isEditMode && branchQuery.isError) {
     return (
       <ErrorState>
-        No pudimos cargar la sucursal
+        No pudimos cargar la {sucursal.singular}
         {branchQuery.error instanceof Error ? `: ${branchQuery.error.message}` : "."}
       </ErrorState>
     );
@@ -147,10 +153,10 @@ export function BranchFormPage() {
     <form onSubmit={handleSubmit} className="ds-form">
       <PageHeader
         help={AYUDA.sucursalForm}
-        title={isEditMode ? "Editar sucursal" : "Nueva sucursal"}
+        title={isEditMode ? `Editar ${sucursal.singular}` : `Nueva ${sucursal.singular}`}
       />
       <div className="ds-stack">
-        <Card heading="Datos de la sucursal">
+        <Card heading={`Datos de la ${sucursal.singular}`}>
           <div className="ds-field-grid">
             <FormField label={<span className="ds-required">Nombre</span>}>
               <input
@@ -194,15 +200,15 @@ export function BranchFormPage() {
                 dejar la sucursal sin ninguno. */}
             <UserSelect
               id="branch-form-default-owner"
-              label="Vendedor por defecto"
+              label={`${responsable.singularTitulo} por defecto`}
               value={values.defaultOwnerId ?? undefined}
               onChange={(defaultOwnerId) =>
                 setValues({ ...values, defaultOwnerId: defaultOwnerId || null })
               }
-              emptyOptionLabel="Sin vendedor por defecto"
+              emptyOptionLabel={`Sin ${responsable.singular} por defecto`}
             />
             <p className="ds-hint ds-field-grid--full">
-              A quien el agente asigna los contactos sin vendedor.
+              {`A quien el agente asigna los contactos sin ${responsable.singular}.`}
             </p>
           </div>
         </Card>
@@ -235,7 +241,7 @@ export function BranchFormPage() {
               </FormField>
             </div>
             <p className="ds-hint ds-field-grid--full">
-              El agente se los comparte al cliente que quiere pagar.
+              {`El agente se los comparte al ${vocabulario.contacto.singular} que quiere pagar.`}
             </p>
           </div>
         </Card>
@@ -250,7 +256,11 @@ export function BranchFormPage() {
         {isEditMode ? <BusinessHoursSection branchId={id} /> : null}
 
         {isEditMode ? (
-          <GoogleCalendarSection branchId={id} resultadoDelCallback={resultadoDelCallback} />
+          <GoogleCalendarSection
+            branchId={id}
+            resultadoDelCallback={resultadoDelCallback}
+            reserva={vocabulario.reserva}
+          />
         ) : null}
 
         {/* R11: el plazo para que el asistente cambie un turno. Solo en una

@@ -21,6 +21,8 @@ import { CHANNEL_OPTIONS, DEFAULT_MODEL_PROVIDER, MODEL_PROVIDER_OPTIONS } from 
 import { useCreateAgent, useUpdateAgent } from "./mutations";
 import { useAgent } from "./queries";
 import { agentToolOptions, avisoDeAccionesSinGuardarElNombre } from "./tools";
+import { tieneModulo } from "../../auth/useModulo";
+import { vocabularioDe } from "../../auth/vocabulario";
 import type {
   Agent,
   ConversationChannel,
@@ -118,8 +120,17 @@ const EMPTY_FORM: AgentFormValues = {
 // una acción (ítem 72). Los temas prohibidos, las promesas prohibidas y las
 // condiciones de derivación se escriben en Instrucciones: nunca fueron un
 // candado, son texto que el modelo lee.
-const PLACEHOLDER_GUARDRAILS =
-  "Ej.: No canceles ni cambies el estado de una oportunidad a ganada sin que un humano lo confirme. No modifiques el email ni el teléfono de un contacto. Antes de reservar un turno, asegurate de tener el nombre y el teléfono del cliente.";
+// Rubros (docs/rubros.md §3.1): sin oportunidades (una clínica) no se nombra
+// la primera, y el contacto es el del rubro.
+function placeholderGuardrails(conOportunidades: boolean, contacto: string): string {
+  return (
+    "Ej.: " +
+    (conOportunidades
+      ? "No canceles ni cambies el estado de una oportunidad a ganada sin que un humano lo confirme. "
+      : "") +
+    `No modifiques el email ni el teléfono de un contacto. Antes de reservar un turno, asegurate de tener el nombre y el teléfono del ${contacto}.`
+  );
+}
 
 // Las tres claves que esta pantalla ya no escribe pero que un agente viejo
 // puede seguir teniendo guardadas — el backend las preserva en cada guardado
@@ -282,6 +293,8 @@ export function AgentFormPage() {
   // lectura y el POST/PATCH no lo manda; para un platform admin es editable y
   // se guarda por su propio endpoint (PUT /api/admin/agents/:id/model).
   const { me } = useAuth();
+  const vocabulario = vocabularioDe(me);
+  const contacto = vocabulario.contacto.singular;
   const puedeElegirModelo = me?.isPlatformAdmin === true;
   // Nivel de IA (paso C de docs/ediciones.md §10): el bloque se muestra SOLO
   // en una organización ESENCIAL. En COMPLETA el agente todavía no respeta el
@@ -510,7 +523,8 @@ export function AgentFormPage() {
                 <label htmlFor> y FormField ES un <label>. */}
             <BranchSelect
               id="agent-form-branch"
-              label="Sucursal"
+              label={vocabulario.sucursal.singularTitulo}
+              emptyOptionLabel={`Elegir ${vocabulario.sucursal.singular}…`}
               value={values.branchId}
               onChange={(branchId) => setValues({ ...values, branchId: branchId || undefined })}
               required={!isEditMode}
@@ -545,7 +559,7 @@ export function AgentFormPage() {
               Resumen para esta pantalla; el agente lee las instrucciones.
             </p>
 
-            <FormField label="Avisar al cliente si nadie responde en (minutos)">
+            <FormField label={`Avisar al ${contacto} si nadie responde en (minutos)`}>
               <input
                 type="number"
                 inputMode="numeric"
@@ -577,7 +591,7 @@ export function AgentFormPage() {
             </div>
 
             <p className="ds-hint ds-field-grid--full">
-              Le llega al cliente. No escribas el horario: se agrega solo.
+              {`Le llega al ${contacto}. No escribas el horario: se agrega solo.`}
             </p>
 
             <div className="ds-field-grid--full">
@@ -711,7 +725,11 @@ export function AgentFormPage() {
               id="agent-form-tools"
               label="Acciones habilitadas"
               value={values.enabledTools}
-              options={agentToolOptions(values.enabledTools, me?.industry === "CLINICA")}
+              options={agentToolOptions(
+                values.enabledTools,
+                me?.industry === "CLINICA",
+                vocabulario,
+              )}
               emptyLabel="Ninguna"
               onChange={(enabledTools) => setValues({ ...values, enabledTools })}
             />
@@ -761,7 +779,7 @@ export function AgentFormPage() {
                   value={values.guardrailsText}
                   rows={8}
                   maxLength={4000}
-                  placeholder={PLACEHOLDER_GUARDRAILS}
+                  placeholder={placeholderGuardrails(tieneModulo(me, "oportunidades"), contacto)}
                   onChange={(event) => setValues({ ...values, guardrailsText: event.target.value })}
                 />
               </FormField>
@@ -815,7 +833,7 @@ export function AgentFormPage() {
           <ul>
             {resumirGuardrails(
               guardrailsDelPanel,
-              agentToolOptions(values.enabledTools, me?.industry === "CLINICA"),
+              agentToolOptions(values.enabledTools, me?.industry === "CLINICA", vocabulario),
             ).map((linea) => (
               <li key={linea}>{linea}</li>
             ))}

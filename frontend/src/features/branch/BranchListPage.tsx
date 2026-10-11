@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { MapPin, Plus } from "lucide-react";
+import { useAuth } from "../../auth/AuthContext";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
@@ -27,6 +29,8 @@ const PAGE_SIZE = 20;
 // hay nada para él más que botones que el backend rechazaría.
 export function BranchListPage() {
   const confirm = useConfirm();
+  // Rubros (docs/rubros.md §3.1): "sucursal" o "sede".
+  const sucursal = vocabularioDe(useAuth().me).sucursal;
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<BranchSortBy>("createdAt");
@@ -53,7 +57,12 @@ export function BranchListPage() {
     // window.confirm, igual que Source/Pipeline. El RESTRICT (recursos,
     // servicios, QRs activos o Google Calendar conectado) NO se anticipa acá:
     // lo decide el backend y su 400 trae el mensaje a mostrar, ver abajo.
-    if (!(await confirm("¿Eliminar esta sucursal?", { confirmLabel: "Eliminar", danger: true }))) {
+    if (
+      !(await confirm(`¿Eliminar esta ${sucursal.singular}?`, {
+        confirmLabel: "Eliminar",
+        danger: true,
+      }))
+    ) {
       return;
     }
     deleteBranchMutation.mutate(id);
@@ -63,12 +72,12 @@ export function BranchListPage() {
     <div>
       <PageHeader
         help={AYUDA.sucursales}
-        title="Sucursales"
+        title={sucursal.pluralTitulo}
         actions={
           <>
             <Link to="/branches/new" className="ds-link-button">
               <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-              Nueva sucursal
+              {`Nueva ${sucursal.singular}`}
             </Link>
           </>
         }
@@ -113,7 +122,7 @@ export function BranchListPage() {
 
         {branchesQuery.isError ? (
           <ErrorState>
-            No pudimos cargar las sucursales
+            No pudimos cargar las {sucursal.plural}
             {branchesQuery.error instanceof Error ? `: ${branchesQuery.error.message}` : "."}
           </ErrorState>
         ) : null}
@@ -124,7 +133,7 @@ export function BranchListPage() {
             activos. Eliminá primero sus recursos."), que ya dice qué hacer. */}
         {deleteBranchMutation.isError ? (
           <ErrorState>
-            No pudimos eliminar la sucursal
+            No pudimos eliminar la {sucursal.singular}
             {deleteBranchMutation.error instanceof Error
               ? `: ${deleteBranchMutation.error.message}`
               : "."}
@@ -132,7 +141,7 @@ export function BranchListPage() {
         ) : null}
 
         {branchesQuery.isSuccess && branchesQuery.data.data.length === 0 ? (
-          <EmptyState title="No hay sucursales para mostrar" icon={MapPin} />
+          <EmptyState title={`No hay ${sucursal.plural} para mostrar`} icon={MapPin} />
         ) : null}
 
         {branchesQuery.isSuccess && branchesQuery.data.data.length > 0 ? (

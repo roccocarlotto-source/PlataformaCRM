@@ -15,6 +15,7 @@ import { AGENTS_PARA_SELECT, useAgents } from "../agent/queries";
 import { CHANNEL_LABEL, CHANNEL_OPTIONS } from "../agent/labels";
 import { BranchSelect } from "../branch/BranchSelect";
 import { useAuth } from "../../auth/AuthContext";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { sedesDeQuienEntra } from "../clinica/sedes";
 import { ConversationDetail } from "./ConversationDetail";
 import { MARCA_SIN_RESPUESTA, STATUS_BADGE_VARIANT, STATUS_LABEL, STATUS_OPTIONS } from "./labels";
@@ -57,6 +58,8 @@ const PAGE_SIZE = 20;
 export function ConversationListPage() {
   // R20: una Recepción de clínica filtra entre sus sedes.
   const { me } = useAuth();
+  // Rubros (docs/rubros.md §3.1): "Sucursal" o "Sede".
+  const sucursal = vocabularioDe(me).sucursal;
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<ConversationStatus | "">("");
@@ -129,7 +132,7 @@ export function ConversationListPage() {
           />
           <BranchSelect
             id="conversation-list-branch"
-            label="Sucursal"
+            label={sucursal.singularTitulo}
             value={branchId}
             soloSedes={sedesDeQuienEntra(me)}
             emptyOptionLabel="Todas"
@@ -172,7 +175,7 @@ export function ConversationListPage() {
                 <th>Contacto</th>
                 <th className="ds-cell-fit">Canal</th>
                 <th className="ds-cell-fit">Estado</th>
-                <th>Sucursal</th>
+                <th>{sucursal.singularTitulo}</th>
                 <th>Agente</th>
                 <th>Último mensaje</th>
               </tr>

@@ -8,7 +8,12 @@ export interface AsignarVendedorDialogProps {
   contactId: string;
   ownerId: string | null;
   onClose: () => void;
+  // A quién se asigna, con el término del rubro (vocabulario.responsable:
+  // vendedor o responsable). Sin el prop, "vendedor", como siempre.
+  responsable?: { singular: string; singularTitulo: string };
 }
+
+const VENDEDOR = { singular: "vendedor", singularTitulo: "Vendedor" };
 
 // ---------------------------------------------------------------------------
 // "Asignar vendedor" desde una fila de Consultas sin identificar (ítem 184):
@@ -17,7 +22,12 @@ export interface AsignarVendedorDialogProps {
 // UserSelect, que pide GET /api/users. El selector no es "clearable": ownerId
 // no se puede limpiar por PATCH (ver UserSelect).
 // ---------------------------------------------------------------------------
-export function AsignarVendedorDialog({ contactId, ownerId, onClose }: AsignarVendedorDialogProps) {
+export function AsignarVendedorDialog({
+  contactId,
+  ownerId,
+  onClose,
+  responsable = VENDEDOR,
+}: AsignarVendedorDialogProps) {
   const [elegido, setElegido] = useState<string | undefined>(ownerId ?? undefined);
   const actualizar = useUpdateContact(contactId);
 
@@ -29,7 +39,7 @@ export function AsignarVendedorDialog({ contactId, ownerId, onClose }: AsignarVe
   return (
     <Modal
       variant="dialog"
-      title="Asignar vendedor"
+      title={`Asignar ${responsable.singular}`}
       onClose={onClose}
       closeLabel="Cancelar"
       primaryAction={{
@@ -42,7 +52,7 @@ export function AsignarVendedorDialog({ contactId, ownerId, onClose }: AsignarVe
       <div className="ds-stack">
         <UserSelect
           id="asignar-vendedor"
-          label="Vendedor"
+          label={responsable.singularTitulo}
           value={elegido}
           onChange={setElegido}
           emptyOptionLabel="Sin asignar"
@@ -50,7 +60,7 @@ export function AsignarVendedorDialog({ contactId, ownerId, onClose }: AsignarVe
         />
         {actualizar.isError ? (
           <ErrorState>
-            No pudimos asignar el vendedor
+            No pudimos asignar el {responsable.singular}
             {actualizar.error instanceof Error ? `: ${actualizar.error.message}` : "."}
           </ErrorState>
         ) : null}
