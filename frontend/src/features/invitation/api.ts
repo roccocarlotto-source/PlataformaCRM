@@ -42,6 +42,15 @@ export function createInvitation(input: CreateInvitationInput): Promise<Invitati
   });
 }
 
+// Vuelve a mandar el mail de una invitación pendiente; el vencimiento vuelve
+// a contar desde ahora (resendInvitation en el backend).
+export function resendInvitation(id: string): Promise<Invitation> {
+  return request<Invitation>(`/invitations/${id}/resend`, {
+    method: "POST",
+    getAccessToken,
+  });
+}
+
 // DELETE /invitations/:id representa la transición PENDING -> REVOKED —
 // nunca un hard delete (ver revoke.service.ts).
 export function revokeInvitation(id: string): Promise<Invitation> {

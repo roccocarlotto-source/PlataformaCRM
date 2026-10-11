@@ -10,6 +10,7 @@ import { notFound } from "../middlewares/notFound";
 import { requirePlatformAdmin } from "../middlewares/requirePlatformAdmin";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { espiarInvitaciones } from "../routes/invitacion.test-helper";
 import { ESENCIAL_HABILITADA, PROCESO_DE_VENTA_FIJO } from "../config/ediciones";
 import {
   createOrganizationWithFoundingAdmin,
@@ -20,6 +21,7 @@ import {
   createOrganizationHandler,
   listEditionsHandler,
   listOrganizationsHandler,
+  reenviarInvitacionDelAdministradorHandler,
 } from "./organizationAdmin.controller";
 
 // ---------------------------------------------------------------------------
@@ -77,6 +79,12 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
     stubAuthenticate,
     requirePlatformAdmin,
     changeOrganizationEditionHandler,
+  );
+  app.post(
+    "/api/admin/organizations/:organizationId/admin-invitation/resend",
+    stubAuthenticate,
+    requirePlatformAdmin,
+    reenviarInvitacionDelAdministradorHandler,
   );
   app.use(notFound);
   app.use(errorHandler);
@@ -549,4 +557,71 @@ test("PATCH /edition: sube ESENCIAL a COMPLETA; repetir es 200 sin cambios; baja
     identidad = undefined;
     await prisma.organization.deleteMany({ where: { id: org.id } });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Reenviar la invitación al administrador (prueba de la Clínica Demo,
+// 2026-10-11): el primer administrador no es una fila de Invitation, así que
+// no había forma de mandarle el mail de nuevo.
+// ---------------------------------------------------------------------------
+
+function reenviar(organizationId: string) {
+  return fetch(`${baseUrl}/api/admin/organizations/${organizationId}/admin-invitation/resend`, {
+    method: "POST",
+  });
+}
+
+test("reenviar la invitación del administrador: 403 si no es platform admin", async () => {
+  identidad = comoUsuario(randomUUID(), randomUUID(), "ADMIN");
+  try {
+    const res = await reenviar(randomUUID());
+    assert.equal(res.status, 403);
+  } finally {
+    identidad = undefined;
+  }
+});
+
+test("reenviar la invitación del administrador: sale con el mismo enlace del alta; ya aceptada → 409; organización inexistente → 404", async () => {
+  await conPlatformAdmin(async (platformAdminUserId) => {
+    identidad = comoUsuario(platformAdminUserId, randomUUID());
+    const email = emailDePrueba("reenviar");
+    let creado: Creado | undefined;
+    try {
+      const alta = await post({
+        organizationName: `Automotora Feliz ${Date.now()}`,
+        adminFullName: "Ana Sin Mail",
+        adminEmail: email,
+      });
+      const textoDelAlta = await alta.text();
+      assert.equal(alta.status, 201, textoDelAlta);
+      creado = JSON.parse(textoDelAlta) as Creado;
+      const organizationId = creado.organization.id;
+
+      const { resultado, llamadas } = await espiarInvitaciones(() => reenviar(organizationId));
+      const texto = await resultado.text();
+      assert.equal(resultado.status, 200, texto);
+      assert.deepEqual(JSON.parse(texto), { email });
+      assert.equal(llamadas.length, 1);
+      assert.equal(llamadas[0].email, email);
+      assert.match(llamadas[0].opciones?.redirectTo ?? "", /\/reset-password$/);
+      assert.equal(llamadas[0].opciones?.data?.full_name, "Ana Sin Mail");
+
+      // Ya abrió el mail y eligió la contraseña: no hay nada que reenviar.
+      await getSupabaseAdmin().auth.admin.updateUserById(creado.admin.id, {
+        email_confirm: true,
+      });
+      const otraVez = await reenviar(organizationId);
+      assert.equal(otraVez.status, 409);
+      const cuerpo = (await otraVez.json()) as { error?: { message?: string } };
+      assert.equal(
+        cuerpo.error?.message,
+        "El administrador de esta organización ya aceptó la invitación: no hay nada que reenviar.",
+      );
+
+      assert.equal((await reenviar(randomUUID())).status, 404);
+    } finally {
+      identidad = undefined;
+      if (creado) await limpiarCreado(creado);
+    }
+  });
 });

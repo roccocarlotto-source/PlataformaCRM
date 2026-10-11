@@ -7,6 +7,7 @@ import {
   assignInternalAgentModel,
   assignWhatsappNumber,
   changeOrganizationEdition,
+  reenviarInvitacionDelAdministrador,
   completeOrganizationMetaConnection,
   createClinicaDemo,
   createOrganization,
@@ -56,6 +57,13 @@ export function useChangeOrganizationEdition() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
     },
+  });
+}
+
+// Sin invalidación: el listado no muestra nada del administrador.
+export function useReenviarInvitacionDelAdministrador() {
+  return useMutation({
+    mutationFn: (organizationId: string) => reenviarInvitacionDelAdministrador(organizationId),
   });
 }
 

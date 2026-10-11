@@ -31,7 +31,7 @@ import {
   levantarApp,
   type OrgDePrueba,
 } from "../routes/gateDeModulos.test-helper";
-import { invitarYAceptar } from "../routes/invitacion.test-helper";
+import { espiarInvitaciones, invitar, invitarYAceptar } from "../routes/invitacion.test-helper";
 import { urlParaAceptarLaInvitacion } from "../services/invitation.service";
 
 // ---------------------------------------------------------------------------
@@ -934,6 +934,57 @@ test("invitaciones: el mail lleva a /invite/accept y una invitación de USER se 
   } finally {
     await prisma.invitation.deleteMany({ where: { id: r.invitationId } });
     await prisma.user.deleteMany({ where: { organizationId: completa.id, email } });
+    const filas = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM auth.users WHERE email = ${email}`;
+    for (const { id } of filas) await getSupabaseAdmin().auth.admin.deleteUser(id);
+  }
+});
+
+// Reenviar (prueba de la Clínica Demo, 2026-10-11): en una automotora, el
+// ADMIN reenvía una invitación de USER pendiente con el mismo enlace; una
+// revocada no se reenvía.
+test("invitaciones: el ADMIN reenvía una pendiente con el mismo enlace, y una revocada da 409", async () => {
+  const email = `automotora-sin-cambios-reenv-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+  const { invitationId } = await invitar(pedir, completa, completa.tokens[0], {
+    email,
+    role: "USER",
+  });
+  try {
+    const { resultado, llamadas } = await espiarInvitaciones(() =>
+      pedir(
+        completa,
+        "POST",
+        `/api/invitations/${invitationId}/resend`,
+        undefined,
+        completa.tokens[0],
+      ),
+    );
+    assert.equal(resultado.status, 200, JSON.stringify(resultado.json));
+    assert.equal(llamadas[0]?.opciones?.redirectTo, urlParaAceptarLaInvitacion());
+    assert.equal(resultado.json.status, "PENDING");
+
+    const revocar = await pedir(
+      completa,
+      "DELETE",
+      `/api/invitations/${invitationId}`,
+      undefined,
+      completa.tokens[0],
+    );
+    assert.equal(revocar.status, 200);
+    const otraVez = await pedir(
+      completa,
+      "POST",
+      `/api/invitations/${invitationId}/resend`,
+      undefined,
+      completa.tokens[0],
+    );
+    assert.equal(otraVez.status, 409);
+    assert.equal(
+      otraVez.json.error?.message,
+      "Esta invitación fue revocada: si hace falta, creá una nueva",
+    );
+  } finally {
+    await prisma.invitation.deleteMany({ where: { id: invitationId } });
     const filas = await prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM auth.users WHERE email = ${email}`;
     for (const { id } of filas) await getSupabaseAdmin().auth.admin.deleteUser(id);

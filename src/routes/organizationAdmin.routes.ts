@@ -7,6 +7,7 @@ import {
   listIndustriesHandler,
   listLlmUsageHandler,
   listOrganizationsHandler,
+  reenviarInvitacionDelAdministradorHandler,
 } from "../controllers/organizationAdmin.controller";
 import { crearClinicaDemoHandler } from "../clinicas/demo/clinicaDemo.controller";
 import { authenticate } from "../middlewares/authenticate";
@@ -89,6 +90,16 @@ organizationAdminRouter.patch(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   changeOrganizationIndustryHandler,
+);
+
+// Reenviar la invitación al administrador que todavía no la aceptó. Misma
+// cadena.
+organizationAdminRouter.post(
+  "/admin/organizations/:organizationId/admin-invitation/resend",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  reenviarInvitacionDelAdministradorHandler,
 );
 
 // B4: el gasto en el modelo por organización (últimos 30 días), misma cadena.

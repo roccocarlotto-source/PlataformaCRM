@@ -206,6 +206,69 @@ describe("InvitationListPage", () => {
     expect(expiredRow.textContent).not.toContain("Revocar");
   });
 
+  // Reenviar (prueba de la Clínica Demo, 2026-10-11).
+  it("Reenviar solo en las PENDING: manda el POST y avisa a quién salió", async () => {
+    let reenvios = 0;
+    server.use(
+      http.get(invitationsUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeInvitation({ id: "i1", email: "pendiente@x.com", status: "PENDING" }),
+            makeInvitation({ id: "i2", email: "aceptada@x.com", status: "ACCEPTED" }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+        }),
+      ),
+      http.post(`${invitationsUrl}/i1/resend`, () => {
+        reenvios += 1;
+        return HttpResponse.json(
+          makeInvitation({ id: "i1", email: "pendiente@x.com", status: "PENDING" }),
+        );
+      }),
+      usersHandler(),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("pendiente@x.com")).toBeInTheDocument());
+    const aceptada = screen.getByText("aceptada@x.com").closest("tr") as HTMLElement;
+    expect(aceptada.textContent).not.toContain("Reenviar");
+
+    await user.click(screen.getByRole("button", { name: "Reenviar" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Reenviamos la invitación a pendiente@x.com.",
+    );
+    expect(reenvios).toBe(1);
+  });
+
+  it("reenviar: si la persona ya abrió el enlace, muestra el error del backend", async () => {
+    server.use(
+      http.get(invitationsUrl, () =>
+        HttpResponse.json({
+          data: [makeInvitation({ id: "i1", email: "pendiente@x.com", status: "PENDING" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.post(`${invitationsUrl}/i1/resend`, () =>
+        HttpResponse.json(
+          { error: { message: "Esa persona ya abrió el enlace de la invitación." } },
+          { status: 409 },
+        ),
+      ),
+      usersHandler(),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("pendiente@x.com")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reenviar" }));
+    expect(
+      await screen.findByText(
+        "No pudimos reenviar la invitación: Esa persona ya abrió el enlace de la invitación.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("revocar: confirma, ejecuta la mutation y muestra error real si falla", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(

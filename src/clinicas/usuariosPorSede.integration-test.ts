@@ -14,7 +14,12 @@ import {
 } from "../routes/gateDeModulos.test-helper";
 import { createBranch } from "../services/branch.service";
 import { acceptInvitation, urlParaAceptarLaInvitacion } from "../services/invitation.service";
-import { invitarYAceptar } from "../routes/invitacion.test-helper";
+import {
+  aceptar,
+  espiarInvitaciones,
+  invitar,
+  invitarYAceptar,
+} from "../routes/invitacion.test-helper";
 
 // ---------------------------------------------------------------------------
 // Usuarios por sede contra la app real (docs/rubros.md §11.2, §11.4, §11.5,
@@ -630,6 +635,63 @@ test("invitación de Recepción con sede: el mail lleva a /invite/accept y, al a
   );
   const invitacion = await prisma.invitation.findUniqueOrThrow({ where: { id: r.invitationId } });
   assert.equal(invitacion.status, "ACCEPTED");
+});
+
+// Reenviar (prueba de la Clínica Demo, 2026-10-11): el mail puede no llegar.
+test("reenviar una invitación de Recepción: mismo enlace, el vencimiento vuelve a contar y conserva su sede; Recepción no puede reenviar", async () => {
+  const email = `usuarios-por-sede-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+  emailsInvitados.push(email);
+  const { invitationId } = await invitar(pedir, clinica, como(clinica, ADMIN), {
+    email,
+    role: "RECEPCION",
+    branchIds: [fxClinica.A.id],
+  });
+  // Faltaba poco para que venciera.
+  await prisma.invitation.update({
+    where: { id: invitationId },
+    data: { expiresAt: new Date(Date.now() + 60 * 60 * 1000) },
+  });
+
+  const recepcion = await pedir(
+    clinica,
+    "POST",
+    `/api/invitations/${invitationId}/resend`,
+    undefined,
+    como(clinica, RECEPCION_A),
+  );
+  assert.equal(recepcion.status, 403);
+
+  const { resultado: reenvio, llamadas } = await espiarInvitaciones(() =>
+    pedir(
+      clinica,
+      "POST",
+      `/api/invitations/${invitationId}/resend`,
+      undefined,
+      como(clinica, ADMIN),
+    ),
+  );
+  assert.equal(reenvio.status, 200, JSON.stringify(reenvio.json));
+  assert.equal(llamadas.length, 1);
+  assert.equal(llamadas[0].email, email);
+  assert.equal(llamadas[0].opciones?.redirectTo, urlParaAceptarLaInvitacion());
+  assert.equal(llamadas[0].opciones?.data?.invitationId, invitationId);
+  const fila = await prisma.invitation.findUniqueOrThrow({ where: { id: invitationId } });
+  assert.equal(fila.status, "PENDING");
+  assert.ok(fila.expiresAt.getTime() > Date.now() + 6 * 24 * 60 * 60 * 1000);
+  const sedes = await prisma.invitationBranch.findMany({ where: { invitationId } });
+  assert.deepEqual(
+    sedes.map((s) => s.branchId),
+    [fxClinica.A.id],
+  );
+
+  // Y se acepta como cualquier otra: entra con su sede.
+  const aceptada = await aceptar(pedir, clinica, email, invitationId, "Recepción Reenviada");
+  assert.equal(aceptada.aceptar.status, 201, JSON.stringify(aceptada.aceptar.json));
+  const me = await pedir(clinica, "GET", "/api/me", undefined, aceptada.tokenDelInvitado);
+  assert.deepEqual(
+    (me.json.sedes as { id: string }[]).map((s) => s.id),
+    [fxClinica.A.id],
+  );
 });
 
 test("formulario del usuario: cambiar las sedes de una Recepción vale desde el próximo pedido", async () => {

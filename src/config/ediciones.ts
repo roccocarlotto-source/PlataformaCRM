@@ -265,6 +265,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "PATCH /api/admin/organizations/:organizationId/industry",
     // R19 (§12.1): la Clínica Demo con datos de ejemplo.
     "POST /api/admin/organizations/clinica-demo",
+    // Reenviar la invitación al administrador que no la aceptó.
+    "POST /api/admin/organizations/:organizationId/admin-invitation/resend",
     "GET /api/admin/llm-usage",
     "PUT /api/admin/agents/:agentId/facebook-page",
     "PUT /api/admin/agents/:agentId/model",
@@ -300,6 +302,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "GET /api/invitations",
     "POST /api/invitations",
     "DELETE /api/invitations/:id",
+    // Reenviar el mail de una invitación pendiente (prueba de la Clínica Demo).
+    "POST /api/invitations/:id/resend",
   ],
   contactos: [
     "GET /api/contacts",

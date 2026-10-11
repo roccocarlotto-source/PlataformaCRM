@@ -147,8 +147,23 @@ Si invitaste a la persona equivocada o te equivocaste de email:
 3. El enlace que recibió deja de funcionar. Si corresponde, mandá una
    invitación nueva.
 
-Una invitación no se edita ni se reenvía: si hay que cambiar el email o el
-rol, o si venció, se crea otra desde [Invitar](#invitar).
+### Reenviar una invitación
+
+Si la persona no recibió el email, lo perdió o no lo encuentra:
+
+1. Buscá la fila con estado **Pendiente**.
+2. Tocá **Reenviar**. Le llega de nuevo el email con el mismo enlace, y el
+   vencimiento vuelve a contar desde ese momento.
+
+Arriba de la lista aparece *Reenviamos la invitación a…* con el email.
+
+Si la persona ya abrió el enlace pero no terminó de crear su cuenta, no hay un
+email nuevo que mandarle: el sistema te lo dice. Pedile que entre con
+**¿Olvidaste tu contraseña?** usando ese email; después de elegir la
+contraseña, la app la lleva a completar su cuenta.
+
+Una invitación no se edita: si hay que cambiar el email o el rol, o si
+venció, se crea otra desde [Invitar](#invitar).
 
 ## Invitar a una persona {#invitar}
 

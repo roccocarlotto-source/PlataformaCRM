@@ -28,7 +28,11 @@ import {
   updateOrganizationIndustry,
 } from "../repositories/organization.repository";
 import { findRoleByName } from "../repositories/role.repository";
-import { createUser, findUserByEmail } from "../repositories/user.repository";
+import {
+  adminsVigentesDeLaOrganizacion,
+  createUser,
+  findUserByEmail,
+} from "../repositories/user.repository";
 import { KNOWN_ROLES, type RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { slugify } from "../utils/slug";
@@ -139,9 +143,69 @@ export interface OrganizationAdminDeps {
   transaction: <T>(fn: (tx: Db) => Promise<T>) => Promise<T>;
 }
 
+// Reenviar la invitación al administrador de una organización que todavía
+// no la aceptó (prueba de la Clínica Demo, 2026-10-11): el primer
+// administrador no es una fila de Invitation (ver más arriba), así que no hay
+// otra forma de mandarle el mail de nuevo. Se busca, entre los ADMIN
+// vigentes de la organización (del más viejo al más nuevo), el primero cuya
+// identidad de Supabase no confirmó el email —no abrió el mail— y se le
+// reenvía por la Admin API: GoTrue reenvía el invite a una identidad sin
+// confirmar (B-22), con el mismo redirectTo del alta.
+export interface ReenvioDeInvitacionDeAdminDeps {
+  supabaseAdmin: () => SupabaseClient;
+  frontendOrigin: string;
+  adminsDeLaOrganizacion: (
+    organizationId: string,
+  ) => Promise<{ id: string; email: string; fullName: string }[] | null>;
+}
+
+export async function reenviarInvitacionDelAdministrador(
+  organizationId: string,
+  deps: ReenvioDeInvitacionDeAdminDeps = defaultReenvioDeInvitacionDeAdminDeps,
+): Promise<{ email: string }> {
+  const admins = await deps.adminsDeLaOrganizacion(organizationId);
+  if (admins === null) {
+    throw new AppError("Organización no encontrada", 404);
+  }
+  const supabaseAdmin = deps.supabaseAdmin();
+  for (const admin of admins) {
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(admin.id);
+    if (error || !data.user) {
+      logger.error(
+        { err: error, userId: admin.id },
+        "No se pudo leer la identidad del administrador",
+      );
+      throw new AppError("No se pudo reenviar la invitación", 502);
+    }
+    if (data.user.email_confirmed_at) continue;
+
+    const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(admin.email, {
+      data: { full_name: admin.fullName },
+      redirectTo: `${deps.frontendOrigin}/reset-password`,
+    });
+    if (inviteError) {
+      logger.error({ err: inviteError }, "Error reenviando la invitación del administrador");
+      throw new AppError("No se pudo reenviar la invitación", 502);
+    }
+    return { email: admin.email };
+  }
+  throw new AppError(
+    "El administrador de esta organización ya aceptó la invitación: no hay nada que reenviar.",
+    409,
+  );
+}
+
 export function primaryCorsOrigin(corsOrigin: string = env.CORS_ORIGIN): string {
   return corsOrigin.split(",")[0].trim();
 }
+
+export const defaultReenvioDeInvitacionDeAdminDeps: ReenvioDeInvitacionDeAdminDeps = {
+  supabaseAdmin: getSupabaseAdmin,
+  get frontendOrigin() {
+    return primaryCorsOrigin();
+  },
+  adminsDeLaOrganizacion: adminsVigentesDeLaOrganizacion,
+};
 
 export const defaultOrganizationAdminDeps: OrganizationAdminDeps = {
   supabaseAdmin: getSupabaseAdmin,

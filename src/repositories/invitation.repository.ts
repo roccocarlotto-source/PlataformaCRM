@@ -131,6 +131,21 @@ export function createInvitation(data: CreateInvitationData, db: Db = prisma) {
 // propia fila), acá el actor es un ADMIN autenticado con organizationId real
 // en req.auth — la escritura debe exigirlo igual que el resto de las
 // entidades, no solo confiar en el pre-check de revokeInvitation.
+// Reenviar (prueba de la Clínica Demo, 2026-10-11): el vencimiento vuelve a
+// contar desde el reenvío, con el mismo CAS que revocar — solo si sigue
+// PENDING. count 0 = otra transición ganó; el caller lo traduce.
+export function renovarVencimientoConditional(
+  id: string,
+  organizationId: string,
+  expiresAt: Date,
+  db: Db = prisma,
+) {
+  return db.invitation.updateMany({
+    where: { id, organizationId, status: "PENDING" },
+    data: { expiresAt },
+  });
+}
+
 export function revokeInvitationConditional(id: string, organizationId: string, db: Db = prisma) {
   return db.invitation.updateMany({
     where: { id, organizationId, status: "PENDING" },
