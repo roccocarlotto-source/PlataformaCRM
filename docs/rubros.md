@@ -1260,6 +1260,15 @@ Se responden **solo desde la base de conocimiento**:
 - La pantalla avisa: "Lo que cargues acá lo puede repetir el agente
   textualmente".
 
+> **Implementado en R18.** Migración `clinicas_indicaciones_kb`: enum
+> `KnowledgeBaseEntryKind` y la columna `kind` con default `GENERAL` (sin
+> CHECK ni FK nuevas). El controller rechaza `kind` en una automotora (400) y
+> lo saca de sus respuestas (`CAMPOS_DE_CLINICA.knowledgeBaseEntry`). El
+> prompt arma un bloque aparte, después de la base de conocimiento general, con
+> el encabezado `ENCABEZADO_INDICACIONES`. Sigue el límite por sede de siempre
+> (las entradas son de la sucursal del agente). Las FAQs que hoy deriva la capa
+> 1 no entran en R18 (pendiente en §5.3).
+
 ### 5.5 Precios, medios de pago y mutualistas (B7)
 
 Van a la base de conocimiento. El agente informa lo que está cargado y, si no

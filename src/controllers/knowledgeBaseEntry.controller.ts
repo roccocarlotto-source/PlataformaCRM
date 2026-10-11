@@ -12,6 +12,8 @@ import { sincronizarStockConBaseDeConocimiento } from "../services/vehicleKnowle
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
+import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClinica";
+import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
 // Borde HTTP de la base de conocimiento por sucursal (ítem 59). Mismo molde
@@ -43,11 +45,28 @@ const contentSchema = z
 
 const branchIdSchema = z.string().uuid("branchId inválido");
 
+// R18 (docs/rubros.md §5.4): el tipo de la entrada, solo en una clínica.
+const kindSchema = z.enum(["GENERAL", "INDICACIONES"], {
+  errorMap: () => ({ message: "kind debe ser GENERAL o INDICACIONES" }),
+});
+
+function exigirKindDelRubro(input: { kind?: unknown }, req: AuthenticatedRequest): void {
+  if (input.kind !== undefined && req.auth.industry !== "CLINICA") {
+    throw new AppError("El campo kind solo está disponible en las clínicas.", 400);
+  }
+}
+
+// Una automotora recibe la entrada con las claves de antes (camposDeClinica.ts).
+function paraElRubro<T extends object>(entry: T, req: AuthenticatedRequest): T {
+  return sinCamposDeClinica(entry, req.auth.industry, CAMPOS_DE_CLINICA.knowledgeBaseEntry);
+}
+
 const createKnowledgeBaseEntrySchema = z.object({
   branchId: branchIdSchema,
   title: titleSchema,
   content: contentSchema,
   isActive: z.boolean().optional(),
+  kind: kindSchema.optional(),
 });
 
 // CON branchId, a diferencia de updateAgentSchema: una entrada de KB SÍ cambia
@@ -61,6 +80,7 @@ const updateKnowledgeBaseEntrySchema = z
     title: titleSchema,
     content: contentSchema,
     isActive: z.boolean(),
+    kind: kindSchema,
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
@@ -87,8 +107,9 @@ const listQuerySchema = z.object({
 export const createKnowledgeBaseEntryHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createKnowledgeBaseEntrySchema, req.body);
+    exigirKindDelRubro(input, req);
     const entry = await createKnowledgeBaseEntry(req.auth.organizationId, input);
-    res.status(201).json(entry);
+    res.status(201).json(paraElRubro(entry, req));
   },
 );
 
@@ -96,7 +117,7 @@ export const listKnowledgeBaseEntriesHandler = asyncHandler<AuthenticatedRequest
   async (req, res: Response) => {
     const query = parseOrThrow(listQuerySchema, req.query);
     const result = await listKnowledgeBaseEntries(req.auth.organizationId, query);
-    res.status(200).json(result);
+    res.status(200).json({ ...result, data: result.data.map((e) => paraElRubro(e, req)) });
   },
 );
 
@@ -104,7 +125,7 @@ export const getKnowledgeBaseEntryHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const entry = await getKnowledgeBaseEntryById(req.auth.organizationId, id);
-    res.status(200).json(entry);
+    res.status(200).json(paraElRubro(entry, req));
   },
 );
 
@@ -112,8 +133,9 @@ export const updateKnowledgeBaseEntryHandler = asyncHandler<AuthenticatedRequest
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updateKnowledgeBaseEntrySchema, req.body);
+    exigirKindDelRubro(input, req);
     const entry = await updateKnowledgeBaseEntry(req.auth.organizationId, id, input);
-    res.status(200).json(entry);
+    res.status(200).json(paraElRubro(entry, req));
   },
 );
 

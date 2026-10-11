@@ -1,3 +1,4 @@
+import type { KnowledgeBaseEntryKind } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
@@ -122,7 +123,8 @@ export function findActiveKnowledgeBaseEntriesByBranch(
   return db.knowledgeBaseEntry.findMany({
     where: { organizationId, branchId, deletedAt: null, isActive: true },
     orderBy: { createdAt: "asc" },
-    select: { title: true, content: true, sourceVehicleId: true },
+    // R18: el tipo, para el bloque de indicaciones de una clínica.
+    select: { title: true, content: true, sourceVehicleId: true, kind: true },
   });
 }
 
@@ -132,6 +134,8 @@ export interface CreateKnowledgeBaseEntryData {
   title: string;
   content: string;
   isActive?: boolean;
+  // R18: GENERAL por defecto.
+  kind?: KnowledgeBaseEntryKind;
   // §70 — solo lo manda la sincronización de stock. Una entrada escrita desde
   // la pantalla lo omite y queda en NULL, que es lo que significa "escrita a
   // mano" (ver KnowledgeBaseEntry en schema.prisma).
@@ -149,6 +153,7 @@ export interface UpdateKnowledgeBaseEntryData {
   title?: string;
   content?: string;
   isActive?: boolean;
+  kind?: KnowledgeBaseEntryKind;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

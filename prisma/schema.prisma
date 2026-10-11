@@ -4450,10 +4450,22 @@ model Payment {
 // habilitaría nada.
 // ---------------------------------------------------------------------------
 
+// R18 (docs/rubros.md §5.4, D5): qué es una entrada de la base de conocimiento.
+// INDICACIONES (antes y después de una prestación) solo en clínicas: el agente
+// las transcribe, sin interpretarlas.
+enum KnowledgeBaseEntryKind {
+  GENERAL
+  INDICACIONES
+}
+
 model KnowledgeBaseEntry {
   id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
   branchId       String @map("branch_id") @db.Uuid
+
+  // R18: GENERAL por defecto; una automotora no ve ni manda el campo
+  // (CAMPOS_DE_CLINICA).
+  kind KnowledgeBaseEntryKind @default(GENERAL)
 
   // Corto: es lo que identifica la entrada en el listado y lo que el agente ve
   // como encabezado de su bloque en el prompt.

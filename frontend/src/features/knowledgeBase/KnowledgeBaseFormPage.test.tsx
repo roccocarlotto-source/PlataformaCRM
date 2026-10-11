@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -18,12 +18,15 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-// Solo lo usa el bloque de AdminRoute del final: el formulario no consume
-// useAuth.
+// El formulario lee el rubro (R18: el tipo es solo de una clínica) y el bloque
+// de AdminRoute del final, el rol. Por defecto, un ADMIN de una automotora.
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 
-function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
+function mockAuth(
+  role: "ADMIN" | "USER",
+  industry: "AUTOMOTORA" | "CLINICA" = "AUTOMOTORA",
+): AuthContextValue {
   return {
     status: "authenticated",
     me: {
@@ -32,6 +35,7 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
       fullName: "A",
       organizationId: "org-1",
       role,
+      industry,
       isPlatformAdmin: false,
       canUseInternalAgent: false,
     },
@@ -42,6 +46,10 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
     retryProfile: vi.fn(),
   };
 }
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+});
 
 const baseUrl = `${env.apiUrl}/api/knowledge-base`;
 const branchesUrl = `${env.apiUrl}/api/branches`;
@@ -888,5 +896,58 @@ describe("KnowledgeBaseFormPage — entrada generada desde el Stock", () => {
 
     expect(await screen.findByLabelText("Título")).toHaveValue("");
     expect(screen.queryByText(AVISO)).not.toBeInTheDocument();
+  });
+});
+
+// R18 (docs/rubros.md §5.4): el tipo de entrada (indicaciones), solo en una
+// clínica.
+describe("KnowledgeBaseFormPage — indicaciones (clínica)", () => {
+  async function cargar(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByLabelText("Título"), "Antes de la depilación láser");
+    await waitFor(() => expect(screen.getByLabelText("Sucursal")).toBeInTheDocument());
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Sucursal Chuy");
+    await escribirContenido(user, "Venir con la zona rasurada.");
+  }
+
+  it("una automotora no ve el tipo y no lo manda", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      mockBranches(),
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makeKnowledgeBaseEntry(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/knowledge-base/new");
+    await cargar(user);
+    expect(screen.queryByLabelText("Tipo")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).not.toHaveProperty("kind");
+  });
+
+  it("una clínica elige Indicaciones, ve el aviso y lo manda", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", "CLINICA"));
+    const bodies: unknown[] = [];
+    server.use(
+      mockBranches(),
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makeKnowledgeBaseEntry(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/knowledge-base/new");
+    await cargar(user);
+    expect(screen.getByText(/lo puede repetir el agente textualmente/)).toBeInTheDocument();
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Tipo"),
+      "Indicaciones antes o después de una prestación",
+    );
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ kind: "INDICACIONES" });
   });
 });

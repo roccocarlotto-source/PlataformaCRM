@@ -23,6 +23,8 @@ export interface KnowledgeBaseEntry {
   // por "Sincronizar stock" de una escrita a mano: no se adivina por el título
   // ni por el texto. Toda entrada anterior a §70 lo tiene en null.
   sourceVehicleId: string | null;
+  // R18 (docs/rubros.md §5.4): solo llega en una clínica.
+  kind?: KnowledgeBaseEntryKind;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -58,11 +60,17 @@ export interface KnowledgeBaseListQuery {
 
 // createKnowledgeBaseEntrySchema. Requeridos de verdad: branchId, title y
 // content; isActive tiene default true en la base.
+// R18: GENERAL o INDICACIONES (antes y después de una prestación), solo en
+// una clínica.
+export type KnowledgeBaseEntryKind = "GENERAL" | "INDICACIONES";
+
 export interface CreateKnowledgeBaseEntryInput {
   branchId: string;
   title: string;
   content: string;
   isActive?: boolean;
+  // R18: solo lo manda una clínica.
+  kind?: KnowledgeBaseEntryKind;
 }
 
 // updateKnowledgeBaseEntrySchema: los mismos campos, parciales, al menos uno —

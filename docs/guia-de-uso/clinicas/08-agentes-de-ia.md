@@ -40,6 +40,21 @@ atendiendo.
 > paciente recibe el mensaje de consulta clínica y la conversación te llega a
 > vos.
 
+## Indicaciones antes y después de una prestación {#indicaciones}
+
+En la [base de conocimiento](/knowledge-base), cada entrada tiene un **Tipo**:
+**Información general** o **Indicaciones antes o después de una prestación**.
+
+- Las **indicaciones** (por ejemplo, "Antes de la depilación láser") el asistente
+  las **transcribe tal cual**: no las explica, no agrega nada y no las adapta al
+  caso de cada paciente.
+- **Lo que cargues ahí lo puede repetir el agente textualmente.** No cargues
+  datos de pacientes.
+- Si un paciente pregunta por un síntoma o "¿es normal que…?", el asistente no
+  responde con la indicación: pasa la conversación a la recepción, como
+  cualquier [consulta de salud](#consultas-de-salud).
+- Cada entrada es de una sede: el asistente de otra sede no la ve.
+
 ## Cambiar o cancelar turnos por chat {#cambiar-o-cancelar-turnos}
 
 Si el asistente está en el nivel **Autónomo**, puede ver, reprogramar y
