@@ -1,4 +1,4 @@
-import { Prisma, type BookingMessageResponse } from "@prisma/client";
+import { Prisma, type BookingMessageKind, type BookingMessageResponse } from "@prisma/client";
 import { prisma, type Db } from "../../lib/prisma";
 import { mensajeDeError } from "./config";
 
@@ -18,23 +18,54 @@ export interface DatosDelRecordatorio {
   scheduledFor: Date;
 }
 
-/** Agenda el recordatorio de un turno en un horario. false si ya había uno
- *  vigente (PENDING o SENT) para ese turno y ese horario: el UNIQUE parcial
- *  booking_messages_vigente_key. */
-export async function agendarRecordatorio(datos: DatosDelRecordatorio, db: Db = prisma) {
+/** Agenda un mensaje del turno (el recordatorio, o R14: el QR de reseña y el
+ *  control). false si ya había uno vigente (PENDING o SENT) del mismo tipo
+ *  para ese turno y ese horario: el UNIQUE parcial booking_messages_vigente_key. */
+export async function agendarMensajeDelTurno(
+  datos: DatosDelRecordatorio & { kind: BookingMessageKind },
+  db: Db = prisma,
+) {
   const filas = await db.$executeRaw`
     INSERT INTO booking_messages (
       organization_id, booking_id, contact_id, automation_id, kind,
       booking_starts_at, scheduled_for, next_attempt_at, updated_at
     ) VALUES (
       ${datos.organizationId}::uuid, ${datos.bookingId}::uuid, ${datos.contactId}::uuid,
-      ${datos.automationId}::uuid, 'REMINDER'::"BookingMessageKind",
+      ${datos.automationId}::uuid, ${datos.kind}::"BookingMessageKind",
       ${datos.bookingStartsAt}, ${datos.scheduledFor}, ${datos.scheduledFor}, now()
     )
     ON CONFLICT (booking_id, kind, booking_starts_at)
       WHERE status IN ('PENDING', 'SENT')
     DO NOTHING`;
   return filas === 1;
+}
+
+/** El recordatorio antes del turno (R13). */
+export function agendarRecordatorio(datos: DatosDelRecordatorio, db: Db = prisma) {
+  return agendarMensajeDelTurno({ ...datos, kind: "REMINDER" }, db);
+}
+
+/** R14: un No vino (o la corrección a No vino) cancela el QR y el control
+ *  pendientes del turno. Lo enviado no se toca. */
+export function cancelarPostTurnoPendiente(
+  organizationId: string,
+  bookingId: string,
+  motivo: string,
+  db: Db = prisma,
+) {
+  return db.bookingMessage.updateMany({
+    where: { organizationId, bookingId, status: "PENDING", kind: { in: ["REVIEW_QR", "CONTROL"] } },
+    data: { status: "CANCELLED", lastError: mensajeDeError(motivo) },
+  });
+}
+
+/** Fuera del horario de la sede (el control): se corre a `hasta` sin gastar
+ *  el intento. */
+export function posponerHasta(r: RecordatorioReclamado, hasta: Date, db: Db = prisma) {
+  return db.bookingMessage.updateMany({
+    where: delReclamo(r),
+    data: { nextAttemptAt: hasta, attempts: { decrement: 1 } },
+  });
 }
 
 /** Cancela los recordatorios PENDING de un turno (todos, o los de otro
@@ -46,10 +77,12 @@ export function cancelarPendientesDelTurno(
   db: Db = prisma,
   excepto?: Date,
 ) {
+  // Solo el recordatorio: el QR y el control (R14) son de un turno atendido.
   return db.bookingMessage.updateMany({
     where: {
       organizationId,
       bookingId,
+      kind: "REMINDER",
       status: "PENDING",
       ...(excepto ? { bookingStartsAt: { not: excepto } } : {}),
     },
@@ -132,13 +165,22 @@ export function leerRecordatorioParaEnviar(id: string, organizationId: string, d
         select: { isActive: true, deletedAt: true, actionConfig: true, triggerType: true },
       },
       contact: {
-        select: { firstName: true, lastName: true, phone: true, deletedAt: true },
+        select: {
+          firstName: true,
+          lastName: true,
+          phone: true,
+          deletedAt: true,
+          noInterestAt: true,
+        },
       },
       booking: {
         select: {
           status: true,
           startsAt: true,
           branchId: true,
+          serviceTypeId: true,
+          completedAt: true,
+          serviceType: { select: { followUpAfterDays: true } },
           resource: { select: { name: true } },
           branch: { select: { name: true, timezone: true, deletedAt: true } },
         },
@@ -219,6 +261,7 @@ export async function marcarRespuesta(
     where: {
       organizationId,
       externalMessageId: contextWamid,
+      kind: "REMINDER",
       status: "SENT",
       respondedAt: null,
     },
@@ -260,6 +303,8 @@ export function recordatorioRespondidoPor(
 export function sinRespuestaCandidatos(hasta: Date, limite: number, organizationId?: string) {
   return prisma.bookingMessage.findMany({
     where: {
+      // Solo el recordatorio tiene "sin respuesta" (§6.5).
+      kind: "REMINDER",
       status: "SENT",
       respondedAt: null,
       noResponseTaskAt: null,
@@ -300,7 +345,13 @@ export async function esRecordatorioSinResponder(
   db: Db = prisma,
 ): Promise<boolean> {
   const fila = await db.bookingMessage.findFirst({
-    where: { organizationId, externalMessageId: contextWamid, status: "SENT", respondedAt: null },
+    where: {
+      organizationId,
+      externalMessageId: contextWamid,
+      kind: "REMINDER",
+      status: "SENT",
+      respondedAt: null,
+    },
     select: { id: true },
   });
   return fila !== null;

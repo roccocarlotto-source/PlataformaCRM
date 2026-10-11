@@ -1121,6 +1121,12 @@ agenda", y el formulario del agente de clínicas lo dice así.
 
 ### 5.3 Guardrails de salud, en el backend (D11)
 
+> **Pendiente (decisión de Rocco del 2026-10-10):** las preguntas comunes que
+> hoy la capa 1 deriva a propósito ("¿la depilación duele?") y que el agente
+> podría contestar con lo cargado en la base de conocimiento van en un **PR chico
+> aparte del detector**, cuando la lista de términos esté revisada por un
+> profesional de salud. No entran en R18.
+
 > **Implementado en R4.** Cómo quedó, y dónde difiere de lo de abajo:
 >
 > - **Los puntos de extensión** son `src/services/reglasDelRubro.ts`: por rubro,
@@ -1491,6 +1497,32 @@ el número de una clínica.
 
 ## 7. Después del turno (B9)
 
+> **Implementado en R14** (migración `20261110120000_clinicas_post_turno`).
+> Cómo quedó, y dónde difiere de lo de abajo:
+>
+> - **Módulo `post_turno`** (SOLO_CLINICA). Trigger `booking.completed` en el
+>   motor (lo emite R10 al marcar Atendido o al cerrar solo) con dos acciones:
+>   `booking.send_qr_review` y `booking.schedule_control`. Para una automotora
+>   no existen (el 400 de siempre). `booking.no_show` (también una corrección a
+>   No vino) cancela el QR y el control pendientes del turno.
+> - **QR de reseña:** la misma configuración que el de una automotora (QR,
+>   demora con mínimo 3 h, formato y texto con `{nombre}`/`{link}`). **Después de
+>   un cierre automático sale 24 h después del cierre** (decisión de Rocco del
+>   2026-10-10), no con la demora de la regla.
+> - **Control:** `ServiceType.followUpAfterDays` (1 a 730, CHECK), editable en
+>   Prestaciones (`PUT /api/clinica/prestaciones/:id/control`, solo ADMIN). Texto
+>   con `{nombre}`, `{semanas}` (N/7 redondeado, al menos 1) y `{lugar}` (el de
+>   R13) en lugar de `{clinica}`.
+> - **Idempotente por turno:** los dos van a `booking_messages` con `kind`
+>   `REVIEW_QR` / `CONTROL`; el UNIQUE parcial de R13 (turno, tipo, horario)
+>   hace que una reentrega no duplique y que **lo enviado nunca se reenvíe** (un
+>   SENT sigue vigente). Una corrección a Atendido después de un No vino vuelve
+>   a agendar lo que no salió.
+> - **Envío:** el worker de R13, siempre con la plantilla aprobada (MARKETING),
+>   dentro del horario de la sede (se pospone sin gastar el intento). Revalida
+>   antes: QR y control solo con el turno COMPLETED; el control, además, sin
+>   turno futuro de esa prestación y sin "sin interés".
+
 Módulo `post_turno`, solo CLINICA. **No toca `QrFollowUp`, sus acciones ni su
 worker:** el QR de una automotora sigue colgando de `opportunity.won`, como hoy
 (ediciones §3).
@@ -1536,9 +1568,12 @@ model ServiceType {
 | Trigger | Rótulo | Acciones |
 |---|---|---|
 | `booking.reminder_due` | "Recordatorio antes del turno" | `booking.send_reminder` (UTILITY, con botones) |
-| `booking.completed` | "Cuando se atiende un turno" | `booking.send_qr_review`, `booking.schedule_control`, `activity.create_follow_up` |
+| `booking.completed` | "Cuando se atiende un turno" | `booking.send_qr_review`, `booking.schedule_control` |
 | `contact.inquiry_stalled` | "Cuando una consulta queda sin respuesta" | `inquiry.follow_up` (con el filtro de turnos, §9) |
 
+- **Pendiente:** `activity.create_follow_up` sobre `booking.completed` (una
+  tarea después del turno). Hoy esa acción espera una oportunidad; va en otro PR
+  (decisión de Rocco del 2026-10-10).
 - Los triggers y acciones de clínicas se registran en el motor con su módulo
   (ediciones §8). `modulosDe` los saca del catálogo de una automotora, y
   `opportunity.won` y `opportunity.stale` del de una clínica.
@@ -2173,6 +2208,12 @@ rubro va después del PR 3 de ediciones, que crea `ediciones.ts` y
 8. R21 cuando R7 lleve un tiempo en producción.
 
 R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la marca.
+
+**Pendientes fuera de la tabla** (decisiones de Rocco del 2026-10-10):
+
+- `activity.create_follow_up` sobre `booking.completed` (§7.3).
+- Las FAQs que hoy deriva la capa 1, en un PR chico del detector con la lista
+  revisada por un profesional de salud (§5.3).
 
 **Antes del primer cliente real:**
 

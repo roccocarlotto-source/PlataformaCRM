@@ -156,3 +156,12 @@ datos de salud** ni el motivo de la consulta.
 Si la clínica usa el [recordatorio antes del turno](/ayuda/automatizaciones#recordatorio-de-turno)
 y el paciente tocó **Confirmo**, el detalle del turno en el **Calendario** dice
 **Confirmado por el paciente**.
+
+## Recordar control {#recordar-control}
+
+En [Prestaciones](/clinica/prestaciones), en las acciones de una prestación,
+elegí **Recordar control** y cargá a cuántos días (de 1 a 730). Después de un
+turno atendido de esa prestación, el paciente recibe un WhatsApp para agendar el
+próximo, si está activa la regla
+[Recordar el control](/ayuda/automatizaciones#despues-del-turno). Vacío: sin
+control.

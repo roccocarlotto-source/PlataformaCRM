@@ -18,6 +18,8 @@ export interface PrestacionConProfesionales {
   // `profesionales` y no se puede sacar desde esta pantalla.
   resourceId: string;
   profesionales: Profesional[];
+  // R14: "Recordar control a los N días" (null = sin control).
+  followUpAfterDays: number | null;
 }
 
 export interface PrestacionesResponse {

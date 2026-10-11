@@ -11,6 +11,8 @@ import {
 } from "../routes/gateDeModulos.test-helper";
 import { relojDeReservas } from "../services/booking.service";
 import { createBranch } from "../services/branch.service";
+import { crearRegistroDeAcciones } from "../services/automationActions";
+import { registrarAutomatizaciones } from "../services/automationRegistrations";
 import { crearRegistroDeHandlers } from "../services/outboxHandlers";
 import { createResource } from "../services/resource.service";
 import { createServiceType } from "../services/serviceType.service";
@@ -274,9 +276,13 @@ test("agendar, reprogramar y cancelar en una clínica emiten un evento cada uno"
 });
 
 test("los eventos de turno tienen un handler que los consume (no van a DEAD_LETTER)", () => {
+  // Como server.ts: booking.completed lo consume el motor de automatizaciones
+  // (R14, post-turno); los demás, registrarEventosDeTurno.
   const handlers = crearRegistroDeHandlers();
+  registrarAutomatizaciones({ acciones: crearRegistroDeAcciones(), handlers });
   registrarEventosDeTurno(handlers);
-  assert.deepEqual(handlers.tiposRegistrados().sort(), [...EVENTOS_DE_TURNO].sort());
+  const tipos = new Set(handlers.tiposRegistrados());
+  for (const tipo of EVENTOS_DE_TURNO) assert.ok(tipos.has(tipo), tipo);
 });
 
 // ---------------------------------------------------------------------------

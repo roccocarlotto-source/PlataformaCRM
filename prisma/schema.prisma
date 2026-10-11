@@ -160,6 +160,10 @@ enum BookingCompletedBy {
 // solo REMINDER; CONTROL y REVIEW_QR entran en R14 con su migración.
 enum BookingMessageKind {
   REMINDER
+  // R14 (docs/rubros.md §7): el QR de reseña y el control, después de un
+  // turno atendido.
+  REVIEW_QR
+  CONTROL
 }
 
 enum BookingMessageStatus {
@@ -2136,22 +2140,25 @@ model Resource {
 // ---------------------------------------------------------------------------
 
 model ServiceType {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  branchId       String    @map("branch_id") @db.Uuid
-  resourceId     String    @map("resource_id") @db.Uuid
-  name           String    @db.VarChar(255)
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  resourceId        String    @map("resource_id") @db.Uuid
+  name              String    @db.VarChar(255)
   // Duración en minutos. El > 0 se valida en Zod y además con un CHECK en la
   // migración: un servicio de 0 minutos no es un servicio, y la defensa que
   // sobrevive a un camino de escritura futuro que no pase por el controller es
   // la de la base.
-  durationMin    Int       @map("duration_min")
+  durationMin       Int       @map("duration_min")
   // 1 = turno exclusivo, N = clase con cupo. Mismo criterio que durationMin
   // para el >= 1.
-  capacity       Int       @default(1)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  deletedAt      DateTime? @map("deleted_at")
+  capacity          Int       @default(1)
+  // R14 (docs/rubros.md §7.2): "Recordar control a los N días" (1 a 730, CHECK
+  // en la migración). null = sin control. Solo clínica (CAMPOS_DE_CLINICA).
+  followUpAfterDays Int?      @map("follow_up_after_days")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])

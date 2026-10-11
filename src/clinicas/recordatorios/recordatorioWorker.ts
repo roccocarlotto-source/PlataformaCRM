@@ -1,4 +1,17 @@
+import { WhatsappTemplateHeaderFormat } from "@prisma/client";
 import { env } from "../../config/env";
+import { findQrCodeById } from "../../repositories/qrCode.repository";
+import { proximaAperturaDeLaSucursal } from "../../services/branchBusinessHours.service";
+import { armarEnvioDeLaPlantilla, nombreParaElSaludo } from "../../workers/qrFollowUpWorker";
+import { baseDeLaApiPublica } from "../../utils/qrImage";
+import {
+  MOTIVO_NO_VINO,
+  MOTIVO_QR_BORRADO,
+  MOTIVO_SIN_INTERES,
+  MOTIVO_TURNO_FUTURO_DE_LA_PRESTACION,
+  MOTIVO_TURNO_NO_ATENDIDO,
+  semanasDelControl,
+} from "../postTurno/config";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
 import { soloDigitos } from "../../lib/telefono";
@@ -20,6 +33,7 @@ import {
   TOKEN_LUGAR,
   TOKEN_NOMBRE,
   TOKEN_PROFESIONAL,
+  TOKEN_SEMANAS,
   parametrosDePlantilla,
 } from "../../utils/whatsappTemplateText";
 import { ErrorPermanenteDelSeguimiento, clasificarFallo } from "../../workers/qrFollowUpWorker";
@@ -41,6 +55,7 @@ import {
   marcarEnviado,
   marcarFallido,
   marcarTareaSinRespuesta,
+  posponerHasta,
   reclamarRecordatorio,
   reprogramarIntento,
   sinRespuestaCandidatos,
@@ -49,7 +64,8 @@ import {
 } from "./repository";
 
 // ---------------------------------------------------------------------------
-// El worker del recordatorio de turno (docs/rubros.md §6, R13). El patrón de
+// El worker de los mensajes de un turno de clínica: el recordatorio
+// (docs/rubros.md §6, R13) y, desde R14, el QR de reseña y el control (§7). El patrón de
 // las otras colas: polling, reclamo con lease (attempts como token), backoff y
 // tope de intentos. Se relee todo antes de mandar y lo que ya no corresponde
 // se CANCELA con el motivo, sin error:
@@ -73,42 +89,90 @@ const MAX_INTENTOS = 5;
 const BACKOFF = { baseMs: 60 * 1000, topeMs: 60 * 60 * 1000 };
 const LOTE = 50;
 
+export interface PlantillaDelMensaje {
+  name: string;
+  languageCode: string;
+  bodyText: string;
+  // R14: el QR de reseña puede llevar la imagen del QR de encabezado.
+  headerFormat?: WhatsappTemplateHeaderFormat;
+}
+
 export interface DepsDelRecordatorio {
   accessToken: () => string | undefined;
   plantillaDeLaRegla: (
     organizationId: string,
     automationId: string,
-  ) => Promise<{ name: string; languageCode: string; bodyText: string } | null>;
+  ) => Promise<PlantillaDelMensaje | null>;
   numeroDeLaSede: (organizationId: string, branchId: string) => Promise<string | null>;
   sedesDeLaClinica: (organizationId: string) => Promise<number>;
   sendTemplate: SendWhatsappTemplate;
   registrarEnConversacion?: (envio: EnvioDePlantilla) => Promise<void>;
+  // R14: el QR de reseña y el control salen dentro del horario de la sede
+  // (G-07); el recordatorio no (§6.2). Sin pasarlo, abierta siempre.
+  proximaApertura?: (organizationId: string, branchId: string, ahora: Date) => Promise<Date>;
+  baseDeLaApi?: () => string | undefined;
 }
 
 export const depsDelRecordatorioReales: DepsDelRecordatorio = {
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
   plantillaDeLaRegla: async (organizationId, automationId) => {
     const p = await findApprovedWhatsappTemplate(organizationId, automationId);
-    return p ? { name: p.name, languageCode: p.language, bodyText: p.bodyText } : null;
+    return p
+      ? {
+          name: p.name,
+          languageCode: p.language,
+          bodyText: p.bodyText,
+          headerFormat: p.headerFormat,
+        }
+      : null;
   },
   numeroDeLaSede: findBranchWhatsappPhoneNumberId,
   sedesDeLaClinica: (organizationId) =>
     prisma.branch.count({ where: { organizationId, deletedAt: null } }),
   sendTemplate: sendWhatsappTemplateReal,
+  proximaApertura: proximaAperturaDeLaSucursal,
+  baseDeLaApi: baseDeLaApiPublica,
 };
 
-/** Pura: por qué el recordatorio ya no corresponde, o null. */
-export function motivoParaNoMandar(fila: RecordatorioParaEnviar): string | null {
+/** Por qué el mensaje ya no corresponde, o null. Cada tipo, lo suyo:
+ *   - REMINDER: el turno sigue CONFIRMED en el mismo horario.
+ *   - REVIEW_QR (R14): el turno sigue COMPLETED (un No vino posterior cancela).
+ *   - CONTROL (R14): el turno sigue COMPLETED, el paciente no está "sin
+ *     interés" y no tiene ya un turno futuro de esa prestación.
+ *  Y para todos: la regla activa y el paciente con teléfono. */
+export async function motivoParaNoMandar(
+  fila: RecordatorioParaEnviar,
+  ahora: Date = new Date(),
+): Promise<string | null> {
   if (!fila.automation.isActive || fila.automation.deletedAt !== null) return MOTIVO_REGLA_INACTIVA;
-  if (
-    fila.booking.status !== "CONFIRMED" ||
-    fila.booking.startsAt.getTime() !== fila.bookingStartsAt.getTime() ||
-    fila.booking.branch.deletedAt !== null
-  ) {
-    return MOTIVO_TURNO_NO_VIGENTE;
+  if (fila.booking.branch.deletedAt !== null) return MOTIVO_TURNO_NO_VIGENTE;
+  if (fila.kind === "REMINDER") {
+    if (
+      fila.booking.status !== "CONFIRMED" ||
+      fila.booking.startsAt.getTime() !== fila.bookingStartsAt.getTime()
+    ) {
+      return MOTIVO_TURNO_NO_VIGENTE;
+    }
+  } else {
+    if (fila.booking.status === "NO_SHOW") return MOTIVO_NO_VINO;
+    if (fila.booking.status !== "COMPLETED") return MOTIVO_TURNO_NO_ATENDIDO;
   }
   if (fila.contact.deletedAt !== null || soloDigitos(fila.contact.phone ?? "") === "") {
     return MOTIVO_SIN_TELEFONO;
+  }
+  if (fila.kind === "CONTROL") {
+    if (fila.contact.noInterestAt !== null) return MOTIVO_SIN_INTERES;
+    const futuro = await prisma.booking.findFirst({
+      where: {
+        organizationId: fila.organizationId,
+        contactId: fila.contactId,
+        serviceTypeId: fila.booking.serviceTypeId,
+        status: "CONFIRMED",
+        startsAt: { gt: ahora },
+      },
+      select: { id: true },
+    });
+    if (futuro) return MOTIVO_TURNO_FUTURO_DE_LA_PRESTACION;
   }
   return null;
 }
@@ -122,21 +186,46 @@ export function valoresDelRecordatorio(fila: RecordatorioParaEnviar, sedes: numb
     [TOKEN_DIA]: dia,
     [TOKEN_HORA]: hora,
     [TOKEN_PROFESIONAL]: fila.booking.resource.name,
+    [TOKEN_SEMANAS]: semanasDelControl(fila.booking.serviceType.followUpAfterDays ?? 7),
   };
 }
 
 export type ResultadoDelRecordatorio =
-  { resultado: "ENVIADO"; envio: EnvioDePlantilla } | { resultado: "CANCELADO"; motivo: string };
+  | { resultado: "ENVIADO"; envio: EnvioDePlantilla }
+  | { resultado: "CANCELADO"; motivo: string }
+  // R14: la sede está cerrada; se corre a `hasta` sin gastar el intento.
+  | { resultado: "FUERA_DE_HORARIO"; hasta: Date };
+
+function qrDeLaRegla(actionConfig: unknown): string | null {
+  const id = (actionConfig as { qrCodeId?: unknown } | null)?.qrCodeId;
+  return typeof id === "string" ? id : null;
+}
 
 export async function procesarRecordatorio(
   reclamo: RecordatorioReclamado,
   accessToken: string,
   deps: DepsDelRecordatorio,
+  ahora: Date = new Date(),
 ): Promise<ResultadoDelRecordatorio> {
   const fila = await leerRecordatorioParaEnviar(reclamo.id, reclamo.organizationId);
-  if (!fila) throw new ErrorPermanenteDelSeguimiento("La fila del recordatorio ya no existe");
-  const motivo = motivoParaNoMandar(fila);
+  if (!fila) throw new ErrorPermanenteDelSeguimiento("La fila del mensaje del turno ya no existe");
+  const motivo = await motivoParaNoMandar(fila, ahora);
   if (motivo) return { resultado: "CANCELADO", motivo };
+
+  // El QR y el control los inicia la clínica sin urgencia: dentro del horario
+  // de la sede. El recordatorio sale aunque esté cerrada (§6.2).
+  if (fila.kind !== "REMINDER" && deps.proximaApertura) {
+    const apertura = await deps.proximaApertura(fila.organizationId, fila.booking.branchId, ahora);
+    if (apertura.getTime() > ahora.getTime())
+      return { resultado: "FUERA_DE_HORARIO", hasta: apertura };
+  }
+
+  let qr: { id: string; destinationUrl: string } | null = null;
+  if (fila.kind === "REVIEW_QR") {
+    const qrCodeId = qrDeLaRegla(fila.automation.actionConfig);
+    qr = qrCodeId ? await findQrCodeById(qrCodeId, fila.organizationId) : null;
+    if (!qr) return { resultado: "CANCELADO", motivo: MOTIVO_QR_BORRADO };
+  }
 
   const destino = soloDigitos(fila.contact.phone ?? "");
   const phoneNumberId = await deps.numeroDeLaSede(fila.organizationId, fila.booking.branchId);
@@ -147,21 +236,39 @@ export async function procesarRecordatorio(
   }
   const plantilla = await deps.plantillaDeLaRegla(fila.organizationId, fila.automationId);
   if (!plantilla) {
-    throw new ErrorPermanenteDelSeguimiento(
-      "La regla del recordatorio no tiene una plantilla de WhatsApp aprobada",
+    throw new ErrorPermanenteDelSeguimiento("La regla no tiene una plantilla de WhatsApp aprobada");
+  }
+
+  let parametros: string[];
+  let headerImageUrl: string | undefined;
+  if (qr) {
+    // El mismo armado que el QR de una automotora ({nombre} y {link}, con la
+    // imagen del QR si la plantilla la lleva).
+    const envioQr = armarEnvioDeLaPlantilla(
+      plantilla,
+      nombreParaElSaludo(fila.contact.firstName),
+      qr.destinationUrl,
+      { tipo: "r", id: qr.id },
+      { baseDeLaApi: (deps.baseDeLaApi ?? baseDeLaApiPublica)() },
+    );
+    parametros = envioQr.bodyParameters;
+    headerImageUrl = envioQr.headerImageUrl;
+  } else {
+    parametros = parametrosDePlantilla(
+      plantilla.bodyText,
+      valoresDelRecordatorio(fila, await deps.sedesDeLaClinica(fila.organizationId)),
     );
   }
-  const parametros = parametrosDePlantilla(
-    plantilla.bodyText,
-    valoresDelRecordatorio(fila, await deps.sedesDeLaClinica(fila.organizationId)),
-  );
   const { wamid } = await deps.sendTemplate({
     phoneNumberId,
     to: destino,
     templateName: plantilla.name,
     languageCode: plantilla.languageCode,
     bodyParameters: parametros,
-    quickReplyPayloads: BOTONES_DEL_RECORDATORIO.map((b) => b.payload),
+    ...(headerImageUrl ? { headerImageUrl } : {}),
+    ...(fila.kind === "REMINDER"
+      ? { quickReplyPayloads: BOTONES_DEL_RECORDATORIO.map((b) => b.payload) }
+      : {}),
     accessToken,
   });
   return {
@@ -245,7 +352,12 @@ export async function drenarRecordatorios(
       });
       if (!reclamo) break;
       try {
-        const r = await procesarRecordatorio(reclamo, accessToken, deps);
+        const r = await procesarRecordatorio(reclamo, accessToken, deps, ahora);
+        if (r.resultado === "FUERA_DE_HORARIO") {
+          await posponerHasta(reclamo, r.hasta);
+          resumen.pospuestos++;
+          continue;
+        }
         if (r.resultado === "CANCELADO") {
           await marcarCancelado(reclamo, r.motivo);
           resumen.cancelados++;
