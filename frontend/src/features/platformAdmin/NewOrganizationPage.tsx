@@ -5,7 +5,7 @@ import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
-import { useCreateOrganization } from "./mutations";
+import { useCreateClinicaDemo, useCreateOrganization } from "./mutations";
 import { NOMBRE_DE_EDICION } from "./ediciones";
 import { useEdicionesDisponibles, useRubrosDisponibles } from "./queries";
 import type {
@@ -62,6 +62,16 @@ export function NewOrganizationPage() {
   const rubros = useRubrosDisponibles().data?.industries ?? [];
   const eligeRubro = rubros.length > 1;
 
+  // R19 (docs/rubros.md §12.1): la Clínica Demo con datos de ejemplo, por su
+  // propio endpoint. Funciona aunque el backend no ofrezca el rubro clínica
+  // (el selector de rubro sigue con su criterio). La página ya es solo de
+  // platform admin (PlatformAdminRoute). Marcada, el formulario pide solo el
+  // primer administrador y un sufijo opcional del nombre.
+  const createClinicaDemoMutation = useCreateClinicaDemo();
+  const [esDemo, setEsDemo] = useState(false);
+  const [sufijo, setSufijo] = useState("");
+  const creando = createOrganizationMutation.isPending || createClinicaDemoMutation.isPending;
+
   const [values, setValues] = useState<NewOrganizationFormValues>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreateOrganizationResponse | null>(null);
@@ -70,6 +80,15 @@ export function NewOrganizationPage() {
     event.preventDefault();
     setError(null);
     try {
+      if (esDemo) {
+        const result = await createClinicaDemoMutation.mutateAsync({
+          adminFullName: values.adminFullName,
+          adminEmail: values.adminEmail,
+          ...(sufijo.trim() !== "" ? { sufijo: sufijo.trim() } : {}),
+        });
+        setCreated(result);
+        return;
+      }
       const { edition, industry, ...resto } = values;
       const input: CreateOrganizationInput = {
         ...resto,
@@ -87,6 +106,8 @@ export function NewOrganizationPage() {
     setCreated(null);
     setError(null);
     setValues(EMPTY_FORM);
+    setEsDemo(false);
+    setSufijo("");
   }
 
   if (created) {
@@ -120,64 +141,96 @@ export function NewOrganizationPage() {
         <Card heading="Organización">
           <div className="ds-field-grid">
             <div className="ds-field-grid--full">
-              <FormField label={<span className="ds-required">Nombre de la organización</span>}>
+              <FormField label="Clínica Demo con datos de ejemplo">
                 <input
-                  type="text"
-                  value={values.organizationName}
-                  onChange={(event) =>
-                    setValues({ ...values, organizationName: event.target.value })
-                  }
-                  required
-                  maxLength={255}
+                  type="checkbox"
+                  checked={esDemo}
+                  onChange={(event) => setEsDemo(event.target.checked)}
                 />
               </FormField>
             </div>
-            {eligeEdicion ? (
-              <div className="ds-field-grid--full">
-                <FormField label={<span className="ds-required">Edición</span>}>
-                  <select
-                    value={values.edition}
-                    onChange={(event) =>
-                      setValues({
-                        ...values,
-                        edition: event.target.value as OrganizationEdition | "",
-                      })
-                    }
-                    required
-                  >
-                    <option value="">Elegí una edición</option>
-                    {ediciones.map((edicion) => (
-                      <option key={edicion} value={edicion}>
-                        {NOMBRE_DE_EDICION[edicion]}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-              </div>
-            ) : null}
-            {eligeRubro ? (
-              <div className="ds-field-grid--full">
-                <FormField label={<span className="ds-required">Rubro</span>}>
-                  <select
-                    value={values.industry}
-                    onChange={(event) =>
-                      setValues({
-                        ...values,
-                        industry: event.target.value as OrganizationIndustry | "",
-                      })
-                    }
-                    required
-                  >
-                    <option value="">Elegí un rubro</option>
-                    {rubros.map((rubro) => (
-                      <option key={rubro} value={rubro}>
-                        {NOMBRE_DE_RUBRO[rubro]}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-              </div>
-            ) : null}
+            {esDemo ? (
+              <>
+                <p className="ds-hint ds-field-grid--full">
+                  Crea «Clínica Demo», del rubro clínica y en edición Esencial, con una sede,
+                  profesionales, prestaciones, pacientes y turnos inventados. El agente y las
+                  automatizaciones quedan desactivados.
+                </p>
+                <div className="ds-field-grid--full">
+                  <FormField label="Sufijo del nombre (opcional)">
+                    <input
+                      type="text"
+                      value={sufijo}
+                      onChange={(event) => setSufijo(event.target.value)}
+                      maxLength={60}
+                      placeholder="Norte"
+                    />
+                  </FormField>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="ds-field-grid--full">
+                  <FormField label={<span className="ds-required">Nombre de la organización</span>}>
+                    <input
+                      type="text"
+                      value={values.organizationName}
+                      onChange={(event) =>
+                        setValues({ ...values, organizationName: event.target.value })
+                      }
+                      required
+                      maxLength={255}
+                    />
+                  </FormField>
+                </div>
+                {eligeEdicion ? (
+                  <div className="ds-field-grid--full">
+                    <FormField label={<span className="ds-required">Edición</span>}>
+                      <select
+                        value={values.edition}
+                        onChange={(event) =>
+                          setValues({
+                            ...values,
+                            edition: event.target.value as OrganizationEdition | "",
+                          })
+                        }
+                        required
+                      >
+                        <option value="">Elegí una edición</option>
+                        {ediciones.map((edicion) => (
+                          <option key={edicion} value={edicion}>
+                            {NOMBRE_DE_EDICION[edicion]}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  </div>
+                ) : null}
+                {eligeRubro ? (
+                  <div className="ds-field-grid--full">
+                    <FormField label={<span className="ds-required">Rubro</span>}>
+                      <select
+                        value={values.industry}
+                        onChange={(event) =>
+                          setValues({
+                            ...values,
+                            industry: event.target.value as OrganizationIndustry | "",
+                          })
+                        }
+                        required
+                      >
+                        <option value="">Elegí un rubro</option>
+                        {rubros.map((rubro) => (
+                          <option key={rubro} value={rubro}>
+                            {NOMBRE_DE_RUBRO[rubro]}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
         </Card>
         <Card heading="Primer administrador">
@@ -203,13 +256,8 @@ export function NewOrganizationPage() {
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={createOrganizationMutation.isPending}
-            loading={createOrganizationMutation.isPending}
-          >
-            {createOrganizationMutation.isPending ? "Creando…" : "Crear organización"}
+          <Button type="submit" variant="primary" disabled={creando} loading={creando}>
+            {creando ? "Creando…" : esDemo ? "Crear Clínica Demo" : "Crear organización"}
           </Button>
         </div>
       </div>

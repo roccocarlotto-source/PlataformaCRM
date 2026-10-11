@@ -31,6 +31,22 @@ export interface CreateOrganizationResponse {
   admin: { id: string; email: string; fullName: string; role: "ADMIN" };
 }
 
+// Contrato de POST /api/admin/organizations/clinica-demo
+// (src/clinicas/demo/clinicaDemo.controller.ts) — docs/rubros.md §12.1, R19.
+// La organización es siempre "Clínica Demo" (con un sufijo opcional), CLINICA
+// y ESENCIAL: el body no elige ni rubro ni edición.
+export interface CreateClinicaDemoInput {
+  adminFullName: string;
+  adminEmail: string;
+  sufijo?: string;
+}
+
+// La respuesta del alta más lo que se cargó; la pantalla muestra lo mismo que
+// en el alta común.
+export interface CreateClinicaDemoResponse extends CreateOrganizationResponse {
+  datosDeEjemplo: Record<string, number>;
+}
+
 // Contrato de PUT /api/admin/agents/:agentId/whatsapp-phone-number
 // (src/controllers/agentAdmin.controller.ts) — ítem 127. null libera el número.
 export interface AssignWhatsappNumberInput {

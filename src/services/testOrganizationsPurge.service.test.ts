@@ -102,6 +102,26 @@ test("slugs de organizaciones reales no coinciden con ningún patrón", () => {
   }
 });
 
+// R19 (docs/rubros.md §12.1): la Clínica Demo la borra Rocco a mano. Ningún
+// patrón la puede reconocer, ni siquiera con un sufijo que parezca de test.
+test("la Clínica Demo (clinica-demo y clinica-demo-*) no coincide con ningún patrón", () => {
+  for (const nombre of [
+    "Clínica Demo",
+    "Clínica Demo Norte",
+    "Clínica Demo 2",
+    "Clínica Demo R19 1790000000000 a1b2c3d4",
+    "Clínica Demo Completa Clinica 1790000000000 a1b2c3d4",
+  ]) {
+    assert.deepEqual(patronesQueCoinciden(slugify(nombre)), [], nombre);
+  }
+  assert.deepEqual(
+    PATRONES_DE_SLUG_DE_PRUEBA.filter(
+      (p) => p.plantilla.startsWith("clinica-demo") || p.plantilla.startsWith("{"),
+    ).map((p) => p.plantilla),
+    [],
+  );
+});
+
 test("los ejemplos del incidente coinciden", () => {
   assert.ok(patronesQueCoinciden("auto-won-1790000000000-a1b2c3d4").length > 0);
   assert.ok(patronesQueCoinciden("auto-stale-x-1790000000000-a1b2c3d4").length > 0);

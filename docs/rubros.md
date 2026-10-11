@@ -2050,6 +2050,43 @@ datos inventados. **No se usa AutoMax** ni ningún dato real.
   purga de organizaciones de test no la borre antes de tiempo. El borrado se hace
   a mano ese día.
 
+> **Implementado en R19.** Cómo quedó, y dónde difiere de lo de arriba
+> (adaptación decidida por Rocco el 2026-10-10, "opción B acotada"):
+>
+> - **Un endpoint propio que crea la organización:**
+>   `POST /api/admin/organizations/clinica-demo` (`authenticate`,
+>   `businessWriteRateLimiter`, `requirePlatformAdmin`), con body
+>   `{ adminFullName, adminEmail, sufijo? }`. Crea "Clínica Demo" (o
+>   "Clínica Demo `<sufijo>`"), CLINICA y ESENCIAL, con la invitación real al
+>   email del admin, y le carga los datos de ejemplo. No hay
+>   `POST /api/admin/organizations/:organizationId/demo-data`.
+> - **Funciona con `CLINICA_HABILITADA` en `false`.** Es el único camino que
+>   crea una clínica con la llave apagada: `createOrganizationWithFoundingAdmin`
+>   recibe la opción `clinicaDemo`, que solo admite una clínica cuyo slug sea el
+>   de la demo. El alta común (`POST /api/admin/organizations` con
+>   `industry: CLINICA`) y la pantalla siguen dando 400 con la llave apagada.
+> - **Pantalla:** en **Plataforma → Nueva organización**, la casilla **"Clínica
+>   Demo con datos de ejemplo"**. Marcada, el formulario pide solo el primer
+>   administrador y un sufijo opcional; el selector de rubro sigue con su
+>   criterio (oculto mientras haya un solo rubro).
+> - **Slug:** `clinica-demo` (sin sufijo) o `clinica-demo-<sufijo>`. Ninguno
+>   coincide con un patrón de la purga (lo prueban
+>   `testOrganizationsPurge.service.test.ts` y
+>   `src/clinicas/clinicaDemo.integration-test.ts`).
+> - **`cargarDatosDeEjemplo(organizationId, adminUserId)`**
+>   (`src/clinicas/demo/`) responde 409 si la organización no es CLINICA o si ya
+>   tiene contactos, turnos, conversaciones o vehículos (incluidos los dados de
+>   baja, como el cambio de rubro). No es atómica: si falla a mitad, el endpoint
+>   responde 500 y la organización queda creada, para borrarla a mano.
+> - **Escrituras directas (aprobadas por Rocco):** los 3 turnos atendidos de la
+>   semana anterior y el `patientConfirmedAt` de 3 turnos van por Prisma, sin
+>   eventos (los services rechazan un turno pasado). Lo demás va por los
+>   services. Las automatizaciones se crean con `createAutomation`, inactivas y
+>   sin sincronizar plantillas: nada va a Meta. El cierre automático puede
+>   cerrar los turnos de la demo con el tiempo.
+> - **El bloqueo** de la Dra. es el viernes de la semana de los turnos, de 13 a
+>   19, y se crea antes que los turnos (no genera tareas).
+
 ### 12.2 Qué datos lleva (todos inventados)
 
 | Qué | Ejemplo |
