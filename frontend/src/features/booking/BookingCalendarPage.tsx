@@ -24,6 +24,7 @@ import type { ServiceType } from "../serviceType/types";
 import { BookingDetailDialog } from "./BookingDetailDialog";
 import { ReprogramarTurnoDialog } from "../clinica/ReprogramarTurnoDialog";
 import { MarcarTurno } from "../clinica/MarcarTurno";
+import { usePrestaciones } from "../clinica/queries";
 import { ROTULO_DE_ESTADO } from "../clinica/estadosDeTurno";
 import {
   estaAbierto,
@@ -126,6 +127,10 @@ export function BookingCalendarPage() {
 
   const serviceTypesQuery = useServiceTypes(SERVICE_TYPES_PARA_SELECT);
   const serviceTypes = serviceTypesQuery.data?.data ?? [];
+  // Clínica (docs/rubros.md §4.3): las prestaciones de "Elegir profesionales",
+  // para ofrecerlas también a quien no es el principal.
+  const esClinica = me?.industry === "CLINICA";
+  const prestaciones = usePrestaciones({ enabled: esClinica }).data?.prestaciones;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -260,6 +265,15 @@ export function BookingCalendarPage() {
           zona={sucursal.timezone}
           franjas={nueva.franjas}
           serviceTypes={serviceTypes}
+          {...(prestaciones
+            ? {
+                serviceTypeIdsDelRecurso: new Set(
+                  prestaciones
+                    .filter((p) => p.profesionales.some((r) => r.id === nueva.resource.id))
+                    .map((p) => p.id),
+                ),
+              }
+            : {})}
           isAdmin={isAdmin}
           onClose={() => setNueva(null)}
         />

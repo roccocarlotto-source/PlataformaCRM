@@ -69,9 +69,11 @@ profesional](#calendario-de-google) y
 1. En la [Agenda](/agenda), tocá el horario libre en la columna del
    profesional.
 2. Se abre **Nuevo turno** con el profesional, la fecha y la hora ya fijos.
-3. Elegí la **Prestación**. Aparecen las prestaciones que tienen a ese
-   profesional como principal (el que se eligió al crearla en **Configurar
-   prestaciones**). La hora de fin se calcula con la duración de la
+3. Elegí la **Prestación**. Aparecen las prestaciones que atiende ese
+   profesional: las que lo tienen como principal (el que se eligió al crearla
+   en **Configurar prestaciones**) y las que lo suman en **Elegir
+   profesionales** (ver [Prestaciones](#prestaciones)). La hora de fin se
+   calcula con la duración de la
    prestación. Si dice "Este profesional todavía no tiene prestaciones.", un
    administrador tiene que crearlas.
 4. Elegí el paciente en **Contacto** (se busca por nombre o email).

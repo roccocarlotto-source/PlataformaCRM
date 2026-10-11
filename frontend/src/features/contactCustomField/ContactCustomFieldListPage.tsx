@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import { ListChecks, Plus } from "lucide-react";
+import { useAuth } from "../../auth/AuthContext";
+import { esClinica as esDeClinica, vocabularioDe } from "../../auth/vocabulario";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
@@ -8,6 +10,7 @@ import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Notice } from "../../design-system/Notice";
 import { Table } from "../../design-system/Table";
 import { MAX_CAMPOS_POR_ORGANIZACION, TIPO_DE_CAMPO_LABEL } from "./labels";
 import { tieneOpciones } from "./types";
@@ -19,6 +22,9 @@ import { useContactCustomFields } from "./queries";
 // la pantalla vive entera dentro de AdminRoute. Sin paginación ni filtros:
 // son a lo sumo 30.
 export function ContactCustomFieldListPage() {
+  const { me } = useAuth();
+  const esClinica = esDeClinica(me);
+  const { contacto } = vocabularioDe(me);
   const confirm = useConfirm();
   const fieldsQuery = useContactCustomFields();
   const deleteMutation = useDeleteContactCustomField();
@@ -41,7 +47,8 @@ export function ContactCustomFieldListPage() {
     <div>
       <PageHeader
         help={AYUDA.camposDeContacto}
-        title="Campos de contacto"
+        // En una clínica, con el término del contacto (como el menú).
+        title={esClinica ? `Campos de ${contacto.singular}` : "Campos de contacto"}
         actions={
           alTope ? null : (
             <Link to="/contact-custom-fields/new" className="ds-link-button">
@@ -53,6 +60,16 @@ export function ContactCustomFieldListPage() {
       />
 
       <div className="ds-list-card">
+        {/* docs/rubros.md §8.2: no se puede impedir, así que se avisa. El texto
+            es el de docs/guia-de-uso/clinicas/11-campos-personalizados.md. */}
+        {esClinica ? (
+          <Notice tone="warning" alert={false} title="No cargues datos de salud en estos campos.">
+            Nada de diagnósticos, síntomas, tratamientos, medicación, alergias ni motivos de
+            consulta. Estos campos los lee el agente de IA y los ve todo el equipo: son para datos
+            administrativos, no para la historia clínica.
+          </Notice>
+        ) : null}
+
         <p className="ds-hint">
           El agente los lee todos y escribe solo los marcados «editable por el agente». Hasta{" "}
           {MAX_CAMPOS_POR_ORGANIZACION} campos

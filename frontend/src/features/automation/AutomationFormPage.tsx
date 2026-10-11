@@ -82,6 +82,18 @@ const EMPTY_FORM: AutomationFormValues = {
   isActive: true,
 };
 
+// Una clínica no tiene opportunity.won (docs/rubros.md §7.3): arranca en la
+// primera entrada de SU catálogo, con la primera acción que la admite.
+const TRIGGER_DE_CLINICA = triggerOptions(false, true)[0].value;
+const ACCION_DE_CLINICA = accionesParaTrigger(TRIGGER_DE_CLINICA)[0].value;
+const EMPTY_FORM_DE_CLINICA: AutomationFormValues = {
+  ...EMPTY_FORM,
+  triggerType: TRIGGER_DE_CLINICA,
+  triggerConfig: CONFIG_DE_TRIGGER[TRIGGER_DE_CLINICA].draftVacio(),
+  actionType: ACCION_DE_CLINICA,
+  actionConfig: CONFIG_DE_ACCION[ACCION_DE_CLINICA].draftVacio(true),
+};
+
 // Una regla guardada antes del formato elegible no trae messageText ni
 // whatsappFormat: el formulario arranca con el texto y el formato de la
 // plantilla que ya tiene en Meta, y si no tiene ninguna, con el inicial. Así,
@@ -502,7 +514,11 @@ export function AutomationFormPage() {
 
   const [values, setValues] = useFormDraft<AutomationFormValues>(
     automationQuery.data?.id,
-    automationQuery.data ? toFormValues(automationQuery.data, esClinica) : EMPTY_FORM,
+    automationQuery.data
+      ? toFormValues(automationQuery.data, esClinica)
+      : esClinica
+        ? EMPTY_FORM_DE_CLINICA
+        : EMPTY_FORM,
   );
   const location = useLocation();
   // Un alta cuyo mensaje no llegó a Meta vuelve a esta pantalla, ya en

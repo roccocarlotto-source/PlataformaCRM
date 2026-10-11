@@ -2298,10 +2298,14 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
 - Lo que encontró R17c al escribir la guía de clínicas, en pantallas que no
   entraron en el test de §3.1 (todo de una clínica; nada cambia en una
   automotora):
-  - Automatizaciones: el selector de eventos ofrece "Oportunidad ganada" y
+  - ~~Automatizaciones: el selector de eventos ofrece "Oportunidad ganada" y
     "Oportunidad sin movimiento" (y la primera viene elegida), y el backend no
-    los rechaza; contradice el catálogo de §7.3.
-  - Tareas: la lista y el formulario muestran Empresa y Oportunidad.
+    los rechaza; contradice el catálogo de §7.3.~~ Hecho: el selector de una
+    clínica ofrece su catálogo y arranca en "Recordatorio antes del turno";
+    `MODULO_DEL_TRIGGER` cuelga los dos de `oportunidades` (400).
+  - ~~Tareas: la lista y el formulario muestran Empresa y Oportunidad.~~ Hecho
+    (por rubro y no por módulo: una automotora ESENCIAL no tiene `empresas` y
+    sigue igual).
   - Textos fijos de automotora: el formulario del profesional
     (`/resources/:id/edit`: "recurso", "Sucursal") y Configurar prestaciones
     (`/service-types`); los estados del turno en femenino ("Confirmada",
@@ -2312,12 +2316,14 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
     por defecto de la sede; los hints de "Cuánto hace la IA" y el probador del
     agente; la acción "Reservar turno"; los mensajes de error de borrar una
     sede (backend).
-  - Cobro en la sede: la tarjeta se muestra, pero en una clínica el agente no
-    manda datos de cobro (`get_payment_info` fuera del rubro, §5.5).
-  - El aviso de no cargar datos de salud en los campos personalizados (§8.2)
-    está en la guía, pero no en la pantalla.
-  - Al dar un turno desde la agenda solo se ofrecen las prestaciones donde el
-    profesional es el principal, no las de "Elegir profesionales" (§4.3).
+  - ~~Cobro en la sede: la tarjeta se muestra, pero en una clínica el agente no
+    manda datos de cobro (`get_payment_info` fuera del rubro, §5.5).~~ Hecho:
+    no se muestra, y lo cargado viaja igual al guardar.
+  - ~~El aviso de no cargar datos de salud en los campos personalizados (§8.2)
+    está en la guía, pero no en la pantalla.~~ Hecho.
+  - ~~Al dar un turno desde la agenda solo se ofrecen las prestaciones donde el
+    profesional es el principal, no las de "Elegir profesionales" (§4.3).~~
+    Hecho.
 
 **Antes del primer cliente real:**
 

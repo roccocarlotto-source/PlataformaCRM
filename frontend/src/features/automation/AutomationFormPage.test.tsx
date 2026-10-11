@@ -99,6 +99,23 @@ describe("AutomationFormPage — creación", () => {
     ]);
   });
 
+  // docs/rubros.md §7.3: una clínica no tiene los eventos de oportunidad, y
+  // arranca en el primero de su catálogo.
+  it("una clínica no ve los eventos de oportunidad y arranca en el recordatorio", async () => {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, industry: "CLINICA" } });
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    expect(screen.getByLabelText("Evento")).toHaveValue("Recordatorio antes del turno");
+    expect(screen.getByLabelText("Acción")).toHaveValue("Mandar el recordatorio por WhatsApp");
+    expect(await listSelectOptions(user, screen.getByLabelText("Evento"))).toEqual([
+      "Recordatorio antes del turno",
+      "Cuando se atiende un turno",
+      "Consulta sin avance",
+    ]);
+  });
+
   it("con Oportunidad ganada, la acción ofrece la tarea de seguimiento, el QR o el cupón por WhatsApp, y el evento no pide campos", async () => {
     const user = userEvent.setup();
     renderForm("/automations/new");

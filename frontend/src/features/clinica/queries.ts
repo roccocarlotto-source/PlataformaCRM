@@ -32,10 +32,13 @@ export function useGuardarConfiguracionDeSede(branchId: string) {
   });
 }
 
-export function usePrestaciones() {
+// `enabled: false` en una pantalla compartida con las automotoras: la ruta es
+// solo de clínicas (403 RUBRO en una automotora).
+export function usePrestaciones({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: clinicaKeys.prestaciones(),
     queryFn: ({ signal }) => listPrestaciones(signal),
+    enabled,
   });
 }
 

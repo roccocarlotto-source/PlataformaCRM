@@ -50,6 +50,9 @@ import {
 // invitaciones y el 403 de una ruta de ADMIN, con las claves y lo visible de
 // antes de R20.
 //
+// Caso del pulido (§7.3): una clínica ya no tiene los triggers de oportunidad;
+// las dos ediciones de una automotora los siguen teniendo.
+//
 // Caso de R19 (Clínica Demo): el alta común de una automotora por un platform
 // admin responde y escribe lo mismo que antes (sin datos de ejemplo).
 //
@@ -803,6 +806,37 @@ test("§7.3: una automotora no puede colgar la tarea de booking.completed (el 40
   );
   assert.equal(ganada.triggerType, "opportunity.won");
   await prisma.automation.delete({ where: { id: ganada.id } });
+});
+
+test("§7.3: las dos ediciones de una automotora siguen creando reglas de opportunity.won y opportunity.stale", async () => {
+  const registro = crearRegistroDeAcciones();
+  registrarAutomatizaciones({ acciones: registro, handlers: crearRegistroDeHandlers() });
+  for (const org of [completa, esencial]) {
+    const ganada = await createAutomation(
+      org.id,
+      {
+        name: "Tarea de venta ganada",
+        triggerType: "opportunity.won",
+        actionType: "activity.create_follow_up",
+        actionConfig: { subject: "Llamar para coordinar la entrega", daysUntilDue: 3 },
+      },
+      { registro },
+    );
+    const estancada = await createAutomation(
+      org.id,
+      {
+        name: "Seguimiento de estancadas",
+        triggerType: "opportunity.stale",
+        triggerConfig: { daysWithoutActivity: 7 },
+        actionType: "agent.draft_follow_up",
+        actionConfig: {},
+      },
+      { registro },
+    );
+    assert.equal(ganada.triggerType, "opportunity.won");
+    assert.equal(estancada.triggerType, "opportunity.stale");
+    await prisma.automation.deleteMany({ where: { id: { in: [ganada.id, estancada.id] } } });
+  }
 });
 
 test("R19: el alta común de una automotora es la de siempre (sin nada de la Clínica Demo)", async () => {

@@ -100,10 +100,17 @@ export const TRIGGER_OPTIONS_DE_CLINICA: SelectOption<string>[] = [
 ];
 
 /** Las opciones del selector de trigger. `simple`: sin procesos de venta
- *  (ESENCIAL). `esClinica` (R13): suma los de clínica. */
+ *  (ESENCIAL). `esClinica`: el catálogo de docs/rubros.md §7.3, en su orden:
+ *  los de clínica y la consulta sin avance, sin los de oportunidad (D3; el
+ *  backend los rechaza con 400). */
 export function triggerOptions(simple: boolean, esClinica = false): SelectOption<string>[] {
   const base = simple ? TRIGGER_OPTIONS_ESENCIAL : TRIGGER_OPTIONS;
-  return esClinica ? [...base, ...TRIGGER_OPTIONS_DE_CLINICA] : base;
+  return esClinica
+    ? [
+        ...TRIGGER_OPTIONS_DE_CLINICA,
+        ...base.filter((option) => option.value === TRIGGER_CONTACT_INQUIRY_STALLED),
+      ]
+    : base;
 }
 
 // El rótulo de un trigger en el listado. Un valor fuera de la lista —un
@@ -111,7 +118,10 @@ export function triggerOptions(simple: boolean, esClinica = false): SelectOption
 // en vez de como "—": el dato real informa más que su ausencia, mismo criterio
 // que modelProviderLabel en features/agent/labels.ts.
 export function triggerLabel(value: string, simple = false): string {
-  return triggerOptions(simple, true).find((option) => option.value === value)?.label ?? value;
+  // Todos los rótulos, también los de oportunidad: una regla vieja se sigue
+  // viendo con su nombre.
+  const todas = [...triggerOptions(simple), ...TRIGGER_OPTIONS_DE_CLINICA];
+  return todas.find((option) => option.value === value)?.label ?? value;
 }
 
 // ---------------------------------------------------------------------------

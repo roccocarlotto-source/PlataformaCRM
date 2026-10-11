@@ -13,6 +13,7 @@ import { makeBooking } from "../../test/bookingFixtures";
 import { makeResource } from "../../test/resourceFixtures";
 import { makeServiceType } from "../../test/serviceTypeFixtures";
 import { chooseSelectOption } from "../../test/chooseSelectOption";
+import { clinicaDeMe } from "../../test/rubroFixtures";
 import { BookingCalendarPage } from "./BookingCalendarPage";
 import type { Booking } from "./types";
 
@@ -378,5 +379,102 @@ describe("BookingCalendarPage", () => {
       expect(screen.queryByRole("dialog", { name: "Reserva" })).not.toBeInTheDocument(),
     );
     confirmSpy.mockRestore();
+  });
+});
+
+// docs/rubros.md §4.3 (R5): en una clínica, una prestación puede tener varios
+// profesionales ("Elegir profesionales"). Al dar un turno desde la agenda se
+// ofrecen también las prestaciones donde el profesional no es el principal.
+describe("BookingCalendarPage en una clínica", () => {
+  function mockAuthDeClinica(): AuthContextValue {
+    const base = mockAuth("ADMIN");
+    return { ...base, me: { ...base.me!, ...clinicaDeMe("COMPLETA") } };
+  }
+
+  // "Control" (s3) tiene a Dr. Suárez (r3) de principal y suma a Dra. López (r1).
+  const prestacionesHandler = (onRequest?: () => void) =>
+    http.get(`${env.apiUrl}/api/clinica/prestaciones`, () => {
+      onRequest?.();
+      return HttpResponse.json({
+        prestaciones: [
+          {
+            id: "s1",
+            branchId: "b1",
+            name: "Consulta general",
+            durationMin: 30,
+            capacity: 1,
+            resourceId: "r1",
+            profesionales: [{ id: "r1", name: "Dra. López", branchId: "b1" }],
+            followUpAfterDays: null,
+          },
+          {
+            id: "s3",
+            branchId: "b1",
+            name: "Control",
+            durationMin: 30,
+            capacity: 1,
+            resourceId: "r3",
+            profesionales: [
+              { id: "r3", name: "Dr. Suárez", branchId: "b1" },
+              { id: "r1", name: "Dra. López", branchId: "b1" },
+            ],
+            followUpAfterDays: null,
+          },
+        ],
+      });
+    });
+
+  it("ofrece las prestaciones de 'Elegir profesionales' y da el turno con ese profesional", async () => {
+    useAuthMock.mockReturnValue(mockAuthDeClinica());
+    let bodies: unknown[] = [];
+    server.use(
+      ...catalogHandlers(),
+      prestacionesHandler(),
+      bookingsHandler({}),
+      http.post(bookingsUrl, async ({ request }) => {
+        bodies = [...bodies, await request.json()];
+        return HttpResponse.json(makeBooking({ id: "nueva" }), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await irAlLunes();
+
+    await user.click(await screen.findByRole("button", { name: /Dra\. López a las 09:00/ }));
+    const panel = await screen.findByRole("dialog", { name: "Nuevo turno" });
+
+    await user.click(within(panel).getByLabelText("Prestación"));
+    expect(within(panel).getByRole("option", { name: "Consulta general" })).toBeInTheDocument();
+    await user.click(await within(panel).findByRole("option", { name: "Control" }));
+
+    await elegirContacto(user, panel);
+    await user.click(within(panel).getByRole("button", { name: "Reservar" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ resourceId: "r1", serviceTypeId: "s3" });
+  });
+
+  it("automotora sin cambios: no pide las prestaciones de clínica y ofrece solo las del recurso", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    let pedidas = 0;
+    server.use(
+      ...catalogHandlers(),
+      prestacionesHandler(() => {
+        pedidas += 1;
+      }),
+      bookingsHandler({}),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await irAlLunes();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Reservar Dra. López a las 09:00" }),
+    );
+    const panel = await screen.findByRole("dialog", { name: "Nueva reserva" });
+    await user.click(within(panel).getByLabelText("Tipo de servicio"));
+    expect(within(panel).getByRole("option", { name: "Consulta general" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("option", { name: "Control" })).not.toBeInTheDocument();
+    expect(pedidas).toBe(0);
   });
 });

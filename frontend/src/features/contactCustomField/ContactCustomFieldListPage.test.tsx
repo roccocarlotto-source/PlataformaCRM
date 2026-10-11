@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -8,11 +8,41 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { openActionsMenu } from "../../test/openActionsMenu";
 import { makeDefinicion } from "../../test/contactCustomFieldFixtures";
+import type { AuthContextValue } from "../../auth/AuthContext";
+import { automotoraDeMe, clinicaDeMe } from "../../test/rubroFixtures";
 import { ContactCustomFieldListPage } from "./ContactCustomFieldListPage";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
+
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+function mockAuth(rubro: ReturnType<typeof automotoraDeMe>): AuthContextValue {
+  return {
+    status: "authenticated",
+    me: {
+      id: "u1",
+      email: "a@x.com",
+      fullName: "A",
+      organizationId: "org-1",
+      role: "ADMIN",
+      isPlatformAdmin: false,
+      canUseInternalAgent: false,
+      ...rubro,
+    },
+    accountUnavailableReason: null,
+    profileError: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    retryProfile: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth(automotoraDeMe("COMPLETA")));
+});
 
 const baseUrl = `${env.apiUrl}/api/contact-custom-fields`;
 
@@ -82,5 +112,27 @@ describe("ContactCustomFieldListPage (B6)", () => {
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("Todavía no hay campos personalizados")).toBeInTheDocument();
     confirmSpy.mockRestore();
+  });
+});
+
+// docs/rubros.md §8.2: en una clínica, la pantalla avisa que no se carguen
+// datos de salud. Una automotora la ve como siempre.
+describe("ContactCustomFieldListPage por rubro", () => {
+  it("una clínica ve el aviso de no cargar datos de salud y el título con su término", async () => {
+    useAuthMock.mockReturnValue(mockAuth(clinicaDeMe("COMPLETA")));
+    server.use(http.get(baseUrl, () => HttpResponse.json([])));
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Campos de paciente" })).toBeInTheDocument();
+    expect(screen.getByText("No cargues datos de salud en estos campos.")).toBeInTheDocument();
+    expect(screen.getByText(/no para la historia clínica/)).toBeInTheDocument();
+  });
+
+  it("automotora sin cambios: sin el aviso y con el título de siempre", async () => {
+    server.use(http.get(baseUrl, () => HttpResponse.json([])));
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Campos de contacto" })).toBeInTheDocument();
+    expect(screen.queryByText(/datos de salud/)).not.toBeInTheDocument();
   });
 });

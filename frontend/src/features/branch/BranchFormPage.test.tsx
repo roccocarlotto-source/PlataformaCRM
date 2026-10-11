@@ -1313,3 +1313,58 @@ describe("BranchFormPage — Recordatorios (clínica)", () => {
     expect(put).not.toHaveBeenCalled();
   });
 });
+
+// docs/rubros.md §5.5: el agente de una clínica no manda datos de cobro, así
+// que la sede no muestra la tarjeta. Lo que ya tuviera cargado no se borra.
+describe("BranchFormPage — cobro en una clínica", () => {
+  const LINK = "https://pagos.example.com/abc";
+  const TRANSFERENCIA = "Banco Ejemplo\nCuenta 0000";
+  const configUrl = `${env.apiUrl}/api/clinica/sedes/:id/configuracion`;
+
+  it("una clínica no ve la tarjeta, y al guardar conserva lo que la sede ya tenía", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", "CLINICA"));
+    let body: unknown;
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(
+          makeBranch({
+            id: "b1",
+            name: "Centro",
+            paymentLinkUrl: LINK,
+            bankTransferDetails: TRANSFERENCIA,
+          }),
+        ),
+      ),
+      http.get(configUrl, () =>
+        HttpResponse.json({
+          minHoursToChangeBooking: null,
+          reminderHoursBefore: 24,
+          lateBookingReminder: "NO_ENVIAR",
+          lateBookingHoursBefore: 2,
+        }),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch({ id: "b1" }));
+      }),
+    );
+
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Centro"));
+    expect(screen.queryByText("Cobro")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Link de pago")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Datos para transferencia")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toMatchObject({ paymentLinkUrl: LINK, bankTransferDetails: TRANSFERENCIA });
+  });
+
+  it("automotora sin cambios: la tarjeta sigue", async () => {
+    renderForm("/branches/new");
+    expect(await screen.findByText("Cobro")).toBeInTheDocument();
+    expect(screen.getByLabelText("Link de pago")).toBeInTheDocument();
+    expect(screen.getByLabelText("Datos para transferencia")).toBeInTheDocument();
+  });
+});

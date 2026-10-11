@@ -215,36 +215,43 @@ export function BranchFormPage() {
 
         {/* Ítem 74. Los dos opcionales e independientes, sin asterisco: una
             sucursal sin datos de cobro es un estado válido, y el agente le
-            dice al cliente que no hay un medio de pago cargado. */}
-        <Card heading="Cobro">
-          <div className="ds-field-grid">
-            <div className="ds-field-grid--full">
-              <FormField label="Link de pago">
-                <input
-                  type="url"
-                  value={values.paymentLinkUrl}
-                  placeholder="https://"
-                  onChange={(event) => setValues({ ...values, paymentLinkUrl: event.target.value })}
-                />
-              </FormField>
+            dice al cliente que no hay un medio de pago cargado.
+            Una clínica no la ve: su agente no manda datos de cobro
+            (get_payment_info fuera del rubro, docs/rubros.md §5.5). Los
+            valores que ya tuviera viajan igual, sin cambios. */}
+        {esClinica ? null : (
+          <Card heading="Cobro">
+            <div className="ds-field-grid">
+              <div className="ds-field-grid--full">
+                <FormField label="Link de pago">
+                  <input
+                    type="url"
+                    value={values.paymentLinkUrl}
+                    placeholder="https://"
+                    onChange={(event) =>
+                      setValues({ ...values, paymentLinkUrl: event.target.value })
+                    }
+                  />
+                </FormField>
+              </div>
+              <div className="ds-field-grid--full">
+                <FormField label="Datos para transferencia">
+                  <textarea
+                    value={values.bankTransferDetails}
+                    rows={4}
+                    maxLength={BANK_TRANSFER_DETAILS_MAX_LENGTH}
+                    onChange={(event) =>
+                      setValues({ ...values, bankTransferDetails: event.target.value })
+                    }
+                  />
+                </FormField>
+              </div>
+              <p className="ds-hint ds-field-grid--full">
+                {`El agente se los comparte al ${vocabulario.contacto.singular} que quiere pagar.`}
+              </p>
             </div>
-            <div className="ds-field-grid--full">
-              <FormField label="Datos para transferencia">
-                <textarea
-                  value={values.bankTransferDetails}
-                  rows={4}
-                  maxLength={BANK_TRANSFER_DETAILS_MAX_LENGTH}
-                  onChange={(event) =>
-                    setValues({ ...values, bankTransferDetails: event.target.value })
-                  }
-                />
-              </FormField>
-            </div>
-            <p className="ds-hint ds-field-grid--full">
-              {`El agente se los comparte al ${vocabulario.contacto.singular} que quiere pagar.`}
-            </p>
-          </div>
-        </Card>
+          </Card>
+        )}
 
         {/* Ítem 75. Solo en edición: la conexión cuelga del id de la
             sucursal, que en el alta todavía no existe. Adentro del <form>

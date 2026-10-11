@@ -9,6 +9,7 @@ import {
 } from "../routes/gateDeModulos.test-helper";
 import { crearRegistroDeAcciones } from "../services/automationActions";
 import { registrarAutomatizaciones } from "../services/automationRegistrations";
+import { createAutomation, updateAutomation } from "../services/automation.service";
 import { createBranch } from "../services/branch.service";
 import { crearRegistroDeHandlers, type RegistroDeHandlers } from "../services/outboxHandlers";
 import { createResource } from "../services/resource.service";
@@ -29,6 +30,7 @@ import { registrarEventosDeTurno } from "./services/eventosDeTurno";
 //   reabre (el índice único no deja crear otra).
 // - Cierre automático: vence a N días desde el cierre.
 // - Límite por sede: un turno de otra sede va a la recepción de esa sede.
+// - Catálogo: una clínica no tiene los triggers de oportunidad (400).
 // - Aislamiento: no toca otra organización, y la FK compuesta no deja apuntar
 //   a un turno ajeno.
 // ---------------------------------------------------------------------------
@@ -275,4 +277,28 @@ test("aislamiento: la tarea de una clínica no toca a otra, y la FK no deja apun
     }),
     /foreign key/i,
   );
+});
+
+// docs/rubros.md §7.3: el catálogo de una clínica no tiene los triggers de
+// oportunidad (D3). Llegan igual por la API → el 400 de un trigger que no
+// existe, al crear y al editar, con la lista de los que sí tiene.
+test("§7.3: una clínica no puede colgar una regla de opportunity.won ni de opportunity.stale", async () => {
+  const lista = "contact.inquiry_stalled, booking.reminder_due, booking.completed";
+  for (const triggerType of ["opportunity.won", "opportunity.stale"]) {
+    await assert.rejects(
+      createAutomation(a.org.id, {
+        name: "Regla de oportunidad",
+        triggerType,
+        actionType: "activity.create_follow_up",
+        actionConfig: { subject: ASUNTO, daysUntilDue: 3 },
+      }),
+      new RegExp(`triggerType "${triggerType}" no existe: debe ser uno de ${lista}$`),
+    );
+    await assert.rejects(
+      updateAutomation(a.org.id, a.regla, { triggerType }),
+      new RegExp(`triggerType "${triggerType}" no existe: debe ser uno de ${lista}$`),
+    );
+  }
+  const regla = await prisma.automation.findUniqueOrThrow({ where: { id: a.regla } });
+  assert.equal(regla.triggerType, "booking.completed");
 });

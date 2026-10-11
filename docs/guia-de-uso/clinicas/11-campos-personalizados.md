@@ -9,7 +9,8 @@ número de socio, cómo nos conoció, el horario en que prefiere que lo llamen.
 > síntomas, tratamientos, medicación, alergias ni motivos de consulta. Estos
 > campos los lee el agente de IA y los ve todo el equipo: son para datos
 > administrativos, no para la historia clínica. El sistema no puede impedir
-> que alguien los cargue, así que depende de cómo armes los campos.
+> que alguien los cargue, así que depende de cómo armes los campos. La
+> pantalla **Campos de paciente** lo recuerda arriba de la lista.
 
 - **Solo un administrador** define los campos (cuáles hay, de qué tipo, con
   qué opciones), desde **Campos de paciente**, en **Administración**.

@@ -26,6 +26,7 @@ import { ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS } from "./types";
 import type { Activity, ActivityType, CreateActivityInput, UpdateActivityInput } from "./types";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { useAuth } from "../../auth/AuthContext";
+import { concordancia, esClinica, vocabularioDe } from "../../auth/vocabulario";
 import { canUserEditActivity } from "./permissions";
 
 interface ActivityFormValues {
@@ -164,6 +165,11 @@ export function ActivityFormPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
   const isAdmin = me?.role === "ADMIN";
+  // Una clínica no tiene empresas ni oportunidades (docs/rubros.md §2.1, D3):
+  // la tarea se relaciona solo con el contacto. Por rubro y no por módulo:
+  // una automotora ESENCIAL sigue igual.
+  const conEmpresaYOportunidad = !esClinica(me);
+  const { contacto } = vocabularioDe(me);
 
   const activityQuery = useActivity(isEditMode ? id : undefined);
   const createActivityMutation = useCreateActivity();
@@ -208,7 +214,11 @@ export function ActivityFormPage() {
     // una carrera concurrente real igual produce el 400 del CHECK, se
     // muestra tal cual más abajo, sin traducirlo ni ocultarlo.
     if (!hasAtLeastOneRelation(relationsFrom(values))) {
-      setError("Debe indicar Empresa, Contacto, Oportunidad, o una combinación de estos");
+      setError(
+        conEmpresaYOportunidad
+          ? "Debe indicar Empresa, Contacto, Oportunidad, o una combinación de estos"
+          : `Debe indicar ${concordancia(contacto).un} ${contacto.singular}`,
+      );
       return;
     }
 
@@ -302,19 +312,21 @@ export function ActivityFormPage() {
                 />
               </FormField>
             </div>
-            <div className="ds-field ds-field-grid--full">
-              <CompanySelect
-                id="activity-form-company"
-                label="Empresa"
-                value={values.companyId ?? undefined}
-                onChange={(companyId) => setValues({ ...values, companyId })}
-              />
-              {values.companyId ? (
-                <Button onClick={() => setValues({ ...values, companyId: null })}>
-                  Quitar empresa
-                </Button>
-              ) : null}
-            </div>
+            {conEmpresaYOportunidad ? (
+              <div className="ds-field ds-field-grid--full">
+                <CompanySelect
+                  id="activity-form-company"
+                  label="Empresa"
+                  value={values.companyId ?? undefined}
+                  onChange={(companyId) => setValues({ ...values, companyId })}
+                />
+                {values.companyId ? (
+                  <Button onClick={() => setValues({ ...values, companyId: null })}>
+                    Quitar empresa
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             <div className="ds-field ds-field-grid--full">
               <ContactSelect
                 id="activity-form-contact"
@@ -328,22 +340,26 @@ export function ActivityFormPage() {
                 </Button>
               ) : null}
             </div>
-            <div className="ds-field ds-field-grid--full">
-              <OpportunitySelect
-                id="activity-form-opportunity"
-                label="Oportunidad"
-                value={values.opportunityId ?? undefined}
-                onChange={(opportunityId) => setValues({ ...values, opportunityId })}
-              />
-              {values.opportunityId ? (
-                <Button onClick={() => setValues({ ...values, opportunityId: null })}>
-                  Quitar oportunidad
-                </Button>
-              ) : null}
-            </div>
-            <p className="ds-hint ds-field-grid--full">
-              Indicá una empresa, un contacto o una oportunidad (o más de uno).
-            </p>
+            {conEmpresaYOportunidad ? (
+              <>
+                <div className="ds-field ds-field-grid--full">
+                  <OpportunitySelect
+                    id="activity-form-opportunity"
+                    label="Oportunidad"
+                    value={values.opportunityId ?? undefined}
+                    onChange={(opportunityId) => setValues({ ...values, opportunityId })}
+                  />
+                  {values.opportunityId ? (
+                    <Button onClick={() => setValues({ ...values, opportunityId: null })}>
+                      Quitar oportunidad
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="ds-hint ds-field-grid--full">
+                  Indicá una empresa, un contacto o una oportunidad (o más de uno).
+                </p>
+              </>
+            ) : null}
             {/* assigneeId nunca se autoasigna al omitirse (a diferencia de
                 ownerId en Opportunity) — emptyOptionLabel refleja eso. Un
                 USER no elige (B-18): el campo es fijo en sí mismo. */}
