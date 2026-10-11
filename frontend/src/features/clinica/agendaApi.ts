@@ -76,12 +76,45 @@ export function configurarSobreturnos(
   });
 }
 
+// GET /api/clinica/disponibilidad (docs/rubros.md §4.3): sin resourceId, los
+// horarios libres de TODOS los profesionales de la prestación, cada uno con el
+// suyo.
+export function disponibilidadDeClinica(
+  query: {
+    serviceTypeId: string;
+    resourceId?: string;
+    from: string;
+    to: string;
+    sobreturnos?: boolean;
+  },
+  signal?: AbortSignal,
+): Promise<{ availability: HorarioDeClinica[] }> {
+  const { sobreturnos, resourceId, ...resto } = query;
+  const params = new URLSearchParams({
+    ...resto,
+    ...(resourceId ? { resourceId } : {}),
+    ...(sobreturnos ? { sobreturnos: "true" } : {}),
+  });
+  return request(`/clinica/disponibilidad?${params.toString()}`, { getAccessToken, signal });
+}
+
 export function horariosConSobreturnos(
   query: { serviceTypeId: string; resourceId: string; from: string; to: string },
   signal?: AbortSignal,
 ): Promise<{ availability: HorarioDeClinica[] }> {
-  const params = new URLSearchParams({ ...query, sobreturnos: "true" });
-  return request(`/clinica/disponibilidad?${params.toString()}`, { getAccessToken, signal });
+  return disponibilidadDeClinica({ ...query, sobreturnos: true }, signal);
+}
+
+// POST /api/clinica/turnos: sin resourceId, el backend da el turno al primero
+// libre (el de menos turnos ese día).
+export function crearTurnoDeClinica(body: {
+  serviceTypeId: string;
+  resourceId?: string;
+  contactId: string;
+  startsAt: string;
+  isOverbooking?: boolean;
+}): Promise<{ id: string }> {
+  return request("/clinica/turnos", { method: "POST", body, getAccessToken });
 }
 
 export function crearSobreturno(body: {
@@ -90,9 +123,5 @@ export function crearSobreturno(body: {
   contactId: string;
   startsAt: string;
 }): Promise<{ id: string }> {
-  return request("/clinica/turnos", {
-    method: "POST",
-    body: { ...body, isOverbooking: true },
-    getAccessToken,
-  });
+  return crearTurnoDeClinica({ ...body, isOverbooking: true });
 }

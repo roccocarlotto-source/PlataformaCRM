@@ -6,6 +6,8 @@ import {
   configurarSobreturnos,
   crearBloqueo,
   crearSobreturno,
+  crearTurnoDeClinica,
+  disponibilidadDeClinica,
   horariosConSobreturnos,
   listarBloqueos,
 } from "./agendaApi";
@@ -66,6 +68,29 @@ export function useHorariosConSobreturnos(
     queryKey: [...clinicaKeys.all, "sobreturnos", query] as const,
     queryFn: ({ signal }) => horariosConSobreturnos(query!, signal),
     enabled: query !== null,
+  });
+}
+
+// "Nuevo turno" de la agenda (§4.3): los horarios libres de todos los
+// profesionales de una prestación en un día.
+export function useDisponibilidadDeClinica(
+  query: { serviceTypeId: string; from: string; to: string } | null,
+) {
+  return useQuery({
+    queryKey: [...clinicaKeys.all, "disponibilidad", query] as const,
+    queryFn: ({ signal }) => disponibilidadDeClinica(query!, signal),
+    enabled: query !== null,
+  });
+}
+
+export function useCrearTurnoDeClinica() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crearTurnoDeClinica,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...clinicaKeys.all, "disponibilidad"] });
+      queryClient.invalidateQueries({ queryKey: bookingKeys.lists() });
+    },
   });
 }
 

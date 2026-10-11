@@ -477,4 +477,139 @@ describe("BookingCalendarPage en una clínica", () => {
     expect(within(panel).queryByRole("option", { name: "Control" })).not.toBeInTheDocument();
     expect(pedidas).toBe(0);
   });
+
+  // "Nuevo turno" con el primero libre (§4.3): los horarios de TODOS los
+  // profesionales de la prestación, y POST /api/clinica/turnos sin
+  // resourceId salvo que se elija a alguien.
+  // 12:00Z = 09:00 en Montevideo: libres Dr. Suárez y Dra. López. 12:30Z =
+  // 09:30: solo Dr. Suárez.
+  function disponibilidadHandler(urls: URL[] = []) {
+    return http.get(`${env.apiUrl}/api/clinica/disponibilidad`, ({ request }) => {
+      urls.push(new URL(request.url));
+      return HttpResponse.json({
+        availability: [
+          {
+            startsAt: "2030-09-23T12:00:00.000Z",
+            endsAt: "2030-09-23T12:30:00.000Z",
+            availableSeats: 1,
+            resource: { id: "r3", name: "Dr. Suárez" },
+          },
+          {
+            startsAt: "2030-09-23T12:00:00.000Z",
+            endsAt: "2030-09-23T12:30:00.000Z",
+            availableSeats: 1,
+            resource: { id: "r1", name: "Dra. López" },
+          },
+          {
+            startsAt: "2030-09-23T12:30:00.000Z",
+            endsAt: "2030-09-23T13:00:00.000Z",
+            availableSeats: 1,
+            resource: { id: "r3", name: "Dr. Suárez" },
+          },
+        ],
+      });
+    });
+  }
+
+  async function darTurnoConNuevoTurno(user: UserEvent, profesional?: string) {
+    await user.click(await screen.findByRole("button", { name: "Nuevo turno" }));
+    const dialogo = await screen.findByRole("dialog", { name: "Nuevo turno" });
+    await chooseSelectOption(user, within(dialogo).getByLabelText("Prestación"), "Control");
+    await chooseSelectOption(
+      user,
+      await within(dialogo).findByLabelText("Horario"),
+      "09:00 · 2 libres",
+    );
+    const selectorDeProfesional = within(dialogo).getByLabelText("Profesional");
+    // Sin profesional elegido: el input vacío y "El primero libre" como
+    // placeholder (el contrato de emptyOption en Select).
+    expect(selectorDeProfesional).toHaveValue("");
+    expect(selectorDeProfesional).toHaveAttribute("placeholder", "El primero libre");
+    if (profesional) await chooseSelectOption(user, selectorDeProfesional, profesional);
+    await user.type(within(dialogo).getByLabelText("Paciente"), "Ana");
+    await user.click(await within(dialogo).findByRole("button", { name: "Ana Pérez" }));
+    await within(dialogo).findByText(/Seleccionado: Ana/);
+    await user.click(within(dialogo).getByRole("button", { name: "Reservar" }));
+  }
+
+  it("Nuevo turno: horarios de todos los profesionales y el primero libre (sin resourceId)", async () => {
+    useAuthMock.mockReturnValue(mockAuthDeClinica());
+    const urls: URL[] = [];
+    let bodies: unknown[] = [];
+    server.use(
+      ...catalogHandlers(),
+      prestacionesHandler(),
+      bookingsHandler({}),
+      disponibilidadHandler(urls),
+      http.post(`${env.apiUrl}/api/clinica/turnos`, async ({ request }) => {
+        bodies = [...bodies, await request.json()];
+        return HttpResponse.json({ id: "nuevo" }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await irAlLunes();
+
+    await darTurnoConNuevoTurno(user);
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toEqual({
+      serviceTypeId: "s3",
+      contactId: "c9",
+      startsAt: "2030-09-23T12:00:00.000Z",
+    });
+    // El día de la agenda, en la zona de la sede, sin profesional.
+    const pedido = urls.at(-1)!;
+    expect(pedido.searchParams.get("serviceTypeId")).toBe("s3");
+    expect(pedido.searchParams.get("from")).toBe("2030-09-23T03:00:00.000Z");
+    expect(pedido.searchParams.get("to")).toBe("2030-09-24T03:00:00.000Z");
+    expect(pedido.searchParams.has("resourceId")).toBe(false);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Nuevo turno" })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("Nuevo turno: elegir a un profesional libre a esa hora lo manda como resourceId", async () => {
+    useAuthMock.mockReturnValue(mockAuthDeClinica());
+    let bodies: unknown[] = [];
+    server.use(
+      ...catalogHandlers(),
+      prestacionesHandler(),
+      bookingsHandler({}),
+      disponibilidadHandler(),
+      http.post(`${env.apiUrl}/api/clinica/turnos`, async ({ request }) => {
+        bodies = [...bodies, await request.json()];
+        return HttpResponse.json({ id: "nuevo" }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await irAlLunes();
+
+    await darTurnoConNuevoTurno(user, "Dra. López");
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ serviceTypeId: "s3", resourceId: "r1" });
+  });
+
+  it("automotora sin cambios: la agenda no tiene el botón de nuevo turno", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    let disponibilidad = 0;
+    server.use(
+      ...catalogHandlers(),
+      bookingsHandler({}),
+      http.get(`${env.apiUrl}/api/clinica/disponibilidad`, () => {
+        disponibilidad += 1;
+        return HttpResponse.json({ availability: [] });
+      }),
+    );
+    renderPage();
+    await irAlLunes();
+
+    await screen.findByRole("button", { name: "Reservar Dra. López a las 09:00" });
+    expect(
+      screen.queryByRole("button", { name: /Nuev[oa] (turno|reserva)/ }),
+    ).not.toBeInTheDocument();
+    expect(disponibilidad).toBe(0);
+  });
 });
