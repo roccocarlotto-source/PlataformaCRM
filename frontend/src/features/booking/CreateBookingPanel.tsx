@@ -32,6 +32,10 @@ interface CreateBookingPanelProps {
   // de horario o de la grilla del servicio elegido.
   franjas: readonly FranjaEnMinutos[];
   serviceTypes: readonly ServiceType[];
+  // Clínica (docs/rubros.md §4.3): los servicios donde ESE recurso está en
+  // "Elegir profesionales" sin ser el principal. Sin el prop, solo los del
+  // principal, como en una automotora.
+  serviceTypeIdsDelRecurso?: ReadonlySet<string>;
   isAdmin: boolean;
   onClose: () => void;
 }
@@ -56,6 +60,7 @@ export function CreateBookingPanel({
   zona,
   franjas,
   serviceTypes,
+  serviceTypeIdsDelRecurso,
   isAdmin,
   onClose,
 }: CreateBookingPanelProps) {
@@ -66,9 +71,11 @@ export function CreateBookingPanel({
   const createBookingMutation = useCreateBooking();
   const { reserva, recurso, tipoDeServicio } = vocabulario;
 
-  // Mismo criterio que el select "Tipo de servicio" de BookingListPage: los
-  // servicios que provee ESE recurso.
-  const servicios = serviceTypes.filter((s) => s.resourceId === resource.id);
+  // Los servicios que provee ESE recurso: los suyos como principal y, en una
+  // clínica, los que comparte con otros profesionales.
+  const servicios = serviceTypes.filter(
+    (s) => s.resourceId === resource.id || serviceTypeIdsDelRecurso?.has(s.id),
+  );
   const servicio = servicios.find((s) => s.id === serviceTypeId);
 
   const fueraDeHorario = servicio ? !estaEnLaGrilla(minuto, servicio.durationMin, franjas) : false;

@@ -92,6 +92,8 @@ test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunit
     ],
   );
   assert.deepEqual(MODULO_DEL_TRIGGER, {
+    "opportunity.won": "oportunidades",
+    "opportunity.stale": "oportunidades",
     "booking.reminder_due": "recordatorios_de_turno",
     "booking.completed": "post_turno",
   });

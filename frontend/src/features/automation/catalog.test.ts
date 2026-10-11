@@ -505,6 +505,25 @@ describe("catálogo — rótulos por edición", () => {
   });
 });
 
+// docs/rubros.md §7.3: el catálogo de una clínica, sin los de oportunidad.
+describe("catálogo — clínica", () => {
+  it("una clínica ve sus eventos y la consulta sin avance, en el orden de §7.3", () => {
+    for (const simple of [false, true]) {
+      expect(triggerOptions(simple, true).map((o) => o.value)).toEqual([
+        "booking.reminder_due",
+        "booking.completed",
+        "contact.inquiry_stalled",
+      ]);
+    }
+  });
+
+  it("los rótulos de oportunidad se siguen resolviendo (una regla vieja se ve con su nombre)", () => {
+    expect(triggerLabel(TRIGGER_OPPORTUNITY_WON)).toBe("Oportunidad ganada");
+    expect(triggerLabel(TRIGGER_OPPORTUNITY_STALE)).toBe("Oportunidad sin movimiento");
+    expect(triggerLabel("booking.completed")).toBe("Cuando se atiende un turno");
+  });
+});
+
 // R15 (docs/rubros.md §9.1): el seguimiento de consultas de una clínica.
 describe("seguimiento de consultas por rubro", () => {
   it("una automotora: el texto, las variables y la validación de siempre", () => {

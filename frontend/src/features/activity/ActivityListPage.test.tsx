@@ -16,6 +16,7 @@ import { ActivityListPage } from "./ActivityListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { ActivityListResponse } from "./types";
 import { chooseSelectOption } from "../../test/chooseSelectOption";
+import { automotoraDeMe, clinicaDeMe } from "../../test/rubroFixtures";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -748,3 +749,66 @@ describe("ActivityListPage", () => {
     expect(within(dialog).queryByText("Fecha de confirmación")).not.toBeInTheDocument();
   });
 });
+
+// docs/rubros.md §2.1 (D3): una clínica no tiene empresas ni oportunidades.
+describe("ActivityListPage por rubro", () => {
+  const unaTarea: ActivityListResponse = {
+    data: [makeActivity({ companyId: null, contactId: "ct1" })],
+    pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+  };
+
+  it("una clínica no ve Empresa ni Oportunidad (filtro, columnas ni detalle)", async () => {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...clinicaDeMe("COMPLETA") } });
+    server.use(
+      http.get(activitiesUrl, () => HttpResponse.json(unaTarea)),
+      ...relationHandlers(),
+      usersHandler(),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Llamar para renovación");
+    const encabezados = screen.getAllByRole("columnheader").map((th) => th.textContent);
+    expect(encabezados).not.toContain("Empresa");
+    expect(encabezados).not.toContain("Oportunidad");
+    expect(screen.queryByLabelText("Empresa")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    const detalle = await screen.findByRole("dialog", { name: "Detalle de la actividad" });
+    expect(within(detalle).queryByText("Empresa")).not.toBeInTheDocument();
+    expect(within(detalle).queryByText("Oportunidad")).not.toBeInTheDocument();
+  });
+
+  it("automotora sin cambios: las dos ediciones siguen con Empresa y Oportunidad", async () => {
+    for (const edition of ["COMPLETA", "ESENCIAL"] as const) {
+      const base = mockAuth("ADMIN");
+      useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...automotoraDeMe(edition) } });
+      server.use(
+        http.get(activitiesUrl, () => HttpResponse.json(unaTarea)),
+        ...relationHandlers(),
+        usersHandler(),
+      );
+      const { unmount } = renderPageConUnmount();
+
+      await screen.findByText("Llamar para renovación");
+      const encabezados = screen.getAllByRole("columnheader").map((th) => th.textContent);
+      expect(encabezados).toContain("Empresa");
+      expect(encabezados).toContain("Oportunidad");
+      expect(screen.getByLabelText("Empresa")).toBeInTheDocument();
+      unmount();
+    }
+  });
+});
+
+function renderPageConUnmount() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <ActivityListPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}

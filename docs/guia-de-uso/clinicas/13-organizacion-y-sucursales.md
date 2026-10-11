@@ -136,14 +136,8 @@ Los campos con asterisco son obligatorios.
   primero los avisos de la sede como tarea. Podés dejar **Sin responsable
   por defecto**.
 
-### Cobro
-
-La tarjeta **Cobro** tiene dos campos opcionales: **Link de pago** (una
-dirección que empiece con `https://`) y **Datos para transferencia** (texto
-libre, hasta 2000 caracteres).
-
-> En una clínica el asistente no manda links de pago ni datos para
-> transferencia a los pacientes, aunque estén cargados acá.
+> En una clínica la sede no tiene tarjeta de **Cobro**: el asistente no manda
+> links de pago ni datos para transferencia a los pacientes.
 
 ### Después de crearla
 

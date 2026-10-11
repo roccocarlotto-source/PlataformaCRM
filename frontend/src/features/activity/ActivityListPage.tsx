@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Activity as ActivityIcon, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { esClinica } from "../../auth/vocabulario";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
@@ -83,6 +84,10 @@ export function ActivityListPage() {
   // Editar/Eliminar) y la resolución de author/assignee vía GET /api/users
   // están condicionadas por rol.
   const isAdmin = me?.role === "ADMIN";
+  // Una clínica no tiene empresas ni oportunidades (docs/rubros.md §2.1, D3):
+  // sin el filtro, las columnas ni las filas del detalle. Por rubro y no por
+  // módulo: una automotora ESENCIAL tampoco tiene empresas y sigue igual.
+  const conEmpresaYOportunidad = !esClinica(me);
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -216,20 +221,22 @@ export function ActivityListPage() {
               setPage(1);
             }}
           />
-          <CompanySelect
-            id="activity-filter-company"
-            label="Empresa"
-            value={companyId}
-            onChange={(id) => {
-              setCompanyId(id);
-              setPage(1);
-            }}
-            onClear={() => {
-              setCompanyId(undefined);
-              setPage(1);
-            }}
-            clearLabel="Quitar filtro de empresa"
-          />
+          {conEmpresaYOportunidad ? (
+            <CompanySelect
+              id="activity-filter-company"
+              label="Empresa"
+              value={companyId}
+              onChange={(id) => {
+                setCompanyId(id);
+                setPage(1);
+              }}
+              onClear={() => {
+                setCompanyId(undefined);
+                setPage(1);
+              }}
+              clearLabel="Quitar filtro de empresa"
+            />
+          ) : null}
           <Select
             label="Ordenar por"
             value={sortBy}
@@ -287,9 +294,9 @@ export function ActivityListPage() {
               <tr>
                 <th>Asunto</th>
                 <th>Tipo</th>
-                <th>Empresa</th>
+                {conEmpresaYOportunidad ? <th>Empresa</th> : null}
                 <th>Contacto</th>
-                <th>Oportunidad</th>
+                {conEmpresaYOportunidad ? <th>Oportunidad</th> : null}
                 <th>Autor</th>
                 <th>Asignado a</th>
                 <th>Vencimiento</th>
@@ -305,19 +312,23 @@ export function ActivityListPage() {
                   <td>
                     <Badge variant="neutral">{ACTIVITY_TYPE_LABELS[activity.type]}</Badge>
                   </td>
-                  <td>
-                    {activity.companyId
-                      ? (companyNames.byId.get(activity.companyId)?.name ?? "—")
-                      : ""}
-                  </td>
+                  {conEmpresaYOportunidad ? (
+                    <td>
+                      {activity.companyId
+                        ? (companyNames.byId.get(activity.companyId)?.name ?? "—")
+                        : ""}
+                    </td>
+                  ) : null}
                   <td>
                     {activity.contactId ? (contactNames.byId.get(activity.contactId) ?? "—") : ""}
                   </td>
-                  <td>
-                    {activity.opportunityId
-                      ? (opportunityNames.byId.get(activity.opportunityId) ?? "—")
-                      : ""}
-                  </td>
+                  {conEmpresaYOportunidad ? (
+                    <td>
+                      {activity.opportunityId
+                        ? (opportunityNames.byId.get(activity.opportunityId) ?? "—")
+                        : ""}
+                    </td>
+                  ) : null}
                   <td>{resolveAuthorLabel(activity)}</td>
                   <td>{resolveUserLabel(activity.assigneeId)}</td>
                   <td>
@@ -409,24 +420,32 @@ export function ActivityListPage() {
                   },
                   { label: "Asunto", value: detalle.subject },
                   { label: "Notas", value: detalle.body },
-                  {
-                    label: "Empresa",
-                    value: detalle.companyId
-                      ? (companyNames.byId.get(detalle.companyId)?.name ?? "—")
-                      : null,
-                  },
+                  ...(conEmpresaYOportunidad
+                    ? [
+                        {
+                          label: "Empresa",
+                          value: detalle.companyId
+                            ? (companyNames.byId.get(detalle.companyId)?.name ?? "—")
+                            : null,
+                        },
+                      ]
+                    : []),
                   {
                     label: "Contacto",
                     value: detalle.contactId
                       ? (contactNames.byId.get(detalle.contactId) ?? "—")
                       : null,
                   },
-                  {
-                    label: "Oportunidad",
-                    value: detalle.opportunityId
-                      ? (opportunityNames.byId.get(detalle.opportunityId) ?? "—")
-                      : null,
-                  },
+                  ...(conEmpresaYOportunidad
+                    ? [
+                        {
+                          label: "Oportunidad",
+                          value: detalle.opportunityId
+                            ? (opportunityNames.byId.get(detalle.opportunityId) ?? "—")
+                            : null,
+                        },
+                      ]
+                    : []),
                   { label: "Autor", value: resolveAuthorLabel(detalle) },
                   { label: "Asignado a", value: resolveUserLabel(detalle.assigneeId) },
                   { label: "Vencimiento", value: formatDateTime(detalle.dueDate) },

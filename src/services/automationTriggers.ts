@@ -144,6 +144,11 @@ export const CONFIG_DE_TRIGGER: Record<TriggerType, EsquemaDeTrigger> = {
 /** El módulo que necesita un trigger (R13). Sin entrada: lo tiene cualquiera
  *  que tenga el módulo de automatizaciones. */
 export const MODULO_DEL_TRIGGER: Readonly<Partial<Record<TriggerType, Modulo>>> = {
+  // docs/rubros.md §7.3: una clínica no tiene oportunidades (D3), así que
+  // tampoco sus triggers. Las dos ediciones de una automotora tienen el
+  // módulo: para ella no cambia nada.
+  [TRIGGER_OPPORTUNITY_WON]: "oportunidades",
+  [TRIGGER_OPPORTUNITY_STALE]: "oportunidades",
   [TRIGGER_BOOKING_REMINDER_DUE]: "recordatorios_de_turno",
   [TRIGGER_BOOKING_COMPLETED]: "post_turno",
 };

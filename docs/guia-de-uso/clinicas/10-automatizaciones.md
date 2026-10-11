@@ -59,7 +59,7 @@ Estos son los eventos de una clínica:
 |---|---|---|
 | **Consulta sin avance** | Cuando alguien consultó y lleva varios días sin responder. | **Retomar la consulta** |
 | **Recordatorio antes del turno** | Antes de cada turno, con las horas que configura cada sede. | **Mandar el recordatorio por WhatsApp** |
-| **Cuando se atiende un turno** | Cuando el turno se marca **Atendido**, o cuando se cierra solo a las 3 horas. | **Pedir una reseña con un QR** y **Recordar el control** |
+| **Cuando se atiende un turno** | Cuando el turno se marca **Atendido**, o cuando se cierra solo a las 3 horas. | **Pedir una reseña con un QR**, **Recordar el control** y **Crear actividad de seguimiento** |
 
 ### Consulta sin avance
 

@@ -13,6 +13,7 @@ import { makeUser } from "../../test/userFixtures";
 import { ActivityFormPage } from "./ActivityFormPage";
 import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 import type { AuthContextValue } from "../../auth/AuthContext";
+import { automotoraDeMe, clinicaDeMe } from "../../test/rubroFixtures";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -789,5 +790,51 @@ describe("ActivityFormPage — ?contactId", () => {
       subject: "Llamar por la Hilux",
       contactId: "ct9",
     });
+  });
+});
+
+// docs/rubros.md §2.1 (D3): en una clínica la tarea se relaciona solo con el
+// paciente.
+describe("ActivityFormPage por rubro", () => {
+  it("una clínica no ve Empresa ni Oportunidad, y sin paciente pide el paciente", async () => {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...clinicaDeMe("COMPLETA") } });
+    let postRequested = false;
+    server.use(
+      ...baseHandlers(),
+      http.post(activitiesUrl, () => {
+        postRequested = true;
+        return HttpResponse.json(makeActivity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/activities/new");
+
+    await user.type(await screen.findByLabelText("Asunto"), "Llamar");
+    expect(screen.queryByLabelText("Empresa")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Oportunidad")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/una empresa, un contacto o una oportunidad/),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    expect(await screen.findByText("Debe indicar un paciente")).toBeInTheDocument();
+    expect(postRequested).toBe(false);
+  });
+
+  it("automotora sin cambios: las dos ediciones siguen con Empresa y Oportunidad", async () => {
+    for (const edition of ["COMPLETA", "ESENCIAL"] as const) {
+      const base = mockAuth("ADMIN");
+      useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...automotoraDeMe(edition) } });
+      server.use(...baseHandlers());
+      const { unmount } = renderForm("/activities/new");
+
+      expect(await screen.findByLabelText("Empresa")).toBeInTheDocument();
+      expect(screen.getByLabelText("Oportunidad")).toBeInTheDocument();
+      expect(
+        screen.getByText("Indicá una empresa, un contacto o una oportunidad (o más de uno)."),
+      ).toBeInTheDocument();
+      unmount();
+    }
   });
 });
