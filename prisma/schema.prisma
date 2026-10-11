@@ -1410,23 +1410,23 @@ model Opportunity {
 // ---------------------------------------------------------------------------
 
 model Activity {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  type           ActivityType
-  authorId       String       @map("author_id") @db.Uuid
-  assigneeId     String?      @map("assignee_id") @db.Uuid
-  companyId      String?      @map("company_id") @db.Uuid
-  contactId      String?      @map("contact_id") @db.Uuid
-  opportunityId  String?      @map("opportunity_id") @db.Uuid
-  subject        String       @db.VarChar(255)
-  body           String?
-  dueDate        DateTime?    @map("due_date")
-  completedAt    DateTime?    @map("completed_at")
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId     String       @map("organization_id") @db.Uuid
+  type               ActivityType
+  authorId           String       @map("author_id") @db.Uuid
+  assigneeId         String?      @map("assignee_id") @db.Uuid
+  companyId          String?      @map("company_id") @db.Uuid
+  contactId          String?      @map("contact_id") @db.Uuid
+  opportunityId      String?      @map("opportunity_id") @db.Uuid
+  subject            String       @db.VarChar(255)
+  body               String?
+  dueDate            DateTime?    @map("due_date")
+  completedAt        DateTime?    @map("completed_at")
   // Cuándo PASÓ (la nota, la llamada, la tarea): la línea de tiempo se ordena
   // por esto. createdAt es cuándo se cargó en ESTE CRM. Iguales en la carga
   // manual (default now()); distintos en el historial importado, que trae su
   // fecha original (migración 20261026120000, docs/importacion-de-datos.md §5.3).
-  occurredAt     DateTime     @default(now()) @map("occurred_at")
+  occurredAt         DateTime     @default(now()) @map("occurred_at")
   // Confirmación del ADMIN sobre una tarea que el asignado marcó como hecha
   // (docs/frontend-cambios-pendientes.md §29). Tres estados derivados de dos
   // columnas: pendiente (completedAt null) → pendiente de confirmar
@@ -1434,28 +1434,36 @@ model Activity {
   // que sostiene activity.service.ts en toda escritura: confirmedAt y
   // confirmedById nunca quedan con valor si completedAt es null. Ninguna de
   // las dos la escribe el cliente: las calcula el service (quién y cuándo).
-  confirmedAt    DateTime?    @map("confirmed_at")
-  confirmedById  String?      @map("confirmed_by_id") @db.Uuid
+  confirmedAt        DateTime?    @map("confirmed_at")
+  confirmedById      String?      @map("confirmed_by_id") @db.Uuid
   // La sede de la tarea (docs/rubros.md §11.2, R20). Nullable y sin default:
   // la escriben SOLO los flujos de clínica (las tareas que nacen de una
   // conversación de una sede). Una automotora nunca la llena, y una tarea sin
   // sede la ve y la toma cualquier Recepción de la organización.
-  branchId       String?      @map("branch_id") @db.Uuid
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  deletedAt      DateTime?    @map("deleted_at")
+  branchId           String?      @map("branch_id") @db.Uuid
+  // La tarea después del turno de una clínica (docs/rubros.md §7.3): el turno
+  // y la regla que la crearon. Una tarea por regla y por turno (índice único
+  // parcial activities_follow_up_por_turno_key, en la migración). Solo los
+  // escribe código de clínicas.
+  sourceBookingId    String?      @map("source_booking_id") @db.Uuid
+  sourceAutomationId String?      @map("source_automation_id") @db.Uuid
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  deletedAt          DateTime?    @map("deleted_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  author       User         @relation("ActivityAuthor", fields: [organizationId, authorId], references: [organizationId, id])
-  assignee     User?        @relation("ActivityAssignee", fields: [organizationId, assigneeId], references: [organizationId, id], onDelete: NoAction)
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  author           User         @relation("ActivityAuthor", fields: [organizationId, authorId], references: [organizationId, id])
+  assignee         User?        @relation("ActivityAssignee", fields: [organizationId, assigneeId], references: [organizationId, id], onDelete: NoAction)
   // Mismo criterio que assignee: FK compuesta por organización y NoAction
   // para no perder el rastro de quién confirmó si se borra el usuario.
-  confirmedBy  User?        @relation("ActivityConfirmedBy", fields: [organizationId, confirmedById], references: [organizationId, id], onDelete: NoAction)
-  company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
-  contact      Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
-  opportunity  Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
+  confirmedBy      User?        @relation("ActivityConfirmedBy", fields: [organizationId, confirmedById], references: [organizationId, id], onDelete: NoAction)
+  company          Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
+  contact          Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
+  opportunity      Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
   // Nullable, y por eso NO ACTION (la regla de 20260821140200).
-  branch       Branch?      @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
+  branch           Branch?      @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
+  sourceBooking    Booking?     @relation(fields: [organizationId, sourceBookingId], references: [organizationId, id], onDelete: NoAction)
+  sourceAutomation Automation?  @relation(fields: [organizationId, sourceAutomationId], references: [organizationId, id], onDelete: NoAction)
 
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL OR
   // opportunity_id IS NOT NULL) vive en la migración
@@ -1838,6 +1846,8 @@ model Automation {
   executions               AutomationExecution[]
   qrFollowUps              QrFollowUp[]
   bookingMessages          BookingMessage[]
+  // §7.3: las tareas después del turno que creó esta regla.
+  followUpActivities       Activity[]
   // Los cupones que emitió esta regla (ítem 176) y los que agendó (ítem 177).
   discountVouchers         DiscountVoucher[]
   discountVoucherFollowUps DiscountVoucherFollowUp[]
@@ -2577,7 +2587,9 @@ model Booking {
   contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
   opportunity  Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
 
-  messages BookingMessage[]
+  messages           BookingMessage[]
+  // §7.3: las tareas después del turno que creó una regla.
+  followUpActivities Activity[]
 
   // R13: para la FK compuesta de booking_messages.
   @@unique([organizationId, id])

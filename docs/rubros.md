@@ -1577,12 +1577,20 @@ model ServiceType {
 | Trigger | Rótulo | Acciones |
 |---|---|---|
 | `booking.reminder_due` | "Recordatorio antes del turno" | `booking.send_reminder` (UTILITY, con botones) |
-| `booking.completed` | "Cuando se atiende un turno" | `booking.send_qr_review`, `booking.schedule_control` |
+| `booking.completed` | "Cuando se atiende un turno" | `booking.send_qr_review`, `booking.schedule_control`, `activity.create_follow_up` |
 | `contact.inquiry_stalled` | "Cuando una consulta queda sin respuesta" | `inquiry.follow_up` (con el filtro de turnos, §9) |
 
-- **Pendiente:** `activity.create_follow_up` sobre `booking.completed` (una
-  tarea después del turno). Hoy esa acción espera una oportunidad; va en otro PR
-  (decisión de Rocco del 2026-10-10).
+- **Tarea después del turno** (`activity.create_follow_up` sobre
+  `booking.completed`, PR aparte de R14 por decisión de Rocco del 2026-10-10):
+  la misma acción de la venta ganada, que con el evento de un turno delega en
+  `src/clinicas/postTurno/tarea.ts`. La tarea va a la recepción de la sede del
+  turno (§11.4), con el paciente y la sede, y vence a N días desde que se marcó
+  atendido. `activities.source_booking_id` y `source_automation_id` (migración
+  `clinicas_tarea_post_turno`) con el índice único parcial
+  `activities_follow_up_por_turno_key`: una tarea por regla y por turno. Si el
+  turno se corrige a "No vino", la tarea abierta se cierra sola con una nota;
+  si vuelve a "Atendido", se reabre. Una automotora no ve las columnas
+  (`CAMPOS_DE_CLINICA.activity`).
 - Los triggers y acciones de clínicas se registran en el motor con su módulo
   (ediciones §8). `modulosDe` los saca del catálogo de una automotora, y
   `opportunity.won` y `opportunity.stale` del de una clínica.
@@ -2220,7 +2228,8 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
 
 **Pendientes fuera de la tabla** (decisiones de Rocco del 2026-10-10):
 
-- `activity.create_follow_up` sobre `booking.completed` (§7.3).
+- ~~`activity.create_follow_up` sobre `booking.completed` (§7.3).~~ Hecho: la
+  tarea después del turno.
 - Las FAQs que hoy deriva la capa 1, en un PR chico del detector con la lista
   revisada por un profesional de salud (§5.3).
 

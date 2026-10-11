@@ -180,7 +180,8 @@ test("accionAdmiteTrigger: sin `triggers` admite cualquiera; con `triggers`, sol
   assert.equal(accionAdmiteTrigger(acotada, TRIGGER_OPPORTUNITY_WON), false);
 });
 
-test("activity.create_follow_up solo admite opportunity.won: colgada de stale sería una tarea diaria infinita", () => {
+test("activity.create_follow_up admite opportunity.won y booking.completed (§7.3), no stale: colgada de stale sería una tarea diaria infinita", () => {
+  assert.equal(accionAdmiteTrigger(accionCrearActividadDeSeguimiento, "booking.completed"), true);
   assert.equal(
     accionAdmiteTrigger(accionCrearActividadDeSeguimiento, TRIGGER_OPPORTUNITY_WON),
     true,

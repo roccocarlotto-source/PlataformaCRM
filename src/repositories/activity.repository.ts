@@ -158,6 +158,9 @@ export interface CreateActivityData {
   completedAt?: Date;
   // La sede de la tarea (R20): solo la escriben los flujos de clínica.
   branchId?: string | null;
+  // La tarea después del turno (docs/rubros.md §7.3): el turno y la regla.
+  sourceBookingId?: string | null;
+  sourceAutomationId?: string | null;
 }
 
 export function createActivity(data: CreateActivityData, db: Db = prisma) {

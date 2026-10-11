@@ -13,7 +13,8 @@ import type { OrganizationIndustry } from "@prisma/client";
 
 export const CAMPOS_DE_CLINICA = {
   // R20: la sede de la tarea.
-  activity: ["branchId"],
+  // §7.3: el turno y la regla de la tarea después del turno.
+  activity: ["branchId", "sourceBookingId", "sourceAutomationId"],
   // R6: sobreturnos del profesional. R8: su calendario de Google.
   resource: ["allowsOverbooking", "maxOverbookingsPerDay", "googleCalendarId"],
   // R6: el turno es un sobreturno. R8: el calendario del profesional donde
