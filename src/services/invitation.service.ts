@@ -28,6 +28,16 @@ import { createUser, findUserByEmail } from "../repositories/user.repository";
 import type { InvitationAcceptIdentity, RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { esErrorDeEmailDuplicado } from "./authIdentity.service";
+import { primaryCorsOrigin } from "./organizationAdmin.service";
+
+// A dónde lleva el mail de la invitación: la pantalla que la acepta
+// (AcceptInvitationPage), que es la que crea el usuario y sus sedes. Sin
+// redirectTo, Supabase manda al Site URL ("/") y la persona queda con sesión
+// pero sin usuario: /api/me responde 403 "no activada". Mismo origen que la
+// invitación del primer administrador (el primero de CORS_ORIGIN).
+export function urlParaAceptarLaInvitacion(corsOrigin?: string): string {
+  return `${primaryCorsOrigin(corsOrigin)}/invite/accept`;
+}
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -188,6 +198,7 @@ export async function createInvitation(
     email,
     {
       data: { invitationId: invitation.id },
+      redirectTo: urlParaAceptarLaInvitacion(),
     },
   );
 

@@ -95,6 +95,11 @@ export interface AuthContextValue {
   status: AuthStatus;
   me: MeResponse | null;
   accountUnavailableReason: string | null;
+  // La sesión viene del link de una invitación que todavía no se aceptó
+  // (403 CUENTA_NO_ACTIVADA y un invitationId en la metadata de la sesión):
+  // ProtectedRoute lleva a /invite/accept en vez de dejar a la persona en el
+  // aviso de "no activada". Opcional: los mocks de useAuth no lo necesitan.
+  debeAceptarInvitacion?: boolean;
   profileError: Error | null;
   login(email: string, password: string): Promise<void>;
   logout(): Promise<void>;
@@ -135,6 +140,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // undefined: onAuthStateChange todavía no disparó ningún evento.
   // null: disparó, sin sesión. string: disparó, session.user.id conocido.
   const [identityKey, setIdentityKey] = useState<string | null | undefined>(undefined);
+  // El invitationId que Supabase guarda en la metadata de una identidad
+  // invitada (createInvitation lo pasa como `data`). Ver debeAceptarInvitacion.
+  const [invitationIdDeLaSesion, setInvitationIdDeLaSesion] = useState<string | null>(null);
 
   // Espejo de identityKey leído/escrito sincrónicamente dentro del callback
   // de onAuthStateChange (registrado una sola vez — su closure quedaría
@@ -179,6 +187,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (!active) return;
+
+      const invitationId: unknown = session?.user.user_metadata?.invitationId;
+      setInvitationIdDeLaSesion(typeof invitationId === "string" ? invitationId : null);
 
       if (event === "TOKEN_REFRESHED") {
         // organizationId/role no dependen del contenido del token (se
@@ -239,6 +250,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const profileError = status === "profile-error" ? meQuery.error : null;
 
+  const debeAceptarInvitacion =
+    status === "account-unavailable" &&
+    meQuery.error instanceof ApiError &&
+    meQuery.error.details?.code === "CUENTA_NO_ACTIVADA" &&
+    invitationIdDeLaSesion !== null;
+
   async function login(email: string, password: string): Promise<void> {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
@@ -269,6 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     status,
     me: meQuery.data ?? null,
     accountUnavailableReason,
+    debeAceptarInvitacion,
     profileError,
     login,
     logout,
