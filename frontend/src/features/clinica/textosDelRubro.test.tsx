@@ -244,8 +244,14 @@ const PANTALLAS: Pantalla[] = [
   },
 ];
 
+// Fechas y horas: dependen de la zona horaria y del locale de la máquina (el
+// CI corre en UTC y en inglés), y no son vocabulario. Se enmascaran.
+const FECHA_U_HORA =
+  /\d{1,2}\/\d{1,2}(\/\d{2,4})?|\d{1,2}:\d{2}(:\d{2})?(\s?(a\.\s?m\.|p\.\s?m\.|AM|PM))?/g;
+
 /** El texto visible de la página, en orden: cada nodo de texto y los
- *  atributos que se leen (placeholder, aria-label, title, alt). */
+ *  atributos que se leen (placeholder, aria-label, title, alt), con las
+ *  fechas y horas enmascaradas. */
 function textoVisible(raiz: HTMLElement): string[] {
   const textos: string[] = [];
   const recorrer = (nodo: Node) => {
@@ -263,7 +269,7 @@ function textoVisible(raiz: HTMLElement): string[] {
     nodo.childNodes.forEach(recorrer);
   };
   recorrer(raiz);
-  return textos;
+  return textos.map((texto) => texto.replace(FECHA_U_HORA, "#"));
 }
 
 async function textosDe(pantalla: Pantalla, auth: AuthContextValue): Promise<string[]> {
