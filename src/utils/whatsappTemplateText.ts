@@ -67,6 +67,8 @@ export const TOKEN_LUGAR = "{lugar}";
 export const TOKEN_DIA = "{dia}";
 export const TOKEN_HORA = "{hora}";
 export const TOKEN_PROFESIONAL = "{profesional}";
+// R14 (docs/rubros.md §7.2): el control, "ya pasaron {semanas} semanas".
+export const TOKEN_SEMANAS = "{semanas}";
 
 // Tope del cuerpo de una plantilla en Meta, medido sobre el texto que viaja.
 export const LARGO_MAXIMO_DEL_CUERPO = 1024;
@@ -82,6 +84,7 @@ export const EJEMPLO_LUGAR = "Clínica Ejemplo (sede Centro)";
 export const EJEMPLO_DIA = "lunes 1 de marzo";
 export const EJEMPLO_HORA = "10:30";
 export const EJEMPLO_PROFESIONAL = "Ana";
+export const EJEMPLO_SEMANAS = "4";
 
 export interface VariableDePlantilla {
   token: string;
@@ -129,6 +132,14 @@ export const VARIABLES_DE_RECORDATORIO: readonly VariableDePlantilla[] = [
   { token: TOKEN_PROFESIONAL, requerida: false, ejemplo: EJEMPLO_PROFESIONAL },
 ];
 
+// R14: las del control después del turno. {nombre} obligatoria; {semanas} y
+// {lugar}, opcionales. Sin la prestación.
+export const VARIABLES_DE_CONTROL: readonly VariableDePlantilla[] = [
+  { token: TOKEN_NOMBRE, requerida: true, ejemplo: EJEMPLO_NOMBRE },
+  { token: TOKEN_SEMANAS, requerida: false, ejemplo: EJEMPLO_SEMANAS },
+  { token: TOKEN_LUGAR, requerida: false, ejemplo: EJEMPLO_LUGAR },
+];
+
 // La familia de {nombre} y {link} (el QR y el cupón): sus mensajes de error
 // hablan del link aunque el formato no lo lleve.
 function esFamiliaDelNombre(variables: readonly VariableDePlantilla[]): boolean {
@@ -149,6 +160,7 @@ const TODOS_LOS_TOKENS: readonly string[] = [
   TOKEN_DIA,
   TOKEN_HORA,
   TOKEN_PROFESIONAL,
+  TOKEN_SEMANAS,
 ];
 
 function contar(texto: string, token: string): number {

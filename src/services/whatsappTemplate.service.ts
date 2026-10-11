@@ -29,6 +29,7 @@ import {
   VARIABLES_DE_CONSULTA,
   VARIABLES_DE_CONSULTA_DE_CLINICA,
   VARIABLES_DE_RECORDATORIO,
+  VARIABLES_DE_CONTROL,
   ejemplosDelCuerpo,
   formatoLlevaImagen,
   formatoLlevaLink,
@@ -43,6 +44,10 @@ import {
   ACTION_BOOKING_SEND_REMINDER,
   BOTONES_DEL_RECORDATORIO,
 } from "../clinicas/recordatorios/config";
+import {
+  ACTION_BOOKING_SCHEDULE_CONTROL,
+  ACTION_BOOKING_SEND_QR_REVIEW,
+} from "../clinicas/postTurno/config";
 import { mensajeDeLaRegla } from "./automationActions/mensajeDeWhatsapp";
 import { ACTION_SEND_DISCOUNT_VOUCHER } from "./automationActions/sendDiscountVoucherFollowup";
 import { ACTION_SEND_QR_FOLLOWUP } from "./automationActions/sendQrFollowup";
@@ -229,6 +234,8 @@ function traducirErrorDeMeta(err: unknown, accion: string): AppError {
 const QR_DE_LA_ACCION: Record<string, TipoDeQr> = {
   [ACTION_SEND_QR_FOLLOWUP]: "r",
   [ACTION_SEND_DISCOUNT_VOUCHER]: "v",
+  // R14: el QR de reseña de una clínica, con la misma forma que el de arriba.
+  [ACTION_BOOKING_SEND_QR_REVIEW]: "r",
 };
 
 // La categoría con la que se da de alta la plantilla de cada acción. Las dos
@@ -271,6 +278,8 @@ export const ACCIONES_CON_PLANTILLA: readonly string[] = [
   ...Object.keys(QR_DE_LA_ACCION),
   ACTION_INQUIRY_FOLLOW_UP,
   ACTION_BOOKING_SEND_REMINDER,
+  // R14: el control después del turno (solo texto).
+  ACTION_BOOKING_SCHEDULE_CONTROL,
 ];
 
 // Las variables de la plantilla de cada acción (utils/whatsappTemplateText.ts):
@@ -285,6 +294,7 @@ export function variablesDeLaAccion(
     return industry === "CLINICA" ? VARIABLES_DE_CONSULTA_DE_CLINICA : VARIABLES_DE_CONSULTA;
   }
   if (actionType === ACTION_BOOKING_SEND_REMINDER) return VARIABLES_DE_RECORDATORIO;
+  if (actionType === ACTION_BOOKING_SCHEDULE_CONTROL) return VARIABLES_DE_CONTROL;
   return variablesDeSeguimiento(formatoLlevaLink(formato));
 }
 
@@ -297,6 +307,8 @@ const PREFIJO_DEL_NOMBRE: Record<string, string> = {
   [ACTION_SEND_DISCOUNT_VOUCHER]: "cupon_descuento",
   [ACTION_INQUIRY_FOLLOW_UP]: "seguimiento_consulta",
   [ACTION_BOOKING_SEND_REMINDER]: "recordatorio_turno",
+  [ACTION_BOOKING_SEND_QR_REVIEW]: "resena_turno",
+  [ACTION_BOOKING_SCHEDULE_CONTROL]: "control_turno",
 };
 
 // Minúsculas, números y guion bajo (regla de Meta), único en el WABA

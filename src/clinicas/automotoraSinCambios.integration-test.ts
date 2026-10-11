@@ -695,3 +695,72 @@ test("R13: una automotora no puede crear la regla del recordatorio (el 400 de si
     0,
   );
 });
+
+// ---------------------------------------------------------------------------
+// R16 (aviso de privacidad, docs/rubros.md §8.1): una automotora no ve la fecha
+// del aviso en sus contactos ni el aviso en su configuración, y no lo puede
+// cargar (400).
+// ---------------------------------------------------------------------------
+
+test("R16: contactos y configuración de una automotora sin el aviso de privacidad, y cargarlo da 400", async () => {
+  const [comoAdmin] = conSucursales.tokens;
+  const contacto = await prisma.contact.create({
+    data: { organizationId: conSucursales.id, firstName: "Cliente", lastName: "R16" },
+  });
+  const lista = await pedir(conSucursales, "GET", "/api/contacts", undefined, comoAdmin);
+  assert.equal(lista.status, 200);
+  for (const c of lista.json.data as Record<string, unknown>[]) {
+    assert.ok(!("privacyNoticeSentAt" in c), "la lista no trae la fecha del aviso");
+  }
+  const uno = await pedir(
+    conSucursales,
+    "GET",
+    `/api/contacts/${contacto.id}`,
+    undefined,
+    comoAdmin,
+  );
+  assert.equal(uno.status, 200);
+  assert.ok(!("privacyNoticeSentAt" in uno.json));
+
+  const config = await pedir(conSucursales, "GET", "/api/organization", undefined, comoAdmin);
+  assert.equal(config.status, 200);
+  assert.ok(!("privacyNoticeText" in config.json));
+  assert.ok(!("privacyPolicyUrl" in config.json));
+
+  const cargar = await pedir(
+    conSucursales,
+    "PATCH",
+    "/api/organization",
+    { privacyNoticeText: "Aviso" },
+    comoAdmin,
+  );
+  assert.equal(cargar.status, 400);
+  await prisma.contact.delete({ where: { id: contacto.id } });
+});
+
+test("R14: una automotora no puede usar booking.completed (el 400 de siempre) y sus servicios no traen el control", async () => {
+  await assert.rejects(
+    createAutomation(conSucursales.id, {
+      name: "Reseña",
+      triggerType: "booking.completed",
+      actionType: "booking.send_qr_review",
+      actionConfig: {},
+    }),
+    /triggerType "booking.completed" no existe: debe ser uno de opportunity.won, opportunity.stale, contact.inquiry_stalled$/,
+  );
+  const [comoAdmin] = conSucursales.tokens;
+  const lista = await pedir(conSucursales, "GET", "/api/service-types", undefined, comoAdmin);
+  assert.equal(lista.status, 200);
+  for (const servicio of (lista.json.data as Record<string, unknown>[]) ?? []) {
+    assert.equal("followUpAfterDays" in servicio, false);
+  }
+  const control = await pedir(
+    conSucursales,
+    "PUT",
+    "/api/clinica/prestaciones/11111111-1111-4111-8111-111111111111/control",
+    { followUpAfterDays: 10 },
+    comoAdmin,
+  );
+  assert.equal(control.status, 403);
+  assert.equal((control.json.error as { motivo?: string } | undefined)?.motivo, "RUBRO");
+});

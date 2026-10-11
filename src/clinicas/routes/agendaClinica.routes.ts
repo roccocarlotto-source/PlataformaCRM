@@ -10,6 +10,7 @@ import {
   asignarCalendarioHandler,
   configuracionDeSedeHandler,
   configurarSedeHandler,
+  configurarControlHandler,
   listarCalendariosHandler,
   borrarBloqueoHandler,
   configurarSobreturnosHandler,
@@ -167,4 +168,14 @@ agendaClinicaRouter.put(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   configurarSedeHandler,
+);
+
+// R14 (docs/rubros.md §7.2): "Recordar control a los N días" de una prestación.
+// Configuración: solo ADMIN. Del módulo post_turno.
+agendaClinicaRouter.put(
+  "/clinica/prestaciones/:serviceTypeId/control",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  configurarControlHandler,
 );

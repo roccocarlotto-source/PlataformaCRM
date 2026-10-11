@@ -127,7 +127,9 @@ type ContactoParaUnir = Pick<
   | "vehicleOfInterestId"
   | "vehicleOfInterestSetBy"
   | "updatedAt"
->;
+> &
+  // R16: opcional para que los fixtures de antes sigan valiendo.
+  Partial<Pick<Contact, "privacyNoticeSentAt">>;
 
 // Pura: el valor de un campo (el presupuesto como par).
 export function valorDelCampo(c: ContactoParaUnir, campo: CampoDeLaUnion): unknown {
@@ -231,6 +233,15 @@ export function datosDelQueQueda(
   if (!kept.vehicleOfInterestId && absorbed.vehicleOfInterestId) {
     datos.vehicleOfInterestId = absorbed.vehicleOfInterestId;
     datos.vehicleOfInterestSetBy = absorbed.vehicleOfInterestSetBy;
+  }
+  // R16 (docs/rubros.md §8.1): el aviso de privacidad no se elige. Queda el
+  // más viejo de los dos: si cualquiera ya lo recibió, el que queda no lo
+  // vuelve a recibir.
+  const avisos = [kept.privacyNoticeSentAt, absorbed.privacyNoticeSentAt].filter(
+    (d): d is Date => d instanceof Date,
+  );
+  if (avisos.length > 0) {
+    datos.privacyNoticeSentAt = new Date(Math.min(...avisos.map((d) => d.getTime())));
   }
   if (absorbed.leadNotes?.trim()) {
     datos.leadNotes = appendLeadNotes(

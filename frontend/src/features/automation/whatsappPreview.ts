@@ -20,6 +20,8 @@ export const TOKEN_LUGAR = "{lugar}";
 export const TOKEN_DIA = "{dia}";
 export const TOKEN_HORA = "{hora}";
 export const TOKEN_PROFESIONAL = "{profesional}";
+// R14: el control después del turno.
+export const TOKEN_SEMANAS = "{semanas}";
 
 // Los mismos ejemplos que el backend manda a Meta con el alta.
 export const EJEMPLO_NOMBRE = "Ana";
@@ -31,6 +33,7 @@ export const EJEMPLO_LUGAR = "Clínica Ejemplo (sede Centro)";
 export const EJEMPLO_DIA = "lunes 1 de marzo";
 export const EJEMPLO_HORA = "10:30";
 export const EJEMPLO_PROFESIONAL = "Ana";
+export const EJEMPLO_SEMANAS = "4";
 
 // `link`: el ejemplo de lo que va en {link} (el del cupón no es el del QR).
 export function previewDePlantilla(texto: string, link: string = EJEMPLO_LINK): string {
@@ -53,7 +56,9 @@ export function previewDePlantilla(texto: string, link: string = EJEMPLO_LINK): 
     .split(TOKEN_HORA)
     .join(EJEMPLO_HORA)
     .split(TOKEN_PROFESIONAL)
-    .join(EJEMPLO_PROFESIONAL);
+    .join(EJEMPLO_PROFESIONAL)
+    .split(TOKEN_SEMANAS)
+    .join(EJEMPLO_SEMANAS);
 }
 
 // Inserta un token donde está el cursor (o reemplaza la selección). Devuelve

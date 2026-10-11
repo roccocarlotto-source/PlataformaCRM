@@ -80,12 +80,21 @@ test("dos registros creados con la factory no comparten estado", () => {
 // Catálogo de triggers
 // ---------------------------------------------------------------------------
 
-test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunity.stale, contact.inquiry_stalled y booking.reminder_due (R13, solo clínicas)", () => {
+test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunity.stale, contact.inquiry_stalled, booking.reminder_due (R13) y booking.completed (R14), los dos últimos solo de clínicas", () => {
   assert.deepEqual(
     [...TRIGGERS_CONOCIDOS],
-    ["opportunity.won", "opportunity.stale", "contact.inquiry_stalled", "booking.reminder_due"],
+    [
+      "opportunity.won",
+      "opportunity.stale",
+      "contact.inquiry_stalled",
+      "booking.reminder_due",
+      "booking.completed",
+    ],
   );
-  assert.deepEqual(MODULO_DEL_TRIGGER, { "booking.reminder_due": "recordatorios_de_turno" });
+  assert.deepEqual(MODULO_DEL_TRIGGER, {
+    "booking.reminder_due": "recordatorios_de_turno",
+    "booking.completed": "post_turno",
+  });
   assert.equal(esTriggerConocido("opportunity.won"), true);
   assert.equal(esTriggerConocido("opportunity.stale"), true);
   assert.equal(esTriggerConocido("contact.inquiry_stalled"), true);

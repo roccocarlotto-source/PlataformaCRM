@@ -88,3 +88,34 @@ salud**: se ve en la pantalla del teléfono.
 Los botones funcionan con cualquier nivel del asistente, y también con el
 asistente apagado. Si el turno se reprograma, el recordatorio se recalcula
 para el horario nuevo; si se cancela, no sale.
+
+## Después del turno: reseña y control {#despues-del-turno}
+
+Con el evento **Cuando se atiende un turno** (cuando lo marcás **Atendido**, o
+cuando se cierra solo a las 3 horas) hay dos acciones:
+
+- **Pedir una reseña con un QR:** un WhatsApp con el QR de reseñas que elijas.
+  Sale al menos **3 horas** después del turno, para que puedas corregir un "No
+  vino". Si el turno **se cerró solo**, sale **24 horas** después del cierre.
+- **Recordar el control:** si la prestación tiene **Recordar control a los N
+  días** (en [Prestaciones](/clinica/prestaciones), de 1 a 730 días), el paciente
+  recibe un WhatsApp para agendar el próximo turno a los N días.
+
+Texto propuesto del control (sin datos de salud):
+
+> Hola {nombre}, ya pasaron {semanas} semanas desde tu último turno en {lugar}.
+> Si querés agendar el próximo, escribinos por acá.
+
+Texto propuesto de la reseña:
+
+> Hola {nombre}, gracias por venir. Si querés contarnos cómo te fue, podés
+> dejarnos tu reseña acá: {link} ¡Gracias!
+
+Las dos se dan de alta como las demás: al guardar la regla, el texto se manda a
+WhatsApp (Meta) para aprobar, y la tarjeta de la regla muestra el estado.
+
+- Si después marcás **No vino**, lo que no salió se cancela. Lo que ya salió no
+  se vuelve a mandar.
+- Salen dentro del horario de atención de la sede.
+- El control no sale si el paciente ya tiene un turno futuro de esa prestación,
+  o si está marcado "sin interés".

@@ -160,6 +160,10 @@ enum BookingCompletedBy {
 // solo REMINDER; CONTROL y REVIEW_QR entran en R14 con su migración.
 enum BookingMessageKind {
   REMINDER
+  // R14 (docs/rubros.md §7): el QR de reseña y el control, después de un
+  // turno atendido.
+  REVIEW_QR
+  CONTROL
 }
 
 enum BookingMessageStatus {
@@ -367,6 +371,10 @@ enum MessageNoticeType {
   // (avisoSinRespuesta.service.ts): ancla la marca "Pidió hablar con una
   // persona · sin responder".
   UNANSWERED_HANDOFF
+  // R16 (docs/rubros.md §8.1): el aviso de privacidad de una clínica, una vez
+  // por contacto, antes de la primera respuesta del agente
+  // (src/clinicas/avisoDePrivacidad.ts).
+  PRIVACY_NOTICE
 }
 
 enum MessageDeliveryStatus {
@@ -1129,8 +1137,12 @@ model Contact {
   // agente con mark_no_interest o una persona desde la ficha, y se quita a
   // mano. Mientras está, ningún seguimiento automático le escribe. La nota es
   // lo que dijo, para que el vendedor lo vea.
-  noInterestAt   DateTime? @map("no_interest_at")
-  noInterestNote String?   @map("no_interest_note") @db.VarChar(200)
+  noInterestAt        DateTime? @map("no_interest_at")
+  // R16 (docs/rubros.md §8.1): cuándo se le mandó el aviso de privacidad de la
+  // clínica (una vez por contacto). Solo lo escribe código de clínicas; una
+  // automotora no lo ve (CAMPOS_DE_CLINICA).
+  privacyNoticeSentAt DateTime? @map("privacy_notice_sent_at")
+  noInterestNote      String?   @map("no_interest_note") @db.VarChar(200)
 
   organization Organization @relation(fields: [organizationId], references: [id])
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
@@ -2128,22 +2140,25 @@ model Resource {
 // ---------------------------------------------------------------------------
 
 model ServiceType {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  branchId       String    @map("branch_id") @db.Uuid
-  resourceId     String    @map("resource_id") @db.Uuid
-  name           String    @db.VarChar(255)
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  resourceId        String    @map("resource_id") @db.Uuid
+  name              String    @db.VarChar(255)
   // Duración en minutos. El > 0 se valida en Zod y además con un CHECK en la
   // migración: un servicio de 0 minutos no es un servicio, y la defensa que
   // sobrevive a un camino de escritura futuro que no pase por el controller es
   // la de la base.
-  durationMin    Int       @map("duration_min")
+  durationMin       Int       @map("duration_min")
   // 1 = turno exclusivo, N = clase con cupo. Mismo criterio que durationMin
   // para el >= 1.
-  capacity       Int       @default(1)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  deletedAt      DateTime? @map("deleted_at")
+  capacity          Int       @default(1)
+  // R14 (docs/rubros.md §7.2): "Recordar control a los N días" (1 a 730, CHECK
+  // en la migración). null = sin control. Solo clínica (CAMPOS_DE_CLINICA).
+  followUpAfterDays Int?      @map("follow_up_after_days")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])

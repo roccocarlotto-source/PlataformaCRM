@@ -28,6 +28,7 @@ const LIMPIEZA: PrestacionConProfesionales = {
   capacity: 1,
   resourceId: "r1",
   profesionales: [{ id: "r1", name: "Ana Profesional", branchId: "b1" }],
+  followUpAfterDays: null,
 };
 
 function renderPage() {
@@ -87,5 +88,66 @@ describe("PrestacionesPage (R5)", () => {
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(enviado).toEqual({ resourceIds: ["r1", "r2"] }));
+  });
+});
+
+// R14 (docs/rubros.md §7.2): "Recordar control a los N días".
+describe("PrestacionesPage — control (R14)", () => {
+  function base() {
+    return [
+      http.get(`${env.apiUrl}/api/clinica/prestaciones`, () =>
+        HttpResponse.json({ prestaciones: [{ ...LIMPIEZA, followUpAfterDays: 30 }] }),
+      ),
+      http.get(`${env.apiUrl}/api/branches`, () =>
+        HttpResponse.json({
+          data: [makeBranch({ id: "b1", name: "Sede Centro" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    ];
+  }
+
+  it("muestra el control y lo guarda; vacío lo saca", async () => {
+    const enviados: unknown[] = [];
+    server.use(
+      ...base(),
+      http.put(`${env.apiUrl}/api/clinica/prestaciones/st1/control`, async ({ request }) => {
+        const body = await request.json();
+        enviados.push(body);
+        return HttpResponse.json({ id: "st1", ...(body as object) });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("A los 30 días")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /acciones/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Recordar control" }));
+    const campo = screen.getByLabelText("Recordar control a los N días");
+    await user.clear(campo);
+    await user.type(campo, "45");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(enviados).toEqual([{ followUpAfterDays: 45 }]));
+  });
+
+  it("fuera de rango no se manda", async () => {
+    let llamadas = 0;
+    server.use(
+      ...base(),
+      http.put(`${env.apiUrl}/api/clinica/prestaciones/st1/control`, () => {
+        llamadas++;
+        return HttpResponse.json({});
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("A los 30 días");
+    await user.click(screen.getByRole("button", { name: /acciones/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Recordar control" }));
+    const campo = screen.getByLabelText("Recordar control a los N días");
+    await user.clear(campo);
+    await user.type(campo, "800");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByText(/de 1 a 730/)).toBeInTheDocument();
+    expect(llamadas).toBe(0);
   });
 });

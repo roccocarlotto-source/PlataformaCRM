@@ -1,5 +1,6 @@
 import type { ContactTerm, OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import {
+  guardarAvisoDePrivacidad,
   guardarTerminoDelContacto,
   leerConfiguracionDeClinica,
 } from "../clinicas/repositories/clinicSettings.repository";
@@ -14,6 +15,7 @@ import {
   dispararActualizacionDeCotizaciones,
   type ResumenDeActualizacion,
 } from "./exchangeRate.service";
+import { exigirSinAgentesActivos } from "../clinicas/avisoDePrivacidad";
 
 // ---------------------------------------------------------------------------
 // Configuración de la organización expuesta por la API (Fase 2c del módulo de
@@ -53,6 +55,9 @@ export interface OrganizationSettings {
   edition: OrganizationEdition;
   industry: OrganizationIndustry;
   contactTerm: ContactTerm | null;
+  // R16: solo en una clínica (una automotora recibe las claves de antes).
+  privacyNoticeText?: string | null;
+  privacyPolicyUrl?: string | null;
 }
 
 export async function getOrganizationSettings(
@@ -85,6 +90,12 @@ export async function getOrganizationSettings(
     edition: organization.edition,
     industry: organization.industry,
     contactTerm: clinica?.contactTerm ?? null,
+    ...(clinica
+      ? {
+          privacyNoticeText: clinica.privacyNoticeText,
+          privacyPolicyUrl: clinica.privacyPolicyUrl,
+        }
+      : {}),
   };
 }
 
@@ -98,10 +109,17 @@ export interface UpdateOrganizationSettingsInput {
   timezone?: string;
   // Rubros (docs/rubros.md §3): solo en una clínica (400 en una automotora).
   contactTerm?: ContactTerm;
+  // R16 (docs/rubros.md §8.1): el aviso de privacidad, solo en una clínica.
+  // null = borrarlo.
+  privacyNoticeText?: string | null;
+  privacyPolicyUrl?: string | null;
 }
 
 export const TERMINO_SOLO_EN_CLINICAS =
   "El término del contacto solo se configura en una organización del rubro clínica";
+
+export const AVISO_SOLO_EN_CLINICAS =
+  "El aviso de privacidad solo se configura en una organización del rubro clínica";
 
 export const MONEDAS_IGUALES = "La moneda de preferencia y la alternativa no pueden ser la misma";
 
@@ -138,13 +156,30 @@ export async function updateOrganizationSettings(
   if (input.contactTerm !== undefined && organization.industry !== "CLINICA") {
     throw new AppError(TERMINO_SOLO_EN_CLINICAS, 400);
   }
+  if (
+    (input.privacyNoticeText !== undefined || input.privacyPolicyUrl !== undefined) &&
+    organization.industry !== "CLINICA"
+  ) {
+    throw new AppError(AVISO_SOLO_EN_CLINICAS, 400);
+  }
 
-  const { contactTerm, ...deLaOrganizacion } = input;
+  const { contactTerm, privacyNoticeText, privacyPolicyUrl, ...deLaOrganizacion } = input;
   if (Object.keys(deLaOrganizacion).length > 0) {
     await updateOrganizationSettingsRepo(organizationId, deLaOrganizacion);
   }
   if (contactTerm !== undefined) {
     await guardarTerminoDelContacto(organizationId, contactTerm);
+  }
+  if (privacyNoticeText !== undefined || privacyPolicyUrl !== undefined) {
+    // Sin aviso, un agente activo dejaría de mandarlo: borrarlo exige
+    // desactivarlos primero (el mismo requisito que para activarlos).
+    if (privacyNoticeText === null || privacyPolicyUrl === null) {
+      await exigirSinAgentesActivos(organizationId);
+    }
+    await guardarAvisoDePrivacidad(organizationId, {
+      ...(privacyNoticeText !== undefined ? { privacyNoticeText } : {}),
+      ...(privacyPolicyUrl !== undefined ? { privacyPolicyUrl } : {}),
+    });
   }
 
   // §24: la cotización de lo que QUEDÓ configurado se busca ahora, a pedido,

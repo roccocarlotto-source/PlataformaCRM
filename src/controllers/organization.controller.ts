@@ -44,6 +44,25 @@ export const updateOrganizationSettingsSchema = z
     contactTerm: z
       .nativeEnum(ContactTerm, { invalid_type_error: "contactTerm inválido" })
       .optional(),
+    // R16 (docs/rubros.md §8.1): el aviso de privacidad de una clínica (el
+    // service responde 400 en una automotora). Los mismos topes que la columna.
+    privacyNoticeText: z
+      .string({ invalid_type_error: "privacyNoticeText debe ser un texto" })
+      .trim()
+      .min(1, "privacyNoticeText no puede estar vacío")
+      .max(1000, "privacyNoticeText no puede superar los 1000 caracteres")
+      .nullable()
+      .optional(),
+    privacyPolicyUrl: z
+      .string({ invalid_type_error: "privacyPolicyUrl debe ser un texto" })
+      .trim()
+      .url("privacyPolicyUrl debe ser una URL")
+      .max(500, "privacyPolicyUrl no puede superar los 500 caracteres")
+      .refine((u) => u.startsWith("https://") || u.startsWith("http://"), {
+        message: "privacyPolicyUrl debe empezar con http:// o https://",
+      })
+      .nullable()
+      .optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",

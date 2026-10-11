@@ -42,6 +42,7 @@ import {
 } from "../repositories/message.repository";
 import { findVouchersDelContacto } from "../repositories/discountVoucher.repository";
 import { findEdicionYRubro } from "../repositories/organization.repository";
+import { registrarAvisoDePrivacidad } from "../clinicas/avisoDePrivacidad";
 import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
 import { describirValor, type DefinicionDeCampo } from "../utils/camposPersonalizados";
@@ -381,6 +382,9 @@ export interface ResultadoDelTurno {
   // paso 4 bajo §6, punto 1). Expuesto para poder verificarlo desde el
   // endpoint de prueba sin ir a mirar la base.
   handoffActivityId: string | null;
+  // R16: el aviso de privacidad que salió en ESTE turno, antes de la
+  // respuesta. Solo existe en una clínica, la primera vez.
+  avisoDePrivacidad?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -3036,6 +3040,19 @@ export async function responderEnLaConversacion(
     }));
   }
 
+  // R16 (docs/rubros.md §8.1): en una clínica, el aviso de privacidad sale
+  // antes de la primera respuesta del agente, como mensaje aparte. No con la
+  // respuesta fija de una regla del rubro (una urgencia va primero, sola).
+  const avisoDePrivacidad =
+    avisoDelHandoff === null
+      ? await registrarAvisoDePrivacidad({
+          organizationId,
+          industry: organizacion.industry,
+          conversationId: conversation.id,
+          contactId: contact.id,
+        })
+      : null;
+
   const saliente = await createMessage({
     organizationId,
     conversationId: conversation.id,
@@ -3072,6 +3089,7 @@ export async function responderEnLaConversacion(
       toolCalls: auditoria,
       handoff,
       handoffActivityId,
+      ...(avisoDePrivacidad ? { avisoDePrivacidad: avisoDePrivacidad.texto } : {}),
     },
     salienteId: saliente.id,
     mensajesVistos: mensajes.map((m) => m.id),

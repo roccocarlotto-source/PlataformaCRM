@@ -10,7 +10,8 @@ import { Table } from "../../design-system/Table";
 import { BRANCHES_PARA_SELECT, useBranches } from "../branch/queries";
 import { useResources } from "../resource/queries";
 import { formatDuracion } from "../serviceType/format";
-import { useDefinirProfesionales, usePrestaciones } from "./queries";
+import { useConfigurarControl, useDefinirProfesionales, usePrestaciones } from "./queries";
+import { FormField } from "../../design-system/FormField";
 import type { PrestacionConProfesionales } from "./types";
 import { useVocabularioDeClinica } from "./vocabulario";
 
@@ -28,6 +29,8 @@ export function PrestacionesPage() {
   const branchesQuery = useBranches(BRANCHES_PARA_SELECT);
   const nombreDeSede = new Map((branchesQuery.data?.data ?? []).map((b) => [b.id, b.name]));
   const [editando, setEditando] = useState<PrestacionConProfesionales | null>(null);
+  // R14 (docs/rubros.md §7.2): "Recordar control a los N días".
+  const [control, setControl] = useState<PrestacionConProfesionales | null>(null);
 
   const prestaciones = prestacionesQuery.data?.prestaciones ?? [];
   const profesionales = vocabulario.recurso;
@@ -61,6 +64,7 @@ export function PrestacionesPage() {
                 <th>Sede</th>
                 <th>Duración</th>
                 <th>{profesionales.pluralTitulo}</th>
+                <th>Control</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -72,11 +76,20 @@ export function PrestacionesPage() {
                   <td>{formatDuracion(p.durationMin)}</td>
                   <td>{p.profesionales.map((r) => r.name).join(", ") || SIN_RESOLVER}</td>
                   <td>
+                    {p.followUpAfterDays
+                      ? `A los ${String(p.followUpAfterDays)} días`
+                      : "Sin control"}
+                  </td>
+                  <td>
                     <ActionsMenu
                       actions={[
                         {
                           label: `Elegir ${profesionales.plural}`,
                           onClick: () => setEditando(p),
+                        },
+                        {
+                          label: "Recordar control",
+                          onClick: () => setControl(p),
                         },
                       ]}
                     />
@@ -91,6 +104,7 @@ export function PrestacionesPage() {
       {editando ? (
         <ProfesionalesDialog prestacion={editando} onClose={() => setEditando(null)} />
       ) : null}
+      {control ? <ControlDialog prestacion={control} onClose={() => setControl(null)} /> : null}
     </div>
   );
 }
@@ -172,6 +186,71 @@ function ProfesionalesDialog({
           );
         })}
       </fieldset>
+    </Modal>
+  );
+}
+
+// R14 (docs/rubros.md §7.2): después de un turno atendido, el paciente recibe un
+// WhatsApp para agendar el próximo a los N días (si la regla "Recordar el
+// control" está activa). Vacío: sin control.
+function ControlDialog({
+  prestacion,
+  onClose,
+}: {
+  prestacion: PrestacionConProfesionales;
+  onClose: () => void;
+}) {
+  const [dias, setDias] = useState(
+    prestacion.followUpAfterDays === null ? "" : String(prestacion.followUpAfterDays),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const configurar = useConfigurarControl();
+
+  function guardar() {
+    setError(null);
+    const texto = dias.trim();
+    const n = texto === "" ? null : Number(texto);
+    if (n !== null && (!Number.isInteger(n) || n < 1 || n > 730)) {
+      setError("Ingresá un número entero de días, de 1 a 730. Dejalo vacío para no recordar.");
+      return;
+    }
+    configurar.mutate(
+      { serviceTypeId: prestacion.id, followUpAfterDays: n },
+      { onSuccess: onClose },
+    );
+  }
+
+  return (
+    <Modal
+      variant="dialog"
+      title={`Control de ${prestacion.name}`}
+      onClose={onClose}
+      closeLabel="Cancelar"
+      primaryAction={{ label: "Guardar", onClick: guardar, loading: configurar.isPending }}
+    >
+      <FormField label="Recordar control a los N días">
+        <input
+          type="number"
+          min={1}
+          max={730}
+          step={1}
+          inputMode="numeric"
+          value={dias}
+          placeholder="Sin control"
+          onChange={(e) => setDias(e.target.value)}
+        />
+      </FormField>
+      <p className="ds-hint">
+        Después de un turno atendido, el paciente recibe un WhatsApp para agendar el próximo. Hace
+        falta una regla activa «Recordar el control» en Automatizaciones. Vacío: sin control.
+      </p>
+      {error ? <ErrorState>{error}</ErrorState> : null}
+      {configurar.isError ? (
+        <ErrorState>
+          No pudimos guardar
+          {configurar.error instanceof Error ? `: ${configurar.error.message}` : "."}
+        </ErrorState>
+      ) : null}
     </Modal>
   );
 }

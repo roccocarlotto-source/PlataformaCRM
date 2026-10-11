@@ -129,6 +129,10 @@ export async function leerHiloDelWidget(
             ...deLaSesion,
             direction: "OUTBOUND",
             senderType: { in: ["HUMAN", "AUTOMATION"] },
+            // R16: el aviso de privacidad ya llegó en la respuesta del turno
+            // (publicWidget.controller.ts); el sondeo no lo trae otra vez.
+            // AND y no OR: deLaSesion ya trae su OR.
+            AND: [{ OR: [{ noticeType: null }, { noticeType: { not: "PRIVACY_NOTICE" } }] }],
             // gte y no gt: dos mensajes en el mismo milisegundo no se pierden.
             // El widget descarta por id lo que ya pintó.
             createdAt: { gte: desde },

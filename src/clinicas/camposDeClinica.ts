@@ -28,6 +28,10 @@ export const CAMPOS_DE_CLINICA = {
   ],
   // R18: indicaciones de la base de conocimiento.
   knowledgeBaseEntry: ["kind"],
+  // R16: cuándo se le mandó el aviso de privacidad de la clínica.
+  contact: ["privacyNoticeSentAt"],
+  // R14: "Recordar control a los N días".
+  serviceType: ["followUpAfterDays"],
 } as const;
 
 export function sinCamposDeClinica<T extends object>(

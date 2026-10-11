@@ -49,12 +49,16 @@ export const TRIGGER_CONTACT_INQUIRY_STALLED = "contact.inquiry_stalled";
 // la plantilla y si está activa; el recordatorio lo agenda el consumidor de
 // booking.created / booking.rescheduled (src/clinicas/recordatorios).
 export const TRIGGER_BOOKING_REMINDER_DUE = TRIGGER_DEL_RECORDATORIO;
+// R14 (docs/rubros.md §7): "Cuando se atiende un turno", solo en clínicas.
+// Lo emite R10 al marcar Atendido (o al cerrar solo a las 3 h).
+export const TRIGGER_BOOKING_COMPLETED = "booking.completed";
 
 export const TRIGGERS_CONOCIDOS = [
   TRIGGER_OPPORTUNITY_WON,
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_CONTACT_INQUIRY_STALLED,
   TRIGGER_BOOKING_REMINDER_DUE,
+  TRIGGER_BOOKING_COMPLETED,
 ] as const;
 
 export type TriggerType = (typeof TRIGGERS_CONOCIDOS)[number];
@@ -133,12 +137,15 @@ export const CONFIG_DE_TRIGGER: Record<TriggerType, EsquemaDeTrigger> = {
   [TRIGGER_CONTACT_INQUIRY_STALLED]: configDeConsultaSinAvanceSchema,
   // R13: sin configuración propia (las horas son de la sede).
   [TRIGGER_BOOKING_REMINDER_DUE]: z.object({}),
+  // R14: sin configuración propia (la demora es de cada acción).
+  [TRIGGER_BOOKING_COMPLETED]: z.object({}),
 };
 
 /** El módulo que necesita un trigger (R13). Sin entrada: lo tiene cualquiera
  *  que tenga el módulo de automatizaciones. */
 export const MODULO_DEL_TRIGGER: Readonly<Partial<Record<TriggerType, Modulo>>> = {
   [TRIGGER_BOOKING_REMINDER_DUE]: "recordatorios_de_turno",
+  [TRIGGER_BOOKING_COMPLETED]: "post_turno",
 };
 
 // ---------------------------------------------------------------------------

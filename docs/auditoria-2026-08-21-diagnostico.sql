@@ -630,7 +630,11 @@ from (
     ('booking_messages_sent_check', 'booking_messages',
      'CHECK (status <> ''SENT''::"BookingMessageStatus" OR sent_at IS NOT NULL)'),
     ('booking_messages_response_check', 'booking_messages',
-     'CHECK (response IS NULL AND responded_at IS NULL AND response_external_id IS NULL OR response IS NOT NULL AND responded_at IS NOT NULL AND response_external_id IS NOT NULL)')
+     'CHECK (response IS NULL AND responded_at IS NULL AND response_external_id IS NULL OR response IS NOT NULL AND responded_at IS NOT NULL AND response_external_id IS NOT NULL)'),
+    -- Control después del turno (migración 20261110120000, docs/rubros.md
+    -- §7.2): "Recordar control a los N días", de 1 a 730.
+    ('service_types_follow_up_after_days_check', 'service_types',
+     'CHECK (follow_up_after_days IS NULL OR follow_up_after_days >= 1 AND follow_up_after_days <= 730)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
