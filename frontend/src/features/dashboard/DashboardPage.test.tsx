@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeActivity } from "../../test/activityFixtures";
 import { edicionDeMe } from "../../test/edicionFixtures";
+import { clinicaDeMe } from "../../test/rubroFixtures";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeDashboardSummary, makeRevenueSeries } from "../../test/dashboardFixtures";
 import { makeOpportunity } from "../../test/opportunityFixtures";
@@ -765,5 +766,51 @@ describe("DashboardPage — dashboard de atención (ESENCIAL)", () => {
     expect(await screen.findByRole("region", { name: "Resumen comercial" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Resumen de atención" })).not.toBeInTheDocument();
     expect(pidioAtencion).toBe(false);
+  });
+});
+
+// Rubros (docs/rubros.md §2, R17): una clínica no tiene stock ni
+// oportunidades. Ve el dashboard de atención, sin las tarjetas de stock, y no
+// pide nada que daría 403.
+describe("DashboardPage — clínica", () => {
+  it("en las dos ediciones: atención sin stock, y ningún pedido de vehículos ni oportunidades", async () => {
+    for (const edition of ["COMPLETA", "ESENCIAL"] as const) {
+      const base = mockAuth("ADMIN");
+      useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...clinicaDeMe(edition) } });
+      const prohibidos: string[] = [];
+      const prohibido = (url: string) =>
+        http.get(url, ({ request }) => {
+          prohibidos.push(request.url);
+          return HttpResponse.json({}, { status: 403 });
+        });
+      server.use(
+        activitiesHandler(),
+        http.get(`${env.apiUrl}/api/dashboard/atencion`, () =>
+          HttpResponse.json({
+            periodo: { label: "octubre 2026", start: "", end: "" },
+            conversacionesNuevas: {
+              total: 0,
+              porCanal: { WHATSAPP: 0, WEB: 0, INSTAGRAM: 0, MESSENGER: 0 },
+            },
+            derivaciones: 0,
+            derivacionesSinRespuesta: 0,
+            consultasPendientes: { esperandoRespuesta: 0, seguimientosAgendados: 0 },
+            tareasVencidas: 0,
+          }),
+        ),
+        prohibido(vehiclesUrl),
+        prohibido(summaryUrl),
+        prohibido(opportunitiesUrl),
+      );
+
+      renderDashboard();
+
+      expect(
+        await screen.findByRole("region", { name: "Resumen de atención" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Resumen de stock" })).not.toBeInTheDocument();
+      expect(prohibidos).toEqual([]);
+      cleanup();
+    }
   });
 });

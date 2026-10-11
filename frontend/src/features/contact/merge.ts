@@ -4,7 +4,7 @@ import { request } from "../../lib/api";
 import { conversationKeys } from "../conversation/queries";
 import { LIFECYCLE_STAGE_LABELS } from "./labels";
 import { contactKeys } from "./queries";
-import type { Contact } from "./types";
+import type { Contact, LifecycleStage } from "./types";
 
 // ---------------------------------------------------------------------------
 // Unir contactos duplicados (contactMerge.service.ts del backend). Solo ADMIN.
@@ -130,14 +130,18 @@ export const ETIQUETA_DE_LO_QUE_SE_MUEVE: Record<string, string> = {
 const URGENCIA: Record<string, string> = { LOW: "Baja", MEDIUM: "Media", HIGH: "Alta" };
 
 // Pura: el valor de un campo para mostrar en la comparación.
-export function valorParaMostrar(c: ContactoDeLaUnion, campo: CampoDeLaUnion): string {
+export function valorParaMostrar(
+  c: ContactoDeLaUnion,
+  campo: CampoDeLaUnion,
+  etiquetasDeEtapa: Record<LifecycleStage, string> = LIFECYCLE_STAGE_LABELS,
+): string {
   switch (campo) {
     case "companyId":
       return c.company?.name ?? "";
     case "ownerId":
       return c.owner?.fullName ?? "";
     case "lifecycleStage":
-      return LIFECYCLE_STAGE_LABELS[c.lifecycleStage] ?? c.lifecycleStage;
+      return etiquetasDeEtapa[c.lifecycleStage] ?? c.lifecycleStage;
     case "leadUrgency":
       return c.leadUrgency ? (URGENCIA[c.leadUrgency] ?? c.leadUrgency) : "";
     case "leadBudget":

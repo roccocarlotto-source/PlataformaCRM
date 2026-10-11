@@ -27,9 +27,10 @@ export function vocabularioDeClinica(contactTerm: ContactTerm): Vocabulario {
     marca: MARCA,
     contacto: TERMINO_DEL_CONTACTO[contactTerm],
     recurso: termino("profesional", "profesionales"),
-    tipoDeServicio: termino("prestación", "prestaciones"),
+    tipoDeServicio: termino("prestación", "prestaciones", "femenino"),
     reserva: termino("turno", "turnos"),
-    agenda: termino("agenda", "agendas"),
+    agenda: termino("agenda", "agendas", "femenino"),
     responsable: termino("responsable", "responsables"),
+    sucursal: termino("sede", "sedes", "femenino"),
   };
 }

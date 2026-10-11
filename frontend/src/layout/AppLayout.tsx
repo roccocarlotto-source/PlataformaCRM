@@ -1,187 +1,29 @@
-import { useModulo } from "../auth/useModulo";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { useEffect, useId, useRef, useState } from "react";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
-  BookOpen,
   Bot,
   Building,
   Building2,
-  CalendarDays,
-  CalendarRange,
-  Car,
-  CheckSquare,
-  ChevronRight,
   CircleQuestionMark,
-  Clock,
-  Coins,
-  Columns3,
-  Database,
-  History,
-  Key,
   LayoutDashboard,
-  MailPlus,
-  MapPin,
   Menu,
-  ListChecks,
   MessageCircle,
   MessagesSquare,
-  MessageSquareText,
-  QrCode,
-  Settings2,
-  Shapes,
-  Target,
-  TicketCheck,
-  UserCog,
   UserRound,
-  Users,
-  Zap,
   Upload,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { esClinica, marcaDe } from "../auth/vocabulario";
 import { useEsencialOfrecida } from "../features/platformAdmin/queries";
 import { Button } from "../design-system/Button";
 import { ErrorState } from "../design-system/ErrorState";
 import { ThemeToggle } from "../design-system/ThemeToggle";
 import { AvisoSinSedes } from "../features/clinica/AvisoSinSedes";
-
-// Ícono + href + label de cada link, para no repetir el patrón de NavLink
-// (className por isActive) en cada ítem. Los labels son EXACTAMENTE los que
-// ya cubre AppLayout.test.tsx — el restyle no toca ningún texto.
-function SidebarLink({
-  to,
-  end,
-  icon: Icon,
-  children,
-}: {
-  to: string;
-  end?: boolean;
-  icon: typeof LayoutDashboard;
-  children: string;
-}) {
-  return (
-    <NavLink
-      to={to}
-      end={end}
-      className={({ isActive }) => `ds-sidebar-link${isActive ? " is-active" : ""}`}
-    >
-      <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
-      {children}
-    </NavLink>
-  );
-}
-
-// Mismo criterio que el `isActive` de NavLink sin `end`: la ruta exacta o
-// cualquier subruta (/agents/:id/playground cuenta como /agents).
-function isInside(pathname: string, to: string) {
-  return pathname === to || pathname.startsWith(`${to}/`);
-}
-
-// Estado plegado/desplegado de una sección (ítem 79). Arranca desplegada
-// solo si la ruta activa es uno de sus `paths`, y se vuelve a desplegar
-// cuando se navega hacia adentro desde afuera (un link del contenido, el
-// botón atrás) — el usuario siempre ve dónde está parado. Plegarla a mano
-// estando adentro se respeta: solo reacciona a un CAMBIO de pathname.
-// Ajuste de estado durante el render, no useEffect: es el patrón que
-// recomienda React para derivar estado de un cambio de props/contexto.
-function useSectionOpen(paths: readonly string[]) {
-  const { pathname } = useLocation();
-  const containsActive = paths.some((to) => isInside(pathname, to));
-  const [open, setOpen] = useState(containsActive);
-  const [seenPathname, setSeenPathname] = useState(pathname);
-  if (pathname !== seenPathname) {
-    setSeenPathname(pathname);
-    if (containsActive) setOpen(true);
-  }
-  return [open, () => setOpen((value) => !value)] as const;
-}
-
-// Sección colapsable de la sidebar (ítem 79). Dos formas de título:
-// - sin `link`: el título es solo un toggle, con la tipografía de
-//   .ds-sidebar-group-label de siempre (CRM, Actividades, Administración);
-// - con `link`: el título es un link real con la forma de .ds-sidebar-link,
-//   que navega Y pliega/despliega con el mismo click (Contactos, Agentes de
-//   IA); sus hijos van con sangría porque cuelgan de esa pantalla.
-// `paths` son las rutas de los hijos, para saber si arranca desplegada; la
-// del propio título no cuenta — el link del título ya se ve siempre, y
-// contarla haría que plegarlo desde un hijo se deshiciera al navegar.
-// Plegada, los hijos siguen montados (para poder animar el alto, ítem 80)
-// pero con `inert`: fuera del tab order y del árbol de accesibilidad, la
-// misma garantía que daba desmontarlos.
-function SidebarSection({
-  label,
-  paths,
-  link,
-  nested,
-  children,
-}: {
-  label: string;
-  paths: readonly string[];
-  link?: { to: string; icon: typeof LayoutDashboard };
-  nested?: boolean;
-  children: ReactNode;
-}) {
-  const [open, toggle] = useSectionOpen(paths);
-  const itemsId = useId();
-  const chevron = (
-    <ChevronRight
-      className={`ds-sidebar-chevron${open ? " is-open" : ""}`}
-      size={14}
-      strokeWidth={1.5}
-      aria-hidden="true"
-    />
-  );
-
-  let header: ReactNode;
-  if (link) {
-    const Icon = link.icon;
-    header = (
-      <NavLink
-        to={link.to}
-        onClick={toggle}
-        aria-expanded={open}
-        aria-controls={itemsId}
-        className={({ isActive }) => `ds-sidebar-link${isActive ? " is-active" : ""}`}
-      >
-        <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
-        {label}
-        {chevron}
-      </NavLink>
-    );
-  } else {
-    header = (
-      <button
-        type="button"
-        onClick={toggle}
-        aria-expanded={open}
-        aria-controls={itemsId}
-        className="ds-sidebar-group-label ds-sidebar-group-toggle"
-      >
-        {label}
-        {chevron}
-      </button>
-    );
-  }
-
-  return (
-    <div className={`ds-sidebar-group${link && !nested ? " ds-sidebar-group--link-header" : ""}`}>
-      {header}
-      <div
-        id={itemsId}
-        inert={!open}
-        className={`ds-sidebar-group-collapse${open ? " is-open" : ""}`}
-      >
-        <div className="ds-sidebar-group-collapse-inner">
-          <div
-            className={`ds-sidebar-group-items${link ? " ds-sidebar-group-items--indented" : ""}`}
-          >
-            {children}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { roleLabel } from "../features/user/roles";
+import { MenuDeAutomotora } from "./MenuDeAutomotora";
+import { MenuDeClinica } from "./MenuDeClinica";
+import { SidebarLink } from "./Sidebar";
 
 // Vive dentro de ProtectedRoute (solo se monta con status === "authenticated").
 // No duplica ningún estado de sesión: `me` se lee de AuthContext tal cual,
@@ -193,6 +35,8 @@ function SidebarSection({
 // tomados de Dashboard CRM.html (ver design-system.css, sección AppLayout).
 // Grupos propios en vez de los del mockup (CRM/Automatización) porque el
 // mockup es de otro rubro; Rocco eligió mostrar solo lo que existe hoy.
+// Desde R17 (docs/rubros.md §1.3) el menú es por rubro: MenuDeAutomotora
+// (el de siempre) o MenuDeClinica; Plataforma y Ayuda son de los dos.
 // Desde el ítem 79 los grupos son secciones colapsables (SidebarSection):
 // CRM (con Contactos como sub-desplegable), Actividades (que fusiona las
 // viejas Actividad y Agenda), Administración (que absorbió QR) y Agentes de
@@ -207,17 +51,13 @@ export function AppLayout() {
   // link solo para que rebote siempre a un USER sería mala UX. No es un
   // RBAC genérico, es un booleano ya expuesto por AuthContext.
   const isAdmin = me?.role === "ADMIN";
-  // Rubros (docs/rubros.md §4.3, R5): en una clínica, la configuración de la
-  // agenda son Profesionales y Prestaciones (con los textos del rubro). El
-  // menú completo por rubro es R17; una automotora lo ve como siempre.
-  const esClinica = me?.industry === "CLINICA";
+  // Rubros (docs/rubros.md §0.3): el nombre del producto sale de la
+  // configuración de marca (`vocabulario.marca` de /me), no del JSX.
+  const marca = marcaDe(me);
   // Fase 4a del módulo SaaS: el link a la herramienta de platform admin se
   // gatea por la allowlist global (isPlatformAdmin de /me), no por el rol —
   // mismo criterio de renderizado condicional que el grupo Administración.
   const isPlatformAdmin = me?.isPlatformAdmin === true;
-  // Ediciones (docs/ediciones.md §7): sin el módulo, el link no aparece.
-  const tieneEmpresas = useModulo("empresas");
-  const tieneProcesosDeVenta = useModulo("procesos_de_venta");
   // Ediciones (docs/ediciones.md §7): "Organizaciones" (con "Pasar a edición
   // completa") aparece recién cuando el backend ofrece ESENCIAL. Solo se
   // pregunta si es platform admin.
@@ -280,247 +120,14 @@ export function AppLayout() {
           <span className="ds-sidebar-brand-mark" aria-hidden="true">
             <LayoutDashboard size={16} strokeWidth={1.5} />
           </span>
-          <span className="ds-sidebar-brand-name">Plataforma CRM</span>
+          <span className="ds-sidebar-brand-name">{marca}</span>
         </Link>
         <nav className="ds-sidebar-nav">
-          <SidebarLink to="/" end icon={LayoutDashboard}>
-            Dashboard
-          </SidebarLink>
-          {/* Agente interno (ítem 180): suelto, al lado de Dashboard, y no dentro
-              de "Agentes de IA" — esa sección es ADMIN-only entera, y esto lo usa
-              también un USER habilitado. Es una herramienta de trabajo diaria,
-              no configuración. */}
-          {canUseInternalAgent ? (
-            <SidebarLink to="/internal-agent" end icon={MessageSquareText}>
-              Agente interno
-            </SidebarLink>
-          ) : null}
-          {/* Canjear cupón (ítem 178): para cualquier rol, igual que el canje en
-              el backend (sin authorize). Suelto al lado del agente interno por
-              el mismo motivo: herramienta de mostrador. */}
-          <SidebarLink to="/vouchers/scan" end icon={TicketCheck}>
-            Canjear cupón
-          </SidebarLink>
-          <SidebarSection
-            label="CRM"
-            paths={[
-              "/contacts",
-              "/conversations",
-              "/companies",
-              "/opportunities",
-              "/pipelines",
-              "/vehicles",
-            ]}
-          >
-            {/* Contactos (ítem 79) es a la vez link a /contacts y sub-desplegable
-                de lo que cuelga de un contacto: lo que se habló con él, su
-                empresa y sus oportunidades. */}
-            <SidebarSection
-              label="Contactos"
-              link={{ to: "/contacts", icon: Users }}
-              nested
-              paths={["/conversations", "/companies", "/opportunities"]}
-            >
-              {/* Bandeja de conversaciones (ítem 66): debajo de Contactos
-                  porque es lo que se habló CON ellos. En el grupo CRM y no en
-                  Administración —a diferencia de Agentes de IA / Base de
-                  conocimiento / Automatizaciones— y visible para ambos roles:
-                  es lectura abierta de un dato del CRM, no configuración. */}
-              <SidebarLink to="/conversations" icon={MessagesSquare}>
-                Conversaciones
-              </SidebarLink>
-              {tieneEmpresas ? (
-                <SidebarLink to="/companies" icon={Building2}>
-                  Empresas
-                </SidebarLink>
-              ) : null}
-              <SidebarLink to="/opportunities" icon={Target}>
-                Oportunidades
-              </SidebarLink>
-            </SidebarSection>
-            {tieneProcesosDeVenta ? (
-              <SidebarLink to="/pipelines" icon={Columns3}>
-                Procesos de venta
-              </SidebarLink>
-            ) : null}
-            {/* Stock de vehículos (Fase 3a): visible para ambos roles, como
-                /companies — GET /api/vehicles es lectura abierta. */}
-            <SidebarLink to="/vehicles" icon={Car}>
-              Stock
-            </SidebarLink>
-          </SidebarSection>
-          {/* Actividades (ítem 79): fusiona los grupos "Actividad" y "Agenda"
-              que había antes; cada link conserva su propio permiso. */}
-          <SidebarSection
-            label="Actividades"
-            paths={[
-              "/activities",
-              "/tasks",
-              "/bookings",
-              "/agenda",
-              "/resources",
-              "/service-types",
-              "/clinica",
-            ]}
-          >
-            {/* Listado completo "Actividades" (ítem 25): solo ADMIN, como
-                Organización/Sucursales — /activities está dentro del AdminRoute
-                y el backend acota a un USER a lo asignado a sí mismo, que ya
-                ve en "Mis tareas". */}
-            {isAdmin ? (
-              <SidebarLink to="/activities" icon={Activity}>
-                Actividades
-              </SidebarLink>
-            ) : null}
-            {/* "Mis tareas": nav plano, para ambos roles — un USER puede leer
-                lo asignado a sí mismo (activity.service.ts) y completar la
-                propia tarea (PATCH solo completedAt sobre la propia) desde la
-                fase de "Mis tareas" (activity.routes.ts). */}
-            <SidebarLink to="/tasks" icon={CheckSquare}>
-              Mis tareas
-            </SidebarLink>
-            {/* Agenda (ítem 75): el módulo de reservas, que estaba completo en
-                el backend sin ninguna pantalla. Reservas para ambos roles —GET
-                y cancelar son `authenticate` a secas—, y Calendario (ítem 77)
-                igual; Recursos y Tipos de servicio solo ADMIN, como
-                Sucursales: son configuración, y sus rutas viven dentro del
-                AdminRoute. */}
-            <SidebarLink to="/bookings" icon={CalendarDays}>
-              Reservas
-            </SidebarLink>
-            <SidebarLink to="/agenda" icon={CalendarRange}>
-              Calendario
-            </SidebarLink>
-            {/* R6: bloqueos y sobreturnos, solo en una clínica (ADMIN y
-                Recepción). */}
-            {esClinica ? (
-              <>
-                <SidebarLink to="/clinica/bloqueos" icon={CalendarRange}>
-                  Bloqueos
-                </SidebarLink>
-                <SidebarLink to="/clinica/sobreturnos" icon={CalendarRange}>
-                  Sobreturnos
-                </SidebarLink>
-              </>
-            ) : null}
-            {isAdmin && !esClinica ? (
-              <>
-                <SidebarLink to="/resources" icon={Shapes}>
-                  Recursos
-                </SidebarLink>
-                <SidebarLink to="/service-types" icon={Clock}>
-                  Tipos de servicio
-                </SidebarLink>
-              </>
-            ) : null}
-            {isAdmin && esClinica ? (
-              <>
-                <SidebarLink to="/clinica/profesionales" icon={Shapes}>
-                  {me?.vocabulario?.recurso.pluralTitulo ?? "Profesionales"}
-                </SidebarLink>
-                <SidebarLink to="/clinica/prestaciones" icon={Clock}>
-                  {me?.vocabulario?.tipoDeServicio.pluralTitulo ?? "Prestaciones"}
-                </SidebarLink>
-                <SidebarLink to="/service-types" icon={Clock}>
-                  {`Configurar ${me?.vocabulario?.tipoDeServicio.plural ?? "prestaciones"}`}
-                </SidebarLink>
-              </>
-            ) : null}
-          </SidebarSection>
-          {/* Administración (ítem 79): la sección se renderiza para AMBOS
-              roles porque ahora contiene QR, que un USER ya tenía; cada link
-              se gatea con su propio permiso. Envolverla entera en isAdmin
-              le sacaría el QR a un USER. */}
-          <SidebarSection
-            label="Administración"
-            paths={[
-              "/qr",
-              "/users",
-              "/invitations",
-              "/sources",
-              "/api-keys",
-              "/ingestion-events",
-              "/organization",
-              "/branches",
-              "/contact-custom-fields",
-            ]}
-          >
-            {/* Módulo QR (docs/qr-integration.md, Fase 3): visible para ambos roles,
-                como /companies — GET /api/qr es de lectura abierta y las acciones
-                de solo lectura (ver imagen, enviar, copiar link) sirven a un USER. */}
-            <SidebarLink to="/qr" icon={QrCode}>
-              QR
-            </SidebarLink>
-            {isAdmin ? (
-              <>
-                <SidebarLink to="/users" icon={UserCog}>
-                  Usuarios
-                </SidebarLink>
-                <SidebarLink to="/invitations" icon={MailPlus}>
-                  Invitaciones
-                </SidebarLink>
-                <SidebarLink to="/sources" icon={Database}>
-                  Fuentes de ingesta
-                </SidebarLink>
-                <SidebarLink to="/api-keys" icon={Key}>
-                  Claves de ingesta
-                </SidebarLink>
-                <SidebarLink to="/ingestion-events" icon={History}>
-                  Eventos de ingesta
-                </SidebarLink>
-                <SidebarLink to="/organization" icon={Coins}>
-                  Organización
-                </SidebarLink>
-                {/* Acá estaba "Plantillas de WhatsApp" (ítem 160). Se retiró:
-                    el mensaje se configura en la propia regla de
-                    automatización, y la plantilla de Meta se arma sola. */}
-                {/* Sucursales (ítem 20): la lectura de /api/branches es abierta, pero
-                    la pantalla es toda escritura ADMIN-only — un USER ya ve las
-                    sucursales donde las necesita, en BranchSelect (QR, Vehículo). */}
-                <SidebarLink to="/branches" icon={MapPin}>
-                  Sucursales
-                </SidebarLink>
-                {/* Campos personalizados de contactos (B6): los define el ADMIN;
-                    la ficha los muestra a todos. */}
-                <SidebarLink to="/contact-custom-fields" icon={ListChecks}>
-                  Campos de contacto
-                </SidebarLink>
-              </>
-            ) : null}
-          </SidebarSection>
-          {/* Agentes de IA (ítem 55): mismo caso que Sucursales —
-              GET /api/agents es lectura abierta, pero la pantalla es toda
-              configuración ADMIN-only— y uno más: hoy no hay ninguna otra
-              pantalla donde un USER necesite ver agentes. Desde el ítem 79 es
-              una sección propia, ADMIN-only entera, cuyo título es el link a
-              /agents y a la vez pliega lo que cuelga del módulo. */}
-          {isAdmin ? (
-            <SidebarSection
-              label="Agentes de IA"
-              link={{ to: "/agents", icon: Bot }}
-              paths={["/knowledge-base", "/automations", "/internal-agent/settings"]}
-            >
-              {/* Base de conocimiento (ítem 59): debajo de Agentes de IA
-                  porque es el dato que ellos consumen, y con el mismo criterio
-                  de permisos — GET abierto, pantalla ADMIN-only. */}
-              <SidebarLink to="/knowledge-base" icon={BookOpen}>
-                Base de conocimiento
-              </SidebarLink>
-              {/* Automatizaciones (ítem 62): las reglas trigger → acción del
-                  motor construido en docs/automations-architecture.md, con el
-                  mismo criterio de permisos que las dos de arriba — GET
-                  abierto, pantalla ADMIN-only. */}
-              <SidebarLink to="/automations" icon={Zap}>
-                Automatizaciones
-              </SidebarLink>
-              {/* Configuración del agente interno (ítem 180): mismo criterio que
-                  las dos de arriba — configuración de un módulo de IA,
-                  ADMIN-only incluida la lectura. */}
-              <SidebarLink to="/internal-agent/settings" icon={Settings2}>
-                Configurar agente interno
-              </SidebarLink>
-            </SidebarSection>
-          ) : null}
+          {esClinica(me) ? (
+            <MenuDeClinica me={me} isAdmin={isAdmin} canUseInternalAgent={canUseInternalAgent} />
+          ) : (
+            <MenuDeAutomotora me={me} isAdmin={isAdmin} canUseInternalAgent={canUseInternalAgent} />
+          )}
           {isPlatformAdmin ? (
             <div className="ds-sidebar-group">
               <span className="ds-sidebar-group-label">Plataforma</span>
@@ -575,9 +182,7 @@ export function AppLayout() {
               {me ? (
                 <>
                   <span className="ds-sidebar-account-name">{me.fullName}</span>
-                  <span className="ds-sidebar-account-role">
-                    {isAdmin ? "Administrador" : "Usuario"}
-                  </span>
+                  <span className="ds-sidebar-account-role">{roleLabel(me.role)}</span>
                 </>
               ) : null}
             </div>
@@ -614,7 +219,7 @@ export function AppLayout() {
             <span className="ds-sidebar-brand-mark" aria-hidden="true">
               <LayoutDashboard size={16} strokeWidth={1.5} />
             </span>
-            <span className="ds-sidebar-brand-name">Plataforma CRM</span>
+            <span className="ds-sidebar-brand-name">{marca}</span>
           </Link>
         </header>
         <main>

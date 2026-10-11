@@ -263,6 +263,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     // cambiar el rubro de una organización sin datos (D1).
     "GET /api/admin/organizations/industries",
     "PATCH /api/admin/organizations/:organizationId/industry",
+    // R19 (§12.1): la Clínica Demo con datos de ejemplo.
+    "POST /api/admin/organizations/clinica-demo",
     "GET /api/admin/llm-usage",
     "PUT /api/admin/agents/:agentId/facebook-page",
     "PUT /api/admin/agents/:agentId/model",

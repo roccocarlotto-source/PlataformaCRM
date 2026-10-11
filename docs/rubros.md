@@ -397,6 +397,10 @@ Consecuencias:
   (singular, plural, con y sin mayúscula, más la marca, §0.3). Mismo criterio
   que `modulos` en ediciones §7: el frontend no tiene una tabla propia. Para una
   automotora, `vocabulario` trae exactamente los textos de hoy.
+- **R17b** sumó dos cosas aditivas: el término `sucursal` ("sucursal" en una
+  automotora, "sede" en una clínica) y el `genero` de cada término, para el
+  artículo ("la reserva" pero "el turno"). El frontend los completa con los del
+  rubro si un backend anterior no los manda (`auth/vocabulario.ts`).
 
 ### 3.1 Frontend
 
@@ -412,6 +416,26 @@ fuera de los tests, en 59 archivos de `features/`. **No se reemplazan todas.**
 | Sucursales | "Vendedor por defecto" (`Branch.defaultOwnerId`) → "Responsable por defecto", y la tarjeta de recordatorios (§6.2). |
 | Automatizaciones | Catálogo de clínica (§7.3). |
 | Ayuda | `docs/guia-de-uso/clinicas/`. |
+
+> **Decisiones de Rocco para R17 (2026-10-10):**
+>
+> - **Menú:** además de lo de la tabla, Administración conserva Usuarios,
+>   Invitaciones, Organización, Sedes, Campos de contacto y el QR (lo usa el QR
+>   de reseña, §7.1). Salen del menú, en una clínica, Canjear cupón y la
+>   ingesta (Fuentes, Claves y Eventos de ingesta): los módulos siguen
+>   incluidos (§2), solo no se muestran. El Dashboard queda, sin las tarjetas
+>   de stock.
+> - **Recepción** (§11.2): el mismo menú, sin lo que es de ADMIN
+>   (Administración, Agentes de IA con su base de conocimiento y sus
+>   automatizaciones, Profesionales y Prestaciones).
+> - **Agenda y Turnos:** se reusan `/agenda` y `/bookings` (y sus componentes)
+>   con el vocabulario del rubro, en vez de pantallas nuevas en
+>   `features/clinica/`.
+> - **`tieneModulo`** lee `modulos` de `/me` también en COMPLETA, y
+>   `/opportunities*` y `/vehicles*` llevan gate de ruta.
+> - **Marca:** "Plataforma CRM" para los dos rubros, leída de
+>   `vocabulario.marca`. `index.html` queda con el texto genérico: se carga
+>   antes de que exista `/me`.
 
 **Test de vitest:** con una sesión CLINICA y `contactTerm = PACIENTE`, recorre
 las pantallas y falla si aparece "cliente", "vehículo", "stock" o "test drive"
@@ -2058,6 +2082,43 @@ datos inventados. **No se usa AutoMax** ni ningún dato real.
   purga de organizaciones de test no la borre antes de tiempo. El borrado se hace
   a mano ese día.
 
+> **Implementado en R19.** Cómo quedó, y dónde difiere de lo de arriba
+> (adaptación decidida por Rocco el 2026-10-10, "opción B acotada"):
+>
+> - **Un endpoint propio que crea la organización:**
+>   `POST /api/admin/organizations/clinica-demo` (`authenticate`,
+>   `businessWriteRateLimiter`, `requirePlatformAdmin`), con body
+>   `{ adminFullName, adminEmail, sufijo? }`. Crea "Clínica Demo" (o
+>   "Clínica Demo `<sufijo>`"), CLINICA y ESENCIAL, con la invitación real al
+>   email del admin, y le carga los datos de ejemplo. No hay
+>   `POST /api/admin/organizations/:organizationId/demo-data`.
+> - **Funciona con `CLINICA_HABILITADA` en `false`.** Es el único camino que
+>   crea una clínica con la llave apagada: `createOrganizationWithFoundingAdmin`
+>   recibe la opción `clinicaDemo`, que solo admite una clínica cuyo slug sea el
+>   de la demo. El alta común (`POST /api/admin/organizations` con
+>   `industry: CLINICA`) y la pantalla siguen dando 400 con la llave apagada.
+> - **Pantalla:** en **Plataforma → Nueva organización**, la casilla **"Clínica
+>   Demo con datos de ejemplo"**. Marcada, el formulario pide solo el primer
+>   administrador y un sufijo opcional; el selector de rubro sigue con su
+>   criterio (oculto mientras haya un solo rubro).
+> - **Slug:** `clinica-demo` (sin sufijo) o `clinica-demo-<sufijo>`. Ninguno
+>   coincide con un patrón de la purga (lo prueban
+>   `testOrganizationsPurge.service.test.ts` y
+>   `src/clinicas/clinicaDemo.integration-test.ts`).
+> - **`cargarDatosDeEjemplo(organizationId, adminUserId)`**
+>   (`src/clinicas/demo/`) responde 409 si la organización no es CLINICA o si ya
+>   tiene contactos, turnos, conversaciones o vehículos (incluidos los dados de
+>   baja, como el cambio de rubro). No es atómica: si falla a mitad, el endpoint
+>   responde 500 y la organización queda creada, para borrarla a mano.
+> - **Escrituras directas (aprobadas por Rocco):** los 3 turnos atendidos de la
+>   semana anterior y el `patientConfirmedAt` de 3 turnos van por Prisma, sin
+>   eventos (los services rechazan un turno pasado). Lo demás va por los
+>   services. Las automatizaciones se crean con `createAutomation`, inactivas y
+>   sin sincronizar plantillas: nada va a Meta. El cierre automático puede
+>   cerrar los turnos de la demo con el tiempo.
+> - **El bloqueo** de la Dra. es el viernes de la semana de los turnos, de 13 a
+>   19, y se crea antes que los turnos (no genera tareas).
+
 ### 12.2 Qué datos lleva (todos inventados)
 
 | Qué | Ejemplo |
@@ -2232,6 +2293,31 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
   tarea después del turno.
 - Las FAQs que hoy deriva la capa 1, en un PR chico del detector con la lista
   revisada por un profesional de salud (§5.3).
+- "El primero libre" al dar un turno desde la agenda (§4.3), y las marcas "sin
+  confirmar" y "sin recordatorio" en el calendario (§6): quedaron fuera de R17.
+- Lo que encontró R17c al escribir la guía de clínicas, en pantallas que no
+  entraron en el test de §3.1 (todo de una clínica; nada cambia en una
+  automotora):
+  - Automatizaciones: el selector de eventos ofrece "Oportunidad ganada" y
+    "Oportunidad sin movimiento" (y la primera viene elegida), y el backend no
+    los rechaza; contradice el catálogo de §7.3.
+  - Tareas: la lista y el formulario muestran Empresa y Oportunidad.
+  - Textos fijos de automotora: el formulario del profesional
+    (`/resources/:id/edit`: "recurso", "Sucursal") y Configurar prestaciones
+    (`/service-types`); los estados del turno en femenino ("Confirmada",
+    "Cancelada"); "Sucursal" en el QR, en Crear cupón y en el formulario de
+    la base de conocimiento; "Campos de contacto" con el placeholder "Patente
+    del auto"; la fila "Empresa" y "reservas / oportunidades" en Unir
+    contactos; la confirmación de desconectar Google Calendar y el horario
+    por defecto de la sede; los hints de "Cuánto hace la IA" y el probador del
+    agente; la acción "Reservar turno"; los mensajes de error de borrar una
+    sede (backend).
+  - Cobro en la sede: la tarjeta se muestra, pero en una clínica el agente no
+    manda datos de cobro (`get_payment_info` fuera del rubro, §5.5).
+  - El aviso de no cargar datos de salud en los campos personalizados (§8.2)
+    está en la guía, pero no en la pantalla.
+  - Al dar un turno desde la agenda solo se ofrecen las prestaciones donde el
+    profesional es el principal, no las de "Elegir profesionales" (§4.3).
 
 **Antes del primer cliente real:**
 

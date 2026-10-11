@@ -1,3 +1,8 @@
+import {
+  concordancia,
+  VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+  type Termino,
+} from "../../auth/vocabulario";
 import { useState } from "react";
 import { useConfirm } from "../../design-system/useConfirm";
 import { Badge } from "../../design-system/Badge";
@@ -14,6 +19,9 @@ interface GoogleCalendarSectionProps {
   // (?calendarConnected=true / ?calendarError=...). Lo lee BranchFormPage de
   // la URL y lo pasa tal cual.
   resultadoDelCallback?: { conectado: boolean; error: string | null };
+  // Cómo se llaman las reservas en el rubro (reservas o turnos). Sin el
+  // prop, "reservas", como siempre.
+  reserva?: Termino;
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +52,7 @@ interface GoogleCalendarSectionProps {
 export function GoogleCalendarSection({
   branchId,
   resultadoDelCallback,
+  reserva = VOCABULARIO_AUTOMOTORA_POR_DEFECTO.reserva,
 }: GoogleCalendarSectionProps) {
   const confirm = useConfirm();
   const connectionQuery = useGoogleCalendarConnection(branchId);
@@ -86,7 +95,7 @@ export function GoogleCalendarSection({
     <Card heading="Google Calendar">
       <div className="ds-stack">
         <p className="ds-hint">
-          Las reservas se reflejan en ese calendario y sus eventos ocupan horarios.
+          {`${concordancia(reserva).Los} ${reserva.plural} se reflejan en ese calendario y sus eventos ocupan horarios.`}
         </p>
 
         {resultadoDelCallback?.conectado ? (

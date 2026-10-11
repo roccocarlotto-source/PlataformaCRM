@@ -1,4 +1,5 @@
-import { useModulo } from "../../auth/useModulo";
+import { tieneModulo, useModulo } from "../../auth/useModulo";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "../vehicle/labels";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -26,7 +27,7 @@ import { CompanySelect } from "../company/CompanySelect";
 import { useOwnerNames } from "../opportunity/relationResolution";
 import { useCompaniesByIds } from "./companyResolution";
 import { ConsultasSinIdentificarTab } from "./ConsultasSinIdentificarTab";
-import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
+import { etiquetasDeEtapa, LIFECYCLE_STAGES } from "./labels";
 import { useDeleteContact } from "./mutations";
 import { useContacts } from "./queries";
 import type { ContactSortBy, LifecycleStage, SortOrder, VistaDeContactos } from "./types";
@@ -35,11 +36,14 @@ const PAGE_SIZE = 20;
 
 // Las dos pestañas (ítem 184). La elegida va en la URL (?vista=consultas)
 // para que se pueda enlazar, volver atrás y medir en el chequeo de desborde
-// móvil; cualquier otro valor, o ninguno, es Clientes.
-const VISTAS: { value: VistaDeContactos; label: string }[] = [
-  { value: "clientes", label: "Clientes" },
-  { value: "consultas", label: "Consultas sin identificar" },
-];
+// móvil; cualquier otro valor, o ninguno, es Clientes. La primera se llama
+// como el contacto del rubro (Clientes / Pacientes, docs/rubros.md §3.1).
+function vistas(contactosTitulo: string): { value: VistaDeContactos; label: string }[] {
+  return [
+    { value: "clientes", label: contactosTitulo },
+    { value: "consultas", label: "Consultas sin identificar" },
+  ];
+}
 
 function vistaDeLaUrl(valor: string | null): VistaDeContactos {
   return valor === "consultas" ? "consultas" : "clientes";
@@ -66,6 +70,11 @@ export function ContactListPage() {
   // La columna Asignado usa este MISMO booleano, y ahí no es solo cortesía:
   // resolver un ownerId a nombre necesita GET /api/users, que es ADMIN-only.
   const isAdmin = me?.role === "ADMIN";
+  // Rubros (docs/rubros.md §3.1): los textos del contacto, y sin vehículo de
+  // interés donde no hay stock (una clínica).
+  const vocabulario = vocabularioDe(me);
+  const etiquetaDeEtapa = etiquetasDeEtapa(vocabulario.contacto);
+  const conStock = tieneModulo(me, "stock");
 
   const [searchParams, setSearchParams] = useSearchParams();
   const vista = vistaDeLaUrl(searchParams.get("vista"));
@@ -167,7 +176,7 @@ export function ContactListPage() {
       <Tabs
         label="Vistas de contactos"
         value={vista}
-        options={VISTAS}
+        options={vistas(vocabulario.contacto.pluralTitulo)}
         onChange={(nueva) => {
           setSearchParams(nueva === "clientes" ? {} : { vista: nueva });
         }}
@@ -202,7 +211,7 @@ export function ContactListPage() {
               value={lifecycleStage}
               options={LIFECYCLE_STAGES.map((stage) => ({
                 value: stage,
-                label: LIFECYCLE_STAGE_LABELS[stage],
+                label: etiquetaDeEtapa[stage],
               }))}
               emptyOption={{ label: "Todas" }}
               onChange={(value) => {
@@ -314,7 +323,7 @@ export function ContactListPage() {
                       </td>
                       <td>
                         <Badge variant={LIFECYCLE_BADGE_VARIANT[contact.lifecycleStage]}>
-                          {LIFECYCLE_STAGE_LABELS[contact.lifecycleStage]}
+                          {etiquetaDeEtapa[contact.lifecycleStage]}
                         </Badge>
                       </td>
                       <td>{contact.source ?? ""}</td>
@@ -400,30 +409,38 @@ export function ContactListPage() {
                     label: "Etapa",
                     value: (
                       <Badge variant={LIFECYCLE_BADGE_VARIANT[detalle.lifecycleStage]}>
-                        {LIFECYCLE_STAGE_LABELS[detalle.lifecycleStage]}
+                        {etiquetaDeEtapa[detalle.lifecycleStage]}
                       </Badge>
                     ),
                   },
                   { label: "Asignado", value: nombreDeAsignado(detalle.ownerId) },
-                  {
-                    label: "Vehículo de interés",
-                    value: detalle.vehicleOfInterest ? (
-                      <>
-                        {[
-                          detalle.vehicleOfInterest.make,
-                          detalle.vehicleOfInterest.model,
-                          String(detalle.vehicleOfInterest.year),
-                          detalle.vehicleOfInterest.trim,
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}{" "}
-                        <Badge variant={STATUS_BADGE_VARIANT[detalle.vehicleOfInterest.status]}>
-                          {STATUS_LABELS[detalle.vehicleOfInterest.status]}
-                        </Badge>
-                        {detalle.vehicleOfInterest.deletedAt ? " · dada de baja del stock" : null}
-                      </>
-                    ) : null,
-                  },
+                  ...(conStock
+                    ? [
+                        {
+                          label: "Vehículo de interés",
+                          value: detalle.vehicleOfInterest ? (
+                            <>
+                              {[
+                                detalle.vehicleOfInterest.make,
+                                detalle.vehicleOfInterest.model,
+                                String(detalle.vehicleOfInterest.year),
+                                detalle.vehicleOfInterest.trim,
+                              ]
+                                .filter(Boolean)
+                                .join(" ")}{" "}
+                              <Badge
+                                variant={STATUS_BADGE_VARIANT[detalle.vehicleOfInterest.status]}
+                              >
+                                {STATUS_LABELS[detalle.vehicleOfInterest.status]}
+                              </Badge>
+                              {detalle.vehicleOfInterest.deletedAt
+                                ? " · dada de baja del stock"
+                                : null}
+                            </>
+                          ) : null,
+                        },
+                      ]
+                    : []),
                 ],
               },
             ]}

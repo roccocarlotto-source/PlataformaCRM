@@ -7,12 +7,12 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeConversationDetail } from "../../test/conversationFixtures";
 import type { AuthContextValue } from "../../auth/AuthContext";
+import { ConversationReplyCard } from "./ConversationReplyCard";
 import {
   AVISO_VENTANA_VENCIDA,
   AVISO_VENTANA_VENCIDA_META,
   CONFIRMAR_DEVOLVER_SIN_RESPONDER,
-  ConversationReplyCard,
-} from "./ConversationReplyCard";
+} from "./textosDeRespuesta";
 import type { ConversationDetail } from "./types";
 
 // Responder desde el CRM (I-03 de

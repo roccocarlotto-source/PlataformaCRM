@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { Prisma } from "@prisma/client";
 import { vocabularioDe } from "../config/vocabulario";
 import { prisma } from "../lib/prisma";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { crearRegistroDeAcciones } from "../services/automationActions";
 import { registrarAutomatizaciones } from "../services/automationRegistrations";
 import { crearRegistroDeHandlers } from "../services/outboxHandlers";
@@ -47,6 +49,9 @@ import {
 // y un USER. /me, los listados de turnos, conversaciones, tareas, usuarios e
 // invitaciones y el 403 de una ruta de ADMIN, con las claves y lo visible de
 // antes de R20.
+//
+// Caso de R19 (Clínica Demo): el alta común de una automotora por un platform
+// admin responde y escribe lo mismo que antes (sin datos de ejemplo).
 //
 // Caso de R6 (bloqueos y sobreturnos): GET /api/availability de un USER sobre
 // un recurso de cualquier sucursal sigue respondiendo, y recursos y reservas
@@ -798,4 +803,44 @@ test("§7.3: una automotora no puede colgar la tarea de booking.completed (el 40
   );
   assert.equal(ganada.triggerType, "opportunity.won");
   await prisma.automation.delete({ where: { id: ganada.id } });
+});
+
+test("R19: el alta común de una automotora es la de siempre (sin nada de la Clínica Demo)", async () => {
+  await prisma.platformAdmin.create({ data: { userId: completa.authIds[0] } });
+  const email = `automotora-sin-cambios-alta-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+  let creado: { organization: Record<string, unknown>; admin: { id: string } } | undefined;
+  try {
+    const alta = await pedir(completa, "POST", "/api/admin/organizations", {
+      organizationName: `Automotora Sin Cambios Alta ${Date.now()} ${randomUUID().slice(0, 8)}`,
+      adminFullName: "Persona de Prueba",
+      adminEmail: email,
+    });
+    assert.equal(alta.status, 201, JSON.stringify(alta.json));
+    creado = alta.json as unknown as typeof creado;
+    // Las claves y los valores de antes de R19: sin datosDeEjemplo.
+    assert.deepEqual(Object.keys(alta.json).sort(), ["admin", "organization"]);
+    assert.deepEqual(Object.keys(creado!.organization).sort(), [
+      "edition",
+      "id",
+      "industry",
+      "name",
+      "slug",
+    ]);
+    assert.equal(creado!.organization.edition, "COMPLETA");
+    assert.equal(creado!.organization.industry, "AUTOMOTORA");
+    const where = { organizationId: creado!.organization.id as string };
+    assert.equal(await prisma.clinicSettings.count({ where }), 0);
+    assert.equal(await prisma.branch.count({ where }), 0);
+    assert.equal(await prisma.contact.count({ where }), 0);
+    assert.equal(await prisma.agent.count({ where }), 0);
+    assert.equal(await prisma.automation.count({ where }), 0);
+    assert.equal(await prisma.knowledgeBaseEntry.count({ where }), 0);
+  } finally {
+    await prisma.platformAdmin.deleteMany({ where: { userId: completa.authIds[0] } });
+    if (creado) {
+      await prisma.user.deleteMany({ where: { id: creado.admin.id } });
+      await prisma.organization.deleteMany({ where: { id: creado.organization.id as string } });
+      await getSupabaseAdmin().auth.admin.deleteUser(creado.admin.id);
+    }
+  }
 });

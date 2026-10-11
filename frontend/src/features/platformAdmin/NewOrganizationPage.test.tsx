@@ -16,6 +16,7 @@ vi.mock("../../auth/getAccessToken", () => ({
 const url = `${env.apiUrl}/api/admin/organizations`;
 const editionsUrl = `${env.apiUrl}/api/admin/organizations/editions`;
 const industriesUrl = `${env.apiUrl}/api/admin/organizations/industries`;
+const demoUrl = `${env.apiUrl}/api/admin/organizations/clinica-demo`;
 
 // Lo de hoy: el backend ofrece solo COMPLETA (ESENCIAL_HABILITADA en false).
 // Cada test que necesite otra cosa lo pisa con server.use.
@@ -264,5 +265,93 @@ describe("NewOrganizationPage", () => {
       edition: "COMPLETA",
       industry: "CLINICA",
     });
+  });
+
+  // R19 (docs/rubros.md §12.1): la Clínica Demo, por su propio endpoint,
+  // aunque el backend ofrezca un solo rubro (CLINICA_HABILITADA en false).
+  it("Clínica Demo: marcada, pide solo el administrador y un sufijo, y llama al endpoint de la demo", async () => {
+    let demoBody: unknown;
+    let altaComun = false;
+    server.use(
+      http.post(url, () => {
+        altaComun = true;
+        return HttpResponse.json(CREATED, { status: 201 });
+      }),
+      http.post(demoUrl, async ({ request }) => {
+        demoBody = await request.json();
+        return HttpResponse.json(
+          {
+            organization: {
+              id: "org-demo",
+              name: "Clínica Demo Norte",
+              slug: "clinica-demo-norte",
+              edition: "ESENCIAL",
+              industry: "CLINICA",
+            },
+            admin: { id: "u-demo", email: "ana@demo.test", fullName: "Ana Demo", role: "ADMIN" },
+            datosDeEjemplo: { pacientes: 8 },
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    // Con un solo rubro, el selector sigue oculto; la casilla está.
+    expect(screen.queryByLabelText("Rubro")).not.toBeInTheDocument();
+    const casilla = screen.getByLabelText("Clínica Demo con datos de ejemplo");
+    expect(casilla).not.toBeChecked();
+    expect(screen.queryByLabelText("Sufijo del nombre (opcional)")).not.toBeInTheDocument();
+
+    await user.click(casilla);
+    expect(screen.queryByLabelText("Nombre de la organización")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Edición")).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Sufijo del nombre (opcional)"), " Norte ");
+    await user.type(screen.getByLabelText("Nombre completo"), "Ana Demo");
+    await user.type(screen.getByLabelText("Email"), "ana@demo.test");
+    await user.click(screen.getByRole("button", { name: "Crear Clínica Demo" }));
+
+    await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
+    expect(demoBody).toEqual({
+      adminFullName: "Ana Demo",
+      adminEmail: "ana@demo.test",
+      sufijo: "Norte",
+    });
+    expect(altaComun).toBe(false);
+    expect(screen.getByText("Clínica Demo Norte")).toBeInTheDocument();
+    expect(screen.getByText("clinica-demo-norte")).toBeInTheDocument();
+    expect(screen.getByText("ana@demo.test")).toBeInTheDocument();
+  });
+
+  it("Clínica Demo sin sufijo no lo manda, y un error del backend se muestra con el formulario intacto", async () => {
+    let demoBody: unknown;
+    server.use(
+      http.post(demoUrl, async ({ request }) => {
+        demoBody = await request.json();
+        return HttpResponse.json(
+          { error: { message: "Ya existe una organización con ese nombre" } },
+          { status: 409 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByLabelText("Clínica Demo con datos de ejemplo"));
+    await user.type(screen.getByLabelText("Nombre completo"), "Ana Demo");
+    await user.type(screen.getByLabelText("Email"), "ana@demo.test");
+    await user.click(screen.getByRole("button", { name: "Crear Clínica Demo" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Ya existe una organización con ese nombre",
+      ),
+    );
+    expect(demoBody).toEqual({ adminFullName: "Ana Demo", adminEmail: "ana@demo.test" });
+    expect(screen.getByLabelText("Clínica Demo con datos de ejemplo")).toBeChecked();
+    expect(screen.queryByText("Organización creada")).not.toBeInTheDocument();
   });
 });

@@ -37,15 +37,37 @@ describe("avisoDeAccionesSinGuardarElNombre", () => {
 describe("agentToolOptions por rubro", () => {
   const TURNOS = ["get_contact_bookings", "reschedule_booking", "cancel_booking"];
 
-  it("una automotora ve el catálogo de siempre, sin las tools de turnos", () => {
+  // Las que una clínica no tiene (toolDelRubro del backend, R17b).
+  const FUERA_DE_CLINICA = [
+    "create_opportunity",
+    "update_opportunity",
+    "reserve_vehicle",
+    "search_vehicles",
+    "get_payment_info",
+  ];
+
+  it("una automotora ve el catálogo de siempre, con sus textos, sin las tools de turnos", () => {
+    expect(agentToolOptions([])).toEqual(AGENT_TOOL_OPTIONS);
     const valores = agentToolOptions([]).map((o) => o.value);
-    expect(valores).toEqual(AGENT_TOOL_OPTIONS.map((o) => o.value));
     for (const nombre of TURNOS) expect(valores).not.toContain(nombre);
   });
 
-  it("una clínica ve además las tres tools de turnos", () => {
+  it("una clínica ve las tres tools de turnos y no las de stock, oportunidades ni cobro (R17b)", () => {
     const valores = agentToolOptions([], true).map((o) => o.value);
-    expect(valores).toEqual([...AGENT_TOOL_OPTIONS.map((o) => o.value), ...TURNOS]);
+    expect(valores).toEqual([
+      ...AGENT_TOOL_OPTIONS.map((o) => o.value).filter((v) => !FUERA_DE_CLINICA.includes(v)),
+      ...TURNOS,
+    ]);
     expect(toolLabel("reschedule_booking")).toBe("Reprogramar turno");
+  });
+
+  it("una clínica ve los textos del rubro: nada de clientes ni vehículos", () => {
+    const opciones = agentToolOptions([], true);
+    for (const o of opciones) {
+      expect(`${o.label} ${o.subtitle ?? ""}`).not.toMatch(/\b(clientes?|veh[ií]culos?|stock)\b/i);
+    }
+    const servicios = opciones.find((o) => o.value === "get_service_types");
+    expect(servicios?.label).toBe("Ver prestaciones");
+    expect(servicios?.subtitle).toBe("Lista las prestaciones de la sede.");
   });
 });

@@ -135,8 +135,16 @@ export const router = createBrowserRouter([
           // pantallas muestran los botones según auth/permisos.ts.
           { path: "/contacts/new", element: <ContactFormPage /> },
           { path: "/contacts/:id/edit", element: <ContactFormPage /> },
-          { path: "/opportunities/new", element: <OpportunityFormPage /> },
-          { path: "/opportunities/:id/edit", element: <OpportunityFormPage /> },
+          // Rubros (docs/rubros.md §2.1, R17): una clínica no tiene
+          // oportunidades; sin el módulo, la ruta vuelve al inicio.
+          {
+            element: <ModuloRoute modulo="oportunidades" />,
+            children: [
+              { path: "/opportunities", element: <OpportunityListPage /> },
+              { path: "/opportunities/new", element: <OpportunityFormPage /> },
+              { path: "/opportunities/:id/edit", element: <OpportunityFormPage /> },
+            ],
+          },
           // Bandeja de conversaciones (ítem 66 de
           // docs/frontend-cambios-pendientes.md): lo que hablaron los agentes
           // de IA con los contactos. ACÁ AFUERA, y no dentro del AdminRoute
@@ -157,7 +165,6 @@ export const router = createBrowserRouter([
               { path: "/pipelines/:pipelineId/stages", element: <StageListPage /> },
             ],
           },
-          { path: "/opportunities", element: <OpportunityListPage /> },
           // "Mis tareas" (ítem 25 de docs/frontend-cambios-pendientes.md): la
           // única pantalla de actividades para USER. GET /api/activities sigue
           // sin authorize en la ruta (activity.routes.ts) pero el service acota
@@ -194,7 +201,11 @@ export const router = createBrowserRouter([
           // abierta a cualquier autenticado (vehicle.routes.ts: solo
           // authenticate). Las rutas de creación/edición van dentro del
           // AdminRoute de abajo, mismo patrón que Activity/Opportunity.
-          { path: "/vehicles", element: <VehicleListPage /> },
+          // Rubros (docs/rubros.md §2, R17): una clínica no tiene stock.
+          {
+            element: <ModuloRoute modulo="stock" />,
+            children: [{ path: "/vehicles", element: <VehicleListPage /> }],
+          },
           // Reservas de la Agenda (ítem 75 de docs/frontend-cambios-pendientes.md).
           // ACÁ AFUERA, a diferencia de /resources y /service-types: las dos
           // rutas que consume la pantalla —GET /api/bookings y
@@ -398,8 +409,13 @@ export const router = createBrowserRouter([
               { path: "/activities", element: <ActivityListPage /> },
               // Ficha de vehículo: POST/PATCH /api/vehicles son ADMIN-only, y la
               // ficha es toda escritura (incluida la galería de fotos).
-              { path: "/vehicles/new", element: <VehicleFormPage /> },
-              { path: "/vehicles/:id/edit", element: <VehicleFormPage /> },
+              {
+                element: <ModuloRoute modulo="stock" />,
+                children: [
+                  { path: "/vehicles/new", element: <VehicleFormPage /> },
+                  { path: "/vehicles/:id/edit", element: <VehicleFormPage /> },
+                ],
+              },
             ],
           },
           {

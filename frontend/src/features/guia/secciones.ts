@@ -13,6 +13,13 @@ const ARCHIVOS = import.meta.glob<string>("../../../../docs/guia-de-uso/[0-9][0-
   eager: true,
 });
 
+// La guía de una clínica (docs/rubros.md §1.3, R17): docs/guia-de-uso/clinicas/,
+// con los mismos números y slugs que la de la raíz. Ver seccionesDelRubro.
+const ARCHIVOS_DE_CLINICA = import.meta.glob<string>(
+  "../../../../docs/guia-de-uso/clinicas/[0-9][0-9]-*.md",
+  { query: "?raw", import: "default", eager: true },
+);
+
 export interface Encabezado {
   nivel: 2 | 3;
   titulo: string;
@@ -71,6 +78,39 @@ export const SECCIONES: Seccion[] = Object.entries(ARCHIVOS)
   .map(([ruta, markdown]) => parsearSeccion(ruta, markdown))
   .sort((a, b) => a.orden - b.orden);
 
+export const SECCIONES_DE_CLINICA: Seccion[] = Object.entries(ARCHIVOS_DE_CLINICA)
+  .map(([ruta, markdown]) => parsearSeccion(ruta, markdown))
+  .sort((a, b) => a.orden - b.orden);
+
+// Rubros (docs/rubros.md §1.3, R17): las secciones de la raíz que una clínica
+// no ve nunca, y las que ve solo si tiene su módulo. Las demás las reemplaza su
+// versión de docs/guia-de-uso/clinicas/ (mismo número).
+const FUERA_DE_CLINICA: ReadonlySet<string> = new Set([
+  "oportunidades-y-procesos-de-venta",
+  "stock",
+]);
+export const MODULO_DE_SECCION: Readonly<Record<string, string>> = {
+  "cupones-y-qr": "cupones_y_qr",
+  "campos-personalizados": "campos_personalizados",
+};
+
+/** Las secciones del rubro. Una automotora: las de la raíz, las MISMAS. Una
+ *  clínica: cada sección de la raíz reemplazada por la de clinicas/ con el
+ *  mismo número; nunca stock ni oportunidades; y solo las de módulos que tiene. */
+export function seccionesDelRubro(
+  esClinica: boolean,
+  tiene: (modulo: string) => boolean = () => true,
+): Seccion[] {
+  if (!esClinica) return SECCIONES;
+  const propias = new Map(SECCIONES_DE_CLINICA.map((seccion) => [seccion.orden, seccion]));
+  return SECCIONES.flatMap((seccion) => {
+    if (FUERA_DE_CLINICA.has(seccion.slug)) return [];
+    const modulo = MODULO_DE_SECCION[seccion.slug];
+    if (modulo !== undefined && !tiene(modulo)) return [];
+    return [propias.get(seccion.orden) ?? seccion];
+  });
+}
+
 // Ediciones (docs/ediciones.md §9): los bloques de la guía que dependen de un
 // módulo, como `<slug>#<ancla>` → módulo. Un bloque es un ## (con sus ###) o
 // un ### con {#ancla} propia (hasta el próximo ### o ##).
@@ -80,8 +120,8 @@ export const SECCIONES: Seccion[] = Object.entries(ARCHIVOS)
 //   - SOLO_SIN_MODULO: el bloque explica cómo se hace SIN ese módulo (lo de la
 //     edición Esencial); con el módulo, no se muestra.
 //
-// Con la regla de useModulo, en COMPLETA (también una clínica) se ven los
-// primeros y no los segundos; en ESENCIAL, al revés. Un bloque que no está en
+// Con la regla de useModulo, una automotora en COMPLETA ve los primeros y no
+// los segundos; en ESENCIAL, al revés. Un bloque que no está en
 // ninguno de los dos se muestra siempre.
 export const MODULO_DE_ANCLA: Readonly<Record<string, string>> = {
   "contactos-y-consultas#empresas": "empresas",
@@ -161,14 +201,17 @@ function sinLinksAOcultos(
   return markdown === seccion.markdown ? seccion : { ...seccion, markdown };
 }
 
-/** Las secciones que ve quien está en la app: "Plataforma" solo el platform
- *  admin, y los bloques que van con los módulos de la organización (`tiene`,
- *  la regla de useModulo). */
+/** Las secciones que ve quien está en la app: las de su rubro, "Plataforma"
+ *  solo el platform admin, y los bloques que van con los módulos de la
+ *  organización (`tiene`, la regla de useModulo). */
 export function seccionesVisibles(
   esPlatformAdmin: boolean,
   tiene: (modulo: string) => boolean = () => true,
+  esClinica = false,
 ): Seccion[] {
-  const originales = SECCIONES.filter((seccion) => !seccion.soloPlataforma || esPlatformAdmin);
+  const originales = seccionesDelRubro(esClinica, tiene).filter(
+    (seccion) => !seccion.soloPlataforma || esPlatformAdmin,
+  );
   const filtradas = originales.map((seccion) => filtrarPorModulos(seccion, tiene));
   const ocultas = new Set<string>();
   filtradas.forEach((seccion, i) => {

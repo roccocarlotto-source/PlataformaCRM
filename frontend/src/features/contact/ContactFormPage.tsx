@@ -1,4 +1,5 @@
-import { useModulo } from "../../auth/useModulo";
+import { tieneModulo, useModulo } from "../../auth/useModulo";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -24,7 +25,7 @@ import { ContactVouchersSection } from "../voucher/ContactVouchersSection";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { ContactCustomFieldsCard } from "../contactCustomField/ContactCustomFieldsCard";
 import type { ContactCustomFieldValue } from "../contactCustomField/types";
-import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
+import { etiquetasDeEtapa, LIFECYCLE_STAGES } from "./labels";
 import { useCreateContact, useUpdateContact } from "./mutations";
 import { useContact } from "./queries";
 
@@ -181,6 +182,11 @@ export function ContactFormPage() {
   const navigate = useNavigate();
   const { me } = useAuth();
   const confirm = useConfirm();
+  // Rubros (docs/rubros.md §3.1): los textos del contacto, y sin vehículo de
+  // interés donde no hay stock (una clínica).
+  const vocabulario = vocabularioDe(me);
+  const etiquetaDeEtapa = etiquetasDeEtapa(vocabulario.contacto);
+  const conStock = tieneModulo(me, "stock");
 
   const contactQuery = useContact(isEditMode ? id : undefined);
   const createContactMutation = useCreateContact();
@@ -383,8 +389,9 @@ export function ContactFormPage() {
               </FormField>
               {contactQuery.data?.customerSince ? (
                 <p className="ds-hint">
-                  Cliente desde el {formatearDia(contactQuery.data.customerSince)} (dato importado
-                  del sistema anterior).
+                  {vocabulario.contacto.singularTitulo} desde el{" "}
+                  {formatearDia(contactQuery.data.customerSince)} (dato importado del sistema
+                  anterior).
                 </p>
               ) : null}
               <Select
@@ -392,7 +399,7 @@ export function ContactFormPage() {
                 value={values.lifecycleStage}
                 options={LIFECYCLE_STAGES.map((stage) => ({
                   value: stage,
-                  label: LIFECYCLE_STAGE_LABELS[stage],
+                  label: etiquetaDeEtapa[stage],
                 }))}
                 onChange={(lifecycleStage) => {
                   if (lifecycleStage) setValues({ ...values, lifecycleStage });
@@ -410,7 +417,7 @@ export function ContactFormPage() {
                   clearable={false}
                 />
               ) : null}
-              {isEditMode ? (
+              {isEditMode && conStock ? (
                 <div className="ds-field-grid--full">
                   <VehicleSelect
                     id="contact-form-vehicle-of-interest"
@@ -464,6 +471,7 @@ export function ContactFormPage() {
       {uniendo && id ? (
         <MergeContactDialog
           contactId={id}
+          etiquetasDeEtapa={etiquetaDeEtapa}
           onClose={() => setUniendo(false)}
           onMerged={(resultado) => {
             setUniendo(false);

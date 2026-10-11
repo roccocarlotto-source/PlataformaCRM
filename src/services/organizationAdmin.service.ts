@@ -1,5 +1,6 @@
 import { Prisma, type OrganizationEdition, type OrganizationIndustry } from "@prisma/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { esSlugDeClinicaDemo } from "../clinicas/demo/config";
 import { crearConfiguracionDeClinica } from "../clinicas/repositories/clinicSettings.repository";
 import {
   CLINICA_HABILITADA,
@@ -164,9 +165,20 @@ export const defaultOrganizationAdminDeps: OrganizationAdminDeps = {
   transaction: (fn) => prisma.$transaction(fn),
 };
 
+// R19 (docs/rubros.md §12.1): el alta de la Clínica Demo. Es la ÚNICA forma
+// de crear una organización CLINICA con CLINICA_HABILITADA en false, y solo
+// para una clínica con el slug de la demo (`clinica-demo` o
+// `clinica-demo-…`). Es un parámetro aparte del input a propósito: ningún
+// controller lo arma desde el body; lo pasa solo crearClinicaDemo
+// (src/clinicas/demo/clinicaDemo.service.ts).
+export interface OpcionesDelAlta {
+  clinicaDemo?: boolean;
+}
+
 export async function createOrganizationWithFoundingAdmin(
   input: CreateOrganizationWithFoundingAdminInput,
   deps: OrganizationAdminDeps = defaultOrganizationAdminDeps,
+  opciones: OpcionesDelAlta = {},
 ): Promise<CreateOrganizationWithFoundingAdminResult> {
   const { organizationName, adminFullName } = input;
   const edition = input.edition ?? "COMPLETA";
@@ -176,11 +188,6 @@ export async function createOrganizationWithFoundingAdmin(
   // que compensar.
   if (!edicionesDisponibles(deps.esencialHabilitada).includes(edition)) {
     throw new AppError(`La edición ${edition} todavía no está disponible.`, 400);
-  }
-  // docs/rubros.md §15, R3: lo mismo para CLINICA (CLINICA_HABILITADA).
-  const industry = input.industry ?? "AUTOMOTORA";
-  if (!rubrosDisponibles(deps.clinicaHabilitada).includes(industry)) {
-    throw new AppError(`El rubro ${industry} todavía no está disponible.`, 400);
   }
   // Misma normalización que invitation.service.ts (normalizeEmail): el email
   // de public.users es único y se compara tal cual.
@@ -194,6 +201,18 @@ export async function createOrganizationWithFoundingAdmin(
       "No se pudo generar un identificador a partir del nombre de la organización. Tiene que incluir al menos una letra o un número.",
       400,
     );
+  }
+
+  // docs/rubros.md §15, R3: lo mismo para CLINICA (CLINICA_HABILITADA). La
+  // Clínica Demo (R19) la saltea, y solo para eso: una clínica con el slug
+  // de la demo.
+  const industry = input.industry ?? "AUTOMOTORA";
+  if (opciones.clinicaDemo === true) {
+    if (industry !== "CLINICA" || !esSlugDeClinicaDemo(slug)) {
+      throw new AppError("La Clínica Demo es una clínica con el nombre de la demo.", 400);
+    }
+  } else if (!rubrosDisponibles(deps.clinicaHabilitada).includes(industry)) {
+    throw new AppError(`El rubro ${industry} todavía no está disponible.`, 400);
   }
 
   // ---------------------------------------------------------------------
