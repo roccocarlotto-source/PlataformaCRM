@@ -1095,6 +1095,87 @@ test("B-05 — PUT /admin/organizations/:id/internal-agent/model: el platform ad
   assert.equal(fila.modelName, "anthropic/claude-sonnet-4");
 });
 
+// La pantalla "Modelo de IA" ya no pide pegar el id del agente: lista los de
+// la organización elegida. Mismo gate que el PUT (platform admin, no ADMIN).
+// Con adminModelo y no adminA, por el cupo de escrituras (ver arriba).
+interface AgenteDelSelector {
+  id: string;
+  name: string;
+  branchName: string;
+  modelProvider: string;
+  modelName: string;
+  isActive: boolean;
+}
+
+test("GET /admin/organizations/:id/agents: un ADMIN común es 403, una organización que no existe es 404", async () => {
+  assert.equal(
+    (await call("GET", `/api/admin/organizations/${orgA.id}/agents`, adminModelo.accessToken))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await call("GET", `/api/admin/organizations/${randomUUID()}/agents`, plataforma.accessToken))
+      .status,
+    404,
+  );
+  assert.equal(
+    (await call("GET", "/api/admin/organizations/no-es-un-uuid/agents", plataforma.accessToken))
+      .status,
+    400,
+  );
+});
+
+test("GET /admin/organizations/:id/agents: el platform admin ve los vigentes de ESA organización y nunca los de otra", async () => {
+  const deA = await crearAgentePorHttp(adminModelo.accessToken, orgA.branchId, {
+    name: "Aaa selector",
+  });
+  const borrado = await crearAgentePorHttp(adminModelo.accessToken, orgA.branchId, {
+    name: "Aab borrado",
+  });
+  assert.equal(
+    (await call("DELETE", `/api/agents/${String(borrado.id)}`, adminModelo.accessToken)).status,
+    204,
+  );
+  const deB = await crearAgentePorHttp(adminB.accessToken, orgB.branchId, { name: "Aaa de B" });
+
+  const res = await call(
+    "GET",
+    `/api/admin/organizations/${orgA.id}/agents`,
+    plataforma.accessToken,
+  );
+  assert.equal(res.status, 200);
+  const lista = (await res.json()) as AgenteDelSelector[];
+
+  const ids = lista.map((a) => a.id);
+  assert.ok(ids.includes(String(deA.id)));
+  assert.ok(!ids.includes(String(borrado.id)), "un agente borrado no se lista");
+  assert.ok(!ids.includes(String(deB.id)), "nunca uno de otra organización");
+  const enLaBase = await prisma.agent.findMany({
+    where: { id: { in: ids } },
+    select: { organizationId: true, deletedAt: true },
+  });
+  assert.equal(enLaBase.length, ids.length);
+  assert.ok(enLaBase.every((a) => a.organizationId === orgA.id && a.deletedAt === null));
+
+  // Ordenados por nombre, y solo lo que el selector muestra.
+  const nombres = lista.map((a) => a.name);
+  assert.deepEqual(
+    nombres,
+    [...nombres].sort((x, y) => x.localeCompare(y)),
+  );
+  assert.deepEqual(
+    lista.find((a) => a.id === String(deA.id)),
+    {
+      id: String(deA.id),
+      name: "Aaa selector",
+      branchName: "Sucursal a",
+      modelProvider: "openrouter",
+      modelName: env.OPENROUTER_MODEL,
+      isActive: true,
+    },
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Ítem 81 — whatsappPhoneNumberId en el CRUD de Agent: lo que el webhook de
 // WhatsApp usa para saber de qué agente es un mensaje. UNIQUE GLOBAL.

@@ -250,6 +250,26 @@ export function findAgentByIdForPlatformAdmin(id: string, db: Db = prisma) {
   });
 }
 
+// Los agentes vigentes de UNA organización, para el selector de la pantalla
+// "Modelo de IA" de plataforma. Mismo criterio que la de arriba: lo llama un
+// platform admin, así que el organizationId es el elegido en la pantalla, no
+// el de quien llama. Solo lo que el selector muestra, sin instrucciones ni
+// guardrails: son del negocio, no de la plataforma.
+export function listAgentsOfOrganizationForPlatformAdmin(organizationId: string, db: Db = prisma) {
+  return db.agent.findMany({
+    where: { organizationId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      modelProvider: true,
+      modelName: true,
+      isActive: true,
+      branch: { select: { name: true } },
+    },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+  });
+}
+
 // El ÚNICO camino que escribe whatsapp_phone_number_id (fuera del borrado, que
 // lo vacía). null libera el número. El UNIQUE global de la columna es lo que
 // resuelve dos asignaciones concurrentes del mismo número: la segunda es P2002.

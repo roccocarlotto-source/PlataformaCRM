@@ -543,14 +543,17 @@ agente:
 **Agente de atención a clientes** (los que atienden por WhatsApp, Messenger,
 Instagram o la web):
 
-1. Pegá el **ID del agente**.
-2. Escribí el **Modelo**: el nombre exacto tal como lo publica el proveedor
+1. Elegí la **Organización** de la lista (podés escribir para buscarla).
+2. Elegí el **Agente** entre los de esa organización. Debajo de cada nombre
+   aparecen la sucursal y el modelo que usa hoy. Si la organización no tiene
+   agentes, la tarjeta lo avisa en lugar de mostrar la lista.
+3. Escribí el **Modelo**: el nombre exacto tal como lo publica el proveedor
    (OpenRouter), por ejemplo *openai/gpt-4o-mini*.
-3. Tocá **Guardar**. Debajo aparece "*Nombre del agente* ahora usa *modelo*."
+4. Tocá **Guardar**. Debajo aparece "*Nombre del agente* ahora usa *modelo*."
 
 **Agente interno de una organización** (el asistente que usa el personal del
-cliente desde adentro del CRM; hay uno por organización): lo mismo, pero con
-el **ID de la organización** en vez del del agente.
+cliente desde adentro del CRM; hay uno por organización): lo mismo, pero solo
+elegís la **Organización**, sin agente.
 
 La organización tiene que haber configurado su agente interno antes; esta
 pantalla no lo crea. Quien es administrador de la plataforma también puede

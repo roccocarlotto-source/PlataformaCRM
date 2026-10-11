@@ -4,6 +4,7 @@ import {
   asignarModeloDeAgenteInternoHandler,
   asignarNumeroDeWhatsappHandler,
   asignarPaginaDeFacebookHandler,
+  listarAgentesDeOrganizacionHandler,
 } from "../controllers/agentAdmin.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { businessWriteRateLimiter } from "../middlewares/rateLimit";
@@ -56,4 +57,16 @@ agentAdminRouter.put(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   asignarModeloDeAgenteInternoHandler,
+);
+
+// Los agentes de una organización, para el selector de la pantalla "Modelo de
+// IA" (la plataforma ya no pega el id del agente a mano). Misma cadena exacta
+// que GET /admin/organizations: es una lectura, pero de datos de OTRA
+// organización, y solo la hace un platform admin.
+agentAdminRouter.get(
+  "/admin/organizations/:organizationId/agents",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  listarAgentesDeOrganizacionHandler,
 );

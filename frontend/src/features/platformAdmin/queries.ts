@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   getLlmUsage,
   getOrganizationMetaConnection,
+  listAgentesDeOrganizacion,
   listEditions,
   listIndustries,
   listOrganizations,
@@ -14,6 +15,9 @@ export const platformAdminKeys = {
   organizations: () => [...platformAdminKeys.all, "organizations"] as const,
   metaConnection: (organizationId: string) =>
     [...platformAdminKeys.all, "meta-connection", organizationId] as const,
+  agentesDeOrganizaciones: () => [...platformAdminKeys.all, "organization-agents"] as const,
+  agentesDeOrganizacion: (organizationId: string) =>
+    [...platformAdminKeys.agentesDeOrganizaciones(), organizationId] as const,
   llmUsage: () => [...platformAdminKeys.all, "llm-usage"] as const,
   editions: () => [...platformAdminKeys.all, "editions"] as const,
   industries: () => [...platformAdminKeys.all, "industries"] as const,
@@ -68,6 +72,16 @@ export function useOrganizationMetaConnection(organizationId: string) {
   return useQuery({
     queryKey: platformAdminKeys.metaConnection(organizationId),
     queryFn: ({ signal }) => getOrganizationMetaConnection(organizationId, signal),
+    enabled: organizationId !== "",
+  });
+}
+
+// Los agentes de la organización elegida, para el selector de "Modelo de IA".
+// Sin organización elegida no consulta.
+export function usePlatformAgentesDeOrganizacion(organizationId: string) {
+  return useQuery({
+    queryKey: platformAdminKeys.agentesDeOrganizacion(organizationId),
+    queryFn: ({ signal }) => listAgentesDeOrganizacion(organizationId, signal),
     enabled: organizationId !== "",
   });
 }

@@ -19,6 +19,7 @@ import {
   findAgentById,
   findAgentByIdForPlatformAdmin,
   findManyAgents,
+  listAgentsOfOrganizationForPlatformAdmin,
   setAgentFacebookPageId,
   setAgentModel,
   setAgentWhatsappPhoneNumberId,
@@ -440,6 +441,20 @@ export async function asignarNumeroDeWhatsapp(input: {
   );
 
   return getAgentById(agente.organizationId, agente.id);
+}
+
+// GET /api/admin/organizations/:organizationId/agents: los agentes de una
+// organización para el selector de "Modelo de IA" de plataforma. Lo llama
+// SOLO un platform admin. 404 si la organización no existe o está borrada —
+// un listado vacío queda para la que existe y no tiene agentes. La sucursal
+// sale aplanada (branchName): es lo único que el selector muestra de ella.
+export async function listarAgentesDeOrganizacionParaPlataforma(organizationId: string) {
+  const organizacion = await findActiveOrganizationEdition(organizationId);
+  if (!organizacion) {
+    throw new AppError("Organización no encontrada", 404);
+  }
+  const agentes = await listAgentsOfOrganizationForPlatformAdmin(organizationId);
+  return agentes.map(({ branch, ...agente }) => ({ ...agente, branchName: branch.name }));
 }
 
 // PUT /api/admin/agents/:agentId/model (B-05). Lo llama SOLO un platform
