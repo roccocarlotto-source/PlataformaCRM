@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AdminRoute } from "../auth/AdminRoute";
+import { ModuloRoute } from "../auth/ModuloRoute";
 import { WhatsappTemplateRedirect } from "../features/automation/WhatsappTemplateRedirect";
 import { PlatformAdminRoute } from "../auth/PlatformAdminRoute";
 import { ProtectedRoute } from "../auth/ProtectedRoute";
@@ -288,5 +289,24 @@ describe("router.tsx — plantillas de WhatsApp: rutas viejas que redirigen", ()
 
     expect(parent?.type).toBe(AdminRoute);
     expect(route?.element.type).toBe(WhatsappTemplateRedirect);
+  });
+});
+
+describe("router.tsx — gates del rubro (docs/rubros.md §2, R17)", () => {
+  it("/opportunities* y /vehicles* están bajo ModuloRoute con su módulo: una clínica vuelve al inicio", () => {
+    const casos: [string, string][] = [
+      ["/opportunities", "oportunidades"],
+      ["/opportunities/new", "oportunidades"],
+      ["/opportunities/:id/edit", "oportunidades"],
+      ["/vehicles", "stock"],
+      ["/vehicles/new", "stock"],
+      ["/vehicles/:id/edit", "stock"],
+    ];
+    for (const [path, modulo] of casos) {
+      const parent = findParentElement(router.routes, path) as
+        { type: unknown; props: { modulo?: string } } | undefined;
+      expect(parent?.type, path).toBe(ModuloRoute);
+      expect(parent?.props.modulo, path).toBe(modulo);
+    }
   });
 });

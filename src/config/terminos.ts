@@ -13,8 +13,8 @@ export interface Termino {
 }
 
 export interface Vocabulario {
-  // El nombre del producto (§0.3): hoy fijo; R17 lo saca a la configuración
-  // de marca.
+  // El nombre del producto (§0.3): la configuración de marca, que el frontend
+  // lee de acá (R17). Hoy es una sola para los dos rubros.
   marca: string;
   // A quién atiende el negocio: Contact.
   contacto: Termino;

@@ -2,6 +2,7 @@ import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
+import { tieneModulo } from "../../auth/useModulo";
 import { AtencionKpiCards } from "./AtencionKpiCards";
 import type { OpportunityRevenueGranularity } from "../opportunity/types";
 import { VehicleSummaryCards } from "../vehicle/VehicleSummaryCards";
@@ -53,6 +54,9 @@ export function DashboardPage() {
   // oportunidades. Sin `modulos` (un backend anterior), el de siempre.
   const { me } = useAuth();
   const comercial = me?.modulos === undefined || me.modulos.includes("dashboard_comercial");
+  // Rubros (docs/rubros.md §2, R17): una clínica no tiene stock, y sus
+  // tarjetas darían 403.
+  const conStock = tieneModulo(me, "stock");
 
   // La misma clase que los listados para "título + acción a la derecha"
   // (CompanyListPage y el resto): el selector es un control de página.
@@ -70,7 +74,7 @@ export function DashboardPage() {
       <div>
         {encabezado}
         <div className="ds-stack">
-          <VehicleSummaryCards countUp />
+          {conStock ? <VehicleSummaryCards countUp /> : null}
           <AtencionKpiCards granularity={granularity} />
           <ActivityFeed />
         </div>

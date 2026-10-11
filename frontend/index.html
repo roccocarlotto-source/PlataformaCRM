@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- El nombre genérico del producto: esta página se carga antes de que
+         exista una sesión (no hay /me), así que no puede leer la marca de la
+         configuración (vocabulario.marca, docs/rubros.md §0.3) como la
+         sidebar. Es el mismo texto que MARCA_POR_DEFECTO de
+         src/auth/vocabulario.ts. -->
     <title>Plataforma CRM</title>
     <!-- Tema claro/oscuro ANTES de la primera pintura (§31 de
          docs/frontend-cambios-pendientes.md). Lee la preferencia guardada
