@@ -1,9 +1,9 @@
+import { DateTime } from "luxon";
 import { countFutureConfirmedBookingsOfContact } from "../repositories/booking.repository";
 import { findManyServiceTypes, findServiceTypeById } from "../repositories/serviceType.repository";
 import {
   MAX_RESERVAS_FUTURAS_POR_CONTACTO,
   MAX_TIPOS_DE_SERVICIO,
-  MENSAJE_TOPE_DE_RESERVAS,
   bloqueoPorIdentidad,
   conErroresDeNegocio,
   createBookingArgs,
@@ -21,6 +21,12 @@ import {
 } from "../services/agentTools.service";
 import { relojDeReservas } from "../services/booking.service";
 import { isoEnZona } from "../utils/timezone";
+import {
+  MENSAJE_TOPE_DE_TURNOS,
+  SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA,
+  TERMINO_DE_LAS_TOOLS,
+  TEXTOS_DE_RESOLVER_PRESTACION,
+} from "./config/textosDelAgente";
 import { profesionalesDeLasPrestaciones } from "./repositories/serviceTypeResource.repository";
 import {
   MENSAJE_PROFESIONAL_NO_ATIENDE,
@@ -47,6 +53,19 @@ import {
 // Sin oportunidad: una clínica no tiene oportunidades (§2.1).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// EL DÍA, YA ESCRITO (hallazgo de la prueba de la Clínica Demo, 2026-10-11)
+// ---------------------------------------------------------------------------
+// Con solo el ISO, el modelo calculaba el día de la semana y se equivocaba:
+// dijo dos veces "miércoles 12 de octubre" por el lunes 12. Toda fecha que
+// devuelven las tools de una clínica lleva además `cuando`, escrito en la
+// zona de la sede ("lunes 12 de octubre, 09:30"); los campos ISO siguen igual.
+export function cuandoEnLaSede(fecha: Date, zona: string): string {
+  return DateTime.fromJSDate(fecha, { zone: zona })
+    .setLocale("es")
+    .toFormat("cccc d 'de' LLLL, HH:mm");
+}
+
 export const MENSAJE_PRESTACION_DE_OTRA_SEDE =
   "Esa prestación es de otra sede: solo podés agendar en la sede de esta conversación.";
 
@@ -54,7 +73,7 @@ async function prestacionDeLaSede(
   args: { serviceTypeId?: string; servicio?: string },
   contexto: ContextoDeEjecucionDeTool,
 ): Promise<{ ok: true; serviceTypeId: string } | { ok: false; resultado: ResultadoDeTool }> {
-  const servicio = await resolverServicio(args, contexto);
+  const servicio = await resolverServicio(args, contexto, TEXTOS_DE_RESOLVER_PRESTACION);
   if (!servicio.ok) return servicio;
   const prestacion = await findServiceTypeById(servicio.serviceTypeId, contexto.organizationId);
   if (!prestacion) {
@@ -145,7 +164,11 @@ const getAvailabilityDeClinica: ToolDelAgente = {
   },
 
   ejecutar(args, contexto) {
-    const validacion = validarArgs(getAvailabilityArgs, args);
+    const validacion = validarArgs(
+      getAvailabilityArgs,
+      args,
+      SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA,
+    );
     if (!validacion.ok) {
       return Promise.resolve(validacion.resultado);
     }
@@ -165,6 +188,7 @@ const getAvailabilityDeClinica: ToolDelAgente = {
       return exito({
         zonaHoraria: zona,
         turnos: turnos.map((t) => ({
+          cuando: cuandoEnLaSede(t.inicio, zona),
           inicio: isoEnZona(t.inicio, zona),
           fin: isoEnZona(t.fin, zona),
           profesional: t.profesional,
@@ -203,14 +227,14 @@ const createBookingDeClinica: ToolDelAgente = {
   },
 
   ejecutar(args, contexto) {
-    const validacion = validarArgs(createBookingArgs, args);
+    const validacion = validarArgs(createBookingArgs, args, SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA);
     if (!validacion.ok) {
       return Promise.resolve(validacion.resultado);
     }
     const input = validacion.value;
 
     return conErroresDeNegocio(async () => {
-      const bloqueo = await bloqueoPorIdentidad(contexto);
+      const bloqueo = await bloqueoPorIdentidad(contexto, TERMINO_DE_LAS_TOOLS);
       if (bloqueo) return bloqueo;
       const futuras = await countFutureConfirmedBookingsOfContact(
         contexto.conversation.contactId,
@@ -218,7 +242,7 @@ const createBookingDeClinica: ToolDelAgente = {
         relojDeReservas.ahora(),
       );
       if (futuras >= MAX_RESERVAS_FUTURAS_POR_CONTACTO) {
-        return fallo(MENSAJE_TOPE_DE_RESERVAS);
+        return fallo(MENSAJE_TOPE_DE_TURNOS);
       }
       const prestacion = await prestacionDeLaSede(input, contexto);
       if (!prestacion.ok) return prestacion.resultado;
@@ -233,6 +257,7 @@ const createBookingDeClinica: ToolDelAgente = {
       return exito({
         bookingId: booking.id,
         zonaHoraria: zona,
+        cuando: cuandoEnLaSede(booking.startsAt, zona),
         startsAt: isoEnZona(booking.startsAt, zona),
         endsAt: isoEnZona(booking.endsAt, zona),
         status: booking.status,

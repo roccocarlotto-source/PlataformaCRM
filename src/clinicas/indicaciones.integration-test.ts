@@ -22,6 +22,8 @@ import {
   type LlmProvider,
 } from "../services/llmProvider.service";
 import { mensajeDeConsultaClinica } from "./config/mensajesDeSalud";
+import { daIndicacionClinica } from "./guardrailsDeSalud";
+import { TOOL_DE_INDICACIONES } from "./toolDeIndicaciones";
 
 // ---------------------------------------------------------------------------
 // R18 (docs/rubros.md §5.4), contra la app real y Postgres: las indicaciones de
@@ -29,8 +31,10 @@ import { mensajeDeConsultaClinica } from "./config/mensajesDeSalud";
 //
 // - Por HTTP: una clínica carga y cambia el tipo; un tipo inválido es 400; una
 //   automotora no lo puede mandar (400) y no lo ve en sus respuestas.
-// - En el prompt: las indicaciones van en su bloque, solo para los agentes de
-//   esa sede (R20) y solo de esa organización.
+// - En el prompt: las indicaciones van en su bloque, SOLO CON SUS TÍTULOS,
+//   solo para los agentes de esa sede (R20) y solo de esa organización.
+// - Cuando el paciente pide una, el texto sale tal cual, sin volver al modelo
+//   (prueba de la Clínica Demo: el modelo las parafraseaba).
 // - Los guardrails van primero: una consulta de salud se deriva sin llamar al
 //   modelo aunque haya una indicación parecida cargada.
 //
@@ -127,7 +131,7 @@ function proveedorQueGuarda() {
   return { proveedor, requests };
 }
 
-async function promptDe(org: OrgDePrueba, clave: string, texto: string) {
+async function pedidoAlModelo(org: OrgDePrueba, clave: string, texto: string) {
   const { proveedor, requests } = proveedorQueGuarda();
   setLlmProviderForTests(proveedor);
   await runAgentTurn(
@@ -141,7 +145,11 @@ async function promptDe(org: OrgDePrueba, clave: string, texto: string) {
     { llmProvider: proveedor },
   );
   assert.equal(requests.length, 1);
-  return requests[0].systemPrompt;
+  return requests[0];
+}
+
+async function promptDe(org: OrgDePrueba, clave: string, texto: string) {
+  return (await pedidoAlModelo(org, clave, texto)).systemPrompt;
 }
 
 test("una clínica carga una indicación, la ve con su tipo y lo puede cambiar; un tipo inválido es 400", async () => {
@@ -185,13 +193,84 @@ test("una clínica carga una indicación, la ve con su tipo y lo puede cambiar; 
   assert.equal(invalido.status, 400);
 });
 
-test("el agente de la sede recibe la indicación en su bloque, con la instrucción de transcribir", async () => {
-  const prompt = await promptDe(clinica, "a", "¿qué tengo que hacer antes de la depilación láser?");
+test("el agente de la sede recibe el título de la indicación en su bloque, sin el texto, y la tool para mandarla", async () => {
+  const pedido = await pedidoAlModelo(
+    clinica,
+    "a",
+    "¿qué tengo que hacer antes de la depilación láser?",
+  );
+  const prompt = pedido.systemPrompt;
   const kb = prompt.indexOf(ENCABEZADO_KNOWLEDGE_BASE);
   const ind = prompt.indexOf(ENCABEZADO_INDICACIONES);
   assert.ok(kb >= 0 && ind > kb, "los dos bloques, las indicaciones después");
-  assert.ok(prompt.slice(ind).includes(INDICACION));
-  assert.ok(!prompt.slice(kb, ind).includes(INDICACION), "no está en el bloque general");
+  assert.ok(prompt.slice(ind).includes("- Antes de la depilación láser"));
+  assert.ok(!prompt.includes(INDICACION), "el texto no va al modelo");
+  // La tool del sistema, aunque el agente no tiene ninguna en enabledTools.
+  assert.deepEqual(
+    pedido.tools.map((t) => t.name),
+    [TOOL_DE_INDICACIONES, "request_human_handoff"],
+  );
+});
+
+test("el paciente pide una indicación: le llega el texto de la clínica tal cual, sin volver al modelo ni a la capa 3", async () => {
+  // Un texto que la capa 3 bloquearía si lo escribiera el modelo: acá lo
+  // escribió la clínica, y sale igual.
+  const texto = "Aplicate protector solar cada 2 horas durante una semana.\nNo te expongas al sol.";
+  assert.equal(daIndicacionClinica(texto), true);
+  await prisma.knowledgeBaseEntry.create({
+    data: {
+      organizationId: clinica.id,
+      branchId: sedes.a,
+      title: "Después del peeling",
+      content: texto,
+      kind: "INDICACIONES",
+    },
+  });
+  const requests: LlmCompletionRequest[] = [];
+  const proveedor: LlmProvider = {
+    name: "guionado",
+    complete(request) {
+      requests.push(request);
+      return Promise.resolve(
+        requests.length === 1
+          ? {
+              text: null,
+              toolCalls: [
+                {
+                  id: "c1",
+                  name: TOOL_DE_INDICACIONES,
+                  arguments: { titulo: "después del peeling" },
+                },
+              ],
+            }
+          : { text: "En resumen: ponete protector.", toolCalls: [] },
+      );
+    },
+  };
+  setLlmProviderForTests(proveedor);
+  const contactId = await contacto(clinica);
+  const r = await runAgentTurn(
+    {
+      organizationId: clinica.id,
+      agentId: agentes.a,
+      contactId,
+      channel: "WEB",
+      texto: "¿qué tengo que hacer después del peeling?",
+    },
+    { llmProvider: proveedor },
+  );
+  assert.equal(requests.length, 1, "no se vuelve al modelo");
+  assert.equal(r.respuesta, texto);
+  assert.equal(r.handoff, false);
+  const saliente = await prisma.message.findFirstOrThrow({
+    where: { organizationId: clinica.id, conversationId: r.conversationId, senderType: "AGENT" },
+    orderBy: { createdAt: "desc" },
+  });
+  assert.equal(saliente.content, texto);
+  const llamada = (saliente.toolCalls as { name: string; allowed: boolean }[]).find(
+    (t) => t.name === TOOL_DE_INDICACIONES,
+  );
+  assert.equal(llamada?.allowed, true);
 });
 
 test("límite por sede y aislamiento: otra sede y otra clínica no reciben la indicación", async () => {
@@ -257,7 +336,12 @@ test("automotora sin cambios: no puede mandar el tipo (400), no lo ve, y su prom
   );
   assert.equal(patch.status, 400);
 
-  const prompt = await promptDe(automotora, "auto", "hola");
-  assert.ok(prompt.includes("Lunes a viernes de 9 a 18."));
-  assert.ok(!prompt.includes(ENCABEZADO_INDICACIONES));
+  const pedido = await pedidoAlModelo(automotora, "auto", "hola");
+  assert.ok(pedido.systemPrompt.includes("Lunes a viernes de 9 a 18."));
+  assert.ok(!pedido.systemPrompt.includes(ENCABEZADO_INDICACIONES));
+  // Ni la tool de indicaciones: solo la de derivar, como siempre.
+  assert.deepEqual(
+    pedido.tools.map((t) => t.name),
+    ["request_human_handoff"],
+  );
 });

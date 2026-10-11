@@ -535,7 +535,7 @@ export function AgentFormPage() {
             />
             {isEditMode ? (
               <p className="ds-hint ds-field-grid--full">
-                No se puede cambiar. Para otra sucursal, creá un agente nuevo.
+                {`No se puede cambiar. Para otra ${vocabulario.sucursal.singular}, creá un agente nuevo.`}
               </p>
             ) : null}
 

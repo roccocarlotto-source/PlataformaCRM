@@ -19,7 +19,12 @@ import {
 } from "../services/agentTools.service";
 import { cancelBooking, relojDeReservas } from "../services/booking.service";
 import { isoEnZona } from "../utils/timezone";
+import {
+  SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA,
+  TERMINO_DE_LAS_TOOLS,
+} from "./config/textosDelAgente";
 import { leerConfiguracionDeSede } from "./repositories/clinicSettings.repository";
+import { cuandoEnLaSede } from "./toolsDeAgenda";
 import {
   MARCA_DEL_ASISTENTE,
   reprogramarTurno,
@@ -48,6 +53,21 @@ import { recepcionistaParaElAviso } from "./services/sedesDeUsuarios.service";
 // sobreturno ni `force`: el agente nunca los pide. Reprogramar no consume el
 // tope de turnos futuros (MAX_RESERVAS_FUTURAS_POR_CONTACTO).
 //
+// DERIVA EL CÓDIGO, NO EL MODELO (hallazgo de la prueba de la Clínica Demo,
+// 2026-10-11): el rechazo por plazo (4) y el de "nadie firma" llevan un
+// `codigo` además del texto. Después de la ronda, la regla del rubro
+// (reglasDeClinica.ts → desenlaceDeLasTools) lo lee y deriva: mensaje fijo,
+// tarea para la Recepción de la sede y el agente callado, como una consulta
+// clínica. Antes dependía de que el modelo derivara, y no lo hizo.
+//
+// CANCELAR VA EN DOS PASOS (mismo hallazgo: canceló en el acto). La primera
+// llamada pasa las reglas 1 a 4 y devuelve un resumen, sin tocar nada. Con
+// `confirmado: true` cancela solo si el ÚLTIMO mensaje del agente en esta
+// conversación ya traía ese resumen para ese turno, y el contacto contestó
+// después: o sea, en un turno anterior, nunca en el mismo. Sin migración: la
+// marca es la propia llamada, guardada en Message.toolCalls. Si no, vuelve a
+// dar el resumen.
+//
 // AUTOR: Activity.authorId no admite nulos, así que la nota la firma el
 // responsable de la conversación, si no la Recepción de la sede, si no el ADMIN
 // más antiguo. Pero el asunto lleva MARCA_DEL_ASISTENTE y la pantalla muestra
@@ -67,6 +87,10 @@ export const MENSAJE_TURNO_YA_EMPEZO =
 export const MENSAJE_SIN_AUTOR =
   "Por este medio no se puede cambiar el turno ahora. Derivá a una persona del equipo para que lo haga.";
 
+/** Los `codigo` de los rechazos que derivan (ver arriba). */
+export const CODIGO_FUERA_DE_PLAZO = "FUERA_DE_PLAZO";
+export const CODIGO_SIN_AUTOR = "SIN_AUTOR";
+
 export function mensajeFueraDePlazo(horas: number): string {
   return `Falta menos de ${horas} ${horas === 1 ? "hora" : "horas"} para ese turno: por este medio ya no se puede cambiar ni cancelar. Decíselo al paciente con claridad y derivá a una persona del equipo para que lo resuelva. No lo intentes de otra forma.`;
 }
@@ -83,7 +107,50 @@ export const rescheduleBookingArgs = z.object({
 
 export const cancelBookingArgs = z.object({
   bookingId: id("bookingId"),
+  // Un modelo chico manda "true" o null: lo que no es true, no confirma.
+  confirmado: z.preprocess((v) => v === true || v === "true", z.boolean()).optional(),
 });
+
+/** Si un Message.toolCalls guardado tiene el resumen de cancelar ESE turno
+ *  (la primera llamada de cancel_booking, ok y sin cancelar). Pura. */
+export function mostroElResumenDeCancelar(toolCalls: unknown, bookingId: string): boolean {
+  return (
+    Array.isArray(toolCalls) &&
+    toolCalls.some((entrada) => {
+      if (typeof entrada !== "object" || entrada === null) return false;
+      const { name, result } = entrada as { name?: unknown; result?: unknown };
+      if (name !== "cancel_booking" || typeof result !== "object" || result === null) {
+        return false;
+      }
+      const { ok, data } = result as { ok?: unknown; data?: unknown };
+      if (ok !== true || typeof data !== "object" || data === null) return false;
+      const d = data as { bookingId?: unknown; requiereConfirmacion?: unknown };
+      return d.bookingId === bookingId && d.requiereConfirmacion === true;
+    })
+  );
+}
+
+/** El paso 2 vale si el último mensaje del agente traía el resumen de ese
+ *  turno y el contacto escribió después (ver CANCELAR VA EN DOS PASOS). */
+async function resumenYaMostrado(
+  bookingId: string,
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<boolean> {
+  const where = {
+    organizationId: contexto.organizationId,
+    conversationId: contexto.conversation.id,
+  };
+  const ultimo = await prisma.message.findFirst({
+    where: { ...where, direction: "OUTBOUND", senderType: "AGENT" },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { createdAt: true, toolCalls: true },
+  });
+  if (!ultimo || !mostroElResumenDeCancelar(ultimo.toolCalls, bookingId)) return false;
+  const respuestas = await prisma.message.count({
+    where: { ...where, direction: "INBOUND", createdAt: { gt: ultimo.createdAt } },
+  });
+  return respuestas > 0;
+}
 
 function formato(fecha: Date, zona: string): string {
   return DateTime.fromJSDate(fecha, { zone: zona })
@@ -114,7 +181,7 @@ async function turnoQueSePuedeCambiar(
   bookingId: string,
   contexto: ContextoDeEjecucionDeTool,
 ): Promise<{ ok: true; turno: TurnoDelContacto } | { ok: false; resultado: ResultadoDeTool }> {
-  const bloqueo = await bloqueoPorIdentidad(contexto);
+  const bloqueo = await bloqueoPorIdentidad(contexto, TERMINO_DE_LAS_TOOLS);
   if (bloqueo) return { ok: false, resultado: bloqueo };
 
   const turno = await buscarTurnoDelContacto(bookingId, contexto);
@@ -131,7 +198,7 @@ async function turnoQueSePuedeCambiar(
     turno.branchId,
   );
   if (horas !== null && turno.startsAt.getTime() - ahora.getTime() < horas * 60 * 60 * 1000) {
-    return { ok: false, resultado: fallo(mensajeFueraDePlazo(horas)) };
+    return { ok: false, resultado: fallo(mensajeFueraDePlazo(horas), CODIGO_FUERA_DE_PLAZO) };
   }
   return { ok: true, turno };
 }
@@ -167,7 +234,7 @@ const getContactBookingsTool: ToolDelAgente = {
 
   ejecutar(_args, contexto) {
     return conErroresDeNegocio(async () => {
-      const bloqueo = await bloqueoPorIdentidad(contexto);
+      const bloqueo = await bloqueoPorIdentidad(contexto, TERMINO_DE_LAS_TOOLS);
       if (bloqueo) return bloqueo;
       const turnos = await prisma.booking.findMany({
         where: {
@@ -195,6 +262,7 @@ const getContactBookingsTool: ToolDelAgente = {
         zonaHoraria: zona,
         turnos: turnos.map((t) => ({
           bookingId: t.id,
+          cuando: cuandoEnLaSede(t.startsAt, zona),
           inicio: isoEnZona(t.startsAt, zona),
           fin: isoEnZona(t.endsAt, zona),
           prestacion: t.serviceType.name,
@@ -233,7 +301,11 @@ const rescheduleBookingTool: ToolDelAgente = {
   },
 
   ejecutar(args, contexto) {
-    const validacion = validarArgs(rescheduleBookingArgs, args);
+    const validacion = validarArgs(
+      rescheduleBookingArgs,
+      args,
+      SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA,
+    );
     if (!validacion.ok) return Promise.resolve(validacion.resultado);
     const input = validacion.value;
 
@@ -241,7 +313,7 @@ const rescheduleBookingTool: ToolDelAgente = {
       const cambiable = await turnoQueSePuedeCambiar(input.bookingId, contexto);
       if (!cambiable.ok) return cambiable.resultado;
       const autor = await autorParaElAsistente(contexto);
-      if (!autor) return fallo(MENSAJE_SIN_AUTOR);
+      if (!autor) return fallo(MENSAJE_SIN_AUTOR, CODIGO_SIN_AUTOR);
 
       // Como una Recepción de la sede de la conversación: sin `force` ni
       // sobreturno (no se mandan), y acotado a esa sede.
@@ -266,6 +338,7 @@ const rescheduleBookingTool: ToolDelAgente = {
       return exito({
         bookingId: turno.id,
         zonaHoraria: zona,
+        cuando: cuandoEnLaSede(turno.startsAt, zona),
         startsAt: isoEnZona(turno.startsAt, zona),
         endsAt: isoEnZona(turno.endsAt, zona),
         profesionalId: turno.resourceId,
@@ -278,13 +351,18 @@ const cancelBookingTool: ToolDelAgente = {
   definition: {
     name: "cancel_booking",
     description:
-      "Cancela un turno del paciente de esta conversación. Usala solo después de que el paciente confirmó qué turno cancela. Si devuelve que no se puede, no insistas: decíselo al paciente y derivá a una persona del equipo.",
+      "Cancela un turno del paciente de esta conversación, en dos pasos. Primero llamala sin confirmado: NO cancela nada, te devuelve un resumen del turno. Mostráselo al paciente y preguntale si confirma que lo quiere cancelar. Recién cuando conteste que sí, en su mensaje siguiente, llamala de nuevo con confirmado: true. Si devuelve que no se puede, no insistas: decíselo al paciente.",
     parameters: {
       type: "object",
       properties: {
         bookingId: {
           type: "string",
           description: "Id del turno, tal cual lo devolvió get_contact_bookings.",
+        },
+        confirmado: {
+          type: "boolean",
+          description:
+            "true solo si ya le mostraste el resumen de ESTE turno en tu mensaje anterior y el paciente te contestó que sí lo cancela. Sin eso, no lo mandes.",
         },
       },
       required: ["bookingId"],
@@ -293,17 +371,35 @@ const cancelBookingTool: ToolDelAgente = {
   },
 
   ejecutar(args, contexto) {
-    const validacion = validarArgs(cancelBookingArgs, args);
+    const validacion = validarArgs(cancelBookingArgs, args, SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA);
     if (!validacion.ok) return Promise.resolve(validacion.resultado);
-    const { bookingId } = validacion.value;
+    const { bookingId, confirmado } = validacion.value;
 
     return conErroresDeNegocio(async () => {
       const cambiable = await turnoQueSePuedeCambiar(bookingId, contexto);
       if (!cambiable.ok) return cambiable.resultado;
       const { turno } = cambiable;
-      const autor = await autorParaElAsistente(contexto);
-      if (!autor) return fallo(MENSAJE_SIN_AUTOR);
       const zona = await zonaDeLaSucursal(contexto);
+
+      // Paso 1 (o un confirmado que no vale todavía): el resumen, sin tocar
+      // nada. Ver CANCELAR VA EN DOS PASOS arriba.
+      if (confirmado !== true || !(await resumenYaMostrado(bookingId, contexto))) {
+        return exito({
+          bookingId,
+          requiereConfirmacion: true,
+          cancelado: false,
+          turno: {
+            cuando: cuandoEnLaSede(turno.startsAt, zona),
+            prestacion: turno.serviceType.name,
+            profesional: turno.resource.name,
+          },
+          queHacer:
+            "El turno NO está cancelado. Mostrale al paciente este resumen (el día tal cual figura en cuando, la prestación y el profesional) y preguntale si confirma que lo quiere cancelar. Recién cuando te conteste que sí, en su mensaje siguiente, volvé a llamar a esta herramienta con confirmado: true.",
+        });
+      }
+
+      const autor = await autorParaElAsistente(contexto);
+      if (!autor) return fallo(MENSAJE_SIN_AUTOR, CODIGO_SIN_AUTOR);
 
       // El servicio de siempre (booking.cancelled, Google), con la nota del
       // historial en la misma transacción.
@@ -330,7 +426,7 @@ const cancelBookingTool: ToolDelAgente = {
           tx,
         ).then(() => undefined),
       );
-      return exito({ bookingId, cancelado: true });
+      return exito({ bookingId, cancelado: true, cuando: cuandoEnLaSede(turno.startsAt, zona) });
     });
   },
 };

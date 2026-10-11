@@ -109,8 +109,9 @@ explicarías el trabajo a alguien que entra a atender la recepción:
 - **Qué tiene que lograr**: por ejemplo, responder consultas sobre
   prestaciones y precios, conseguir el nombre y el teléfono del paciente,
   ofrecerle un turno.
-- **Cómo tiene que hablar**: tuteo o voseo, formal o cercano, corto o
-  detallado, si usa emojis.
+- **Cómo tiene que hablar**: formal o cercano, corto o detallado, si usa
+  emojis. Si no decís nada, el asistente trata de vos, en español
+  rioplatense; si preferís otro trato (de usted, por ejemplo), escribilo acá.
 - **De qué temas no puede hablar**: por ejemplo, de otras clínicas o de
   promociones que no estén vigentes.
 - **Qué promesas no puede hacer**: descuentos, resultados de una prestación,
@@ -184,6 +185,12 @@ horarios que encontró libres. Si el paciente eligió un profesional, va con
 ese; si no, con el primero libre en ese horario. La duración la define la
 prestación. Le confirma el turno al paciente recién cuando quedó agendado. Un
 paciente puede tener como mucho dos turnos futuros agendados por el agente.
+
+> El asistente **nunca le confirma al paciente un turno que no agendó,
+> cambió o canceló en ese mismo momento**. Si llega a escribir algo como "Ya
+> te reservé el turno" sin haberlo hecho, ese mensaje no sale: el paciente
+> recibe "Perdón, me expresé mal y no quiero confirmarte algo que no hice…" y
+> la conversación sigue con el asistente.
 
 **Ver turnos del paciente.** Lista los próximos turnos del paciente de la
 conversación.
@@ -302,12 +309,17 @@ siempre, ante una [consulta de salud](#consultas-de-salud). Al derivar:
    recepción de la sede de la conversación. Va al **Responsable por defecto**
    de la sede si es de Recepción y tiene esa sede; si no, a la persona de
    Recepción de esa sede con menos tareas abiertas. Si la sede no tiene nadie
-   de Recepción, va al responsable por defecto o a un administrador. Cualquier
+   de Recepción, va al responsable por defecto o, si tampoco hay, al
+   administrador más antiguo: la tarea y la conversación nunca quedan sin
+   nadie asignado. Cualquier
    persona de Recepción de la sede ve esa tarea y la puede tomar (ver
    [Sedes de cada persona de recepción](/ayuda/usuarios-y-permisos#sedes)).
 2. Mientras nadie del equipo escribe, el agente sigue contestando al paciente
-   para no dejarlo sin respuesta. La excepción son las consultas de salud:
-   después de una, el agente no vuelve a escribir en esa conversación.
+   para no dejarlo sin respuesta. Las excepciones son las consultas de salud
+   y los cambios de turno fuera de la
+   [anticipación mínima](#anticipacion-minima): después de una de esas
+   derivaciones, el agente no vuelve a escribir en esa conversación hasta que
+   alguien toque **Devolver al agente**.
 3. Cuando una persona responde en la conversación, el agente se calla: esa
    conversación la atiende la persona hasta que toque **Devolver al agente**.
 
@@ -374,11 +386,15 @@ atendiendo.
 En la [base de conocimiento](/knowledge-base), cada entrada tiene un **Tipo**:
 **Información general** o **Indicaciones antes o después de una prestación**.
 
-- Las **indicaciones** (por ejemplo, "Antes de la depilación láser") el asistente
-  las **transcribe tal cual**: no las explica, no agrega nada y no las adapta al
-  caso de cada paciente.
-- **Lo que cargues ahí lo puede repetir el agente textualmente.** No cargues
-  datos de pacientes.
+- Las **indicaciones** (por ejemplo, "Antes de la depilación láser") no las
+  escribe el asistente: él solo ve los **títulos**. Cuando un paciente pide una,
+  el sistema le manda **el texto que cargaste, tal cual**, como un mensaje
+  aparte. El asistente no lo resume, no lo explica y no lo adapta al caso de
+  cada paciente.
+- Por eso importa el **título**: que diga con claridad de qué prestación es y
+  si es antes o después ("Después del peeling", no "Indicaciones 2").
+- **Lo que cargues ahí le llega al paciente textualmente.** No cargues datos
+  de pacientes.
 - Si un paciente pregunta por un síntoma o "¿es normal que…?", el asistente no
   responde con la indicación: pasa la conversación a la recepción, como
   cualquier [consulta de salud](#consultas-de-salud).
@@ -392,14 +408,24 @@ cancelar los turnos del paciente con el que está hablando. Para eso, en
 **Reprogramar turno** y **Cancelar turno**. En el nivel **Primer contacto** el
 asistente no cambia turnos: toma los datos y lo hace la recepción.
 
-- Antes de cambiar o cancelar, el asistente le confirma al paciente qué turno
-  es y, si lo reprograma, el día, la hora y el profesional nuevos.
+- Antes de reprogramar, el asistente le confirma al paciente qué turno es y el
+  día, la hora y el profesional nuevos.
+- **Cancelar va en dos pasos.** Primero el asistente le muestra al paciente el
+  turno (día, prestación y profesional) y le pregunta si confirma que lo
+  quiere cancelar. Recién cuando el paciente contesta que sí, en su mensaje
+  siguiente, el turno se cancela. Nunca cancela en el mismo mensaje en que el
+  paciente lo pide.
+- El día de cada turno se lo dice con el día de la semana correcto, en el
+  horario de la sede ("lunes 12 de octubre, 09:30").
 - Solo ofrece horarios libres de la agenda: **nunca carga un sobreturno**.
 - Solo toca turnos de ese paciente y de la sede de la conversación.
 - Un turno que ya empezó o ya pasó no lo cambia.
 - Si la sede tiene una **anticipación mínima**, con menos tiempo que ese el
-  asistente no cambia ni cancela el turno: se lo dice al paciente y te pasa la
-  conversación.
+  asistente no cambia ni cancela el turno. El paciente recibe un mensaje fijo
+  ("Para ese turno ya falta poco, y por este medio no se puede cambiar ni
+  cancelar. Ya le pasé tu pedido al equipo de…"), la conversación te llega con
+  una tarea para la recepción de la sede, y el asistente no vuelve a escribir
+  en esa conversación hasta que toques **Devolver al agente**.
 - Si algo no se puede (no hay horarios, el turno ya pasó, hay dudas), te pasa
   la conversación.
 - Cada cambio queda en la ficha del paciente con **Asistente** como autor.

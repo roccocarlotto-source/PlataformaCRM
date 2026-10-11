@@ -45,6 +45,8 @@ import { QrListPage } from "../qr/QrListPage";
 import { KnowledgeBaseFormPage } from "../knowledgeBase/KnowledgeBaseFormPage";
 import { ContactCustomFieldListPage } from "../contactCustomField/ContactCustomFieldListPage";
 import { ContactCustomFieldFormPage } from "../contactCustomField/ContactCustomFieldFormPage";
+import { InternalAgentSettingsPage } from "../internalAgent/InternalAgentSettingsPage";
+import { ToastProvider } from "../../design-system/Toast";
 
 // ---------------------------------------------------------------------------
 // Los textos de las pantallas compartidas por rubro (docs/rubros.md §3.1).
@@ -106,6 +108,8 @@ const RECURSO = makeResource({ id: "r1", branchId: "b1", name: "Lucía Ejemplo" 
 const SERVICIO = makeServiceType({ id: "s1", branchId: "b1", resourceId: "r1", name: "Consulta" });
 const AGENTE = makeAgent({
   id: "ag1",
+  // Las de la fixture hablan de una concesionaria: son datos, no textos de la pantalla.
+  instructions: "Sos el asistente. Contestá corto.",
   branchId: "b1",
   channels: ["WHATSAPP"],
   isActive: true,
@@ -137,6 +141,8 @@ function respuesta(path: string): Response {
   if (/^\/resources\/[^/]+$/.test(p)) return HttpResponse.json(RECURSO);
   if (/^\/service-types\/[^/]+$/.test(p)) return HttpResponse.json(SERVICIO);
   if (/^\/agents\/[^/]+$/.test(p)) return HttpResponse.json(AGENTE);
+  // Sin agente interno configurado todavía: la pantalla lo trata como normal.
+  if (p === "/internal-agent") return HttpResponse.json({ error: "No existe" }, { status: 404 });
   if (p === "/qr") return paginado([makeQrCode({ branchId: "b1" })]);
   if (p === "/contacts") return paginado([CONTACTO]);
   if (/^\/contacts\/[^/]+$/.test(p)) return HttpResponse.json(CONTACTO);
@@ -308,6 +314,24 @@ const PANTALLAS: Pantalla[] = [
     url: "/contact-custom-fields/new",
     patron: "/contact-custom-fields/new",
     elemento: <ContactCustomFieldFormPage />,
+  },
+  // Prueba de la Clínica Demo (2026-10-11): textos que quedaban de automotora.
+  {
+    nombre: "editar agente",
+    url: "/agents/ag1/edit",
+    patron: "/agents/:id/edit",
+    elemento: <AgentFormPage />,
+  },
+  {
+    nombre: "agente interno",
+    url: "/internal-agent/settings",
+    patron: "/internal-agent/settings",
+    // Usa useToast: el provider, solo en esta pantalla.
+    elemento: (
+      <ToastProvider>
+        <InternalAgentSettingsPage />
+      </ToastProvider>
+    ),
   },
 ];
 

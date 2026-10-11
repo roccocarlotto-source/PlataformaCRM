@@ -685,6 +685,102 @@ test("R11: el agente de una automotora no recibe las tools de turnos ni su texto
   assert.equal(llamada?.allowed, false, "una tool que no se ofreció no se ejecuta");
 });
 
+test("hallazgos de la demo: el agente de una automotora contesta como antes (sin corrección, sin retoques, sin tool de indicaciones) y una derivación sin vendedor sigue siendo silenciosa", async () => {
+  const sucursal = await createBranch(conSucursales.id, {
+    name: `Sucursal Demo ${randomUUID().slice(0, 8)}`,
+    timezone: "America/Montevideo",
+  });
+  await prisma.knowledgeBaseEntry.create({
+    data: {
+      organizationId: conSucursales.id,
+      branchId: sucursal.id,
+      title: "Precios de ejemplo",
+      content: "Test drive sin cargo.",
+    },
+  });
+  const contacto = await prisma.contact.create({
+    data: {
+      organizationId: conSucursales.id,
+      firstName: "Cliente",
+      lastName: "Sin Vendedor",
+      phone: "+59899000019",
+    },
+  });
+  const agente = await prisma.agent.create({
+    data: {
+      organizationId: conSucursales.id,
+      branchId: sucursal.id,
+      name: "Asistente",
+      instructions: "Sos el asistente de la automotora.",
+      modelProvider: "openrouter",
+      modelName: "doble/modelo",
+      enabledTools: ["create_booking"],
+      channels: ["WHATSAPP"],
+      guardrails: {} as Prisma.InputJsonValue,
+      participation: "AUTONOMA",
+      participationChosenAt: new Date(),
+    },
+  });
+  // En una clínica, esto se corregiría (afirma una reserva sin la tool) y se
+  // le sacaría "de ejemplo". En una automotora sale tal cual, como siempre.
+  const texto = "Listo, te reservé el test drive. Los precios de ejemplo son los de la lista.";
+  const requests: LlmCompletionRequest[] = [];
+  const respuestas: LlmCompletionResult[] = [
+    { text: texto, toolCalls: [] },
+    {
+      text: null,
+      toolCalls: [
+        { id: "h1", name: "request_human_handoff", arguments: { reason: "Pide hablar" } },
+      ],
+    },
+  ];
+  const proveedor: LlmProvider = {
+    name: "guionado",
+    complete(request) {
+      requests.push(request);
+      return Promise.resolve(respuestas[Math.min(requests.length - 1, respuestas.length - 1)]);
+    },
+  };
+  setLlmProviderForTests(proveedor);
+  const turno = (mensaje: string) =>
+    runAgentTurn(
+      {
+        organizationId: conSucursales.id,
+        agentId: agente.id,
+        contactId: contacto.id,
+        channel: "WHATSAPP",
+        texto: mensaje,
+        externalThreadId: "hilo-automotora-demo",
+      },
+      { llmProvider: proveedor },
+    );
+  try {
+    const r = await turno("quiero un test drive");
+    assert.equal(r.respuesta, texto);
+    assert.deepEqual(
+      r.toolCalls.map((t) => t.name),
+      [],
+    );
+    assert.deepEqual(
+      requests[0].tools.map((t) => t.name),
+      ["create_booking", "request_human_handoff"],
+    );
+    assert.ok(requests[0].systemPrompt.includes("### Precios de ejemplo"));
+    assert.doesNotMatch(requests[0].systemPrompt, /tratando de vos|send_care_instructions/);
+
+    const derivada = await turno("quiero hablar con alguien");
+    assert.equal(derivada.handoff, true);
+    assert.equal(derivada.handoffActivityId, null, "sin vendedor no hay tarea, como siempre");
+    const conv = await prisma.conversation.findUniqueOrThrow({
+      where: { id: derivada.conversationId },
+    });
+    assert.equal(conv.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(conv.assignedUserId, null, "ni ADMIN de respaldo: eso es solo de clínicas");
+  } finally {
+    resetLlmProviderParaTests();
+  }
+});
+
 test("R13: una automotora no puede crear la regla del recordatorio (el 400 de siempre) y sus reservas no agendan recordatorios", async () => {
   await assert.rejects(
     createAutomation(conSucursales.id, {

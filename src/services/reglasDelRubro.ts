@@ -1,6 +1,10 @@
 import type { OrganizationIndustry } from "@prisma/client";
 import { REGLAS_DE_CLINICA } from "../clinicas/reglasDeClinica";
-import type { TextosDelPrompt } from "./agentOrchestration.service";
+import type {
+  EntradaDeKnowledgeBase,
+  TextosDelPrompt,
+  ToolCallDelTurno,
+} from "./agentOrchestration.service";
 import type { ToolDelAgente } from "./agentTools.service";
 
 // ---------------------------------------------------------------------------
@@ -48,6 +52,31 @@ export type VerificadorDeSalida = (
   contexto: ContextoDeLaRegla,
 ) => DecisionDelRubro | null;
 
+/** Lo que una regla decide sobre la respuesta del modelo SIN derivar: la
+ *  respuesta no sale y en su lugar va `mensaje` (fijo). */
+export interface CorreccionDelRubro {
+  // Para la auditoría en Message.toolCalls.
+  regla: string;
+  mensaje: string;
+}
+
+/** Corrige la respuesta del modelo mirando lo que hicieron las tools del
+ *  turno (en una clínica: no afirmar un turno agendado, movido o cancelado
+ *  si la tool no lo hizo en ESTE turno). */
+export type VerificadorDeAfirmaciones = (
+  respuesta: string,
+  toolsDelTurno: readonly ToolCallDelTurno[],
+  contexto: ContextoDeLaRegla,
+) => CorreccionDelRubro | null;
+
+/** Lo que decide el turno después de una ronda de tools, sin volver al
+ *  modelo: derivar con una decisión del rubro (mensaje fijo, aviso fijo y la
+ *  marca que calla al agente), o mandar un texto fijo que NO es del modelo
+ *  (en una clínica, las indicaciones tal cual las cargó). */
+export type DesenlaceDeLasTools =
+  | { tipo: "derivar"; decision: DecisionDelRubro }
+  | { tipo: "textual"; regla: string; mensaje: string };
+
 export interface ReglasDelRubro {
   /** Antes de todo: aunque una persona atienda la conversación, aunque el
    *  agente esté callado por una regla, y también sin agente
@@ -57,6 +86,25 @@ export interface ReglasDelRubro {
   entrada: readonly VerificadorDeEntrada[];
   /** Sobre la respuesta del modelo, después de las guardas de siempre. */
   salida: readonly VerificadorDeSalida[];
+  /** Sobre la respuesta del modelo, después de `salida`: si una corrige, la
+   *  respuesta se reemplaza por su mensaje fijo, sin derivar. */
+  correccionesDeSalida: readonly VerificadorDeAfirmaciones[];
+  /** Retoques de forma sobre una respuesta del modelo que ya pasó todas las
+   *  guardas (en una clínica: sin "de ejemplo"). */
+  retoquesDeSalida: readonly ((respuesta: string) => string)[];
+  /** Después de cada ronda de tools: si lo que devolvieron decide el turno, el
+   *  turno termina ahí, sin volver al modelo. null = nunca. */
+  desenlaceDeLasTools:
+    | ((
+        entradas: readonly ToolCallDelTurno[],
+        contexto: ContextoDeLaRegla,
+      ) => DesenlaceDeLasTools | null)
+    | null;
+  /** Tools del sistema del rubro: como request_human_handoff, se ofrecen sin
+   *  estar en enabledTools y en cualquier nivel que converse, y no pasan por
+   *  puedeEjecutarTool. Las arma el rubro con la base de conocimiento del
+   *  turno (en una clínica, mandar las indicaciones). null = ninguna. */
+  toolsDelSistema: ((entradas: readonly EntradaDeKnowledgeBase[]) => ToolDelAgente[]) | null;
   /** Si después de una derivación por una de estas reglas el agente calla en
    *  esa conversación hasta que una persona la devuelva. */
   callaDespuesDeDerivar: boolean;
@@ -84,6 +132,10 @@ export const SIN_REGLAS: ReglasDelRubro = {
   entradaPrioritaria: [],
   entrada: [],
   salida: [],
+  correccionesDeSalida: [],
+  retoquesDeSalida: [],
+  desenlaceDeLasTools: null,
+  toolsDelSistema: null,
   callaDespuesDeDerivar: false,
   instruccionesDelPrompt: [],
   camposFueraDeLasTools: {},
@@ -125,6 +177,26 @@ export function primeraDecisionDeSalida(
   }
   return null;
 }
+
+/** La primera corrección de una lista de verificadores de afirmaciones, o
+ *  null. */
+export function primeraCorreccionDeSalida(
+  verificadores: readonly VerificadorDeAfirmaciones[],
+  respuesta: string,
+  toolsDelTurno: readonly ToolCallDelTurno[],
+  contexto: ContextoDeLaRegla,
+): CorreccionDelRubro | null {
+  for (const verificador of verificadores) {
+    const correccion = verificador(respuesta, toolsDelTurno, contexto);
+    if (correccion) return correccion;
+  }
+  return null;
+}
+
+/** El nombre con el que una corrección queda en Message.toolCalls. A
+ *  diferencia de la marca de una regla, NO calla al agente: no hubo
+ *  derivación. */
+export const AUDITORIA_DE_CORRECCION_DEL_RUBRO = "correccion_del_rubro";
 
 /** El nombre con el que una decisión queda en Message.toolCalls. No es una
  *  tool: el modelo nunca la ve. La lee el silencio de después de derivar. */

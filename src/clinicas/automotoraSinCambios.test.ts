@@ -30,9 +30,17 @@ import {
 } from "../services/agentOrchestration.service";
 import {
   CATALOGO_DE_TOOLS,
+  MENSAJE_SERVICIO_SIN_IDENTIFICAR,
+  SIN_SERVICIOS_CONFIGURADOS,
+  SUFIJO_ERROR_DE_ARGUMENTOS,
+  TEXTOS_DE_RESOLVER_SERVICIO,
+  fallo,
+  mensajeFaltanDatos,
   toolsHabilitadas,
   toolsSinCampos,
+  validarArgs,
 } from "../services/agentTools.service";
+import { z } from "zod";
 import {
   createOrganizationWithFoundingAdmin,
   defaultOrganizationAdminDeps,
@@ -538,6 +546,12 @@ test("las reglas del rubro de una automotora están vacías: ningún verificador
     entradaPrioritaria: [],
     entrada: [],
     salida: [],
+    // Prueba de la Clínica Demo: ni correcciones, ni retoques, ni desenlace
+    // después de las tools, ni tools del sistema del rubro.
+    correccionesDeSalida: [],
+    retoquesDeSalida: [],
+    desenlaceDeLasTools: null,
+    toolsDelSistema: null,
     callaDespuesDeDerivar: false,
     instruccionesDelPrompt: [],
     camposFueraDeLasTools: {},
@@ -894,6 +908,42 @@ test("R16: un contacto de una automotora sale sin la fecha del aviso de privacid
 // automotora no tiene el módulo ni el trigger booking.completed, su QR sigue
 // colgando de opportunity.won, y sus tipos de servicio no muestran el control.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Prueba de la Clínica Demo (2026-10-11): los textos que las tools de una
+// automotora le dan al modelo son los de antes (los de clínica son aparte), y
+// un rechazo sin `codigo` sale igual que siempre.
+// ---------------------------------------------------------------------------
+
+test("hallazgos de la demo: los textos de las tools de una automotora son los de antes, byte a byte", () => {
+  assert.equal(
+    mensajeFaltanDatos(["el apellido"]),
+    "Todavía no se puede: antes de reservar o registrar la oportunidad hace falta el apellido del cliente. Pedíselo, guardalo con update_lead (firstName, lastName, phone, email) y recién después volvé a llamar a esta herramienta. No le digas que quedó reservado ni registrado: todavía no se hizo nada.",
+  );
+  assert.equal(TEXTOS_DE_RESOLVER_SERVICIO.sinConfigurar, SIN_SERVICIOS_CONFIGURADOS);
+  assert.equal(
+    TEXTOS_DE_RESOLVER_SERVICIO.sinIdentificar('"Test drive", "Visita"'),
+    `${MENSAJE_SERVICIO_SIN_IDENTIFICAR} Los de esta sucursal son: "Test drive", "Visita". Elegí el que corresponda a lo que pidió el cliente y volvé a llamar en este mismo turno; si de verdad ninguno encaja o hay dos que podrían, preguntale al cliente NOMBRÁNDOLE esos, nunca "¿qué servicio querés?" a secas.`,
+  );
+  assert.equal(
+    TEXTOS_DE_RESOLVER_SERVICIO.noExiste("Lavado", '"Test drive"'),
+    'No existe ningún servicio llamado "Lavado". Los que existen son: "Test drive". Usá uno de esos, tal cual está escrito.',
+  );
+  assert.equal(
+    TEXTOS_DE_RESOLVER_SERVICIO.ambiguo("Visita", '"Visita", "Visita"'),
+    'Hay más de un servicio que se llama "Visita". Preguntale al cliente cuál quiere entre: "Visita", "Visita".',
+  );
+  const invalido = validarArgs(z.object({ desde: z.string() }), {});
+  assert.equal(invalido.ok, false);
+  if (!invalido.ok) {
+    assert.ok(
+      invalido.resultado.ok === false &&
+        invalido.resultado.error.endsWith(SUFIJO_ERROR_DE_ARGUMENTOS),
+    );
+    assert.deepEqual(Object.keys(invalido.resultado), ["ok", "error"]);
+  }
+  assert.deepEqual(fallo("No se pudo"), { ok: false, error: "No se pudo" });
+});
 
 test("R14: una automotora no tiene post_turno y su QR sigue en opportunity.won", () => {
   for (const edition of EDICIONES) {

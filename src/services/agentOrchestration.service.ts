@@ -70,7 +70,9 @@ import { generarBriefDeConversacion } from "./conversationBrief.service";
 import { estaVencido } from "./discountVoucher.service";
 import { PREFIJO_TAREA_DE_DERIVACION, findTareaAbiertaDelPedido } from "./tareaDelPedido";
 import {
+  AUDITORIA_DE_CORRECCION_DEL_RUBRO,
   AUDITORIA_DE_REGLA_DEL_RUBRO,
+  primeraCorreccionDeSalida,
   primeraDecisionDeEntrada,
   primeraDecisionDeSalida,
   reglasDelRubro,
@@ -78,6 +80,7 @@ import {
   type AvisoFijo,
   type DecisionDelRubro,
 } from "./reglasDelRubro";
+import { TOOL_DE_INDICACIONES } from "../clinicas/toolDeIndicaciones";
 import {
   canonizarNombreDeTool,
   toolsHabilitadas,
@@ -1054,11 +1057,12 @@ export interface EntradaDeKnowledgeBase {
 }
 
 // R18: el bloque de las indicaciones de una clínica, aparte del resto de la
-// base de conocimiento. Se transcriben: el agente no las explica ni las adapta
-// al caso del paciente. Una consulta de salud no llega acá (la deriva la capa
-// 1, docs/rubros.md §5.3), y la capa 3 es la red si el modelo parafrasea.
-export const ENCABEZADO_INDICACIONES =
-  "Indicaciones de la clínica antes y después de cada prestación. Si el paciente pide una, TRANSCRIBILA tal cual está cargada: no expliques, no resumas, no agregues ni adaptes nada a su caso. Si pregunta algo que no está escrito acá, o cuenta cómo se siente, no lo respondas: derivá a una persona del equipo.";
+// base de conocimiento. Desde la prueba de la Clínica Demo (2026-10-11) lleva
+// solo los TÍTULOS: el texto lo manda tal cual la tool del sistema de la
+// clínica, sin pasar por el modelo, que con el texto a la vista lo
+// parafraseaba (src/clinicas/toolDeIndicaciones.ts, docs/rubros.md §5.4). Una
+// consulta de salud no llega acá (la deriva la capa 1, §5.3).
+export const ENCABEZADO_INDICACIONES = `Indicaciones de la clínica antes y después de cada prestación. Son textos que la clínica escribió y que el paciente tiene que recibir TAL CUAL, así que no los escribas, no los resumas ni los expliques vos: si el paciente pide una, o pregunta qué tiene que hacer antes o después de una de estas prestaciones, llamá a ${TOOL_DE_INDICACIONES} con el título exacto de la lista, y el sistema le manda el texto de la clínica. Si pregunta algo que no está en esta lista, o cuenta cómo se siente, no lo respondas: derivá a una persona del equipo. Las indicaciones cargadas son:`;
 
 // Ítem 132 (B-04/I-01): el tope GLOBAL de caracteres de la base de
 // conocimiento en el prompt, sumando todas las entradas que entran. No corta
@@ -1237,11 +1241,10 @@ export function armarSystemPrompt(
     partes.push(`${ENCABEZADO_KNOWLEDGE_BASE}\n\n${bloques}`);
   }
   // R18: solo una clínica tiene indicaciones (una automotora nunca las carga).
+  // Solo los títulos: el texto sale tal cual por la tool del sistema.
   if (indicaciones.length > 0) {
-    const bloques = indicaciones
-      .map((entrada) => `### ${entrada.title.trim()}\n${entrada.content.trim()}`)
-      .join("\n\n");
-    partes.push(`${ENCABEZADO_INDICACIONES}\n\n${bloques}`);
+    const titulos = indicaciones.map((entrada) => `- ${entrada.title.trim()}`).join("\n");
+    partes.push(`${ENCABEZADO_INDICACIONES}\n${titulos}`);
   }
 
   const temas = listaDeGuardrails(agent.guardrails, "temasProhibidos");
@@ -1553,7 +1556,8 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
     if (input.aviso?.urgente) {
       const responsable =
         actual.assignedUserId ??
-        (await resolverOwnerDelContacto(organizationId, branchId, contact));
+        (await resolverOwnerDelContacto(organizationId, branchId, contact)) ??
+        (await respaldoDeClinica(organizationId, branchId));
       return { activityId: await crearActivityDeAviso(input, responsable) };
     }
     return { activityId: null };
@@ -1567,7 +1571,14 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
   // No pone en riesgo la garantía central: resolverOwnerDelContacto nunca
   // lanza (es tolerante de punta a punta, ver ownership.service.ts), así que la
   // transición de abajo ocurre igual pase lo que pase acá.
-  const ownerId = await resolverOwnerDelContacto(organizationId, branchId, contact);
+  //
+  // En una clínica, sin dueño del contacto ni responsable por defecto, la
+  // conversación y la tarea van a la Recepción de la sede o, si no tiene, al
+  // ADMIN activo más antiguo (respaldoDeClinica). En una automotora, lo de
+  // siempre.
+  const ownerId =
+    (await resolverOwnerDelContacto(organizationId, branchId, contact)) ??
+    (await respaldoDeClinica(organizationId, branchId));
 
   // LA TRANSICIÓN ES UN COMPARE-AND-SWAP (ítem 126 de
   // docs/auditoria-2026-09-24-punta-a-punta.md, C-05). La lectura de arriba
@@ -1615,6 +1626,27 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
   }
 
   return { activityId };
+}
+
+// A quién va una derivación de una CLÍNICA cuando el contacto no tiene dueño
+// ni la sede responsable por defecto (docs/rubros.md §11.4, paso 3). Hallazgo
+// de la prueba de la Clínica Demo (2026-10-11): con un solo ADMIN y sin
+// Recepción, la conversación derivada quedaba sin nadie asignado, y una
+// derivación no urgente, sin tarea. Ahora: la Recepción de la sede y, si no
+// tiene, el ADMIN activo más antiguo. En una automotora devuelve null y todo
+// sigue como siempre (una derivación sin vendedor es silenciosa). Nunca lanza.
+async function respaldoDeClinica(organizationId: string, branchId: string): Promise<string | null> {
+  try {
+    const clinica = await avisoDeRecepcion(organizationId, branchId);
+    if (!clinica) return null;
+    return clinica.recepcionistaId ?? (await findOldestActiveAdmin(organizationId))?.id ?? null;
+  } catch (err) {
+    logger.warn(
+      { err, organizationId, branchId },
+      "No se pudo resolver a quién va la derivación de la clínica: se sigue sin responsable",
+    );
+    return null;
+  }
 }
 
 // ¿El agente contesta por este canal? Encendido y con el canal entre los
@@ -1809,7 +1841,7 @@ async function responderConDecisionDelRubro(entrada: {
 
 function marcaDeReglaDelRubro(
   decision: DecisionDelRubro,
-  capa: "entrada" | "salida" | "motivo",
+  capa: "entrada" | "salida" | "motivo" | "tool",
   extra: Record<string, unknown> = {},
 ): ToolCallDelTurno {
   return {
@@ -2596,6 +2628,12 @@ export async function responderEnLaConversacion(
       .map((tool) => reglas.toolsPropias[tool.definition.name] ?? tool),
     reglas.camposFueraDeLasTools,
   );
+  // Las tools del sistema del rubro (en una clínica, mandar una indicación tal
+  // cual, docs/rubros.md §5.4): como request_human_handoff, sin enabledTools
+  // ni nivel. En AUTOMOTORA, ninguna.
+  const toolsDelSistema = reglas.toolsDelSistema
+    ? reglas.toolsDelSistema(knowledgeBaseEntries)
+    : [];
   // §3.2 (R11): los textos del rubro. En AUTOMOTORA, las constantes de siempre.
   const textos = reglas.textosDelPrompt
     ? await reglas.textosDelPrompt(
@@ -2623,8 +2661,16 @@ export async function responderEnLaConversacion(
   );
   const historial = aHistorial(mensajes, options.adjuntos);
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));
-  // El catálogo filtrado por enabledTools + la tool del sistema, SIEMPRE.
-  const definiciones = [...tools.map((t) => t.definition), REQUEST_HUMAN_HANDOFF_TOOL];
+  // El catálogo filtrado por enabledTools + la tool del sistema, SIEMPRE (y
+  // las del sistema del rubro, si tiene).
+  const definiciones = [
+    ...tools.map((t) => t.definition),
+    ...toolsDelSistema.map((t) => t.definition),
+    REQUEST_HUMAN_HANDOFF_TOOL,
+  ];
+  const toolsDelSistemaPorNombre = new Map<string, ToolDelAgente>(
+    toolsDelSistema.map((t) => [t.definition.name, t]),
+  );
   // Los nombres que de verdad se le ofrecieron al modelo en ESTE turno: es
   // contra esto que se canoniza (ítem 90). Incluye la tool de sistema, que no
   // está en toolsPorNombre. Deliberadamente NO incluye las tools del catálogo
@@ -2659,6 +2705,10 @@ export async function responderEnLaConversacion(
   let avisoDelHandoff: AvisoFijo | null = null;
   // Ítem 111: lo que el modelo escribió para el cliente al pedir la derivación.
   let mensajeDeHandoffDelModelo: string | null = null;
+  // true si la respuesta la decidió el rubro después de una ronda de tools
+  // (desenlaceDeLasTools): un texto fijo que no escribió el modelo, así que no
+  // pasa por las guardas de salida del modelo.
+  let respuestaFija = false;
 
   // Pasos 3 a 6 de §4: el loop de tool-calling.
   for (let ronda = 0; ronda < MAX_TOOL_ROUNDS_PER_TURN; ronda++) {
@@ -2762,6 +2812,7 @@ export async function responderEnLaConversacion(
       toolCalls: llamadas,
     });
 
+    const entradasDeLaRonda: ToolCallDelTurno[] = [];
     for (const [indice, llamada] of llamadas.entries()) {
       // Pasado el tope de la ronda no se ejecuta, pero SÍ se le contesta: el
       // formato exige un resultado por cada tool call del asistente.
@@ -2772,6 +2823,7 @@ export async function responderEnLaConversacion(
               toolsPorNombre,
               datosDisponibles,
               contextoDeTools,
+              toolsDelSistema: toolsDelSistemaPorNombre,
             })
           : {
               id: llamada.id,
@@ -2781,6 +2833,7 @@ export async function responderEnLaConversacion(
               reason: MOTIVO_TOPE_DE_TOOLS_POR_RONDA,
             };
       auditoria.push(entrada);
+      entradasDeLaRonda.push(entrada);
       historial.push({
         role: "tool",
         toolCallId: llamada.id,
@@ -2793,6 +2846,38 @@ export async function responderEnLaConversacion(
         motivoDeHandoff = motivoDeLaLlamada(llamada);
         mensajeDeHandoffDelModelo = mensajeAlClienteDeLaLlamada(llamada);
       }
+    }
+
+    // PUNTO DE EXTENSIÓN DESPUÉS DE LAS TOOLS (docs/rubros.md §5.1 y §5.4): lo
+    // que devolvieron puede decidir el turno sin volver al modelo. En una
+    // clínica, un cambio de turno rechazado por el plazo deriva desde el
+    // código (mensaje fijo, tarea para la Recepción y el agente callado), y
+    // una indicación pedida sale tal cual la cargó la clínica. Gana sobre una
+    // derivación que el modelo haya pedido en la misma ronda. En AUTOMOTORA no
+    // hay desenlace y esto no hace nada.
+    const desenlace = reglas.desenlaceDeLasTools
+      ? reglas.desenlaceDeLasTools(entradasDeLaRonda, contextoDeLaRegla)
+      : null;
+    if (desenlace !== null) {
+      if (desenlace.tipo === "derivar") {
+        auditoria.push(marcaDeReglaDelRubro(desenlace.decision, "tool"));
+        respuestaFinal = desenlace.decision.mensaje;
+        motivoDeHandoff = desenlace.decision.motivo;
+        avisoDelHandoff = desenlace.decision.aviso;
+      } else {
+        respuestaFinal = desenlace.mensaje;
+      }
+      respuestaFija = true;
+      logger.info(
+        {
+          organizationId,
+          agentId,
+          conversationId: conversation.id,
+          desenlace: desenlace.tipo === "derivar" ? desenlace.decision.regla : desenlace.regla,
+        },
+        "Regla del rubro: el resultado de una tool decidió el turno, sin volver al modelo",
+      );
+      break;
     }
 
     // El modelo pidió derivar: se corta acá. No se le vuelve a preguntar, ya
@@ -2878,8 +2963,29 @@ export async function responderEnLaConversacion(
   // PUNTO DE EXTENSIÓN DE SALIDA (docs/rubros.md §5.3, capa 3): las reglas del
   // rubro sobre la respuesta, después de la fuga del prompt y del nombre de una
   // tool. En AUTOMOTORA no hay ninguna y deSalida es siempre null.
-  const deSalida = primeraDecisionDeSalida(reglas.salida, respuestaFinal, contextoDeLaRegla);
-  if (
+  //
+  // Y después de la capa 3, las correcciones del rubro: en una clínica, una
+  // respuesta que da por agendado, movido o cancelado un turno que la tool no
+  // tocó en este turno no sale (src/clinicas/afirmacionesDeTurnos.ts).
+  //
+  // Un texto fijo del rubro (respuestaFija: una derivación decidida por una
+  // tool o una indicación tal cual) no lo escribió el modelo: no pasa por
+  // ninguna de estas guardas.
+  const deSalida = respuestaFija
+    ? null
+    : primeraDecisionDeSalida(reglas.salida, respuestaFinal, contextoDeLaRegla);
+  const correccion =
+    respuestaFija || deSalida !== null
+      ? null
+      : primeraCorreccionDeSalida(
+          reglas.correccionesDeSalida,
+          respuestaFinal,
+          auditoria,
+          contextoDeLaRegla,
+        );
+  if (respuestaFija) {
+    // Ver arriba: sale tal cual.
+  } else if (
     revelaInstrucciones(respuestaFinal, [
       INSTRUCCION_USAR_HERRAMIENTAS,
       textos.sinAutoridadComercial,
@@ -2926,6 +3032,21 @@ export async function responderEnLaConversacion(
     respuestaFinal = deSalida.mensaje;
     motivoDeHandoff = deSalida.motivo;
     avisoDelHandoff = deSalida.aviso;
+  } else if (correccion !== null) {
+    // La respuesta no sale y va el mensaje fijo, SIN derivar: la conversación
+    // sigue con el agente. Lo que el modelo había escrito queda en toolCalls,
+    // con una marca que no es la de una regla (no calla al agente).
+    logger.warn(
+      { organizationId, agentId, conversationId: conversation.id, regla: correccion.regla },
+      "La respuesta del modelo afirmaba algo que no hizo: se reemplazó antes de enviarla",
+    );
+    auditoria.push({
+      id: `${AUDITORIA_DE_CORRECCION_DEL_RUBRO}-salida`,
+      name: AUDITORIA_DE_CORRECCION_DEL_RUBRO,
+      arguments: { regla: correccion.regla, respuestaBloqueada: respuestaFinal },
+      allowed: true,
+    });
+    respuestaFinal = correccion.mensaje;
   } else if (devuelveElMensajeDelCliente(respuestaFinal, texto)) {
     // Ítem 109. Tratamiento DISTINTO de las dos de arriba, a propósito: acá el
     // cliente no pidió nada indebido —el agente simplemente no atendió—, así
@@ -2951,6 +3072,11 @@ export async function responderEnLaConversacion(
         "El modelo envolvió la respuesta en una etiqueta inventada: se limpió antes de enviarla",
       );
       respuestaFinal = limpia;
+    }
+    // Los retoques de forma del rubro (en una clínica, sin "de ejemplo"). En
+    // AUTOMOTORA no hay ninguno.
+    for (const retoque of reglas.retoquesDeSalida) {
+      respuestaFinal = retoque(respuestaFinal);
     }
   }
 
@@ -3164,9 +3290,21 @@ export async function resolverToolCall(
     toolsPorNombre: Map<string, ToolDelAgente>;
     datosDisponibles: DatosDisponibles;
     contextoDeTools: ContextoDeEjecucionDeTool;
+    // Las tools del sistema del rubro (ReglasDelRubro.toolsDelSistema): como
+    // la de derivar, sin puedeEjecutarTool. Ausente o vacío en AUTOMOTORA.
+    toolsDelSistema?: ReadonlyMap<string, ToolDelAgente>;
   },
 ): Promise<ToolCallDelTurno> {
   const base = { id: llamada.id, name: llamada.name, arguments: llamada.arguments };
+
+  const delSistema = deps.toolsDelSistema?.get(llamada.name);
+  if (delSistema) {
+    return {
+      ...base,
+      allowed: true,
+      result: await delSistema.ejecutar(llamada.arguments, deps.contextoDeTools),
+    };
+  }
 
   // La tool del sistema: sin puedeEjecutarTool y sin catálogo. Se "ejecuta"
   // registrando el pedido; la derivación real la hace el loop al terminar la

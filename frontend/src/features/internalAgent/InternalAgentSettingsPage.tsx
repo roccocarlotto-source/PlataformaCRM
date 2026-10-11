@@ -10,6 +10,7 @@ import { MultiSelect } from "../../design-system/MultiSelect";
 import { Select } from "../../design-system/Select";
 import { useToast } from "../../design-system/useToast";
 import { useAuth } from "../../auth/AuthContext";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { DEFAULT_MODEL_PROVIDER, MODEL_PROVIDER_OPTIONS } from "../agent/labels";
 import { useAssignInternalAgentModel } from "../platformAdmin/mutations";
@@ -121,7 +122,7 @@ export function InternalAgentSettingsPage() {
       <PageHeader help={AYUDA.agenteInternoConfig} title="Agente interno" />
       <div className="ds-stack">
         <p className="ds-hint">
-          El asistente del equipo, no el que habla con los clientes.
+          {`El asistente del equipo, no el que habla con los ${vocabularioDe(me).contacto.plural}.`}
           {agente ? null : " Todavía no está configurado: completá el formulario para crearlo."}
         </p>
 

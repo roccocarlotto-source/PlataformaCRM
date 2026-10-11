@@ -26,6 +26,18 @@ import { mensajeDeConsultaClinica, mensajeDeUrgencia } from "./config/mensajesDe
 import { definirProfesionales } from "./services/agendaClinica.service";
 import { MARCA_DEL_ASISTENTE, PREFIJO_NOTA_REPROGRAMADO } from "./services/reprogramar.service";
 import {
+  CUERPO_DE_LA_TAREA_FUERA_DE_PLAZO,
+  INSTRUCCION_DE_TONO_DE_CLINICA,
+  MENSAJE_AFIRMACION_SIN_ACCION,
+  mensajeDeCambioFueraDePlazo,
+} from "./config/textosDelAgente";
+import { CUERPO_DE_LA_TAREA_CLINICA } from "./config/mensajesDeSalud";
+import {
+  AUDITORIA_DE_CORRECCION_DEL_RUBRO,
+  AUDITORIA_DE_REGLA_DEL_RUBRO,
+} from "../services/reglasDelRubro";
+import {
+  CODIGO_FUERA_DE_PLAZO,
   MENSAJE_TURNO_NO_CONFIRMADO,
   MENSAJE_TURNO_NO_ENCONTRADO,
   MENSAJE_TURNO_YA_EMPEZO,
@@ -292,6 +304,8 @@ test("get_contact_bookings: solo los turnos futuros y confirmados del paciente, 
     [propio.id],
   );
   assert.equal(data.turnos[0].prestacion, "Consulta");
+  // El día ya escrito, en la zona de la sede (prueba de la Clínica Demo).
+  assert.equal((data.turnos[0] as { cuando?: string }).cuando, "lunes 1 de marzo, 09:00");
 });
 
 test("get_contact_bookings: sin turnos, lo dice; sin nombre completo, el candado de identidad", async () => {
@@ -322,6 +336,7 @@ test("reschedule_booking: mismo turno con otro horario y profesional; nota como 
     contexto,
   );
   assert.equal(r.ok, true, error(r));
+  assert.equal((r as { data: { cuando?: string } }).data.cuando, "lunes 1 de marzo, 11:00");
   const movido = await prisma.booking.findUniqueOrThrow({ where: { id: t.id } });
   assert.equal(movido.startsAt.toISOString(), LUNES(11).toISOString());
   assert.equal(movido.resourceId, ids.bruno);
@@ -381,6 +396,8 @@ test("reschedule_booking: dentro de minHoursToChangeBooking devuelve ok: false y
     contexto,
   );
   assert.equal(error(r), mensajeFueraDePlazo(48));
+  // El motivo legible por el código: con él deriva la regla del rubro.
+  assert.equal((r as { codigo?: string }).codigo, CODIGO_FUERA_DE_PLAZO);
   const igual = await prisma.booking.findUniqueOrThrow({ where: { id: t.id } });
   assert.equal(igual.startsAt.toISOString(), LUNES(9).toISOString());
 
@@ -460,10 +477,110 @@ test("reschedule_booking y cancel_booking: el candado de identidad va antes de m
 // cancel_booking
 // ---------------------------------------------------------------------------
 
-test("cancel_booking: cancela, deja la nota como el asistente (firmada por la Recepción de la sede) y emite booking.cancelled", async () => {
+/** El paso 1 de cancelar como si hubiera salido en un turno anterior: el
+ *  último mensaje del agente lleva el resumen (en toolCalls, como lo guarda el
+ *  loop) y el paciente contestó después. `contesto: false`, sin la respuesta. */
+async function resumenMostrado(
+  contexto: ContextoDeEjecucionDeTool,
+  bookingId: string,
+  opciones: { contesto?: boolean } = {},
+) {
+  const paso1 = await ejecutar("cancel_booking", { bookingId }, contexto);
+  assert.equal(paso1.ok, true, error(paso1));
+  const base = { organizationId: clinica.id, conversationId: contexto.conversation.id };
+  const ahora = Date.now();
+  await prisma.message.create({
+    data: {
+      ...base,
+      direction: "OUTBOUND",
+      senderType: "AGENT",
+      content: "¿Confirmás que querés cancelar ese turno?",
+      toolCalls: [
+        {
+          id: "c0",
+          name: "cancel_booking",
+          arguments: { bookingId },
+          allowed: true,
+          result: paso1,
+        },
+      ] as unknown as Prisma.InputJsonValue,
+      createdAt: new Date(ahora - 2000),
+    },
+  });
+  if (opciones.contesto !== false) {
+    await prisma.message.create({
+      data: {
+        ...base,
+        direction: "INBOUND",
+        senderType: "CONTACT",
+        content: "Sí, cancelalo",
+        createdAt: new Date(ahora - 1000),
+      },
+    });
+  }
+}
+
+const cancelados = () =>
+  prisma.booking.count({ where: { organizationId: clinica.id, status: "CANCELLED" } });
+
+test("cancel_booking paso 1: devuelve el resumen con el día escrito y no cancela nada", async () => {
   const t = await turno(ids.paciente, LUNES(9));
   const r = await ejecutar("cancel_booking", { bookingId: t.id }, await conversacion(ids.paciente));
   assert.equal(r.ok, true, error(r));
+  const data = (r as { data: Record<string, unknown> }).data;
+  assert.equal(data.requiereConfirmacion, true);
+  assert.equal(data.cancelado, false);
+  assert.deepEqual(data.turno, {
+    cuando: "lunes 1 de marzo, 09:00",
+    prestacion: "Consulta",
+    profesional: "Ana",
+  });
+  assert.equal(await cancelados(), 0);
+  assert.equal((await notas()).length, 0);
+  assert.equal((await eventos("booking.cancelled")).length, 0);
+});
+
+test("cancel_booking: confirmado: true no alcanza sin el resumen en el mensaje anterior y la respuesta del paciente", async () => {
+  const t = await turno(ids.paciente, LUNES(9));
+  const otro = await turno(ids.paciente, LUNES(11));
+  const confirmar = (contexto: ContextoDeEjecucionDeTool) =>
+    ejecutar("cancel_booking", { bookingId: t.id, confirmado: true }, contexto);
+  // Una conversación abierta por contacto y agente: cada caso, con la suya.
+  const otraConversacion = async () => {
+    await prisma.message.deleteMany({ where: { organizationId: clinica.id } });
+    await prisma.conversation.deleteMany({ where: { organizationId: clinica.id } });
+    return conversacion(ids.paciente);
+  };
+
+  // Sin ningún resumen antes: vuelve a dar el resumen.
+  const sinResumen = await confirmar(await conversacion(ids.paciente));
+  assert.equal(
+    (sinResumen as { data: { requiereConfirmacion?: boolean } }).data.requiereConfirmacion,
+    true,
+  );
+
+  // El resumen salió, pero el paciente todavía no contestó.
+  const sinRespuesta = await otraConversacion();
+  await resumenMostrado(sinRespuesta, t.id, { contesto: false });
+  const r1 = await confirmar(sinRespuesta);
+  assert.equal((r1 as { data: { cancelado?: boolean } }).data.cancelado, false);
+
+  // El resumen que salió es de otro turno.
+  const deOtro = await otraConversacion();
+  await resumenMostrado(deOtro, otro.id);
+  const r2 = await confirmar(deOtro);
+  assert.equal((r2 as { data: { cancelado?: boolean } }).data.cancelado, false);
+
+  assert.equal(await cancelados(), 0);
+});
+
+test("cancel_booking: cancela, deja la nota como el asistente (firmada por la Recepción de la sede) y emite booking.cancelled", async () => {
+  const t = await turno(ids.paciente, LUNES(9));
+  const contexto = await conversacion(ids.paciente);
+  await resumenMostrado(contexto, t.id);
+  const r = await ejecutar("cancel_booking", { bookingId: t.id, confirmado: true }, contexto);
+  assert.equal(r.ok, true, error(r));
+  assert.equal((r as { data: { cancelado?: boolean } }).data.cancelado, true);
   assert.equal(
     (await prisma.booking.findUniqueOrThrow({ where: { id: t.id } })).status,
     "CANCELLED",
@@ -481,11 +598,9 @@ test("cancel_booking: cancela, deja la nota como el asistente (firmada por la Re
 
 test("cancel_booking: sin responsable ni Recepción en la sede, la nota la firma un ADMIN", async () => {
   const t = await turno(ids.paciente, LUNES(9), { branch: "norte" });
-  const r = await ejecutar(
-    "cancel_booking",
-    { bookingId: t.id },
-    await conversacion(ids.paciente, { sede: "norte" }),
-  );
+  const contexto = await conversacion(ids.paciente, { sede: "norte" });
+  await resumenMostrado(contexto, t.id);
+  const r = await ejecutar("cancel_booking", { bookingId: t.id, confirmado: true }, contexto);
   assert.equal(r.ok, true, error(r));
   const [nota] = await notas();
   const autor = await prisma.user.findUniqueOrThrow({
@@ -608,4 +723,193 @@ test("en el loop: una urgencia o una consulta clínica en medio de un pedido de 
   assert.equal(igual.startsAt.toISOString(), LUNES(9).toISOString());
   assert.equal(igual.status, "CONFIRMED");
   assert.equal((await eventos("booking.rescheduled")).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Hallazgos de la prueba de la Clínica Demo (2026-10-11), en el loop real
+// ---------------------------------------------------------------------------
+
+async function nombreDeLaClinica() {
+  return (await prisma.organization.findUniqueOrThrow({ where: { id: clinica.id } })).name;
+}
+
+function salientesDelAgente() {
+  return prisma.message.findMany({
+    where: { organizationId: clinica.id, senderType: "AGENT" },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+const tareas = () =>
+  prisma.activity.findMany({
+    where: { organizationId: clinica.id, type: "TASK" },
+    orderBy: { createdAt: "asc" },
+  });
+
+test("en el loop: un reprogramar fuera de plazo deriva desde el código, sin volver al modelo, con la tarea para la Recepción de la sede", async () => {
+  const t = await turno(ids.paciente, LUNES(9));
+  await plazoDeCentro(48);
+  const doble = proveedorGuionado([
+    {
+      text: null,
+      toolCalls: [
+        {
+          id: "c1",
+          name: "reschedule_booking",
+          arguments: { bookingId: t.id, startsAt: LUNES(11).toISOString() },
+        },
+      ],
+    },
+    // Lo que hizo el modelo de la demo: no deriva. No se le tiene que preguntar.
+    { text: "Comunicate con la clínica para cambiarlo.", toolCalls: [] },
+  ]);
+  const r = await mensaje(ids.paciente, "Pasame el turno del lunes a las 11", doble.proveedor);
+  assert.equal(doble.requests.length, 1, "no se vuelve al modelo");
+  assert.equal(r.respuesta, mensajeDeCambioFueraDePlazo(await nombreDeLaClinica()));
+  assert.equal(r.handoff, true);
+
+  const conversacionDerivada = await prisma.conversation.findUniqueOrThrow({
+    where: { id: r.conversationId },
+  });
+  assert.equal(conversacionDerivada.status, "TRANSFERRED_TO_HUMAN");
+  const [tarea] = await tareas();
+  assert.equal(tarea.body, CUERPO_DE_LA_TAREA_FUERA_DE_PLAZO);
+  assert.equal(tarea.assigneeId, clinica.authIds[RECEPCION_CENTRO]);
+  assert.equal(tarea.branchId, ids.centro);
+  const [saliente] = await salientesDelAgente();
+  const marcas = (saliente.toolCalls as { name: string }[]).map((x) => x.name);
+  assert.ok(marcas.includes(AUDITORIA_DE_REGLA_DEL_RUBRO), marcas.join(","));
+
+  // Como una consulta clínica: el agente calla hasta que lo devuelvan.
+  const despues = await mensaje(ids.paciente, "¿Y entonces?", proveedorQueFalla);
+  assert.equal(despues.respuesta, null);
+  const igual = await prisma.booking.findUniqueOrThrow({ where: { id: t.id } });
+  assert.equal(igual.startsAt.toISOString(), LUNES(9).toISOString());
+});
+
+test("en el loop: sin Recepción en la sede ni dueño del contacto, la derivación va al ADMIN más antiguo (conversación y tarea)", async () => {
+  // Norte no tiene Recepción, y el paciente no tiene dueño.
+  const clinicaR = await mensaje(
+    ids.paciente,
+    "me arde la piel",
+    proveedorQueFalla,
+    ids.agenteNorte,
+  );
+  assert.equal(clinicaR.handoff, true);
+  const conv = await prisma.conversation.findUniqueOrThrow({
+    where: { id: clinicaR.conversationId },
+  });
+  assert.equal(conv.assignedUserId, clinica.authIds[ADMIN]);
+  const [tarea] = await tareas();
+  assert.equal(tarea.body, CUERPO_DE_LA_TAREA_CLINICA);
+  assert.equal(tarea.assigneeId, clinica.authIds[ADMIN]);
+  assert.equal(tarea.branchId, ids.norte);
+
+  // La urgencia en una conversación ya derivada, también.
+  await mensaje(ids.paciente, "no puedo respirar", proveedorQueFalla, ids.agenteNorte);
+  const todas = await tareas();
+  assert.equal(todas.length, 2);
+  assert.ok(todas[1].subject.startsWith("URGENTE · "), todas[1].subject);
+  assert.equal(todas[1].assigneeId, clinica.authIds[ADMIN]);
+});
+
+test("en el loop: afirmar un turno que no se agendó en este turno no sale; va el mensaje fijo y la conversación sigue", async () => {
+  const afirmacion =
+    "He reservado para vos un turno con Ana el lunes a las 9. ¿Querés que te lo confirme?";
+  const doble = proveedorGuionado([{ text: afirmacion, toolCalls: [] }]);
+  const r = await mensaje(ids.paciente, "quiero un turno el lunes a las 9", doble.proveedor);
+  assert.equal(r.respuesta, MENSAJE_AFIRMACION_SIN_ACCION);
+  assert.equal(r.handoff, false);
+  assert.equal(
+    await prisma.booking.count({ where: { organizationId: clinica.id, contactId: ids.paciente } }),
+    0,
+  );
+  const correccion = r.toolCalls.find((x) => x.name === AUDITORIA_DE_CORRECCION_DEL_RUBRO);
+  assert.equal(correccion?.arguments.respuestaBloqueada, afirmacion);
+  const conv = await prisma.conversation.findUniqueOrThrow({ where: { id: r.conversationId } });
+  assert.equal(conv.status, "ACTIVE");
+
+  // No calla al agente, y con la reserva hecha en el mismo turno la
+  // confirmación sale tal cual.
+  const conReserva = proveedorGuionado([
+    {
+      text: null,
+      toolCalls: [
+        {
+          id: "c1",
+          name: "create_booking",
+          arguments: { servicio: "Consulta", startsAt: LUNES(9).toISOString() },
+        },
+      ],
+    },
+    { text: "Listo, te reservé el lunes 1 de marzo a las 09:00.", toolCalls: [] },
+  ]);
+  const ok = await mensaje(ids.paciente, "dale, el lunes a las 9", conReserva.proveedor);
+  assert.equal(ok.respuesta, "Listo, te reservé el lunes 1 de marzo a las 09:00.");
+  const reserva = ok.toolCalls.find((x) => x.name === "create_booking");
+  assert.equal(reserva?.result?.ok, true, JSON.stringify(reserva?.result));
+  assert.equal(
+    (reserva?.result as { data: { cuando?: string } }).data.cuando,
+    "lunes 1 de marzo, 09:00",
+  );
+});
+
+test("en el loop: cancelar en dos pasos, en dos mensajes; en el mismo turno no cancela", async () => {
+  const t = await turno(ids.paciente, LUNES(9));
+  const cancelar = (confirmado: boolean) => ({
+    id: confirmado ? "c2" : "c1",
+    name: "cancel_booking",
+    arguments: confirmado ? { bookingId: t.id, confirmado: true } : { bookingId: t.id },
+  });
+
+  // Mismo turno: el resumen y enseguida el confirmado. No cancela, y si el
+  // modelo dice que canceló, eso no sale.
+  const apurado = proveedorGuionado([
+    { text: null, toolCalls: [cancelar(false)] },
+    { text: null, toolCalls: [cancelar(true)] },
+    { text: "Listo, cancelé tu turno.", toolCalls: [] },
+  ]);
+  const r0 = await mensaje(ids.paciente, "cancelá mi turno del lunes", apurado.proveedor);
+  assert.equal(r0.respuesta, MENSAJE_AFIRMACION_SIN_ACCION);
+  assert.equal(
+    (await prisma.booking.findUniqueOrThrow({ where: { id: t.id } })).status,
+    "CONFIRMED",
+  );
+
+  // Paso 1: el resumen.
+  const paso1 = proveedorGuionado([
+    { text: null, toolCalls: [cancelar(false)] },
+    {
+      text: "Tu turno es el lunes 1 de marzo a las 09:00 con Ana (Consulta). ¿Confirmás que lo querés cancelar?",
+      toolCalls: [],
+    },
+  ]);
+  const r1 = await mensaje(ids.paciente, "quiero cancelar mi turno", paso1.proveedor);
+  assert.match(r1.respuesta ?? "", /¿Confirmás que lo querés cancelar\?/);
+  assert.equal(
+    (await prisma.booking.findUniqueOrThrow({ where: { id: t.id } })).status,
+    "CONFIRMED",
+  );
+
+  // Paso 2: el paciente confirma en su mensaje siguiente.
+  const paso2 = proveedorGuionado([
+    { text: null, toolCalls: [cancelar(true)] },
+    { text: "Listo, cancelé tu turno del lunes 1 de marzo.", toolCalls: [] },
+  ]);
+  const r2 = await mensaje(ids.paciente, "sí, cancelalo", paso2.proveedor);
+  assert.equal(r2.respuesta, "Listo, cancelé tu turno del lunes 1 de marzo.");
+  assert.equal(
+    (await prisma.booking.findUniqueOrThrow({ where: { id: t.id } })).status,
+    "CANCELLED",
+  );
+  assert.equal((await eventos("booking.cancelled")).length, 1);
+});
+
+test("en el loop: el prompt pide voseo, y «de ejemplo» no sale en la respuesta", async () => {
+  const doble = proveedorGuionado([
+    { text: "Los precios de ejemplo son: Consulta $1.500.", toolCalls: [] },
+  ]);
+  const r = await mensaje(ids.otro, "¿cuánto sale la consulta?", doble.proveedor);
+  assert.equal(r.respuesta, "Los precios son: Consulta $1.500.");
+  assert.ok(doble.requests[0].systemPrompt.includes(INSTRUCCION_DE_TONO_DE_CLINICA));
 });

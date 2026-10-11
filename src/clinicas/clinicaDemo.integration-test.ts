@@ -14,7 +14,10 @@ import { registroDeAcciones } from "../services/automationActions";
 import { ACCIONES_INCORPORADAS } from "../services/automationRegistrations";
 import { ejecutarPurga, simularPurga } from "../services/testOrganizationsPurge.service";
 import { AppError } from "../utils/AppError";
-import { esSlugDeClinicaDemo, ZONA_DE_LA_DEMO } from "./demo/config";
+import { env } from "../config/env";
+import { createAgent } from "../services/agent.service";
+import { createBranch } from "../services/branch.service";
+import { esSlugDeClinicaDemo, MODELO_DEL_AGENTE_DE_LA_DEMO, ZONA_DE_LA_DEMO } from "./demo/config";
 import { cargarDatosDeEjemplo, DEMO_CON_DATOS, DEMO_SOLO_EN_CLINICAS } from "./demo/datosDeEjemplo";
 import { programarRecordatorio } from "./recordatorios/programacion.service";
 
@@ -299,6 +302,9 @@ test("el platform admin crea la Clínica Demo con la llave en false: 201 con los
   assert.equal(agentes[0].isActive, false);
   assert.equal(agentes[0].participation, null, "sin nivel (ESENCIAL)");
   assert.equal(agentes[0].whatsappPhoneNumberId, null);
+  // Con el modelo explícito de la demo, no el de la plataforma.
+  assert.equal(agentes[0].modelProvider, MODELO_DEL_AGENTE_DE_LA_DEMO.modelProvider);
+  assert.equal(agentes[0].modelName, MODELO_DEL_AGENTE_DE_LA_DEMO.modelName);
   const reglas = await prisma.automation.findMany({ where: { organizationId: id } });
   assert.deepEqual(reglas.map((r) => [r.triggerType, r.actionType]).sort(), [
     ["booking.completed", "booking.schedule_control"],
@@ -389,4 +395,28 @@ test("cargarDatosDeEjemplo con un admin de otra organización: 400 sin escribir 
   const antes = await conteos(otraClinica.id);
   await esperarAppError(() => cargarDatosDeEjemplo(otraClinica.id, plataforma.authIds[0]), 400);
   assert.deepEqual(await conteos(otraClinica.id), antes);
+});
+
+test("un agente común (fuera de la demo) sigue naciendo con el modelo de la plataforma (OPENROUTER_MODEL)", async () => {
+  const sucursal = await createBranch(comun.id, {
+    name: `Sucursal ${randomUUID().slice(0, 8)}`,
+    timezone: "America/Montevideo",
+  });
+  const agente = await createAgent(comun.id, {
+    branchId: sucursal.id,
+    name: "Asistente",
+    instructions: "Sos el asistente.",
+    enabledTools: [],
+    channels: ["WEB"],
+    allowedOrigins: [],
+    guardrails: {},
+    guardrailsText: "",
+    isActive: false,
+  });
+  try {
+    assert.equal(agente.modelProvider, "openrouter");
+    assert.equal(agente.modelName, env.OPENROUTER_MODEL);
+  } finally {
+    await prisma.agent.delete({ where: { id: agente.id } });
+  }
 });
