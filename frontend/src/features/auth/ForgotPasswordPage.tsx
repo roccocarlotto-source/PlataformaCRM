@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { mensajeDeAuth } from "../../auth/mensajesDeAuth";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
@@ -36,7 +37,7 @@ export function ForgotPasswordPage() {
       // independientemente de si la cuenta existe.
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pudimos procesar la solicitud");
+      setError(mensajeDeAuth(err, "No pudimos procesar la solicitud"));
     } finally {
       setIsSubmitting(false);
     }

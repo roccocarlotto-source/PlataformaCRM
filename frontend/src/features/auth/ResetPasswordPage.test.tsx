@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { AuthApiError } from "@supabase/supabase-js";
 import { ResetPasswordPage } from "./ResetPasswordPage";
 import type { AuthContextValue, AuthStatus } from "../../auth/AuthContext";
 
@@ -135,5 +136,29 @@ describe("ResetPasswordPage — R1.3", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("token vencido"));
     expect(screen.queryByText("home-ok")).not.toBeInTheDocument();
+  });
+
+  it("same_password de Supabase (en inglés) se muestra en castellano", async () => {
+    useAuthMock.mockReturnValue(mockAuth({ status: "authenticated" }));
+    updateUser.mockResolvedValueOnce({
+      data: null,
+      error: new AuthApiError(
+        "New password should be different from the old password.",
+        422,
+        "same_password",
+      ),
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByLabelText("Contraseña"), "password123");
+    await user.type(screen.getByLabelText("Confirmar contraseña"), "password123");
+    await user.click(screen.getByRole("button", { name: /guardar contraseña/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "La contraseña nueva tiene que ser distinta de la que ya tenés.",
+      ),
+    );
   });
 });

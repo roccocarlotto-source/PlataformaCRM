@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
+import { AuthApiError } from "@supabase/supabase-js";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { AuthProvider } from "../../auth/AuthContext";
@@ -690,6 +691,195 @@ describe("AcceptInvitationPage", () => {
     await waitFor(() => expect(screen.getByText("Configurá tu contraseña")).toBeInTheDocument());
     expect(screen.queryByLabelText("Nombre completo")).not.toBeInTheDocument();
     expect(acceptCalls).toBe(0);
+  });
+});
+
+// Un access token con el claim amr que deja signInWithPassword (ver
+// auth/sesionConContrasena.ts). La firma no importa: el frontend no la valida.
+function tokenConAmr(method: string): string {
+  const base64url = (valor: object) =>
+    btoa(JSON.stringify(valor)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `${base64url({ alg: "ES256" })}.${base64url({ sub: "invited-1", amr: [{ method, timestamp: 1 }] })}.firma`;
+}
+
+function sesionIniciadaConContrasena(): MockSession {
+  return {
+    ...invitedSession({ user_metadata: { invitationId: "inv-1" } }),
+    access_token: tokenConAmr("password"),
+  };
+}
+
+// La persona ya eligió una contraseña (por ejemplo con "¿Olvidaste tu
+// contraseña?") y entró por /login: LoginPage la trae acá. Antes se le volvía a
+// pedir la contraseña, y si escribía la misma Supabase contestaba 422
+// same_password en inglés.
+describe("AcceptInvitationPage — con la contraseña ya puesta", () => {
+  it("sesión abierta con contraseña: pide solo el nombre, acepta y nunca llama a updateUser", async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    server.use(
+      meHandler(),
+      http.post(acceptUrl, async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        profileExists = true;
+        return HttpResponse.json({ id: "invited-1" }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await act(async () => mock.emit("SIGNED_IN", sesionIniciadaConContrasena()));
+
+    await waitFor(() => expect(screen.getByLabelText("Nombre completo")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Contraseña")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Confirmar contraseña")).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Nombre completo"), "Nueva Persona");
+    await user.click(screen.getByRole("button", { name: "Aceptar invitación" }));
+
+    await waitFor(() => expect(screen.getByText("home-after-accept")).toBeInTheDocument());
+    expect(capturedBody).toEqual({ fullName: "Nueva Persona", invitationId: "inv-1" });
+    expect(mock.updateUser).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("m7-invite-accept-pending-password")).toBeNull();
+  });
+
+  it("sesión abierta con contraseña y accept que falla: muestra el error y reintenta solo accept", async () => {
+    let acceptCalls = 0;
+    server.use(
+      meHandler(),
+      http.post(acceptUrl, () => {
+        acceptCalls++;
+        if (acceptCalls === 1) {
+          return HttpResponse.json(
+            { error: { message: "Demasiados intentos. Probá de nuevo más tarde." } },
+            { status: 429 },
+          );
+        }
+        profileExists = true;
+        return HttpResponse.json({ id: "invited-1" }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await act(async () => mock.emit("SIGNED_IN", sesionIniciadaConContrasena()));
+    await waitFor(() => expect(screen.getByLabelText("Nombre completo")).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Nombre completo"), "Nueva Persona");
+    await user.click(screen.getByRole("button", { name: "Aceptar invitación" }));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Demasiados intentos. Probá de nuevo más tarde."),
+      ).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole("button", { name: /reintentar/i }));
+    await waitFor(() => expect(screen.getByText("home-after-accept")).toBeInTheDocument());
+    expect(acceptCalls).toBe(2);
+    expect(mock.updateUser).not.toHaveBeenCalled();
+  });
+
+  it("sesión del link de la invitación (amr invite): sigue pidiendo la contraseña", async () => {
+    server.use(meHandler());
+    renderPage();
+    await act(async () =>
+      mock.emit("SIGNED_IN", { ...invitedSession(), access_token: tokenConAmr("invite") }),
+    );
+
+    await waitFor(() => expect(screen.getByLabelText("Nombre completo")).toBeInTheDocument());
+    expect(screen.getByLabelText("Contraseña")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /completar registro/i })).toBeInTheDocument();
+  });
+
+  it("same_password después de un accept exitoso: es un éxito, no un error", async () => {
+    let acceptCalls = 0;
+    mock.updateUser.mockResolvedValueOnce({
+      data: null,
+      error: new AuthApiError(
+        "New password should be different from the old password.",
+        422,
+        "same_password",
+      ),
+    });
+    server.use(
+      meHandler(),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await act(async () => mock.emit("SIGNED_IN", invitedSession()));
+    await waitFor(() => expect(screen.getByLabelText("Nombre completo")).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Nombre completo"), "Nueva Persona");
+    await user.type(screen.getByLabelText("Contraseña"), "password123");
+    await user.type(screen.getByLabelText("Confirmar contraseña"), "password123");
+    await user.click(screen.getByRole("button", { name: /completar registro/i }));
+
+    await waitFor(() => expect(screen.getByText("home-after-accept")).toBeInTheDocument());
+    expect(acceptCalls).toBe(1);
+    expect(screen.queryByText(/New password should be different/)).not.toBeInTheDocument();
+  });
+
+  it("contraseña débil según Supabase: el error se muestra en castellano", async () => {
+    mock.updateUser.mockResolvedValueOnce({
+      data: null,
+      error: new AuthApiError("Password should be at least 10 characters.", 422, "weak_password"),
+    });
+    server.use(meHandler(), acceptSuccessHandler());
+    const user = userEvent.setup();
+    renderPage();
+    await act(async () => mock.emit("SIGNED_IN", invitedSession()));
+    await waitFor(() => expect(screen.getByLabelText("Nombre completo")).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Nombre completo"), "Nueva Persona");
+    await user.type(screen.getByLabelText("Contraseña"), "password123");
+    await user.type(screen.getByLabelText("Confirmar contraseña"), "password123");
+    await user.click(screen.getByRole("button", { name: /completar registro/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/La contraseña es demasiado débil/),
+    );
+    expect(screen.queryByText(/Password should be/)).not.toBeInTheDocument();
+  });
+
+  it("automotora sin cambios: un USER invitado a una automotora, sin contraseña, completa el flujo de siempre", async () => {
+    server.use(
+      http.get(meUrl, () => {
+        if (!profileExists) {
+          return HttpResponse.json(
+            {
+              error: {
+                message: "Tu cuenta todavía no está activada. Contactá a tu administrador.",
+                code: "CUENTA_NO_ACTIVADA",
+              },
+            },
+            { status: 403 },
+          );
+        }
+        return HttpResponse.json({
+          id: "invited-1",
+          email: "invitado@example.com",
+          fullName: "Nueva Persona",
+          organizationId: "org-1",
+          role: "USER",
+          isPlatformAdmin: false,
+          canUseInternalAgent: false,
+          industry: "AUTOMOTORA",
+        });
+      }),
+      acceptSuccessHandler(),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await act(async () =>
+      mock.emit("SIGNED_IN", invitedSession({ user_metadata: { invitationId: "inv-auto" } })),
+    );
+    await waitFor(() => expect(screen.getByText("Completá tu cuenta")).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Nombre completo"), "Nueva Persona");
+    await user.type(screen.getByLabelText("Contraseña"), "password123");
+    await user.type(screen.getByLabelText("Confirmar contraseña"), "password123");
+    await user.click(screen.getByRole("button", { name: /completar registro/i }));
+
+    await waitFor(() => expect(screen.getByText("home-after-accept")).toBeInTheDocument());
+    expect(mock.updateUser).toHaveBeenCalledWith({ password: "password123" });
   });
 });
 

@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
 import { ApiError, registerUnauthorizedHandler, request } from "../lib/api";
 import { getAccessToken } from "./getAccessToken";
+import { sesionIniciadaConContrasena } from "./sesionConContrasena";
 
 // Contrato real de GET /api/me (src/controllers/me.controller.ts): serializa
 // exactamente el AuthContext que el backend ya resolvió contra Postgres para
@@ -100,6 +101,10 @@ export interface AuthContextValue {
   // ProtectedRoute lleva a /invite/accept en vez de dejar a la persona en el
   // aviso de "no activada". Opcional: los mocks de useAuth no lo necesitan.
   debeAceptarInvitacion?: boolean;
+  // La sesión de esta pestaña se abrió con signInWithPassword (claim amr del
+  // token, ver sesionConContrasena.ts): la persona ya tiene contraseña y
+  // AcceptInvitationPage no se la vuelve a pedir. Opcional, como el de arriba.
+  sesionConContrasena?: boolean;
   profileError: Error | null;
   login(email: string, password: string): Promise<void>;
   logout(): Promise<void>;
@@ -143,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // El invitationId que Supabase guarda en la metadata de una identidad
   // invitada (createInvitation lo pasa como `data`). Ver debeAceptarInvitacion.
   const [invitationIdDeLaSesion, setInvitationIdDeLaSesion] = useState<string | null>(null);
+  const [sesionConContrasena, setSesionConContrasena] = useState(false);
 
   // Espejo de identityKey leído/escrito sincrónicamente dentro del callback
   // de onAuthStateChange (registrado una sola vez — su closure quedaría
@@ -219,6 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const invitationId: unknown = session?.user.user_metadata?.invitationId;
       setInvitationIdDeLaSesion(typeof invitationId === "string" ? invitationId : null);
+      setSesionConContrasena(sesionIniciadaConContrasena(session?.access_token));
 
       if (event === "TOKEN_REFRESHED") {
         // organizationId/role no dependen del contenido del token (se
@@ -327,6 +334,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     me: meQuery.data ?? null,
     accountUnavailableReason,
     debeAceptarInvitacion,
+    sesionConContrasena,
     profileError,
     login,
     logout,

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { mensajeDeAuth } from "../../auth/mensajesDeAuth";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { PasswordField } from "../../design-system/PasswordField";
@@ -77,7 +78,7 @@ export function ResetPasswordPage() {
       }
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pudimos actualizar la contraseña");
+      setError(mensajeDeAuth(err, "No pudimos actualizar la contraseña"));
     } finally {
       setIsSubmitting(false);
     }
