@@ -41,6 +41,12 @@ export const AYUDA = {
   recursoForm: "actividades-y-agenda#recursos",
   tiposDeServicio: "actividades-y-agenda#tipos-de-servicio",
   tipoDeServicioForm: "actividades-y-agenda#tipos-de-servicio",
+  // Solo de una clínica (docs/rubros.md §4, R17): apuntan a
+  // docs/guia-de-uso/clinicas/06-actividades-y-agenda.md.
+  profesionales: "actividades-y-agenda#profesionales",
+  prestaciones: "actividades-y-agenda#prestaciones",
+  bloqueos: "actividades-y-agenda#bloqueos",
+  sobreturnos: "actividades-y-agenda#sobreturnos",
 
   qr: "cupones-y-qr#qr",
   canjearCupon: "cupones-y-qr#canjear-cupon",

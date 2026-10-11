@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Search } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { tieneModulo } from "../../auth/useModulo";
+import { esClinica } from "../../auth/vocabulario";
 import { EmptyState } from "../../design-system/EmptyState";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "./anclas";
@@ -23,8 +24,11 @@ export function GuiaPage() {
   const { me } = useAuth();
   // Ediciones (docs/ediciones.md §9): sin los ## de módulos que la
   // organización no tiene. En COMPLETA, la guía de siempre.
-  const secciones = seccionesVisibles(me?.isPlatformAdmin === true, (modulo) =>
-    tieneModulo(me, modulo),
+  // Rubros (docs/rubros.md §1.3, R17): una clínica ve la guía de clinicas/.
+  const secciones = seccionesVisibles(
+    me?.isPlatformAdmin === true,
+    (modulo) => tieneModulo(me, modulo),
+    esClinica(me),
   );
 
   if (!slug) return <Indice secciones={secciones} />;

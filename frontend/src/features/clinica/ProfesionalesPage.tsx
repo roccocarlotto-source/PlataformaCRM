@@ -5,6 +5,7 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { PageHeader } from "../../design-system/PageHeader";
+import { AYUDA } from "../guia/anclas";
 import { Table } from "../../design-system/Table";
 import { BRANCHES_PARA_SELECT, useBranches } from "../branch/queries";
 import { useResources } from "../resource/queries";
@@ -76,6 +77,7 @@ export function ProfesionalesPage() {
   return (
     <div>
       <PageHeader
+        help={AYUDA.profesionales}
         title={termino.pluralTitulo}
         actions={
           <Link to="/resources/new" className="ds-link-button">

@@ -4,6 +4,7 @@ import type { ClaveDeAyuda } from "./anclas";
 import type { MeResponse } from "../../auth/AuthContext";
 import { tieneModulo } from "../../auth/useModulo";
 import { edicionDeMe, MODULOS_COMPLETA } from "../../test/edicionFixtures";
+import { clinicaDeMe } from "../../test/rubroFixtures";
 
 const ME_BASE: MeResponse = {
   id: "u1",
@@ -22,6 +23,8 @@ import {
   parsearSeccion,
   type Seccion,
   SECCIONES,
+  SECCIONES_DE_CLINICA,
+  seccionesDelRubro,
   seccionPorSlug,
   seccionesVisibles,
 } from "./secciones";
@@ -77,9 +80,12 @@ describe("docs/guia-de-uso/ (los archivos reales, incluidos en el build)", () =>
   });
 
   it("cada destino de AYUDA (el '?' de una pantalla) apunta a una sección y un ancla que existen", () => {
-    for (const [clave, destino] of Object.entries(AYUDA)) {
+    for (const [clave, destino] of Object.entries(AYUDA) as [ClaveDeAyuda, string][]) {
       const [slug, ancla] = destino.split("#");
-      const seccion = seccionPorSlug(slug);
+      // Las pantallas que solo tiene una clínica apuntan a su guía (R17).
+      const seccion = SOLO_DE_CLINICA.has(clave)
+        ? SECCIONES_DE_CLINICA.find((s) => s.slug === slug)
+        : seccionPorSlug(slug);
       expect(seccion, `${clave}: no existe la sección "${slug}"`).toBeDefined();
       expect(
         seccion?.encabezados.some((e) => e.ancla === ancla),
@@ -168,6 +174,14 @@ const FUERA_DE_ESENCIAL: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
 const SOLO_DE_ESENCIAL: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
   "oportunidadesEsencial",
   "oportunidadEsencialForm",
+]);
+// Las claves de las pantallas que solo tiene una clínica (R17): apuntan a la
+// guía de docs/guia-de-uso/clinicas/, no a la de la raíz.
+const SOLO_DE_CLINICA: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
+  "profesionales",
+  "prestaciones",
+  "bloqueos",
+  "sobreturnos",
 ]);
 
 function anclaVisible(secciones: Seccion[], destino: string): boolean {
@@ -292,6 +306,7 @@ describe("la guía real por edición", () => {
     const esencial = seccionesVisibles(true, ESENCIAL);
     const completa = seccionesVisibles(true, COMPLETA);
     for (const [clave, destino] of Object.entries(AYUDA) as [ClaveDeAyuda, string][]) {
+      if (SOLO_DE_CLINICA.has(clave)) continue;
       if (!FUERA_DE_ESENCIAL.has(clave)) {
         expect(anclaVisible(esencial, destino), `ESENCIAL ${clave} → ${destino}`).toBe(true);
       }
@@ -319,6 +334,128 @@ describe("la guía real por edición", () => {
       for (const seccion of visibles) {
         for (const match of seccion.markdown.matchAll(re)) {
           const slug = match[1] ?? seccion.slug;
+          if (!match[2]) continue;
+          expect(
+            anclaVisible(visibles, `${slug}#${match[2]}`),
+            `${seccion.slug}: link a ${slug}#${match[2]}`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rubros (docs/rubros.md §1.3, R17): la guía de una clínica es la de
+// docs/guia-de-uso/clinicas/, que reemplaza las secciones con el mismo número;
+// sin stock ni oportunidades; y solo las de módulos que tiene. Una automotora
+// ve exactamente la guía de antes.
+// ---------------------------------------------------------------------------
+
+const CLINICA = (edition: "COMPLETA" | "ESENCIAL") => (modulo: string) =>
+  tieneModulo({ ...ME_BASE, ...clinicaDeMe(edition) }, modulo);
+
+// Las claves de AYUDA de pantallas que una clínica no tiene en su menú (las de
+// empresas, oportunidades, procesos de venta, stock, recursos de automotora,
+// canje de cupones e ingesta).
+const NO_SON_DE_CLINICA: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
+  ...FUERA_DE_ESENCIAL,
+  ...SOLO_DE_ESENCIAL,
+  "stock",
+  "unidadForm",
+  "recursos",
+  "canjearCupon",
+  "fuentes",
+  "fuenteForm",
+  "clavesDeIngesta",
+  "eventosDeIngesta",
+  "importarArchivo",
+]);
+
+const PALABRAS_DE_AUTOMOTORA =
+  /\b(clientes?|veh[ií]culos?|stock|test ?drives?|oportunidad(es)?|vendedor(es)?)\b/i;
+
+describe("automotora sin cambios: la guía de una automotora", () => {
+  it("son las secciones de la raíz, las MISMAS, en las dos ediciones", () => {
+    expect(seccionesDelRubro(false)).toBe(SECCIONES);
+    for (const regla of [ESENCIAL, COMPLETA]) {
+      expect(seccionesVisibles(true, regla, false)).toEqual(seccionesVisibles(true, regla));
+      expect(seccionesVisibles(false, regla, false)).toEqual(seccionesVisibles(false, regla));
+    }
+    expect(seccionesVisibles(true, COMPLETA, false).map((s) => s.slug)).toEqual(
+      SECCIONES.map((s) => s.slug),
+    );
+  });
+});
+
+describe("la guía de una clínica (docs/guia-de-uso/clinicas/)", () => {
+  it("cada archivo tiene el número y el slug de una sección de la raíz", () => {
+    expect(SECCIONES_DE_CLINICA.length).toBeGreaterThan(0);
+    for (const propia of SECCIONES_DE_CLINICA) {
+      const raiz = SECCIONES.find((s) => s.orden === propia.orden);
+      expect(raiz?.slug, `clinicas/${propia.orden}`).toBe(propia.slug);
+    }
+  });
+
+  it("cada archivo tiene un # título, sus ## llevan {#ancla} y no se repiten", () => {
+    for (const seccion of SECCIONES_DE_CLINICA) {
+      expect(seccion.markdown, seccion.slug).toMatch(/^# .+/m);
+      for (const linea of seccion.markdown.split("\n")) {
+        if (/^## /.test(linea)) {
+          expect(linea, `${seccion.slug}: "${linea}"`).toMatch(/\{#[a-z0-9-]+\}\s*$/);
+        }
+      }
+      const anclas = seccion.encabezados.map((e) => e.ancla);
+      expect(new Set(anclas).size, seccion.slug).toBe(anclas.length);
+      expect(seccion.markdown, seccion.slug).not.toMatch(/<[a-z]+[^>]*>/i);
+    }
+  });
+
+  it("reemplaza las secciones con el mismo número; sin stock ni oportunidades", () => {
+    for (const edition of ["COMPLETA", "ESENCIAL"] as const) {
+      const visibles = seccionesVisibles(true, CLINICA(edition), true);
+      const slugs = visibles.map((s) => s.slug);
+      expect(slugs).not.toContain("stock");
+      expect(slugs).not.toContain("oportunidades-y-procesos-de-venta");
+      for (const seccion of visibles) {
+        const propia = SECCIONES_DE_CLINICA.find((s) => s.orden === seccion.orden);
+        if (propia) expect(seccion.markdown, seccion.slug).toBe(propia.markdown);
+      }
+      // Sin un módulo, su sección no se ve.
+      const sinCupones = seccionesVisibles(true, (m) => m !== "cupones_y_qr", true);
+      expect(sinCupones.map((s) => s.slug)).not.toContain("cupones-y-qr");
+    }
+  });
+
+  it("nada de autos: ninguna sección que ve una clínica (salvo Plataforma) habla de clientes, vehículos, stock u oportunidades", () => {
+    for (const seccion of seccionesVisibles(true, CLINICA("COMPLETA"), true)) {
+      if (seccion.soloPlataforma) continue;
+      const lineas = seccion.markdown.split("\n").filter((l) => PALABRAS_DE_AUTOMOTORA.test(l));
+      expect(lineas, seccion.slug).toEqual([]);
+    }
+  });
+
+  it("cada '?' de una pantalla de clínica apunta a un ancla visible en su guía", () => {
+    for (const edition of ["COMPLETA", "ESENCIAL"] as const) {
+      const visibles = seccionesVisibles(true, CLINICA(edition), true);
+      for (const [clave, destino] of Object.entries(AYUDA) as [ClaveDeAyuda, string][]) {
+        if (NO_SON_DE_CLINICA.has(clave)) continue;
+        expect(anclaVisible(visibles, destino), `${edition} ${clave} → ${destino}`).toBe(true);
+      }
+    }
+  });
+
+  it("no queda ningún link interno a una sección o un bloque que no se ve", () => {
+    const re = /\]\((?:\/ayuda\/([a-z0-9-]+))?(?:#([a-z0-9-]+))?\)/g;
+    for (const edition of ["COMPLETA", "ESENCIAL"] as const) {
+      const visibles = seccionesVisibles(true, CLINICA(edition), true);
+      for (const seccion of visibles) {
+        for (const match of seccion.markdown.matchAll(re)) {
+          const slug = match[1] ?? seccion.slug;
+          expect(
+            visibles.some((s) => s.slug === slug),
+            `${seccion.slug}: link a ${slug}`,
+          ).toBe(true);
           if (!match[2]) continue;
           expect(
             anclaVisible(visibles, `${slug}#${match[2]}`),

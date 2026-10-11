@@ -6,6 +6,7 @@ import type { AuthContextValue } from "../../auth/AuthContext";
 import { GuiaPage } from "./GuiaPage";
 import { SECCIONES } from "./secciones";
 import { edicionDeMe } from "../../test/edicionFixtures";
+import { automotoraDeMe, clinicaDeMe } from "../../test/rubroFixtures";
 
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
@@ -150,5 +151,44 @@ describe("GuiaPage — por edición", () => {
     expect(
       screen.getByRole("heading", { level: 2, name: "Procesos de venta" }),
     ).toBeInTheDocument();
+  });
+});
+
+// Rubros (docs/rubros.md §1.3, R17): GuiaPage elige la guía según el rubro de
+// /me. Una automotora ve la de siempre; una clínica, la de clinicas/.
+describe("GuiaPage — por rubro", () => {
+  function indice(rubro: Parameters<typeof automotoraDeMe>[0], esClinica: boolean) {
+    const base = mockAuth(false);
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: { ...base.me!, ...(esClinica ? clinicaDeMe(rubro) : automotoraDeMe(rubro)) },
+    });
+    const { container, unmount } = renderEn("/ayuda");
+    const titulos = [...container.querySelectorAll("a[href^='/ayuda/']")].map(
+      (a) => `${a.textContent} -> ${a.getAttribute("href")}`,
+    );
+    unmount();
+    return titulos;
+  }
+
+  it("una automotora ve exactamente el índice de antes (igual que sin rubro)", () => {
+    for (const edition of ["COMPLETA", "ESENCIAL"] as const) {
+      const base = mockAuth(false);
+      useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...edicionDeMe(edition) } });
+      const { container, unmount } = renderEn("/ayuda");
+      const sinRubro = [...container.querySelectorAll("a[href^='/ayuda/']")].map(
+        (a) => `${a.textContent} -> ${a.getAttribute("href")}`,
+      );
+      unmount();
+      expect(indice(edition, false)).toEqual(sinRubro);
+    }
+  });
+
+  it("una clínica ve sus secciones: Pacientes, Agenda y tareas, Organización y sedes; nada de stock ni oportunidades", () => {
+    const titulos = indice("COMPLETA", true).join("\n");
+    expect(titulos).toContain("Pacientes y consultas -> /ayuda/contactos-y-consultas");
+    expect(titulos).toContain("Agenda y tareas -> /ayuda/actividades-y-agenda");
+    expect(titulos).toContain("Organización y sedes -> /ayuda/organizacion-y-sucursales");
+    expect(titulos).not.toMatch(/\/ayuda\/(stock|oportunidades-y-procesos-de-venta)/);
   });
 });
