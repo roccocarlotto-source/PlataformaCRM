@@ -6,7 +6,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import type { AuthContextValue, MeResponse, RoleName } from "../../auth/AuthContext";
-import { automotoraDeMe, clinicaDeMe } from "../../test/rubroFixtures";
+import { automotoraDeMe, clinicaDeMe, VOCABULARIO_CLINICA_DE_ME } from "../../test/rubroFixtures";
+import { makeQrCode } from "../../test/qrFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeConversation, makeConversationDetail } from "../../test/conversationFixtures";
 import { makeBranch } from "../../test/branchFixtures";
@@ -36,13 +37,25 @@ import { AutomationListPage } from "../automation/AutomationListPage";
 import { AutomationFormPage } from "../automation/AutomationFormPage";
 import { AgentListPage } from "../agent/AgentListPage";
 import { AgentFormPage } from "../agent/AgentFormPage";
+import { AgentPlaygroundPage } from "../agent/AgentPlaygroundPage";
+import { ResourceFormPage } from "../resource/ResourceFormPage";
+import { ServiceTypeListPage } from "../serviceType/ServiceTypeListPage";
+import { ServiceTypeFormPage } from "../serviceType/ServiceTypeFormPage";
+import { QrListPage } from "../qr/QrListPage";
+import { KnowledgeBaseFormPage } from "../knowledgeBase/KnowledgeBaseFormPage";
+import { ContactCustomFieldListPage } from "../contactCustomField/ContactCustomFieldListPage";
+import { ContactCustomFieldFormPage } from "../contactCustomField/ContactCustomFieldFormPage";
 
 // ---------------------------------------------------------------------------
 // Los textos de las pantallas compartidas por rubro (docs/rubros.md §3.1).
 //
 // - CLINICA con contactTerm PACIENTE: recorre las pantallas y falla si en lo
 //   visible (texto, opciones, placeholders, aria-label, title) aparece
-//   "cliente", "vehículo", "stock" o "test drive".
+//   "cliente", vocabulario de autos (auto, vehículo, unidad, permuta,
+//   financiación, test drive, tasación, concesionaria, stock) o el de la
+//   automotora que la clínica dice de otra forma (sucursal, recurso...).
+// - CLINICA con contactTerm CLIENTE: lo mismo, salvo "cliente", y además
+//   nada de "paciente" fijo: los textos usan el término de la organización.
 // - AUTOMOTORA: los textos de cada pantalla son los de antes de R17b
 //   (snapshot tomado antes de tocar las pantallas; suite "automotora sin
 //   cambios", §14.1). Si el snapshot cambia, cambió lo que ve una automotora.
@@ -91,6 +104,12 @@ const CONTACTO = makeContact({ id: "ct1", lifecycleStage: "CUSTOMER", ownerId: "
 const SUCURSAL = makeBranch({ id: "b1", name: "Casa Central" });
 const RECURSO = makeResource({ id: "r1", branchId: "b1", name: "Lucía Ejemplo" });
 const SERVICIO = makeServiceType({ id: "s1", branchId: "b1", resourceId: "r1", name: "Consulta" });
+const AGENTE = makeAgent({
+  id: "ag1",
+  branchId: "b1",
+  channels: ["WHATSAPP"],
+  isActive: true,
+});
 
 /** Lo que devuelve cada GET de la API, por ruta. Lo que no está acá es una
  *  lista vacía. */
@@ -115,6 +134,10 @@ function respuesta(path: string): Response {
     });
   }
   if (/^\/resources\/[^/]+\/working-hours$/.test(p)) return HttpResponse.json({ workingHours: [] });
+  if (/^\/resources\/[^/]+$/.test(p)) return HttpResponse.json(RECURSO);
+  if (/^\/service-types\/[^/]+$/.test(p)) return HttpResponse.json(SERVICIO);
+  if (/^\/agents\/[^/]+$/.test(p)) return HttpResponse.json(AGENTE);
+  if (p === "/qr") return paginado([makeQrCode({ branchId: "b1" })]);
   if (p === "/contacts") return paginado([CONTACTO]);
   if (/^\/contacts\/[^/]+$/.test(p)) return HttpResponse.json(CONTACTO);
   if (p === "/conversations") return paginado([makeConversation()]);
@@ -242,6 +265,50 @@ const PANTALLAS: Pantalla[] = [
     patron: "/agents/new",
     elemento: <AgentFormPage />,
   },
+  // docs/rubros.md §15: las pantallas que el test no recorría.
+  {
+    nombre: "probar el agente",
+    url: "/agents/ag1/playground",
+    patron: "/agents/:id/playground",
+    elemento: <AgentPlaygroundPage />,
+  },
+  {
+    nombre: "profesional",
+    url: "/resources/r1/edit",
+    patron: "/resources/:id/edit",
+    elemento: <ResourceFormPage />,
+  },
+  {
+    nombre: "configurar prestaciones",
+    url: "/service-types",
+    patron: "/service-types",
+    elemento: <ServiceTypeListPage />,
+  },
+  {
+    nombre: "prestación",
+    url: "/service-types/s1/edit",
+    patron: "/service-types/:id/edit",
+    elemento: <ServiceTypeFormPage />,
+  },
+  { nombre: "QR", url: "/qr", patron: "/qr", elemento: <QrListPage /> },
+  {
+    nombre: "entrada de la base de conocimiento",
+    url: "/knowledge-base/new",
+    patron: "/knowledge-base/new",
+    elemento: <KnowledgeBaseFormPage />,
+  },
+  {
+    nombre: "campos del contacto",
+    url: "/contact-custom-fields",
+    patron: "/contact-custom-fields",
+    elemento: <ContactCustomFieldListPage />,
+  },
+  {
+    nombre: "campo nuevo",
+    url: "/contact-custom-fields/new",
+    patron: "/contact-custom-fields/new",
+    elemento: <ContactCustomFieldFormPage />,
+  },
 ];
 
 // Fechas y horas: dependen de la zona horaria y del locale de la máquina (el
@@ -308,8 +375,16 @@ async function textosDe(pantalla: Pantalla, auth: AuthContextValue): Promise<str
   return textos;
 }
 
-// Lo que pide §3.1. \b no parte "clientela" ni "reservar".
-const PALABRAS_DE_AUTOMOTORA = /\b(clientes?|veh[ií]culos?|stock|test ?drives?)\b/i;
+// Lo que pide §3.1, más la lista de §15. \b no parte "clientela",
+// "reservar" ni "automatización".
+const PALABRAS_DE_AUTOS =
+  /\b(autos?|veh[ií]culos?|unidad(es)?|permutas?|financiaci[oó]n(es)?|test ?drives?|tasaci[oó]n(es)?|concesionarias?|stock)\b/i;
+const PALABRAS_DE_AUTOMOTORA = /\bclientes?\b/i;
+// "Unidad" del retraso de una automatización: es la unidad de tiempo
+// (minutos, horas, días), no un auto.
+const PERMITIDOS = new Set(["Unidad", "[aria-label] Unidad"]);
+const conPalabra = (textos: string[], palabras: RegExp) =>
+  textos.filter((t) => !PERMITIDOS.has(t) && palabras.test(t)).join(" | ");
 // Y el vocabulario de la automotora que la clínica dice de otra forma (§3).
 const VOCABULARIO_DE_AUTOMOTORA =
   /\b(vendedor(es)?|reservas?|recursos?|tipos? de servicio|sucursal(es)?)\b/i;
@@ -319,8 +394,36 @@ describe("textos de una clínica (§3.1): nada de autos", () => {
     it(pantalla.nombre, async () => {
       const textos = await textosDe(pantalla, sesion("ADMIN", clinicaDeMe("COMPLETA")));
       expect(textos.length).toBeGreaterThan(0);
-      expect(textos.filter((t) => PALABRAS_DE_AUTOMOTORA.test(t)).join(" | ")).toBe("");
-      expect(textos.filter((t) => VOCABULARIO_DE_AUTOMOTORA.test(t)).join(" | ")).toBe("");
+      expect(conPalabra(textos, PALABRAS_DE_AUTOS)).toBe("");
+      expect(conPalabra(textos, PALABRAS_DE_AUTOMOTORA)).toBe("");
+      expect(conPalabra(textos, VOCABULARIO_DE_AUTOMOTORA)).toBe("");
+    });
+  }
+});
+
+// Una clínica que eligió "cliente" (ClinicSettings.contactTerm, §3).
+const CLINICA_CON_CLIENTE: Partial<MeResponse> = {
+  ...clinicaDeMe("COMPLETA"),
+  vocabulario: {
+    ...VOCABULARIO_CLINICA_DE_ME,
+    contacto: {
+      singular: "cliente",
+      plural: "clientes",
+      singularTitulo: "Cliente",
+      pluralTitulo: "Clientes",
+      genero: "masculino",
+    },
+  },
+};
+
+describe('textos de una clínica con contactTerm CLIENTE: nada de "paciente" fijo', () => {
+  for (const pantalla of PANTALLAS) {
+    it(pantalla.nombre, async () => {
+      const textos = await textosDe(pantalla, sesion("ADMIN", CLINICA_CON_CLIENTE));
+      expect(textos.length).toBeGreaterThan(0);
+      expect(conPalabra(textos, /\bpacientes?\b/i)).toBe("");
+      expect(conPalabra(textos, PALABRAS_DE_AUTOS)).toBe("");
+      expect(conPalabra(textos, VOCABULARIO_DE_AUTOMOTORA)).toBe("");
     });
   }
 });

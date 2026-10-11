@@ -32,7 +32,9 @@ export function ContactCustomFieldListPage() {
   async function handleDelete(id: string) {
     if (
       !(await confirm(
-        "¿Eliminar este campo? Deja de verse en las fichas; los valores que los contactos ya tienen no se borran.",
+        `¿Eliminar este campo? Deja de verse en las fichas; los valores que los ${
+          esClinica ? contacto.plural : "contactos"
+        } ya tienen no se borran.`,
         { confirmLabel: "Eliminar", danger: true },
       ))
     )

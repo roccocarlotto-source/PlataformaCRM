@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -22,6 +22,11 @@ vi.mock("../../auth/getAccessToken", () => ({
 // useAuth (no tiene gate por rol propio, ver su comentario de cabecera).
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+// Las pantallas que leen el rubro: una automotora, salvo que el caso diga otra cosa.
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+});
 
 function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   return {

@@ -25,6 +25,7 @@ import {
   type UpdateKnowledgeBaseEntryInput,
 } from "./types";
 import { useAuth } from "../../auth/AuthContext";
+import { concordancia, vocabularioDe, type Termino } from "../../auth/vocabulario";
 import { Select } from "../../design-system/Select";
 
 // Los mismos topes que el backend (knowledgeBaseEntry.controller.ts). El
@@ -87,7 +88,7 @@ function toFormValues(entry: KnowledgeBaseEntry): KnowledgeBaseFormValues {
 // El error de validación del cliente, o null si el formulario puede viajar.
 // Solo mira lo que la validación nativa del navegador NO cubre: Título y
 // Contenido llevan `required` y los frena el propio <form>.
-function validar(values: KnowledgeBaseFormValues): string | null {
+function validar(values: KnowledgeBaseFormValues, sucursal: Termino): string | null {
   // El `required` de BranchSelect no alcanza: mientras la lista de sucursales
   // carga, el componente no renderiza ningún input (solo el rótulo y el aviso
   // de carga), así que no hay nada que el navegador pueda frenar. Es el hueco
@@ -95,7 +96,8 @@ function validar(values: KnowledgeBaseFormValues): string | null {
   // cuenta. Acá vale para los DOS modos, no solo para la creación: la sucursal
   // se puede cambiar también al editar.
   if (!values.branchId) {
-    return "Elegí la sucursal a la que pertenece esta entrada.";
+    const cs = concordancia(sucursal);
+    return `Elegí ${cs.el} ${sucursal.singular} a ${cs.el} que pertenece esta entrada.`;
   }
   return null;
 }
@@ -123,6 +125,7 @@ export function KnowledgeBaseFormPage() {
   // R18: el tipo (indicaciones) es solo de una clínica.
   const { me } = useAuth();
   const esClinica = me?.industry === "CLINICA";
+  const { sucursal, contacto } = vocabularioDe(me);
   const confirm = useConfirm();
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -237,7 +240,7 @@ export function KnowledgeBaseFormPage() {
     event.preventDefault();
     setError(null);
 
-    const errorDeValidacion = validar(values);
+    const errorDeValidacion = validar(values, sucursal);
     if (errorDeValidacion !== null) {
       setError(errorDeValidacion);
       return;
@@ -307,7 +310,8 @@ export function KnowledgeBaseFormPage() {
                 en edición, a diferencia de AgentFormPage. */}
             <BranchSelect
               id="knowledge-base-form-branch"
-              label="Sucursal"
+              label={sucursal.singularTitulo}
+              emptyOptionLabel={`Elegir ${sucursal.singular}…`}
               value={values.branchId}
               onChange={(branchId) => setValues({ ...values, branchId: branchId || undefined })}
               required
@@ -366,8 +370,8 @@ export function KnowledgeBaseFormPage() {
                 />
                 <p className="ds-hint">
                   Lo que cargues acá lo puede repetir el agente textualmente. Las indicaciones las
-                  transcribe tal cual, sin explicarlas ni adaptarlas a cada paciente. No cargues
-                  datos de pacientes.
+                  transcribe tal cual, sin explicarlas ni adaptarlas a cada {contacto.singular}. No
+                  cargues datos de {contacto.plural}.
                 </p>
               </div>
             ) : null}
@@ -390,7 +394,7 @@ export function KnowledgeBaseFormPage() {
               </FormField>
             </div>
             <p className="ds-hint ds-field-grid--full">
-              Lo leen tal cual los agentes de esa sucursal. Hasta{" "}
+              {`Lo leen tal cual los agentes de ${sucursal.genero === "femenino" ? "esa" : "ese"} ${sucursal.singular}. Hasta`}{" "}
               {MAX_CONTENT.toLocaleString("es-UY")} caracteres.
             </p>
 

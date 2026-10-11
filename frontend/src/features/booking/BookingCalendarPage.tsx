@@ -286,6 +286,7 @@ export function BookingCalendarPage() {
       {nueva && sucursal ? (
         <CreateBookingPanel
           vocabulario={vocabulario}
+          esClinica={esClinica}
           resource={nueva.resource}
           fecha={fecha}
           minuto={nueva.minuto}
@@ -309,6 +310,7 @@ export function BookingCalendarPage() {
       {abierta && sucursal ? (
         <BookingDetailDialog
           vocabulario={vocabulario}
+          esClinica={esClinica}
           booking={abierta.booking}
           contactName={abierta.contactName}
           serviceName={

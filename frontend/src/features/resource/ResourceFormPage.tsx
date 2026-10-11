@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../../auth/AuthContext";
+import { concordancia, vocabularioDe } from "../../auth/vocabulario";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
@@ -72,6 +74,12 @@ export function ResourceFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  // Los textos con el vocabulario del rubro: en una automotora son los de
+  // siempre ("recurso", "sucursal"); en una clínica, profesional y sede.
+  const { me } = useAuth();
+  const { recurso, sucursal } = vocabularioDe(me);
+  const cr = concordancia(recurso);
+  const cs = concordancia(sucursal);
 
   const resourceQuery = useResource(isEditMode ? id : undefined);
   const hoursQuery = useWorkingHours(isEditMode ? id : undefined);
@@ -105,11 +113,13 @@ export function ResourceFormPage() {
     // componente documenta), y el `required` del combobox de Tipo tampoco
     // alcanza para un valor vacío.
     if (!isEditMode && !values.branchId) {
-      setError("Elegí la sucursal a la que pertenece este recurso.");
+      setError(
+        `Elegí ${cs.el} ${sucursal.singular} a ${cs.el} que pertenece ${cr.este} ${recurso.singular}.`,
+      );
       return;
     }
     if (values.type === "") {
-      setError("Elegí el tipo de recurso.");
+      setError(`Elegí el tipo de ${recurso.singular}.`);
       return;
     }
 
@@ -122,7 +132,9 @@ export function ResourceFormPage() {
         });
         navigate("/resources");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "No pudimos guardar el recurso");
+        setError(
+          err instanceof Error ? err.message : `No pudimos guardar ${cr.el} ${recurso.singular}`,
+        );
       }
       return;
     }
@@ -138,7 +150,9 @@ export function ResourceFormPage() {
     try {
       await updateResourceMutation.mutateAsync({ name: values.name, type: values.type });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pudimos guardar el recurso");
+      setError(
+        err instanceof Error ? err.message : `No pudimos guardar ${cr.el} ${recurso.singular}`,
+      );
       return;
     }
 
@@ -147,7 +161,7 @@ export function ResourceFormPage() {
       navigate("/resources");
     } catch (err) {
       setError(
-        `Los datos del recurso se guardaron, pero el horario no${
+        `Los datos ${cr.del} ${recurso.singular} se guardaron, pero el horario no${
           err instanceof Error ? `: ${err.message}` : "."
         }`,
       );
@@ -162,7 +176,7 @@ export function ResourceFormPage() {
     const causa = resourceQuery.error ?? hoursQuery.error;
     return (
       <ErrorState>
-        No pudimos cargar el recurso
+        No pudimos cargar {cr.el} {recurso.singular}
         {causa instanceof Error ? `: ${causa.message}` : "."}
       </ErrorState>
     );
@@ -172,10 +186,10 @@ export function ResourceFormPage() {
     <form onSubmit={handleSubmit} className="ds-form">
       <PageHeader
         help={AYUDA.recursoForm}
-        title={isEditMode ? "Editar recurso" : "Nuevo recurso"}
+        title={isEditMode ? `Editar ${recurso.singular}` : `${cr.Nuevo} ${recurso.singular}`}
       />
       <div className="ds-stack">
-        <Card heading="Datos del recurso">
+        <Card heading={`Datos ${cr.del} ${recurso.singular}`}>
           <div className="ds-field-grid">
             <FormField label={<span className="ds-required">Nombre</span>}>
               <input
@@ -201,7 +215,8 @@ export function ResourceFormPage() {
 
             <BranchSelect
               id="resource-form-branch"
-              label="Sucursal"
+              label={sucursal.singularTitulo}
+              emptyOptionLabel={`Elegir ${sucursal.singular}…`}
               value={values.branchId}
               onChange={(branchId) => setValues({ ...values, branchId: branchId || undefined })}
               required={!isEditMode}
@@ -209,7 +224,9 @@ export function ResourceFormPage() {
             />
             {isEditMode ? (
               <p className="ds-hint ds-field-grid--full">
-                No se cambia de sucursal: creá uno nuevo en la correcta.
+                {`No se cambia de ${sucursal.singular}: creá ${
+                  recurso.genero === "femenino" ? "una nueva" : "uno nuevo"
+                } en ${cs.el} ${sucursal.genero === "femenino" ? "correcta" : "correcto"}.`}
               </p>
             ) : (
               <p className="ds-hint ds-field-grid--full">El horario se carga después de crearlo.</p>

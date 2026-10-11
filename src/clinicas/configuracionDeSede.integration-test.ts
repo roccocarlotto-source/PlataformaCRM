@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import { findRoleByName } from "../repositories/role.repository";
@@ -151,4 +152,38 @@ test("una automotora recibe 403 con motivo RUBRO", async () => {
     assert.equal(r.status, 403);
     assert.equal((r.json.error as { motivo?: string } | undefined)?.motivo, "RUBRO");
   }
+});
+
+// docs/rubros.md §15: los errores de borrar una sede, con el vocabulario de la
+// clínica. El par de la automotora (los textos de siempre) está en
+// automotoraSinCambios.integration-test.ts.
+test("borrar una sede con profesionales activos, o una que no existe, da los mensajes de la clínica", async () => {
+  const profesional = await prisma.resource.create({
+    data: { organizationId: clinica.id, branchId: ids.sede, name: "Profesional", type: "PERSON" },
+  });
+  try {
+    const token = clinica.tokens[ADMIN];
+    const bloqueado = await pedir(clinica, "DELETE", `/api/branches/${ids.sede}`, undefined, token);
+    assert.equal(bloqueado.status, 400);
+    assert.equal(
+      bloqueado.json.error?.message,
+      "No se puede eliminar una sede que tiene profesionales activos. Eliminá primero sus profesionales.",
+    );
+    const inexistente = await pedir(
+      clinica,
+      "DELETE",
+      `/api/branches/${randomUUID()}`,
+      undefined,
+      token,
+    );
+    assert.equal(inexistente.status, 404);
+    assert.equal(inexistente.json.error?.message, "Sede no encontrada");
+  } finally {
+    await prisma.resource.deleteMany({ where: { id: profesional.id } });
+  }
+  assert.equal(
+    await prisma.branch.count({ where: { id: ids.sede, deletedAt: null } }),
+    1,
+    "la sede sigue viva",
+  );
 });

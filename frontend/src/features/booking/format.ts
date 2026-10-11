@@ -1,4 +1,5 @@
 import type { BadgeVariant } from "../../design-system/Badge";
+import { ROTULO_DE_ESTADO_DE_CLINICA } from "../clinica/estadosDeTurno";
 import type { BookingStatus } from "./types";
 
 export const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
@@ -15,9 +16,19 @@ export const BOOKING_STATUS_BADGE: Record<BookingStatus, BadgeVariant> = {
   NO_SHOW: "danger",
 };
 
-export const BOOKING_STATUS_OPTIONS = (Object.keys(BOOKING_STATUS_LABEL) as BookingStatus[]).map(
-  (value) => ({ value, label: BOOKING_STATUS_LABEL[value] }),
-);
+/** Los rótulos de los estados: los de siempre en una automotora, los del
+ *  turno en una clínica. */
+export function rotulosDeEstado(clinica: boolean): Record<BookingStatus, string> {
+  return clinica ? ROTULO_DE_ESTADO_DE_CLINICA : BOOKING_STATUS_LABEL;
+}
+
+export function opcionesDeEstado(clinica: boolean) {
+  const rotulos = rotulosDeEstado(clinica);
+  return (Object.keys(rotulos) as BookingStatus[]).map((value) => ({
+    value,
+    label: rotulos[value],
+  }));
+}
 
 // "lun 22/09/2026, 09:00–09:30" en la zona de la SUCURSAL, no en la del
 // navegador: una reserva de las 9 en Santiago es de las 9 para quien la

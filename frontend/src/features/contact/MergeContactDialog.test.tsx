@@ -7,9 +7,13 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeContact } from "../../test/contactFixtures";
 import { MergeContactDialog } from "./MergeContactDialog";
+import { VOCABULARIO_DE_CLINICA_POR_DEFECTO } from "../../auth/vocabulario";
 import {
   advertenciaDeLaUnion,
   CAMPOS_DE_LA_UNION,
+  camposDeLaUnion,
+  TEXTOS_DE_LA_UNION,
+  textosDeLaUnionDeClinica,
   type Elecciones,
   type VistaPreviaDeLaUnion,
 } from "./merge";
@@ -182,6 +186,24 @@ describe("advertenciaDeLaUnion", () => {
     expect(texto).toContain("El duplicado no tiene registros asociados.");
     expect(texto).toMatch(/misma persona/);
     expect(texto).toMatch(/No se puede deshacer desde la pantalla/);
+  });
+
+  // docs/rubros.md §15: en una clínica, el término del contacto, los turnos y
+  // sin la fila Empresa. Una automotora, como siempre.
+  it("en una clínica dice paciente y turnos, y no ofrece Empresa", () => {
+    const textos = textosDeLaUnionDeClinica(VOCABULARIO_DE_CLINICA_POR_DEFECTO);
+    const texto = advertenciaDeLaUnion("Ana Duplicada", vista({ aMover: { reservas: 2 } }), textos);
+    expect(texto).toContain('a este paciente y "Ana Duplicada" se da de baja.');
+    expect(texto).toContain("Pasan a este paciente: 2 turnos.");
+    expect(texto).not.toMatch(/contacto|reservas/);
+    expect(camposDeLaUnion(textos)).not.toContain("companyId");
+  });
+
+  it("automotora sin cambios: contacto, reservas y la fila Empresa", () => {
+    const texto = advertenciaDeLaUnion("Ana Duplicada", vista({ aMover: { reservas: 2 } }));
+    expect(texto).toContain('a este contacto y "Ana Duplicada" se da de baja.');
+    expect(texto).toContain("Pasan a este contacto: 2 reservas.");
+    expect(camposDeLaUnion(TEXTOS_DE_LA_UNION)).toEqual(CAMPOS_DE_LA_UNION);
   });
 });
 

@@ -83,11 +83,14 @@ export function vocabularioDe(me: MeResponse | null | undefined): VocabularioCom
 }
 
 /** Los artículos y adjetivos que concuerdan con el término: "la reserva" /
- *  "el turno", "Nueva sucursal" / "Nuevo profesional". */
-export function concordancia(t: Termino) {
+ *  "el turno", "Nueva sucursal" / "Nuevo profesional". Sin género (un backend
+ *  anterior), masculino. */
+export function concordancia(t: { genero?: Genero }) {
   const f = t.genero === "femenino";
   return {
     el: f ? "la" : "el",
+    El: f ? "La" : "El",
+    al: f ? "a la" : "al",
     los: f ? "las" : "los",
     Los: f ? "Las" : "Los",
     un: f ? "una" : "un",

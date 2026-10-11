@@ -4,7 +4,8 @@ import { MessageCircleQuestion } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
 import { tieneModulo } from "../../auth/useModulo";
-import { vocabularioDe } from "../../auth/vocabulario";
+import { esClinica, vocabularioDe } from "../../auth/vocabulario";
+import { textosDeLaUnionDeClinica } from "./merge";
 import { ActionsMenu, type ActionsMenuAction } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { EMPTY_VALUE, formatDateTime, formatRelativeTime } from "../../design-system/detailFormat";
@@ -302,6 +303,7 @@ export function ConsultasSinIdentificarTab() {
           contactId={uniendo}
           modo="seUne"
           etiquetasDeEtapa={etiquetasDeEtapa(vocabulario.contacto)}
+          {...(esClinica(me) ? { textos: textosDeLaUnionDeClinica(vocabulario) } : {})}
           onClose={() => setUniendo(null)}
           onMerged={(resultado) => {
             setUniendo(null);

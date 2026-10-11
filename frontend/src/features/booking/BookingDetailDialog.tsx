@@ -17,6 +17,9 @@ interface BookingDetailDialogProps {
   // Los textos del rubro (reserva o turno, recurso o profesional). Sin el
   // prop, los de una automotora.
   vocabulario?: VocabularioCompleto;
+  // En una clínica, "Paciente" (o el término de la organización) y
+  // "Prestación" en lugar de "Contacto" y "Servicio".
+  esClinica?: boolean;
   booking: Booking;
   contactName: string;
   serviceName: string;
@@ -42,6 +45,7 @@ interface BookingDetailDialogProps {
 // ---------------------------------------------------------------------------
 export function BookingDetailDialog({
   vocabulario = VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+  esClinica = false,
   booking,
   contactName,
   serviceName,
@@ -77,8 +81,14 @@ export function BookingDetailDialog({
         sections={[
           {
             items: [
-              { label: "Contacto", value: contactName },
-              { label: "Servicio", value: serviceName },
+              {
+                label: esClinica ? vocabulario.contacto.singularTitulo : "Contacto",
+                value: contactName,
+              },
+              {
+                label: esClinica ? vocabulario.tipoDeServicio.singularTitulo : "Servicio",
+                value: serviceName,
+              },
               { label: vocabulario.recurso.singularTitulo, value: resourceName },
               {
                 label: "Horario",
@@ -86,7 +96,12 @@ export function BookingDetailDialog({
               },
               // R13: solo llega en una clínica (CAMPOS_DE_CLINICA).
               ...(booking.patientConfirmedAt
-                ? [{ label: "Confirmación", value: "Confirmado por el paciente" }]
+                ? [
+                    {
+                      label: "Confirmación",
+                      value: `Confirmado por ${concordancia(vocabulario.contacto).el} ${vocabulario.contacto.singular}`,
+                    },
+                  ]
                 : []),
             ],
           },

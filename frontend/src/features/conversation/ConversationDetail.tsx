@@ -298,6 +298,7 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
           </div>
           {creandoCupon ? (
             <CreateVoucherDialog
+              sucursal={vocabularioDe(me).sucursal}
               contactId={conversation.contactId}
               branchIdInicial={conversation.branchId}
               onClose={() => setCreandoCupon(false)}

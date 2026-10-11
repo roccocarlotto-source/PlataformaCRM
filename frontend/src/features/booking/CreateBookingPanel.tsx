@@ -25,6 +25,8 @@ import { useCreateBooking } from "./mutations";
 interface CreateBookingPanelProps {
   // Los textos del rubro. Sin el prop, los de una automotora.
   vocabulario?: VocabularioCompleto;
+  // En una clínica, el término del contacto en lugar de "Contacto".
+  esClinica?: boolean;
   resource: Resource;
   fecha: string;
   minuto: number;
@@ -55,6 +57,7 @@ interface CreateBookingPanelProps {
 // ---------------------------------------------------------------------------
 export function CreateBookingPanel({
   vocabulario = VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+  esClinica = false,
   resource,
   fecha,
   minuto,
@@ -160,7 +163,7 @@ export function CreateBookingPanel({
 
         <ContactSelect
           id={`${formId}-contact`}
-          label="Contacto"
+          label={esClinica ? vocabulario.contacto.singularTitulo : "Contacto"}
           value={contactId}
           onChange={setContactId}
         />

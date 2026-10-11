@@ -1,4 +1,9 @@
 import { useState, type FormEvent } from "react";
+import {
+  concordancia,
+  VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+  type Termino,
+} from "../../auth/vocabulario";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { Modal } from "../../design-system/Modal";
@@ -125,9 +130,10 @@ function toUpdateInput(values: QrFormValues): UpdateQrInput {
   };
 }
 
-function validar(values: QrFormValues, isEditMode: boolean): string | null {
+function validar(values: QrFormValues, isEditMode: boolean, sucursal: Termino): string | null {
   if (!isEditMode && !values.branchId) {
-    return "Elegí la sucursal a la que pertenece este QR.";
+    const cs = concordancia(sucursal);
+    return `Elegí ${cs.el} ${sucursal.singular} a ${cs.el} que pertenece este QR.`;
   }
   // §54. Vacío al CREAR es válido: el backend asigna el sugerido, que es lo
   // que corresponde si alguien guarda antes de que la sugerencia llegue —
@@ -160,9 +166,16 @@ export interface QrFormDialogProps {
   // QrListPage lo usa, tras crear, para abrir directo el diálogo de imagen —
   // el equivalente del panel "QR nuevo" del Dashboard original.
   onSaved: (qr: QrCode) => void;
+  // "Sucursal" o "sede" (docs/rubros.md §3). Sin el prop, "sucursal".
+  sucursal?: Termino;
 }
 
-export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
+export function QrFormDialog({
+  qr,
+  onClose,
+  onSaved,
+  sucursal = VOCABULARIO_AUTOMOTORA_POR_DEFECTO.sucursal,
+}: QrFormDialogProps) {
   const isEditMode = qr !== undefined;
   const createMutation = useCreateDigitalQrCode();
   const updateMutation = useUpdateQrCode(qr?.id ?? "");
@@ -197,7 +210,7 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validationError = validar(values, isEditMode);
+    const validationError = validar(values, isEditMode, sucursal);
     setError(validationError);
     if (validationError) return;
     try {
@@ -231,7 +244,8 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
         {isEditMode ? null : (
           <BranchSelect
             id="qr-form-branch"
-            label="Sucursal"
+            label={sucursal.singularTitulo}
+            emptyOptionLabel={`Elegir ${sucursal.singular}…`}
             value={values.branchId}
             onChange={(branchId) => setValues({ ...values, branchId: branchId || undefined })}
             required
@@ -255,8 +269,8 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
         </FormField>
         <p className="ds-hint">
           {isEditMode
-            ? "Tiene que ser único entre los QR activos de la sucursal."
-            : "Sugerido: el siguiente libre en esta sucursal. Podés cambiarlo."}
+            ? `Tiene que ser único entre los QR activos de ${concordancia(sucursal).el} ${sucursal.singular}.`
+            : `Sugerido: el siguiente libre en ${concordancia(sucursal).este} ${sucursal.singular}. Podés cambiarlo.`}
         </p>
         <FormField label={<span className="ds-required">Nombre</span>}>
           <input

@@ -1,5 +1,6 @@
 import { tieneModulo, useModulo } from "../../auth/useModulo";
-import { vocabularioDe } from "../../auth/vocabulario";
+import { esClinica, vocabularioDe } from "../../auth/vocabulario";
+import { textosDeLaUnionDeClinica } from "./merge";
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -466,12 +467,17 @@ export function ContactFormPage() {
       </form>
       {isEditMode && id ? <ContactVouchersSection contactId={id} /> : null}
       {creandoCupon && id ? (
-        <CreateVoucherDialog contactId={id} onClose={() => setCreandoCupon(false)} />
+        <CreateVoucherDialog
+          contactId={id}
+          sucursal={vocabulario.sucursal}
+          onClose={() => setCreandoCupon(false)}
+        />
       ) : null}
       {uniendo && id ? (
         <MergeContactDialog
           contactId={id}
           etiquetasDeEtapa={etiquetaDeEtapa}
+          {...(esClinica(me) ? { textos: textosDeLaUnionDeClinica(vocabulario) } : {})}
           onClose={() => setUniendo(false)}
           onMerged={(resultado) => {
             setUniendo(false);

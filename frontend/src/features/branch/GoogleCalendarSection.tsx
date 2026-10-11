@@ -22,6 +22,8 @@ interface GoogleCalendarSectionProps {
   // Cómo se llaman las reservas en el rubro (reservas o turnos). Sin el
   // prop, "reservas", como siempre.
   reserva?: Termino;
+  // "Sucursal" o "sede". Sin el prop, "sucursal".
+  sucursal?: Termino;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,6 +55,7 @@ export function GoogleCalendarSection({
   branchId,
   resultadoDelCallback,
   reserva = VOCABULARIO_AUTOMOTORA_POR_DEFECTO.reserva,
+  sucursal = VOCABULARIO_AUTOMOTORA_POR_DEFECTO.sucursal,
 }: GoogleCalendarSectionProps) {
   const confirm = useConfirm();
   const connectionQuery = useGoogleCalendarConnection(branchId);
@@ -76,7 +79,9 @@ export function GoogleCalendarSection({
   async function handleDesconectar() {
     if (
       !(await confirm(
-        "¿Desconectar Google Calendar? Las reservas nuevas de esta sucursal dejan de aparecer en el calendario.",
+        `¿Desconectar Google Calendar? ${concordancia(reserva).Los} ${reserva.plural} ${
+          reserva.genero === "femenino" ? "nuevas" : "nuevos"
+        } de ${concordancia(sucursal).este} ${sucursal.singular} dejan de aparecer en el calendario.`,
         { confirmLabel: "Desconectar", danger: true },
       ))
     ) {

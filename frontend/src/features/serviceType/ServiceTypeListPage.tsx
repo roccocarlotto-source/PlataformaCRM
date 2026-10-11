@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Clock, Plus } from "lucide-react";
+import { useAuth } from "../../auth/AuthContext";
+import { concordancia, esClinica, vocabularioDe } from "../../auth/vocabulario";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
@@ -30,6 +32,12 @@ const SIN_RESOLVER = "—";
 // la pantalla vive entera dentro de AdminRoute.
 export function ServiceTypeListPage() {
   const confirm = useConfirm();
+  // Vocabulario del rubro: en una automotora, los textos de siempre. En una
+  // clínica el título es el del menú ("Configurar prestaciones"), para no
+  // confundirla con la pantalla Prestaciones.
+  const { me } = useAuth();
+  const { recurso, sucursal, tipoDeServicio } = vocabularioDe(me);
+  const ct = concordancia(tipoDeServicio);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
@@ -69,7 +77,7 @@ export function ServiceTypeListPage() {
     // El RESTRICT (reservas activas de este servicio) llega como error del
     // backend y se muestra tal cual.
     if (
-      !(await confirm("¿Eliminar este tipo de servicio?", {
+      !(await confirm(`¿Eliminar ${ct.este} ${tipoDeServicio.singular}?`, {
         confirmLabel: "Eliminar",
         danger: true,
       }))
@@ -84,12 +92,12 @@ export function ServiceTypeListPage() {
     <div>
       <PageHeader
         help={AYUDA.tiposDeServicio}
-        title="Tipos de servicio"
+        title={esClinica(me) ? `Configurar ${tipoDeServicio.plural}` : tipoDeServicio.pluralTitulo}
         actions={
           <>
             <Link to="/service-types/new" className="ds-link-button">
               <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-              Nuevo tipo de servicio
+              {`${ct.Nuevo} ${tipoDeServicio.singular}`}
             </Link>
           </>
         }
@@ -109,7 +117,7 @@ export function ServiceTypeListPage() {
           </label>
           <BranchSelect
             id="service-type-list-branch"
-            label="Sucursal"
+            label={sucursal.singularTitulo}
             value={branchId}
             emptyOptionLabel="Todas"
             onChange={(nuevo) =>
@@ -123,7 +131,7 @@ export function ServiceTypeListPage() {
           />
           <ResourceSelect
             id="service-type-list-resource"
-            label="Recurso"
+            label={recurso.singularTitulo}
             value={resourceId}
             branchId={branchId}
             emptyOptionLabel="Todos"
@@ -148,7 +156,7 @@ export function ServiceTypeListPage() {
 
         {serviceTypesQuery.isError ? (
           <ErrorState>
-            No pudimos cargar los tipos de servicio
+            No pudimos cargar {ct.los} {tipoDeServicio.plural}
             {serviceTypesQuery.error instanceof Error
               ? `: ${serviceTypesQuery.error.message}`
               : "."}
@@ -157,7 +165,7 @@ export function ServiceTypeListPage() {
 
         {deleteServiceTypeMutation.isError ? (
           <ErrorState>
-            No pudimos eliminar el tipo de servicio
+            No pudimos eliminar {ct.el} {tipoDeServicio.singular}
             {deleteServiceTypeMutation.error instanceof Error
               ? `: ${deleteServiceTypeMutation.error.message}`
               : "."}
@@ -165,7 +173,7 @@ export function ServiceTypeListPage() {
         ) : null}
 
         {serviceTypesQuery.isSuccess && serviceTypes.length === 0 ? (
-          <EmptyState title="No hay tipos de servicio para mostrar" icon={Clock} />
+          <EmptyState title={`No hay ${tipoDeServicio.plural} para mostrar`} icon={Clock} />
         ) : null}
 
         {serviceTypesQuery.isSuccess && serviceTypes.length > 0 ? (
@@ -173,8 +181,8 @@ export function ServiceTypeListPage() {
             <thead>
               <tr>
                 <th>Nombre</th>
-                <th>Recurso</th>
-                <th>Sucursal</th>
+                <th>{recurso.singularTitulo}</th>
+                <th>{sucursal.singularTitulo}</th>
                 <th>Duración</th>
                 <th>Cupo</th>
                 <th>Acciones</th>

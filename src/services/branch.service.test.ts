@@ -30,7 +30,7 @@ type Modelo =
   | "booking"
   | "googleCalendarConnection";
 
-function baseFalsa(conteos: Partial<Record<Modelo, number>> = {}) {
+function baseFalsa(conteos: Partial<Record<Modelo, number>> = {}, existe = true) {
   const borrados: unknown[] = [];
   const wheres: Partial<Record<Modelo, unknown>> = {};
   const sucursal = { id: BRANCH, organizationId: ORG };
@@ -58,7 +58,7 @@ function baseFalsa(conteos: Partial<Record<Modelo, number>> = {}) {
     ]),
   );
   const branch = {
-    findFirst: async () => sucursal,
+    findFirst: async () => (existe ? sucursal : null),
     updateMany: async (args: unknown) => {
       borrados.push(args);
       return { count: 1 };
@@ -147,4 +147,101 @@ test("con agentes y Google Calendar conectado, el mensaje es el de agentes", asy
   const err = await capturar(() => deleteBranch(ORG, BRANCH));
   assert.ok(err instanceof AppError);
   assert.match(err.message, /agentes/);
+});
+
+// ---------------------------------------------------------------------------
+// Los textos por rubro (docs/rubros.md §15). Una automotora —con el default o
+// diciéndolo— recibe los de siempre, byte por byte; una clínica, los suyos.
+// La lógica es la misma: solo cambia el mensaje.
+// ---------------------------------------------------------------------------
+
+const CASOS_POR_RUBRO: { modelo: Modelo; automotora: string; clinica: string }[] = [
+  {
+    modelo: "resource",
+    automotora:
+      "No se puede eliminar una sucursal que tiene recursos activos. Eliminá primero sus recursos.",
+    clinica:
+      "No se puede eliminar una sede que tiene profesionales activos. Eliminá primero sus profesionales.",
+  },
+  {
+    modelo: "serviceType",
+    automotora:
+      "No se puede eliminar una sucursal que tiene servicios activos. Eliminá primero sus servicios.",
+    clinica:
+      "No se puede eliminar una sede que tiene prestaciones activas. Eliminá primero sus prestaciones.",
+  },
+  {
+    modelo: "qrCode",
+    automotora: "No se puede eliminar una sucursal que tiene QRs activos. Eliminá primero sus QRs.",
+    clinica: "No se puede eliminar una sede que tiene QRs activos. Eliminá primero sus QRs.",
+  },
+  ...CASOS.map(({ modelo, mensaje }) => ({
+    modelo,
+    automotora: mensaje,
+    clinica: {
+      agent: "No se puede eliminar una sede que tiene agentes. Eliminá primero sus agentes.",
+      vehicle:
+        "No se puede eliminar una sede que tiene vehículos en stock. Eliminá primero sus vehículos o pasalos a otra sede.",
+      knowledgeBaseEntry:
+        "No se puede eliminar una sede que tiene entradas en la base de conocimiento. Eliminá primero sus entradas.",
+      conversation:
+        "No se puede eliminar una sede que tiene conversaciones abiertas. Cerralas primero desde la bandeja.",
+      booking: "No se puede eliminar una sede que tiene turnos confirmados. Cancelalos primero.",
+    }[modelo as "agent" | "vehicle" | "knowledgeBaseEntry" | "conversation" | "booking"],
+  })),
+  {
+    modelo: "googleCalendarConnection",
+    automotora:
+      "No se puede eliminar una sucursal que todavía tiene Google Calendar conectado, aunque la conexión esté en error. Desconectalo primero.",
+    clinica:
+      "No se puede eliminar una sede que todavía tiene Google Calendar conectado, aunque la conexión esté en error. Desconectalo primero.",
+  },
+];
+
+for (const { modelo, automotora, clinica } of CASOS_POR_RUBRO) {
+  for (const [industry, mensaje] of [
+    ["AUTOMOTORA", automotora],
+    ["CLINICA", clinica],
+  ] as const) {
+    test(`deleteBranch de una ${industry} con ${modelo} vivos: 400 con el texto del rubro, y no borra`, async () => {
+      const { borrados } = baseFalsa({ [modelo]: 1 });
+      const err = await capturar(() => deleteBranch(ORG, BRANCH, industry));
+      assert.ok(err instanceof AppError, `debe ser AppError. Fue: ${String(err)}`);
+      assert.equal(err.statusCode, 400);
+      assert.equal(err.message, mensaje);
+      assert.equal(borrados.length, 0);
+    });
+  }
+}
+
+test("deleteBranch sin el rubro usa los textos de la automotora", async () => {
+  baseFalsa({ resource: 1 });
+  const err = await capturar(() => deleteBranch(ORG, BRANCH));
+  assert.ok(err instanceof AppError);
+  assert.equal(
+    err.message,
+    "No se puede eliminar una sucursal que tiene recursos activos. Eliminá primero sus recursos.",
+  );
+});
+
+test("deleteBranch de una sucursal que no existe: 404 con el texto del rubro", async () => {
+  for (const [industry, mensaje] of [
+    [undefined, "Sucursal no encontrada"],
+    ["AUTOMOTORA", "Sucursal no encontrada"],
+    ["CLINICA", "Sede no encontrada"],
+  ] as const) {
+    const { borrados } = baseFalsa({}, false);
+    const err = await capturar(() => deleteBranch(ORG, BRANCH, industry));
+    assert.ok(err instanceof AppError);
+    assert.equal(err.statusCode, 404);
+    assert.equal(err.message, mensaje);
+    assert.equal(borrados.length, 0);
+    mock.restoreAll();
+  }
+});
+
+test("una clínica sin dependientes vivos borra la sede igual que una automotora", async () => {
+  const { borrados } = baseFalsa();
+  await deleteBranch(ORG, BRANCH, "CLINICA");
+  assert.equal(borrados.length, 1);
 });

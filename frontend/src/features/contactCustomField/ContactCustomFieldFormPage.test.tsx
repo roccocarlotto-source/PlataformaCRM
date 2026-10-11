@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AuthContextValue } from "../../auth/AuthContext";
+import { sesionDePrueba } from "../../test/sesionFixtures";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,6 +16,13 @@ import type { ContactCustomFieldDefinition } from "./types";
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
+
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(sesionDePrueba());
+});
 
 const baseUrl = `${env.apiUrl}/api/contact-custom-fields`;
 

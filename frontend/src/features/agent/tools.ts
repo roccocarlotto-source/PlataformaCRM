@@ -1,5 +1,6 @@
 import {
   concordancia,
+  VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
   VOCABULARIO_DE_CLINICA_POR_DEFECTO,
   type VocabularioCompleto,
 } from "../../auth/vocabulario";
@@ -171,13 +172,22 @@ export const TOOLS_QUE_EXIGEN_EL_NOMBRE = [
 ];
 export const TOOLS_QUE_GUARDAN_EL_NOMBRE = ["create_lead", "update_lead"];
 
-export function avisoDeAccionesSinGuardarElNombre(enabledTools: string[]): string | null {
+// Con los rótulos y el término del contacto del rubro (agentToolOptions):
+// sin pasarlos, los de una automotora.
+export function avisoDeAccionesSinGuardarElNombre(
+  enabledTools: string[],
+  esClinica = false,
+  vocabulario: VocabularioCompleto = VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+): string | null {
   const exigen = TOOLS_QUE_EXIGEN_EL_NOMBRE.filter((tool) => enabledTools.includes(tool));
   if (exigen.length === 0 || TOOLS_QUE_GUARDAN_EL_NOMBRE.some((t) => enabledTools.includes(t))) {
     return null;
   }
-  const nombres = exigen.map((tool) => `«${toolLabel(tool)}»`).join(", ");
-  return `${nombres} ${exigen.length === 1 ? "exige" : "exigen"} el nombre del cliente: habilitá «${toolLabel("update_lead")}» o «${toolLabel("create_lead")}» para que pueda guardarlo.`;
+  const opciones = agentToolOptions(enabledTools, esClinica, vocabulario);
+  const rotulo = (tool: string) =>
+    opciones.find((option) => option.value === tool)?.label ?? toolLabel(tool);
+  const nombres = exigen.map((tool) => `«${rotulo(tool)}»`).join(", ");
+  return `${nombres} ${exigen.length === 1 ? "exige" : "exigen"} el nombre ${concordancia(vocabulario.contacto).del} ${vocabulario.contacto.singular}: habilitá «${rotulo("update_lead")}» o «${rotulo("create_lead")}» para que pueda guardarlo.`;
 }
 
 // Las tools de AGENT_TOOL_OPTIONS que una clínica no tiene (ESPEJO A MANO de
@@ -198,7 +208,31 @@ function conTextosDeClinica(
   option: MultiSelectOption<string>,
   v: VocabularioCompleto,
 ): MultiSelectOption<string> {
+  const c = concordancia(v.contacto);
+  const r = concordancia(v.reserva);
   switch (option.value) {
+    case "create_booking":
+      return {
+        ...option,
+        label: `Dar ${r.un} ${v.reserva.singular}`,
+        subtitle: `Le da ${r.un} ${v.reserva.singular} ${c.al} ${v.contacto.singular}.`,
+      };
+    case "get_contact_bookings":
+      return {
+        ...option,
+        label: `Ver ${v.reserva.plural} ${c.del} ${v.contacto.singular}`,
+        subtitle: `Lista los próximos ${v.reserva.plural} ${c.del} ${v.contacto.singular} de la conversación.`,
+      };
+    case "reschedule_booking":
+      return {
+        ...option,
+        subtitle: `Cambia el día, la hora o ${concordancia(v.recurso).el} ${v.recurso.singular} de ${r.un} ${v.reserva.singular} ${c.del} ${v.contacto.singular}.`,
+      };
+    case "cancel_booking":
+      return {
+        ...option,
+        subtitle: `Cancela ${r.un} ${v.reserva.singular} ${c.del} ${v.contacto.singular}, con la anticipación mínima ${concordancia(v.sucursal).del} ${v.sucursal.singular}.`,
+      };
     case "get_availability":
       return {
         ...option,
@@ -230,7 +264,7 @@ export function agentToolOptions(
         ...AGENT_TOOL_OPTIONS.filter((option) => !TOOLS_FUERA_DE_CLINICA.has(option.value)).map(
           (option) => conTextosDeClinica(option, vocabulario),
         ),
-        ...AGENT_TOOL_OPTIONS_DE_CLINICA,
+        ...AGENT_TOOL_OPTIONS_DE_CLINICA.map((option) => conTextosDeClinica(option, vocabulario)),
       ]
     : AGENT_TOOL_OPTIONS;
   const conocidas = new Set(base.map((option) => option.value));

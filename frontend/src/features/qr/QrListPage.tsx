@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
@@ -80,6 +81,7 @@ type Dialogo =
 export function QrListPage() {
   const confirm = useConfirm();
   const { me } = useAuth();
+  const { sucursal } = vocabularioDe(me);
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
   // autorización real la sigue aplicando authorize("ADMIN") en el backend
   // (POST/PATCH/DELETE /api/qr). Ver imagen, enviar y copiar link son de
@@ -169,7 +171,7 @@ export function QrListPage() {
         <div className="ds-filters">
           <BranchSelect
             id="qr-list-branch"
-            label="Sucursal"
+            label={sucursal.singularTitulo}
             value={branchId}
             emptyOptionLabel="Todas"
             onChange={(nuevo) => {
@@ -224,7 +226,7 @@ export function QrListPage() {
               <tr>
                 <th>N°</th>
                 <th>Nombre</th>
-                <th>Sucursal</th>
+                <th>{sucursal.singularTitulo}</th>
                 <th>Destino</th>
                 <th>Acciones</th>
               </tr>
@@ -315,6 +317,7 @@ export function QrListPage() {
 
       {dialogo?.kind === "crear" ? (
         <QrFormDialog
+          sucursal={sucursal}
           onClose={() => setDialogo(null)}
           onSaved={(saved) => handleSaved(saved, true)}
         />
@@ -322,6 +325,7 @@ export function QrListPage() {
       {dialogo?.kind === "editar" ? (
         <QrFormDialog
           qr={dialogo.qr}
+          sucursal={sucursal}
           onClose={() => setDialogo(null)}
           onSaved={(saved) => handleSaved(saved, false)}
         />
@@ -344,7 +348,7 @@ export function QrListPage() {
                   { label: "N°", value: dialogo.qr.displayNumber },
                   { label: "Nombre", value: dialogo.qr.name },
                   {
-                    label: "Sucursal",
+                    label: sucursal.singularTitulo,
                     value: dialogo.qr.branchId
                       ? (nombreDeSucursal.get(dialogo.qr.branchId) ?? SIN_RESOLVER)
                       : null,

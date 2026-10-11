@@ -1,4 +1,5 @@
 import { useAuth } from "../../auth/AuthContext";
+import { vocabularioDe } from "../../auth/vocabulario";
 import { useModulo } from "../../auth/useModulo";
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -413,7 +414,7 @@ function CamposDeLaAccion({
           />
           <p className="ds-hint ds-field-grid--full">
             {actionType === ACTION_BOOKING_SEND_QR_REVIEW
-              ? "Le llega al paciente por WhatsApp después del turno atendido (al menos 3 horas después; si el turno se cerró solo, 24 horas después)."
+              ? "Llega por WhatsApp después del turno atendido (al menos 3 horas después; si el turno se cerró solo, 24 horas después)."
               : "Le llega al cliente por WhatsApp cuando la oportunidad se gana (hasta 30 días de espera)."}
           </p>
         </>
@@ -727,6 +728,7 @@ export function AutomationFormPage() {
             approval={automationQuery.data?.whatsappApproval}
             automationId={isEditMode ? id : undefined}
             esClinica={esClinica}
+            contacto={vocabularioDe(me).contacto}
           />
         ) : null}
 

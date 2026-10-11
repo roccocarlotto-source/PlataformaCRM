@@ -21,11 +21,11 @@ import { RESOURCES_PARA_SELECT, useResources } from "../resource/queries";
 import { SERVICE_TYPES_PARA_SELECT, useServiceTypes } from "../serviceType/queries";
 import {
   BOOKING_STATUS_BADGE,
-  BOOKING_STATUS_LABEL,
-  BOOKING_STATUS_OPTIONS,
   fechaAInstante,
   formatRangoDeReserva,
   hoyComoFecha,
+  opcionesDeEstado,
+  rotulosDeEstado,
 } from "./format";
 import { useCancelBooking } from "./mutations";
 import { useBookings } from "./queries";
@@ -186,7 +186,7 @@ export function BookingListPage() {
           <Select
             label="Estado"
             value={status}
-            options={BOOKING_STATUS_OPTIONS}
+            options={opcionesDeEstado(esClinica(me))}
             emptyOption={{ label: "Todos" }}
             onChange={(value) => aplicarFiltro(() => setStatus(value))}
           />
@@ -249,8 +249,8 @@ export function BookingListPage() {
             <thead>
               <tr>
                 <th>Turno</th>
-                <th>Contacto</th>
-                <th>Servicio</th>
+                <th>{esClinica(me) ? vocabulario.contacto.singularTitulo : "Contacto"}</th>
+                <th>{esClinica(me) ? tipoDeServicio.singularTitulo : "Servicio"}</th>
                 <th>{recurso.singularTitulo}</th>
                 <th>{sucursalT.singularTitulo}</th>
                 <th>Estado</th>
@@ -271,7 +271,7 @@ export function BookingListPage() {
                     <td>{sucursal?.name ?? SIN_RESOLVER}</td>
                     <td>
                       <Badge variant={BOOKING_STATUS_BADGE[booking.status]}>
-                        {BOOKING_STATUS_LABEL[booking.status]}
+                        {rotulosDeEstado(esClinica(me))[booking.status]}
                       </Badge>
                     </td>
                     <td>

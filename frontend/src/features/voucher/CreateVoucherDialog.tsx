@@ -1,4 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
+import {
+  concordancia,
+  VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+  type Termino,
+} from "../../auth/vocabulario";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
@@ -35,6 +40,8 @@ export interface CreateVoucherDialogProps {
   // La sucursal ya elegida al abrir (B5: desde la conversación, la suya). Se
   // puede cambiar igual.
   branchIdInicial?: string;
+  // "Sucursal" o "sede" (docs/rubros.md §3). Sin el prop, "sucursal".
+  sucursal?: Termino;
   onClose: () => void;
 }
 
@@ -42,6 +49,7 @@ export function CreateVoucherDialog({
   contactId,
   opportunityId,
   branchIdInicial,
+  sucursal = VOCABULARIO_AUTOMOTORA_POR_DEFECTO.sucursal,
   onClose,
 }: CreateVoucherDialogProps) {
   const crear = useCreateVoucher();
@@ -103,12 +111,16 @@ export function CreateVoucherDialog({
         </FormField>
         <BranchSelect
           id="create-voucher-branch"
-          label="Sucursal"
+          label={sucursal.singularTitulo}
+          emptyOptionLabel={`Elegir ${sucursal.singular}…`}
           value={branchId}
           onChange={(id) => setBranchId(id || undefined)}
           required
         />
-        <p className="ds-hint">El WhatsApp con el cupón sale del número de esta sucursal.</p>
+        <p className="ds-hint">
+          El WhatsApp con el cupón sale del número de {concordancia(sucursal).este}{" "}
+          {sucursal.singular}.
+        </p>
         {crear.error ? (
           <ErrorState>
             No pudimos crear el cupón
