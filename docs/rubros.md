@@ -413,6 +413,26 @@ fuera de los tests, en 59 archivos de `features/`. **No se reemplazan todas.**
 | Automatizaciones | Catálogo de clínica (§7.3). |
 | Ayuda | `docs/guia-de-uso/clinicas/`. |
 
+> **Decisiones de Rocco para R17 (2026-10-10):**
+>
+> - **Menú:** además de lo de la tabla, Administración conserva Usuarios,
+>   Invitaciones, Organización, Sedes, Campos de contacto y el QR (lo usa el QR
+>   de reseña, §7.1). Salen del menú, en una clínica, Canjear cupón y la
+>   ingesta (Fuentes, Claves y Eventos de ingesta): los módulos siguen
+>   incluidos (§2), solo no se muestran. El Dashboard queda, sin las tarjetas
+>   de stock.
+> - **Recepción** (§11.2): el mismo menú, sin lo que es de ADMIN
+>   (Administración, Agentes de IA con su base de conocimiento y sus
+>   automatizaciones, Profesionales y Prestaciones).
+> - **Agenda y Turnos:** se reusan `/agenda` y `/bookings` (y sus componentes)
+>   con el vocabulario del rubro, en vez de pantallas nuevas en
+>   `features/clinica/`.
+> - **`tieneModulo`** lee `modulos` de `/me` también en COMPLETA, y
+>   `/opportunities*` y `/vehicles*` llevan gate de ruta.
+> - **Marca:** "Plataforma CRM" para los dos rubros, leída de
+>   `vocabulario.marca`. `index.html` queda con el texto genérico: se carga
+>   antes de que exista `/me`.
+
 **Test de vitest:** con una sesión CLINICA y `contactTerm = PACIENTE`, recorre
 las pantallas y falla si aparece "cliente", "vehículo", "stock" o "test drive"
 en lo visible. **Con una sesión AUTOMOTORA**, el menú y los textos son iguales a
@@ -2223,6 +2243,8 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
 - `activity.create_follow_up` sobre `booking.completed` (§7.3).
 - Las FAQs que hoy deriva la capa 1, en un PR chico del detector con la lista
   revisada por un profesional de salud (§5.3).
+- "El primero libre" al dar un turno desde la agenda (§4.3), y las marcas "sin
+  confirmar" y "sin recordatorio" en el calendario (§6): quedaron fuera de R17.
 
 **Antes del primer cliente real:**
 

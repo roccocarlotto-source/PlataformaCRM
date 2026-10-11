@@ -35,7 +35,7 @@ las conversaciones y las tareas de esas sedes. Los pacientes no son de ninguna
 sede: Recepción los ve todos, para poder darles un turno en cualquiera de sus
 sedes.
 
-- Si alguien tiene más de una sede, en **Reservas**, **Calendario** y
+- Si alguien tiene más de una sede, en **Turnos**, **Agenda** y
   **Conversaciones** elige la sede en el filtro **Sucursal**. Solo aparecen las
   suyas.
 - Las tareas que no son de ninguna sede (por ejemplo, una que cargó un

@@ -80,8 +80,8 @@ export const SECCIONES: Seccion[] = Object.entries(ARCHIVOS)
 //   - SOLO_SIN_MODULO: el bloque explica cómo se hace SIN ese módulo (lo de la
 //     edición Esencial); con el módulo, no se muestra.
 //
-// Con la regla de useModulo, en COMPLETA (también una clínica) se ven los
-// primeros y no los segundos; en ESENCIAL, al revés. Un bloque que no está en
+// Con la regla de useModulo, una automotora en COMPLETA ve los primeros y no
+// los segundos; en ESENCIAL, al revés. Un bloque que no está en
 // ninguno de los dos se muestra siempre.
 export const MODULO_DE_ANCLA: Readonly<Record<string, string>> = {
   "contactos-y-consultas#empresas": "empresas",

@@ -47,7 +47,7 @@ Antes de cada turno, el paciente recibe un WhatsApp para **confirmar** o
    para que lo apruebe como mensaje de servicio (categoría UTILITY), con los
    botones **Confirmo** y **Necesito cancelar**. La tarjeta de la regla muestra
    si ya está aprobado. Hasta que lo aprueben, no sale ningún recordatorio.
-3. En cada sede ([Sucursales](/branches), sección **Recordatorios**) elegí con
+3. En cada sede ([Sedes](/branches), sección **Recordatorios**) elegí con
    cuántas horas de anticipación sale (de 1 a 72, por defecto 24) y qué pasa con
    un turno que se da con menos anticipación: **no mandar recordatorio** (por
    defecto), **mandarlo en el momento** o **mandarlo unas horas antes del

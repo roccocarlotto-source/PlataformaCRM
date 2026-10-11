@@ -267,8 +267,10 @@ describe("la guía real por edición", () => {
     expect(oportunidades?.markdown).toMatch(/^## Oportunidades en la edición Esencial/m);
   });
 
-  it("COMPLETA (también una clínica COMPLETA) ve la guía de siempre: todo menos el bloque de Esencial", () => {
-    for (const regla of [COMPLETA, CLINICA_COMPLETA]) {
+  // Una clínica en COMPLETA ya no entra acá: desde R17 tieneModulo lee sus
+  // módulos también en COMPLETA (no tiene empresas ni procesos de venta).
+  it("COMPLETA ve la guía de siempre: todo menos el bloque de Esencial", () => {
+    for (const regla of [COMPLETA]) {
       const visibles = seccionesVisibles(true, regla);
       for (const destino of Object.keys(MODULO_DE_ANCLA)) {
         expect(anclaVisible(visibles, destino), destino).toBe(true);

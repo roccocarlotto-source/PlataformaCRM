@@ -82,7 +82,7 @@ asistente no cambia turnos: toma los datos y lo hace la recepción.
 
 Lo configura un administrador, por sede:
 
-1. Entrá a [Sucursales](/branches) y abrí la sede.
+1. Entrá a [Sedes](/branches) y abrí la sede.
 2. En **Turnos por chat**, completá **Anticipación mínima para cambiar un turno
    (horas)**. Por ejemplo, con 24 el asistente no reprograma ni cancela un turno
    que empieza en menos de 24 horas: le pasa la conversación a la recepción.
