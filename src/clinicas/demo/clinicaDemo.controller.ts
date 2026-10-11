@@ -34,6 +34,8 @@ export const crearClinicaDemoSchema = z
 export const crearClinicaDemoHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(crearClinicaDemoSchema, req.body);
-    res.status(201).json(await crearClinicaDemo(input));
+    res
+      .status(201)
+      .json(await crearClinicaDemo(input, undefined, { platformAdminUserId: req.auth.userId }));
   },
 );

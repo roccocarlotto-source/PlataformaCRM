@@ -242,6 +242,19 @@ export const AVISO_DE_PRIVACIDAD = {
   privacyPolicyUrl: "https://example.com/privacidad",
 };
 
+/** El modelo del agente de la demo. Un agente nuevo toma el de la plataforma
+ *  (OPENROUTER_MODEL, modeloPorDefecto), que es lo que diga esa variable en
+ *  cada entorno; en la prueba de la demo del 2026-10-11 fue un modelo chico
+ *  que razonaba mal (calculaba mal los días, afirmaba turnos que no agendó).
+ *  La demo tiene que mostrar al agente en su mejor versión, así que nace con
+ *  uno explícito, el mismo que usa la plataforma con clientes reales. Se
+ *  asigna por el mismo camino que usa un platform admin
+ *  (asignarModeloDeAgente) y con las mismas validaciones. */
+export const MODELO_DEL_AGENTE_DE_LA_DEMO = {
+  modelProvider: "openrouter",
+  modelName: "google/gemini-3.1-flash-lite",
+} as const;
+
 export const AGENTE = {
   name: "Recepción virtual",
   goal: "Responder consultas y agendar turnos de la Clínica Demo.",

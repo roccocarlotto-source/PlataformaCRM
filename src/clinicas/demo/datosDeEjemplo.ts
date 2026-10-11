@@ -4,7 +4,9 @@ import {
   contarDatosDeNegocio,
   rubroDeLaOrganizacionVigente,
 } from "../../repositories/organization.repository";
-import { createAgent } from "../../services/agent.service";
+import { z } from "zod";
+import { modelNameSchema, modelProviderSchema } from "../../schemas/agentModelConfig.schema";
+import { asignarModeloDeAgente, createAgent } from "../../services/agent.service";
 import { createAutomation, type OpcionesDeValidacion } from "../../services/automation.service";
 import { createBranch } from "../../services/branch.service";
 import { replaceBusinessHoursForBranch } from "../../services/branchBusinessHours.service";
@@ -34,6 +36,7 @@ import { configurarSobreturnos, crearBloqueoDeProfesional } from "../services/bl
 import { configurarClinicaDeLaSede } from "../services/configuracionDeSede.service";
 import {
   AGENTE,
+  MODELO_DEL_AGENTE_DE_LA_DEMO,
   AVISO_DE_PRIVACIDAD,
   BASE_DE_CONOCIMIENTO,
   BLOQUEO,
@@ -110,7 +113,14 @@ export interface OpcionesDeLaDemo {
   ahora?: Date;
   /** El registro de acciones del motor (los tests pasan el suyo). */
   automatizaciones?: OpcionesDeValidacion;
+  /** Quién crea la demo (el platform admin de la ruta): queda en el log de
+   *  la asignación del modelo. Sin él, el ADMIN de la demo. */
+  platformAdminUserId?: string;
 }
+
+// Las mismas reglas que el body de la asignación de modelo de un platform
+// admin (asignarModeloSchema, agentAdmin.controller.ts).
+const modeloDeLaDemo = z.object({ modelProvider: modelProviderSchema, modelName: modelNameSchema });
 
 export async function cargarDatosDeEjemplo(
   organizationId: string,
@@ -269,7 +279,7 @@ export async function cargarDatosDeEjemplo(
 
   // --- Aviso de privacidad, agente, QR y automatizaciones -------------------
   await updateOrganizationSettings(organizationId, AVISO_DE_PRIVACIDAD);
-  await createAgent(organizationId, {
+  const agente = await createAgent(organizationId, {
     branchId: sede.id,
     name: AGENTE.name,
     goal: AGENTE.goal,
@@ -281,6 +291,14 @@ export async function cargarDatosDeEjemplo(
     guardrails: {},
     guardrailsText: "",
     isActive: false,
+  });
+  // Nace con el modelo de la plataforma (como cualquier agente) y se le asigna
+  // el de la demo por el camino del platform admin (ver
+  // MODELO_DEL_AGENTE_DE_LA_DEMO).
+  await asignarModeloDeAgente({
+    agentId: agente.id,
+    ...modeloDeLaDemo.parse(MODELO_DEL_AGENTE_DE_LA_DEMO),
+    platformAdminUserId: opciones.platformAdminUserId ?? admin.id,
   });
   const qr = await createDigitalQrCode(organizationId, {
     branchId: sede.id,

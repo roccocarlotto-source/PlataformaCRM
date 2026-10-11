@@ -107,6 +107,30 @@ exports[`automotora sin cambios: los textos de antes de R17b > agenda 1`] = `
 ]
 `;
 
+exports[`automotora sin cambios: los textos de antes de R17b > agente interno 1`] = `
+[
+  "Agente interno",
+  "[aria-label] Ayuda de esta pantalla",
+  "[title] Ayuda de esta pantalla",
+  "El asistente del equipo, no el que habla con los clientes.",
+  "Todavía no está configurado: completá el formulario para crearlo.",
+  "Datos del agente",
+  "Nombre",
+  "Instrucciones",
+  "Lo que el agente lee antes de cada respuesta.",
+  "Modelo",
+  "Proveedor",
+  "Modelo",
+  "[placeholder] El de la plataforma",
+  "Lo elige el equipo de la plataforma.",
+  "Capacidades",
+  "Acciones habilitadas",
+  "Ninguna",
+  "Sin acciones, el agente solo conversa.",
+  "Guardar",
+]
+`;
+
 exports[`automotora sin cambios: los textos de antes de R17b > agente nuevo 1`] = `
 [
   "Nuevo agente",
@@ -613,6 +637,54 @@ exports[`automotora sin cambios: los textos de antes de R17b > dashboard 1`] = `
   "Nuevo contacto",
   "Nueva oportunidad",
   "Nueva actividad",
+]
+`;
+
+exports[`automotora sin cambios: los textos de antes de R17b > editar agente 1`] = `
+[
+  "Editar agente",
+  "[aria-label] Ayuda de esta pantalla",
+  "[title] Ayuda de esta pantalla",
+  "Datos del agente",
+  "Nombre",
+  "Sucursal",
+  "[placeholder] Elegir sucursal…",
+  "No se puede cambiar. Para otra sucursal, creá un agente nuevo.",
+  "Objetivo",
+  "Tono",
+  "[placeholder] formal, cercano…",
+  "Resumen para esta pantalla; el agente lee las instrucciones.",
+  "Avisar al cliente si nadie responde en (minutos)",
+  "[placeholder] Sin aviso",
+  "Vacío o 0: no se avisa.",
+  "Mensaje cuando no hay nadie disponible",
+  "[placeholder] Por el momento no hay nadie del equipo disponible. Te vamos a contactar más tarde. Mientras tanto, si querés, puedo seguir ayudándote.",
+  "Le llega al cliente. No escribas el horario: se agrega solo.",
+  "Activo",
+  "Instrucciones",
+  "Instrucciones",
+  "Sos el asistente. Contestá corto.",
+  "Lo que el agente lee antes de cada conversación.",
+  "Modelo",
+  "Proveedor",
+  "Modelo",
+  "[placeholder] El de la plataforma",
+  "Lo elige el equipo de la plataforma.",
+  "Capacidades",
+  "Acciones habilitadas",
+  "Calificar el lead",
+  "Canales",
+  "WhatsApp",
+  "Sin canales, el agente no atiende por ningún lado.",
+  "ID del número de WhatsApp",
+  "[placeholder] Sin número asignado",
+  "Lo asigna el equipo de la plataforma.",
+  "Reglas del agente",
+  "Reglas del agente",
+  "[placeholder] Ej.: No canceles ni cambies el estado de una oportunidad a ganada sin que un humano lo confirme. No modifiques el email ni el teléfono de un contacto. Antes de reservar un turno, asegurate de tener el nombre y el teléfono del cliente.",
+  "El sistema las hace cumplir antes de cada acción.",
+  "Los campos con asterisco (*) son obligatorios.",
+  "Guardar",
 ]
 `;
 

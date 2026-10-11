@@ -145,12 +145,18 @@ export const AGENT_TOOL_OPTIONS_DE_CLINICA: MultiSelectOption<string>[] = [
 // de un turno, y ahí necesita un nombre.
 export const REQUEST_HUMAN_HANDOFF_TOOL_NAME = "request_human_handoff";
 
+// La tool del sistema de una clínica que manda una indicación tal cual
+// (src/clinicas/toolDeIndicaciones.ts): mismo caso que la de derivar, no va en
+// el selector y el probador la muestra con este nombre.
+export const TOOL_DE_INDICACIONES = "send_care_instructions";
+
 // El rótulo corto de una tool tal como llega en una tool call. Un nombre
 // fuera del catálogo se muestra crudo —mismo criterio que
 // modelProviderLabel—: el dato real informa más que un "—", y en una
 // herramienta de diagnóstico es justamente lo que hay que poder leer.
 export function toolLabel(name: string): string {
   if (name === REQUEST_HUMAN_HANDOFF_TOOL_NAME) return "Derivar a una persona";
+  if (name === TOOL_DE_INDICACIONES) return "Mandar una indicación";
   return (
     [...AGENT_TOOL_OPTIONS, ...AGENT_TOOL_OPTIONS_DE_CLINICA].find(
       (option) => option.value === name,

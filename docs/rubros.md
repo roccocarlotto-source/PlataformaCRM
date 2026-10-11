@@ -462,6 +462,14 @@ AUTOMOTORA, `textos` son **las mismas constantes de hoy**, sin tocarlas. Para
 CLINICA, las versiones de `src/clinicas/config/rubro.ts`, con el término del
 contacto ("el paciente").
 
+> **Prueba de la Clínica Demo (2026-10-11):** quedaban dos textos de
+> automotora en pantallas de una clínica: el aviso "Para otra sucursal, creá un
+> agente nuevo" al editar un agente y "no el que habla con los clientes" en la
+> configuración del agente interno. Usan el vocabulario de la organización
+> (`sucursal` y el plural del contacto), y las dos pantallas entraron al test
+> de §3.1 (los snapshots de la automotora se tomaron sobre master). Los textos
+> que las tools de clínica le dan al modelo están en §5.1.
+
 **Test:** el system prompt completo de un agente AUTOMOTORA, armado con datos
 fijos, es idéntico byte a byte antes y después del cambio.
 
@@ -1130,6 +1138,38 @@ En los mismos dos lugares: `toolsHabilitadas` (`agentTools.service.ts:2913`) y
 >   comienzo de cualquier palabra). Ahora, con un error de tipeo, lo que sigue a
 >   la raíz tiene que ser una terminación (`TERMINACIONES_CON_TOLERANCIA`).
 
+> **Hallazgos de la prueba de la Clínica Demo (2026-10-11), sin migración.**
+> Lo que el agente dejaba librado al modelo y ahora decide el código:
+>
+> - **Derivar por el plazo (y "nadie firma") lo hace el código.** El rechazo
+>   de `turnoQueSePuedeCambiar` por `minHoursToChangeBooking` y el de
+>   `MENSAJE_SIN_AUTOR` llevan un `codigo` (`FUERA_DE_PLAZO`, `SIN_AUTOR`)
+>   además del texto: `ResultadoDeTool` sumó `codigo?` al rechazo, que ninguna
+>   tool de automotora usa. Después de cada ronda, el punto de extensión
+>   `desenlaceDeLasTools` (`reglasDelRubro.ts`) lo lee y la regla de clínica
+>   deriva como una consulta clínica: mensaje fijo con el nombre de la clínica
+>   (`mensajeDeCambioFueraDePlazo`), tarea con cuerpo fijo para la Recepción de
+>   la sede (§11.4), la conversación en `TRANSFERRED_TO_HUMAN`, la marca
+>   `regla_del_rubro` y el agente callado hasta que lo devuelvan. No se vuelve
+>   al modelo. Los demás rechazos ("ya empezó", "no confirmado") siguen
+>   siendo del modelo: su derivación es condicional.
+> - **Cancelar en dos pasos.** `cancel_booking` sin `confirmado` pasa las
+>   reglas y devuelve un resumen (`requiereConfirmacion: true`, `cancelado:
+>   false`) sin tocar nada. Con `confirmado: true` cancela solo si el último
+>   mensaje del agente en la conversación ya tenía ese resumen para ese turno
+>   (en `Message.toolCalls`) y el contacto escribió después: o sea, en un
+>   mensaje posterior, nunca en el mismo turno. Si no, devuelve el resumen
+>   otra vez. Reprogramar ya confirmaba en el prompt y queda igual.
+> - **El día ya escrito.** Las tools de agenda y de turnos de una clínica
+>   devuelven `cuando` ("lunes 12 de octubre, 09:30", en la zona de la sede)
+>   junto a los campos ISO, y una instrucción fija del rubro le dice al modelo
+>   que lo use tal cual (`INSTRUCCION_DE_FECHAS_DE_CLINICA`).
+> - **Textos de las tools para el modelo:** las de clínica hablan del
+>   paciente también en lo que heredaban de las de una automotora (el sufijo
+>   de argumentos inválidos, el candado de identidad, el tope de turnos y los
+>   mensajes de `resolverServicio`, que reciben los textos por parámetro). Una
+>   automotora sigue con los de siempre, byte a byte (suite §14.1).
+
 ### 5.2 Agendar con los niveles de IA (D2)
 
 **Decidido:** la clínica agenda con el agente en **AUTONOMA**, con las tools
@@ -1189,6 +1229,36 @@ agenda", y el formulario del agente de clínicas lo dice así.
 > - **SOLO_SEGUIMIENTO** todavía no existe en el código (PR 6 de ediciones).
 >   La urgencia corre antes que cualquier filtro por nivel, así que vale
 >   cualquiera sea. El test lo fija con un agente en SOLO_SEGUIMIENTO.
+
+> **Prueba de la Clínica Demo (2026-10-11): puntos de extensión nuevos**, todos
+> vacíos en `SIN_REGLAS` (AUTOMOTORA), así que el loop de una automotora no
+> cambia (suite §14.1):
+>
+> - `correccionesDeSalida`, después de la capa 3: **el agente no afirma un
+>   turno que no hizo.** Si la respuesta da por agendado, reprogramado o
+>   cancelado un turno ("He reservado…", "quedó cancelado") y la tool que lo
+>   hace no devolvió ok en ESE turno (`cancel_booking` además con `cancelado:
+>   true`), la respuesta no sale (`src/clinicas/afirmacionesDeTurnos.ts`,
+>   detector determinístico: verbos en pasado de primera persona y "quedó" +
+>   participio; preguntas y negaciones no cuentan). **Se reemplaza por un
+>   mensaje fijo y no se le vuelve a pedir al modelo:** es lo único que
+>   garantiza que la afirmación falsa no salga; una segunda redacción puede
+>   repetirla y cuesta otra llamada. El mensaje
+>   (`MENSAJE_AFIRMACION_SIN_ACCION`) es honesto también si el turno era de un
+>   mensaje anterior. No deriva, y su marca (`correccion_del_rubro`) no calla
+>   al agente.
+> - `retoquesDeSalida`: sobre una respuesta del modelo que ya pasó todo. En una
+>   clínica, `sinDeEjemplo` saca "de ejemplo" (no "por ejemplo").
+> - `desenlaceDeLasTools`: después de cada ronda de tools, puede terminar el
+>   turno sin volver al modelo, derivando (el plazo de §5.1) o con un texto
+>   fijo (las indicaciones de §5.4). Ese texto no es del modelo y no pasa por
+>   las guardas de salida.
+> - `toolsDelSistema`: tools del rubro que, como `request_human_handoff`, se
+>   ofrecen sin `enabledTools`, en cualquier nivel que converse, y no pasan por
+>   `puedeEjecutarTool` (la de indicaciones, §5.4).
+> - **Tono:** `instruccionesDelPrompt` de clínica suma `INSTRUCCION_DE_TONO_DE_CLINICA`
+>   (voseo rioplatense por defecto, nunca tú ni usted salvo que el tono
+>   configurado diga otra cosa, y nunca "de ejemplo") y la de las fechas.
 
 **Regla:** en CLINICA, en **todos** los niveles y **todos** los canales
 (incluido el widget web), el agente no da historia clínica, diagnósticos ni
@@ -1300,6 +1370,26 @@ Se responden **solo desde la base de conocimiento**:
 > el encabezado `ENCABEZADO_INDICACIONES`. Sigue el límite por sede de siempre
 > (las entradas son de la sucursal del agente). Las FAQs que hoy deriva la capa
 > 1 no entran en R18 (pendiente en §5.3).
+
+> **Indicaciones tal cual, sin el modelo (prueba de la Clínica Demo,
+> 2026-10-11, sin migración).** Con el texto en el prompt y la instrucción de
+> transcribir, el modelo las parafraseaba. Ahora:
+>
+> - el bloque de `ENCABEZADO_INDICACIONES` lleva **solo los títulos**: el
+>   texto no llega al modelo;
+> - si el paciente pide una, el modelo llama a `send_care_instructions` con el
+>   título (`src/clinicas/toolDeIndicaciones.ts`). Es una tool del sistema de
+>   la clínica (`toolsDelSistema`, §5.3): se ofrece sin estar en
+>   `enabledTools`, en cualquier nivel que converse, y solo si la sede tiene
+>   indicaciones. Busca por título exacto (sin tildes ni mayúsculas) o, si no,
+>   por uno solo que lo contenga; si no la encuentra, devuelve la lista;
+> - después de esa ronda el turno termina sin volver al modelo
+>   (`desenlaceDeLasTools`): el paciente recibe el texto que cargó la clínica,
+>   tal cual (con el formato del canal, como todo saliente). No pasa por la
+>   capa 3, que lo bloquearía justamente por lo que la clínica autorizó a decir
+>   ("aplicate protector solar…");
+> - las consultas de salud siguen yendo antes a la capa 1, así que un "¿es
+>   normal que me arda?" se deriva sin llegar a la tool.
 
 ### 5.5 Precios, medios de pago y mutualistas (B7)
 
@@ -1984,6 +2074,16 @@ sede y se asignan así:
 Como Recepción ve las tareas de sus sedes, cualquier persona de Recepción de esa
 sede puede tomar una asignada a otra. No hace falta una columna de "cola".
 
+> **Prueba de la Clínica Demo (2026-10-11):** el paso 3 no se cumplía en las
+> derivaciones del agente. Con un solo ADMIN y sin Recepción, la conversación
+> derivada quedaba sin nadie asignado, y una derivación no urgente, sin tarea.
+> Ahora `ejecutarHandoff`, en una clínica y sin dueño del contacto ni
+> responsable por defecto, usa `respaldoDeClinica`: la Recepción de la sede o,
+> si no tiene, el ADMIN activo más antiguo, para la conversación y para la
+> tarea (también la de una urgencia en una conversación ya derivada). En una
+> automotora devuelve null: una derivación sin vendedor sigue siendo
+> silenciosa (suite §14.1).
+
 ### 11.5 Usuarios por sede (D19)
 
 > **Implementado en R20** (migración `20261105120000_usuarios_por_sede`). Cómo
@@ -2107,6 +2207,15 @@ datos inventados. **No se usa AutoMax** ni ningún dato real.
 >   coincide con un patrón de la purga (lo prueban
 >   `testOrganizationsPurge.service.test.ts` y
 >   `src/clinicas/clinicaDemo.integration-test.ts`).
+> - **El modelo del agente (prueba de la demo, 2026-10-11).** Un agente nuevo
+>   toma el modelo de la plataforma (`OPENROUTER_MODEL`, `modeloPorDefecto`),
+>   que en producción era un modelo chico que razonaba mal. La demo tiene que
+>   mostrar al agente en su mejor versión: `cargarDatosDeEjemplo` le asigna
+>   `MODELO_DEL_AGENTE_DE_LA_DEMO` (`src/clinicas/demo/config.ts`,
+>   `openrouter` / `google/gemini-3.1-flash-lite`) con `asignarModeloDeAgente`,
+>   el mismo camino y las mismas validaciones que la asignación de un platform
+>   admin (el log lleva al platform admin que creó la demo). Un agente común
+>   sigue naciendo con `OPENROUTER_MODEL`.
 > - **`cargarDatosDeEjemplo(organizationId, adminUserId)`**
 >   (`src/clinicas/demo/`) responde 409 si la organización no es CLINICA o si ya
 >   tiene contactos, turnos, conversaciones o vehículos (incluidos los dados de

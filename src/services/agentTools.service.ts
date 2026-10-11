@@ -159,8 +159,10 @@ export function datosQueFaltanParaActuar(
   return faltan;
 }
 
-export function mensajeFaltanDatos(faltan: string[]): string {
-  return `Todavía no se puede: antes de reservar o registrar la oportunidad hace falta ${faltan.join(" y ")} del cliente. Pedíselo, guardalo con update_lead (firstName, lastName, phone, email) y recién después volvé a llamar a esta herramienta. No le digas que quedó reservado ni registrado: todavía no se hizo nada.`;
+// `termino`: cómo se llama el contacto en el texto que lee el modelo. Una
+// clínica manda "paciente" (docs/rubros.md §3.2); sin él, el de siempre.
+export function mensajeFaltanDatos(faltan: string[], termino = "cliente"): string {
+  return `Todavía no se puede: antes de reservar o registrar la oportunidad hace falta ${faltan.join(" y ")} del ${termino}. Pedíselo, guardalo con update_lead (firstName, lastName, phone, email) y recién después volvé a llamar a esta herramienta. No le digas que quedó reservado ni registrado: todavía no se hizo nada.`;
 }
 
 // FABLE-A-02 (B3, 05/10/2026): por WEB las tools no devuelven el email ni el
@@ -176,13 +178,14 @@ export const NOTA_DATOS_RESERVADOS_EN_WEB =
 // ronda ya quedó guardado.
 export async function bloqueoPorIdentidad(
   contexto: ContextoDeEjecucionDeTool,
+  termino = "cliente",
 ): Promise<ResultadoDeTool | null> {
   const contacto = await findContactById(contexto.conversation.contactId, contexto.organizationId);
   if (!contacto) {
     return fallo("El contacto de esta conversación ya no existe");
   }
   const faltan = datosQueFaltanParaActuar(contacto, contexto.conversation.channel);
-  return faltan.length > 0 ? fallo(mensajeFaltanDatos(faltan)) : null;
+  return faltan.length > 0 ? fallo(mensajeFaltanDatos(faltan, termino)) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +209,14 @@ export const ORIGEN_POR_CANAL: Record<ConversationChannel, OpportunityLeadSource
 
 // Serializable: va a Message.toolCalls y, como string JSON, de vuelta al
 // modelo.
-export type ResultadoDeTool = { ok: true; data: unknown } | { ok: false; error: string };
+//
+// `codigo` (opcional): el motivo de un rechazo, legible por el código y no
+// solo por el modelo. Lo leen las reglas del rubro después de cada ronda
+// (ReglasDelRubro.desenlaceDeLasTools): en una clínica, un cambio de turno
+// fuera de plazo deriva desde el código, sin depender de que el modelo lo
+// haga (docs/rubros.md §5.1). Ninguna tool de una automotora lo usa.
+export type ResultadoDeTool =
+  { ok: true; data: unknown } | { ok: false; error: string; codigo?: string };
 
 export interface ToolDelAgente {
   definition: LlmToolDefinition;
@@ -220,8 +230,8 @@ export interface ToolDelAgente {
 // helpers de argumentos opcionales de más abajo— para el catálogo del agente
 // interno (internalAgentTools.service.ts). Es la misma mecánica de
 // validación y de errores de negocio; lo que NO se comparte es el catálogo.
-export function fallo(error: string): ResultadoDeTool {
-  return { ok: false, error };
+export function fallo(error: string, codigo?: string): ResultadoDeTool {
+  return codigo === undefined ? { ok: false, error } : { ok: false, error, codigo };
 }
 
 export function exito(data: unknown): ResultadoDeTool {
@@ -1439,6 +1449,27 @@ export const MENSAJE_SERVICIO_SIN_IDENTIFICAR =
 export const SIN_SERVICIOS_CONFIGURADOS =
   "Esta sucursal no tiene ningún servicio configurado, así que no hay nada que agendar.";
 
+// Los textos de resolverServicio que lee el modelo. Los de siempre hablan de
+// "servicio", "sucursal" y "cliente"; una clínica pasa los suyos
+// (src/clinicas/toolsDeAgenda.ts). Los de una automotora son estos, byte a
+// byte (suite "automotora sin cambios").
+export interface TextosDeResolverServicio {
+  sinConfigurar: string;
+  sinIdentificar(nombres: string): string;
+  noExiste(pedido: string, nombres: string): string;
+  ambiguo(pedido: string, nombres: string): string;
+}
+
+export const TEXTOS_DE_RESOLVER_SERVICIO: TextosDeResolverServicio = {
+  sinConfigurar: SIN_SERVICIOS_CONFIGURADOS,
+  sinIdentificar: (nombres) =>
+    `${MENSAJE_SERVICIO_SIN_IDENTIFICAR} Los de esta sucursal son: ${nombres}. Elegí el que corresponda a lo que pidió el cliente y volvé a llamar en este mismo turno; si de verdad ninguno encaja o hay dos que podrían, preguntale al cliente NOMBRÁNDOLE esos, nunca "¿qué servicio querés?" a secas.`,
+  noExiste: (pedido, nombres) =>
+    `No existe ningún servicio llamado "${pedido}". Los que existen son: ${nombres}. Usá uno de esos, tal cual está escrito.`,
+  ambiguo: (pedido, nombres) =>
+    `Hay más de un servicio que se llama "${pedido}". Preguntale al cliente cuál quiere entre: ${nombres}.`,
+};
+
 function nombresDe(tipos: { name: string }[]): string {
   return tipos.map((t) => `"${t.name}"`).join(", ");
 }
@@ -1457,6 +1488,7 @@ export function normalizarNombre(texto: string): string {
 export async function resolverServicio(
   args: { serviceTypeId?: string; servicio?: string },
   contexto: ContextoDeEjecucionDeTool,
+  textos: TextosDeResolverServicio = TEXTOS_DE_RESOLVER_SERVICIO,
 ): Promise<{ ok: true; serviceTypeId: string } | { ok: false; resultado: ResultadoDeTool }> {
   if (args.serviceTypeId !== undefined) {
     return { ok: true, serviceTypeId: args.serviceTypeId };
@@ -1479,9 +1511,7 @@ export async function resolverServicio(
     return {
       ok: false,
       resultado: fallo(
-        tipos.length === 0
-          ? SIN_SERVICIOS_CONFIGURADOS
-          : `${MENSAJE_SERVICIO_SIN_IDENTIFICAR} Los de esta sucursal son: ${nombresDe(tipos)}. Elegí el que corresponda a lo que pidió el cliente y volvé a llamar en este mismo turno; si de verdad ninguno encaja o hay dos que podrían, preguntale al cliente NOMBRÁNDOLE esos, nunca "¿qué servicio querés?" a secas.`,
+        tipos.length === 0 ? textos.sinConfigurar : textos.sinIdentificar(nombresDe(tipos)),
       ),
     };
   }
@@ -1497,17 +1527,13 @@ export async function resolverServicio(
     return {
       ok: false,
       resultado: fallo(
-        tipos.length === 0
-          ? SIN_SERVICIOS_CONFIGURADOS
-          : `No existe ningún servicio llamado "${args.servicio}". Los que existen son: ${disponibles}. Usá uno de esos, tal cual está escrito.`,
+        tipos.length === 0 ? textos.sinConfigurar : textos.noExiste(args.servicio, disponibles),
       ),
     };
   }
   return {
     ok: false,
-    resultado: fallo(
-      `Hay más de un servicio que se llama "${args.servicio}". Preguntale al cliente cuál quiere entre: ${disponibles}.`,
-    ),
+    resultado: fallo(textos.ambiguo(args.servicio, disponibles)),
   };
 }
 
