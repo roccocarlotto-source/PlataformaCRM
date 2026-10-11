@@ -227,6 +227,22 @@ export function findOldestActiveAdmin(organizationId: string, db: Db = prisma) {
   });
 }
 
+// Los ADMIN vigentes de una organización vigente, del más viejo al más nuevo:
+// a quién reenviarle la invitación del alta (reenviarInvitacionDelAdministrador).
+// null si la organización no existe o está dada de baja.
+export async function adminsVigentesDeLaOrganizacion(organizationId: string, db: Db = prisma) {
+  const organizacion = await db.organization.findFirst({
+    where: { id: organizationId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!organizacion) return null;
+  return db.user.findMany({
+    where: { organizationId, isActive: true, deletedAt: null, role: { name: "ADMIN" } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, email: true, fullName: true },
+  });
+}
+
 export interface UpdateUserData {
   isActive?: boolean;
   roleId?: string;

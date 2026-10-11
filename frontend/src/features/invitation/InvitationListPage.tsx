@@ -15,7 +15,7 @@ import { Select } from "../../design-system/Select";
 import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { useOwnerNames } from "../opportunity/relationResolution";
-import { useRevokeInvitation } from "./mutations";
+import { useResendInvitation, useRevokeInvitation } from "./mutations";
 import { useInvitations } from "./queries";
 import { INVITATION_STATUSES, INVITATION_STATUS_LABELS } from "./types";
 import type { InvitationSortBy, InvitationStatus, SortOrder } from "./types";
@@ -56,6 +56,8 @@ export function InvitationListPage() {
   });
 
   const revokeInvitationMutation = useRevokeInvitation();
+  // Reenviar (prueba de la Clínica Demo, 2026-10-11): el mail puede no llegar.
+  const resendInvitationMutation = useResendInvitation();
 
   const rows = useMemo(() => invitationsQuery.data?.data ?? [], [invitationsQuery.data]);
 
@@ -137,6 +139,20 @@ export function InvitationListPage() {
           </ErrorState>
         ) : null}
 
+        {resendInvitationMutation.isError ? (
+          <ErrorState>
+            No pudimos reenviar la invitación
+            {resendInvitationMutation.error instanceof Error
+              ? `: ${resendInvitationMutation.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
+        {resendInvitationMutation.isSuccess ? (
+          <p className="ds-hint" role="status">
+            Reenviamos la invitación a {resendInvitationMutation.data.email}.
+          </p>
+        ) : null}
+
         {invitationsQuery.isSuccess && rows.length === 0 ? (
           <EmptyState title="No hay invitaciones para mostrar" icon={MailPlus} />
         ) : null}
@@ -173,6 +189,18 @@ export function InvitationListPage() {
                   <td className="ds-cell-muted">{formatDateTime(invitation.expiresAt)}</td>
                   <td>
                     <div className="ds-row-actions">
+                      {invitation.status === "PENDING" ? (
+                        <Button
+                          onClick={() => resendInvitationMutation.mutate(invitation.id)}
+                          disabled={resendInvitationMutation.isPending}
+                          loading={
+                            resendInvitationMutation.isPending &&
+                            resendInvitationMutation.variables === invitation.id
+                          }
+                        >
+                          Reenviar
+                        </Button>
+                      ) : null}
                       {invitation.status === "PENDING" ? (
                         <Button
                           variant="danger"

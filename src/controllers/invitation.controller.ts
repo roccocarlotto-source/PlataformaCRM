@@ -7,6 +7,7 @@ import {
   acceptInvitation,
   createInvitation,
   listInvitations,
+  resendInvitation,
   revokeInvitation,
 } from "../services/invitation.service";
 import type { AuthenticatedRequest, InvitationAcceptRequest } from "../types/auth";
@@ -65,6 +66,14 @@ export const listInvitationsHandler = asyncHandler<AuthenticatedRequest>(
     const query = parseOrThrow(listQuerySchema, req.query);
     const result = await listInvitations(req.auth.organizationId, query, req.auth.industry);
     res.status(200).json(result);
+  },
+);
+
+export const resendInvitationHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(idParamSchema, req.params.id);
+    const invitation = await resendInvitation(req.auth.organizationId, id);
+    res.status(200).json(invitation);
   },
 );
 

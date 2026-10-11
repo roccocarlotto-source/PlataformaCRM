@@ -19,6 +19,7 @@ import {
   findManyInvitations,
   findPendingInvitationByOrgAndEmail,
   hardDeleteInvitation,
+  renovarVencimientoConditional,
   revokeInvitationConditional,
   type InvitationSortBy,
   type SortOrder,
@@ -297,6 +298,75 @@ export async function revokeInvitation(organizationId: string, id: string) {
   const updated = await findInvitationById(id, organizationId);
   if (!updated) {
     throw new AppError("Invitación no encontrada tras revocar", 500);
+  }
+  return updated;
+}
+
+// Reenviar una invitación (prueba de la Clínica Demo, 2026-10-11): el mail
+// puede no llegar, perderse o tardar. Mismo wording por estado que revocar,
+// para el ADMIN.
+function resendConflictError(status: string): AppError {
+  switch (status) {
+    case "ACCEPTED":
+      return new AppError("Esta invitación ya fue aceptada", 409);
+    case "REVOKED":
+      return new AppError("Esta invitación fue revocada: si hace falta, creá una nueva", 409);
+    case "EXPIRED":
+      return new AppError("Esta invitación venció: creá una nueva", 410);
+    default:
+      return new AppError("Esta invitación ya no está disponible para reenviar", 409);
+  }
+}
+
+export const MENSAJE_YA_ABRIO_EL_ENLACE =
+  "Esa persona ya abrió el enlace de la invitación, así que no hay un mail nuevo que mandarle. Pedile que entre con «¿Olvidaste tu contraseña?» usando ese email: después de elegir la contraseña, la app la lleva a completar su cuenta.";
+
+// Vuelve a mandar el mail de una invitación PENDING vigente, con el mismo
+// redirectTo que al crearla, y el vencimiento vuelve a contar desde ahora.
+// Supabase reenvía el invite a una identidad sin confirmar y devuelve éxito
+// (B-22). Si la persona ya abrió el enlace, la identidad está confirmada y
+// GoTrue no manda nada (email_exists): 409 con qué hacer — con la red de
+// seguridad de ProtectedRoute, entrar con la contraseña recuperada la lleva a
+// aceptar la invitación.
+export async function resendInvitation(organizationId: string, id: string) {
+  await expireDueInvitations({ organizationId, id });
+
+  const invitation = await findInvitationById(id, organizationId);
+  if (!invitation) {
+    throw new AppError("Invitación no encontrada", 404);
+  }
+  if (invitation.status !== "PENDING") {
+    throw resendConflictError(invitation.status);
+  }
+
+  const { error: authError } = await getSupabaseAdmin().auth.admin.inviteUserByEmail(
+    invitation.email,
+    { data: { invitationId: invitation.id }, redirectTo: urlParaAceptarLaInvitacion() },
+  );
+  if (authError) {
+    if (esErrorDeEmailDuplicado(authError)) {
+      throw new AppError(MENSAJE_YA_ABRIO_EL_ENLACE, 409);
+    }
+    logger.error({ err: authError }, "Error reenviando la invitación en Supabase Auth");
+    throw new AppError("No se pudo reenviar la invitación", 502);
+  }
+
+  const result = await renovarVencimientoConditional(
+    id,
+    organizationId,
+    new Date(Date.now() + INVITATION_TTL_MS),
+  );
+  if (result.count === 0) {
+    const current = await findInvitationById(id, organizationId);
+    if (!current) {
+      throw new AppError("Invitación no encontrada", 404);
+    }
+    throw resendConflictError(current.status);
+  }
+
+  const updated = await findInvitationById(id, organizationId);
+  if (!updated) {
+    throw new AppError("Invitación no encontrada tras reenviar", 500);
   }
   return updated;
 }

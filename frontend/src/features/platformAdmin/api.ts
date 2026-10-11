@@ -58,6 +58,17 @@ export function changeOrganizationEdition(
   );
 }
 
+// Reenviar el mail de invitación al administrador de una organización que
+// todavía no la aceptó. Responde a qué email salió; 409 si ya la aceptó.
+export function reenviarInvitacionDelAdministrador(
+  organizationId: string,
+): Promise<{ email: string }> {
+  return request<{ email: string }>(
+    `/admin/organizations/${encodeURIComponent(organizationId)}/admin-invitation/resend`,
+    { method: "POST", getAccessToken },
+  );
+}
+
 // Las ediciones que se pueden elegir hoy en el alta (docs/ediciones.md §10,
 // PR 4). Con una sola, la pantalla no muestra el selector.
 export function listEditions(signal?: AbortSignal): Promise<EdicionesDisponibles> {

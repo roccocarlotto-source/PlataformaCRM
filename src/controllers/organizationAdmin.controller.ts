@@ -8,6 +8,7 @@ import {
   cambiarEdicionDeOrganizacion,
   cambiarRubroDeOrganizacion,
   createOrganizationWithFoundingAdmin,
+  reenviarInvitacionDelAdministrador,
 } from "../services/organizationAdmin.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -108,6 +109,15 @@ export const changeOrganizationIndustryHandler = asyncHandler<AuthenticatedReque
     const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
     const { industry } = parseOrThrow(cambiarRubroSchema, req.body);
     res.status(200).json(await cambiarRubroDeOrganizacion(organizationId, industry));
+  },
+);
+
+// Reenviar el mail de invitación al administrador que todavía no lo abrió
+// (prueba de la Clínica Demo, 2026-10-11). Responde a qué email salió.
+export const reenviarInvitacionDelAdministradorHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
+    res.status(200).json(await reenviarInvitacionDelAdministrador(organizationId));
   },
 );
 

@@ -11,7 +11,13 @@ import { findRoleByName } from "../repositories/role.repository";
 import type { InvitationAcceptIdentity } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { acceptInvitationRowConditional } from "../repositories/invitation.repository";
-import { acceptInvitation, createInvitation, revokeInvitation } from "./invitation.service";
+import {
+  acceptInvitation,
+  createInvitation,
+  MENSAJE_YA_ABRIO_EL_ENLACE,
+  resendInvitation,
+  revokeInvitation,
+} from "./invitation.service";
 
 // Test de integración del LOW "accept/revoke de Invitation puede devolver
 // 404/400 en vez del 409/410 más específico". Contra Postgres real, sin
@@ -777,4 +783,56 @@ test("B-18 (service, rama nueva): la invitación vence ENTRE el pre-check y el C
   const fila = await prisma.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
   assert.equal(fila.status, "EXPIRED", "la rama nueva expira la fila: no queda un PENDING zombie");
   assert.equal(await prisma.user.count({ where: { id: identity.userId } }), 0);
+});
+
+// ---------------------------------------------------------------------------
+// resendInvitation (prueba de la Clínica Demo, 2026-10-11): los estados que no
+// se reenvían y la persona que ya abrió el enlace. El camino feliz, contra la
+// app real, en usuariosPorSede y en automotoraSinCambios.
+// ---------------------------------------------------------------------------
+
+test("resendInvitation: revocada → 409, vencida → 410 (y queda EXPIRED), de otra organización → 404", async () => {
+  const revocada = await createInvitationRow(`resend-rev-${randomUUID()}@example.test`, "REVOKED");
+  await assert.rejects(
+    () => resendInvitation(fx.orgId, revocada.id),
+    (err) =>
+      assertAppError(err, 409, "Esta invitación fue revocada: si hace falta, creá una nueva"),
+  );
+
+  const vencida = await createInvitationRow(`resend-venc-${randomUUID()}@example.test`, "PENDING", {
+    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+    expiresAt: new Date(Date.now() - 60_000),
+  });
+  await assert.rejects(
+    () => resendInvitation(fx.orgId, vencida.id),
+    (err) => assertAppError(err, 410, "Esta invitación venció: creá una nueva"),
+  );
+  const despues = await prisma.invitation.findUniqueOrThrow({ where: { id: vencida.id } });
+  assert.equal(despues.status, "EXPIRED");
+
+  const pendiente = await createInvitationRow(
+    `resend-otra-${randomUUID()}@example.test`,
+    "PENDING",
+  );
+  await assert.rejects(
+    () => resendInvitation(randomUUID(), pendiente.id),
+    (err) => assertAppError(err, 404, "Invitación no encontrada"),
+  );
+});
+
+test("resendInvitation: la persona ya abrió el enlace (identidad confirmada) → 409 con qué hacer, y el vencimiento no cambia", async () => {
+  const invitee = await createRealAuthUser("resend-confirmada");
+  try {
+    const expiresAt = futureExpiry(2);
+    const fila = await createInvitationRow(invitee.email, "PENDING", { expiresAt });
+    await assert.rejects(
+      () => resendInvitation(fx.orgId, fila.id),
+      (err) => assertAppError(err, 409, MENSAJE_YA_ABRIO_EL_ENLACE),
+    );
+    const despues = await prisma.invitation.findUniqueOrThrow({ where: { id: fila.id } });
+    assert.equal(despues.status, "PENDING");
+    assert.equal(despues.expiresAt.getTime(), expiresAt.getTime());
+  } finally {
+    await getSupabaseAdmin().auth.admin.deleteUser(invitee.id);
+  }
 });

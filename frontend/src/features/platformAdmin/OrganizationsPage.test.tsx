@@ -17,6 +17,8 @@ vi.mock("../../auth/getAccessToken", () => ({
 const listUrl = `${env.apiUrl}/api/admin/organizations`;
 const editionsUrl = `${env.apiUrl}/api/admin/organizations/editions`;
 const editionUrl = (id: string) => `${env.apiUrl}/api/admin/organizations/${id}/edition`;
+const reenviarUrl = (id: string) =>
+  `${env.apiUrl}/api/admin/organizations/${id}/admin-invitation/resend`;
 
 const ORGS: PlatformOrganization[] = [
   {
@@ -74,9 +76,65 @@ describe("OrganizationsPage", () => {
     const norte = screen.getByText("Automotora Norte").closest("tr")!;
     expect(within(centro).getByText("Completa")).toBeInTheDocument();
     expect(within(norte).getByText("Esencial")).toBeInTheDocument();
-    expect(within(centro).queryByRole("button")).not.toBeInTheDocument();
+    expect(
+      within(centro).queryByRole("button", { name: "Pasar a edición completa" }),
+    ).not.toBeInTheDocument();
+    // Reenviar la invitación está en todas las filas (ver OrganizationsPage).
+    expect(within(centro).getByRole("button", { name: "Reenviar invitación" })).toBeInTheDocument();
     expect(
       within(norte).getByRole("button", { name: "Pasar a edición completa" }),
+    ).toBeInTheDocument();
+  });
+
+  // Reenviar (prueba de la Clínica Demo, 2026-10-11).
+  it("reenviar la invitación: pide confirmación, manda el POST y dice a qué email salió", async () => {
+    let reenvios = 0;
+    server.use(
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+      http.post(reenviarUrl("org-1"), () => {
+        reenvios += 1;
+        return HttpResponse.json({ email: "admin@example.com" });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const fila = (await screen.findByText("Automotora Centro")).closest("tr") as HTMLElement;
+    await user.click(within(fila).getByRole("button", { name: "Reenviar invitación" }));
+    expect(screen.getByText(/Le llega de nuevo el mail/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reenviar" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Reenviamos la invitación de «Automotora Centro» a admin@example.com.",
+    );
+    expect(reenvios).toBe(1);
+  });
+
+  it("reenviar la invitación: si el administrador ya la aceptó, muestra el error del backend", async () => {
+    server.use(
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+      http.post(reenviarUrl("org-1"), () =>
+        HttpResponse.json(
+          {
+            error: {
+              message:
+                "El administrador de esta organización ya aceptó la invitación: no hay nada que reenviar.",
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const fila = (await screen.findByText("Automotora Centro")).closest("tr") as HTMLElement;
+    await user.click(within(fila).getByRole("button", { name: "Reenviar invitación" }));
+    await user.click(screen.getByRole("button", { name: "Reenviar" }));
+    expect(
+      await screen.findByText(
+        "El administrador de esta organización ya aceptó la invitación: no hay nada que reenviar.",
+      ),
     ).toBeInTheDocument();
   });
 

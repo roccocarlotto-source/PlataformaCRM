@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createInvitation, revokeInvitation } from "./api";
+import { createInvitation, resendInvitation, revokeInvitation } from "./api";
 import { invitationKeys } from "./queries";
 import type { CreateInvitationInput } from "./types";
 
@@ -15,6 +15,17 @@ export function useCreateInvitation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateInvitationInput) => createInvitation(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: invitationKeys.lists() });
+    },
+  });
+}
+
+// Reenviar cambia el vencimiento: se refresca la columna Vence.
+export function useResendInvitation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => resendInvitation(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: invitationKeys.lists() });
     },

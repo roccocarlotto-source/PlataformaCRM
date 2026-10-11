@@ -112,6 +112,18 @@ página.
 
 > No se puede deshacer: una organización **Completa** no vuelve a **Esencial**.
 
+### Reenviar la invitación del administrador
+
+Si la persona que va a administrar una organización no recibió el email de la
+invitación (o lo perdió):
+
+1. En la fila de la organización, tocá **Reenviar invitación**.
+2. Confirmá con **Reenviar**.
+
+Arriba de la lista aparece a qué email se reenvió. Le llega de nuevo el email
+para elegir su contraseña. Si esa persona ya había aceptado la invitación, el
+sistema te avisa que no hay nada que reenviar.
+
 ## Importar datos {#importar-datos}
 
 Cuando un cliente nuevo viene de otro sistema (otro CRM, una planilla de ventas,

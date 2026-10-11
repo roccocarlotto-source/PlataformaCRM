@@ -3,6 +3,7 @@ import {
   acceptInvitationHandler,
   createInvitationHandler,
   listInvitationsHandler,
+  resendInvitationHandler,
   revokeInvitationHandler,
 } from "../controllers/invitation.controller";
 import { authenticate } from "../middlewares/authenticate";
@@ -24,6 +25,14 @@ invitationRouter.post(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   createInvitationHandler,
+);
+// Reenviar el mail de una invitación pendiente: misma cadena que revocar.
+invitationRouter.post(
+  "/invitations/:id/resend",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  resendInvitationHandler,
 );
 invitationRouter.delete(
   "/invitations/:id",

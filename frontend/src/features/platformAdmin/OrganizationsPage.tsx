@@ -11,7 +11,7 @@ import { PageHeader } from "../../design-system/PageHeader";
 import { Table } from "../../design-system/Table";
 import { useConfirm } from "../../design-system/useConfirm";
 import { NOMBRE_DE_EDICION } from "./ediciones";
-import { useChangeOrganizationEdition } from "./mutations";
+import { useChangeOrganizationEdition, useReenviarInvitacionDelAdministrador } from "./mutations";
 import { useEsencialOfrecida, usePlatformOrganizations } from "./queries";
 import type { PlatformOrganization } from "./types";
 
@@ -25,6 +25,11 @@ import type { PlatformOrganization } from "./types";
 // haber ninguna organización que subir, así que la pantalla no se muestra: el
 // menú no la lista y la ruta vuelve al inicio. Su "?" apunta a la sección 14
 // de la guía (plataforma#organizaciones).
+//
+// "Reenviar invitación" (prueba de la Clínica Demo, 2026-10-11): en todas las
+// filas, porque saber si el administrador ya la aceptó es preguntarle a
+// Supabase por cada organización; lo decide el backend al reenviar (409 si ya
+// la aceptó).
 // ---------------------------------------------------------------------------
 
 export function OrganizationsPage() {
@@ -40,10 +45,30 @@ function ListaDeOrganizaciones() {
   const confirm = useConfirm();
   const [error, setError] = useState<string | null>(null);
   const [subida, setSubida] = useState<string | null>(null);
+  const reenviar = useReenviarInvitacionDelAdministrador();
+  const [reenviada, setReenviada] = useState<string | null>(null);
+
+  async function reenviarInvitacion(org: PlatformOrganization) {
+    setError(null);
+    setSubida(null);
+    setReenviada(null);
+    const ok = await confirm(
+      `¿Reenviar la invitación al administrador de «${org.name}»? Le llega de nuevo el mail para elegir su contraseña.`,
+      { confirmLabel: "Reenviar" },
+    );
+    if (!ok) return;
+    try {
+      const { email } = await reenviar.mutateAsync(org.id);
+      setReenviada(`Reenviamos la invitación de «${org.name}» a ${email}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No pudimos reenviar la invitación");
+    }
+  }
 
   async function pasarACompleta(org: PlatformOrganization) {
     setError(null);
     setSubida(null);
+    setReenviada(null);
     const ok = await confirm(
       `¿Pasar «${org.name}» a la edición completa? Va a tener todos los módulos. No se puede volver a la edición esencial.`,
       { confirmLabel: "Pasar a completa" },
@@ -67,6 +92,7 @@ function ListaDeOrganizaciones() {
         ) : null}
         {error ? <ErrorState>{error}</ErrorState> : null}
         {subida ? <p role="status">«{subida}» ya tiene la edición completa.</p> : null}
+        {reenviada ? <p role="status">{reenviada}</p> : null}
         {organizationsQuery.isSuccess ? (
           organizationsQuery.data.length === 0 ? (
             <EmptyState>No hay organizaciones vigentes.</EmptyState>
@@ -95,15 +121,24 @@ function ListaDeOrganizaciones() {
                       </Badge>
                     </td>
                     <td>
-                      {org.edition === "ESENCIAL" ? (
+                      <div className="ds-row-actions">
                         <Button
                           type="button"
-                          onClick={() => void pasarACompleta(org)}
-                          disabled={cambiarEdicion.isPending}
+                          onClick={() => void reenviarInvitacion(org)}
+                          disabled={reenviar.isPending}
                         >
-                          Pasar a edición completa
+                          Reenviar invitación
                         </Button>
-                      ) : null}
+                        {org.edition === "ESENCIAL" ? (
+                          <Button
+                            type="button"
+                            onClick={() => void pasarACompleta(org)}
+                            disabled={cambiarEdicion.isPending}
+                          >
+                            Pasar a edición completa
+                          </Button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
