@@ -543,10 +543,12 @@ horario partido y nombre. Las pantallas de clínica no ofrecen `ROOM` ni `CLASS`
 > - **Pantallas:** `features/clinica/` tiene Profesionales (la lista, con
 >   alta y horario en la pantalla de recursos que ya existe) y Prestaciones
 >   (elegir quién atiende). Las dos usan el vocabulario de `/me`. En una
->   clínica el menú las muestra en lugar de Recursos y Tipos de servicio. **La
->   pantalla de reservas del panel todavía no ofrece "el primero libre"**:
->   reservar con otro profesional que el principal funciona por la API y por
->   el agente; el panel queda para el PR de pantallas (R17).
+>   clínica el menú las muestra en lugar de Recursos y Tipos de servicio. En
+>   la agenda de una clínica, el botón "Nuevo turno"
+>   (`features/clinica/NuevoTurnoDialog.tsx`) ofrece los horarios de todos los
+>   profesionales de la prestación y reserva con "el primero libre" (sin
+>   `resourceId`) o con uno de los libres a esa hora. El click en la grilla
+>   sigue con el profesional de la columna.
 > - **Google:** la disponibilidad consulta el `freebusy` de la sucursal una
 >   vez por profesional (el mismo calendario). Restar solo lo de cada
 >   profesional es R8.
@@ -2293,8 +2295,10 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
   tarea después del turno.
 - Las FAQs que hoy deriva la capa 1, en un PR chico del detector con la lista
   revisada por un profesional de salud (§5.3).
-- "El primero libre" al dar un turno desde la agenda (§4.3), y las marcas "sin
-  confirmar" y "sin recordatorio" en el calendario (§6): quedaron fuera de R17.
+- ~~"El primero libre" al dar un turno desde la agenda (§4.3).~~ Hecho: el
+  botón "Nuevo turno" de la agenda de una clínica.
+- Las marcas "sin confirmar" y "sin recordatorio" en el calendario (§6):
+  quedaron fuera de R17. El doc no define qué significa cada una.
 - Lo que encontró R17c al escribir la guía de clínicas, en pantallas que no
   entraron en el test de §3.1 (todo de una clínica; nada cambia en una
   automotora):

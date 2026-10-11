@@ -5,7 +5,8 @@ import {
 } from "../../auth/vocabulario";
 import { useId, useState, type FormEvent } from "react";
 import { DetailList } from "../../design-system/DetailList";
-import { ErrorState } from "../../design-system/ErrorState";
+import { ErrorAlReservar } from "./ErrorAlReservar";
+import { accionDeReservar } from "./partesDelTurno";
 import { FormField } from "../../design-system/FormField";
 import { Modal } from "../../design-system/Modal";
 import { Select } from "../../design-system/Select";
@@ -120,12 +121,11 @@ export function CreateBookingPanel({
       title={`${concordancia(reserva).Nuevo} ${reserva.singular}`}
       onClose={onClose}
       closeLabel="Cerrar"
-      primaryAction={{
-        label: createBookingMutation.isPending ? "Reservando…" : "Reservar",
+      primaryAction={accionDeReservar({
         formId,
-        disabled: !puedeEnviar,
-        loading: createBookingMutation.isPending,
-      }}
+        puedeEnviar,
+        enviando: createBookingMutation.isPending,
+      })}
     >
       <DetailList
         sections={[
@@ -182,12 +182,7 @@ export function CreateBookingPanel({
       </form>
 
       {createBookingMutation.isError ? (
-        <ErrorState>
-          No pudimos crear {concordancia(reserva).el} {reserva.singular}
-          {createBookingMutation.error instanceof Error
-            ? `: ${createBookingMutation.error.message}`
-            : "."}
-        </ErrorState>
+        <ErrorAlReservar reserva={reserva} error={createBookingMutation.error} />
       ) : null}
     </Modal>
   );

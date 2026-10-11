@@ -66,6 +66,14 @@ profesional](#calendario-de-google) y
 
 ## Dar un turno desde la agenda {#nueva-reserva}
 
+Hay dos formas:
+
+- **Con el botón Nuevo turno**, si importa la prestación y el horario pero no
+  quién atiende: se puede dejar en **el primero libre**. Ver [Nuevo turno con
+  el primero libre](#nuevo-turno).
+- **Tocando un horario libre** en la columna de un profesional, si ya se sabe
+  con quién es. Son los pasos de abajo.
+
 1. En la [Agenda](/agenda), tocá el horario libre en la columna del
    profesional.
 2. Se abre **Nuevo turno** con el profesional, la fecha y la hora ya fijos.
@@ -92,6 +100,23 @@ de horario.
 
 Para un turno de más sobre un horario completo, usá
 [Sobreturnos](#sobreturnos).
+
+### Nuevo turno con el primero libre {#nuevo-turno}
+
+1. En la [Agenda](/agenda), con la sede elegida, tocá **Nuevo turno**.
+2. Elegí la **Prestación**. Aparecen las de la sede que muestra la agenda.
+3. El **Día** arranca en el que muestra la agenda; se puede cambiar.
+4. Elegí el **Horario**. Se listan los horarios libres de **todos** los
+   profesionales de la prestación, cada uno con cuántos están libres (por
+   ejemplo, "09:00 · 2 libres"). Si dice "No hay horarios libres ese día",
+   probá con otro día.
+5. **Profesional** arranca en **El primero libre**. Dejalo así, o elegí a uno
+   de los que están libres en ese horario.
+6. Elegí el **Paciente** (se busca por nombre o email) y tocá **Reservar**.
+
+Con el primero libre, el turno queda con el profesional que tenga **menos
+turnos ese día** (ver [el primero libre](#primero-libre)). Acá no se puede
+forzar fuera de horario: solo se ofrecen horarios libres de verdad.
 
 El asistente de IA también da turnos por chat, con el mismo criterio de
 horarios y cupos (ver [Turnos con el profesional que elige el paciente o el
@@ -183,6 +208,9 @@ atiende. El paciente puede pedir un profesional en particular, o que le den
 
 Con "el primero libre", el sistema asigna a un profesional que tenga ese
 horario disponible y, si hay varios, al que tenga **menos turnos ese día**.
+
+Desde el panel funciona igual, con el botón **Nuevo turno** de la agenda (ver
+[Nuevo turno con el primero libre](#nuevo-turno)).
 
 > Si dos pacientes piden el mismo horario al mismo tiempo, el sistema no da el
 > mismo turno dos veces: el segundo queda con otro profesional libre, o se le

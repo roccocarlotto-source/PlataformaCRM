@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import {
   concordancia,
@@ -24,6 +25,7 @@ import type { ServiceType } from "../serviceType/types";
 import { BookingDetailDialog } from "./BookingDetailDialog";
 import { ReprogramarTurnoDialog } from "../clinica/ReprogramarTurnoDialog";
 import { MarcarTurno } from "../clinica/MarcarTurno";
+import { NuevoTurnoDialog } from "../clinica/NuevoTurnoDialog";
 import { usePrestaciones } from "../clinica/queries";
 import { ROTULO_DE_ESTADO } from "../clinica/estadosDeTurno";
 import {
@@ -110,6 +112,8 @@ export function BookingCalendarPage() {
   const [abierta, setAbierta] = useState<ReservaAbierta | null>(null);
   // R9: el turno que se está reprogramando (clínica).
   const [aReprogramar, setAReprogramar] = useState<Booking | null>(null);
+  // "Nuevo turno" con el primero libre (clínica, docs/rubros.md §4.3).
+  const [nuevoTurno, setNuevoTurno] = useState(false);
 
   const branchesQuery = useBranches(BRANCHES_PARA_SELECT);
   // R20: una Recepción de clínica, solo sus sedes (y la primera de ellas por
@@ -149,7 +153,20 @@ export function BookingCalendarPage() {
 
   return (
     <div>
-      <PageHeader help={AYUDA.calendario} title={agenda.singularTitulo} />
+      <PageHeader
+        help={AYUDA.calendario}
+        title={agenda.singularTitulo}
+        // Solo en una clínica: una automotora sigue dando la reserva desde la
+        // grilla, como siempre.
+        actions={
+          esClinica && sucursal ? (
+            <Button variant="primary" onClick={() => setNuevoTurno(true)}>
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              {`${concordancia(vocabulario.reserva).Nuevo} ${vocabulario.reserva.singular}`}
+            </Button>
+          ) : undefined
+        }
+      />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>
@@ -255,6 +272,16 @@ export function BookingCalendarPage() {
           </div>
         ) : null}
       </div>
+
+      {nuevoTurno && esClinica && sucursal ? (
+        <NuevoTurnoDialog
+          vocabulario={vocabulario}
+          branchId={sucursal.id}
+          zona={sucursal.timezone}
+          fecha={fecha}
+          onClose={() => setNuevoTurno(false)}
+        />
+      ) : null}
 
       {nueva && sucursal ? (
         <CreateBookingPanel
