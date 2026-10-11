@@ -397,6 +397,10 @@ Consecuencias:
   (singular, plural, con y sin mayúscula, más la marca, §0.3). Mismo criterio
   que `modulos` en ediciones §7: el frontend no tiene una tabla propia. Para una
   automotora, `vocabulario` trae exactamente los textos de hoy.
+- **R17b** sumó dos cosas aditivas: el término `sucursal` ("sucursal" en una
+  automotora, "sede" en una clínica) y el `genero` de cada término, para el
+  artículo ("la reserva" pero "el turno"). El frontend los completa con los del
+  rubro si un backend anterior no los manda (`auth/vocabulario.ts`).
 
 ### 3.1 Frontend
 

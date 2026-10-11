@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "../../auth/AuthContext";
+import {
+  concordancia,
+  VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
+  vocabularioDe,
+  type VocabularioCompleto,
+} from "../../auth/vocabulario";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
@@ -87,6 +93,10 @@ interface ReservaAbierta {
 export function BookingCalendarPage() {
   const { me } = useAuth();
   const isAdmin = me?.role === "ADMIN";
+  // Rubros (docs/rubros.md §3.1): calendario o agenda, recurso o profesional,
+  // sucursal o sede.
+  const vocabulario = vocabularioDe(me);
+  const { agenda, recurso, sucursal: sucursalT } = vocabulario;
 
   const [branchIdElegida, setBranchIdElegida] = useState<string | undefined>(undefined);
   const [resourceId, setResourceId] = useState<string | undefined>(undefined);
@@ -134,14 +144,15 @@ export function BookingCalendarPage() {
 
   return (
     <div>
-      <PageHeader help={AYUDA.calendario} title="Calendario" />
+      <PageHeader help={AYUDA.calendario} title={agenda.singularTitulo} />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>
         <div className="ds-filters">
           <BranchSelect
             id="booking-calendar-branch"
-            label="Sucursal"
+            label={sucursalT.singularTitulo}
+            emptyOptionLabel={`Elegir ${sucursalT.singular}…`}
             value={branchId}
             soloSedes={sedesDeQuienEntra(me)}
             onChange={(nuevo) => {
@@ -151,7 +162,7 @@ export function BookingCalendarPage() {
           />
           <ResourceSelect
             id="booking-calendar-resource"
-            label="Recurso"
+            label={recurso.singularTitulo}
             value={resourceId}
             branchId={branchId}
             emptyOptionLabel="Todos"
@@ -177,17 +188,19 @@ export function BookingCalendarPage() {
 
         {resourcesQuery.isError ? (
           <ErrorState>
-            No pudimos cargar los recursos
+            No pudimos cargar {concordancia(recurso).los} {recurso.plural}
             {resourcesQuery.error instanceof Error ? `: ${resourcesQuery.error.message}` : "."}
           </ErrorState>
         ) : null}
 
         {branchesQuery.isSuccess && sucursales.length === 0 ? (
-          <EmptyState>Todavía no hay sucursales.</EmptyState>
+          <EmptyState>{`Todavía no hay ${sucursalT.plural}.`}</EmptyState>
         ) : null}
 
         {sucursal && resourcesQuery.isSuccess && recursos.length === 0 ? (
-          <EmptyState>Esta sucursal todavía no tiene recursos.</EmptyState>
+          <EmptyState>
+            {`${concordancia(sucursalT).Este} ${sucursalT.singular} todavía no tiene ${recurso.plural}.`}
+          </EmptyState>
         ) : null}
 
         {sucursal && recursos.length > 0 ? (
@@ -230,6 +243,7 @@ export function BookingCalendarPage() {
                     setAbierta({ booking, resource, contactName })
                   }
                   esClinica={me?.industry === "CLINICA"}
+                  vocabulario={vocabulario}
                 />
               ))}
             </div>
@@ -239,6 +253,7 @@ export function BookingCalendarPage() {
 
       {nueva && sucursal ? (
         <CreateBookingPanel
+          vocabulario={vocabulario}
           resource={nueva.resource}
           fecha={fecha}
           minuto={nueva.minuto}
@@ -252,6 +267,7 @@ export function BookingCalendarPage() {
 
       {abierta && sucursal ? (
         <BookingDetailDialog
+          vocabulario={vocabulario}
           booking={abierta.booking}
           contactName={abierta.contactName}
           serviceName={
@@ -303,6 +319,7 @@ interface CalendarColumnProps {
   onBookingClick: (booking: Booking, contactName: string) => void;
   // R10: en una clínica se ven también los turnos marcados.
   esClinica?: boolean;
+  vocabulario?: VocabularioCompleto;
 }
 
 function CalendarColumn({
@@ -315,7 +332,9 @@ function CalendarColumn({
   onSlotClick,
   onBookingClick,
   esClinica = false,
+  vocabulario = VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
 }: CalendarColumnProps) {
+  const reserva = vocabulario.reserva.singular;
   const workingHoursQuery = useWorkingHours(resource.id);
   // `from`/`to` filtran sobre startsAt: una reserva que empezó el día anterior
   // y cruza la medianoche no aparece acá. Con el horario de un mostrador no
@@ -364,7 +383,7 @@ function CalendarColumn({
             aria-label={
               abierto
                 ? `Reservar ${resource.name} a las ${hora}`
-                : `Forzar reserva de ${resource.name} a las ${hora}`
+                : `Forzar ${reserva} de ${resource.name} a las ${hora}`
             }
             onClick={() => onSlotClick(minuto, franjas)}
           />

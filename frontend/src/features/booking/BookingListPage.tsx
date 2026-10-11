@@ -31,6 +31,7 @@ import { useCancelBooking } from "./mutations";
 import { useBookings } from "./queries";
 import type { BookingSortBy, BookingStatus, SortOrder } from "./types";
 import { useAuth } from "../../auth/AuthContext";
+import { concordancia, esClinica, vocabularioDe } from "../../auth/vocabulario";
 import { sedesDeQuienEntra } from "../clinica/sedes";
 
 const PAGE_SIZE = 20;
@@ -61,6 +62,11 @@ export function BookingListPage() {
   const confirm = useConfirm();
   // R20: una Recepción de clínica filtra entre sus sedes.
   const { me } = useAuth();
+  // Rubros (docs/rubros.md §3.1): reservas o turnos, recurso o profesional,
+  // tipo de servicio o prestación, sucursal o sede.
+  const vocabulario = vocabularioDe(me);
+  const { reserva, recurso, tipoDeServicio, sucursal: sucursalT } = vocabulario;
+  const r = concordancia(reserva);
   const [page, setPage] = useState(1);
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
   const [resourceId, setResourceId] = useState<string | undefined>(undefined);
@@ -114,11 +120,14 @@ export function BookingListPage() {
     // reserva cancelada no se puede reconfirmar (no existe esa operación), y
     // el turno queda libre para otra persona.
     if (
-      !(await confirm("¿Cancelar esta reserva? El turno queda libre y no se puede deshacer.", {
-        confirmLabel: "Cancelar reserva",
-        cancelLabel: "Volver",
-        danger: true,
-      }))
+      !(await confirm(
+        `¿Cancelar ${r.este} ${reserva.singular}? El turno queda libre y no se puede deshacer.`,
+        {
+          confirmLabel: `Cancelar ${reserva.singular}`,
+          cancelLabel: "Volver",
+          danger: true,
+        },
+      ))
     )
       return;
     cancelBookingMutation.mutate(id);
@@ -126,14 +135,14 @@ export function BookingListPage() {
 
   return (
     <div>
-      <PageHeader help={AYUDA.reservas} title="Reservas" />
+      <PageHeader help={AYUDA.reservas} title={reserva.pluralTitulo} />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>
         <div className="ds-filters">
           <BranchSelect
             id="booking-list-branch"
-            label="Sucursal"
+            label={sucursalT.singularTitulo}
             value={branchId}
             soloSedes={sedesDeQuienEntra(me)}
             emptyOptionLabel="Todas"
@@ -149,7 +158,7 @@ export function BookingListPage() {
           />
           <ResourceSelect
             id="booking-list-resource"
-            label="Recurso"
+            label={recurso.singularTitulo}
             value={resourceId}
             branchId={branchId}
             emptyOptionLabel="Todos"
@@ -162,7 +171,7 @@ export function BookingListPage() {
           />
           <Select
             id="booking-list-service-type"
-            label="Tipo de servicio"
+            label={tipoDeServicio.singularTitulo}
             value={serviceTypeId}
             options={serviceTypes
               .filter(
@@ -200,7 +209,11 @@ export function BookingListPage() {
             value={sortBy}
             options={[
               { value: "startsAt", label: "Fecha del turno" },
-              { value: "createdAt", label: "Fecha de reserva" },
+              {
+                value: "createdAt",
+                // En una clínica, "Fecha de turno" se confundiría con la de arriba.
+                label: esClinica(me) ? "Fecha en que se dio" : "Fecha de reserva",
+              },
             ]}
             onChange={(value) => {
               if (value) setSortBy(value);
@@ -213,14 +226,14 @@ export function BookingListPage() {
 
         {bookingsQuery.isError ? (
           <ErrorState>
-            No pudimos cargar las reservas
+            No pudimos cargar {r.los} {reserva.plural}
             {bookingsQuery.error instanceof Error ? `: ${bookingsQuery.error.message}` : "."}
           </ErrorState>
         ) : null}
 
         {cancelBookingMutation.isError ? (
           <ErrorState>
-            No pudimos cancelar la reserva
+            No pudimos cancelar {r.el} {reserva.singular}
             {cancelBookingMutation.error instanceof Error
               ? `: ${cancelBookingMutation.error.message}`
               : "."}
@@ -228,7 +241,7 @@ export function BookingListPage() {
         ) : null}
 
         {bookingsQuery.isSuccess && bookings.length === 0 ? (
-          <EmptyState title="No hay reservas para mostrar" icon={CalendarDays} />
+          <EmptyState title={`No hay ${reserva.plural} para mostrar`} icon={CalendarDays} />
         ) : null}
 
         {bookingsQuery.isSuccess && bookings.length > 0 ? (
@@ -238,8 +251,8 @@ export function BookingListPage() {
                 <th>Turno</th>
                 <th>Contacto</th>
                 <th>Servicio</th>
-                <th>Recurso</th>
-                <th>Sucursal</th>
+                <th>{recurso.singularTitulo}</th>
+                <th>{sucursalT.singularTitulo}</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>

@@ -113,7 +113,7 @@ Google**.
 
 ## Reprogramar un turno {#reprogramar}
 
-En el **Calendario**, abrí el turno y tocá **Reprogramar**. Elegí el
+En la **Agenda**, abrí el turno y tocá **Reprogramar**. Elegí el
 profesional (cualquiera de los que atienden esa prestación), el día y el
 horario nuevo. Solo aparecen los horarios libres de verdad: respetan el horario
 del profesional, sus bloqueos y su calendario de Google. Si el profesional
@@ -138,7 +138,7 @@ Google, se deja de seguir.
 
 ## Atendido y No vino {#atendido-no-vino}
 
-Cuando un turno ya empezó, en el **Calendario** abrí el turno y marcá
+Cuando un turno ya empezó, en la **Agenda** abrí el turno y marcá
 **Atendido** o **No vino**. Podés sumar una nota corta (opcional). **No cargues
 datos de salud** ni el motivo de la consulta.
 
@@ -154,7 +154,7 @@ datos de salud** ni el motivo de la consulta.
 ## Confirmado por el paciente {#confirmado-por-el-paciente}
 
 Si la clínica usa el [recordatorio antes del turno](/ayuda/automatizaciones#recordatorio-de-turno)
-y el paciente tocó **Confirmo**, el detalle del turno en el **Calendario** dice
+y el paciente tocó **Confirmo**, el detalle del turno en la **Agenda** dice
 **Confirmado por el paciente**.
 
 ## Recordar control {#recordar-control}

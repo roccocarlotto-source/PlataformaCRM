@@ -36,7 +36,7 @@ sede: Recepción los ve todos, para poder darles un turno en cualquiera de sus
 sedes.
 
 - Si alguien tiene más de una sede, en **Turnos**, **Agenda** y
-  **Conversaciones** elige la sede en el filtro **Sucursal**. Solo aparecen las
+  **Conversaciones** elige la sede en el filtro **Sede**. Solo aparecen las
   suyas.
 - Las tareas que no son de ninguna sede (por ejemplo, una que cargó un
   administrador a mano) las ven y las pueden tomar todas las personas de

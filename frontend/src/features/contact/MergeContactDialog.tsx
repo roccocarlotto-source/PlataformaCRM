@@ -4,6 +4,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { useConfirm } from "../../design-system/useConfirm";
 import { ContactSelect } from "../opportunity/ContactSelect";
+import type { LifecycleStage } from "./types";
 import {
   advertenciaDeLaUnion,
   CAMPOS_DE_LA_UNION,
@@ -38,6 +39,9 @@ export interface MergeContactDialogProps {
   modo?: "queda" | "seUne";
   onClose: () => void;
   onMerged: (resultado: ResultadoDeLaUnion) => void;
+  // Los rótulos de las etapas con el término del contacto del rubro
+  // (etiquetasDeEtapa). Sin el prop, los de siempre.
+  etiquetasDeEtapa?: Record<LifecycleStage, string>;
 }
 
 export function MergeContactDialog({
@@ -45,6 +49,7 @@ export function MergeContactDialog({
   modo = "queda",
   onClose,
   onMerged,
+  etiquetasDeEtapa,
 }: MergeContactDialogProps) {
   const confirm = useConfirm();
   const [otroId, setOtroId] = useState<string | undefined>(undefined);
@@ -137,6 +142,7 @@ export function MergeContactDialog({
                     const valor = valorParaMostrar(
                       lado === "kept" ? vista.kept : vista.absorbed,
                       campo,
+                      etiquetasDeEtapa,
                     );
                     return (
                       <label key={lado}>

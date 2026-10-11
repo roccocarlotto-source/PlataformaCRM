@@ -4,12 +4,16 @@
 // circular (vocabulario.ts importa el de clínicas).
 // ---------------------------------------------------------------------------
 
-/** Una palabra en sus cuatro formas: la pantalla no la flexiona. */
+export type Genero = "masculino" | "femenino";
+
+/** Una palabra en sus cuatro formas: la pantalla no la flexiona. El género
+ *  (R17) es para el artículo: "la reserva" pero "el turno". */
 export interface Termino {
   singular: string;
   plural: string;
   singularTitulo: string;
   pluralTitulo: string;
+  genero: Genero;
 }
 
 export interface Vocabulario {
@@ -28,12 +32,20 @@ export interface Vocabulario {
   agenda: Termino;
   // Branch.defaultOwnerId: a quién se le asigna lo que entra.
   responsable: Termino;
+  // Branch (R17): "sucursal" en una automotora, "sede" en una clínica.
+  sucursal: Termino;
 }
 
 /** Arma las cuatro formas desde el singular y el plural en minúscula. */
-export function termino(singular: string, plural: string): Termino {
+export function termino(singular: string, plural: string, genero: Genero = "masculino"): Termino {
   const titulo = (texto: string) => texto.charAt(0).toUpperCase() + texto.slice(1);
-  return { singular, plural, singularTitulo: titulo(singular), pluralTitulo: titulo(plural) };
+  return {
+    singular,
+    plural,
+    singularTitulo: titulo(singular),
+    pluralTitulo: titulo(plural),
+    genero,
+  };
 }
 
 export const MARCA = "Plataforma CRM";

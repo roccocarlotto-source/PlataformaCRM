@@ -5,9 +5,19 @@ import { edicionDeMe, MODULOS_COMPLETA, MODULOS_ESENCIAL } from "./edicionFixtur
 // copia de src/config/vocabulario.ts y src/clinicas/config/rubro.ts (el
 // backend). Si allá cambian los textos, acá se actualiza a mano.
 
-function t(singular: string, plural: string): TerminoDelVocabulario {
+function t(
+  singular: string,
+  plural: string,
+  genero: "masculino" | "femenino" = "masculino",
+): TerminoDelVocabulario {
   const titulo = (texto: string) => texto.charAt(0).toUpperCase() + texto.slice(1);
-  return { singular, plural, singularTitulo: titulo(singular), pluralTitulo: titulo(plural) };
+  return {
+    singular,
+    plural,
+    singularTitulo: titulo(singular),
+    pluralTitulo: titulo(plural),
+    genero,
+  };
 }
 
 export const VOCABULARIO_AUTOMOTORA_DE_ME: Vocabulario = {
@@ -15,19 +25,21 @@ export const VOCABULARIO_AUTOMOTORA_DE_ME: Vocabulario = {
   contacto: t("cliente", "clientes"),
   recurso: t("recurso", "recursos"),
   tipoDeServicio: t("tipo de servicio", "tipos de servicio"),
-  reserva: t("reserva", "reservas"),
+  reserva: t("reserva", "reservas", "femenino"),
   agenda: t("calendario", "calendarios"),
   responsable: t("vendedor", "vendedores"),
+  sucursal: t("sucursal", "sucursales", "femenino"),
 };
 
 export const VOCABULARIO_CLINICA_DE_ME: Vocabulario = {
   marca: "Plataforma CRM",
   contacto: t("paciente", "pacientes"),
   recurso: t("profesional", "profesionales"),
-  tipoDeServicio: t("prestación", "prestaciones"),
+  tipoDeServicio: t("prestación", "prestaciones", "femenino"),
   reserva: t("turno", "turnos"),
-  agenda: t("agenda", "agendas"),
+  agenda: t("agenda", "agendas", "femenino"),
   responsable: t("responsable", "responsables"),
+  sucursal: t("sede", "sedes", "femenino"),
 };
 
 // Lo que una clínica no tiene (FUERA_DE_CLINICA de src/config/ediciones.ts) y
