@@ -51,6 +51,11 @@ const mock = vi.hoisted(() => {
       currentSession = session;
       callback?.(event, session);
     },
+    // Un evento que llega por el BroadcastChannel de supabase-js desde otra
+    // pestaña: trae la sesión de esa pestaña y no toca el storage de esta.
+    emitDesdeOtraPestana: (event: string, session: MockSession | null) => {
+      callback?.(event, session);
+    },
     reset: () => {
       callback = null;
       currentSession = null;
@@ -685,5 +690,43 @@ describe("AcceptInvitationPage", () => {
     await waitFor(() => expect(screen.getByText("Configurá tu contraseña")).toBeInTheDocument());
     expect(screen.queryByLabelText("Nombre completo")).not.toBeInTheDocument();
     expect(acceptCalls).toBe(0);
+  });
+});
+
+// Sesión por pestaña (ver AuthContext, onAuthStateChange): el link de la
+// invitación deja la sesión en el sessionStorage de SU pestaña. Bug real: otra
+// pestaña de la app abierta (sin sesión) recibía ese evento, pedía /api/me sin
+// token, el 401 hacía signOut y el SIGNED_OUT volvía a esta pestaña, que
+// mostraba "Este enlace no es válido o expiró".
+describe("AcceptInvitationPage — sesión por pestaña", () => {
+  it("con la sesión del link en esta pestaña y otra pestaña emitiendo eventos: muestra el formulario", async () => {
+    server.use(meHandler());
+    renderPage();
+
+    await act(async () => mock.emit("SIGNED_IN", invitedSession()));
+    await waitFor(() => expect(screen.getByLabelText("Nombre completo")).toBeInTheDocument());
+
+    // Lo que hacía la otra pestaña: repetir el SIGNED_IN y después cerrar
+    // "su" sesión tras el 401.
+    await act(async () => {
+      mock.emitDesdeOtraPestana("SIGNED_IN", invitedSession());
+      mock.emitDesdeOtraPestana("SIGNED_OUT", null);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(screen.getByText("Completá tu cuenta")).toBeInTheDocument();
+    expect(screen.getByLabelText("Nombre completo")).toBeInTheDocument();
+    expect(screen.queryByText(/no es válido o expiró/)).not.toBeInTheDocument();
+  });
+
+  it("link abierto en un navegador o dispositivo limpio (solo la sesión propia): muestra el formulario", async () => {
+    server.use(meHandler());
+    renderPage();
+
+    await act(async () => mock.emit("SIGNED_IN", invitedSession()));
+
+    await waitFor(() => expect(screen.getByText("Completá tu cuenta")).toBeInTheDocument());
+    expect(screen.getByLabelText("Nombre completo")).toBeInTheDocument();
+    expect(screen.queryByText(/no es válido o expiró/)).not.toBeInTheDocument();
   });
 });

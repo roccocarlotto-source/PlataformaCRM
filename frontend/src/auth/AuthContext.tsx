@@ -180,12 +180,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // LA IDENTIDAD SALE DE LA SESIÓN GUARDADA EN ESTA PESTAÑA, NO DE LA DEL
+  // EVENTO. La sesión vive en sessionStorage (lib/supabase.ts), que es POR
+  // PESTAÑA; pero supabase-js reenvía a las demás pestañas, por un
+  // BroadcastChannel, los eventos de cada una (SIGNED_IN, PASSWORD_RECOVERY,
+  // SIGNED_OUT…) con la sesión de la pestaña que lo originó, sin guardarla en
+  // el storage de la que lo recibe. Si este callback creyera en la sesión del
+  // evento pasaba esto (bug real, reproducido en local con
+  // scripts/repro-sesion-por-pestana.mjs): una pestaña en /forgot-password, sin
+  // sesión, recibe el PASSWORD_RECOVERY de la pestaña donde se abrió el link →
+  // pide /api/me con su propio storage vacío → sale sin token → 401 → signOut
+  // → ese SIGNED_OUT viaja a la otra pestaña → "Este enlace no es válido o
+  // expiró". Lo mismo con el link de una invitación, o al loguearse con otra
+  // pestaña abierta en /login.
+  //
+  // Por eso cada evento solo dispara una relectura: getSession() devuelve la
+  // sesión que ESTA pestaña tiene guardada, y un evento ajeno no cambia nada
+  // (la pestaña sin sesión sigue sin sesión; la que tiene la suya, la sigue
+  // teniendo). Un evento propio llega después de que supabase-js guardó o
+  // borró la sesión, así que la relectura ya ve el estado nuevo.
+  //
+  // El setTimeout(…, 0) es lo que pide la documentación de supabase-js para
+  // llamar a sus métodos desde este callback: el callback corre mientras el
+  // cliente todavía procesa el cambio (con su lock tomado, o antes de que
+  // termine initialize()), y esperar ahí adentro a getSession() se puede
+  // trabar. Diferido, el callback devuelve enseguida y getSession() corre
+  // después. Las relecturas no se pisan: los setTimeout salen en orden y
+  // getSession() se serializa en el lock del cliente, así que la última en
+  // aplicarse es la del último evento.
   useEffect(() => {
     let active = true;
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    async function aplicarSesionDeEstaPestana(event: string): Promise<void> {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!active) return;
 
       const invitationId: unknown = session?.user.user_metadata?.invitationId;
@@ -200,6 +229,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       handleIdentityChange(session?.user.id ?? null);
+    }
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (!active) return;
+      setTimeout(() => {
+        aplicarSesionDeEstaPestana(event).catch((error: unknown) => {
+          console.error("No pudimos leer la sesión de esta pestaña", error);
+        });
+      }, 0);
     });
 
     return () => {

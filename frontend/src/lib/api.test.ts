@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/msw/server";
 import { env } from "../config/env";
-import { ApiError, registerUnauthorizedHandler, request, uploadFile } from "./api";
+import { ApiError, downloadFile, registerUnauthorizedHandler, request, uploadFile } from "./api";
 
 // Tests del wrapper de red. request() ya estaba ejercitado indirectamente por
 // los tests de cada feature; lo que se prueba acá es lo que uploadFile agregó y
@@ -87,9 +87,14 @@ describe("handleResponse — compartido por request() y uploadFile()", () => {
   // El refactor extrajo el manejo de la respuesta a una función común. Estos
   // tests corren la MISMA aserción sobre las dos funciones: si alguna vez
   // divergieran, acá se vería.
+  //
+  // getAccessToken opcional: el 401 global depende de si el request llevó
+  // token (ver los dos tests del 401).
   const llamadas = {
-    request: () => request("/cosa", { method: "POST", body: {} }),
-    uploadFile: () => uploadFile("/cosa", formDataDePrueba()),
+    request: (getAccessToken?: () => Promise<string | null>) =>
+      request("/cosa", { method: "POST", body: {}, getAccessToken }),
+    uploadFile: (getAccessToken?: () => Promise<string | null>) =>
+      uploadFile("/cosa", formDataDePrueba(), { getAccessToken }),
   } as const;
 
   for (const [nombre, llamar] of Object.entries(llamadas)) {
@@ -107,13 +112,26 @@ describe("handleResponse — compartido por request() y uploadFile()", () => {
       });
     });
 
-    it(`${nombre}: un 401 dispara el unauthorizedHandler global`, async () => {
+    it(`${nombre}: un 401 de un request CON token dispara el unauthorizedHandler global`, async () => {
       const onUnauthorized = vi.fn();
       registerUnauthorizedHandler(onUnauthorized);
       server.use(http.post(url, () => new HttpResponse(null, { status: 401 })));
 
-      await expect(llamar()).rejects.toThrow(ApiError);
+      await expect(llamar(async () => "token-de-prueba")).rejects.toThrow(ApiError);
       expect(onUnauthorized).toHaveBeenCalled();
+    });
+
+    // Sesión por pestaña: un 401 sin token no tiene sesión que cerrar, y
+    // cerrarla igual hacía que el signOut viajara a la pestaña que sí tenía
+    // sesión (ver AuthContext, onAuthStateChange).
+    it(`${nombre}: un 401 de un request SIN token no dispara el handler, pero sigue siendo ApiError`, async () => {
+      const onUnauthorized = vi.fn();
+      registerUnauthorizedHandler(onUnauthorized);
+      server.use(http.post(url, () => new HttpResponse(null, { status: 401 })));
+
+      await expect(llamar(async () => null)).rejects.toMatchObject({ status: 401 });
+      await expect(llamar()).rejects.toThrow(ApiError);
+      expect(onUnauthorized).not.toHaveBeenCalled();
     });
 
     it(`${nombre}: un 204 devuelve undefined en vez de romper al parsear`, async () => {
@@ -133,6 +151,22 @@ describe("handleResponse — compartido por request() y uploadFile()", () => {
       await expect(llamar()).rejects.toMatchObject({ status: 502 });
     });
   }
+});
+
+describe("downloadFile — el 401 global", () => {
+  it("un 401 CON token dispara el handler; SIN token, no", async () => {
+    const onUnauthorized = vi.fn();
+    registerUnauthorizedHandler(onUnauthorized);
+    server.use(http.get(url, () => new HttpResponse(null, { status: 401 })));
+
+    await expect(downloadFile("/cosa")).rejects.toMatchObject({ status: 401 });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+
+    await expect(
+      downloadFile("/cosa", { getAccessToken: async () => "token-de-prueba" }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ApiError.details — el detalle estructurado de un error operacional", () => {
