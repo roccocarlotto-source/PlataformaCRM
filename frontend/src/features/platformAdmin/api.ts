@@ -8,6 +8,8 @@ import type {
   AssignFacebookPageInput,
   AssignInternalAgentModelInput,
   AssignWhatsappNumberInput,
+  CreateClinicaDemoInput,
+  CreateClinicaDemoResponse,
   CreateOrganizationInput,
   CreateOrganizationResponse,
   EdicionesDisponibles,
@@ -26,6 +28,18 @@ export function createOrganization(
   input: CreateOrganizationInput,
 ): Promise<CreateOrganizationResponse> {
   return request<CreateOrganizationResponse>("/admin/organizations", {
+    method: "POST",
+    body: input,
+    getAccessToken,
+  });
+}
+
+// R19 (docs/rubros.md §12.1): la Clínica Demo con datos de ejemplo. Funciona
+// aunque el backend no ofrezca el rubro clínica en el alta común.
+export function createClinicaDemo(
+  input: CreateClinicaDemoInput,
+): Promise<CreateClinicaDemoResponse> {
+  return request<CreateClinicaDemoResponse>("/admin/organizations/clinica-demo", {
     method: "POST",
     body: input,
     getAccessToken,

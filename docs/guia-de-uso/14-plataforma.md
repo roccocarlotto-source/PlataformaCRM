@@ -49,6 +49,30 @@ formulario vacío.
 > Revisá bien el email antes de confirmar: la invitación sale a esa casilla y
 > quien la complete queda como administrador del cliente.
 
+### Clínica Demo {#clinica-demo}
+
+Una clínica de demostración, con datos inventados, para mostrarle el sistema a
+una clínica antes de que contrate.
+
+1. Entrá a **Plataforma → Nueva organización**.
+2. Marcá **Clínica Demo con datos de ejemplo**. El nombre, la edición y el
+   rubro desaparecen: la demo se llama **Clínica Demo**, es del rubro clínica y
+   de edición **Esencial**.
+3. Si querés tener más de una, escribí un **Sufijo del nombre** (por ejemplo,
+   *Norte* crea *Clínica Demo Norte*).
+4. Completá el **Nombre completo** y el **Email** de quien va a entrar a la
+   demo. Le llega la misma invitación que en un alta común.
+5. Tocá **Crear Clínica Demo**.
+
+La demo trae la **Sede Centro** con su horario, tres profesionales, cuatro
+prestaciones, un bloqueo, la base de conocimiento, ocho pacientes inventados
+(sin teléfono), unos quince turnos la semana siguiente, tres atendidos la
+semana anterior, un QR de reseñas y un agente **Recepción virtual**. El agente
+y las automatizaciones (recordatorio, QR al atender y control) quedan
+**desactivados**: la demo no le manda mensajes a nadie.
+
+> La demo no se borra sola. Cuando ya no la necesites, pedí que la borren.
+
 ### Las ediciones {#las-ediciones}
 
 | Edición | Qué tiene |

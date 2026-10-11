@@ -8,6 +8,7 @@ import {
   assignWhatsappNumber,
   changeOrganizationEdition,
   completeOrganizationMetaConnection,
+  createClinicaDemo,
   createOrganization,
   disconnectOrganizationMetaConnection,
   startOrganizationMetaConnection,
@@ -18,6 +19,7 @@ import type {
   AssignFacebookPageInput,
   AssignInternalAgentModelInput,
   AssignWhatsappNumberInput,
+  CreateClinicaDemoInput,
   CreateOrganizationInput,
   MetaConnectionPendiente,
 } from "./types";
@@ -28,6 +30,17 @@ export function useCreateOrganization() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateOrganizationInput) => createOrganization(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
+    },
+  });
+}
+
+// R19: la Clínica Demo. Invalida el listado igual que el alta común.
+export function useCreateClinicaDemo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateClinicaDemoInput) => createClinicaDemo(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
     },

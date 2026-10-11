@@ -198,6 +198,11 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "automotora-sin-cambios-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/automotoraSinCambios.integration-test.ts",
   ),
+  // R19: las organizaciones de test de la Clínica Demo. La demo en sí
+  // (`clinica-demo` o `clinica-demo-…`, docs/rubros.md §12.1) NO entra en este
+  // catálogo: la purga nunca la toca. El test la borra renombrándola a este
+  // patrón.
+  patron("demo-r19-{etiqueta}-{ts}-{hex8}", "src/clinicas/clinicaDemo.integration-test.ts"),
   patron("ediciones-{etiqueta}-{ts}-{hex8}", "src/routes/ediciones.integration-test.ts"),
   patron("rubro-{etiqueta}-{ts}-{hex8}", `${R}organizationIndustry.integration-test.ts`),
   patron("llm-uso-{etiqueta}-{ts}-{hex8}", `${R}llmTurnUsage.integration-test.ts`),
