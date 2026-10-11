@@ -8,6 +8,7 @@ import {
   listLlmUsageHandler,
   listOrganizationsHandler,
 } from "../controllers/organizationAdmin.controller";
+import { crearClinicaDemoHandler } from "../clinicas/demo/clinicaDemo.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 import { requirePlatformAdmin } from "../middlewares/requirePlatformAdmin";
@@ -30,6 +31,17 @@ organizationAdminRouter.post(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   createOrganizationHandler,
+);
+
+// R19 (docs/rubros.md §12.1): la Clínica Demo con datos de ejemplo. Misma
+// cadena. Es el único camino que crea una clínica con CLINICA_HABILITADA en
+// false (ver src/clinicas/demo/clinicaDemo.service.ts).
+organizationAdminRouter.post(
+  "/admin/organizations/clinica-demo",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  crearClinicaDemoHandler,
 );
 
 // El listado, con la misma cadena: el nombre de cada cliente de la plataforma

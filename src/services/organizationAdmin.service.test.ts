@@ -469,6 +469,53 @@ test("CLINICA y ESENCIAL: la configuración de la clínica y el proceso fijo, lo
   assert.deepEqual(registro.configuracionesDeClinica, ["org-nueva"]);
 });
 
+// R19 (docs/rubros.md §12.1): la opción clinicaDemo es la única que crea una
+// clínica con la llave en false, y solo con el nombre de la demo.
+test("clinicaDemo con la llave en false: la Clínica Demo nace CLINICA con su configuración", async () => {
+  const { deps, registro } = armar({ clinicaHabilitada: false, esencialHabilitada: true });
+
+  const result = await createOrganizationWithFoundingAdmin(
+    { ...INPUT, organizationName: "Clínica Demo Norte", edition: "ESENCIAL", industry: "CLINICA" },
+    deps,
+    { clinicaDemo: true },
+  );
+
+  assert.equal(result.organization.industry, "CLINICA");
+  assert.equal(registro.organizationsCreated[0].slug, "clinica-demo-norte");
+  assert.deepEqual(registro.configuracionesDeClinica, ["org-nueva"]);
+});
+
+test("clinicaDemo no es un bypass: otro nombre u otro rubro dan 400 sin invitar a nadie", async () => {
+  const { deps, registro } = armar({ clinicaHabilitada: false });
+
+  for (const input of [
+    { ...INPUT, organizationName: "Clínica Real", industry: "CLINICA" as const },
+    { ...INPUT, organizationName: "Clínica Demo", industry: "AUTOMOTORA" as const },
+    { ...INPUT, organizationName: "Clínica Demolición", industry: "CLINICA" as const },
+  ]) {
+    await esperarAppError(
+      () => createOrganizationWithFoundingAdmin(input, deps, { clinicaDemo: true }),
+      400,
+    );
+  }
+  assert.deepEqual(registro.invites, []);
+  assert.deepEqual(registro.organizationsCreated, []);
+});
+
+test("sin la opción, el nombre de la demo no alcanza: CLINICA con la llave en false sigue en 400", async () => {
+  const { deps, registro } = armar({ clinicaHabilitada: false });
+
+  await esperarAppError(
+    () =>
+      createOrganizationWithFoundingAdmin(
+        { ...INPUT, organizationName: "Clínica Demo", industry: "CLINICA" },
+        deps,
+      ),
+    400,
+  );
+  assert.deepEqual(registro.invites, []);
+});
+
 test("si la transacción falla en una clínica: se compensa la identidad igual que siempre", async () => {
   const { deps, registro } = armar({
     clinicaHabilitada: true,
