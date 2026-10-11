@@ -296,12 +296,16 @@ test("GET /api/me — JWT real sin fila en public.users: 403 heredado tal cual d
       headers: { authorization: `Bearer ${orphan.accessToken}` },
     });
     assert.equal(res.status, 403);
-    const body = (await res.json()) as { error?: { message?: string } };
+    const body = (await res.json()) as { error?: { message?: string; code?: string } };
     assert.equal(
       body.error?.message,
       "Tu cuenta todavía no está activada. Contactá a tu administrador.",
       "mismo mensaje exacto que resolveAuthContext.ts — este endpoint no introduce semántica nueva",
     );
+    // El frontend lo distingue de "desactivada" o "removida" por el código, no
+    // por el texto: con una sesión que viene de una invitación, lleva a
+    // aceptarla (ProtectedRoute).
+    assert.equal(body.error?.code, "CUENTA_NO_ACTIVADA");
   } finally {
     await close();
     await getSupabaseAdmin().auth.admin.deleteUser(orphan.authUserId);

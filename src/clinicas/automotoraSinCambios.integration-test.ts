@@ -31,6 +31,8 @@ import {
   levantarApp,
   type OrgDePrueba,
 } from "../routes/gateDeModulos.test-helper";
+import { invitarYAceptar } from "../routes/invitacion.test-helper";
+import { urlParaAceptarLaInvitacion } from "../services/invitation.service";
 
 // ---------------------------------------------------------------------------
 // Suite "automotora sin cambios" (docs/rubros.md §0.3 y §14.1), contra la app
@@ -905,5 +907,35 @@ test("§15: borrar una sucursal con recursos activos, o una que no existe, da lo
     assert.equal(inexistente.json.error?.message, "Sucursal no encontrada");
   } finally {
     await prisma.resource.deleteMany({ where: { id: recurso.id } });
+  }
+});
+
+// Prueba de la Clínica Demo (2026-10-11): el mail de toda invitación lleva a
+// /invite/accept. En una automotora, una invitación de USER se acepta y entra
+// como siempre: rol USER, sin sedes.
+test("invitaciones: el mail lleva a /invite/accept y una invitación de USER se acepta y entra como siempre", async () => {
+  const email = `automotora-sin-cambios-inv-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+  const r = await invitarYAceptar(
+    pedir,
+    completa,
+    completa.tokens[0],
+    { email, role: "USER" },
+    "Vendedor Invitado",
+  );
+  try {
+    assert.equal(r.opcionesDelMail?.redirectTo, urlParaAceptarLaInvitacion());
+    assert.equal(r.aceptar.status, 201, JSON.stringify(r.aceptar.json));
+    const me = await pedir(completa, "GET", "/api/me", undefined, r.tokenDelInvitado);
+    assert.equal(me.status, 200, JSON.stringify(me.json));
+    assert.equal(me.json.role, "USER");
+    assert.equal(me.json.organizationId, completa.id);
+    assert.equal(me.json.industry, "AUTOMOTORA");
+    assert.equal("sedes" in me.json, false);
+  } finally {
+    await prisma.invitation.deleteMany({ where: { id: r.invitationId } });
+    await prisma.user.deleteMany({ where: { organizationId: completa.id, email } });
+    const filas = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM auth.users WHERE email = ${email}`;
+    for (const { id } of filas) await getSupabaseAdmin().auth.admin.deleteUser(id);
   }
 });

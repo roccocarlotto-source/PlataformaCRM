@@ -38,7 +38,14 @@ async function resolverDesdeLaBase(payload: JwtPayload): Promise<AuthContext> {
   const user = await findUserForAuth(payload.sub);
 
   if (!user) {
-    throw new AppError("Tu cuenta todavía no está activada. Contactá a tu administrador.", 403);
+    // El código distingue este 403 de "desactivada" o "removida": el frontend
+    // lleva a aceptar la invitación si la sesión viene de una (ProtectedRoute).
+    throw new AppError(
+      "Tu cuenta todavía no está activada. Contactá a tu administrador.",
+      403,
+      true,
+      { code: "CUENTA_NO_ACTIVADA" },
+    );
   }
 
   // deletedAt implica isActive = false por construcción (softDeleteUser

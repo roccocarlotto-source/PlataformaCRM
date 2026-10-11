@@ -19,7 +19,7 @@ import {
 // contra MSW interceptando la red.
 
 interface MockSession {
-  user: { id: string };
+  user: { id: string; user_metadata?: Record<string, unknown> };
   access_token: string;
 }
 
@@ -108,6 +108,7 @@ function Probe() {
       <span data-testid="status">{auth.status}</span>
       <span data-testid="me-id">{auth.me?.id ?? ""}</span>
       <span data-testid="account-unavailable-reason">{auth.accountUnavailableReason ?? ""}</span>
+      <span data-testid="debe-aceptar">{String(auth.debeAceptarInvitacion ?? false)}</span>
       <span data-testid="profile-error">{auth.profileError?.message ?? ""}</span>
       <span data-testid="logout-error">{logoutError ?? ""}</span>
       <button onClick={handleLogout}>logout</button>
@@ -296,6 +297,48 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     expect(screen.getByTestId("account-unavailable-reason").textContent).toBe(
       "Tu cuenta todavía no está activada. Contactá a tu administrador.",
     );
+  });
+
+  // Prueba de la Clínica Demo (2026-10-11): el link de una invitación deja
+  // una sesión sin usuario. Solo el 403 CUENTA_NO_ACTIVADA de una sesión que
+  // viene de una invitación lleva a aceptarla; una cuenta desactivada no.
+  const NO_ACTIVADA = "Tu cuenta todavía no está activada. Contactá a tu administrador.";
+  const sesionInvitada = (): MockSession => ({
+    user: { id: "user-inv", user_metadata: { invitationId: "inv-1" } },
+    access_token: "token-inv",
+  });
+
+  it("11b. 403 CUENTA_NO_ACTIVADA con invitationId en la sesión: debe aceptar la invitación", async () => {
+    server.use(meErrorHandler(403, NO_ACTIVADA, "CUENTA_NO_ACTIVADA"));
+    renderAuthProvider();
+    mock.emit("SIGNED_IN", sesionInvitada());
+
+    await waitFor(() =>
+      expect(screen.getByTestId("status").textContent).toBe("account-unavailable"),
+    );
+    expect(screen.getByTestId("debe-aceptar").textContent).toBe("true");
+  });
+
+  it("11c. 403 de cuenta desactivada, aunque la sesión venga de una invitación: no", async () => {
+    server.use(meErrorHandler(403, "Tu cuenta fue desactivada."));
+    renderAuthProvider();
+    mock.emit("SIGNED_IN", sesionInvitada());
+
+    await waitFor(() =>
+      expect(screen.getByTestId("status").textContent).toBe("account-unavailable"),
+    );
+    expect(screen.getByTestId("debe-aceptar").textContent).toBe("false");
+  });
+
+  it("11d. 403 CUENTA_NO_ACTIVADA sin invitationId en la sesión: no", async () => {
+    server.use(meErrorHandler(403, NO_ACTIVADA, "CUENTA_NO_ACTIVADA"));
+    renderAuthProvider();
+    mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("status").textContent).toBe("account-unavailable"),
+    );
+    expect(screen.getByTestId("debe-aceptar").textContent).toBe("false");
   });
 
   it("12a. 500 en /api/me pasa a profile-error con un Error no-null", async () => {

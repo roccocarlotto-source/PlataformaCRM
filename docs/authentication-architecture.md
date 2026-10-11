@@ -55,10 +55,14 @@
 > `supabase.auth.getUser().data.user.user_metadata.invitationId` (el mismo
 > valor que `createInvitation` ya pasaba como `data` a `inviteUserByEmail`,
 > paso 4 de la sección 2) — se usa para desambiguar el caso de la sección 7
-> (mismo email invitado por más de una organización a la vez). El
-> `redirectTo` de `inviteUserByEmail` sigue sin configurarse explícitamente
-> en el código (usa el Site URL/Redirect URLs del proyecto de Supabase) —
-> configuración operativa externa, no resuelta en este ciclo.
+> (mismo email invitado por más de una organización a la vez). Desde la
+> prueba de la Clínica Demo (2026-10-11), `createInvitation` pasa
+> `redirectTo: <primer origen de CORS_ORIGIN>/invite/accept`
+> (`urlParaAceptarLaInvitacion`): sin él, Supabase mandaba al Site URL (`/`)
+> y la persona quedaba con sesión y sin `public.users` (403 "no activada").
+> Red de seguridad para los mails ya enviados: ese 403 trae
+> `code: "CUENTA_NO_ACTIVADA"` y, si la sesión tiene `invitationId` en la
+> metadata, `ProtectedRoute` lleva a `/invite/accept`.
 
 ## Principio rector
 

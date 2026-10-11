@@ -8,7 +8,8 @@ import { LoadingScreen } from "../design-system/LoadingState";
 // expulsar al login en esos casos genera un loop o esconde un error
 // transitorio detrás de una pantalla de login que no lo resuelve.
 export function ProtectedRoute() {
-  const { status, accountUnavailableReason, profileError, retryProfile } = useAuth();
+  const { status, accountUnavailableReason, debeAceptarInvitacion, profileError, retryProfile } =
+    useAuth();
   const location = useLocation();
 
   if (status === "initializing" || status === "loading-profile") {
@@ -17,6 +18,14 @@ export function ProtectedRoute() {
 
   if (status === "unauthenticated") {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // El link del mail de una invitación vieja (o el Site URL de Supabase)
+  // deja una sesión sin usuario: se la lleva a aceptar la invitación, que es
+  // lo que crea el usuario. Una cuenta desactivada o removida sigue viendo su
+  // aviso (otro código de error).
+  if (status === "account-unavailable" && debeAceptarInvitacion) {
+    return <Navigate to="/invite/accept" replace />;
   }
 
   if (status === "account-unavailable") {

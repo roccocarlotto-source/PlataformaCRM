@@ -27,8 +27,11 @@ export function meSuccessHandler(profile: MeResponse, expectedToken?: string) {
   });
 }
 
-export function meErrorHandler(status: number, message: string) {
-  return http.get(meUrl, () => HttpResponse.json({ error: { message } }, { status }));
+// `code`: el detalle que el backend suma a algunos errores (CUENTA_NO_ACTIVADA).
+export function meErrorHandler(status: number, message: string, code?: string) {
+  return http.get(meUrl, () =>
+    HttpResponse.json({ error: { message, ...(code ? { code } : {}) } }, { status }),
+  );
 }
 
 export function meNetworkErrorHandler() {

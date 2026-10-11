@@ -13,7 +13,8 @@ import {
   type OrgDePrueba,
 } from "../routes/gateDeModulos.test-helper";
 import { createBranch } from "../services/branch.service";
-import { acceptInvitation } from "../services/invitation.service";
+import { acceptInvitation, urlParaAceptarLaInvitacion } from "../services/invitation.service";
+import { invitarYAceptar } from "../routes/invitacion.test-helper";
 
 // ---------------------------------------------------------------------------
 // Usuarios por sede contra la app real (docs/rubros.md §11.2, §11.4, §11.5,
@@ -599,6 +600,36 @@ test("invitación con sedes: crea InvitationBranch y al aceptar pasan a UserBran
   const sedes = await prisma.userBranch.findMany({ where: { userId: usuario.id } });
   assert.deepEqual(sedes.map((s) => s.branchId).sort(), [fxClinica.A.id, fxClinica.B.id].sort());
   assert.ok(sedes.every((s) => s.organizationId === clinica.id));
+});
+
+// Prueba de la Clínica Demo (2026-10-11): el mail de una invitación llevaba
+// al Site URL ("/") y no a la pantalla que la acepta. La persona quedaba con
+// sesión y sin usuario: /api/me 403 "no activada".
+test("invitación de Recepción con sede: el mail lleva a /invite/accept y, al aceptarla, entra con su sede", async () => {
+  const email = `usuarios-por-sede-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+  emailsInvitados.push(email);
+  const r = await invitarYAceptar(
+    pedir,
+    clinica,
+    como(clinica, ADMIN),
+    { email, role: "RECEPCION", branchIds: [fxClinica.A.id] },
+    "Recepción Nueva",
+  );
+  assert.equal(r.opcionesDelMail?.redirectTo, urlParaAceptarLaInvitacion());
+  assert.match(r.opcionesDelMail?.redirectTo ?? "", /\/invite\/accept$/);
+  assert.equal(r.opcionesDelMail?.data?.invitationId, r.invitationId);
+  assert.equal(r.aceptar.status, 201, JSON.stringify(r.aceptar.json));
+
+  const me = await pedir(clinica, "GET", "/api/me", undefined, r.tokenDelInvitado);
+  assert.equal(me.status, 200, JSON.stringify(me.json));
+  assert.equal(me.json.role, "RECEPCION");
+  assert.equal(me.json.organizationId, clinica.id);
+  assert.deepEqual(
+    (me.json.sedes as { id: string }[]).map((s) => s.id),
+    [fxClinica.A.id],
+  );
+  const invitacion = await prisma.invitation.findUniqueOrThrow({ where: { id: r.invitationId } });
+  assert.equal(invitacion.status, "ACCEPTED");
 });
 
 test("formulario del usuario: cambiar las sedes de una Recepción vale desde el próximo pedido", async () => {
