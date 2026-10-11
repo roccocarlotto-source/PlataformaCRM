@@ -40,6 +40,10 @@ export interface OrganizationSettings {
   edition: OrganizationEdition;
   industry: OrganizationIndustry;
   contactTerm: ContactTerm | null;
+  // R16 (docs/rubros.md §8.1): el aviso de privacidad. Solo llega en una
+  // clínica; null = sin cargar.
+  privacyNoticeText?: string | null;
+  privacyPolicyUrl?: string | null;
 }
 
 export type OrganizationEdition = "COMPLETA" | "ESENCIAL";
@@ -59,6 +63,9 @@ export interface UpdateOrganizationSettingsInput {
   timezone?: string;
   // Solo en una clínica: en una automotora el backend responde 400.
   contactTerm?: ContactTerm;
+  // R16: solo en una clínica. null = borrarlo (409 con agentes activos).
+  privacyNoticeText?: string | null;
+  privacyPolicyUrl?: string | null;
 }
 
 // Conexión de la página de Facebook de la organización (ítem 173 en el

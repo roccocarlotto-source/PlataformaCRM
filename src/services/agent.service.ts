@@ -1,6 +1,9 @@
 import type { AgentParticipation } from "@prisma/client";
 import { findBusinessHoursByBranch } from "../repositories/branchBusinessHours.repository";
-import { findActiveOrganizationEdition } from "../repositories/organization.repository";
+import {
+  findActiveOrganizationEdition,
+  findEdicionYRubro,
+} from "../repositories/organization.repository";
 import {
   decidirNivelDeIa,
   type NivelActual,
@@ -30,6 +33,7 @@ import { findBranchById, lockBranchForUpdate } from "../repositories/branch.repo
 import { findActiveMetaConnectionByPageId } from "../repositories/metaPageConnection.repository";
 import { AppError } from "../utils/AppError";
 import { assertModeloSinCambios, modeloPorDefecto } from "./modeloDeIa.service";
+import { exigirAvisoParaActivar } from "../clinicas/avisoDePrivacidad";
 
 // ---------------------------------------------------------------------------
 // CRUD administrativo del Agent (docs/ai-agent-architecture.md §5, paso 2a de
@@ -171,6 +175,19 @@ function traducirNumeroDeWhatsappDuplicado(err: unknown): never {
 // La edición de la organización (no viene del cliente) y, si el agente queda
 // "solo fuera de horario", que su sucursal tenga horario cargado: sin horario,
 // "fuera de horario" no está definido (docs/ediciones.md §4.2 c).
+// R16 (docs/rubros.md §8.1): una clínica no activa un agente sin el aviso de
+// privacidad y el link cargados. Solo al pasar a activo: un agente que ya
+// estaba activo se sigue editando igual. Una automotora no lee nada más.
+async function exigirAvisoSiSeActiva(
+  organizationId: string,
+  quedaActivo: boolean,
+  estabaActivo: boolean,
+): Promise<void> {
+  if (!quedaActivo || estabaActivo) return;
+  const { industry } = await findEdicionYRubro(organizationId);
+  await exigirAvisoParaActivar(organizationId, industry);
+}
+
 async function aplicarNivelDeIa(
   organizationId: string,
   branchId: string,
@@ -214,6 +231,7 @@ export async function createAgent(organizationId: string, input: CreateAgentInpu
     onlyOutsideBusinessHours: input.onlyOutsideBusinessHours,
     isActive: input.isActive,
   });
+  await exigirAvisoSiSeActiva(organizationId, nivel.isActive ?? input.isActive ?? true, false);
 
   return prisma.$transaction(async (tx) => {
     // Mismo lock que createResource: serializa contra deleteBranch para que
@@ -360,6 +378,11 @@ export async function updateAgent(organizationId: string, id: string, input: Upd
     onlyOutsideBusinessHours,
     isActive,
   });
+  await exigirAvisoSiSeActiva(
+    organizationId,
+    nivel.isActive ?? isActive ?? actual.isActive,
+    actual.isActive,
+  );
   const result = await updateAgentRepo(id, organizationId, {
     ...resto,
     ...(isActive !== undefined ? { isActive } : {}),

@@ -7,6 +7,7 @@ import {
 } from "../services/contactMerge.service";
 import type { Response } from "express";
 import { z } from "zod";
+import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClinica";
 import { logAccesoADatosPersonales } from "../lib/accessLog";
 import {
   createContact,
@@ -23,6 +24,11 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
+
+// Una automotora recibe el contacto con las claves de antes (camposDeClinica.ts).
+function paraElRubro<T extends object>(contacto: T, req: AuthenticatedRequest): T {
+  return sinCamposDeClinica(contacto, req.auth.industry, CAMPOS_DE_CLINICA.contact);
+}
 
 const lifecycleStageSchema = z.enum(["LEAD", "MQL", "SQL", "CUSTOMER", "CHURNED"]);
 
@@ -148,7 +154,7 @@ export const createContactHandler = asyncHandler<AuthenticatedRequest>(
       ...input,
       ownerId: ownerAlCrear(req.auth, input.ownerId),
     });
-    res.status(201).json(contact);
+    res.status(201).json(paraElRubro(contact, req));
   },
 );
 
@@ -156,14 +162,14 @@ export const listContactsHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listContactsQuerySchema, req.query);
     const result = await listContacts(req.auth.organizationId, query);
-    res.status(200).json(result);
+    res.status(200).json({ ...result, data: result.data.map((c) => paraElRubro(c, req)) });
   },
 );
 
 export const getContactHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
   const contact = await getContactById(req.auth.organizationId, id);
-  res.status(200).json(contact);
+  res.status(200).json(paraElRubro(contact, req));
 });
 
 export const updateContactHandler = asyncHandler<AuthenticatedRequest>(
@@ -178,7 +184,7 @@ export const updateContactHandler = asyncHandler<AuthenticatedRequest>(
       assertPuedeEditar(req.auth, actual, input.ownerId, "editar_cualquier_contacto");
     }
     const contact = await updateContact(req.auth.organizationId, req.auth.userId, id, input);
-    res.status(200).json(contact);
+    res.status(200).json(paraElRubro(contact, req));
   },
 );
 
@@ -267,7 +273,12 @@ export const mergePreviewHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const { with: otro } = parseOrThrow(mergePreviewQuerySchema, req.query);
-    res.status(200).json(await vistaPreviaDeLaUnion(req.auth.organizationId, id, otro));
+    const vista = await vistaPreviaDeLaUnion(req.auth.organizationId, id, otro);
+    res.status(200).json({
+      ...vista,
+      kept: paraElRubro(vista.kept, req),
+      absorbed: paraElRubro(vista.absorbed, req),
+    });
   },
 );
 
@@ -286,7 +297,7 @@ export const mergeContactHandler = asyncHandler<AuthenticatedRequest>(
     );
     res.status(200).json({
       ...resultado,
-      contact: await contactoDespuesDeUnir(req.auth.organizationId, id),
+      contact: paraElRubro(await contactoDespuesDeUnir(req.auth.organizationId, id), req),
     });
   },
 );

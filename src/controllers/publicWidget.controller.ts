@@ -65,6 +65,10 @@ export const sendWidgetMessageHandler = asyncHandler<WidgetRequest>(async (req, 
   res.status(200).json({
     conversationId: resultado.conversationId,
     respuesta: resultado.respuesta,
+    // R16 (docs/rubros.md §8.1): el aviso de privacidad de una clínica, la
+    // primera vez. El widget lo pinta como primer mensaje de esta respuesta.
+    // Sin aviso la clave no está: la respuesta de siempre.
+    ...(resultado.avisoDePrivacidad ? { avisoDePrivacidad: resultado.avisoDePrivacidad } : {}),
   });
 });
 

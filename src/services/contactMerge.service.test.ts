@@ -130,3 +130,18 @@ test("el vehículo de interés: si el que queda no tiene, se conserva el del uni
     "no se toca: queda el del que queda",
   );
 });
+
+test("R16: el aviso de privacidad no se elige; queda el más viejo de los dos", () => {
+  const viejo = new Date("2026-10-01T12:00:00Z");
+  const nuevo = new Date("2026-10-05T12:00:00Z");
+  const conAmbos = (k: Date | null, a: Date | null) => {
+    const kept = contacto({ privacyNoticeSentAt: k });
+    const absorbed = contacto({ privacyNoticeSentAt: a });
+    return datosDelQueQueda(kept, absorbed, resolverElecciones(kept, absorbed, {}))
+      .privacyNoticeSentAt;
+  };
+  assert.deepEqual(conAmbos(nuevo, viejo), viejo);
+  assert.deepEqual(conAmbos(viejo, nuevo), viejo);
+  assert.deepEqual(conAmbos(null, nuevo), nuevo);
+  assert.equal(conAmbos(null, null), undefined, "sin aviso no se escribe nada");
+});

@@ -848,6 +848,18 @@ test("R13: una automotora no tiene recordatorios y sus plantillas no cambian", (
   );
 });
 
+test("R16: un contacto de una automotora sale sin la fecha del aviso de privacidad", () => {
+  const contacto = { id: "c1", firstName: "Ana", privacyNoticeSentAt: null };
+  assert.deepEqual(
+    Object.keys(sinCamposDeClinica(contacto, "AUTOMOTORA", CAMPOS_DE_CLINICA.contact)),
+    ["id", "firstName"],
+  );
+  assert.deepEqual(
+    Object.keys(sinCamposDeClinica(contacto, "CLINICA", CAMPOS_DE_CLINICA.contact)),
+    ["id", "firstName", "privacyNoticeSentAt"],
+  );
+});
+
 // ---------------------------------------------------------------------------
 // R14 (docs/rubros.md §7): el QR de reseña y el control son de clínica. Una
 // automotora no tiene el módulo ni el trigger booking.completed, su QR sigue

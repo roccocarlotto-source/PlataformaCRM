@@ -30,6 +30,8 @@ export interface SendMessageResult {
   conversationId: string;
   /** null cuando una persona de la organización ya escribió en el hilo y el agente se calla (ítem 83). */
   respuesta: string | null;
+  /** R16: el aviso de privacidad de una clínica, la primera vez. Va antes de la respuesta. */
+  avisoDePrivacidad?: string;
 }
 
 export type WidgetApiErrorCategory =
@@ -119,10 +121,11 @@ function isWidgetThread(value: unknown): value is WidgetThread {
 
 function isSendMessageResult(value: unknown): value is SendMessageResult {
   if (typeof value !== "object" || value === null) return false;
-  const v = value as { conversationId?: unknown; respuesta?: unknown };
+  const v = value as { conversationId?: unknown; respuesta?: unknown; avisoDePrivacidad?: unknown };
   return (
     typeof v.conversationId === "string" &&
-    (typeof v.respuesta === "string" || v.respuesta === null)
+    (typeof v.respuesta === "string" || v.respuesta === null) &&
+    (v.avisoDePrivacidad === undefined || typeof v.avisoDePrivacidad === "string")
   );
 }
 
