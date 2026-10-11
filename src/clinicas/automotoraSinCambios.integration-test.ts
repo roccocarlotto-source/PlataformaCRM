@@ -695,3 +695,30 @@ test("R13: una automotora no puede crear la regla del recordatorio (el 400 de si
     0,
   );
 });
+
+test("R14: una automotora no puede usar booking.completed (el 400 de siempre) y sus servicios no traen el control", async () => {
+  await assert.rejects(
+    createAutomation(conSucursales.id, {
+      name: "Reseña",
+      triggerType: "booking.completed",
+      actionType: "booking.send_qr_review",
+      actionConfig: {},
+    }),
+    /triggerType "booking.completed" no existe: debe ser uno de opportunity.won, opportunity.stale, contact.inquiry_stalled$/,
+  );
+  const [comoAdmin] = conSucursales.tokens;
+  const lista = await pedir(conSucursales, "GET", "/api/service-types", undefined, comoAdmin);
+  assert.equal(lista.status, 200);
+  for (const servicio of (lista.json.data as Record<string, unknown>[]) ?? []) {
+    assert.equal("followUpAfterDays" in servicio, false);
+  }
+  const control = await pedir(
+    conSucursales,
+    "PUT",
+    "/api/clinica/prestaciones/11111111-1111-4111-8111-111111111111/control",
+    { followUpAfterDays: 10 },
+    comoAdmin,
+  );
+  assert.equal(control.status, 403);
+  assert.equal((control.json.error as { motivo?: string } | undefined)?.motivo, "RUBRO");
+});

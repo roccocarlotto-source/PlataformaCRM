@@ -9,7 +9,12 @@ import {
   TRIGGER_BOOKING_REMINDER_DUE,
   cuandoSaleElRecordatorio,
 } from "./config";
-import { agendarRecordatorio, cancelarPendientesDelTurno } from "./repository";
+import {
+  agendarRecordatorio,
+  cancelarPendientesDelTurno,
+  cancelarPostTurnoPendiente,
+} from "./repository";
+import { MOTIVO_NO_VINO } from "../postTurno/config";
 
 // ---------------------------------------------------------------------------
 // Programar, recalcular y anular el recordatorio de un turno (docs/rubros.md
@@ -139,5 +144,20 @@ export async function alCancelarse(evento: { organizationId: string; payload: un
   logger.debug(
     { organizationId: evento.organizationId, bookingId, anulados },
     "Recordatorio del turno: anulado",
+  );
+}
+
+/** R14: el consumidor de booking.no_show (también una corrección a No vino):
+ *  cancela el QR de reseña y el control pendientes. Lo enviado no se toca. */
+export async function alNoVenir(evento: { organizationId: string; payload: unknown }) {
+  const { bookingId } = payloadDelTurnoSchema.parse(evento.payload);
+  const { count } = await cancelarPostTurnoPendiente(
+    evento.organizationId,
+    bookingId,
+    MOTIVO_NO_VINO,
+  );
+  logger.debug(
+    { organizationId: evento.organizationId, bookingId, cancelados: count },
+    "No vino: QR de reseña y control pendientes cancelados",
   );
 }

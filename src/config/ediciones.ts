@@ -71,6 +71,8 @@ export const MODULOS = [
   "agenda_clinica",
   // R13 (docs/rubros.md §6): el recordatorio de turno con confirmación.
   "recordatorios_de_turno",
+  // R14 (docs/rubros.md §7): el QR de reseña y el control después del turno.
+  "post_turno",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
@@ -101,6 +103,7 @@ export const MODULOS_POR_EDICION: Readonly<Record<OrganizationEdition, ReadonlyS
 export const SOLO_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>([
   "agenda_clinica",
   "recordatorios_de_turno",
+  "post_turno",
 ]);
 
 // Lo que una clínica no tiene (docs/rubros.md §2 y §2.1, D3): el stock de
@@ -518,6 +521,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   // de agenda_clinica) y en la regla de automatización; lo gatea el motor
   // (TRIGGER_BOOKING_REMINDER_DUE solo con este módulo).
   recordatorios_de_turno: [],
+  // R14: el control de una prestación ("Recordar control a los N días").
+  post_turno: ["PUT /api/clinica/prestaciones/:serviceTypeId/control"],
 };
 
 /** Rutas sin sesión de usuario (sin `authenticate`). No dependen de la

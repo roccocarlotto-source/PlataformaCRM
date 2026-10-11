@@ -847,3 +847,21 @@ test("R13: una automotora no tiene recordatorios y sus plantillas no cambian", (
     ["id"],
   );
 });
+
+// ---------------------------------------------------------------------------
+// R14 (docs/rubros.md §7): el QR de reseña y el control son de clínica. Una
+// automotora no tiene el módulo ni el trigger booking.completed, su QR sigue
+// colgando de opportunity.won, y sus tipos de servicio no muestran el control.
+// ---------------------------------------------------------------------------
+
+test("R14: una automotora no tiene post_turno y su QR sigue en opportunity.won", () => {
+  for (const edition of EDICIONES) {
+    assert.equal(modulosDe(edition, "AUTOMOTORA").has("post_turno"), false);
+  }
+  assert.equal(categoriaDeLaAccion("opportunity.send_qr_followup"), "MARKETING");
+  const servicio = { id: "s1", name: "Test drive", followUpAfterDays: null };
+  assert.deepEqual(
+    Object.keys(sinCamposDeClinica(servicio, "AUTOMOTORA", CAMPOS_DE_CLINICA.serviceType)),
+    ["id", "name"],
+  );
+});

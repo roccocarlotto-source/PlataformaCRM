@@ -10,6 +10,7 @@ import {
   TOKEN_PRESTACION,
   TOKEN_PROFESIONAL,
   TOKEN_SALUDO,
+  TOKEN_SEMANAS,
   TOKEN_VEHICULO,
 } from "./whatsappPreview";
 
@@ -55,6 +56,8 @@ export const TRIGGER_CONTACT_INQUIRY_STALLED = "contact.inquiry_stalled";
 // R13 (docs/rubros.md §6 y §7.3): solo clínicas. No está en TRIGGER_OPTIONS:
 // una automotora no lo ve.
 export const TRIGGER_BOOKING_REMINDER_DUE = "booking.reminder_due";
+// R14 (docs/rubros.md §7): solo clínicas.
+export const TRIGGER_BOOKING_COMPLETED = "booking.completed";
 
 export const TRIGGER_OPTIONS: SelectOption<string>[] = [
   {
@@ -89,6 +92,11 @@ export const TRIGGER_OPTIONS_DE_CLINICA: SelectOption<string>[] = [
     label: "Recordatorio antes del turno",
     subtitle: "Antes de cada turno, con las horas que configura cada sede",
   },
+  {
+    value: TRIGGER_BOOKING_COMPLETED,
+    label: "Cuando se atiende un turno",
+    subtitle: "Cuando el turno se marca Atendido (o se cierra solo a las 3 h)",
+  },
 ];
 
 /** Las opciones del selector de trigger. `simple`: sin procesos de venta
@@ -120,6 +128,9 @@ export const ACTION_SEND_DISCOUNT_VOUCHER = "opportunity.send_discount_voucher";
 export const ACTION_INQUIRY_FOLLOW_UP = "inquiry.follow_up";
 // R13: solo clínicas (espejo de ACTION_BOOKING_SEND_REMINDER).
 export const ACTION_BOOKING_SEND_REMINDER = "booking.send_reminder";
+// R14: solo clínicas.
+export const ACTION_BOOKING_SEND_QR_REVIEW = "booking.send_qr_review";
+export const ACTION_BOOKING_SCHEDULE_CONTROL = "booking.schedule_control";
 
 export const ACTION_OPTIONS: SelectOption<string>[] = [
   {
@@ -157,6 +168,16 @@ export const ACTION_OPTIONS_DE_CLINICA: SelectOption<string>[] = [
     label: "Mandar el recordatorio por WhatsApp",
     subtitle: "Con los botones Confirmo y Necesito cancelar",
   },
+  {
+    value: ACTION_BOOKING_SEND_QR_REVIEW,
+    label: "Pedir una reseña con un QR",
+    subtitle: "Un WhatsApp al paciente con el QR, unas horas después del turno",
+  },
+  {
+    value: ACTION_BOOKING_SCHEDULE_CONTROL,
+    label: "Recordar el control",
+    subtitle: "Un WhatsApp cuando pasan los días de control de la prestación",
+  },
 ];
 
 export function actionLabel(value: string): string {
@@ -184,6 +205,7 @@ export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
   [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
   [TRIGGER_CONTACT_INQUIRY_STALLED]: [ACTION_INQUIRY_FOLLOW_UP],
   [TRIGGER_BOOKING_REMINDER_DUE]: [ACTION_BOOKING_SEND_REMINDER],
+  [TRIGGER_BOOKING_COMPLETED]: [ACTION_BOOKING_SEND_QR_REVIEW, ACTION_BOOKING_SCHEDULE_CONTROL],
 };
 
 // Las acciones que el selector ofrece para un trigger. Un trigger que este
@@ -425,6 +447,13 @@ const TEXTO_INICIAL: Record<string, { conLink: string; sinLink: string }> = {
     sinLink:
       "Hola {nombre}, gracias por tu compra. Nos ayudaría mucho conocer tu opinión sobre la atención que recibiste: escaneá este QR para dejarla. ¡Muchas gracias!",
   },
+  // R14: el QR de reseña de una clínica (sin la compra).
+  [ACTION_BOOKING_SEND_QR_REVIEW]: {
+    conLink:
+      "Hola {nombre}, gracias por venir. Si querés contarnos cómo te fue, podés dejarnos tu reseña acá: {link} ¡Gracias!",
+    sinLink:
+      "Hola {nombre}, gracias por venir. Si querés contarnos cómo te fue, escaneá este QR para dejarnos tu reseña.",
+  },
   [ACTION_SEND_DISCOUNT_VOUCHER]: {
     conLink:
       "Hola {nombre}, gracias por tu compra. Te regalamos un cupón de descuento para tu próxima visita. Lo encontrás en este enlace: {link} ¡Te esperamos!",
@@ -452,8 +481,14 @@ export const TEXTO_INICIAL_DEL_RECORDATORIO =
 // Los botones que agrega la plantilla (espejo de BOTONES_DEL_RECORDATORIO).
 export const BOTONES_DEL_RECORDATORIO = ["Confirmo", "Necesito cancelar"] as const;
 
+// R14: el del control, espejo de TEXTO_POR_DEFECTO_DEL_CONTROL
+// (src/clinicas/postTurno/config.ts). Sin datos de salud.
+export const TEXTO_INICIAL_DEL_CONTROL =
+  "Hola {nombre}, ya pasaron {semanas} semanas desde tu último turno en {lugar}. Si querés agendar el próximo, escribinos por acá.";
+
 export function textoInicial(actionType: string, formato: string, esClinica = false): string {
   if (actionType === ACTION_BOOKING_SEND_REMINDER) return TEXTO_INICIAL_DEL_RECORDATORIO;
+  if (actionType === ACTION_BOOKING_SCHEDULE_CONTROL) return TEXTO_INICIAL_DEL_CONTROL;
   if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
     return esClinica ? TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA : TEXTO_INICIAL_DE_CONSULTA;
   }
@@ -487,6 +522,24 @@ export function mensajeDeLaAccion(
   formato: string,
   esClinica = false,
 ): MensajeDeLaAccion {
+  if (actionType === ACTION_BOOKING_SCHEDULE_CONTROL) {
+    return {
+      conFormato: false,
+      variables: [
+        { token: TOKEN_NOMBRE, ayuda: "el nombre del paciente", obligatoria: true },
+        {
+          token: TOKEN_SEMANAS,
+          ayuda: "las semanas de control de la prestación",
+          obligatoria: false,
+        },
+        {
+          token: TOKEN_LUGAR,
+          ayuda: "la clínica, o «Clínica (sede)» si tiene más de una sede",
+          obligatoria: false,
+        },
+      ],
+    };
+  }
   if (actionType === ACTION_BOOKING_SEND_REMINDER) {
     return {
       conFormato: false,
@@ -634,6 +687,33 @@ export function validarMensajeDelRecordatorio(draft: ConfigDraft): string | null
   return null;
 }
 
+// R14: el control. {nombre} una vez; {semanas} y {lugar} a lo sumo una.
+const VARIABLES_DEL_CONTROL = [TOKEN_NOMBRE, TOKEN_SEMANAS, TOKEN_LUGAR];
+
+export function validarMensajeDelControl(draft: ConfigDraft): string | null {
+  const texto = (draft.messageText ?? "").trim();
+  if (texto === "") return "Escribí el texto del mensaje de WhatsApp.";
+  if (contar(texto, TOKEN_NOMBRE) !== 1)
+    return `El mensaje tiene que incluir ${TOKEN_NOMBRE} una vez.`;
+  for (const token of [TOKEN_SEMANAS, TOKEN_LUGAR]) {
+    if (contar(texto, token) > 1) return `El mensaje no puede incluir ${token} más de una vez.`;
+  }
+  const ajena = (texto.match(/\{[^{}]*\}/g) ?? []).find((t) => !VARIABLES_DEL_CONTROL.includes(t));
+  if (ajena) {
+    return `"${ajena}" no va en este mensaje: solo valen ${VARIABLES_DEL_CONTROL.join(", ")}.`;
+  }
+  return null;
+}
+
+const configDelControl: ConfigDeAccion = {
+  draftVacio: () => ({ messageText: TEXTO_INICIAL_DEL_CONTROL }),
+  draftDesde: (config) => ({
+    messageText: typeof config.messageText === "string" ? config.messageText : "",
+  }),
+  validar: validarMensajeDelControl,
+  aPayload: (draft) => ({ messageText: (draft.messageText ?? "").trim() }),
+};
+
 const configDelRecordatorio: ConfigDeAccion = {
   draftVacio: () => ({ messageText: TEXTO_INICIAL_DEL_RECORDATORIO }),
   draftDesde: (config) => ({
@@ -697,6 +777,33 @@ const configDeSeguimientoQr: ConfigDeAccion = {
     ...demoraAPayload(draft),
     ...mensajeAPayload(draft),
   }),
+};
+
+// R14: el QR de reseña de una clínica. Lo mismo que el QR de una automotora,
+// con la demora mínima de 3 h (para corregir un No vino, docs/rubros.md §7.1).
+export const DEMORA_MINIMA_DEL_QR_DE_CLINICA_MIN = 3 * 60;
+
+const configDelQrDeResena: ConfigDeAccion = {
+  draftVacio: () => ({
+    qrCodeId: "",
+    delayAmount: "3",
+    delayUnit: "hours",
+    ...mensajeVacio(ACTION_BOOKING_SEND_QR_REVIEW),
+  }),
+  draftDesde: configDeSeguimientoQr.draftDesde,
+  validar: (draft) => {
+    if ((draft.qrCodeId ?? "") === "") return "Elegí el QR que se le va a mandar al paciente.";
+    const demora = validarDemoraDelDraft(draft);
+    if (demora) return demora;
+    if (
+      Number(draft.delayAmount) * MINUTOS_POR_UNIDAD[unidadDelDraft(draft)] <
+      DEMORA_MINIMA_DEL_QR_DE_CLINICA_MIN
+    ) {
+      return "En una clínica la espera es de al menos 3 horas, para poder corregir un «No vino».";
+    }
+    return validarMensaje(draft);
+  },
+  aPayload: configDeSeguimientoQr.aPayload,
 };
 
 // Los topes de configDeCuponSchema
@@ -778,6 +885,8 @@ export const CONFIG_DE_ACCION: Record<string, ConfigDeAccion> = {
   [ACTION_SEND_DISCOUNT_VOUCHER]: configDeCupon,
   [ACTION_INQUIRY_FOLLOW_UP]: configDeSeguimientoDeConsulta,
   [ACTION_BOOKING_SEND_REMINDER]: configDelRecordatorio,
+  [ACTION_BOOKING_SEND_QR_REVIEW]: configDelQrDeResena,
+  [ACTION_BOOKING_SCHEDULE_CONTROL]: configDelControl,
 };
 
 // Las acciones que mandan un WhatsApp con plantilla: su formulario muestra el
@@ -788,7 +897,9 @@ export function accionConMensajeDeWhatsapp(actionType: string): boolean {
     actionType === ACTION_SEND_QR_FOLLOWUP ||
     actionType === ACTION_SEND_DISCOUNT_VOUCHER ||
     actionType === ACTION_INQUIRY_FOLLOW_UP ||
-    actionType === ACTION_BOOKING_SEND_REMINDER
+    actionType === ACTION_BOOKING_SEND_REMINDER ||
+    actionType === ACTION_BOOKING_SEND_QR_REVIEW ||
+    actionType === ACTION_BOOKING_SCHEDULE_CONTROL
   );
 }
 
@@ -895,6 +1006,8 @@ export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
   [TRIGGER_CONTACT_INQUIRY_STALLED]: configDeConsultaSinAvance,
   // R13: sin configuración propia (las horas son de cada sede).
   [TRIGGER_BOOKING_REMINDER_DUE]: configVacia,
+  // R14: sin configuración propia (la demora es de cada acción).
+  [TRIGGER_BOOKING_COMPLETED]: configVacia,
 };
 
 // El default del formulario: la PRIMERA entrada de cada catálogo, no un valor

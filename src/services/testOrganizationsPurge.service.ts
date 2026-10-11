@@ -171,6 +171,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "src/clinicas/atendidoNoVino.integration-test.ts",
   ),
   patron("reprogramar-{etiqueta}-{ts}-{hex8}", "src/clinicas/reprogramar.integration-test.ts"),
+  patron("post-turno-{etiqueta}-{ts}-{hex8}", "src/clinicas/postTurno.integration-test.ts"),
   patron("recordatorios-{etiqueta}-{ts}-{hex8}", "src/clinicas/recordatorios.integration-test.ts"),
   patron(
     "tools-de-turnos-{etiqueta}-{ts}-{hex8}",

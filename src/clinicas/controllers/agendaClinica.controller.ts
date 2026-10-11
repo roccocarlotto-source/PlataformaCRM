@@ -30,6 +30,8 @@ import {
 import { findResourceById } from "../../repositories/resource.repository";
 import { exigirSedeDelActor } from "../../services/permisos";
 import { AppError } from "../../utils/AppError";
+import { MAX_DIAS_DE_CONTROL } from "../postTurno/config";
+import { configurarControlDeLaPrestacion } from "../postTurno/control.service";
 import {
   MAX_HORAS_PARA_CAMBIAR_UN_TURNO,
   configuracionDeClinicaDeLaSede,
@@ -388,5 +390,31 @@ export const configurarSedeHandler = asyncHandler<AuthenticatedRequest>(
     const branchId = parseOrThrow(z.string().uuid("branchId inválido"), req.params.branchId);
     const input = parseOrThrow(configuracionDeSedeBodySchema, req.body);
     res.status(200).json(await configurarClinicaDeLaSede(req.auth.organizationId, branchId, input));
+  },
+);
+
+// ---------------------------------------------------------------------------
+// R14: el control de una prestación (docs/rubros.md §7.2). Configuración: solo
+// ADMIN. Del módulo post_turno: una automotora recibe 403 con motivo RUBRO.
+// ---------------------------------------------------------------------------
+
+const controlBodySchema = z
+  .object({
+    followUpAfterDays: z
+      .number({ invalid_type_error: "followUpAfterDays debe ser un número" })
+      .int("followUpAfterDays debe ser un número entero")
+      .min(1, "followUpAfterDays tiene que ser al menos 1")
+      .max(MAX_DIAS_DE_CONTROL, `followUpAfterDays no puede superar ${MAX_DIAS_DE_CONTROL}`)
+      .nullable(),
+  })
+  .strict();
+
+export const configurarControlHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(idSchema, req.params.serviceTypeId);
+    const { followUpAfterDays } = parseOrThrow(controlBodySchema, req.body);
+    res
+      .status(200)
+      .json(await configurarControlDeLaPrestacion(req.auth.organizationId, id, followUpAfterDays));
   },
 );

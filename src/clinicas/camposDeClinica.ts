@@ -26,6 +26,8 @@ export const CAMPOS_DE_CLINICA = {
     // R13: el paciente confirmó por el recordatorio.
     "patientConfirmedAt",
   ],
+  // R14: "Recordar control a los N días".
+  serviceType: ["followUpAfterDays"],
 } as const;
 
 export function sinCamposDeClinica<T extends object>(

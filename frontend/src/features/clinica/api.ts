@@ -45,3 +45,15 @@ export function definirProfesionales(
     getAccessToken,
   });
 }
+
+// R14: "Recordar control a los N días" de una prestación (solo ADMIN).
+export function configurarControl(
+  serviceTypeId: string,
+  followUpAfterDays: number | null,
+): Promise<{ id: string; followUpAfterDays: number | null }> {
+  return request(`/clinica/prestaciones/${serviceTypeId}/control`, {
+    method: "PUT",
+    body: { followUpAfterDays },
+    getAccessToken,
+  });
+}
