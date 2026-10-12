@@ -9,7 +9,10 @@ import {
   listOrganizationsHandler,
   reenviarInvitacionDelAdministradorHandler,
 } from "../controllers/organizationAdmin.controller";
-import { crearClinicaDemoHandler } from "../clinicas/demo/clinicaDemo.controller";
+import {
+  crearClinicaDemoHandler,
+  reiniciarDatosDeLaDemoHandler,
+} from "../clinicas/demo/clinicaDemo.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 import { requirePlatformAdmin } from "../middlewares/requirePlatformAdmin";
@@ -43,6 +46,16 @@ organizationAdminRouter.post(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   crearClinicaDemoHandler,
+);
+
+// Reiniciar los datos de una Clínica Demo (§12.3): borra los datos de uso y
+// vuelve a cargar los de ejemplo. Misma cadena; 400 si no es una demo.
+organizationAdminRouter.post(
+  "/admin/organizations/:organizationId/demo/reiniciar",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  reiniciarDatosDeLaDemoHandler,
 );
 
 // El listado, con la misma cadena: el nombre de cada cliente de la plataforma

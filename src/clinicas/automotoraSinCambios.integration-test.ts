@@ -33,6 +33,7 @@ import {
 } from "../routes/gateDeModulos.test-helper";
 import { espiarInvitaciones, invitar, invitarYAceptar } from "../routes/invitacion.test-helper";
 import { urlParaAceptarLaInvitacion } from "../services/invitation.service";
+import { NO_ES_UNA_DEMO } from "./demo/reinicioDeLaDemo.service";
 
 // ---------------------------------------------------------------------------
 // Suite "automotora sin cambios" (docs/rubros.md §0.3 y §14.1), contra la app
@@ -57,6 +58,9 @@ import { urlParaAceptarLaInvitacion } from "../services/invitation.service";
 //
 // Caso de R19 (Clínica Demo): el alta común de una automotora por un platform
 // admin responde y escribe lo mismo que antes (sin datos de ejemplo).
+//
+// Caso del reinicio de la Clínica Demo (§12.3): una automotora no se puede
+// reiniciar (400) y sus datos quedan como estaban.
 //
 // Caso de R6 (bloqueos y sobreturnos): GET /api/availability de un USER sobre
 // un recurso de cualquier sucursal sigue respondiendo, y recursos y reservas
@@ -977,6 +981,36 @@ test("R19: el alta común de una automotora es la de siempre (sin nada de la Cl�
       await prisma.organization.deleteMany({ where: { id: creado.organization.id as string } });
       await getSupabaseAdmin().auth.admin.deleteUser(creado.admin.id);
     }
+  }
+});
+
+test("§12.3: reiniciar los datos de demo de una automotora da 400 y no borra nada", async () => {
+  await prisma.platformAdmin.create({ data: { userId: completa.authIds[0] } });
+  const contacto = await prisma.contact.create({
+    data: { organizationId: completa.id, firstName: "Cliente", lastName: "Sin Cambios" },
+  });
+  const where = { organizationId: completa.id };
+  const conteos = async () => ({
+    contactos: await prisma.contact.count({ where }),
+    reservas: await prisma.booking.count({ where }),
+    conversaciones: await prisma.conversation.count({ where }),
+    tareas: await prisma.activity.count({ where }),
+    sucursales: await prisma.branch.count({ where }),
+  });
+  try {
+    const antes = await conteos();
+    const res = await pedir(
+      completa,
+      "POST",
+      `/api/admin/organizations/${completa.id}/demo/reiniciar`,
+    );
+    assert.equal(res.status, 400);
+    assert.equal(res.json.error?.message, NO_ES_UNA_DEMO);
+    assert.deepEqual(await conteos(), antes);
+    assert.ok(await prisma.contact.findUnique({ where: { id: contacto.id } }));
+  } finally {
+    await prisma.platformAdmin.deleteMany({ where: { userId: completa.authIds[0] } });
+    await prisma.contact.delete({ where: { id: contacto.id } });
   }
 });
 

@@ -10,8 +10,13 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Table } from "../../design-system/Table";
 import { useConfirm } from "../../design-system/useConfirm";
+import { CONFIRMACION_DEL_REINICIO, esClinicaDemo } from "./clinicaDemo";
 import { NOMBRE_DE_EDICION } from "./ediciones";
-import { useChangeOrganizationEdition, useReenviarInvitacionDelAdministrador } from "./mutations";
+import {
+  useChangeOrganizationEdition,
+  useReenviarInvitacionDelAdministrador,
+  useReiniciarDatosDeLaDemo,
+} from "./mutations";
 import { useEsencialOfrecida, usePlatformOrganizations } from "./queries";
 import type { PlatformOrganization } from "./types";
 
@@ -30,6 +35,11 @@ import type { PlatformOrganization } from "./types";
 // filas, porque saber si el administrador ya la aceptó es preguntarle a
 // Supabase por cada organización; lo decide el backend al reenviar (409 si ya
 // la aceptó).
+//
+// "Reiniciar datos de demo" (docs/rubros.md §12.3): solo en las filas de una
+// Clínica Demo (esClinicaDemo). Borra pacientes, turnos, conversaciones y
+// tareas, y vuelve a cargar los de ejemplo; la confirmación dice qué se borra
+// y qué queda.
 // ---------------------------------------------------------------------------
 
 export function OrganizationsPage() {
@@ -47,11 +57,35 @@ function ListaDeOrganizaciones() {
   const [subida, setSubida] = useState<string | null>(null);
   const reenviar = useReenviarInvitacionDelAdministrador();
   const [reenviada, setReenviada] = useState<string | null>(null);
+  const reiniciar = useReiniciarDatosDeLaDemo();
+  const [reiniciada, setReiniciada] = useState<string | null>(null);
 
-  async function reenviarInvitacion(org: PlatformOrganization) {
+  function limpiarMensajes() {
     setError(null);
     setSubida(null);
     setReenviada(null);
+    setReiniciada(null);
+  }
+
+  async function reiniciarDemo(org: PlatformOrganization) {
+    limpiarMensajes();
+    const ok = await confirm(
+      `¿Reiniciar los datos de «${org.name}»? ${CONFIRMACION_DEL_REINICIO}`,
+      { confirmLabel: "Reiniciar datos", danger: true },
+    );
+    if (!ok) return;
+    try {
+      const { cargados } = await reiniciar.mutateAsync(org.id);
+      setReiniciada(
+        `Reiniciamos «${org.name}»: ${cargados.pacientes} pacientes y ${cargados.turnosProximos} turnos próximos de ejemplo, más ${cargados.turnosAtendidos} atendidos la semana pasada.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No pudimos reiniciar los datos de la demo");
+    }
+  }
+
+  async function reenviarInvitacion(org: PlatformOrganization) {
+    limpiarMensajes();
     const ok = await confirm(
       `¿Reenviar la invitación al administrador de «${org.name}»? Le llega de nuevo el mail para elegir su contraseña.`,
       { confirmLabel: "Reenviar" },
@@ -66,9 +100,7 @@ function ListaDeOrganizaciones() {
   }
 
   async function pasarACompleta(org: PlatformOrganization) {
-    setError(null);
-    setSubida(null);
-    setReenviada(null);
+    limpiarMensajes();
     const ok = await confirm(
       `¿Pasar «${org.name}» a la edición completa? Va a tener todos los módulos. No se puede volver a la edición esencial.`,
       { confirmLabel: "Pasar a completa" },
@@ -93,6 +125,7 @@ function ListaDeOrganizaciones() {
         {error ? <ErrorState>{error}</ErrorState> : null}
         {subida ? <p role="status">«{subida}» ya tiene la edición completa.</p> : null}
         {reenviada ? <p role="status">{reenviada}</p> : null}
+        {reiniciada ? <p role="status">{reiniciada}</p> : null}
         {organizationsQuery.isSuccess ? (
           organizationsQuery.data.length === 0 ? (
             <EmptyState>No hay organizaciones vigentes.</EmptyState>
@@ -136,6 +169,16 @@ function ListaDeOrganizaciones() {
                             disabled={cambiarEdicion.isPending}
                           >
                             Pasar a edición completa
+                          </Button>
+                        ) : null}
+                        {esClinicaDemo(org) ? (
+                          <Button
+                            type="button"
+                            variant="danger"
+                            onClick={() => void reiniciarDemo(org)}
+                            disabled={reiniciar.isPending}
+                          >
+                            Reiniciar datos de demo
                           </Button>
                         ) : null}
                       </div>

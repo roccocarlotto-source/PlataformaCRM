@@ -2,8 +2,8 @@ import type { KnowledgeBaseEntryKind, Weekday } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
 // Los datos de la Clínica Demo (docs/rubros.md §12.2, D14, R19). TODOS
-// INVENTADOS: nombres de fantasía, emails @example.com, sin teléfonos, links a
-// example.com. Nada de AutoMax ni de ningún cliente real (el repo es público).
+// INVENTADOS: nombres comunes inventados, emails @example.com, sin teléfonos,
+// links a example.com. Nada de AutoMax ni de ningún cliente real (el repo es público).
 // ---------------------------------------------------------------------------
 
 /** El nombre de la organización. Con un sufijo opcional ("Clínica Demo
@@ -110,7 +110,7 @@ export const PRESTACIONES: Record<
 };
 
 /** "La Dra. Ejemplo no atiende el próximo viernes a la tarde": el viernes de
- *  la semana de los turnos, de 13 a 19. */
+ *  la primera semana de los turnos (el primero desde mañana), de 13 a 19. */
 export const BLOQUEO = {
   profesional: "dra" as ClaveDeProfesional,
   desde: h(13),
@@ -164,21 +164,21 @@ export const BASE_DE_CONOCIMIENTO: {
   },
 ];
 
-/** Ocho pacientes con nombres de fantasía, emails @example.com y SIN
+/** Ocho pacientes con nombres comunes inventados, emails @example.com y SIN
  *  teléfono (§12.2): la demo no puede mandarle nada a nadie. */
 export const PACIENTES: { nombre: string; apellido: string; email: string }[] = [
-  { nombre: "Valentina", apellido: "Ficticia", email: "valentina.ficticia@example.com" },
-  { nombre: "Camila", apellido: "Inventada", email: "camila.inventada@example.com" },
-  { nombre: "Florencia", apellido: "Supuesta", email: "florencia.supuesta@example.com" },
-  { nombre: "Lucas", apellido: "Imaginario", email: "lucas.imaginario@example.com" },
-  { nombre: "Agustina", apellido: "Modelo", email: "agustina.modelo@example.com" },
-  { nombre: "Mateo", apellido: "Simulado", email: "mateo.simulado@example.com" },
-  { nombre: "Julieta", apellido: "Ensayo", email: "julieta.ensayo@example.com" },
-  { nombre: "Sofía", apellido: "Borrador", email: "sofia.borrador@example.com" },
+  { nombre: "Sofía", apellido: "Martínez", email: "sofia.martinez@example.com" },
+  { nombre: "Mateo", apellido: "Rodríguez", email: "mateo.rodriguez@example.com" },
+  { nombre: "Valentina", apellido: "Gómez", email: "valentina.gomez@example.com" },
+  { nombre: "Lucas", apellido: "Fernández", email: "lucas.fernandez@example.com" },
+  { nombre: "Camila", apellido: "López", email: "camila.lopez@example.com" },
+  { nombre: "Agustina", apellido: "Pérez", email: "agustina.perez@example.com" },
+  { nombre: "Julieta", apellido: "Silva", email: "julieta.silva@example.com" },
+  { nombre: "Martín", apellido: "Sosa", email: "martin.sosa@example.com" },
 ];
 
 export interface TurnoDeLaDemo {
-  /** 0 = lunes de la semana de los turnos. */
+  /** 0 = lunes … 5 = sábado. */
   dia: number;
   hora: number;
   minutos?: number;
@@ -191,14 +191,35 @@ export interface TurnoDeLaDemo {
   sobreturno?: true;
 }
 
-/** Quince turnos en la semana siguiente (lunes a sábado), en la grilla de cada
- *  prestación y dentro del horario de cada profesional. Ninguno de la Dra. el
- *  viernes a la tarde (el bloqueo). */
-export const TURNOS_PROXIMOS: TurnoDeLaDemo[] = [
-  { dia: 0, hora: 9, paciente: 0, prestacion: "consulta", profesional: "dra", confirmado: true },
-  { dia: 0, hora: 10, paciente: 1, prestacion: "limpieza", profesional: "martina" },
-  { dia: 0, hora: 13, paciente: 2, prestacion: "depilacion", profesional: "sofia" },
+export interface TurnoProximoDeLaDemo extends TurnoDeLaDemo {
+  /** 0 = los primeros siete días desde mañana; 1 = los siete siguientes. */
+  semana: 0 | 1;
+}
+
+/** Los días de turnos: catorce desde mañana, en dos tandas de siete. */
+export const DIAS_DE_TURNOS = 14;
+
+/** Veinticuatro turnos en los catorce días desde mañana (de lunes a sábado;
+ *  los domingos no hay), en la grilla de cada prestación y dentro del horario
+ *  de cada profesional. Cada tanda de siete días tiene cada día de la semana
+ *  una sola vez, así que el día de cada turno sale de su `semana` y su `dia`
+ *  sea cual sea el día de hoy (datosDeEjemplo.ts, fechasDeLosTurnosProximos).
+ *  Ninguno de la Dra. el viernes a la tarde de la primera tanda (el bloqueo). */
+export const TURNOS_PROXIMOS: TurnoProximoDeLaDemo[] = [
+  // --- Primera tanda (los siete días desde mañana) ---
   {
+    semana: 0,
+    dia: 0,
+    hora: 9,
+    paciente: 0,
+    prestacion: "consulta",
+    profesional: "dra",
+    confirmado: true,
+  },
+  { semana: 0, dia: 0, hora: 10, paciente: 1, prestacion: "limpieza", profesional: "martina" },
+  { semana: 0, dia: 0, hora: 13, paciente: 2, prestacion: "depilacion", profesional: "sofia" },
+  {
+    semana: 0,
     dia: 1,
     hora: 10,
     minutos: 30,
@@ -207,11 +228,28 @@ export const TURNOS_PROXIMOS: TurnoDeLaDemo[] = [
     profesional: "dra",
     confirmado: true,
   },
-  { dia: 1, hora: 15, paciente: 4, prestacion: "peeling", profesional: "dra" },
-  { dia: 1, hora: 14, paciente: 5, prestacion: "limpieza", profesional: "sofia" },
-  { dia: 2, hora: 9, minutos: 30, paciente: 7, prestacion: "consulta", profesional: "dra" },
-  { dia: 2, hora: 15, minutos: 15, paciente: 6, prestacion: "depilacion", profesional: "sofia" },
+  { semana: 0, dia: 1, hora: 15, paciente: 4, prestacion: "peeling", profesional: "dra" },
+  { semana: 0, dia: 1, hora: 14, paciente: 5, prestacion: "limpieza", profesional: "sofia" },
   {
+    semana: 0,
+    dia: 2,
+    hora: 9,
+    minutos: 30,
+    paciente: 7,
+    prestacion: "consulta",
+    profesional: "dra",
+  },
+  {
+    semana: 0,
+    dia: 2,
+    hora: 15,
+    minutos: 15,
+    paciente: 6,
+    prestacion: "depilacion",
+    profesional: "sofia",
+  },
+  {
+    semana: 0,
     dia: 3,
     hora: 11,
     paciente: 1,
@@ -219,12 +257,54 @@ export const TURNOS_PROXIMOS: TurnoDeLaDemo[] = [
     profesional: "dra",
     confirmado: true,
   },
-  { dia: 3, hora: 13, minutos: 30, paciente: 2, prestacion: "peeling", profesional: "dra" },
-  { dia: 3, hora: 16, paciente: 3, prestacion: "limpieza", profesional: "martina" },
-  { dia: 4, hora: 9, paciente: 4, prestacion: "consulta", profesional: "dra" },
-  { dia: 4, hora: 9, paciente: 5, prestacion: "consulta", profesional: "dra", sobreturno: true },
-  { dia: 4, hora: 10, paciente: 6, prestacion: "limpieza", profesional: "martina" },
-  { dia: 5, hora: 10, paciente: 7, prestacion: "limpieza", profesional: "martina" },
+  {
+    semana: 0,
+    dia: 3,
+    hora: 13,
+    minutos: 30,
+    paciente: 2,
+    prestacion: "peeling",
+    profesional: "dra",
+  },
+  { semana: 0, dia: 3, hora: 16, paciente: 3, prestacion: "limpieza", profesional: "martina" },
+  { semana: 0, dia: 4, hora: 9, paciente: 4, prestacion: "consulta", profesional: "dra" },
+  {
+    semana: 0,
+    dia: 4,
+    hora: 9,
+    paciente: 5,
+    prestacion: "consulta",
+    profesional: "dra",
+    sobreturno: true,
+  },
+  { semana: 0, dia: 4, hora: 10, paciente: 6, prestacion: "limpieza", profesional: "martina" },
+  { semana: 0, dia: 5, hora: 10, paciente: 7, prestacion: "limpieza", profesional: "martina" },
+  // --- Segunda tanda (los siete días siguientes) ---
+  {
+    semana: 1,
+    dia: 0,
+    hora: 11,
+    minutos: 30,
+    paciente: 6,
+    prestacion: "consulta",
+    profesional: "dra",
+  },
+  { semana: 1, dia: 0, hora: 14, paciente: 0, prestacion: "limpieza", profesional: "martina" },
+  { semana: 1, dia: 1, hora: 9, paciente: 7, prestacion: "peeling", profesional: "dra" },
+  { semana: 1, dia: 1, hora: 16, paciente: 3, prestacion: "depilacion", profesional: "sofia" },
+  { semana: 1, dia: 2, hora: 10, paciente: 2, prestacion: "limpieza", profesional: "martina" },
+  { semana: 1, dia: 2, hora: 14, paciente: 5, prestacion: "consulta", profesional: "dra" },
+  {
+    semana: 1,
+    dia: 3,
+    hora: 13,
+    minutos: 45,
+    paciente: 4,
+    prestacion: "depilacion",
+    profesional: "sofia",
+  },
+  { semana: 1, dia: 4, hora: 15, paciente: 1, prestacion: "consulta", profesional: "dra" },
+  { semana: 1, dia: 5, hora: 9, paciente: 0, prestacion: "limpieza", profesional: "sofia" },
 ];
 
 /** Tres turnos atendidos la semana anterior (0 = lunes de esa semana). Se

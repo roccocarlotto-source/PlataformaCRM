@@ -8,6 +8,7 @@ import {
   assignWhatsappNumber,
   changeOrganizationEdition,
   reenviarInvitacionDelAdministrador,
+  reiniciarDatosDeLaDemo,
   completeOrganizationMetaConnection,
   createClinicaDemo,
   createOrganization,
@@ -64,6 +65,13 @@ export function useChangeOrganizationEdition() {
 export function useReenviarInvitacionDelAdministrador() {
   return useMutation({
     mutationFn: (organizationId: string) => reenviarInvitacionDelAdministrador(organizationId),
+  });
+}
+
+// Sin invalidación: el listado no muestra nada de los datos de la demo.
+export function useReiniciarDatosDeLaDemo() {
+  return useMutation({
+    mutationFn: (organizationId: string) => reiniciarDatosDeLaDemo(organizationId),
   });
 }
 

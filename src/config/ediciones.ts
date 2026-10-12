@@ -265,6 +265,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "PATCH /api/admin/organizations/:organizationId/industry",
     // R19 (§12.1): la Clínica Demo con datos de ejemplo.
     "POST /api/admin/organizations/clinica-demo",
+    // §12.3: reiniciar los datos de una Clínica Demo.
+    "POST /api/admin/organizations/:organizationId/demo/reiniciar",
     // Reenviar la invitación al administrador que no la aceptó.
     "POST /api/admin/organizations/:organizationId/admin-invitation/resend",
     "GET /api/admin/llm-usage",
