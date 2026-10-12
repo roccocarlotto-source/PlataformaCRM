@@ -14,6 +14,7 @@ import { makeDefinicion } from "../../test/contactCustomFieldFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { ContactFormPage } from "./ContactFormPage";
 import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
+import { formatDateOnly } from "../../design-system/detailFormat";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -841,13 +842,11 @@ describe("ContactFormPage — borrar datos personales", () => {
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
     await user.click(screen.getByRole("button", { name: "Borrar datos personales" }));
     expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/No se puede deshacer/));
+    // La fecha con el mismo formateador de la pantalla: depende del locale
+    // del entorno (en el CI sale "10/12/2026").
     expect(
-      // Con margen: el borrado, la invalidación y el refetch de la ficha son
-      // tres idas, y en el CI el default de 1 s quedó corto.
       await screen.findByText(
-        "Datos personales borrados el 12/10/2026 por Ana Pérez.",
-        {},
-        { timeout: 5000 },
+        `Datos personales borrados el ${formatDateOnly("2026-10-12T15:00:00.000Z")} por Ana Pérez.`,
       ),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Nombre")).toHaveValue("[dato borrado]");
