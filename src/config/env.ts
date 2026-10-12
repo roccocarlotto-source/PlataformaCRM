@@ -442,13 +442,14 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(2 * 60 * 1000),
-  // Timeout de la transacción que sostiene el lock por conversación (ítem
-  // 126; conLockDeConversacion en agentOrchestration.service.ts). TIENE QUE
-  // SER MAYOR QUE EL TURNO MÁS LARGO POSIBLE: si Prisma la da por vencida con
-  // el turno corriendo, el lock se suelta a mitad y el turno termina en error
-  // aunque haya hecho todo su trabajo. El peor caso de hoy es de ~18 minutos
-  // (5 rondas × 3 intentos de 60 s del proveedor, más el brief del handoff);
-  // 30 minutos deja margen. Acotar el turno mismo es B-08, fuera de este ítem.
+  // Cuánto puede durar un turno con el lock por conversación (ítem 126;
+  // conLockDeConversacion en agentOrchestration.service.ts y el lease de
+  // services/leaseDelTurno.ts), y cuánto se espera a otro proceso que lo
+  // tenga. Pasado este tiempo el lease deja de renovarse y vence: el turno ya
+  // no puede guardar su respuesta (fencing). TIENE QUE SER MAYOR QUE EL TURNO
+  // MÁS LARGO POSIBLE. El peor caso de hoy es de ~18 minutos (5 rondas × 3
+  // intentos de 60 s del proveedor, más el brief del handoff); 30 minutos deja
+  // margen. Acotar el turno mismo es B-08, fuera de este ítem.
   AGENT_TURN_LOCK_TIMEOUT_MS: z.coerce
     .number()
     .int()
@@ -456,10 +457,12 @@ const envSchema = z.object({
     .default(30 * 60 * 1000),
   // Cuántos turnos del agente pueden tener tomado el lock por conversación a
   // la vez (C-12 de docs-privados/auditoria-2026-09-30-corta.md, local, no
-  // está en GitHub; src/utils/limitadorDeTurnos.ts). Cada uno ocupa una
-  // conexión del pool durante todo el turno, así que tiene que quedar por
-  // debajo del pool. Sin valor, se deriva de `connection_limit` en
-  // DATABASE_URL (la mitad) o, si no está, es 2 (cupoDeTurnosPorDefecto).
+  // está en GitHub; src/utils/limitadorDeTurnos.ts). Desde el lease
+  // (services/leaseDelTurno.ts) un turno ya no ocupa una conexión mientras
+  // espera al modelo o a Meta: solo usa las de sus consultas, de a una. Sin
+  // valor, se deriva de `connection_limit` en DATABASE_URL (la mitad) o, si no
+  // está, es 2 (cupoDeTurnosPorDefecto) — un default conservador; el valor de
+  // producción se fija acá.
   AGENT_TURN_MAX_CONCURRENT: z.coerce.number().int().positive().optional(),
 
   // AUTH_CONTEXT_CACHE_TTL_MS: cuántos milisegundos se recuerda el usuario,

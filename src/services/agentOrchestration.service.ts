@@ -54,6 +54,7 @@ import {
   type AtencionFueraDeHorario,
 } from "../utils/fueraDeHorario";
 import { crearLimitadorDeTurnos, cupoDeTurnosPorDefecto } from "../utils/limitadorDeTurnos";
+import { conLeaseDelTurno, conLeaseVigente } from "./leaseDelTurno";
 import {
   CONSULTAS_QUE_NO_SON_INICIATIVA,
   enumerarIniciativas,
@@ -1814,14 +1815,19 @@ async function responderConDecisionDelRubro(entrada: {
     aviso: decision.aviso,
   });
   const respuesta = formatearParaElCanal(decision.mensaje, conversation.channel);
-  const saliente = await createMessage({
-    organizationId,
-    conversationId: conversation.id,
-    direction: "OUTBOUND",
-    senderType: "AGENT",
-    content: respuesta,
-    toolCalls: [marca] as unknown as Prisma.InputJsonValue,
-  });
+  const saliente = await conLeaseVigente((db) =>
+    createMessage(
+      {
+        organizationId,
+        conversationId: conversation.id,
+        direction: "OUTBOUND",
+        senderType: "AGENT",
+        content: respuesta,
+        toolCalls: [marca] as unknown as Prisma.InputJsonValue,
+      },
+      db,
+    ),
+  );
   await updateConversation(conversation.id, organizationId, {
     lastMessageAt: saliente.createdAt,
   });
@@ -1970,35 +1976,29 @@ async function crearActivityDeAviso(
 // Dos mensajes seguidos del mismo contacto —el caso normal en WhatsApp:
 // "hola" / "quiero un auto" / "un Gol 2020"— corrían dos turnos en paralelo
 // que no se veían entre sí: dos conversaciones abiertas, respuestas cruzadas,
-// dos oportunidades OPEN, dos reservas. Ahora todo turno corre bajo un
-// pg_advisory_xact_lock por (agente, contacto, canal): el segundo espera a
-// que el primero termine y arranca viendo lo que el primero escribió.
+// dos oportunidades OPEN, dos reservas. Ahora todo turno corre con el lock de
+// (agente, contacto, canal) tomado: el segundo espera a que el primero termine
+// y arranca viendo lo que el primero escribió.
 //
-// POR QUÉ UN ADVISORY LOCK Y NO FOR UPDATE SOBRE UNA FILA: en el primer
+// POR QUÉ UNA CLAVE Y NO FOR UPDATE SOBRE LA CONVERSACIÓN: en el primer
 // mensaje de un contacto todavía no existe la conversación, así que no hay
 // fila que bloquear; la clave del lock existe antes que la fila. Y por qué
 // (agente, contacto, canal) y no el id de la conversación: es exactamente la
 // identidad de "la conversación abierta" (findOpenConversation y el índice
 // conversations_open_unique), así que el lock cubre también el buscar-o-crear.
 //
-// CÓMO SE SOSTIENE: una transacción que toma el lock y queda abierta mientras
-// corre el turno. El turno NO usa esa transacción —sus consultas van por el
-// cliente de siempre, en otras conexiones del pool—; la transacción solo
-// existe para ser dueña del lock, que Postgres suelta solo al commitear o al
-// abortarse (incluido un proceso muerto: la conexión se cae y el lock con
-// ella). El costo es una conexión del pool ocupada por turno en curso.
+// CÓMO SE SOSTIENE (2026-10-12): un lease en agent_turn_leases, con
+// renovación y fencing (services/leaseDelTurno.ts). Hasta esa fecha era un
+// pg_advisory_xact_lock dentro de una transacción abierta durante todo el
+// turno, que ocupaba una conexión del pool mientras el turno esperaba al
+// modelo y a Meta. Con el lease, el turno no tiene ninguna conexión tomada
+// entre consulta y consulta.
 //
-// CUÁNTAS Y DÓNDE SE ESPERA (C-12 de docs-privados/auditoria-2026-09-30-corta.md,
-// local, no está en GitHub): antes, cada turno que esperaba el lock del mismo
-// contacto ocupaba además su propia conexión esperando, y no había tope de
-// turnos con el lock tomado; unos pocos mensajes seguidos por el widget
-// público llenaban el pool y trababan todo el backend. Ahora el turno pasa
-// primero por limitadorDeTurnos: espera en memoria a los otros turnos de la
-// misma clave y a que haya cupo, y recién ahí abre la transacción.
-//
-// hashtext() lleva la clave a un entero de 32 bits: dos conversaciones
-// distintas pueden compartir el número, y lo único que pasa es que se
-// serializan entre sí sin necesidad. Correcto, y rarísimo.
+// CUÁNTOS Y DÓNDE SE ESPERA (C-12 de docs-privados/auditoria-2026-09-30-corta.md,
+// local, no está en GitHub): el turno pasa primero por limitadorDeTurnos:
+// espera en memoria a los otros turnos de la misma clave y a que haya cupo, y
+// recién ahí toma el lease. Entre procesos (un deploy que se superpone) espera
+// reintentando el lease.
 // ---------------------------------------------------------------------------
 
 export interface ClaveDeConversacion {
@@ -2006,46 +2006,34 @@ export interface ClaveDeConversacion {
   contactId: string;
   channel: ConversationChannel;
   // NO forma parte de la clave del lock (claveDeLockDeConversacion no la
-  // mira): es el grupo para el tope por organización del limitador de turnos
-  // (FABLE-G-03, docs-privados, local). Sin ella, el turno solo cuenta contra
-  // el cupo global.
-  organizationId?: string;
+  // mira): es la organización dueña del lease (RLS) y el grupo para el tope
+  // por organización del limitador de turnos (FABLE-G-03, docs-privados,
+  // local).
+  organizationId: string;
 }
 
-export function claveDeLockDeConversacion(clave: ClaveDeConversacion): string {
+export function claveDeLockDeConversacion(
+  clave: Pick<ClaveDeConversacion, "agentId" | "contactId" | "channel">,
+): string {
   return `agent-turn:${clave.agentId}:${clave.contactId}:${clave.channel}`;
 }
 
-// Toma el lock dentro de `tx` y espera lo que haga falta. Exportada para que
-// los tests de carreras tomen EL MISMO lock desde una transacción de control
-// (ver src/lib/carreras.test-helper.ts), nunca una reimplementación.
-export async function tomarLockDeConversacion(tx: Db, clave: ClaveDeConversacion): Promise<void> {
-  // SELECT 1 FROM ... y no SELECT pg_advisory_xact_lock(...): la función
-  // devuelve void, y Prisma no sabe deserializar una columna de ese tipo.
-  await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${claveDeLockDeConversacion(clave)}::text))`;
-}
-
 // Corre `fn` con el lock de la conversación tomado, y lo suelta al terminar.
-//
-// EL TIMEOUT de la transacción tiene que ser mayor que el turno más largo
-// posible, y no es un detalle: si Prisma la da por vencida mientras `fn`
-// sigue corriendo, el lock se suelta a mitad del turno y el commit final
-// falla, así que un turno que hizo todo su trabajo terminaría en error. Ver
-// AGENT_TURN_LOCK_TIMEOUT_MS en config/env.ts.
+// AGENT_TURN_LOCK_TIMEOUT_MS (config/env.ts) es lo más que dura un turno con
+// el lock —pasado eso deja de renovarse— y lo más que se espera a otro
+// proceso que lo tenga.
 export async function conLockDeConversacion<T>(
   clave: ClaveDeConversacion,
   fn: () => Promise<T>,
 ): Promise<T> {
+  const lockKey = claveDeLockDeConversacion(clave);
   return limitadorDeTurnos.correr(
-    claveDeLockDeConversacion(clave),
+    lockKey,
     () =>
-      prisma.$transaction(
-        async (tx) => {
-          await tomarLockDeConversacion(tx, clave);
-          return fn();
-        },
-        { maxWait: 10_000, timeout: env.AGENT_TURN_LOCK_TIMEOUT_MS },
-      ),
+      conLeaseDelTurno(lockKey, clave.organizationId, fn, {
+        limiteDelTurnoMs: env.AGENT_TURN_LOCK_TIMEOUT_MS,
+        esperaMaximaMs: env.AGENT_TURN_LOCK_TIMEOUT_MS,
+      }),
     clave.organizationId,
   );
 }
@@ -2094,13 +2082,18 @@ async function derivarPorElNivel(entrada: {
   let salienteId: string | null = null;
   if (conversation.channel === "WEB") {
     respuesta = TEXTO_DEL_WIDGET_SIN_IA;
-    const saliente = await createMessage({
-      organizationId,
-      conversationId: conversation.id,
-      direction: "OUTBOUND",
-      senderType: "AGENT",
-      content: respuesta,
-    });
+    const saliente = await conLeaseVigente((db) =>
+      createMessage(
+        {
+          organizationId,
+          conversationId: conversation.id,
+          direction: "OUTBOUND",
+          senderType: "AGENT",
+          content: TEXTO_DEL_WIDGET_SIN_IA,
+        },
+        db,
+      ),
+    );
     salienteId = saliente.id;
   }
   return {
@@ -3185,14 +3178,23 @@ export async function responderEnLaConversacion(
         })
       : null;
 
-  const saliente = await createMessage({
-    organizationId,
-    conversationId: conversation.id,
-    direction: "OUTBOUND",
-    senderType: "AGENT",
-    content: respuestaFinal,
-    ...(auditoria.length > 0 ? { toolCalls: auditoria as unknown as Prisma.InputJsonValue } : {}),
-  });
+  // Fencing: si el turno perdió el lock mientras esperaba al modelo, no
+  // responde encima del turno que lo tomó (services/leaseDelTurno.ts).
+  const saliente = await conLeaseVigente((db) =>
+    createMessage(
+      {
+        organizationId,
+        conversationId: conversation.id,
+        direction: "OUTBOUND",
+        senderType: "AGENT",
+        content: respuestaFinal,
+        ...(auditoria.length > 0
+          ? { toolCalls: auditoria as unknown as Prisma.InputJsonValue }
+          : {}),
+      },
+      db,
+    ),
+  );
   await updateConversation(conversation.id, organizationId, {
     lastMessageAt: saliente.createdAt,
   });

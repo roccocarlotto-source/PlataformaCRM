@@ -3,27 +3,25 @@
 // vez, y dónde esperan los demás — C-12 de
 // docs-privados/auditoria-2026-09-30-corta.md (local, no está en GitHub).
 //
-// El lock por conversación (conLockDeConversacion, ítem 126) se sostiene con
-// una transacción abierta durante todo el turno, y el turno hace sus consultas
-// por OTRAS conexiones del pool. Hasta este cambio, cada turno en curso y cada
-// turno que esperaba el lock del mismo contacto ocupaban una conexión cada
-// uno: con el embed token público del widget alcanzaba con mandar unos pocos
-// mensajes seguidos en la misma sesión para llenar el pool, y entonces ni el
-// turno que tenía el lock conseguía conexión para sus consultas (P2024) ni el
-// resto del backend, de todas las organizaciones.
+// Cuando se escribió esto, el lock por conversación (conLockDeConversacion,
+// ítem 126) se sostenía con una transacción abierta durante todo el turno, y
+// cada turno en curso y cada turno que esperaba el lock del mismo contacto
+// ocupaban una conexión cada uno: con el embed token público del widget
+// alcanzaba con mandar unos pocos mensajes seguidos en la misma sesión para
+// llenar el pool (P2024) y trabar el backend de todas las organizaciones.
+// Desde 2026-10-12 el lock es un lease (services/leaseDelTurno.ts) y un turno
+// no ocupa ninguna conexión entre consulta y consulta; el limitador sigue
+// siendo el que reparte cuántos turnos corren a la vez y en qué orden.
 //
 // Dos cosas, las dos en memoria (el backend es UN proceso — G-04 de la
-// auditoría del 24/09; el advisory lock de la base sigue siendo la garantía
-// entre procesos):
+// auditoría del 24/09; el lease de la base sigue siendo la garantía entre
+// procesos):
 //
-//   1. Una cola por clave: el segundo turno del mismo contacto espera acá,
-//      sin conexión, a que termine el primero. Recién entonces abre su
-//      transacción. Diez mensajes seguidos de la misma sesión ocupan una
-//      conexión, no diez.
-//   2. Un cupo global: nunca hay más de `maximo` turnos con la transacción del
-//      lock abierta. Los que exceden esperan acá, también sin conexión. Así
-//      siempre queda pool libre para las consultas de los turnos en curso y
-//      para el resto de la API.
+//   1. Una cola por clave: el segundo turno del mismo contacto espera acá a
+//      que termine el primero, y recién entonces pide el lease. Diez mensajes
+//      seguidos de la misma sesión no compiten por el lease en la base.
+//   2. Un cupo global: nunca hay más de `maximo` turnos con el lock tomado.
+//      Los que exceden esperan acá.
 //
 // El orden es ese a propósito: primero la cola de la clave, después el cupo.
 // Un turno que espera a otro del mismo contacto no ocupa un lugar del cupo.
@@ -157,9 +155,11 @@ export function crearLimitadorDeTurnos(
 
 // El cupo por defecto, derivado del pool de conexiones de Prisma.
 //
-// Cada turno con el lock ocupa UNA conexión solo por tenerlo, y necesita al
-// menos otra para sus consultas; el resto de la API también necesita las
-// suyas. La mitad del pool deja la otra mitad libre. Si DATABASE_URL fija
+// Hasta el lease (services/leaseDelTurno.ts, 2026-10-12) cada turno con el
+// lock ocupaba UNA conexión solo por tenerlo, y necesitaba al menos otra para
+// sus consultas. Ahora solo usa las de sus consultas, de a una, pero el
+// default sigue siendo el conservador de entonces: la mitad del pool.
+// AGENT_TURN_MAX_CONCURRENT fija el de producción. Si DATABASE_URL fija
 // `connection_limit` se usa ese número; si no, Prisma usa
 // `núcleos físicos × 2 + 1`, que Node no puede conocer (solo ve núcleos
 // lógicos, y en un contenedor muchas veces los del host), así que se asume el

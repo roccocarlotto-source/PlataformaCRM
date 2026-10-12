@@ -285,7 +285,10 @@ from (
       ('clinic_health_settings_changes'),
       -- El WABA propio de una organización (docs/whatsapp-alta-clinica.md,
       -- migración 20261115120000).
-      ('whatsapp_business_connections')
+      ('whatsapp_business_connections'),
+      -- El lock del turno del agente como lease (conLockDeConversacion,
+      -- migración 20261117120000).
+      ('agent_turn_leases')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'

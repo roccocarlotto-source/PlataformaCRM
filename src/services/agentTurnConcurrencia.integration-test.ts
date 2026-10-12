@@ -13,10 +13,17 @@ import { findOrCreateOpenConversation } from "../repositories/conversation.repos
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import {
+  soltarLease,
+  tomarLease,
+  type LeaseDelTurno,
+} from "../repositories/agentTurnLease.repository";
+import { AppError } from "../utils/AppError";
+import {
+  claveDeLockDeConversacion,
   ejecutarHandoff,
   runAgentTurn,
-  tomarLockDeConversacion,
 } from "./agentOrchestration.service";
+import { conLeaseDelTurno, conLeaseVigente, LeasePerdidoError } from "./leaseDelTurno";
 import {
   resetLlmProviderParaTests,
   setLlmProviderForTests,
@@ -192,27 +199,66 @@ function turnoWeb(contactId: string, texto: string) {
 // 1 y 2. El lock del turno
 // ---------------------------------------------------------------------------
 
+// Un lease de la clave sostenido por "otro proceso": la fila de
+// agent_turn_leases con otro holder, vigente por un buen rato. Se toma con la
+// MISMA función que usa el turno (tomarLease), nunca con un INSERT a mano.
+async function tomarLeaseAjeno(contactId: string): Promise<LeaseDelTurno> {
+  const lease: LeaseDelTurno = {
+    lockKey: claveDeLockDeConversacion({ agentId: fx.agentId, contactId, channel: "WEB" }),
+    organizationId: fx.orgId,
+    holderId: randomUUID(),
+  };
+  assert.equal(await tomarLease(lease, 60_000), true);
+  return lease;
+}
+
+const esperar = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Cuántas transacciones nuestras hay abiertas en Postgres ahora mismo, sin
+// contar esta consulta. Con el lease, un turno que espera o que espera al
+// modelo no tiene ninguna.
+async function transaccionesAbiertas(): Promise<number> {
+  const filas = await prisma.$queryRaw<{ n: bigint }[]>`
+    SELECT count(*) AS n FROM pg_stat_activity
+    WHERE datname = current_database()
+      AND pid <> pg_backend_pid()
+      AND state LIKE 'idle in transaction%'`;
+  return Number(filas[0].n);
+}
+
 test("runAgentTurn espera el lock de la conversación ANTES de escribir nada, y sigue cuando se suelta", async () => {
   reiniciarDoble();
   const contacto = await crearContacto();
 
-  const a = await sostenerTransaccion((tx) =>
-    tomarLockDeConversacion(tx, { agentId: fx.agentId, contactId: contacto.id, channel: "WEB" }),
-  );
-  const b = turnoWeb(contacto.id, "hola");
-  await esperarBloqueadoPor(a, b, "runAgentTurn");
+  const ajeno = await tomarLeaseAjeno(contacto.id);
+  let termino = false;
+  const b = turnoWeb(contacto.id, "hola").finally(() => {
+    termino = true;
+  });
+  // Varios reintentos del lease (el primero a los 100 ms): sin el lock, el
+  // turno con el doble habría respondido en milisegundos.
+  await esperar(1_000);
 
-  // Bloqueado de verdad: ni conversación ni entrante, ni llamada al modelo.
+  assert.equal(termino, false, "el turno sigue esperando el lock");
   assert.equal(await prisma.conversation.count({ where: { contactId: contacto.id } }), 0);
   assert.equal(llamadas, 0);
+  assert.equal(
+    await transaccionesAbiertas(),
+    0,
+    "esperar el lock no tiene una transacción abierta",
+  );
 
-  a.liberar();
-  await a.terminada;
+  await soltarLease(ajeno);
   const resultado = await b;
   assert.equal(resultado.respuesta, "Respuesta del doble");
   assert.equal(
     await prisma.message.count({ where: { conversationId: resultado.conversationId } }),
     2,
+  );
+  assert.equal(
+    await prisma.agentTurnLease.count({ where: { lockKey: ajeno.lockKey } }),
+    0,
+    "al terminar, el turno soltó el lease",
   );
 });
 
@@ -221,15 +267,12 @@ test("el lock es por (agente, contacto, canal): el de OTRO contacto no bloquea",
   const otro = await crearContacto();
   const contacto = await crearContacto();
 
-  const a = await sostenerTransaccion((tx) =>
-    tomarLockDeConversacion(tx, { agentId: fx.agentId, contactId: otro.id, channel: "WEB" }),
-  );
+  const ajeno = await tomarLeaseAjeno(otro.id);
   try {
     const resultado = await turnoWeb(contacto.id, "hola");
     assert.equal(resultado.respuesta, "Respuesta del doble");
   } finally {
-    a.liberar();
-    await a.terminada;
+    await soltarLease(ajeno);
   }
 });
 
@@ -260,33 +303,160 @@ test("dos turnos concurrentes del mismo contacto nunca están adentro del modelo
 });
 
 // C-12 de docs-privados/auditoria-2026-09-30-corta.md (local, no está en
-// GitHub): antes, cada turno que esperaba el lock del mismo contacto esperaba
-// DENTRO de su transacción, con una conexión del pool tomada; unos pocos
-// mensajes seguidos por el widget llenaban el pool. Ahora esperan en memoria
-// (limitadorDeTurnos) y en Postgres hay un solo backend esperando.
-test("C-12: cinco turnos de la misma sesión esperando el lock ocupan UNA conexión, no cinco", async () => {
-  reiniciarDoble();
+// GitHub): unos pocos mensajes seguidos por el widget llenaban el pool,
+// porque cada turno esperaba el lock con una conexión tomada. Con el lease,
+// ningún turno que espera tiene una conexión ni una transacción abierta, y
+// mientras el modelo piensa tampoco.
+test("C-12: cinco turnos de la misma sesión esperando el lock no tienen ninguna transacción abierta", async () => {
+  reiniciarDoble(300);
   const contacto = await crearContacto();
 
-  const a = await sostenerTransaccion((tx) =>
-    tomarLockDeConversacion(tx, { agentId: fx.agentId, contactId: contacto.id, channel: "WEB" }),
-  );
+  const ajeno = await tomarLeaseAjeno(contacto.id);
   const turnos = Promise.all(
     Array.from({ length: 5 }, (_, i) => turnoWeb(contacto.id, `mensaje ${String(i)}`)),
   );
-  await esperarBloqueadoPor(a, turnos, "runAgentTurn");
+  await esperar(500);
+  const esperando = await transaccionesAbiertas();
 
-  // Margen para que, si los otros cuatro abrieran su transacción, aparezcan.
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  const bloqueados = await contarBloqueadosDetrasDe(a);
-
-  a.liberar();
-  await a.terminada;
+  await soltarLease(ajeno);
+  // Con un turno adentro del "modelo" (300 ms).
+  await esperar(150);
+  const pensando = await transaccionesAbiertas();
   const resultados = await turnos;
 
-  assert.equal(bloqueados, 1, "un solo turno esperando en Postgres; los demás, en memoria");
+  assert.equal(esperando, 0, "esperando el lock: ninguna transacción abierta");
+  assert.equal(pensando, 0, "esperando al modelo: ninguna transacción abierta");
   assert.equal(llamadas, 5);
+  assert.equal(maximoEnCurso, 1);
   assert.equal(new Set(resultados.map((r) => r.conversationId)).size, 1);
+});
+
+// ---------------------------------------------------------------------------
+// El lease (services/leaseDelTurno.ts): entre procesos, vencimiento,
+// renovación, espera máxima y fencing. Directo sobre conLeaseDelTurno, sin el
+// limitador en memoria: así dos llamadas son como dos procesos.
+// ---------------------------------------------------------------------------
+
+function claveDePrueba(): string {
+  return `agent-turn:test:${randomUUID()}:WEB`;
+}
+
+const SIN_LIMITE = { limiteDelTurnoMs: 60_000, esperaMaximaMs: 10_000 };
+
+test("lease: dos procesos con la misma clave se turnan; nunca están adentro a la vez", async () => {
+  const lockKey = claveDePrueba();
+  let adentro = 0;
+  let maximo = 0;
+  const turno = () =>
+    conLeaseDelTurno(
+      lockKey,
+      fx.orgId,
+      async () => {
+        adentro++;
+        maximo = Math.max(maximo, adentro);
+        await esperar(200);
+        adentro--;
+      },
+      SIN_LIMITE,
+    );
+  await Promise.all([turno(), turno(), turno()]);
+  assert.equal(maximo, 1);
+  assert.equal(await prisma.agentTurnLease.count({ where: { lockKey } }), 0);
+});
+
+test("lease: el de un proceso muerto (sin renovar) vence solo y el siguiente sigue", async () => {
+  const lockKey = claveDePrueba();
+  const muerto: LeaseDelTurno = { lockKey, organizationId: fx.orgId, holderId: randomUUID() };
+  assert.equal(await tomarLease(muerto, 400), true);
+
+  const inicio = Date.now();
+  const resultado = await conLeaseDelTurno(lockKey, fx.orgId, async () => "siguió", SIN_LIMITE);
+  assert.equal(resultado, "siguió");
+  assert.ok(Date.now() - inicio >= 300, "esperó a que venciera");
+});
+
+test("lease: mientras el turno corre se renueva, y nadie se lo saca aunque dure más que el lease", async () => {
+  const lockKey = claveDePrueba();
+  let otroPudo: boolean | undefined;
+  let abiertas: number | undefined;
+  await conLeaseDelTurno(
+    lockKey,
+    fx.orgId,
+    async () => {
+      // Dura más de tres veces el lease (400 ms), renovado cada 100 ms.
+      await esperar(1_300);
+      otroPudo = await tomarLease(
+        { lockKey, organizationId: fx.orgId, holderId: randomUUID() },
+        60_000,
+      );
+      abiertas = await transaccionesAbiertas();
+    },
+    { ...SIN_LIMITE, duracionMs: 400, renovarCadaMs: 100 },
+  );
+  assert.equal(otroPudo, false);
+  assert.equal(abiertas, 0, "el turno con el lease no tiene una transacción abierta");
+});
+
+test("lease: pasada la espera máxima, 409 y el turno no corre", async () => {
+  const lockKey = claveDePrueba();
+  const ajeno: LeaseDelTurno = { lockKey, organizationId: fx.orgId, holderId: randomUUID() };
+  assert.equal(await tomarLease(ajeno, 60_000), true);
+  let corrio = false;
+  try {
+    await assert.rejects(
+      conLeaseDelTurno(
+        lockKey,
+        fx.orgId,
+        async () => {
+          corrio = true;
+        },
+        { limiteDelTurnoMs: 60_000, esperaMaximaMs: 300 },
+      ),
+      (err: unknown) => err instanceof AppError && err.statusCode === 409,
+    );
+    assert.equal(corrio, false);
+  } finally {
+    await soltarLease(ajeno);
+  }
+});
+
+test("lease: FENCING: un turno que perdió el lease no escribe", async () => {
+  const lockKey = claveDePrueba();
+  const contacto = await crearContacto();
+  await assert.rejects(
+    conLeaseDelTurno(
+      lockKey,
+      fx.orgId,
+      async () => {
+        // Sin renovación (cada 60 s) y con un lease de 300 ms: vence, y otro
+        // proceso lo toma mientras este "espera al modelo".
+        await esperar(500);
+        assert.equal(
+          await tomarLease({ lockKey, organizationId: fx.orgId, holderId: randomUUID() }, 60_000),
+          true,
+        );
+        await conLeaseVigente((db) =>
+          db.contact.update({ where: { id: contacto.id }, data: { lastName: "Pisado" } }),
+        );
+      },
+      { ...SIN_LIMITE, duracionMs: 300, renovarCadaMs: 60_000 },
+    ),
+    LeasePerdidoError,
+  );
+  const despues = await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } });
+  assert.equal(despues.lastName, "Pérez", "la escritura no se hizo");
+  // El lease del otro sigue: soltar el propio no lo borra.
+  assert.equal(await prisma.agentTurnLease.count({ where: { lockKey } }), 1);
+  await prisma.agentTurnLease.deleteMany({ where: { lockKey } });
+});
+
+test("lease: fuera de un turno, conLeaseVigente escribe directo", async () => {
+  const contacto = await crearContacto();
+  await conLeaseVigente((db) =>
+    db.contact.update({ where: { id: contacto.id }, data: { lastName: "Directo" } }),
+  );
+  const despues = await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } });
+  assert.equal(despues.lastName, "Directo");
 });
 
 // ---------------------------------------------------------------------------

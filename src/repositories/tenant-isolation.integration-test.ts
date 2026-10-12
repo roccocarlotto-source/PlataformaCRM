@@ -168,6 +168,12 @@ import {
   revocarConexionDeWhatsapp,
 } from "./whatsappBusinessConnection.repository";
 import {
+  leaseVigenteConLaFilaTomada,
+  renovarLease,
+  soltarLease,
+  tomarLease,
+} from "./agentTurnLease.repository";
+import {
   contarTurnosPorRecurso,
   esProfesionalDeLaPrestacion,
   profesionalesDeLasPrestaciones,
@@ -2767,6 +2773,40 @@ test("H-01 WhatsappBusinessConnection: X no lee, no revoca ni pisa el WABA de Y"
     antes,
   );
   await prisma.whatsappBusinessConnection.deleteMany({ where: { organizationId: nx.orgX } });
+});
+
+// El lease del turno del agente (agent_turn_leases): la clave tiene ids de Y,
+// pero la escritura misma lleva organization_id. Con la organización de X no
+// se renueva, no se suelta, no pasa el fencing ni se toma el de Y, ni siquiera
+// vencido.
+test("H-01 AgentTurnLease: X no renueva, no suelta, no verifica ni toma el lease de Y", async () => {
+  const leaseY = {
+    lockKey: `agent-turn:h01:${randomUUID()}:WEB`,
+    organizationId: nx.orgY,
+    holderId: randomUUID(),
+  };
+  assert.equal(await tomarLease(leaseY, 60_000), true);
+  const comoX = { ...leaseY, organizationId: nx.orgX };
+  try {
+    assert.equal(await renovarLease(comoX, 60_000), false);
+    await soltarLease(comoX);
+    assert.equal(await prisma.$transaction((tx) => leaseVigenteConLaFilaTomada(comoX, tx)), false);
+    assert.equal(await prisma.agentTurnLease.count({ where: { lockKey: leaseY.lockKey } }), 1);
+
+    // Vencido: X igual no se lo queda.
+    await prisma.agentTurnLease.update({
+      where: { lockKey: leaseY.lockKey },
+      data: { lockedUntil: new Date(Date.now() - 60_000) },
+    });
+    assert.equal(await tomarLease({ ...comoX, holderId: randomUUID() }, 60_000), false);
+    const fila = await prisma.agentTurnLease.findUniqueOrThrow({
+      where: { lockKey: leaseY.lockKey },
+    });
+    assert.equal(fila.organizationId, nx.orgY);
+    assert.equal(fila.holderId, leaseY.holderId);
+  } finally {
+    await prisma.agentTurnLease.deleteMany({ where: { lockKey: leaseY.lockKey } });
+  }
 });
 
 // D11 revisada (docs/rubros.md §5.3): los mensajes de salud viven en la fila
