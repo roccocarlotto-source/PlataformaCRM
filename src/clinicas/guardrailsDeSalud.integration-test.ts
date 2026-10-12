@@ -458,3 +458,75 @@ test("automotora sin cambios: 'me arde la garganta' llega al modelo como hoy, si
   assert.ok(!doble.requests[0].systemPrompt.includes(INSTRUCCION_SALUD));
   assert.deepEqual(r.toolCalls, []);
 });
+
+// ---------------------------------------------------------------------------
+// D11 revisada (2026-10-12): los mensajes y los términos que configura el
+// ADMIN de la clínica (ClinicSettings), en el loop real.
+// ---------------------------------------------------------------------------
+
+async function configurarSalud(
+  e: Escenario,
+  datos: Partial<{
+    urgencyMessageText: string;
+    clinicalMessageText: string;
+    extraUrgencyTerms: string[];
+    extraClinicalTerms: string[];
+  }>,
+) {
+  await prisma.clinicSettings.upsert({
+    where: { organizationId: e.organizationId },
+    create: { organizationId: e.organizationId, ...datos },
+    update: datos,
+  });
+}
+
+test("D11 revisada: un término agregado por la clínica deriva sin modelo con el texto configurado", async () => {
+  const e = await montar("terminos-de-la-clinica", "CLINICA");
+  await configurarSalud(e, {
+    clinicalMessageText: "Eso lo responde una profesional de {clinica}. Te escribimos pronto.",
+    extraClinicalTerms: ["botox"],
+  });
+
+  const r = await turno(e, "¿cuánto dura el efecto del botox?");
+  assert.equal(
+    r.respuesta,
+    `Eso lo responde una profesional de ${e.nombre}. Te escribimos pronto.`,
+  );
+  assert.equal(r.handoff, true);
+  const [tarea] = await tareasDe(e);
+  assert.equal(tarea.body, CUERPO_DE_LA_TAREA_CLINICA, "la tarea sigue con su cuerpo fijo");
+});
+
+test("D11 revisada: la urgencia sale con el texto de la clínica, también con el agente apagado", async () => {
+  const e = await montar("urgencia-configurada", "CLINICA");
+  await configurarSalud(e, {
+    urgencyMessageText: "Llamá ya al 105 o al 911. Ya avisamos a {clinica}.",
+    extraUrgencyTerms: ["codigo rojo"],
+  });
+
+  const conModelo = await turno(e, "no puedo respirar");
+  assert.equal(conModelo.respuesta, `Llamá ya al 105 o al 911. Ya avisamos a ${e.nombre}.`);
+
+  const otro = await montar("urgencia-configurada-apagado", "CLINICA", { channels: ["WHATSAPP"] });
+  await configurarSalud(otro, {
+    urgencyMessageText: "Llamá ya al 105 o al 911. Ya avisamos a {clinica}.",
+    extraUrgencyTerms: ["codigo rojo"],
+  });
+  await prisma.agent.update({ where: { id: otro.agentId }, data: { isActive: false } });
+  const { conversation } = await registrarEntrante({
+    organizationId: otro.organizationId,
+    agentId: otro.agentId,
+    branchId: otro.branchId,
+    contactId: otro.contactId,
+    channel: "WHATSAPP",
+    texto: "es un código rojo",
+  });
+  const { salienteId } = await derivarEntranteSinAgente({
+    organizationId: otro.organizationId,
+    conversationId: conversation.id,
+    responder: true,
+  });
+  assert.ok(salienteId);
+  const saliente = await prisma.message.findUniqueOrThrow({ where: { id: salienteId } });
+  assert.equal(saliente.content, `Llamá ya al 105 o al 911. Ya avisamos a ${otro.nombre}.`);
+});

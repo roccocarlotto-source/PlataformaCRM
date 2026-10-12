@@ -1,5 +1,6 @@
 import type { OrganizationIndustry } from "@prisma/client";
 import { REGLAS_DE_CLINICA } from "../clinicas/reglasDeClinica";
+import type { SaludDeLaClinica } from "../clinicas/repositories/clinicSettings.repository";
 import type {
   EntradaDeKnowledgeBase,
   TextosDelPrompt,
@@ -40,6 +41,10 @@ export interface DecisionDelRubro {
 
 export interface ContextoDeLaRegla {
   nombreDeLaOrganizacion: string;
+  // Lo que el ADMIN de una clínica configuró en los mensajes de salud (§5.3,
+  // D11 revisada). Sin él, los textos y los términos del código. Solo lo
+  // carga el rubro CLINICA (contextoDeLaOrganizacion).
+  saludDeLaClinica?: SaludDeLaClinica;
 }
 
 export type VerificadorDeEntrada = (
@@ -126,6 +131,11 @@ export interface ReglasDelRubro {
    *  ofrece al modelo alguna de las toolsExclusivas. */
   textosDelPrompt:
     ((organizationId: string, conGestionDeTurnos: boolean) => Promise<TextosDelPrompt>) | null;
+  /** Lo que el rubro suma al contexto de las reglas, leído de la base una vez
+   *  por turno (en una clínica, los mensajes de salud que configuró el ADMIN).
+   *  null = nada, y no hay consulta. */
+  contextoDeLaOrganizacion:
+    ((organizationId: string) => Promise<Omit<ContextoDeLaRegla, "nombreDeLaOrganizacion">>) | null;
 }
 
 export const SIN_REGLAS: ReglasDelRubro = {
@@ -142,6 +152,7 @@ export const SIN_REGLAS: ReglasDelRubro = {
   toolsPropias: {},
   toolsExclusivas: {},
   textosDelPrompt: null,
+  contextoDeLaOrganizacion: null,
 };
 
 const REGLAS_POR_RUBRO: Readonly<Record<OrganizationIndustry, ReglasDelRubro>> = {
@@ -151,6 +162,19 @@ const REGLAS_POR_RUBRO: Readonly<Record<OrganizationIndustry, ReglasDelRubro>> =
 
 export function reglasDelRubro(industry: OrganizationIndustry): ReglasDelRubro {
   return REGLAS_POR_RUBRO[industry];
+}
+
+/** El contexto de las reglas de un turno: el nombre de la organización y lo
+ *  que sume el rubro. En AUTOMOTORA, solo el nombre y sin consulta. */
+export async function armarContextoDeLaRegla(
+  reglas: ReglasDelRubro,
+  organizationId: string,
+  nombreDeLaOrganizacion: string,
+): Promise<ContextoDeLaRegla> {
+  const delRubro = reglas.contextoDeLaOrganizacion
+    ? await reglas.contextoDeLaOrganizacion(organizationId)
+    : {};
+  return { ...delRubro, nombreDeLaOrganizacion };
 }
 
 /** La primera decisión de una lista de verificadores, o null. */

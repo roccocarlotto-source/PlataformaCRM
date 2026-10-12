@@ -90,6 +90,8 @@ export async function borrarOrgDePrueba(org: OrgDePrueba | undefined): Promise<v
   await prisma.contact.deleteMany({ where });
   await prisma.knowledgeBaseEntry.deleteMany({ where });
   await prisma.clinicBranchSettings.deleteMany({ where });
+  // Antes que los usuarios: la FK a users es RESTRICT (historial append-only).
+  await prisma.clinicHealthSettingsChange.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.organization.delete({ where: { id: org.id } });

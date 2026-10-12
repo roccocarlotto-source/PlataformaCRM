@@ -18,6 +18,7 @@ import {
   INSTRUCCION_SALUD,
   clasificarMensajeDeSalud,
   daIndicacionClinica,
+  type TerminosDeLaClinica,
 } from "./guardrailsDeSalud";
 import { TOOLS_DE_AGENDA_DE_CLINICA } from "./toolsDeAgenda";
 import { TOOLS_DE_TURNOS_DE_CLINICA } from "./toolsDeTurnos";
@@ -41,19 +42,35 @@ import {
   toolsDeIndicaciones,
 } from "./toolDeIndicaciones";
 import { CODIGO_FUERA_DE_PLAZO, CODIGO_SIN_AUTOR } from "./toolsDeTurnos";
-import { leerConfiguracionDeClinica } from "./repositories/clinicSettings.repository";
+import {
+  leerConfiguracionDeClinica,
+  leerSaludDeLaClinica,
+} from "./repositories/clinicSettings.repository";
 
 // ---------------------------------------------------------------------------
 // Las reglas del rubro CLINICA para el loop del agente (docs/rubros.md §5.3 y
 // §8.2), enchufadas en los puntos de extensión de
-// src/services/reglasDelRubro.ts. NINGUNA es configurable por el ADMIN.
+// src/services/reglasDelRubro.ts. Lo único configurable por el ADMIN (D11
+// revisada, 2026-10-12) son los dos mensajes fijos y los términos que SUMA al
+// detector de la capa 1; llegan en contexto.saludDeLaClinica. Los términos del
+// código, la capa 2 y la capa 3 no se configuran.
 // ---------------------------------------------------------------------------
+
+function terminosDeLaClinica(contexto: ContextoDeLaRegla): TerminosDeLaClinica {
+  return {
+    urgencia: contexto.saludDeLaClinica?.extraUrgencyTerms ?? [],
+    clinicos: contexto.saludDeLaClinica?.extraClinicalTerms ?? [],
+  };
+}
 
 function urgencia(contexto: ContextoDeLaRegla): DecisionDelRubro {
   return {
     regla: "urgencia_de_salud",
     motivo: MOTIVO_URGENCIA_DE_SALUD,
-    mensaje: mensajeDeUrgencia(contexto.nombreDeLaOrganizacion),
+    mensaje: mensajeDeUrgencia(
+      contexto.nombreDeLaOrganizacion,
+      contexto.saludDeLaClinica?.urgencyMessageText ?? null,
+    ),
     aviso: { cuerpo: CUERPO_DE_LA_TAREA_DE_URGENCIA, urgente: true },
   };
 }
@@ -62,7 +79,10 @@ function consultaClinica(regla: string, contexto: ContextoDeLaRegla): DecisionDe
   return {
     regla,
     motivo: MOTIVO_CONSULTA_CLINICA,
-    mensaje: mensajeDeConsultaClinica(contexto.nombreDeLaOrganizacion),
+    mensaje: mensajeDeConsultaClinica(
+      contexto.nombreDeLaOrganizacion,
+      contexto.saludDeLaClinica?.clinicalMessageText ?? null,
+    ),
     aviso: { cuerpo: CUERPO_DE_LA_TAREA_CLINICA, urgente: false },
   };
 }
@@ -113,14 +133,18 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
   // sobre el agente apagado.
   entradaPrioritaria: [
     (textos, contexto) =>
-      textos.some((texto) => clasificarMensajeDeSalud(texto) === "URGENCIA")
+      textos.some(
+        (texto) => clasificarMensajeDeSalud(texto, terminosDeLaClinica(contexto)) === "URGENCIA",
+      )
         ? urgencia(contexto)
         : null,
   ],
   // Capa 1, consulta clínica.
   entrada: [
     (textos, contexto) =>
-      textos.some((texto) => clasificarMensajeDeSalud(texto) === "CLINICA")
+      textos.some(
+        (texto) => clasificarMensajeDeSalud(texto, terminosDeLaClinica(contexto)) === "CLINICA",
+      )
         ? consultaClinica("consulta_clinica", contexto)
         : null,
   ],
@@ -166,5 +190,9 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
   async textosDelPrompt(organizationId, conGestionDeTurnos) {
     const { contactTerm } = await leerConfiguracionDeClinica(organizationId);
     return textosDeClinica(TERMINO_DEL_CONTACTO[contactTerm], conGestionDeTurnos);
+  },
+  // §5.3 (D11 revisada): los mensajes y los términos que configuró el ADMIN.
+  async contextoDeLaOrganizacion(organizationId) {
+    return { saludDeLaClinica: await leerSaludDeLaClinica(organizationId) };
   },
 };

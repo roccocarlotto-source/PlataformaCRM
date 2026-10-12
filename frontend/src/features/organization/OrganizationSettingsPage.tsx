@@ -15,6 +15,7 @@ import { useFormDraft } from "../../lib/useFormDraft";
 import { ORGANIZATION_TIMEZONE_OPTIONS, isKnownOrganizationTimezone } from "../branch/timezones";
 import { formatDate } from "../opportunity/format";
 import { formatExchangeRate } from "./format";
+import { MensajesDeSaludSection } from "./MensajesDeSaludSection";
 import { MetaConnectionSection } from "./MetaConnectionSection";
 import { useUpdateOrganizationSettings } from "./mutations";
 import { useOrganizationSettings } from "./queries";
@@ -356,6 +357,9 @@ export function OrganizationSettingsPage() {
             </div>
           </Card>
         ) : null}
+
+        {/* D11 revisada (docs/rubros.md §5.3): con su propio guardado. */}
+        {settings.industry === "CLINICA" ? <MensajesDeSaludSection /> : null}
 
         <Card heading="Cotización vigente">
           {settings.exchangeRates.length === 0 ? (

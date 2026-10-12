@@ -279,7 +279,10 @@ from (
       ('resource_time_offs'),
       -- Los mensajes de un turno de clínica: el recordatorio (docs/rubros.md §6,
       -- migración 20261109120000).
-      ('booking_messages')
+      ('booking_messages'),
+      -- El historial de los mensajes de salud de una clínica (docs/rubros.md
+      -- §5.3, migración 20261114120000).
+      ('clinic_health_settings_changes')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -638,7 +641,13 @@ from (
     -- Control después del turno (migración 20261110120000, docs/rubros.md
     -- §7.2): "Recordar control a los N días", de 1 a 730.
     ('service_types_follow_up_after_days_check', 'service_types',
-     'CHECK (follow_up_after_days IS NULL OR follow_up_after_days >= 1 AND follow_up_after_days <= 730)')
+     'CHECK (follow_up_after_days IS NULL OR follow_up_after_days >= 1 AND follow_up_after_days <= 730)'),
+    -- Mensajes de salud de una clínica (migración 20261114120000,
+    -- docs/rubros.md §5.3): hasta 100 términos agregados por lista.
+    ('clinic_settings_extra_urgency_terms_max_check', 'clinic_settings',
+     'CHECK (cardinality(extra_urgency_terms) <= 100)'),
+    ('clinic_settings_extra_clinical_terms_max_check', 'clinic_settings',
+     'CHECK (cardinality(extra_clinical_terms) <= 100)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -1288,7 +1297,12 @@ from (
     -- La tarea después del turno de una clínica (docs/rubros.md §7.3,
     -- migración 20261113120000): el turno y la regla de la misma organización.
     ('activities_organization_id_source_booking_id_fkey|activities(organization_id,source_booking_id)->bookings(organization_id,id)'),
-    ('activities_organization_id_source_automation_id_fkey|activities(organization_id,source_automation_id)->automations(organization_id,id)')
+    ('activities_organization_id_source_automation_id_fkey|activities(organization_id,source_automation_id)->automations(organization_id,id)'),
+    -- El historial de los mensajes de salud de una clínica (docs/rubros.md
+    -- §5.3, migración 20261114120000): quien cambió es de la misma
+    -- organización. Una FK bien formada hacia agents o resources pasaría la
+    -- fila 14 entera.
+    ('clinic_health_settings_changes_changed_by_fkey|clinic_health_settings_changes(organization_id,changed_by_id)->users(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

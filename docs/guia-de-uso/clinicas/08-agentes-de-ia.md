@@ -345,17 +345,19 @@ Dos campos del agente definen qué pasa si nadie responde:
 
 El asistente de la clínica ayuda con turnos, horarios, precios y lo que esté
 cargado en la información de la clínica. **No responde consultas de salud.**
-Esto no se puede cambiar desde la configuración: vale para todos los canales
-(WhatsApp, Messenger, Instagram y el chat de la web) y para cualquier nivel del
-asistente.
+Esto no se puede apagar: vale para todos los canales (WhatsApp, Messenger,
+Instagram y el chat de la web) y para cualquier nivel del asistente. Lo que sí
+puede cambiar un administrador es el texto de los dos mensajes de abajo y
+sumar palabras a las que el asistente detecta, en
+[Mensajes de salud](/ayuda/organizacion-y-sucursales#mensajes-de-salud).
 
 Cuando un paciente escribe algo de salud, el asistente no le contesta con sus
 palabras: le manda un mensaje fijo y te pasa la conversación.
 
 | Qué escribió el paciente | Qué le contesta el asistente | Qué te llega a vos |
 |---|---|---|
-| Una posible urgencia: "no puedo respirar", "se me hinchó la cara", "me duele el pecho", "me desmayé" | Que llame ya al 911 o a su emergencia móvil, y que ya le avisaron al equipo | Una tarea que empieza con **URGENTE**, vencida desde el primer minuto |
-| Una consulta clínica: un síntoma o una reacción ("me arde", "me salieron granitos"), medicación, embarazo o lactancia, "¿es normal que…?" | Que esa consulta la tiene que ver un profesional y que ya le pasaron el mensaje al equipo | Una tarea "Consulta clínica: ver la conversación" |
+| Una posible urgencia: "no puedo respirar", "se me hinchó la cara", "me duele el pecho", "me desmayé", o una palabra de urgencia que agregó la clínica | El mensaje de urgencia. Por defecto: que llame ya al 911 o a su emergencia móvil, y que ya le avisaron al equipo | Una tarea que empieza con **URGENTE**, vencida desde el primer minuto |
+| Una consulta clínica: un síntoma o una reacción ("me arde", "me salieron granitos"), medicación, embarazo o lactancia, "¿es normal que…?", o una palabra de consulta clínica que agregó la clínica | El mensaje de consulta clínica. Por defecto: que esa consulta la tiene que ver un profesional y que ya le pasaron el mensaje al equipo | Una tarea "Consulta clínica: ver la conversación" |
 
 > Ante la duda, el asistente deriva. Puede pasar que una pregunta común
 > ("¿la depilación duele?") llegue como consulta clínica: es a propósito.
