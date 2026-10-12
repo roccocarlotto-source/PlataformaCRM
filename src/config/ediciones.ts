@@ -276,6 +276,10 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "PUT /api/admin/organizations/:organizationId/internal-agent/model",
     // Los agentes de una organización, para el selector de "Modelo de IA".
     "GET /api/admin/organizations/:organizationId/agents",
+    // El WABA propio de una clínica (docs/whatsapp-alta-clinica.md).
+    "GET /api/admin/organizations/:organizationId/whatsapp-business",
+    "PUT /api/admin/organizations/:organizationId/whatsapp-business",
+    "DELETE /api/admin/organizations/:organizationId/whatsapp-business",
     "GET /api/admin/organizations/:organizationId/integrations/meta",
     "DELETE /api/admin/organizations/:organizationId/integrations/meta",
     "POST /api/admin/organizations/:organizationId/integrations/meta/connect",

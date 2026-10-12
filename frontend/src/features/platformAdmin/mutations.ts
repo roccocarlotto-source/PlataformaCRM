@@ -14,6 +14,8 @@ import {
   createOrganization,
   disconnectOrganizationMetaConnection,
   startOrganizationMetaConnection,
+  conectarWabaDeLaClinica,
+  desconectarWabaDeLaClinica,
 } from "./api";
 import { platformAdminKeys } from "./queries";
 import type {
@@ -144,6 +146,33 @@ export function useDisconnectOrganizationMetaConnection() {
     onSuccess: (_data, organizationId) => {
       void queryClient.invalidateQueries({
         queryKey: platformAdminKeys.metaConnection(organizationId),
+      });
+    },
+  });
+}
+
+// El WABA propio de una clínica: al conectar o desconectar, se refresca el
+// estado de esa organización.
+export function useConectarWabaDeLaClinica() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { organizationId: string; wabaId: string }) =>
+      conectarWabaDeLaClinica(input),
+    onSuccess: (_resultado, input) => {
+      void queryClient.invalidateQueries({
+        queryKey: platformAdminKeys.wabaDeLaClinica(input.organizationId),
+      });
+    },
+  });
+}
+
+export function useDesconectarWabaDeLaClinica() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (organizationId: string) => desconectarWabaDeLaClinica(organizationId),
+    onSuccess: (_resultado, organizationId) => {
+      void queryClient.invalidateQueries({
+        queryKey: platformAdminKeys.wabaDeLaClinica(organizationId),
       });
     },
   });

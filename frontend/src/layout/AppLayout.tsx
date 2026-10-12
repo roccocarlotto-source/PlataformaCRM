@@ -143,6 +143,9 @@ export function AppLayout() {
               <SidebarLink to="/admin/agents/whatsapp-number" icon={MessageCircle}>
                 Número de WhatsApp
               </SidebarLink>
+              <SidebarLink to="/admin/organizations/whatsapp-business" icon={MessageCircle}>
+                WhatsApp de una clínica
+              </SidebarLink>
               <SidebarLink to="/admin/agents/facebook-page" icon={MessagesSquare}>
                 Página de Facebook
               </SidebarLink>

@@ -53,6 +53,14 @@ import { ACTION_SEND_DISCOUNT_VOUCHER } from "./automationActions/sendDiscountVo
 import { ACTION_SEND_QR_FOLLOWUP } from "./automationActions/sendQrFollowup";
 import { esTransitorio } from "./llmProvider.service";
 import {
+  MENSAJE_SIN_CONEXION,
+  conexionDeWhatsapp,
+  wabaDeLaPlantilla,
+  wabaPropioDe,
+  type ConexionDeWhatsapp,
+} from "./whatsappConexion.service";
+import { findWabaPropio } from "../repositories/whatsappBusinessConnection.repository";
+import {
   createWhatsappTemplateReal,
   deleteWhatsappTemplateReal,
   getWhatsappTemplateStatusReal,
@@ -98,8 +106,13 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface DepsDePlantillas {
+  // El WABA global del entorno y el token de la plataforma. El WABA de cada
+  // operación lo decide conexionDeWhatsapp (whatsappConexion.service.ts).
   wabaId: () => string | undefined;
   accessToken: () => string | undefined;
+  // El WABA propio ACTIVE de la organización, o null. Sin pasarlo, ninguna
+  // tiene uno: el WABA global, como siempre.
+  wabaPropio?: (organizationId: string) => Promise<string | null>;
   // El id de la app de Meta: lo pide la Resumable Upload API para subir la
   // imagen de ejemplo de una plantilla con encabezado IMAGE.
   appId: () => string | undefined;
@@ -117,6 +130,7 @@ export interface DepsDePlantillas {
 export const depsDePlantillasReales: DepsDePlantillas = {
   wabaId: () => env.WHATSAPP_BUSINESS_ACCOUNT_ID,
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
+  wabaPropio: (organizationId) => findWabaPropio(organizationId),
   appId: () => env.META_APP_ID,
   create: createWhatsappTemplateReal,
   delete: deleteWhatsappTemplateReal,
@@ -124,32 +138,6 @@ export const depsDePlantillasReales: DepsDePlantillas = {
   uploadSample: uploadTemplateSampleReal,
   rubroDe: (organizationId) => findEdicionYRubro(organizationId).then((o) => o.industry),
 };
-
-const MENSAJE_SIN_CONEXION =
-  "La conexión con WhatsApp no está configurada en la plataforma. Avisale al soporte.";
-
-// Sin WABA o sin token, ninguna operación con Meta tiene sentido. 503
-// operacional con un mensaje para el negocio (no es un error suyo y no lo
-// puede arreglar), y el nombre de la variable que falta en el log, que es
-// donde lo busca quien sí lo puede arreglar. El string vacío cuenta como
-// ausente, igual que en el worker.
-function leerConexion(deps: Pick<DepsDePlantillas, "wabaId" | "accessToken">) {
-  const wabaId = deps.wabaId()?.trim();
-  const accessToken = deps.accessToken()?.trim();
-  if (!wabaId || !accessToken) {
-    logger.error(
-      {
-        faltan: [
-          ...(wabaId ? [] : ["WHATSAPP_BUSINESS_ACCOUNT_ID"]),
-          ...(accessToken ? [] : ["WHATSAPP_ACCESS_TOKEN"]),
-        ],
-      },
-      "Plantilla de WhatsApp: falta configuración de la conexión con Meta",
-    );
-    throw new AppError(MENSAJE_SIN_CONEXION, 503);
-  }
-  return { wabaId, accessToken };
-}
 
 // Pura: el estado de Meta -> el estado local. Meta tiene muchos más (ver el
 // enum WhatsappTemplateStatus en schema.prisma); al CRM le importa si se puede
@@ -458,13 +446,15 @@ export function plantillaDeseada(
 
 async function borrarEnMetaYLocal(
   organizationId: string,
-  plantilla: { id: string; name: string; metaTemplateId: string | null },
-  conexion: { wabaId: string; accessToken: string },
+  plantilla: { id: string; name: string; metaTemplateId: string | null; wabaId: string | null },
+  conexion: ConexionDeWhatsapp,
   deps: DepsDePlantillas,
 ) {
   try {
+    // En el WABA donde se creó, que puede no ser el de hoy (una organización
+    // que conectó su WABA propio después).
     await deps.delete({
-      wabaId: conexion.wabaId,
+      wabaId: wabaDeLaPlantilla(plantilla, deps) ?? conexion.wabaId,
       accessToken: conexion.accessToken,
       name: plantilla.name,
       metaTemplateId: plantilla.metaTemplateId,
@@ -481,7 +471,7 @@ async function borrarEnMetaYLocal(
 // también en Meta para no acumular plantillas muertas en el WABA. Best effort:
 // si Meta no contesta, queda allá sin uso y se loguea.
 async function borrarReemplazadaEnMeta(reemplazada: PlantillaReemplazada, deps: DepsDePlantillas) {
-  const wabaId = deps.wabaId()?.trim();
+  const wabaId = wabaDeLaPlantilla(reemplazada, deps);
   const accessToken = deps.accessToken()?.trim();
   if (!wabaId || !accessToken) return;
   try {
@@ -533,7 +523,7 @@ async function crearVersionNueva(
   deseada: PlantillaDeseada,
   variables: readonly VariableDePlantilla[],
   language: string,
-  conexion: { wabaId: string; accessToken: string },
+  conexion: ConexionDeWhatsapp,
   deps: DepsDePlantillas,
 ) {
   const nombre = (deps.nombreNuevo ?? nombreDePlantillaNuevo)(regla.actionType, regla.id);
@@ -564,6 +554,7 @@ async function crearVersionNueva(
       language,
       bodyText: deseada.bodyText,
       headerFormat: deseada.headerFormat,
+      wabaId: conexion.propio ? conexion.wabaId : null,
     });
   } catch (err) {
     // Otro guardado concurrente de la misma regla ganó el lugar de candidata
@@ -622,8 +613,20 @@ export async function sincronizarPlantillaDeLaRegla(
 ): Promise<ResultadoDeSincronizacion> {
   let error: string | null = null;
   try {
-    const par = await findPlantillasDeLaRegla(organizationId, regla.id);
-    const deseada = plantillaDeseada(regla.actionConfig, par);
+    const guardadas = await findPlantillasDeLaRegla(organizationId, regla.id);
+    // Una plantilla de OTRO WABA (la del global, cuando la organización
+    // conectó el suyo después) no sirve para los números de hoy: cuenta como
+    // si no estuviera. La aprobada vieja sigue hasta que la nueva se apruebe
+    // (la promoción la da de baja y la borra en su WABA); una candidata vieja
+    // se descarta.
+    const destino = await wabaPropioDe(organizationId, deps);
+    const deOtroWaba = (p: PlantillaConMeta | null) => p !== null && p.wabaId !== destino;
+    const par = {
+      aprobada: deOtroWaba(guardadas.aprobada) ? null : guardadas.aprobada,
+      candidata: deOtroWaba(guardadas.candidata) ? null : guardadas.candidata,
+    };
+    const candidataDeOtroWaba = deOtroWaba(guardadas.candidata) ? guardadas.candidata : null;
+    const deseada = plantillaDeseada(regla.actionConfig, guardadas);
     const decision = decidirSincronizacion(par, deseada);
     if (deseada && decision.accion !== "NADA") {
       // Una regla vieja sin messageText cuyo formato nuevo no admite su texto
@@ -634,7 +637,10 @@ export async function sincronizarPlantillaDeLaRegla(
       const problema = validarTextoDePlantilla(deseada.bodyText, { variables });
       if (problema) throw new AppError(problema, 400);
 
-      const conexion = leerConexion(deps);
+      const conexion = await conexionDeWhatsapp(organizationId, deps);
+      if (candidataDeOtroWaba) {
+        await borrarEnMetaYLocal(organizationId, candidataDeOtroWaba, conexion, deps);
+      }
       if (decision.accion === "DESCARTAR_CANDIDATA" || decision.descartarCandidata) {
         await borrarEnMetaYLocal(organizationId, par.candidata!, conexion, deps);
       }
@@ -691,7 +697,7 @@ export async function refreshAprobacionDeLaRegla(
   automationId: string,
   deps: DepsDePlantillas = depsDePlantillasReales,
 ): Promise<ResumenDeAprobacion> {
-  const { accessToken } = leerConexion(deps);
+  const { accessToken } = await conexionDeWhatsapp(organizationId, deps);
   const { aprobada, candidata } = await findPlantillasDeLaRegla(organizationId, automationId);
   // La candidata primero: si Meta la aprobó, la promoción da de baja a la
   // aprobada y no hay que preguntar por ella.

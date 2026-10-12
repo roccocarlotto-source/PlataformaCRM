@@ -4,7 +4,10 @@ import {
   asignarModeloDeAgenteInternoHandler,
   asignarNumeroDeWhatsappHandler,
   asignarPaginaDeFacebookHandler,
+  conectarWabaDeLaClinicaHandler,
+  desconectarWabaDeLaClinicaHandler,
   listarAgentesDeOrganizacionHandler,
+  obtenerWabaDeLaClinicaHandler,
 } from "../controllers/agentAdmin.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { businessWriteRateLimiter } from "../middlewares/rateLimit";
@@ -69,4 +72,30 @@ agentAdminRouter.get(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   listarAgentesDeOrganizacionHandler,
+);
+
+// El WABA propio de una clínica (docs/whatsapp-alta-clinica.md): alta manual
+// del platform admin en la v1. Misma cadena exacta que las de arriba.
+agentAdminRouter.get(
+  "/admin/organizations/:organizationId/whatsapp-business",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  obtenerWabaDeLaClinicaHandler,
+);
+
+agentAdminRouter.put(
+  "/admin/organizations/:organizationId/whatsapp-business",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  conectarWabaDeLaClinicaHandler,
+);
+
+agentAdminRouter.delete(
+  "/admin/organizations/:organizationId/whatsapp-business",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  desconectarWabaDeLaClinicaHandler,
 );

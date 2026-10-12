@@ -565,3 +565,47 @@ export const downloadWhatsappMediaReal: DownloadWhatsappMedia = async (input) =>
       : (res.headers.get("content-type") ?? "application/octet-stream");
   return { data, mimeType };
 };
+
+// ---------------------------------------------------------------------------
+// El WABA propio de una clínica (docs/whatsapp-alta-clinica.md). La clínica
+// nos agrega como socio de su WABA y la plataforma lo opera con su token:
+//   - GET /{waba-id}/phone_numbers: los números del WABA, para verificar que
+//     el número que se le asigna a un agente es de ese WABA;
+//   - POST /{waba-id}/subscribed_apps: suscribe la app de la plataforma al
+//     WABA, para que sus mensajes y los estados de sus plantillas lleguen al
+//     webhook de siempre.
+// Solo los llama el platform admin; en los tests van con dobles.
+// ---------------------------------------------------------------------------
+
+export type ListWabaPhoneNumbers = (input: {
+  wabaId: string;
+  accessToken: string;
+}) => Promise<string[]>;
+
+export function buildWabaPhoneNumbersUrl(wabaId: string): string {
+  return `${WHATSAPP_GRAPH_API_BASE_URL}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id&limit=100`;
+}
+
+// Pura y exportada para probarla sin red: los ids de `{ data: [{ id }] }`.
+export function idsDeLosNumeros(respuesta: unknown): string[] {
+  const data = (respuesta as { data?: unknown } | null)?.data;
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((n) => (n as { id?: unknown } | null)?.id)
+    .filter((id): id is string => typeof id === "string");
+}
+
+export const listWabaPhoneNumbersReal: ListWabaPhoneNumbers = async (input) =>
+  idsDeLosNumeros(
+    await llamarGraph(buildWabaPhoneNumbersUrl(input.wabaId), "GET", input.accessToken),
+  );
+
+export type SubscribeAppToWaba = (input: { wabaId: string; accessToken: string }) => Promise<void>;
+
+export function buildSubscribedAppsUrl(wabaId: string): string {
+  return `${WHATSAPP_GRAPH_API_BASE_URL}/${encodeURIComponent(wabaId)}/subscribed_apps`;
+}
+
+export const subscribeAppToWabaReal: SubscribeAppToWaba = async (input) => {
+  await llamarGraph(buildSubscribedAppsUrl(input.wabaId), "POST", input.accessToken);
+};

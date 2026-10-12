@@ -282,7 +282,10 @@ from (
       ('booking_messages'),
       -- El historial de los mensajes de salud de una clínica (docs/rubros.md
       -- §5.3, migración 20261114120000).
-      ('clinic_health_settings_changes')
+      ('clinic_health_settings_changes'),
+      -- El WABA propio de una organización (docs/whatsapp-alta-clinica.md,
+      -- migración 20261115120000).
+      ('whatsapp_business_connections')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'

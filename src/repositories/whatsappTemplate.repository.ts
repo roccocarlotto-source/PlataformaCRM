@@ -37,7 +37,7 @@ const seleccionPublica = {
   updatedAt: true,
 } as const;
 
-const seleccionConMeta = { ...seleccionPublica, metaTemplateId: true } as const;
+const seleccionConMeta = { ...seleccionPublica, metaTemplateId: true, wabaId: true } as const;
 
 // La aprobada y la candidata de una regla (cualquiera puede faltar). Más
 // reciente primero por si el UNIQUE no estuviera aplicado: nunca devuelve dos
@@ -130,6 +130,8 @@ export interface ReservarWhatsappTemplateData {
   language: string;
   bodyText: string;
   headerFormat: WhatsappTemplateHeaderFormat;
+  // El WABA propio donde se crea, o null (el global).
+  wabaId?: string | null;
 }
 
 // Nace PENDING y sin metaTemplateId: es la candidata. El UNIQUE parcial de
@@ -207,6 +209,8 @@ export interface PlantillaReemplazada {
   id: string;
   name: string;
   metaTemplateId: string | null;
+  // Dónde borrarla en Meta: su WABA, o null (el global).
+  wabaId: string | null;
 }
 
 // El cambio de estado de UNA plantilla, con lo que implica para su par:
@@ -241,7 +245,7 @@ export async function aplicarEstadoDePlantilla(
     if (estado.status === aprobada && fila.status !== aprobada) {
       reemplazada = await tx.whatsappTemplate.findFirst({
         where: { ...deLaRegla, status: aprobada },
-        select: { id: true, name: true, metaTemplateId: true },
+        select: { id: true, name: true, metaTemplateId: true, wabaId: true },
       });
       if (reemplazada) {
         await tx.whatsappTemplate.update({

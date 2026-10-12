@@ -39,6 +39,7 @@ import { VehicleListPage } from "../features/vehicle/VehicleListPage";
 import { AgentFacebookPagePage } from "../features/platformAdmin/AgentFacebookPagePage";
 import { AgentModelPage } from "../features/platformAdmin/AgentModelPage";
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
+import { WabaDeLaClinicaPage } from "../features/platformAdmin/WabaDeLaClinicaPage";
 import { LlmUsagePage } from "../features/platformAdmin/LlmUsagePage";
 import { ImportarDatosPage } from "../features/importacion/ImportarDatosPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
@@ -436,6 +437,9 @@ export const router = createBrowserRouter([
               // Ítem 127: el número de WhatsApp de un agente lo asigna solo el
               // platform admin (PUT /api/admin/agents/:agentId/whatsapp-phone-number).
               { path: "/admin/agents/whatsapp-number", element: <AgentWhatsappNumberPage /> },
+              // La cuenta de WhatsApp (WABA) propia de una clínica
+              // (docs/whatsapp-alta-clinica.md).
+              { path: "/admin/organizations/whatsapp-business", element: <WabaDeLaClinicaPage /> },
               // Ítem 173: lo mismo para la página de Facebook del agente
               // (PUT /api/admin/agents/:agentId/facebook-page, ítem 169).
               { path: "/admin/agents/facebook-page", element: <AgentFacebookPagePage /> },
