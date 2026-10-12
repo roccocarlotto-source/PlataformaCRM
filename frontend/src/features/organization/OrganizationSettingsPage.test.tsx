@@ -44,6 +44,23 @@ function mockSettings(settings: OrganizationSettings) {
   let patchedBody: Record<string, unknown> | undefined;
   server.use(
     http.get(baseUrl, () => HttpResponse.json(settings)),
+    // La sección de mensajes de salud de una clínica (MensajesDeSaludSection,
+    // con su propio test): acá solo hace falta que cargue.
+    http.get(`${env.apiUrl}/api/clinica/mensajes-de-salud`, () =>
+      HttpResponse.json({
+        urgencyMessageText: null,
+        clinicalMessageText: null,
+        extraUrgencyTerms: [],
+        extraClinicalTerms: [],
+        porDefecto: {
+          urgencyMessageText: "Llamá al 911.",
+          clinicalMessageText: "Lo ve un profesional.",
+          urgencyTerms: [],
+          clinicalTerms: [],
+        },
+        ultimoCambio: null,
+      }),
+    ),
     http.patch(baseUrl, async ({ request }) => {
       patchedBody = (await request.json()) as Record<string, unknown>;
       return HttpResponse.json({ ...settings, ...patchedBody });
@@ -149,7 +166,7 @@ describe("OrganizationSettingsPage — guardado", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Moneda de preferencia")).toHaveValue("USD"));
     await chooseSelectOption(user, screen.getByLabelText("Moneda alternativa"), "UYU");
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() =>
       expect(getPatchedBody()).toEqual({
@@ -172,7 +189,7 @@ describe("OrganizationSettingsPage — guardado", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Moneda alternativa")).toHaveValue("UYU"));
     await chooseSelectOption(user, screen.getByLabelText("Moneda alternativa"), "Sin configurar");
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() =>
       expect(getPatchedBody()).toEqual({
@@ -200,11 +217,11 @@ describe("OrganizationSettingsPage — guardado", () => {
 
     await user.clear(campo);
     await user.type(campo, "598");
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(getPatchedBody()?.defaultPhoneCountryCode).toBe("598"));
 
     await user.clear(campo);
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(getPatchedBody()?.defaultPhoneCountryCode).toBeNull());
   });
 
@@ -231,7 +248,7 @@ describe("OrganizationSettingsPage — guardado", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Moneda alternativa")).toHaveValue("UYU"));
     await chooseSelectOption(user, screen.getByLabelText("Moneda alternativa"), "USD");
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -344,7 +361,7 @@ describe("OrganizationSettingsPage — zona horaria", () => {
       screen.getByRole("combobox", { name: "Zona horaria" }),
       "Buenos Aires (America/Argentina/Buenos_Aires)",
     );
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(getPatchedBody()?.timezone).toBe("America/Argentina/Buenos_Aires"));
   });
 });
@@ -363,7 +380,7 @@ describe("OrganizationSettingsPage — rubro, edición y término del contacto",
       screen.queryByRole("combobox", { name: "Cómo llamar a los contactos" }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(getPatchedBody()).toBeDefined());
     expect(getPatchedBody()).not.toHaveProperty("contactTerm");
   });
@@ -386,7 +403,7 @@ describe("OrganizationSettingsPage — rubro, edición y término del contacto",
     expect(await listSelectOptions(user, selector)).toEqual(["Paciente", "Cliente"]);
 
     await chooseSelectOption(user, selector, "Cliente");
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(getPatchedBody()).toMatchObject({ contactTerm: "CLIENTE" }));
   });
 });
@@ -400,7 +417,7 @@ describe("OrganizationSettingsPage — aviso de privacidad", () => {
 
     await waitFor(() => expect(screen.getByText("Automotora")).toBeInTheDocument());
     expect(screen.queryByText("Aviso de privacidad")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(getPatchedBody()).toBeDefined());
     expect(getPatchedBody()).not.toHaveProperty("privacyNoticeText");
     expect(getPatchedBody()).not.toHaveProperty("privacyPolicyUrl");
@@ -423,7 +440,7 @@ describe("OrganizationSettingsPage — aviso de privacidad", () => {
     expect(screen.getByText(/no es asesoramiento legal/)).toBeInTheDocument();
 
     // Guardar sin tocar el aviso no lo manda.
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(getPatchedBody()).toBeDefined());
     expect(getPatchedBody()).not.toHaveProperty("privacyNoticeText");
 
@@ -433,12 +450,31 @@ describe("OrganizationSettingsPage — aviso de privacidad", () => {
       screen.getByLabelText("Link a la política de privacidad"),
       "https://example.com/privacidad",
     );
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() =>
       expect(getPatchedBody()).toMatchObject({
         privacyNoticeText: expect.stringMatching(/política de privacidad/) as unknown,
         privacyPolicyUrl: "https://example.com/privacidad",
       }),
     );
+  });
+});
+
+// D11 revisada (docs/rubros.md §5.3): la sección de mensajes de salud, solo en
+// una clínica y con su propio guardado.
+describe("OrganizationSettingsPage — mensajes de salud", () => {
+  it("automotora: no ve la sección", async () => {
+    mockSettings(makeOrganizationSettings());
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Automotora")).toBeInTheDocument());
+    expect(screen.queryByText("Mensajes de salud")).not.toBeInTheDocument();
+  });
+
+  it("clínica: ve la sección con su botón aparte del Guardar de la página", async () => {
+    mockSettings(makeOrganizationSettings({ industry: "CLINICA", contactTerm: "PACIENTE" }));
+    renderPage();
+    expect(await screen.findByLabelText("Mensaje de urgencia")).toHaveValue("Llamá al 911.");
+    expect(screen.getByRole("button", { name: "Guardar mensajes de salud" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Guardar" })).toBeInTheDocument();
   });
 });

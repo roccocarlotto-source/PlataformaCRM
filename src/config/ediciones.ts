@@ -530,6 +530,10 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     // R11: la configuración de clínica de una sede.
     "GET /api/clinica/sedes/:branchId/configuracion",
     "PUT /api/clinica/sedes/:branchId/configuracion",
+    // D11 revisada (docs/rubros.md §5.3): los mensajes de salud de la clínica.
+    "GET /api/clinica/mensajes-de-salud",
+    "PUT /api/clinica/mensajes-de-salud",
+    "GET /api/clinica/mensajes-de-salud/historial",
   ],
   // R13: sin rutas propias. El recordatorio se configura en la sede (la ruta
   // de agenda_clinica) y en la regla de automatización; lo gatea el motor
