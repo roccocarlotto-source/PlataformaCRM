@@ -524,13 +524,39 @@ export function replaceContactNameIfUnchanged(
 // organizationId además de id (M4) — la escritura en sí es la garantía de
 // aislamiento, no solo el pre-check del service. count === 0 se traduce a
 // 404 en el service.
+// soloConDatos: la escritura misma exige que el contacto no tenga los datos
+// personales borrados (utils/contactoBorrado.ts). Lo usa el PATCH de una
+// persona; un borrado que confirma justo antes deja count 0 en vez de pisarse.
 export function updateContact(
   id: string,
   organizationId: string,
   data: UpdateContactData,
   db: Db = prisma,
+  soloConDatos = false,
 ) {
-  return db.contact.updateMany({ where: { id, organizationId }, data });
+  return db.contact.updateMany({
+    where: { id, organizationId, ...(soloConDatos ? { personalDataErasedAt: null } : {}) },
+    data,
+  });
+}
+
+// Dentro de una transacción que le agrega algo al contacto (un turno): toma
+// su fila en modo compartido y dice si tiene los datos personales borrados.
+// FOR SHARE ordena contra el borrado, que actualiza esa fila primero: o el
+// borrado espera a que esta transacción termine, o esta ve el borrado ya
+// confirmado. Sin fila (no existe en la organización) devuelve false: ese caso
+// lo resuelve quien llama.
+export async function tieneLosDatosBorradosConLaFilaTomada(
+  id: string,
+  organizationId: string,
+  db: Db,
+): Promise<boolean> {
+  const filas = await db.$queryRaw<{ borrado: boolean }[]>`
+    SELECT personal_data_erased_at IS NOT NULL AS borrado
+    FROM contacts
+    WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid
+    FOR SHARE`;
+  return filas[0]?.borrado ?? false;
 }
 
 // Ítem 157 de docs/matriz-de-datos-crm.md: el contacto de una oportunidad que

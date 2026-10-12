@@ -32,6 +32,7 @@ import {
   marcarPendienteDelBorrado,
   type PendienteDelBorrado,
   existsOtherContactWithPhone,
+  findContactById,
   findContactByIdIncludingDeleted,
   findContactsByIds,
   findContactWithVehicleOfInterest,
@@ -53,6 +54,7 @@ import {
   lockOrganizationForUpdate,
 } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
+import { exigirContactoConDatos } from "../utils/contactoBorrado";
 import {
   aplicarCambiosDeCampos,
   soloLosQueCambian,
@@ -488,6 +490,7 @@ export async function updateContact(
     getContactById(organizationId, id),
     tieneTelefono(input.phone) ? findDefaultPhoneCountryCode(organizationId) : null,
   ]);
+  exigirContactoConDatos(actual);
 
   const { vehicleOfInterestId, customFields, noInterest, noInterestNote, ...resto } = input;
   const data: UpdateContactData = { ...resto };
@@ -536,10 +539,10 @@ export async function updateContact(
   if (Object.keys(data).length > 0) {
     try {
       const result = await conTelefonoUnico(organizationId, data.phone, id, (db) =>
-        updateContactRepo(id, organizationId, data, db),
+        updateContactRepo(id, organizationId, data, db, true),
       );
       if (result.count === 0) {
-        throw new AppError("Contacto no encontrado", 404);
+        throw await noSeEscribioElContacto(organizationId, id);
       }
     } catch (err) {
       rethrowAsConflict(err);
@@ -575,7 +578,7 @@ export async function marcarSinInteres(
   const notaRecortada = nota?.trim().slice(0, NOTA_SIN_INTERES_MAX) || null;
   const result = await prisma.$transaction(async (tx) => {
     const marcado = await tx.contact.updateMany({
-      where: { id, organizationId, deletedAt: null },
+      where: { id, organizationId, deletedAt: null, personalDataErasedAt: null },
       data: { noInterestAt: ahora, noInterestNote: notaRecortada },
     });
     if (marcado.count === 1) {
@@ -589,18 +592,29 @@ export async function marcarSinInteres(
     return marcado;
   });
   if (result.count === 0) {
-    throw new AppError("Contacto no encontrado", 404);
+    throw await noSeEscribioElContacto(organizationId, id);
   }
 }
 
 export async function quitarSinInteres(organizationId: string, id: string): Promise<void> {
   const result = await prisma.contact.updateMany({
-    where: { id, organizationId, deletedAt: null },
+    where: { id, organizationId, deletedAt: null, personalDataErasedAt: null },
     data: { noInterestAt: null, noInterestNote: null },
   });
   if (result.count === 0) {
-    throw new AppError("Contacto no encontrado", 404);
+    throw await noSeEscribioElContacto(organizationId, id);
   }
+}
+
+// Una escritura condicionada al contacto vivo y con datos no tocó ninguna
+// fila: 409 si es porque tiene los datos borrados (utils/contactoBorrado.ts),
+// 404 si no existe o está dado de baja.
+async function noSeEscribioElContacto(organizationId: string, id: string): Promise<AppError> {
+  const contacto = await findContactById(id, organizationId);
+  if (contacto) {
+    exigirContactoConDatos(contacto);
+  }
+  return new AppError("Contacto no encontrado", 404);
 }
 
 // ---------------------------------------------------------------------------

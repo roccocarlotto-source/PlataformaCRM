@@ -17,6 +17,7 @@ import { findOpportunityById } from "../repositories/opportunity.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
 import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { exigirContactoConDatos } from "../utils/contactoBorrado";
 import { estaEnSusSedes, puede, sedesDelActor, type ActorConSedes } from "./permisos";
 
 export interface ListActivitiesParams {
@@ -217,9 +218,13 @@ async function validateCompanyId(
   return company.id;
 }
 
+// exigirDatos: una persona no le carga una nota o una tarea a un contacto con
+// los datos personales borrados (utils/contactoBorrado.ts). Los caminos de
+// sistema (automatizaciones) no lo piden.
 async function validateContactId(
   organizationId: string,
   contactId: string | undefined,
+  exigirDatos = false,
 ): Promise<string | null> {
   if (!contactId) {
     return null;
@@ -230,6 +235,9 @@ async function validateContactId(
       "El contactId indicado no existe, no pertenece a tu organización, o está eliminado",
       400,
     );
+  }
+  if (exigirDatos) {
+    exigirContactoConDatos(contact);
   }
   return contact.id;
 }
@@ -304,11 +312,12 @@ export async function createActivity(
   organizationId: string,
   actorUserId: string,
   input: CreateActivityInput,
+  opciones: { exigirContactoConDatos?: boolean } = {},
 ) {
   const [assigneeId, companyId, contactId, opportunityId] = await Promise.all([
     validateAssigneeId(organizationId, input.assigneeId),
     validateCompanyId(organizationId, input.companyId),
-    validateContactId(organizationId, input.contactId),
+    validateContactId(organizationId, input.contactId, opciones.exigirContactoConDatos),
     validateOpportunityId(organizationId, input.opportunityId),
   ]);
 
@@ -342,11 +351,12 @@ export function createActivityAsActor(
 ) {
   const assigneeId = resolveAssigneeForActor(actor, input.assigneeId) ?? undefined;
   // branchId no viene de una persona: lo escriben solo los caminos de sistema.
-  return createActivity(organizationId, actor.userId, {
-    ...input,
-    assigneeId,
-    branchId: undefined,
-  });
+  return createActivity(
+    organizationId,
+    actor.userId,
+    { ...input, assigneeId, branchId: undefined },
+    { exigirContactoConDatos: true },
+  );
 }
 
 export interface UpdateActivityInput {
@@ -555,7 +565,13 @@ export async function updateActivity(
   }
 
   if ("contactId" in input && input.contactId) {
-    data.contactId = await validateContactId(organizationId, input.contactId);
+    // Pasarla a un contacto con los datos borrados, no; editar la que ya era
+    // suya (completarla, por ejemplo), sí.
+    data.contactId = await validateContactId(
+      organizationId,
+      input.contactId,
+      input.contactId !== activity.contactId,
+    );
   }
 
   if ("opportunityId" in input && input.opportunityId) {

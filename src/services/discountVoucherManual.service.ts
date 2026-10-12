@@ -14,6 +14,7 @@ import { findLastInboundAt } from "../repositories/message.repository";
 import { findOpportunityById } from "../repositories/opportunity.repository";
 import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { exigirContactoConDatos } from "../utils/contactoBorrado";
 import { buildVoucherPublicUrl } from "../utils/voucherPublicUrl";
 import { finDeLaVentanaDeWhatsapp, ventanaDeWhatsappAbierta } from "../utils/ventanaDeWhatsapp";
 import { MAX_EXPIRES_IN_DAYS } from "./automationActions/sendDiscountVoucherFollowup";
@@ -176,6 +177,7 @@ export async function crearCuponManual(
   }
 
   const contacto = await leerContacto(organizationId, contactId!);
+  exigirContactoConDatos(contacto);
   if (!puedeGestionarCupon(actor, { oportunidad, contacto })) {
     throw new AppError(MENSAJE_SIN_PERMISO_CUPON, 403);
   }

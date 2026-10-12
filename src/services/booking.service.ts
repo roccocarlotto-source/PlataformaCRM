@@ -25,7 +25,10 @@ import {
   type BookingSortBy,
   type SortOrder,
 } from "../repositories/booking.repository";
-import { findContactById } from "../repositories/contact.repository";
+import {
+  findContactById,
+  tieneLosDatosBorradosConLaFilaTomada,
+} from "../repositories/contact.repository";
 import { findOpportunityById } from "../repositories/opportunity.repository";
 import { findResourceById, lockResourceForUpdate } from "../repositories/resource.repository";
 import {
@@ -34,6 +37,7 @@ import {
 } from "../repositories/serviceType.repository";
 import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { exigirContactoConDatos, MENSAJE_CONTACTO_BORRADO } from "../utils/contactoBorrado";
 import { enParalelo } from "../utils/enParalelo";
 import { estaDentroDelHorario, estaEnLaGrilla } from "../utils/workingHours";
 import { resolverContexto } from "./availability.service";
@@ -235,6 +239,7 @@ export async function createBooking(
       if (!encontrado) {
         throw new AppError("El contacto indicado no existe o no pertenece a tu organización", 400);
       }
+      exigirContactoConDatos(encontrado);
       return encontrado;
     }),
     input.opportunityId
@@ -310,6 +315,11 @@ export async function createBooking(
     // decide sobre un conteo de reservas activas.
     await lockResourceForUpdate(input.resourceId, organizationId, tx);
     await lockServiceTypeForUpdate(input.serviceTypeId, organizationId, tx);
+    // Un borrado de los datos del contacto que confirmó después del chequeo de
+    // la fase 1 se ve acá, con su fila tomada (utils/contactoBorrado.ts).
+    if (await tieneLosDatosBorradosConLaFilaTomada(input.contactId, organizationId, tx)) {
+      throw new AppError(MENSAJE_CONTACTO_BORRADO, 409);
+    }
 
     // A-4 (auditoría 2026-08-29), la otra mitad — y M-1 de la misma auditoría:
     // RELEER EL RECURSO Y EL SERVICIO CON LOS LOCKS SOSTENIDOS. Los de arriba

@@ -354,6 +354,20 @@ ya sin su nombre.
 Después, la ficha dice **"Datos personales borrados el … por …"**: queda
 registrado quién lo hizo y cuándo, y el botón ya no aparece.
 
+### Después del borrado, la ficha queda en solo lectura
+
+Un contacto con los datos borrados ya no describe a nadie, así que no se le
+agrega nada nuevo: la ficha muestra los campos deshabilitados y sin
+**Guardar**, **Crear cupón**, **Marcar sin interés** ni **Unir con otro
+contacto**. Tampoco se le puede agendar un turno, cargar una nota, una tarea o
+una oportunidad, ni pasarle una que era de otro contacto; los buscadores de
+contacto ya no lo ofrecen. Si alguien lo intenta igual, el sistema responde
+"Este contacto tiene los datos personales borrados: queda en solo lectura."
+
+Lo que sí sigue: completar sus tareas, editar sus oportunidades, cancelar,
+reprogramar o marcar atendidos sus turnos, y volver a tocar el borrado (por
+ejemplo, para reintentar Google Calendar).
+
 ### Google Calendar
 
 Si la sede tiene Google Calendar conectado, el sistema también saca el nombre

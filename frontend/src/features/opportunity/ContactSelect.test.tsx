@@ -69,6 +69,33 @@ describe("ContactSelect", () => {
     await waitFor(() => expect(screen.getByText("Ana Pérez")).toBeInTheDocument());
   });
 
+  it("no ofrece contactos con los datos personales borrados", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeContact({ id: "ct-1", firstName: "Ana", lastName: "Pérez" }),
+            makeContact({
+              id: "ct-2",
+              firstName: "[dato borrado]",
+              lastName: "[dato borrado]",
+              personalDataErasedAt: "2026-10-12T15:00:00.000Z",
+            }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+        }),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+
+    renderSelect(queryClient, undefined);
+    await user.type(screen.getByPlaceholderText("Buscar por nombre o email…"), "a");
+
+    await waitFor(() => expect(screen.getByText("Ana Pérez")).toBeInTheDocument());
+    expect(screen.queryByText("[dato borrado] [dato borrado]")).toBeNull();
+  });
+
   it("al elegir un resultado, llama a onChange con el id y limpia el término", async () => {
     server.use(
       http.get(baseUrl, () =>
