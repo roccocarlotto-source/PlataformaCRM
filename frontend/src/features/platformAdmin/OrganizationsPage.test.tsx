@@ -200,3 +200,154 @@ describe("OrganizationsPage", () => {
     expect(await screen.findByText(/No se puede bajar de edición/)).toBeInTheDocument();
   });
 });
+
+// Reiniciar los datos de una Clínica Demo (docs/rubros.md §12.3).
+describe("OrganizationsPage: reiniciar datos de demo", () => {
+  const reiniciarUrl = (id: string) => `${env.apiUrl}/api/admin/organizations/${id}/demo/reiniciar`;
+  const CON_DEMOS: PlatformOrganization[] = [
+    ...ORGS,
+    {
+      id: "org-demo",
+      name: "Clínica Demo Norte",
+      slug: "clinica-demo-norte",
+      edition: "COMPLETA",
+      industry: "CLINICA",
+    },
+    {
+      id: "org-clinica",
+      name: "Clínica Centro",
+      slug: "clinica-centro",
+      edition: "COMPLETA",
+      industry: "CLINICA",
+    },
+    {
+      id: "org-auto-demo",
+      name: "Automotora con slug raro",
+      slug: "clinica-demo-automotora",
+      edition: "COMPLETA",
+      industry: "AUTOMOTORA",
+    },
+  ];
+  const RESPUESTA = {
+    organizationId: "org-demo",
+    borrados: { pacientes: 9, turnos: 30 },
+    cargados: {
+      bloqueos: 1,
+      pacientes: 8,
+      turnosProximos: 24,
+      sobreturnos: 1,
+      turnosConfirmados: 3,
+      turnosAtendidos: 3,
+      turnosOmitidos: 0,
+    },
+  };
+
+  beforeEach(() => {
+    server.use(
+      http.get(listUrl, () => HttpResponse.json(CON_DEMOS)),
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+    );
+  });
+
+  async function filaDe(nombre: string) {
+    return (await screen.findByText(nombre)).closest("tr") as HTMLElement;
+  }
+
+  it("el botón está solo en las filas de una Clínica Demo", async () => {
+    renderPage();
+    expect(
+      within(await filaDe("Clínica Demo Norte")).getByRole("button", {
+        name: "Reiniciar datos de demo",
+      }),
+    ).toBeInTheDocument();
+    for (const nombre of [
+      "Automotora Centro",
+      "Automotora Norte",
+      "Clínica Centro",
+      "Automotora con slug raro",
+    ]) {
+      expect(
+        within(await filaDe(nombre)).queryByRole("button", { name: "Reiniciar datos de demo" }),
+      ).not.toBeInTheDocument();
+    }
+  });
+
+  it("pide confirmación con qué se borra y qué queda; cancelar no manda nada", async () => {
+    let pedidos = 0;
+    server.use(
+      http.post(reiniciarUrl("org-demo"), () => {
+        pedidos += 1;
+        return HttpResponse.json(RESPUESTA);
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(
+      within(await filaDe("Clínica Demo Norte")).getByRole("button", {
+        name: "Reiniciar datos de demo",
+      }),
+    );
+    const dialogo = screen.getByRole("dialog");
+    expect(dialogo).toHaveTextContent("¿Reiniciar los datos de «Clínica Demo Norte»?");
+    expect(dialogo).toHaveTextContent(/Se borran para siempre los pacientes, los turnos/);
+    expect(dialogo).toHaveTextContent(/Queda la configuración/);
+    await user.click(within(dialogo).getByRole("button", { name: "Cancelar" }));
+
+    expect(pedidos).toBe(0);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("confirmado, manda el POST y dice cuántos pacientes y turnos cargó", async () => {
+    let pedidos = 0;
+    server.use(
+      http.post(reiniciarUrl("org-demo"), () => {
+        pedidos += 1;
+        return HttpResponse.json(RESPUESTA);
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(
+      within(await filaDe("Clínica Demo Norte")).getByRole("button", {
+        name: "Reiniciar datos de demo",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Reiniciar datos" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Reiniciamos «Clínica Demo Norte»: 8 pacientes y 24 turnos próximos de ejemplo, más 3 atendidos la semana pasada.",
+    );
+    expect(pedidos).toBe(1);
+  });
+
+  it("si el backend rechaza, muestra su error", async () => {
+    server.use(
+      http.post(reiniciarUrl("org-demo"), () =>
+        HttpResponse.json(
+          {
+            error: {
+              message:
+                "La regla del recordatorio de la demo está activa: desactivala antes de reiniciar, así los turnos nuevos no programan mensajes.",
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(
+      within(await filaDe("Clínica Demo Norte")).getByRole("button", {
+        name: "Reiniciar datos de demo",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Reiniciar datos" }));
+    expect(
+      await screen.findByText(/La regla del recordatorio de la demo está activa/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+});

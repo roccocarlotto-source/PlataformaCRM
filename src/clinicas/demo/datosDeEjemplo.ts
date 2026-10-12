@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
 import {
   contarDatosDeNegocio,
@@ -55,6 +56,7 @@ import {
   type ClaveDePrestacion,
   type ClaveDeProfesional,
   type TurnoDeLaDemo,
+  type TurnoProximoDeLaDemo,
 } from "./config";
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,14 @@ import {
 // turno pasado es un 400) y el patientConfirmedAt de algunos turnos (lo
 // escribe solo la respuesta al recordatorio). Van sin eventos, como en
 // scripts/seed-dev-data.ts.
+//
+// DOS PARTES: la CONFIGURACIÓN (sede, profesionales, prestaciones, base de
+// conocimiento, aviso de privacidad, agente, QR y automatizaciones), que se
+// carga solo en el alta, y los DATOS DE USO (el bloqueo de la Dra., los
+// pacientes y los turnos, cargarDatosDeUso), que también corre el reinicio de
+// la demo (reinicioDeLaDemo.service.ts). Las fechas son relativas a hoy, en
+// la zona de la demo: los turnos en los catorce días desde mañana y los
+// atendidos en la semana anterior.
 //
 // NADA SALE DE LA PLATAFORMA:
 //   - los pacientes no tienen teléfono;
@@ -92,30 +102,58 @@ export const DEMO_SOLO_EN_CLINICAS =
 export const DEMO_CON_DATOS =
   "La organización ya tiene contactos, turnos, conversaciones o vehículos: los datos de ejemplo solo se cargan en una clínica vacía.";
 
-export interface ResumenDeDatosDeEjemplo {
+export interface ResumenDeDatosDeEjemplo extends ResumenDeDatosDeUso {
   sedes: number;
   profesionales: number;
   prestaciones: number;
-  bloqueos: number;
   entradasDeConocimiento: number;
-  pacientes: number;
-  turnosProximos: number;
-  sobreturnos: number;
-  turnosConfirmados: number;
-  turnosAtendidos: number;
   agentes: number;
   qrs: number;
   automatizaciones: number;
 }
 
+/** Lo que carga la parte de "datos de uso": lo mismo en el alta y en el
+ *  reinicio (reinicioDeLaDemo.service.ts). */
+export interface ResumenDeDatosDeUso {
+  bloqueos: number;
+  pacientes: number;
+  turnosProximos: number;
+  sobreturnos: number;
+  turnosConfirmados: number;
+  turnosAtendidos: number;
+  /** Los turnos que el service rechazó (un horario que ya no existe porque
+   *  alguien cambió la configuración de la demo). En el alta, siempre 0. */
+  turnosOmitidos: number;
+}
+
 export interface OpcionesDeLaDemo {
-  /** El "ahora" del que salen la semana siguiente y la anterior. */
+  /** El "ahora" del que salen los turnos de los próximos días y los de la
+   *  semana anterior. */
   ahora?: Date;
   /** El registro de acciones del motor (los tests pasan el suyo). */
   automatizaciones?: OpcionesDeValidacion;
   /** Quién crea la demo (el platform admin de la ruta): queda en el log de
    *  la asignación del modelo. Sin él, el ADMIN de la demo. */
   platformAdminUserId?: string;
+}
+
+/** Con quién se escriben los datos: el ADMIN de la demo. */
+export interface ActorDeLaDemo {
+  userId: string;
+  role: "ADMIN";
+  industry: "CLINICA";
+}
+
+export interface ProfesionalDeLaDemo {
+  id: string;
+  branchId: string;
+  allowsOverbooking: boolean;
+}
+
+/** Los ids de la configuración que usan los datos de uso. */
+export interface ConfiguracionDeLaDemo {
+  profesionales: Record<ClaveDeProfesional, ProfesionalDeLaDemo>;
+  prestaciones: Record<ClaveDePrestacion, string>;
 }
 
 // Las mismas reglas que el body de la asignación de modelo de un platform
@@ -138,15 +176,7 @@ export async function cargarDatosDeEjemplo(
   if (!admin || admin.role.name !== "ADMIN") {
     throw new AppError("El administrador indicado no es ADMIN de esa organización", 400);
   }
-  const actor = { userId: admin.id, role: "ADMIN" as const, industry: "CLINICA" as const };
-
-  // La semana de los turnos (de lunes a sábado) y la anterior, en la zona de
-  // la sede.
-  const hoy = DateTime.fromJSDate(opciones.ahora ?? new Date(), { zone: ZONA_DE_LA_DEMO });
-  const lunesProximo = hoy.startOf("week").plus({ weeks: 1 });
-  const lunesPasado = hoy.startOf("week").minus({ weeks: 1 });
-  const instante = (lunes: DateTime, dia: number, hora: number, minutos = 0) =>
-    lunes.plus({ days: dia }).set({ hour: hora, minute: minutos }).toJSDate();
+  const actor: ActorDeLaDemo = { userId: admin.id, role: "ADMIN", industry: "CLINICA" };
 
   // --- Sede, horario y recordatorio -----------------------------------------
   // La primera sede le hereda la zona a la organización (que nace en UTC).
@@ -159,7 +189,12 @@ export async function cargarDatosDeEjemplo(
   await configurarClinicaDeLaSede(organizationId, sede.id, RECORDATORIO_DE_LA_SEDE);
 
   // --- Profesionales ------------------------------------------------------
-  const profesionales = {} as Record<ClaveDeProfesional, string>;
+  // El sobreturno de la lista necesita el permiso del profesional: es
+  // configuración del profesional, no un dato de uso.
+  const conSobreturno = new Set(
+    TURNOS_PROXIMOS.filter((t) => t.sobreturno).map((t) => t.profesional),
+  );
+  const profesionales = {} as Record<ClaveDeProfesional, ProfesionalDeLaDemo>;
   for (const [clave, datos] of Object.entries(PROFESIONALES) as [
     ClaveDeProfesional,
     (typeof PROFESIONALES)[ClaveDeProfesional],
@@ -170,7 +205,17 @@ export async function cargarDatosDeEjemplo(
       type: "PERSON",
     });
     await replaceWorkingHoursForResource(organizationId, recurso.id, datos.horario);
-    profesionales[clave] = recurso.id;
+    if (conSobreturno.has(clave)) {
+      await configurarSobreturnos(organizationId, recurso.id, {
+        allowsOverbooking: true,
+        maxOverbookingsPerDay: 1,
+      });
+    }
+    profesionales[clave] = {
+      id: recurso.id,
+      branchId: sede.id,
+      allowsOverbooking: conSobreturno.has(clave),
+    };
   }
 
   // --- Prestaciones -------------------------------------------------------
@@ -182,7 +227,7 @@ export async function cargarDatosDeEjemplo(
     const [principal, ...otros] = datos.profesionales;
     const prestacion = await createServiceType(organizationId, {
       branchId: sede.id,
-      resourceId: profesionales[principal],
+      resourceId: profesionales[principal].id,
       name: datos.nombre,
       durationMin: datos.duracionMin,
     });
@@ -190,7 +235,7 @@ export async function cargarDatosDeEjemplo(
       await definirProfesionales(
         organizationId,
         prestacion.id,
-        otros.map((p) => profesionales[p]),
+        otros.map((p) => profesionales[p].id),
       );
     }
     if (datos.controlALosDias !== null) {
@@ -198,19 +243,6 @@ export async function cargarDatosDeEjemplo(
     }
     prestaciones[clave] = prestacion.id;
   }
-
-  // --- Bloqueo, ANTES de los turnos: así no crea tareas ---------------------
-  const viernes = lunesProximo.plus({ days: 4 });
-  await crearBloqueoDeProfesional(
-    organizationId,
-    profesionales[BLOQUEO.profesional],
-    {
-      startsAt: viernes.plus({ minutes: BLOQUEO.desde }).toJSDate(),
-      endsAt: viernes.plus({ minutes: BLOQUEO.hasta }).toJSDate(),
-      reason: BLOQUEO.motivo,
-    },
-    actor,
-  );
 
   // --- Base de conocimiento -------------------------------------------------
   for (const entrada of BASE_DE_CONOCIMIENTO) {
@@ -222,60 +254,14 @@ export async function cargarDatosDeEjemplo(
     });
   }
 
-  // --- Pacientes (sin teléfono) -----------------------------------------
-  const pacientes: string[] = [];
-  for (const p of PACIENTES) {
-    const contacto = await createContact(organizationId, admin.id, {
-      firstName: p.nombre,
-      lastName: p.apellido,
-      email: p.email,
-    });
-    pacientes.push(contacto.id);
-  }
-
-  // --- Turnos de la semana siguiente ------------------------------------
-  // El sobreturno necesita el permiso del profesional y el horario lleno (el
-  // turno anterior de la lista).
-  const conSobreturno = new Set(
-    TURNOS_PROXIMOS.filter((t) => t.sobreturno).map((t) => t.profesional),
+  // --- Datos de uso: bloqueo, pacientes y turnos ----------------------------
+  // La misma función que corre el reinicio de la demo.
+  const uso = await cargarDatosDeUso(
+    organizationId,
+    { profesionales, prestaciones },
+    actor,
+    opciones.ahora,
   );
-  for (const clave of conSobreturno) {
-    await configurarSobreturnos(organizationId, profesionales[clave], {
-      allowsOverbooking: true,
-      maxOverbookingsPerDay: 1,
-    });
-  }
-  const confirmados: string[] = [];
-  for (const turno of TURNOS_PROXIMOS) {
-    const creado = await crearTurnoDeClinica(
-      organizationId,
-      {
-        serviceTypeId: prestaciones[turno.prestacion],
-        contactId: pacientes[turno.paciente],
-        startsAt: instante(lunesProximo, turno.dia, turno.hora, turno.minutos),
-        resourceId: profesionales[turno.profesional],
-        ...(turno.sobreturno ? { isOverbooking: true } : {}),
-      },
-      undefined,
-      actor,
-    );
-    if (turno.confirmado) confirmados.push(creado.id);
-  }
-  // Prisma directo (aprobado): solo la respuesta al recordatorio lo escribe.
-  await prisma.booking.updateMany({
-    where: { organizationId, id: { in: confirmados } },
-    data: { patientConfirmedAt: hoy.toJSDate() },
-  });
-
-  // --- Atendidos la semana anterior (Prisma directo, sin eventos) ----------
-  for (const turno of TURNOS_ATENDIDOS) {
-    await crearAtendido(organizationId, sede.id, turno, {
-      inicio: instante(lunesPasado, turno.dia, turno.hora, turno.minutos),
-      prestacion: prestaciones[turno.prestacion],
-      profesional: profesionales[turno.profesional],
-      paciente: pacientes[turno.paciente],
-    });
-  }
 
   // --- Aviso de privacidad, agente, QR y automatizaciones -------------------
   await updateOrganizationSettings(organizationId, AVISO_DE_PRIVACIDAD);
@@ -343,24 +329,189 @@ export async function cargarDatosDeEjemplo(
     sedes: 1,
     profesionales: Object.keys(PROFESIONALES).length,
     prestaciones: Object.keys(PRESTACIONES).length,
-    bloqueos: 1,
     entradasDeConocimiento: BASE_DE_CONOCIMIENTO.length,
-    pacientes: PACIENTES.length,
-    turnosProximos: TURNOS_PROXIMOS.length,
-    sobreturnos: TURNOS_PROXIMOS.filter((t) => t.sobreturno).length,
-    turnosConfirmados: confirmados.length,
-    turnosAtendidos: TURNOS_ATENDIDOS.length,
+    ...uso,
     agentes: 1,
     qrs: 1,
     automatizaciones: reglas.length,
   };
 }
 
+// ---------------------------------------------------------------------------
+// FECHAS RELATIVAS A HOY, en la zona de la demo.
+//
+// Los turnos próximos van en los catorce días desde mañana. Esos catorce días
+// son dos tandas de siete, y cada tanda tiene cada día de la semana una sola
+// vez: el turno { semana, dia } cae en el día de su tanda cuyo día de la
+// semana es `dia` (0 = lunes). Así la lista de config.ts sirve empiece la
+// ventana el día que empiece, y los domingos no tienen turnos.
+// ---------------------------------------------------------------------------
+
+function mananaEnLaDemo(ahora: Date): DateTime {
+  return DateTime.fromJSDate(ahora, { zone: ZONA_DE_LA_DEMO }).startOf("day").plus({ days: 1 });
+}
+
+/** El día de la tanda `semana` cuyo día de la semana es `dia` (0 = lunes). */
+function diaDeLaTanda(manana: DateTime, semana: 0 | 1, dia: number): DateTime {
+  const desdeManana = (dia + 1 - manana.weekday + 7) % 7;
+  return manana.plus({ days: semana * 7 + desdeManana });
+}
+
+/** Los turnos próximos con su inicio, en el orden en que se crean: por día y,
+ *  dentro del día, en el orden de la lista (un sobreturno va después del
+ *  turno que llena ese horario). */
+export function fechasDeLosTurnosProximos(
+  ahora: Date,
+): { turno: TurnoProximoDeLaDemo; inicio: Date }[] {
+  const manana = mananaEnLaDemo(ahora);
+  return TURNOS_PROXIMOS.map((turno, orden) => ({
+    turno,
+    orden,
+    dia: diaDeLaTanda(manana, turno.semana, turno.dia),
+  }))
+    .sort((a, b) => a.dia.toMillis() - b.dia.toMillis() || a.orden - b.orden)
+    .map(({ turno, dia }) => ({
+      turno,
+      inicio: dia.set({ hour: turno.hora, minute: turno.minutos ?? 0 }).toJSDate(),
+    }));
+}
+
+/** El bloqueo de la Dra.: el viernes de la primera tanda, de 13 a 19. */
+export function horarioDelBloqueo(ahora: Date): { startsAt: Date; endsAt: Date } {
+  const viernes = diaDeLaTanda(mananaEnLaDemo(ahora), 0, 4);
+  return {
+    startsAt: viernes.plus({ minutes: BLOQUEO.desde }).toJSDate(),
+    endsAt: viernes.plus({ minutes: BLOQUEO.hasta }).toJSDate(),
+  };
+}
+
+/** Los atendidos: la semana calendario anterior (0 = su lunes). */
+export function fechasDeLosTurnosAtendidos(ahora: Date): { turno: TurnoDeLaDemo; inicio: Date }[] {
+  const lunesPasado = DateTime.fromJSDate(ahora, { zone: ZONA_DE_LA_DEMO })
+    .startOf("week")
+    .minus({ weeks: 1 });
+  return TURNOS_ATENDIDOS.map((turno) => ({
+    turno,
+    inicio: lunesPasado
+      .plus({ days: turno.dia })
+      .set({ hour: turno.hora, minute: turno.minutos ?? 0 })
+      .toJSDate(),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// LOS DATOS DE USO: el bloqueo de la Dra., los pacientes y los turnos. Es la
+// parte que corre en el alta y en el reinicio de la demo
+// (reinicioDeLaDemo.service.ts), sobre una organización sin datos de uso.
+//
+// El bloqueo va ANTES de los turnos: así no crea tareas. Un turno que el
+// service rechaza (400 o 409: un horario que ya no existe porque alguien
+// cambió la configuración de la demo) se omite y se cuenta, en vez de dejar la
+// demo a medio cargar. Lo mismo un sobreturno si el profesional ya no los
+// acepta.
+// ---------------------------------------------------------------------------
+
+export async function cargarDatosDeUso(
+  organizationId: string,
+  configuracion: ConfiguracionDeLaDemo,
+  actor: ActorDeLaDemo,
+  ahora: Date = new Date(),
+): Promise<ResumenDeDatosDeUso> {
+  const { profesionales, prestaciones } = configuracion;
+
+  // --- Bloqueo, ANTES de los turnos: así no crea tareas ---------------------
+  await crearBloqueoDeProfesional(
+    organizationId,
+    profesionales[BLOQUEO.profesional].id,
+    { ...horarioDelBloqueo(ahora), reason: BLOQUEO.motivo },
+    actor,
+  );
+
+  // --- Pacientes (sin teléfono) -----------------------------------------
+  const pacientes: string[] = [];
+  for (const p of PACIENTES) {
+    const contacto = await createContact(organizationId, actor.userId, {
+      firstName: p.nombre,
+      lastName: p.apellido,
+      email: p.email,
+    });
+    pacientes.push(contacto.id);
+  }
+
+  // --- Turnos de los próximos catorce días --------------------------------
+  const confirmados: string[] = [];
+  let creados = 0;
+  let sobreturnos = 0;
+  let omitidos = 0;
+  for (const { turno, inicio } of fechasDeLosTurnosProximos(ahora)) {
+    const profesional = profesionales[turno.profesional];
+    if (turno.sobreturno && !profesional.allowsOverbooking) {
+      omitidos++;
+      continue;
+    }
+    try {
+      const creado = await crearTurnoDeClinica(
+        organizationId,
+        {
+          serviceTypeId: prestaciones[turno.prestacion],
+          contactId: pacientes[turno.paciente],
+          startsAt: inicio,
+          resourceId: profesional.id,
+          ...(turno.sobreturno ? { isOverbooking: true } : {}),
+        },
+        undefined,
+        actor,
+      );
+      creados++;
+      if (turno.sobreturno) sobreturnos++;
+      if (turno.confirmado) confirmados.push(creado.id);
+    } catch (err) {
+      if (!(err instanceof AppError) || (err.statusCode !== 400 && err.statusCode !== 409)) {
+        throw err;
+      }
+      logger.warn(
+        { organizationId, inicio, prestacion: turno.prestacion, motivo: err.message },
+        "Clínica Demo: un turno de ejemplo no entra en la configuración actual y se omite",
+      );
+      omitidos++;
+    }
+  }
+  // Prisma directo (aprobado): solo la respuesta al recordatorio lo escribe.
+  await prisma.booking.updateMany({
+    where: { organizationId, id: { in: confirmados } },
+    data: { patientConfirmedAt: ahora },
+  });
+
+  // --- Atendidos la semana anterior (Prisma directo, sin eventos) ----------
+  for (const { turno, inicio } of fechasDeLosTurnosAtendidos(ahora)) {
+    await crearAtendido(organizationId, turno, {
+      inicio,
+      prestacion: prestaciones[turno.prestacion],
+      profesional: profesionales[turno.profesional],
+      paciente: pacientes[turno.paciente],
+    });
+  }
+
+  return {
+    bloqueos: 1,
+    pacientes: PACIENTES.length,
+    turnosProximos: creados,
+    sobreturnos,
+    turnosConfirmados: confirmados.length,
+    turnosAtendidos: TURNOS_ATENDIDOS.length,
+    turnosOmitidos: omitidos,
+  };
+}
+
 async function crearAtendido(
   organizationId: string,
-  branchId: string,
   turno: TurnoDeLaDemo,
-  ids: { inicio: Date; prestacion: string; profesional: string; paciente: string },
+  ids: {
+    inicio: Date;
+    prestacion: string;
+    profesional: ProfesionalDeLaDemo;
+    paciente: string;
+  },
 ): Promise<void> {
   const endsAt = new Date(
     ids.inicio.getTime() + PRESTACIONES[turno.prestacion].duracionMin * 60 * 1000,
@@ -368,9 +519,9 @@ async function crearAtendido(
   await prisma.booking.create({
     data: {
       organizationId,
-      branchId,
+      branchId: ids.profesional.branchId,
       serviceTypeId: ids.prestacion,
-      resourceId: ids.profesional,
+      resourceId: ids.profesional.id,
       contactId: ids.paciente,
       startsAt: ids.inicio,
       endsAt,

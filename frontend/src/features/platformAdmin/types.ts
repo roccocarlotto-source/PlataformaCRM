@@ -47,6 +47,23 @@ export interface CreateClinicaDemoResponse extends CreateOrganizationResponse {
   datosDeEjemplo: Record<string, number>;
 }
 
+// Contrato de POST /api/admin/organizations/:organizationId/demo/reiniciar
+// (src/clinicas/demo/reinicioDeLaDemo.service.ts) — docs/rubros.md §12.3. Las
+// filas borradas por tabla y lo que se volvió a cargar.
+export interface ReinicioDeLaDemo {
+  organizationId: string;
+  borrados: Record<string, number>;
+  cargados: {
+    bloqueos: number;
+    pacientes: number;
+    turnosProximos: number;
+    sobreturnos: number;
+    turnosConfirmados: number;
+    turnosAtendidos: number;
+    turnosOmitidos: number;
+  };
+}
+
 // Contrato de PUT /api/admin/agents/:agentId/whatsapp-phone-number
 // (src/controllers/agentAdmin.controller.ts) — ítem 127. null libera el número.
 export interface AssignWhatsappNumberInput {

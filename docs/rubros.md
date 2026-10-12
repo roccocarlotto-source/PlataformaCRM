@@ -2227,8 +2227,20 @@ datos inventados. **No se usa AutoMax** ni ningún dato real.
 >   services. Las automatizaciones se crean con `createAutomation`, inactivas y
 >   sin sincronizar plantillas: nada va a Meta. El cierre automático puede
 >   cerrar los turnos de la demo con el tiempo.
-> - **El bloqueo** de la Dra. es el viernes de la semana de los turnos, de 13 a
->   19, y se crea antes que los turnos (no genera tareas).
+> - **El bloqueo** de la Dra. es el viernes de la primera semana de los turnos,
+>   de 13 a 19, y se crea antes que los turnos (no genera tareas).
+> - **Fechas relativas a hoy** (ajuste del 2026-10-11, con el reinicio de
+>   §12.3), en la zona de la demo: los turnos próximos van en los 14 días desde
+>   mañana, en dos tandas de siete días; cada tanda tiene cada día de la semana
+>   una sola vez y la lista de `config.ts` dice en qué tanda y qué día de la
+>   semana va cada turno, así que sirve empiece la ventana el día que empiece.
+>   Los domingos no hay turnos. Los atendidos siguen en la semana calendario
+>   anterior. Lo prueba `src/clinicas/demo/datosDeEjemplo.test.ts` con un
+>   "hoy" en cada día de la semana.
+> - **Dos partes:** `cargarDatosDeEjemplo` carga la configuración y llama a
+>   `cargarDatosDeUso` (el bloqueo, los pacientes y los turnos), la misma
+>   función que corre el reinicio. Un turno que el service rechaza con 400 o
+>   409 se omite y se cuenta (`turnosOmitidos`, 0 en el alta).
 
 ### 12.2 Qué datos lleva (todos inventados)
 
@@ -2238,12 +2250,73 @@ datos inventados. **No se usa AutoMax** ni ningún dato real.
 | Sede | "Sede Centro", de lunes a viernes de 9 a 19 y sábados de 9 a 13. Recordatorio a las 24 h, `NO_ENVIAR` para turnos tardíos |
 | Profesionales | "Dra. Lucía Ejemplo" (dermatología), "Lic. Martina Prueba" y "Lic. Sofía Muestra" (cosmetología). Sin calendario de Google |
 | Prestaciones | Consulta dermatológica (30 min, control a los 180 días) · Limpieza facial (60 min, control a los 30 días, la hacen las dos licenciadas) · Depilación láser (45 min, control a los 30 días) · Peeling químico (45 min) |
-| Bloqueo | La Dra. Ejemplo no atiende el próximo viernes a la tarde |
+| Bloqueo | La Dra. Ejemplo no atiende el viernes de la primera semana de turnos, a la tarde |
 | Base de conocimiento | Horarios · Cómo llegar · Precios de ejemplo · Medios de pago · Coberturas: "No trabajamos con mutualistas" · Política de cancelación · Indicaciones antes de la depilación láser (`INDICACIONES`, con la aclaración "texto de ejemplo") |
-| Pacientes | 8 contactos con nombres de fantasía, emails `@example.com` y **sin teléfono** (un teléfono inventado puede existir) |
-| Turnos | Unos 15 en la semana siguiente, algunos con `patientConfirmedAt`, un sobreturno y 3 atendidos la semana anterior |
+| Pacientes | 8 contactos con nombres comunes inventados (Sofía Martínez, Mateo Rodríguez, Valentina Gómez, Lucas Fernández, Camila López, Agustina Pérez, Julieta Silva, Martín Sosa), emails `@example.com` y **sin teléfono** (un teléfono inventado puede existir) |
+| Turnos | 24 en los 14 días desde mañana (de lunes a sábado, repartidos entre los tres profesionales y las cuatro prestaciones), 3 con `patientConfirmedAt`, un sobreturno y 3 atendidos la semana anterior |
 | Agente | "Recepción virtual", **inactivo y sin nivel** (ediciones D3). Instrucciones y aviso de privacidad de ejemplo |
 | Automatizaciones | Recordatorio, QR al atender y control, **inactivas**: las plantillas de Meta no se aprueban solas |
+
+### 12.3 Reiniciar los datos de una demo
+
+Para mostrarle la misma demo a otra clínica sin los pacientes, turnos y
+conversaciones de la prueba anterior.
+
+- **Pantalla:** **Plataforma → Organizaciones**, botón **"Reiniciar datos de
+  demo"**, solo en las filas de una Clínica Demo (`esClinicaDemo` del
+  frontend, la misma regla que el backend). Pide confirmación (estilo de
+  peligro) con qué se borra y qué queda, y al terminar muestra cuántos
+  pacientes y turnos cargó.
+- **Endpoint:** `POST /api/admin/organizations/:organizationId/demo/reiniciar`
+  (`authenticate`, `businessWriteRateLimiter`, `requirePlatformAdmin`), sin
+  body (`src/clinicas/demo/reinicioDeLaDemo.service.ts`). Responde 200 con
+  `{ organizationId, borrados, cargados }`: las filas borradas por tabla y el
+  resumen de `cargarDatosDeUso`.
+- **Solo una demo:** rubro CLINICA **y** slug de la demo
+  (`esSlugDeClinicaDemo`). Cualquier otra organización (una clínica de un
+  cliente, una automotora aunque tenga ese slug) da **400** y no se toca nada.
+  404 si no existe o está dada de baja; 403 si no es platform admin.
+- **409 antes de borrar nada** si: la regla del recordatorio está activa (cada
+  turno nuevo emite `booking.created` y, con la regla activa, agendaría un
+  recordatorio); la demo tiene Google Calendar conectado (los turnos nuevos se
+  escribirían en un calendario real y los borrados quedarían ahí); no tiene
+  ningún ADMIN activo; o le falta (por nombre) algún profesional o prestación
+  de `config.ts`.
+- **Borra** los datos de uso, en **una transacción** y acotado por
+  `organizationId` en cada sentencia, hijas antes que madres:
+  `agent_inbound_jobs` → `inquiry_follow_ups` → `messages` →
+  `conversations` → `booking_messages` → `qr_follow_ups` →
+  `discount_voucher_follow_ups` → `discount_vouchers` → `activities` →
+  `bookings` → `opportunities` → `contact_channel_identities` →
+  `ingestion_events` → `external_record_links` (solo de contactos y tareas)
+  → `contacts` → `resource_time_offs` → `automation_executions` →
+  `outbox_events`. Los valores de los campos personalizados viven en el
+  contacto y se van con él.
+- **Conserva** la configuración, con los mismos ids: la organización y su
+  `ClinicSettings` (aviso de privacidad incluido), las sedes con su horario y
+  su `ClinicBranchSettings`, los profesionales con su horario y su permiso de
+  sobreturnos, las prestaciones con sus profesionales y su control, la base de
+  conocimiento, los agentes y sus tokens del widget, las automatizaciones, los
+  QR, los usuarios y las invitaciones. También `llm_turn_usages` (el gasto en
+  el modelo; no referencia a nada que se borre).
+- **Bloqueos:** se borran todos (son datos de agenda) y se vuelve a crear el de
+  la Dra. de §12.2.
+- **Vuelve a cargar** con `cargarDatosDeUso`, la misma función del alta y con
+  las mismas escrituras directas aprobadas (los atendidos y el
+  `patientConfirmedAt`). Fechas relativas a hoy (§12.1). Nada sale de la
+  plataforma: los pacientes no tienen teléfono, la regla del recordatorio está
+  inactiva (si no, 409) y en el outbox quedan solo los `booking.created` de
+  los turnos nuevos, que responden `SIN_REGLA`.
+- **No es atómico de punta a punta:** el borrado sí; la recarga va por los
+  services, cada uno con su transacción. Si falla a mitad, 500 y se vuelve a
+  reiniciar. Sin lock entre dos reinicios simultáneos (operación manual del
+  platform admin, la misma carrera aceptada que el alta).
+- **Tests:** `src/clinicas/clinicaDemo.integration-test.ts` (quién puede, una
+  clínica común y una automotora con slug de demo dan 400 sin borrar, los 409,
+  y el reinicio que conserva la configuración y los usuarios —ADMIN y
+  Recepción— con los mismos ids, borra lo de antes y carga lo de §12.2 sin
+  nada para mandar), su caso en la suite "automotora sin cambios" y
+  `OrganizationsPage.test.tsx`.
 
 ---
 

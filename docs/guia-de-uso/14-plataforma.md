@@ -67,10 +67,13 @@ una clínica antes de que contrate.
 
 La demo trae la **Sede Centro** con su horario, tres profesionales, cuatro
 prestaciones, un bloqueo, la base de conocimiento, ocho pacientes inventados
-(sin teléfono), unos quince turnos la semana siguiente, tres atendidos la
-semana anterior, un QR de reseñas y un agente **Recepción virtual**. El agente
-y las automatizaciones (recordatorio, QR al atender y control) quedan
-**desactivados**: la demo no le manda mensajes a nadie.
+(sin teléfono), unos veinticuatro turnos en las dos semanas desde mañana, tres
+atendidos la semana anterior, un QR de reseñas y un agente **Recepción
+virtual**. El agente y las automatizaciones (recordatorio, QR al atender y
+control) quedan **desactivados**: la demo no le manda mensajes a nadie.
+
+Antes de mostrársela a otra clínica, podés dejarla como nueva con
+[Reiniciar datos de demo](#reiniciar-demo).
 
 > La demo no se borra sola. Cuando ya no la necesites, pedí que la borren.
 
@@ -124,6 +127,34 @@ invitación (o lo perdió):
 Arriba de la lista aparece a qué email se reenvió. Le llega de nuevo el email
 para elegir su contraseña. Si esa persona ya había aceptado la invitación, el
 sistema te avisa que no hay nada que reenviar.
+
+### Reiniciar los datos de una Clínica Demo {#reiniciar-demo}
+
+Después de mostrar una [Clínica Demo](#clinica-demo) quedan los pacientes, los
+turnos y las conversaciones de la prueba. Para dejarla como recién creada:
+
+1. En la fila de la demo, tocá **Reiniciar datos de demo**. El botón aparece
+   solo en las Clínicas Demo, nunca en la organización de un cliente.
+2. Leé qué se borra y qué queda, y confirmá con **Reiniciar datos**.
+
+**Se borran para siempre** los pacientes, los turnos, las conversaciones con
+sus mensajes, las tareas, los recordatorios y mensajes programados de los
+turnos y los bloqueos de los profesionales.
+
+**Queda la configuración**: las sedes con su horario, los profesionales con su
+horario, las prestaciones, la base de conocimiento, los agentes, las
+automatizaciones, los QR, los usuarios y las invitaciones.
+
+Después se vuelven a cargar los ocho pacientes de ejemplo, unos veinticuatro
+turnos en las dos semanas desde mañana (algunos ya confirmados por el
+paciente, y un sobreturno), tres atendidos la semana pasada y el bloqueo de la
+Dra. Ejemplo el viernes a la tarde. Arriba de la lista aparece cuántos
+pacientes y turnos se cargaron.
+
+> Si la regla del **Recordatorio antes del turno** de la demo está activa, o si
+> la demo tiene Google Calendar conectado, el sistema no reinicia y te avisa:
+> desactivá la regla o desconectá Google y volvé a intentar. Así los turnos
+> nuevos no programan mensajes ni se escriben en un calendario real.
 
 ## Importar datos {#importar-datos}
 

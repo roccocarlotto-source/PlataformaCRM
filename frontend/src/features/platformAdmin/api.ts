@@ -18,6 +18,7 @@ import type {
   MetaAuthorization,
   MetaConnectionPendiente,
   OrganizationEdition,
+  ReinicioDeLaDemo,
   PlatformAgentDeOrganizacion,
   PlatformOrganization,
 } from "./types";
@@ -66,6 +67,15 @@ export function reenviarInvitacionDelAdministrador(
 ): Promise<{ email: string }> {
   return request<{ email: string }>(
     `/admin/organizations/${encodeURIComponent(organizationId)}/admin-invitation/resend`,
+    { method: "POST", getAccessToken },
+  );
+}
+
+// Reiniciar los datos de una Clínica Demo (docs/rubros.md §12.3): borra los
+// datos de uso y vuelve a cargar los de ejemplo. 400 si no es una demo.
+export function reiniciarDatosDeLaDemo(organizationId: string): Promise<ReinicioDeLaDemo> {
+  return request<ReinicioDeLaDemo>(
+    `/admin/organizations/${encodeURIComponent(organizationId)}/demo/reiniciar`,
     { method: "POST", getAccessToken },
   );
 }

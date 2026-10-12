@@ -4,6 +4,7 @@ import { after, before, test } from "node:test";
 import { DateTime } from "luxon";
 import { CLINICA_HABILITADA } from "../config/ediciones";
 import { prisma } from "../lib/prisma";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import {
   crearOrgDePrueba,
   crearPedir,
@@ -17,9 +18,19 @@ import { AppError } from "../utils/AppError";
 import { env } from "../config/env";
 import { createAgent } from "../services/agent.service";
 import { createBranch } from "../services/branch.service";
-import { esSlugDeClinicaDemo, MODELO_DEL_AGENTE_DE_LA_DEMO, ZONA_DE_LA_DEMO } from "./demo/config";
+import {
+  esSlugDeClinicaDemo,
+  MODELO_DEL_AGENTE_DE_LA_DEMO,
+  PACIENTES,
+  ZONA_DE_LA_DEMO,
+} from "./demo/config";
 import { cargarDatosDeEjemplo, DEMO_CON_DATOS, DEMO_SOLO_EN_CLINICAS } from "./demo/datosDeEjemplo";
 import { programarRecordatorio } from "./recordatorios/programacion.service";
+import {
+  DEMO_CON_GOOGLE,
+  DEMO_CON_RECORDATORIO_ACTIVO,
+  NO_ES_UNA_DEMO,
+} from "./demo/reinicioDeLaDemo.service";
 
 // ---------------------------------------------------------------------------
 // La Clínica Demo (docs/rubros.md §12, R19), contra la app real, Postgres y
@@ -78,6 +89,65 @@ after(async () => {
   const fallidas = resultados.filter((r) => !r.ok);
   assert.deepEqual(fallidas, [], "la limpieza de las organizaciones de test falló");
 });
+
+/**
+ * Los datos de uso de la demo, recién cargados (en el alta o en el
+ * reinicio): 8 pacientes inventados sin teléfono; 24 turnos en los 14 días
+ * desde mañana (uno sobreturno, 3 confirmados, ninguno un domingo) y 3
+ * atendidos la semana anterior; el bloqueo del viernes; ninguna tarea.
+ * Devuelve los turnos próximos.
+ */
+async function verificarDatosDeUso(id: string) {
+  const pacientes = await prisma.contact.findMany({ where: { organizationId: id } });
+  assert.equal(pacientes.length, 8);
+  assert.ok(pacientes.every((p) => p.phone === null && String(p.email).endsWith("@example.com")));
+  assert.deepEqual(
+    pacientes.map((p) => `${p.firstName} ${p.lastName}`).sort(),
+    PACIENTES.map((p) => `${p.nombre} ${p.apellido}`).sort(),
+  );
+
+  const turnos = await prisma.booking.findMany({ where: { organizationId: id } });
+  const ahora = DateTime.now().setZone(ZONA_DE_LA_DEMO);
+  const manana = ahora.startOf("day").plus({ days: 1 });
+  const proximos = turnos.filter((t) => t.startsAt.getTime() > ahora.toMillis());
+  const pasados = turnos.filter((t) => t.startsAt.getTime() <= ahora.toMillis());
+  assert.equal(proximos.length, 24);
+  assert.ok(proximos.every((t) => t.status === "CONFIRMED"));
+  assert.equal(proximos.filter((t) => t.isOverbooking).length, 1);
+  assert.equal(proximos.filter((t) => t.patientConfirmedAt !== null).length, 3);
+  for (const t of proximos) {
+    const inicio = DateTime.fromJSDate(t.startsAt, { zone: ZONA_DE_LA_DEMO });
+    assert.ok(inicio >= manana && inicio < manana.plus({ days: 14 }), inicio.toISO() ?? "");
+    assert.notEqual(inicio.weekday, 7, "ningún turno un domingo");
+  }
+  // Repartidos en las dos semanas, los tres profesionales y las cuatro
+  // prestaciones.
+  assert.ok(proximos.some((t) => t.startsAt >= manana.plus({ days: 7 }).toJSDate()));
+  assert.equal(new Set(proximos.map((t) => t.resourceId)).size, 3);
+  assert.equal(new Set(proximos.map((t) => t.serviceTypeId)).size, 4);
+  const lunes = ahora.startOf("week");
+  assert.equal(pasados.length, 3);
+  assert.ok(
+    pasados.every(
+      (t) =>
+        t.status === "COMPLETED" &&
+        t.completedAt !== null &&
+        t.completedBy === "PERSONA" &&
+        t.startsAt >= lunes.minus({ weeks: 1 }).toJSDate() &&
+        t.startsAt < lunes.toJSDate(),
+    ),
+  );
+
+  const bloqueos = await prisma.resourceTimeOff.findMany({ where: { organizationId: id } });
+  assert.equal(bloqueos.length, 1);
+  const inicioDelBloqueo = DateTime.fromJSDate(bloqueos[0].startsAt, { zone: ZONA_DE_LA_DEMO });
+  assert.equal(inicioDelBloqueo.weekday, 5, "viernes");
+  assert.equal(inicioDelBloqueo.hour, 13);
+  assert.ok(inicioDelBloqueo >= manana && inicioDelBloqueo < manana.plus({ days: 7 }));
+  // El bloqueo va antes de los turnos: no generó tareas.
+  assert.equal(await prisma.activity.count({ where: { organizationId: id } }), 0);
+  return proximos;
+}
 
 function emailDePrueba(etiqueta: string): string {
   return `demo-r19-${etiqueta}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
@@ -183,10 +253,11 @@ test("el platform admin crea la Clínica Demo con la llave en false: 201 con los
     bloqueos: 1,
     entradasDeConocimiento: 7,
     pacientes: 8,
-    turnosProximos: 15,
+    turnosProximos: 24,
     sobreturnos: 1,
     turnosConfirmados: 3,
     turnosAtendidos: 3,
+    turnosOmitidos: 0,
     agentes: 1,
     qrs: 1,
     automatizaciones: 3,
@@ -264,35 +335,8 @@ test("el platform admin crea la Clínica Demo con la llave en false: 201 con los
   assert.match(indicaciones[0].content, /^Texto de ejemplo/);
   assert.ok(entradas.some((e) => e.content.includes("No trabajamos con mutualistas")));
 
-  // Pacientes: inventados y sin teléfono.
-  const pacientes = await prisma.contact.findMany({ where: { organizationId: id } });
-  assert.equal(pacientes.length, 8);
-  assert.ok(pacientes.every((p) => p.phone === null && String(p.email).endsWith("@example.com")));
-
-  // Turnos: 15 la semana siguiente (uno sobreturno, 3 confirmados) y 3
-  // atendidos la anterior.
-  const turnos = await prisma.booking.findMany({ where: { organizationId: id } });
-  const ahora = Date.now();
-  const proximos = turnos.filter((t) => t.startsAt.getTime() > ahora);
-  const pasados = turnos.filter((t) => t.startsAt.getTime() <= ahora);
-  assert.equal(proximos.length, 15);
-  assert.ok(proximos.every((t) => t.status === "CONFIRMED"));
-  assert.equal(proximos.filter((t) => t.isOverbooking).length, 1);
-  assert.equal(proximos.filter((t) => t.patientConfirmedAt !== null).length, 3);
-  const lunesProximo = DateTime.now().setZone(ZONA_DE_LA_DEMO).startOf("week").plus({ weeks: 1 });
-  assert.ok(
-    proximos.every(
-      (t) =>
-        t.startsAt >= lunesProximo.toJSDate() &&
-        t.startsAt < lunesProximo.plus({ weeks: 1 }).toJSDate(),
-    ),
-  );
-  assert.equal(pasados.length, 3);
-  assert.ok(
-    pasados.every(
-      (t) => t.status === "COMPLETED" && t.completedAt !== null && t.completedBy === "PERSONA",
-    ),
-  );
+  // Pacientes y turnos: los datos de uso (los mismos que deja el reinicio).
+  const proximos = await verificarDatosDeUso(id);
 
   // Nada sale de la plataforma: agente y reglas inactivos, ni plantillas ni
   // mensajes del turno.
@@ -419,4 +463,270 @@ test("un agente común (fuera de la demo) sigue naciendo con el modelo de la pla
   } finally {
     await prisma.agent.delete({ where: { id: agente.id } });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Reiniciar los datos de la demo (§12.3):
+// POST /api/admin/organizations/:organizationId/demo/reiniciar
+// ---------------------------------------------------------------------------
+
+const rutaDeReinicio = (organizationId: string) =>
+  `/api/admin/organizations/${organizationId}/demo/reiniciar`;
+
+/** La configuración de una organización, con sus ids: el reinicio no la toca. */
+async function configuracion(organizationId: string) {
+  const where = { organizationId };
+  const ids = async (filas: Promise<{ id: string }[]>) => (await filas).map((f) => f.id).sort();
+  const orden = { id: "asc" as const };
+  return {
+    organizacion: await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } }),
+    clinica: await prisma.clinicSettings.findUnique({ where }),
+    sedes: await ids(prisma.branch.findMany({ where, orderBy: orden })),
+    deLaSede: await prisma.clinicBranchSettings.findMany({ where, orderBy: { branchId: "asc" } }),
+    horarioDeLaSede: await prisma.branchBusinessHours.count({ where }),
+    profesionales: await prisma.resource.findMany({ where, orderBy: orden }),
+    horarios: await prisma.workingHours.count({ where }),
+    prestaciones: await prisma.serviceType.findMany({ where, orderBy: orden }),
+    profesionalesDePrestaciones: await prisma.serviceTypeResource.count({ where }),
+    conocimiento: await ids(prisma.knowledgeBaseEntry.findMany({ where, orderBy: orden })),
+    agentes: await prisma.agent.findMany({ where, orderBy: orden }),
+    automatizaciones: await prisma.automation.findMany({ where, orderBy: orden }),
+    qrs: await ids(prisma.qrCode.findMany({ where, orderBy: orden })),
+    usuarios: await prisma.user.findMany({ where, orderBy: orden }),
+    invitaciones: await ids(prisma.invitation.findMany({ where, orderBy: orden })),
+  };
+}
+
+test("reiniciar: sin sesión 401, un ADMIN que no es platform admin 403, una organización que no existe 404", async () => {
+  assert.ok(demo, "depende del test de alta");
+  const antes = await conteos(demo.organization.id);
+  const ruta = rutaDeReinicio(demo.organization.id);
+
+  assert.equal((await pedir(comun, "POST", ruta, undefined, null)).status, 401);
+  assert.equal((await pedir(comun, "POST", ruta)).status, 403);
+  assert.equal((await pedir(plataforma, "POST", rutaDeReinicio(randomUUID()))).status, 404);
+  assert.equal((await pedir(plataforma, "POST", rutaDeReinicio("no-es-un-uuid"))).status, 400);
+
+  assert.deepEqual(await conteos(demo.organization.id), antes);
+});
+
+test("reiniciar: una clínica que no es demo y una automotora (aunque tenga el slug de la demo) dan 400 y no se borra nada", async () => {
+  // La clínica común, con un paciente.
+  await prisma.contact.create({
+    data: { organizationId: otraClinica.id, firstName: "Paciente", lastName: "De Prueba" },
+  });
+  const antesClinica = await conteos(otraClinica.id);
+  const enClinica = await pedir(plataforma, "POST", rutaDeReinicio(otraClinica.id));
+  assert.equal(enClinica.status, 400);
+  assert.equal(enClinica.json.error?.message, NO_ES_UNA_DEMO);
+  assert.deepEqual(await conteos(otraClinica.id), antesClinica);
+
+  // Una automotora con un contacto, renombrada con un slug de demo: el rubro
+  // también cuenta. Nace con un slug de este archivo (demo-r19-…) y vuelve a
+  // él en el finally, para que la purga del after() la borre. El slug de demo
+  // NO es una plantilla de PATRONES_DE_SLUG_DE_PRUEBA a propósito (§12.1):
+  // ninguna purga puede reconocer un slug de demo.
+  const automotora = await crearOrgDePrueba("demo-r19", "COMPLETA", "AUTOMOTORA", 1);
+  orgsDeTest.push(automotora.id);
+  await prisma.contact.create({
+    data: { organizationId: automotora.id, firstName: "Cliente", lastName: "De Prueba" },
+  });
+  const { slug } = await prisma.organization.findUniqueOrThrow({ where: { id: automotora.id } });
+  const slugDeDemo = `clinica-demo-automotora-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  await prisma.organization.update({ where: { id: automotora.id }, data: { slug: slugDeDemo } });
+  try {
+    const antes = await conteos(automotora.id);
+    const res = await pedir(plataforma, "POST", rutaDeReinicio(automotora.id));
+    assert.equal(res.status, 400);
+    assert.equal(res.json.error?.message, NO_ES_UNA_DEMO);
+    assert.deepEqual(await conteos(automotora.id), antes);
+  } finally {
+    await prisma.organization.update({ where: { id: automotora.id }, data: { slug } });
+  }
+});
+
+test("reiniciar con la regla del recordatorio activa o con Google conectado: 409 sin borrar nada", async () => {
+  assert.ok(demo, "depende del test de alta");
+  const id = demo.organization.id;
+  const antes = await conteos(id);
+
+  const recordatorio = await prisma.automation.findFirstOrThrow({
+    where: { organizationId: id, triggerType: "booking.reminder_due" },
+  });
+  await prisma.automation.update({ where: { id: recordatorio.id }, data: { isActive: true } });
+  try {
+    const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
+    assert.equal(res.status, 409);
+    assert.equal(res.json.error?.message, DEMO_CON_RECORDATORIO_ACTIVO);
+  } finally {
+    await prisma.automation.update({ where: { id: recordatorio.id }, data: { isActive: false } });
+  }
+
+  const sede = await prisma.branch.findFirstOrThrow({ where: { organizationId: id } });
+  const conexion = await prisma.googleCalendarConnection.create({
+    data: { organizationId: id, branchId: sede.id, refreshToken: "token-de-prueba" },
+  });
+  try {
+    const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
+    assert.equal(res.status, 409);
+    assert.equal(res.json.error?.message, DEMO_CON_GOOGLE);
+  } finally {
+    await prisma.googleCalendarConnection.delete({ where: { id: conexion.id } });
+  }
+
+  assert.deepEqual(await conteos(id), antes);
+});
+
+test("reiniciar la demo: borra los datos de uso, conserva la configuración y vuelve a cargar los de ejemplo desde mañana", async () => {
+  assert.ok(demo, "depende del test de alta");
+  const id = demo.organization.id;
+  const antesOtra = await conteos(otraClinica.id);
+  const antesPlataforma = await conteos(plataforma.id);
+
+  // Una Recepción, además del ADMIN de la demo. Su identidad de Supabase la
+  // borra la purga del after(), con la organización.
+  const email = emailDePrueba("recepcion");
+  const identidad = await getSupabaseAdmin().auth.admin.createUser({
+    email,
+    password: `Clave-${randomUUID()}`,
+    email_confirm: true,
+  });
+  if (identidad.error || !identidad.data.user) throw new Error(String(identidad.error?.message));
+  const recepcion = await prisma.user.create({
+    data: {
+      id: identidad.data.user.id,
+      organizationId: id,
+      roleId: (await prisma.role.findUniqueOrThrow({ where: { name: "RECEPCION" } })).id,
+      email,
+      fullName: "Recepción de Prueba",
+    },
+  });
+
+  // Datos de uso de antes: una conversación con mensajes, una tarea y un
+  // mensaje programado de un turno, además de los pacientes y turnos.
+  const [agente] = await prisma.agent.findMany({ where: { organizationId: id } });
+  const [turno] = await prisma.booking.findMany({
+    where: { organizationId: id, status: "CONFIRMED" },
+    take: 1,
+  });
+  const conversacion = await prisma.conversation.create({
+    data: {
+      organizationId: id,
+      branchId: agente.branchId,
+      agentId: agente.id,
+      contactId: turno.contactId,
+      channel: "WHATSAPP",
+    },
+  });
+  await prisma.message.createMany({
+    data: [
+      {
+        organizationId: id,
+        conversationId: conversacion.id,
+        direction: "INBOUND",
+        senderType: "CONTACT",
+        content: "Hola, quería un turno",
+      },
+      {
+        organizationId: id,
+        conversationId: conversacion.id,
+        direction: "OUTBOUND",
+        senderType: "AGENT",
+        content: "Hola, te ayudo",
+      },
+    ],
+  });
+  const tarea = await prisma.activity.create({
+    data: {
+      organizationId: id,
+      type: "TASK",
+      authorId: recepcion.id,
+      subject: "Llamar al paciente",
+      contactId: turno.contactId,
+      sourceBookingId: turno.id,
+    },
+  });
+  const recordatorio = await prisma.automation.findFirstOrThrow({
+    where: { organizationId: id, triggerType: "booking.reminder_due" },
+  });
+  const mensajeDelTurno = await prisma.bookingMessage.create({
+    data: {
+      organizationId: id,
+      bookingId: turno.id,
+      contactId: turno.contactId,
+      automationId: recordatorio.id,
+      kind: "REMINDER",
+      bookingStartsAt: turno.startsAt,
+      scheduledFor: turno.startsAt,
+      nextAttemptAt: turno.startsAt,
+    },
+  });
+  const pacientesDeAntes = (await prisma.contact.findMany({ where: { organizationId: id } })).map(
+    (c) => c.id,
+  );
+  const turnosDeAntes = (await prisma.booking.findMany({ where: { organizationId: id } })).map(
+    (t) => t.id,
+  );
+  const bloqueoDeAntes = await prisma.resourceTimeOff.findFirstOrThrow({
+    where: { organizationId: id },
+  });
+  const configuracionDeAntes = await configuracion(id);
+
+  const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.organizationId, id);
+  assert.deepEqual(res.json.cargados, {
+    bloqueos: 1,
+    pacientes: 8,
+    turnosProximos: 24,
+    sobreturnos: 1,
+    turnosConfirmados: 3,
+    turnosAtendidos: 3,
+    turnosOmitidos: 0,
+  });
+  const borrados = res.json.borrados as Record<string, number>;
+  assert.equal(borrados.pacientes, 8);
+  assert.equal(borrados.turnos, turnosDeAntes.length);
+  assert.equal(borrados.conversaciones, 1);
+  assert.equal(borrados.mensajes, 2);
+  assert.equal(borrados.tareas, 1);
+  assert.equal(borrados.mensajesDeTurnos, 1);
+  assert.equal(borrados.bloqueos, 1);
+
+  // Lo de antes ya no está.
+  assert.equal(await prisma.contact.count({ where: { id: { in: pacientesDeAntes } } }), 0);
+  assert.equal(await prisma.booking.count({ where: { id: { in: turnosDeAntes } } }), 0);
+  assert.equal(await prisma.conversation.count({ where: { id: conversacion.id } }), 0);
+  assert.equal(await prisma.message.count({ where: { conversationId: conversacion.id } }), 0);
+  assert.equal(await prisma.activity.count({ where: { id: tarea.id } }), 0);
+  assert.equal(await prisma.bookingMessage.count({ where: { id: mensajeDelTurno.id } }), 0);
+  assert.equal(await prisma.resourceTimeOff.count({ where: { id: bloqueoDeAntes.id } }), 0);
+
+  // La configuración, con los mismos ids (y los dos usuarios).
+  const configuracionDespues = await configuracion(id);
+  assert.deepEqual(configuracionDespues, configuracionDeAntes);
+  assert.deepEqual(
+    configuracionDespues.usuarios.map((u) => u.id).sort(),
+    [demo.admin.id, recepcion.id].sort(),
+  );
+
+  // Los datos de ejemplo de nuevo, con fechas relativas a hoy.
+  const proximos = await verificarDatosDeUso(id);
+
+  // Nada para mandar: ni mensajes del turno ni plantillas; en el outbox solo
+  // los booking.created de los turnos nuevos, que sin regla activa no
+  // agendan nada.
+  assert.equal(await prisma.bookingMessage.count({ where: { organizationId: id } }), 0);
+  assert.equal(await prisma.whatsappTemplate.count({ where: { organizationId: id } }), 0);
+  const eventos = await prisma.outboxEvent.findMany({ where: { organizationId: id } });
+  assert.equal(eventos.length, proximos.length);
+  assert.ok(eventos.every((e) => e.eventType === "booking.created"));
+  for (const t of proximos) {
+    assert.equal(await programarRecordatorio(id, t.id), "SIN_REGLA");
+  }
+  assert.equal(await prisma.bookingMessage.count({ where: { organizationId: id } }), 0);
+
+  // Aislamiento: las otras organizaciones, igual que antes.
+  assert.deepEqual(await conteos(otraClinica.id), antesOtra);
+  assert.deepEqual(await conteos(plataforma.id), antesPlataforma);
 });
