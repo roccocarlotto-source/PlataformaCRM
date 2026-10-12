@@ -45,7 +45,7 @@ import {
   createOrganizationWithFoundingAdmin,
   defaultOrganizationAdminDeps,
 } from "../services/organizationAdmin.service";
-import { SIN_REGLAS, reglasDelRubro } from "../services/reglasDelRubro";
+import { SIN_REGLAS, armarContextoDeLaRegla, reglasDelRubro } from "../services/reglasDelRubro";
 import { calcularTurnos } from "../services/availability.service";
 import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "./camposDeClinica";
 import { canReadActivity, scopeActivityFiltersToActor } from "../services/activity.service";
@@ -560,7 +560,18 @@ test("las reglas del rubro de una automotora están vacías: ningún verificador
     // R11: ninguna tool exclusiva y los textos del prompt de siempre.
     toolsExclusivas: {},
     textosDelPrompt: null,
+    // D11 revisada: nada que leer de la base para el contexto de las reglas.
+    contextoDeLaOrganizacion: null,
   });
+});
+
+test("D11 revisada: el contexto de las reglas de una automotora es solo el nombre, sin consulta", async () => {
+  const contexto = await armarContextoDeLaRegla(
+    reglasDelRubro("AUTOMOTORA"),
+    "00000000-0000-0000-0000-000000000000",
+    "AutoMax",
+  );
+  assert.deepEqual(contexto, { nombreDeLaOrganizacion: "AutoMax" });
 });
 
 // ---------------------------------------------------------------------------

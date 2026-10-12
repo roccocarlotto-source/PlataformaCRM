@@ -796,6 +796,8 @@ model Organization {
   // Usuarios por sede (docs/rubros.md §11.5, R20): solo las clínicas tienen filas.
   userBranches         UserBranch[]
   invitationBranches   InvitationBranch[]
+  // Historial de los mensajes de salud editados por el ADMIN (§5.3, D11).
+  clinicHealthSettingsChanges ClinicHealthSettingsChange[]
 
   users         User[]
   companies     Company[]
@@ -969,6 +971,9 @@ model User {
 
   // Las sedes de una Recepción de clínica (docs/rubros.md §11.5, R20).
   userBranches UserBranch[]
+
+  // Los cambios que hizo a los mensajes de salud de su clínica (§5.3, D11).
+  clinicHealthSettingsChanges ClinicHealthSettingsChange[] @relation("ClinicHealthSettingsChangedBy")
 
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -4917,6 +4922,19 @@ model ClinicSettings {
   privacyNoticeText String?     @map("privacy_notice_text") @db.VarChar(1000)
   privacyPolicyUrl  String?     @map("privacy_policy_url") @db.VarChar(500)
 
+  // Los mensajes de salud editados por el ADMIN (§5.3, D11 revisada). NULL =
+  // el texto por defecto del código (src/clinicas/config/mensajesDeSalud.ts):
+  // así una clínica que nunca lo editó recibe las mejoras del texto por
+  // defecto. El de urgencia tiene que incluir un teléfono (lo valida el
+  // service).
+  urgencyMessageText  String?  @map("urgency_message_text") @db.VarChar(500)
+  clinicalMessageText String?  @map("clinical_message_text") @db.VarChar(500)
+  // Términos que la clínica SUMA al detector de la capa 1, ya normalizados.
+  // Los del código no se guardan acá: no hay forma de sacarlos. CHECK de
+  // hasta 100 por lista en la migración.
+  extraUrgencyTerms   String[] @default([]) @map("extra_urgency_terms")
+  extraClinicalTerms  String[] @default([]) @map("extra_clinical_terms")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -4926,6 +4944,36 @@ model ClinicSettings {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("clinic_settings")
+}
+
+// ---------------------------------------------------------------------------
+// ClinicHealthSettingsChange — quién cambió los mensajes de salud de una
+// clínica, cuándo y qué (docs/rubros.md §5.3, D11 revisada). Una fila por
+// guardado que cambió algo; `changes` es { campo: { antes, despues } } con los
+// campos que cambiaron.
+//
+// APPEND-ONLY, como VehicleChangeLog: sin updatedAt ni deletedAt, y el código
+// nunca la actualiza ni la borra. Lo llena el service (sabe quién es el
+// usuario), no un trigger.
+//
+// FK a organizations ON DELETE CASCADE (como llm_turn_usages: una tabla de
+// registro con RESTRICT rompe el borrado de las organizaciones de los tests);
+// FK compuesta a users RESTRICT: quien cambió es de la misma organización y no
+// se borra físicamente.
+// ---------------------------------------------------------------------------
+
+model ClinicHealthSettingsChange {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  changedById    String   @map("changed_by_id") @db.Uuid
+  changes        Json
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  changedBy    User         @relation("ClinicHealthSettingsChangedBy", fields: [organizationId, changedById], references: [organizationId, id], map: "clinic_health_settings_changes_changed_by_fkey")
+
+  @@index([organizationId, createdAt])
+  @@map("clinic_health_settings_changes")
 }
 
 model ClinicBranchSettings {

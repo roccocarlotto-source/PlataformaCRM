@@ -22,6 +22,11 @@ import {
   listarPrestacionesHandler,
   profesionalesDePrestacionHandler,
 } from "../controllers/agendaClinica.controller";
+import {
+  guardarMensajesDeSaludHandler,
+  historialDeMensajesDeSaludHandler,
+  obtenerMensajesDeSaludHandler,
+} from "../controllers/mensajesDeSalud.controller";
 
 // ---------------------------------------------------------------------------
 // Agenda de clínica (docs/rubros.md §4.3, R5). Módulo agenda_clinica en
@@ -178,4 +183,29 @@ agendaClinicaRouter.put(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   configurarControlHandler,
+);
+
+// D11 revisada (docs/rubros.md §5.3): los mensajes de salud y los términos que
+// la clínica suma al detector, y su historial. Configuración: solo ADMIN. Del
+// módulo agenda_clinica: una automotora recibe 403 con motivo RUBRO.
+agendaClinicaRouter.get(
+  "/clinica/mensajes-de-salud",
+  authenticate,
+  authorize("ADMIN"),
+  obtenerMensajesDeSaludHandler,
+);
+
+agendaClinicaRouter.put(
+  "/clinica/mensajes-de-salud",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  guardarMensajesDeSaludHandler,
+);
+
+agendaClinicaRouter.get(
+  "/clinica/mensajes-de-salud/historial",
+  authenticate,
+  authorize("ADMIN"),
+  historialDeMensajesDeSaludHandler,
 );

@@ -1,4 +1,4 @@
-import type { ContactTerm, LateBookingReminder } from "@prisma/client";
+import type { ContactTerm, LateBookingReminder, Prisma } from "@prisma/client";
 import { prisma, type Db } from "../../lib/prisma";
 
 // ---------------------------------------------------------------------------
@@ -87,6 +87,87 @@ export function guardarAvisoDePrivacidad(
     create: { organizationId, ...datos },
     update: datos,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Mensajes de salud editados por el ADMIN (docs/rubros.md §5.3, D11 revisada;
+// migración 20261114120000). null en un texto = el del código; las listas son
+// SOLO lo que la clínica agregó (los términos del código no se guardan).
+// ---------------------------------------------------------------------------
+
+export interface SaludDeLaClinica {
+  urgencyMessageText: string | null;
+  clinicalMessageText: string | null;
+  extraUrgencyTerms: string[];
+  extraClinicalTerms: string[];
+}
+
+export const SALUD_DE_LA_CLINICA_POR_DEFECTO: SaludDeLaClinica = {
+  urgencyMessageText: null,
+  clinicalMessageText: null,
+  extraUrgencyTerms: [],
+  extraClinicalTerms: [],
+};
+
+const COLUMNAS_DE_SALUD = {
+  urgencyMessageText: true,
+  clinicalMessageText: true,
+  extraUrgencyTerms: true,
+  extraClinicalTerms: true,
+} as const;
+
+export async function leerSaludDeLaClinica(
+  organizationId: string,
+  db: Db = prisma,
+): Promise<SaludDeLaClinica> {
+  const fila = await db.clinicSettings.findUnique({
+    where: { organizationId },
+    select: COLUMNAS_DE_SALUD,
+  });
+  return fila ?? SALUD_DE_LA_CLINICA_POR_DEFECTO;
+}
+
+/** Guarda lo nuevo y deja la fila del historial, en la misma transacción
+ *  (la recibe en `db`). Crea la fila de la clínica si faltaba. */
+export async function guardarSaludDeLaClinica(
+  organizationId: string,
+  datos: SaludDeLaClinica,
+  cambio: { changedById: string; changes: Prisma.InputJsonObject },
+  db: Db,
+): Promise<void> {
+  await db.clinicSettings.upsert({
+    where: { organizationId },
+    create: { organizationId, ...datos },
+    update: datos,
+  });
+  await db.clinicHealthSettingsChange.create({
+    data: { organizationId, changedById: cambio.changedById, changes: cambio.changes },
+  });
+}
+
+/** Los cambios de la clínica, el más reciente primero, con el nombre de quien
+ *  los hizo. */
+export function listarCambiosDeSalud(
+  organizationId: string,
+  paginacion: { skip: number; take: number },
+  db: Db = prisma,
+) {
+  return db.clinicHealthSettingsChange.findMany({
+    where: { organizationId },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    skip: paginacion.skip,
+    take: paginacion.take,
+    select: {
+      id: true,
+      changes: true,
+      createdAt: true,
+      changedBy: { select: { id: true, fullName: true } },
+    },
+  });
+}
+
+export function contarCambiosDeSalud(organizationId: string, db: Db = prisma) {
+  return db.clinicHealthSettingsChange.count({ where: { organizationId } });
 }
 
 /** Crea la fila de una sede con los defaults. La FK compuesta exige que la
