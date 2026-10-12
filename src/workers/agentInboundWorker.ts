@@ -55,6 +55,7 @@ import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils
 import { cupoDeTurnosPorDefecto, maximoPorGrupoPorDefecto } from "../utils/limitadorDeTurnos";
 import { resolverRespuestaDelRecordatorio } from "../clinicas/recordatorios/respuesta.service";
 import { avisosDePrivacidadSinEnviar } from "../clinicas/avisoDePrivacidad";
+import { conLeaseVigente } from "../services/leaseDelTurno";
 
 // ---------------------------------------------------------------------------
 // El worker de la cola del webhook de WhatsApp (ítem 125 de
@@ -409,13 +410,18 @@ async function registrarRespuestaFija(
   conversacionActual: Conversation,
   job: JobReclamado,
 ): Promise<string> {
-  const saliente = await createMessage({
-    organizationId: job.organizationId,
-    conversationId: conversacionActual.id,
-    direction: "OUTBOUND",
-    senderType: "AGENT",
-    content: RESPUESTA_TIPO_NO_SOPORTADO,
-  });
+  const saliente = await conLeaseVigente((db) =>
+    createMessage(
+      {
+        organizationId: job.organizationId,
+        conversationId: conversacionActual.id,
+        direction: "OUTBOUND",
+        senderType: "AGENT",
+        content: RESPUESTA_TIPO_NO_SOPORTADO,
+      },
+      db,
+    ),
+  );
   await updateConversation(conversacionActual.id, job.organizationId, {
     lastMessageAt: saliente.createdAt,
   });
@@ -496,13 +502,18 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
         entrante.externalMessageId,
       );
       if (respuesta) {
-        const saliente = await createMessage({
-          organizationId,
-          conversationId: conversacion.id,
-          direction: "OUTBOUND",
-          senderType: "AUTOMATION",
-          content: respuesta.texto,
-        });
+        const saliente = await conLeaseVigente((db) =>
+          createMessage(
+            {
+              organizationId,
+              conversationId: conversacion.id,
+              direction: "OUTBOUND",
+              senderType: "AUTOMATION",
+              content: respuesta.texto,
+            },
+            db,
+          ),
+        );
         await updateConversation(conversacion.id, organizationId, {
           lastMessageAt: saliente.createdAt,
         });

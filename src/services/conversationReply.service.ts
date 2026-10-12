@@ -29,6 +29,7 @@ import { describirError } from "../utils/backoff";
 import { partirMensaje } from "../utils/partirMensaje";
 import { finDeLaVentanaDeWhatsapp, ventanaDeWhatsappAbierta } from "../utils/ventanaDeWhatsapp";
 import { agenteAtiendeElCanal, conLockDeConversacion } from "./agentOrchestration.service";
+import { exigirLeaseVigente } from "./leaseDelTurno";
 import { getConversationById } from "./conversation.service";
 import { enviarEnPartes } from "./envioEnPartes";
 import {
@@ -374,6 +375,7 @@ export async function responderDesdeElCrm(
     const destino = await validarQueSePuedeResponder(vigente, actor);
 
     const mensaje = await prisma.$transaction(async (tx) => {
+      await exigirLeaseVigente(tx);
       const creado = await createMessage(
         {
           organizationId,
@@ -429,6 +431,7 @@ export async function enviarMensajeDelEquipo(
     const vigente = (await findConversationById(conversationId, organizationId)) ?? inicial;
     const destino = await validarQueSePuedeEscribir(vigente);
     const mensaje = await prisma.$transaction(async (tx) => {
+      await exigirLeaseVigente(tx);
       const creado = await createMessage(
         {
           organizationId,
@@ -621,6 +624,7 @@ export async function registrarRespuestaDesdeLaBandejaDeMeta(
   }
 
   await prisma.$transaction(async (tx) => {
+    await exigirLeaseVigente(tx);
     const creado = await createMessage(
       {
         organizationId,
@@ -728,6 +732,7 @@ async function devolverYAvisar(
     : "";
 
   const aviso = await prisma.$transaction(async (tx) => {
+    await exigirLeaseVigente(tx);
     const devuelta = await returnConversationToAgent(id, organizationId, tx);
     if (devuelta.count !== 1 || modo === "sin-aviso") {
       return null;
