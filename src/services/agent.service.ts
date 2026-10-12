@@ -33,6 +33,9 @@ import { revokeEmbedTokensByAgent } from "../repositories/agentEmbedToken.reposi
 import { findBranchById, lockBranchForUpdate } from "../repositories/branch.repository";
 import { findActiveMetaConnectionByPageId } from "../repositories/metaPageConnection.repository";
 import { AppError } from "../utils/AppError";
+import { env } from "../config/env";
+import { findWabaPropio } from "../repositories/whatsappBusinessConnection.repository";
+import { listWabaPhoneNumbersReal, type ListWabaPhoneNumbers } from "./whatsappGraph.service";
 import { assertModeloSinCambios, modeloPorDefecto } from "./modeloDeIa.service";
 import { exigirAvisoParaActivar } from "../clinicas/avisoDePrivacidad";
 
@@ -412,14 +415,62 @@ export async function updateAgent(organizationId: string, id: string, input: Upd
 // Sin tabla de auditoría: el repo no tiene un registro genérico de acciones de
 // platform admin (las tablas de cambios del módulo QR son de ese módulo), así
 // que queda una línea de log con quién, a qué agente, y de qué número a cuál.
-export async function asignarNumeroDeWhatsapp(input: {
-  agentId: string;
-  whatsappPhoneNumberId: string | null;
-  platformAdminUserId: string;
-}) {
+// Con un WABA propio (docs/whatsapp-alta-clinica.md), el número tiene que ser
+// de ese WABA: las plantillas de la organización viven ahí, y un número de
+// otro WABA no podría mandarlas. 400 si no lo es. Sin WABA propio, lo de
+// siempre (sin consultar a Meta).
+export interface DepsDelNumeroDeWhatsapp {
+  wabaPropio: (organizationId: string) => Promise<string | null>;
+  accessToken: () => string | undefined;
+  numerosDelWaba: ListWabaPhoneNumbers;
+}
+
+export const depsDelNumeroDeWhatsappReales: DepsDelNumeroDeWhatsapp = {
+  wabaPropio: (organizationId) => findWabaPropio(organizationId),
+  accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
+  numerosDelWaba: listWabaPhoneNumbersReal,
+};
+
+export const NUMERO_DE_OTRO_WABA =
+  "Ese número no es de la cuenta de WhatsApp (WABA) conectada a la clínica.";
+
+async function assertNumeroDelWabaPropio(
+  organizationId: string,
+  phoneNumberId: string,
+  deps: DepsDelNumeroDeWhatsapp,
+) {
+  const wabaId = await deps.wabaPropio(organizationId);
+  if (wabaId === null) return;
+  const accessToken = deps.accessToken()?.trim();
+  if (!accessToken) {
+    throw new AppError(
+      "La conexión con WhatsApp no está configurada en la plataforma. Avisale al soporte.",
+      503,
+    );
+  }
+  let numeros: string[];
+  try {
+    numeros = await deps.numerosDelWaba({ wabaId, accessToken });
+  } catch {
+    throw new AppError("No se pudo consultar a Meta los números de la cuenta de la clínica.", 502);
+  }
+  if (!numeros.includes(phoneNumberId)) throw new AppError(NUMERO_DE_OTRO_WABA, 400);
+}
+
+export async function asignarNumeroDeWhatsapp(
+  input: {
+    agentId: string;
+    whatsappPhoneNumberId: string | null;
+    platformAdminUserId: string;
+  },
+  deps: DepsDelNumeroDeWhatsapp = depsDelNumeroDeWhatsappReales,
+) {
   const agente = await findAgentByIdForPlatformAdmin(input.agentId);
   if (!agente) {
     throw new AppError("Agente no encontrado", 404);
+  }
+  if (input.whatsappPhoneNumberId !== null) {
+    await assertNumeroDelWabaPropio(agente.organizationId, input.whatsappPhoneNumberId, deps);
   }
 
   const result = await setAgentWhatsappPhoneNumberId(agente.id, input.whatsappPhoneNumberId).catch(

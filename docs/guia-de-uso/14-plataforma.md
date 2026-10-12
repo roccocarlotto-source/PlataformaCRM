@@ -464,6 +464,39 @@ formulario.
 > del cliente tiene que habilitar **WhatsApp** en los **Canales** del agente.
 > Ver [Agentes de IA](/ayuda/agentes-de-ia).
 
+## WhatsApp de una clínica {#whatsapp-de-una-clinica}
+
+Cada clínica manda sus mensajes de WhatsApp desde **su propia cuenta de
+WhatsApp Business (WABA)**. Antes, la clínica nos agrega como socio de esa
+cuenta y la plataforma la acepta (los pasos están en
+`docs/whatsapp-alta-clinica.md`). Después:
+
+1. Entrá a **Plataforma → WhatsApp de una clínica**.
+2. Elegí la **Organización**. La pantalla muestra si ya tiene una cuenta
+   **Conectada** o si está **Sin conectar**.
+3. Pegá el **ID de la cuenta de WhatsApp (WABA)**: solo dígitos.
+4. Tocá **Conectar**.
+
+Al conectar, el sistema le avisa a Meta (para que lleguen los mensajes y las
+aprobaciones de esa cuenta) y manda de nuevo a aprobación los mensajes de las
+reglas de la clínica, ahora en su cuenta. La pantalla dice cuántos mandó y, si
+alguno falló, por qué.
+
+- **Solo para clínicas.** Una automotora no conecta una cuenta propia: sigue
+  con la de la plataforma.
+- **Una cuenta es de una sola organización.**
+- **Si Meta no deja conectar** (la clínica todavía no nos agregó como socio, o
+  la cuenta no está asignada a la plataforma), no se guarda nada y la pantalla
+  dice por qué.
+- **Sin cuenta conectada, la clínica no puede activar reglas que mandan
+  WhatsApp.**
+- **Desconectar** deja a la clínica sin cuenta propia. Antes hay que
+  desactivar sus reglas que mandan WhatsApp.
+
+Con la cuenta conectada, el número de cada sede se asigna como siempre en
+[Número de WhatsApp](#whatsapp), y tiene que ser de esa cuenta: si no lo es,
+no se asigna.
+
 ## Página de Facebook e Instagram {#facebook}
 
 Para que los agentes de un cliente contesten por Messenger y por Instagram, hay

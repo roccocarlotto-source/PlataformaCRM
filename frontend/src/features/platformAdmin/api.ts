@@ -4,6 +4,8 @@ import type { Agent } from "../agent/types";
 import type { InternalAgent } from "../internalAgent/types";
 import type { MetaPageConnection } from "../organization/types";
 import type {
+  AltaDeWabaDeLaClinica,
+  ConexionDeWhatsappDeLaClinica,
   AssignAgentModelInput,
   AssignFacebookPageInput,
   AssignInternalAgentModelInput,
@@ -208,4 +210,45 @@ export function completeOrganizationMetaConnection(
 // 204 sin body. Deja la fila en REVOKED, sin token.
 export function disconnectOrganizationMetaConnection(organizationId: string): Promise<void> {
   return request<void>(rutaMeta(organizationId), { method: "DELETE", getAccessToken });
+}
+
+// ---------------------------------------------------------------------------
+// El WABA propio de una clínica (docs/whatsapp-alta-clinica.md). Alta manual
+// del platform admin, después de que la clínica nos agregó como socio.
+// ---------------------------------------------------------------------------
+
+function rutaDelWaba(organizationId: string) {
+  return `/admin/organizations/${encodeURIComponent(organizationId)}/whatsapp-business`;
+}
+
+export async function getWabaDeLaClinica(
+  organizationId: string,
+  signal?: AbortSignal,
+): Promise<ConexionDeWhatsappDeLaClinica | null> {
+  const { conexion } = await request<{ conexion: ConexionDeWhatsappDeLaClinica | null }>(
+    rutaDelWaba(organizationId),
+    { getAccessToken, signal },
+  );
+  return conexion;
+}
+
+export function conectarWabaDeLaClinica(input: {
+  organizationId: string;
+  wabaId: string;
+}): Promise<AltaDeWabaDeLaClinica> {
+  return request<AltaDeWabaDeLaClinica>(rutaDelWaba(input.organizationId), {
+    method: "PUT",
+    body: { wabaId: input.wabaId },
+    getAccessToken,
+  });
+}
+
+export async function desconectarWabaDeLaClinica(
+  organizationId: string,
+): Promise<ConexionDeWhatsappDeLaClinica | null> {
+  const { conexion } = await request<{ conexion: ConexionDeWhatsappDeLaClinica | null }>(
+    rutaDelWaba(organizationId),
+    { method: "DELETE", getAccessToken },
+  );
+  return conexion;
 }
