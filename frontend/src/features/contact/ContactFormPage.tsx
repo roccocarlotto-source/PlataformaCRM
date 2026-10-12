@@ -368,11 +368,11 @@ export function ContactFormPage() {
         ) : null}
         {contactQuery.data?.personalDataErasedAt ? (
           <p className="ds-hint" role="status">
-            Datos personales borrados el {formatDateOnly(contactQuery.data.personalDataErasedAt)}
-            {contactQuery.data.personalDataErasedBy
-              ? ` por ${contactQuery.data.personalDataErasedBy.fullName}`
-              : ""}
-            .
+            {`Datos personales borrados el ${formatDateOnly(contactQuery.data.personalDataErasedAt)}${
+              contactQuery.data.personalDataErasedBy
+                ? ` por ${contactQuery.data.personalDataErasedBy.fullName}`
+                : ""
+            }.`}
           </p>
         ) : null}
         {contactQuery.data?.personalDataErasePending?.length ? (

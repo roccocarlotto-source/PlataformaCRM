@@ -842,7 +842,13 @@ describe("ContactFormPage — borrar datos personales", () => {
     await user.click(screen.getByRole("button", { name: "Borrar datos personales" }));
     expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/No se puede deshacer/));
     expect(
-      await screen.findByText(/Datos personales borrados el 12\/10\/2026 por Ana Pérez/),
+      // Con margen: el borrado, la invalidación y el refetch de la ficha son
+      // tres idas, y en el CI el default de 1 s quedó corto.
+      await screen.findByText(
+        "Datos personales borrados el 12/10/2026 por Ana Pérez.",
+        {},
+        { timeout: 5000 },
+      ),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Nombre")).toHaveValue("[dato borrado]");
     expect(screen.queryByRole("button", { name: "Borrar datos personales" })).toBeNull();
