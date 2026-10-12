@@ -1,3 +1,8 @@
+import {
+  concordancia,
+  VOCABULARIO_DE_CLINICA_POR_DEFECTO,
+  type VocabularioCompleto,
+} from "../../auth/vocabulario";
 import type { MultiSelectOption } from "../../design-system/MultiSelect";
 
 // ---------------------------------------------------------------------------
@@ -31,12 +36,34 @@ export const INTERNAL_AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
   },
 ];
 
+// Una clínica no tiene oportunidades (docs/rubros.md §3.1): la tarea se liga
+// a un contacto, con el término de la organización ("paciente" por defecto).
+// Mismo patrón que conTextosDeClinica de features/agent/tools.ts. Los textos
+// de una automotora no cambian.
+function conTextosDeClinica(
+  option: MultiSelectOption<string>,
+  v: VocabularioCompleto,
+): MultiSelectOption<string> {
+  if (option.value !== "create_internal_task") return option;
+  return {
+    ...option,
+    subtitle: `Crea una tarea ligada a ${concordancia(v.contacto).un} ${v.contacto.singular}, asignada a quien la pide.`,
+  };
+}
+
 // Una tool guardada que ya no está en esta lista se ofrece como opción extra
 // mientras siga elegida, con el nombre crudo — mismo criterio que
 // agentToolOptions: sin esto el PUT (reemplazo completo) la borraría sin que
 // nadie lo haya pedido.
-export function internalAgentToolOptions(selected: string[]): MultiSelectOption<string>[] {
-  const conocidas = new Set(INTERNAL_AGENT_TOOL_OPTIONS.map((option) => option.value));
+export function internalAgentToolOptions(
+  selected: string[],
+  esClinica = false,
+  vocabulario: VocabularioCompleto = VOCABULARIO_DE_CLINICA_POR_DEFECTO,
+): MultiSelectOption<string>[] {
+  const base = esClinica
+    ? INTERNAL_AGENT_TOOL_OPTIONS.map((option) => conTextosDeClinica(option, vocabulario))
+    : INTERNAL_AGENT_TOOL_OPTIONS;
+  const conocidas = new Set(base.map((option) => option.value));
   const extras = selected
     .filter((value) => !conocidas.has(value))
     .map((value) => ({
@@ -44,5 +71,5 @@ export function internalAgentToolOptions(selected: string[]): MultiSelectOption<
       label: value,
       subtitle: "No está en el catálogo de tools de esta versión del backend.",
     }));
-  return [...INTERNAL_AGENT_TOOL_OPTIONS, ...extras];
+  return [...base, ...extras];
 }

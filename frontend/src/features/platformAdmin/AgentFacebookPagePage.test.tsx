@@ -64,6 +64,20 @@ function renderPage(initialEntry = "/admin/agents/facebook-page") {
         { id: ORG_B, name: "Taller Ficticio", slug: "taller-ficticio" },
       ]),
     ),
+    // Los agentes de la organización elegida arriba. ORG_B no tiene.
+    http.get(`${env.apiUrl}/api/admin/organizations/:organizationId/agents`, ({ params }) => {
+      if (params.organizationId !== ORG_A) return HttpResponse.json([]);
+      return HttpResponse.json([
+        {
+          id: AGENT_ID,
+          name: "Agente de prueba",
+          branchName: "Casa central",
+          modelProvider: "openrouter",
+          modelName: "openai/gpt-4o-mini",
+          isActive: true,
+        },
+      ]);
+    }),
   );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -222,9 +236,39 @@ describe("AgentFacebookPagePage — conexión de la organización (02/10/2026)",
 });
 
 describe("AgentFacebookPagePage — página de un agente (ítem 173)", () => {
-  it("PUT con el agente de la URL y la página recortada; muestra el resultado", async () => {
+  // El agente se elige entre los de la organización de arriba (antes se pegaba
+  // su id a mano). Elegir la organización también consulta su conexión con
+  // Meta: acá no importa, responde que no tiene.
+  function sinConexion() {
+    server.use(
+      http.get(metaUrl, () => HttpResponse.json({ error: { message: "x" } }, { status: 404 })),
+    );
+  }
+
+  async function elegirAgente(user: ReturnType<typeof userEvent.setup>) {
+    await chooseSelectOption(
+      user,
+      await screen.findByRole("combobox", { name: "Organización" }),
+      "Concesionaria Ejemplo",
+    );
+    const agente = await screen.findByRole("combobox", { name: /Agente/ });
+    await waitFor(() => expect(agente).toBeEnabled());
+    await chooseSelectOption(user, agente, "Agente de prueba");
+  }
+
+  it("sin organización, el selector de agente está deshabilitado y pide elegirla arriba", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("combobox", { name: /Agente/ })).toBeDisabled();
+    expect(
+      screen.getByText("Elegí la organización arriba para ver sus agentes."),
+    ).toBeInTheDocument();
+  });
+
+  it("PUT con el agente elegido y la página recortada; muestra el resultado", async () => {
     let body: unknown;
     let agentId: unknown;
+    sinConexion();
     server.use(
       http.put(url, async ({ request, params }) => {
         body = await request.json();
@@ -241,7 +285,7 @@ describe("AgentFacebookPagePage — página de un agente (ítem 173)", () => {
 
     const user = userEvent.setup();
     renderPage();
-    await user.type(screen.getByLabelText("ID del agente"), ` ${AGENT_ID} `);
+    await elegirAgente(user);
     await user.type(screen.getByLabelText("ID de la página de Facebook"), " 104857600000001 ");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
@@ -255,6 +299,7 @@ describe("AgentFacebookPagePage — página de un agente (ítem 173)", () => {
 
   it("vacío manda null: libera la página", async () => {
     let body: unknown;
+    sinConexion();
     server.use(
       http.put(url, async ({ request }) => {
         body = await request.json();
@@ -264,14 +309,65 @@ describe("AgentFacebookPagePage — página de un agente (ítem 173)", () => {
 
     const user = userEvent.setup();
     renderPage();
-    await user.type(screen.getByLabelText("ID del agente"), AGENT_ID);
+    await elegirAgente(user);
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(screen.getByText(/la página quedó libre/)).toBeInTheDocument());
     expect(body).toEqual({ facebookPageId: null });
   });
 
+  it("una organización sin agentes lo dice y no deja guardar", async () => {
+    let put = false;
+    sinConexion();
+    server.use(
+      http.put(url, () => {
+        put = true;
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await chooseSelectOption(
+      user,
+      await screen.findByRole("combobox", { name: "Organización" }),
+      "Taller Ficticio",
+    );
+
+    expect(
+      await screen.findByText("Esta organización no tiene agentes de atención a clientes."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /Agente/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByText("Elegí un agente.")).toBeInTheDocument();
+    expect(put).toBe(false);
+  });
+
+  it("cambiar de organización descarta el agente elegido", async () => {
+    let put = false;
+    sinConexion();
+    server.use(
+      http.put(url, () => {
+        put = true;
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await elegirAgente(user);
+    const organizacion = screen.getByRole("combobox", { name: "Organización" });
+    await chooseSelectOption(user, organizacion, "Taller Ficticio");
+    await chooseSelectOption(user, organizacion, "Concesionaria Ejemplo");
+
+    expect(await screen.findByRole("combobox", { name: /Agente/ })).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    // `required` en el selector bloquea el submit sin agente.
+    expect(put).toBe(false);
+  });
+
   it("el error del backend (409 en uso) se muestra y el formulario queda", async () => {
+    sinConexion();
     server.use(
       http.put(url, () =>
         HttpResponse.json(
@@ -283,13 +379,13 @@ describe("AgentFacebookPagePage — página de un agente (ítem 173)", () => {
 
     const user = userEvent.setup();
     renderPage();
-    await user.type(screen.getByLabelText("ID del agente"), AGENT_ID);
+    await elegirAgente(user);
     await user.type(screen.getByLabelText("ID de la página de Facebook"), "104857600000001");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     expect(
       await screen.findByText("Esa página de Facebook ya está asignada a otro agente"),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("ID del agente")).toHaveValue(AGENT_ID);
+    expect(screen.getByLabelText("ID de la página de Facebook")).toHaveValue("104857600000001");
   });
 });

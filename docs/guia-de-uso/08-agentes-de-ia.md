@@ -440,7 +440,8 @@ dentro de la sección **Agentes de IA**. Hay uno solo por organización.
 - **Acciones habilitadas**: sin acciones, el agente solo conversa. Las dos
   disponibles:
   - **Crear tarea**: crea una tarea en el sistema, ligada a un contacto o a
-    una oportunidad que ya existen, asignada a la persona que se la pidió. Si
+    una oportunidad que ya existen (en una clínica, que no tiene oportunidades,
+    a un paciente), asignada a la persona que se la pidió. Si
     no le dijiste a quién o a qué va ligada, pregunta antes de crearla. Si
     mencionás una fecha límite, la carga.
   - **Ver agenda**: lista los turnos agendados en un rango de fechas, de toda

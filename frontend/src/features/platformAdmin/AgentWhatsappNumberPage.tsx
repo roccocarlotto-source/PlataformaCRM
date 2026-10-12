@@ -7,23 +7,29 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import type { Agent } from "../agent/types";
 import { useAssignWhatsappNumber } from "./mutations";
+import { AgenteSelect, OrganizacionSelect } from "./SelectoresDeAgente";
 
 interface AgentWhatsappNumberFormValues {
+  organizationId: string;
   agentId: string;
   whatsappPhoneNumberId: string;
 }
 
-const EMPTY_FORM: AgentWhatsappNumberFormValues = { agentId: "", whatsappPhoneNumberId: "" };
+const EMPTY_FORM: AgentWhatsappNumberFormValues = {
+  organizationId: "",
+  agentId: "",
+  whatsappPhoneNumberId: "",
+};
 
 // Asignación del número de WhatsApp de un agente — ítem 127 (A-01 de la
 // auditoría del 24/09). Desde ese ítem el número lo asigna SOLO un platform
 // admin: el formulario del agente lo muestra de solo lectura. Mismo esqueleto
 // que NewOrganizationPage (.ds-form + Card + .ds-field-grid).
 //
-// Mínima a propósito: el platform admin no tiene listado de agentes de otras
-// organizaciones, así que el agente se identifica por su id (el de la URL
-// /agents/:id/edit del negocio). Vaciar el número lo libera. Al confirmar se
-// reemplaza el formulario por el resultado, como en el alta de organización.
+// El agente se elige con los selectores de organización y agente de
+// SelectoresDeAgente (antes se pegaba su id a mano). Vaciar el número lo
+// libera. Al confirmar se reemplaza el formulario por el resultado, como en el
+// alta de organización.
 export function AgentWhatsappNumberPage() {
   const assignMutation = useAssignWhatsappNumber();
 
@@ -34,10 +40,15 @@ export function AgentWhatsappNumberPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    // Una organización sin agentes no muestra el selector (y su `required`).
+    if (values.agentId === "") {
+      setError("Elegí un agente.");
+      return;
+    }
     const numero = values.whatsappPhoneNumberId.trim();
     try {
       const agent = await assignMutation.mutateAsync({
-        agentId: values.agentId.trim(),
+        agentId: values.agentId,
         whatsappPhoneNumberId: numero === "" ? null : numero,
       });
       setAssigned(agent);
@@ -90,14 +101,16 @@ export function AgentWhatsappNumberPage() {
       <div className="ds-stack">
         <Card heading="Asignación">
           <div className="ds-field-grid">
-            <FormField label={<span className="ds-required">ID del agente</span>}>
-              <input
-                type="text"
-                value={values.agentId}
-                onChange={(event) => setValues({ ...values, agentId: event.target.value })}
-                required
-              />
-            </FormField>
+            {/* Otra organización, otros agentes: el elegido deja de valer. */}
+            <OrganizacionSelect
+              value={values.organizationId}
+              onChange={(organizationId) => setValues({ ...values, organizationId, agentId: "" })}
+            />
+            <AgenteSelect
+              organizationId={values.organizationId}
+              value={values.agentId}
+              onChange={(agentId) => setValues({ ...values, agentId })}
+            />
             <FormField label="ID del número de WhatsApp">
               <input
                 type="text"

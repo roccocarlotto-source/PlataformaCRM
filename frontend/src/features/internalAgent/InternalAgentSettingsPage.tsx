@@ -10,7 +10,7 @@ import { MultiSelect } from "../../design-system/MultiSelect";
 import { Select } from "../../design-system/Select";
 import { useToast } from "../../design-system/useToast";
 import { useAuth } from "../../auth/AuthContext";
-import { vocabularioDe } from "../../auth/vocabulario";
+import { esClinica, vocabularioDe } from "../../auth/vocabulario";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { DEFAULT_MODEL_PROVIDER, MODEL_PROVIDER_OPTIONS } from "../agent/labels";
 import { useAssignInternalAgentModel } from "../platformAdmin/mutations";
@@ -191,7 +191,11 @@ export function InternalAgentSettingsPage() {
               id="internal-agent-tools"
               label="Acciones habilitadas"
               value={values.enabledTools}
-              options={internalAgentToolOptions(values.enabledTools)}
+              options={internalAgentToolOptions(
+                values.enabledTools,
+                esClinica(me),
+                vocabularioDe(me),
+              )}
               emptyLabel="Ninguna"
               onChange={(enabledTools) => setValues({ ...values, enabledTools })}
             />

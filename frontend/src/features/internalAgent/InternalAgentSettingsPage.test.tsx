@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { ToastProvider } from "../../design-system/Toast";
-import type { AuthContextValue } from "../../auth/AuthContext";
+import type { AuthContextValue, MeResponse } from "../../auth/AuthContext";
+import { clinicaDeMe } from "../../test/rubroFixtures";
 import { InternalAgentSettingsPage } from "./InternalAgentSettingsPage";
 import type { InternalAgent, PutInternalAgentInput } from "./types";
 
@@ -32,7 +33,7 @@ vi.mock("../platformAdmin/api", () => platformApiMock);
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 
-function mockAuth(isPlatformAdmin: boolean): AuthContextValue {
+function mockAuth(isPlatformAdmin: boolean, delRubro: Partial<MeResponse> = {}): AuthContextValue {
   return {
     status: "authenticated",
     me: {
@@ -43,6 +44,7 @@ function mockAuth(isPlatformAdmin: boolean): AuthContextValue {
       role: "ADMIN",
       isPlatformAdmin,
       canUseInternalAgent: true,
+      ...delRubro,
     },
     accountUnavailableReason: null,
     profileError: null,
@@ -144,6 +146,19 @@ describe("InternalAgentSettingsPage", () => {
       instructions: "Sos el asistente del equipo.",
       enabledTools: ["create_internal_task", "get_agenda"],
     });
+  });
+
+  it("en una clínica, «Crear tarea» se liga al paciente y no nombra oportunidades", async () => {
+    useAuthMock.mockReturnValue(mockAuth(false, clinicaDeMe("COMPLETA")));
+    const user = userEvent.setup();
+    apiMock.getInternalAgent.mockResolvedValue(makeInternalAgent());
+    renderPage();
+
+    await user.click(await screen.findByLabelText("Acciones habilitadas", { selector: "button" }));
+    expect(
+      screen.getByText("Crea una tarea ligada a un paciente, asignada a quien la pide."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/oportunidad/i)).not.toBeInTheDocument();
   });
 
   it("B-05: para un ADMIN común el Modelo es de solo lectura y no viaja en el PUT", async () => {

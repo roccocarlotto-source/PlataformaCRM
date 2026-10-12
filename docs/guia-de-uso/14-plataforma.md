@@ -8,12 +8,13 @@ Las pantallas están en el grupo **Plataforma** del menú, al final: **Nueva
 organización**, **Número de WhatsApp**, **Página de Facebook**, **Modelo de
 IA**, **Uso de IA** e **Importar datos**.
 
-> Varias de estas pantallas piden el **identificador** de un agente o de una
-> organización: un código largo de letras y números. El del agente aparece en
-> la dirección del navegador al abrir la ficha del agente para editarla; el de
-> la organización, en la dirección del navegador después de elegirla en
-> **Página de Facebook** o en **Importar datos**. Pegalo tal cual, sin
-> espacios.
+> Las pantallas que actúan sobre un agente de un cliente (**Número de
+> WhatsApp**, **Página de Facebook** y **Modelo de IA**) lo eligen de dos
+> listas: primero la **Organización** (podés escribir para buscarla) y después
+> el **Agente**, entre los de esa organización. Debajo de cada agente aparecen
+> la sucursal y el modelo que usa hoy. Si la organización no tiene agentes, la
+> pantalla lo avisa en lugar de mostrar la lista, y cambiar de organización
+> borra el agente elegido.
 
 ## Nueva organización {#nueva-organizacion}
 
@@ -414,7 +415,8 @@ es el teléfono**, sino el **"Phone number ID"** que Meta muestra para ese
 número en su panel de WhatsApp: solo dígitos, como *123456789012345*.
 
 1. Entrá a **Plataforma → Número de WhatsApp**.
-2. Pegá el **ID del agente** (ver el recuadro al principio de esta sección).
+2. Elegí la **Organización** y después el **Agente** (ver el recuadro al
+   principio de esta sección).
 3. Pegá el **ID del número de WhatsApp**.
 4. Tocá **Guardar**.
 
@@ -508,7 +510,9 @@ Con la página conectada hay dos botones:
 
 Debajo, en la tarjeta **Página de un agente**:
 
-1. Pegá el **ID del agente**.
+1. Elegí el **Agente**. La lista trae los agentes de la **Organización**
+   elegida arriba, la misma de la conexión: sin organización elegida, la lista
+   está apagada.
 2. Pegá el **ID de la página de Facebook**: el número que quedó a la vista en
    la tarjeta de arriba. Es el identificador numérico que Meta muestra para la
    página, no su nombre ni su dirección web: solo dígitos, como
