@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "../lib/prisma";
+import { prisma, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import {
   countActivePipelines,
@@ -312,5 +312,5 @@ export async function deletePipeline(organizationId: string, id: string) {
         throw new AppError("Pipeline no encontrado", 404);
       }
     }
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }

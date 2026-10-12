@@ -5,7 +5,7 @@ import type {
   Prisma,
   VehicleStatus,
 } from "@prisma/client";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { findCompanyById } from "../repositories/company.repository";
 import { findContactById, markContactAsCustomer } from "../repositories/contact.repository";
 import {
@@ -480,7 +480,7 @@ export async function createOpportunity(
     }
 
     return created;
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }
 
 export interface UpdateOpportunityInput {
@@ -817,7 +817,7 @@ export async function updateOpportunity(
           tx,
         );
       }
-    });
+    }, OPCIONES_DE_TRANSACCION_LARGA);
   } else {
     const result = await updateOpportunityRepo(id, organizationId, dataRepo);
     if (result.count === 0) {
@@ -855,7 +855,7 @@ export async function deleteOpportunity(organizationId: string, actorUserId: str
     if (result.count === 0) {
       throw new AppError("Oportunidad no encontrada", 404);
     }
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }
 
 // ---------------------------------------------------------------------------

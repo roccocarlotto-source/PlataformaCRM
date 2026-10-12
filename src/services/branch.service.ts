@@ -1,6 +1,6 @@
 import type { OrganizationIndustry } from "@prisma/client";
 import { crearConfiguracionDeSede } from "../clinicas/repositories/clinicSettings.repository";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { countAgentsByBranch } from "../repositories/agent.repository";
 import { countConfirmedBookingsOf } from "../repositories/booking.repository";
 import {
@@ -454,5 +454,5 @@ export async function deleteBranch(
     if (result.count === 0) {
       throw new AppError(mensajes.noEncontrada, 404);
     }
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }

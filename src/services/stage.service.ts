@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { countActiveOpportunitiesByStage } from "../repositories/opportunity.repository";
 import { findPipelineById, lockPipelineForUpdate } from "../repositories/pipeline.repository";
 import {
@@ -211,7 +211,7 @@ export async function createStage(organizationId: string, input: CreateStageInpu
         },
         tx,
       );
-    });
+    }, OPCIONES_DE_TRANSACCION_LARGA);
   } catch (err) {
     rethrowAsConflict(err);
   }
@@ -317,7 +317,7 @@ export async function updateStage(organizationId: string, id: string, input: Upd
         throw new AppError("Etapa no encontrada", 404);
       }
       return updated;
-    });
+    }, OPCIONES_DE_TRANSACCION_LARGA);
   } catch (err) {
     rethrowAsConflict(err);
   }
@@ -401,5 +401,5 @@ export async function deleteStage(organizationId: string, id: string) {
       throw new AppError("Etapa no encontrada", 404);
     }
     await shiftDownAfter(stage.pipelineId, stage.order, tx);
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }

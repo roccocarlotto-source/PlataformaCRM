@@ -488,3 +488,80 @@ test("si Google falla: no frena el borrado y queda pendiente; repetirlo con Goog
   const despues = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
   assert.equal(despues.personalDataErasePending, null);
 });
+
+// El caso de producción del 2026-10-12: un paciente con email y 3 turnos, sin
+// conversaciones. El borrado son ~22 sentencias en serie dentro de UNA
+// transacción; con la latencia de producción hasta la base (Supabase en São
+// Paulo, pooler con pgbouncer: ~52 idas y vueltas) pasaba los 5 s por defecto
+// de Prisma, vencía con P2028 y el usuario veía "conflicto temporal". Acá la
+// demora la pone otra conexión que retiene la fila del contacto 6 s: la
+// transacción del borrado dura lo mismo que en producción, sin depender de la
+// red.
+test("un borrado que tarda más de 5 s termina igual (P2028 en producción)", async () => {
+  const org = await crearOrgDePrueba("borrado-completo", "COMPLETA", "CLINICA", 1);
+  orgs.push(org);
+  const organizationId = org.id;
+  const branch = await createBranch(
+    organizationId,
+    { name: "Sede Centro", timezone: "America/Montevideo" },
+    "CLINICA",
+  );
+  const contact = await prisma.contact.create({
+    data: {
+      organizationId,
+      firstName: NOMBRE,
+      lastName: APELLIDO,
+      email: `anabela-${randomUUID().slice(0, 8)}@example.test`,
+    },
+  });
+  const resource = await prisma.resource.create({
+    data: { organizationId, branchId: branch.id, name: "Profesional", type: "PERSON" },
+  });
+  const serviceType = await prisma.serviceType.create({
+    data: {
+      organizationId,
+      branchId: branch.id,
+      resourceId: resource.id,
+      name: "Consulta",
+      durationMin: 30,
+    },
+  });
+  for (let dia = 1; dia <= 3; dia++) {
+    const inicio = new Date(Date.now() + dia * 86400_000);
+    await prisma.booking.create({
+      data: {
+        organizationId,
+        branchId: branch.id,
+        serviceTypeId: serviceType.id,
+        resourceId: resource.id,
+        contactId: contact.id,
+        startsAt: inicio,
+        endsAt: new Date(inicio.getTime() + 1800_000),
+      },
+    });
+  }
+
+  let filaRetenida!: () => void;
+  const retenida = new Promise<void>((resolve) => (filaRetenida = resolve));
+  const reten = prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${contact.id}::uuid FOR UPDATE`;
+      filaRetenida();
+      await new Promise((resolve) => setTimeout(resolve, 6_000));
+    },
+    { timeout: 15_000 },
+  );
+  await retenida;
+
+  const r = await erasePersonalData(organizationId, contact.id, org.authIds[0]);
+  await reten;
+
+  assert.equal(r.contactId, contact.id);
+  const despues = await prisma.contact.findUniqueOrThrow({ where: { id: contact.id } });
+  assert.equal(despues.firstName, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(despues.lastName, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(despues.email, null);
+  assert.notEqual(despues.personalDataErasedAt, null);
+  assert.equal(despues.personalDataErasedById, org.authIds[0]);
+  assert.equal(await prisma.booking.count({ where: { contactId: contact.id } }), 3);
+});

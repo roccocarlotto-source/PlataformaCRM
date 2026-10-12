@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { prisma } from "../../lib/prisma";
+import { prisma, OPCIONES_DE_TRANSACCION_LARGA } from "../../lib/prisma";
 import { findResourceById } from "../../repositories/resource.repository";
 import {
   findManyServiceTypes,
@@ -137,7 +137,7 @@ export async function definirProfesionales(
       tx,
     );
     return profesionalesDeLaPrestacion(organizationId, prestacion, tx);
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }
 
 export interface TurnoConProfesional extends TurnoDisponible {

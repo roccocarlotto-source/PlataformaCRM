@@ -1,5 +1,5 @@
 import type { QuoteStatus } from "@prisma/client";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import {
   findOpportunityById,
   lockOpportunityForUpdate,
@@ -323,7 +323,7 @@ export async function createQuote(
       },
       tx,
     );
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }
 
 // Cambio de estado. El pre-check da el mensaje específico en el caso común;

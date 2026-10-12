@@ -2589,7 +2589,10 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
 
 - R4 y R16 desplegados;
 - la lista de §10 respondida por un profesional;
-- §6.6 confirmado con Meta o el BSP.
+- §6.6 confirmado con Meta o el BSP;
+- en Render: región del servicio pago: Virginia (US East), la más cercana a
+  Supabase sa-east-1. Con la región actual, las transacciones largas pueden
+  pasar los 5 s.
 
 Hasta R3 nadie puede crear una organización CLINICA: todo lo anterior es inerte.
 

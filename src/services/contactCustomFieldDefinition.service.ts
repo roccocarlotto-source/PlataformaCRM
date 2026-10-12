@@ -1,5 +1,5 @@
 import type { ContactCustomFieldDefinition } from "@prisma/client";
-import { prisma } from "../lib/prisma";
+import { prisma, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import {
   applyCustomFieldOptionMapping,
   convertCustomFieldValuesToArray,
@@ -244,7 +244,7 @@ export async function actualizarDefinicion(
         : convertCustomFieldValuesToScalar(organizationId, vigente.key, tx));
     }
     await applyCustomFieldOptionMapping(organizationId, vigente.key, mapeo, tx);
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
   return obtenerDefinicion(organizationId, id);
 }
 

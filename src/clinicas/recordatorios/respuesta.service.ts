@@ -1,5 +1,5 @@
 import { logger } from "../../lib/logger";
-import { prisma } from "../../lib/prisma";
+import { prisma, OPCIONES_DE_TRANSACCION_LARGA } from "../../lib/prisma";
 import { createActivity as createActivityRepo } from "../../repositories/activity.repository";
 import { cancelBooking, relojDeReservas } from "../../services/booking.service";
 import { AppError } from "../../utils/AppError";
@@ -134,7 +134,7 @@ export async function resolverRespuestaDelRecordatorio(
         );
       }
       await cerrarTareaSinRespuesta(organizationId, turno.contactId, turno.branchId, ahora, tx);
-    });
+    }, OPCIONES_DE_TRANSACCION_LARGA);
     return { texto: TEXTO_CONFIRMADO, accion: "CONFIRMADO" };
   }
 
@@ -168,7 +168,7 @@ export async function resolverRespuestaDelRecordatorio(
     await prisma.$transaction(async (tx) => {
       if (datos) await createActivityRepo(datos, tx);
       await cerrarTareaSinRespuesta(organizationId, turno.contactId, turno.branchId, ahora, tx);
-    });
+    }, OPCIONES_DE_TRANSACCION_LARGA);
     return { texto: TEXTO_CANCELAR_FUERA_DE_PLAZO, accion: "FUERA_DE_PLAZO" };
   }
 

@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { logger } from "../../lib/logger";
-import { prisma, type Db } from "../../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../../lib/prisma";
 import { createActivity as createActivityRepo } from "../../repositories/activity.repository";
 import { countOverlappingBookings, findBookingById } from "../../repositories/booking.repository";
 import { findResourceById, lockResourceForUpdate } from "../../repositories/resource.repository";
@@ -265,7 +265,7 @@ export async function reprogramarTurno(
       isOverbooking: fila.isOverbooking,
     });
     return fila;
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 
   const sincronizado = await reflejarEnGoogle(
     organizationId,

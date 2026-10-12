@@ -11,7 +11,7 @@ import {
 } from "../config/ediciones";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findPendingInvitationByEmail } from "../repositories/invitation.repository";
 import {
@@ -499,7 +499,7 @@ const defaultCambiarRubroDeps: CambiarRubroDeps = {
   get clinicaHabilitada() {
     return CLINICA_HABILITADA;
   },
-  transaction: (fn) => prisma.$transaction(fn),
+  transaction: (fn) => prisma.$transaction(fn, OPCIONES_DE_TRANSACCION_LARGA),
   vaciarCacheDeAuth: vaciarContextosDeAuth,
 };
 

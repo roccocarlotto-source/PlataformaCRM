@@ -12,7 +12,7 @@ import {
 } from "../clinicas/repositories/bloqueos.repository";
 import { esProfesionalDeLaPrestacion } from "../clinicas/repositories/serviceTypeResource.repository";
 import { logger } from "../lib/logger";
-import { prisma } from "../lib/prisma";
+import { prisma, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import {
   countOverlappingBookings,
   createBooking as createBookingRepo,
@@ -409,7 +409,7 @@ export async function createBooking(
       });
     }
     return creada;
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 
   // -------------------------------------------------------------------------
   // FASE 3 — ya commiteado. La reserva EXISTE y vale, pase lo que pase acá.
@@ -598,7 +598,7 @@ export async function cancelBooking(
       await emitirEventoDeTurno(tx, EVENTO_TURNO_CANCELADO, { ...booking, status: "CANCELLED" });
     }
     if (enLaTransaccion) await enLaTransaccion(tx);
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 
   if (booking.googleEventId) {
     // R8: en el calendario donde quedó el evento (el del profesional de una

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { VehiclePhoto } from "@prisma/client";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import {
   createSignedReadUrls,
   ensureBucket,
@@ -262,7 +262,7 @@ export async function subirFotoDeVehiculo(
         tx,
       );
       return { galeria: await getVehiclePhotos(organizationId, vehicleId, tx), photoId: creada.id };
-    });
+    }, OPCIONES_DE_TRANSACCION_LARGA);
   } catch (err) {
     // La fila no se escribió: el objeto recién subido no tiene dueño. Se
     // intenta borrarlo y, si tampoco se puede, queda huérfano — el error que
@@ -327,7 +327,7 @@ export async function updateVehiclePhoto(
       }
     }
     return getVehiclePhotos(organizationId, vehicleId, tx);
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +370,7 @@ export async function deleteVehiclePhoto(
       }
     }
     return getVehiclePhotos(organizationId, vehicleId, tx);
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }
 
 // ---------------------------------------------------------------------------
@@ -394,5 +394,5 @@ export async function reorderVehiclePhotos(
       await updatePhoto(id, vehicleId, organizationId, { position }, tx);
     }
     return getVehiclePhotos(organizationId, vehicleId, tx);
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }

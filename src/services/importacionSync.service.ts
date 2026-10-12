@@ -15,6 +15,7 @@ import {
   parsearArchivo,
   type LecturaDelArchivo,
 } from "../utils/spreadsheet";
+import { IMPORT_BATCH_TRANSACTION_TIMEOUT_MS } from "../repositories/ingestionEvent.repository";
 import { crearLoteConFilas } from "./importacionLote";
 import { leerPlanilla, type PlanillaDeSheets } from "./importacionSheets";
 import { updateVehicleEnTransaccion } from "./vehicle.service";
@@ -134,31 +135,33 @@ export async function correrSincronizacion(sync: ImportSync): Promise<ResultadoD
     if (faltan.length > 0) {
       throw new AppError(`La planilla cambió: faltan las columnas ${faltan.join(", ")}`, 400);
     }
-    await prisma.$transaction(async (tx) =>
-      crearLoteConFilas(
-        {
-          organizationId: org,
-          sourceId: sync.sourceId,
-          entityType: "VEHICLE",
-          originKind: "SYNC",
-          nombre: "Google Sheets",
-          contenido,
-          parseado,
-          config: {
-            archivo: {
-              nombre: "Google Sheets",
-              encabezados: parseado.encabezados,
-              lectura: parseado.lectura,
-              planilla: { sheetId: sync.sheetId, gid: sync.sheetGid },
-            },
-            ajustes: config.ajustes,
-          } as unknown as Prisma.InputJsonValue,
-          createdByUserId: sync.createdByUserId,
-          syncId: sync.id,
-          status: "ANALYZING",
-        },
-        tx,
-      ),
+    await prisma.$transaction(
+      async (tx) =>
+        crearLoteConFilas(
+          {
+            organizationId: org,
+            sourceId: sync.sourceId,
+            entityType: "VEHICLE",
+            originKind: "SYNC",
+            nombre: "Google Sheets",
+            contenido,
+            parseado,
+            config: {
+              archivo: {
+                nombre: "Google Sheets",
+                encabezados: parseado.encabezados,
+                lectura: parseado.lectura,
+                planilla: { sheetId: sync.sheetId, gid: sync.sheetGid },
+              },
+              ajustes: config.ajustes,
+            } as unknown as Prisma.InputJsonValue,
+            createdByUserId: sync.createdByUserId,
+            syncId: sync.id,
+            status: "ANALYZING",
+          },
+          tx,
+        ),
+      { timeout: IMPORT_BATCH_TRANSACTION_TIMEOUT_MS },
     );
     await registrarCorridaOk(sync.id, org);
     return "LOTE_CREADO";

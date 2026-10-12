@@ -11,7 +11,7 @@ import {
   type VehicleTransmission,
   type VehicleWarranty,
 } from "@prisma/client";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { findBranchById } from "../repositories/branch.repository";
 import {
   countOpportunitiesHoldingVehicle,
@@ -662,8 +662,9 @@ export async function updateVehicle(
   id: string,
   input: UpdateVehicleInput,
 ) {
-  return prisma.$transaction((tx) =>
-    updateVehicleEnTransaccion(organizationId, actorUserId, id, input, tx),
+  return prisma.$transaction(
+    (tx) => updateVehicleEnTransaccion(organizationId, actorUserId, id, input, tx),
+    OPCIONES_DE_TRANSACCION_LARGA,
   );
 }
 
