@@ -482,14 +482,20 @@ test("borrar los datos del paciente cancela sus pendientes y limpia el last_erro
     where: { id: r.id },
     data: { lastError: "Bearer abc.def" },
   });
-  await erasePersonalData(a.org.id, a.paciente);
+  await erasePersonalData(a.org.id, a.paciente, a.org.authIds[ADMIN]);
   const despues = await prisma.bookingMessage.findUniqueOrThrow({ where: { id: r.id } });
   assert.equal(despues.status, "CANCELLED");
   assert.equal(despues.lastError, null);
   // El paciente se vuelve a cargar para los demás tests.
   await prisma.contact.update({
     where: { id: a.paciente },
-    data: { firstName: "Paciente", lastName: "Ejemplo", phone: `+${a.waId}` },
+    data: {
+      firstName: "Paciente",
+      lastName: "Ejemplo",
+      phone: `+${a.waId}`,
+      personalDataErasedAt: null,
+      personalDataErasedById: null,
+    },
   });
   void MOTIVO_DATOS_BORRADOS;
 });

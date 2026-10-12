@@ -978,6 +978,9 @@ model User {
   // Los cambios que hizo a los mensajes de salud de su clínica (§5.3, D11).
   clinicHealthSettingsChanges ClinicHealthSettingsChange[] @relation("ClinicHealthSettingsChangedBy")
 
+  // Los contactos cuyos datos personales borró (data-classification.md §5.2).
+  erasedContacts Contact[] @relation("ContactPersonalDataErasedBy")
+
   @@unique([organizationId, id])
   @@index([organizationId])
   @@map("users")
@@ -1194,6 +1197,18 @@ model Contact {
   mergedInto   Contact?  @relation("ContactMergedInto", fields: [organizationId, mergedIntoId], references: [organizationId, id], onDelete: NoAction)
   absorbed     Contact[] @relation("ContactMergedInto")
 
+  // BORRADO DE DATOS PERSONALES A PEDIDO DEL TITULAR (data-classification.md
+  // §5.2): cuándo y quién lo hizo. CHECK contacts_personal_data_erased_check:
+  // los dos o ninguno. Nullable -> NO ACTION. Un contacto borrado antes de
+  // estas columnas queda con las dos en NULL.
+  personalDataErasedAt   DateTime? @map("personal_data_erased_at")
+  personalDataErasedById String?   @map("personal_data_erased_by_id") @db.Uuid
+  personalDataErasedBy   User?     @relation("ContactPersonalDataErasedBy", fields: [organizationId, personalDataErasedById], references: [organizationId, id], onDelete: NoAction, map: "contacts_personal_data_erased_by_fkey")
+  // Lo que el borrado no pudo limpiar FUERA de la base (hoy: los eventos de
+  // Google Calendar de sus turnos), sin datos personales: [{ bookingId,
+  // motivo }]. NULL = nada pendiente.
+  personalDataErasePending Json? @map("personal_data_erase_pending")
+
   @@unique([organizationId, id])
   // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
   // deleted_at IS NULL — índice único parcial; su versión actual (con
@@ -1216,6 +1231,8 @@ model Contact {
   @@index([organizationId, vehicleOfInterestId])
   // Lado referenciante de la autorreferencia de la unión.
   @@index([organizationId, mergedIntoId])
+  // Lado referenciante de la FK a quien borró los datos personales.
+  @@index([organizationId, personalDataErasedById])
   @@map("contacts")
 }
 

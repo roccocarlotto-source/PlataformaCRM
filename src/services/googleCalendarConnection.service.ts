@@ -593,6 +593,87 @@ export async function reflejarReservaEnGoogle(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Borrado de datos personales a pedido del titular (data-classification.md
+// §5.2): el evento de cada turno lleva su nombre en el título ("Prestación —
+// Nombre Apellido", booking.service.ts). Se reemplaza por el título con el
+// marcador.
+//
+// CORRE DESPUÉS DEL COMMIT del borrado y NUNCA LANZA, como reflejarReservaEnGoogle:
+// una falla de Google no deshace ni frena el borrado. Lo que no se pudo
+// limpiar vuelve como pendiente, con un motivo FIJO (sin el texto de Google,
+// que podría citar el evento). Una sede sin Google conectado también es un
+// pendiente: el evento quedó en un calendario al que ya no llegamos.
+// ---------------------------------------------------------------------------
+
+export interface EventoDeUnTurno {
+  bookingId: string;
+  branchId: string;
+  googleEventId: string;
+  googleCalendarId: string | null;
+  titulo: string;
+}
+
+export const MOTIVO_SIN_CONEXION_DE_GOOGLE =
+  "La sede no tiene Google Calendar conectado: el evento sigue con el nombre";
+export const MOTIVO_GOOGLE_RECHAZO = "Google no aceptó el cambio: el evento sigue con el nombre";
+
+export async function quitarNombreDeLosEventos(
+  organizationId: string,
+  eventos: readonly EventoDeUnTurno[],
+  cliente?: ClienteInyectado,
+): Promise<{ limpiados: number; pendientes: { bookingId: string; motivo: string }[] }> {
+  const pendientes: { bookingId: string; motivo: string }[] = [];
+  let limpiados = 0;
+  const porSede = new Map<string, EventoDeUnTurno[]>();
+  for (const evento of eventos) {
+    porSede.set(evento.branchId, [...(porSede.get(evento.branchId) ?? []), evento]);
+  }
+  for (const [branchId, deLaSede] of porSede) {
+    let acceso: { accessToken: string; calendarId: string };
+    try {
+      acceso = await obtenerAccessToken(organizationId, branchId, cliente);
+    } catch (err) {
+      const sinConexion =
+        err instanceof AppError && (err.statusCode === 404 || err.statusCode === 409);
+      if (!sinConexion) {
+        logger.warn(
+          { err, organizationId, branchId },
+          "Borrado de datos personales: no se pudo obtener el acceso a Google",
+        );
+      }
+      for (const evento of deLaSede) {
+        pendientes.push({
+          bookingId: evento.bookingId,
+          motivo: sinConexion ? MOTIVO_SIN_CONEXION_DE_GOOGLE : MOTIVO_GOOGLE_RECHAZO,
+        });
+      }
+      continue;
+    }
+    for (const evento of deLaSede) {
+      try {
+        const google = resolverCliente(cliente);
+        if (!google.renombrarEvento) throw new Error("El cliente de Google no renombra eventos");
+        await google.renombrarEvento({
+          accessToken: acceso.accessToken,
+          calendarId: evento.googleCalendarId ?? acceso.calendarId,
+          eventId: evento.googleEventId,
+          titulo: evento.titulo,
+        });
+        limpiados++;
+      } catch (err) {
+        await marcarConexionSiGrantInvalido(err, organizationId, branchId);
+        logger.warn(
+          { err, organizationId, branchId, bookingId: evento.bookingId },
+          "Borrado de datos personales: no se pudo sacar el nombre de un evento de Google",
+        );
+        pendientes.push({ bookingId: evento.bookingId, motivo: MOTIVO_GOOGLE_RECHAZO });
+      }
+    }
+  }
+  return { limpiados, pendientes };
+}
+
 // Borra el evento. No devuelve nada: quien cancela no puede hacer nada distinto
 // según haya funcionado o no.
 export async function borrarReservaDeGoogle(

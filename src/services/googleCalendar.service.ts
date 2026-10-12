@@ -271,6 +271,17 @@ export interface ClienteGoogleCalendar {
   // nuevo, en el mismo calendario. OPCIONAL por el mismo motivo que
   // listarCalendarios: solo lo usa reprogramar (clínicas).
   actualizarEvento?(evento: EventoAActualizar): Promise<void>;
+  // events.patch del título — el borrado de datos personales a pedido del
+  // titular saca su nombre del evento de cada turno. OPCIONAL por el mismo
+  // motivo que actualizarEvento: un solo uso.
+  renombrarEvento?(evento: EventoARenombrar): Promise<void>;
+}
+
+export interface EventoARenombrar {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+  titulo: string;
 }
 
 export interface EventoAActualizar {
@@ -943,6 +954,27 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
         const { mensaje, codigo } = await describirFallo(res);
         throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
       }
+    },
+
+    // -----------------------------------------------------------------------
+    // events.patch del título (borrado de datos personales). Solo el summary:
+    // la descripción de un evento nuestro no lleva datos del contacto. Un
+    // evento que ya no está (404/410) ya no muestra el nombre: no es un error.
+    // -----------------------------------------------------------------------
+    async renombrarEvento({ accessToken, calendarId, eventId, titulo }) {
+      const res = await pedir(`${urlDeEventos(calendarId)}/${encodeURIComponent(eventId)}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ summary: titulo }),
+      });
+      if (res.ok || res.status === 404 || res.status === 410) {
+        return;
+      }
+      const { mensaje, codigo } = await describirFallo(res);
+      throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
     },
 
     // -----------------------------------------------------------------------

@@ -1,5 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createContact, deleteContact, descartarConsulta, updateContact } from "./api";
+import {
+  createContact,
+  deleteContact,
+  descartarConsulta,
+  erasePersonalData,
+  updateContact,
+} from "./api";
 import { conversationKeys } from "../conversation/queries";
 import { contactKeys } from "./queries";
 import type { CreateContactInput, UpdateContactInput } from "./types";
@@ -25,6 +31,20 @@ export function useUpdateContact(id: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: contactKeys.lists() });
       queryClient.invalidateQueries({ queryKey: contactKeys.detail(id) });
+    },
+  });
+}
+
+// Borrado de datos personales: cambia la ficha, la lista y la bandeja de
+// conversaciones (las del contacto quedan cerradas y sin texto).
+export function useErasePersonalData(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => erasePersonalData(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: contactKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: contactKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: conversationKeys.all });
     },
   });
 }

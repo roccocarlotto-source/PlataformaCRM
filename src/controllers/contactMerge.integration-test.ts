@@ -878,8 +878,11 @@ test("OPUS-C-02 / FABLE-C-03: el borrado de datos personales alcanza al contacto
   });
   const todo = JSON.stringify({ leadNotes: elQueQueda.leadNotes, notas });
   assert.doesNotMatch(todo, /Juana|Rodríguez/);
-  assert.match(elQueQueda.leadNotes ?? "", /Quiere financiación/, "la nota en sí se conserva");
-  assert.match(notas[0]?.subject ?? "", /^Se unió el contacto \[dato borrado\]$/);
+  // Desde el borrado completo (2026-10-12) las notas del lead y las
+  // actividades del contacto se borran enteras, no solo el nombre del unido.
+  assert.equal(elQueQueda.leadNotes, null);
+  assert.equal(notas[0]?.subject, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(notas[0]?.body, null);
 
   // Repetirlo no falla.
   const otraVez = await call(

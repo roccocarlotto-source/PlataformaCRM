@@ -14,6 +14,7 @@ import { makeDefinicion } from "../../test/contactCustomFieldFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { ContactFormPage } from "./ContactFormPage";
 import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
+import { formatDateOnly } from "../../design-system/detailFormat";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -795,6 +796,120 @@ describe("ContactFormPage — sin interés (ítem 185)", () => {
     expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/sin interés/));
     await waitFor(() => expect(patchedBody).toEqual({ noInterest: true }));
     confirmSpy.mockRestore();
+  });
+});
+
+// Borrado de datos personales a pedido del titular: solo ADMIN, con
+// confirmación (irreversible); después, cuándo y quién, y el formulario con lo
+// anonimizado (no con lo que se borró).
+describe("ContactFormPage — borrar datos personales", () => {
+  it("ADMIN: confirma, borra y la ficha muestra cuándo y quién, con el formulario ya anonimizado", async () => {
+    let borrado = false;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () =>
+        HttpResponse.json(
+          borrado
+            ? makeContact({
+                id: "ct1",
+                firstName: "[dato borrado]",
+                lastName: "[dato borrado]",
+                email: null,
+                phone: null,
+                personalDataErasedAt: "2026-10-12T15:00:00.000Z",
+                personalDataErasedBy: { id: "u1", fullName: "Ana Pérez" },
+                personalDataErasePending: null,
+              })
+            : makeContact({ id: "ct1" }),
+        ),
+      ),
+      http.post(`${contactsUrl}/:id/erase-personal-data`, () => {
+        borrado = true;
+        return HttpResponse.json({
+          contactId: "ct1",
+          mensajesBorrados: 2,
+          conversacionesCerradas: 1,
+          actividadesBorradas: 1,
+          eventosDeGoogleLimpiados: 0,
+          pendientes: [],
+        });
+      }),
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit");
+
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
+    await user.click(screen.getByRole("button", { name: "Borrar datos personales" }));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/No se puede deshacer/));
+    // La fecha con el mismo formateador de la pantalla: depende del locale
+    // del entorno (en el CI sale "10/12/2026").
+    expect(
+      await screen.findByText(
+        `Datos personales borrados el ${formatDateOnly("2026-10-12T15:00:00.000Z")} por Ana Pérez.`,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Nombre")).toHaveValue("[dato borrado]");
+    expect(screen.queryByRole("button", { name: "Borrar datos personales" })).toBeNull();
+    confirmSpy.mockRestore();
+  });
+
+  it("si no confirma, no se borra nada", async () => {
+    let llamado = false;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () => HttpResponse.json(makeContact({ id: "ct1" }))),
+      http.post(`${contactsUrl}/:id/erase-personal-data`, () => {
+        llamado = true;
+        return HttpResponse.json({});
+      }),
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit");
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
+    await user.click(screen.getByRole("button", { name: "Borrar datos personales" }));
+    expect(llamado).toBe(false);
+    confirmSpy.mockRestore();
+  });
+
+  it("USER: no ve el botón", async () => {
+    const auth = mockAuth();
+    useAuthMock.mockReturnValue({ ...auth, me: { ...auth.me!, role: "USER" } });
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () =>
+        HttpResponse.json(makeContact({ id: "ct1", ownerId: "u1" })),
+      ),
+    );
+    renderForm("/contacts/ct1/edit");
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
+    expect(screen.queryByRole("button", { name: "Borrar datos personales" })).toBeNull();
+  });
+
+  it("lo que Google no pudo limpiar se muestra como pendiente", async () => {
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () =>
+        HttpResponse.json(
+          makeContact({
+            id: "ct1",
+            personalDataErasedAt: "2026-10-12T15:00:00.000Z",
+            personalDataErasedBy: { id: "u1", fullName: "Ana Pérez" },
+            personalDataErasePending: [
+              {
+                bookingId: "b1",
+                motivo: "Google no aceptó el cambio: el evento sigue con el nombre",
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    renderForm("/contacts/ct1/edit");
+    expect(
+      await screen.findByText(/No se pudo sacar el nombre de 1 evento de Google Calendar/),
+    ).toBeInTheDocument();
   });
 });
 
