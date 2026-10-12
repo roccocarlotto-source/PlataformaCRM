@@ -15,6 +15,7 @@ import { makeUser } from "../../test/userFixtures";
 import { ContactFormPage } from "./ContactFormPage";
 import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 import { formatDateOnly } from "../../design-system/detailFormat";
+import { automotoraDeMe, clinicaDeMe } from "../../test/rubroFixtures";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -910,6 +911,75 @@ describe("ContactFormPage — borrar datos personales", () => {
     expect(
       await screen.findByText(/No se pudo sacar el nombre de 1 evento de Google Calendar/),
     ).toBeInTheDocument();
+  });
+
+  // Con los datos borrados la ficha queda en solo lectura (el backend responde
+  // 409 a editar, cupón, sin interés y unir): sin esos botones, sin Guardar y
+  // con los campos deshabilitados. En los dos rubros.
+  describe.each([
+    ["clínica", clinicaDeMe],
+    ["automotora", automotoraDeMe],
+  ] as const)("%s: un contacto con los datos borrados queda en solo lectura", (_, deMe) => {
+    it("sin Guardar, Crear cupón, Marcar sin interés ni Unir, y con los campos deshabilitados", async () => {
+      const base = mockAuth();
+      useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...deMe("COMPLETA") } });
+      server.use(
+        usersHandler(),
+        http.get(`${contactsUrl}/:id`, () =>
+          HttpResponse.json(
+            makeContact({
+              id: "ct1",
+              firstName: "[dato borrado]",
+              lastName: "[dato borrado]",
+              email: null,
+              phone: null,
+              personalDataErasedAt: "2026-10-12T15:00:00.000Z",
+              personalDataErasedBy: { id: "u1", fullName: "Ana Pérez" },
+              personalDataErasePending: null,
+            }),
+          ),
+        ),
+      );
+      renderForm("/contacts/ct1/edit");
+
+      expect(
+        await screen.findByText(
+          `Datos personales borrados el ${formatDateOnly("2026-10-12T15:00:00.000Z")} por Ana Pérez.`,
+        ),
+      ).toBeInTheDocument();
+      for (const boton of [
+        "Guardar",
+        "Crear cupón",
+        "Marcar sin interés",
+        "Unir con otro contacto",
+        "Borrar datos personales",
+      ]) {
+        expect(screen.queryByRole("button", { name: boton }), boton).toBeNull();
+      }
+      expect(screen.getByLabelText("Nombre")).toBeDisabled();
+      expect(screen.getByLabelText("Apellido")).toBeDisabled();
+    });
+
+    it("el mismo contacto sin borrar se edita como siempre", async () => {
+      const base = mockAuth();
+      useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...deMe("COMPLETA") } });
+      server.use(
+        usersHandler(),
+        http.get(`${contactsUrl}/:id`, () => HttpResponse.json(makeContact({ id: "ct1" }))),
+      );
+      renderForm("/contacts/ct1/edit");
+
+      await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
+      expect(screen.getByLabelText("Nombre")).toBeEnabled();
+      for (const boton of [
+        "Guardar",
+        "Crear cupón",
+        "Marcar sin interés",
+        "Unir con otro contacto",
+      ]) {
+        expect(screen.getByRole("button", { name: boton }), boton).toBeEnabled();
+      }
+    });
   });
 });
 

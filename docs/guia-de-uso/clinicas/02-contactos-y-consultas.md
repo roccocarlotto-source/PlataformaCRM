@@ -348,6 +348,20 @@ profesional y la fecha), pero ya sin su nombre.
 Después, la ficha dice **"Datos personales borrados el … por …"**: queda
 registrado quién lo hizo y cuándo, y el botón ya no aparece.
 
+### Después del borrado, la ficha queda en solo lectura
+
+Un paciente con los datos borrados ya no describe a nadie, así que no se le
+agrega nada nuevo: la ficha muestra los campos deshabilitados y sin
+**Guardar**, **Crear cupón**, **Marcar sin interés** ni **Unir con otro
+contacto**. Tampoco se le puede dar un turno, cargar una nota o una tarea, ni
+pasarle una que era de otro paciente; los buscadores de pacientes ya no lo
+ofrecen. Si alguien lo intenta igual, el sistema responde "Este contacto tiene
+los datos personales borrados: queda en solo lectura."
+
+Lo que sí sigue: completar sus tareas, cancelar, reprogramar o marcar
+atendidos sus turnos, y volver a tocar el borrado (por ejemplo, para
+reintentar Google Calendar).
+
 ### Google Calendar
 
 Si la sede tiene Google Calendar conectado, el sistema también saca el nombre

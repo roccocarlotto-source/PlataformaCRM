@@ -15,6 +15,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { CompanySelect } from "../company/CompanySelect";
+import { useContact } from "../contact/queries";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { DeliverySection } from "../delivery/DeliverySection";
 import { PaymentSection } from "../payment/PaymentSection";
@@ -299,6 +300,10 @@ export function OpportunityFormPage() {
   const tienePagos = useModulo("pagos");
 
   const opportunityQuery = useOpportunity(isEditMode ? id : undefined);
+  // El contacto de la venta: con los datos personales borrados no se le crea
+  // un cupón (el backend responde 409). Es la misma consulta que ya hace el
+  // selector de contacto, así que no agrega un pedido.
+  const contactoDeLaVenta = useContact(opportunityQuery.data?.contactId ?? undefined);
   const createOpportunityMutation = useCreateOpportunity();
   const updateOpportunityMutation = useUpdateOpportunity(id ?? "");
 
@@ -580,7 +585,9 @@ export function OpportunityFormPage() {
           actions={
             // "Crear cupón" a mano: el cupón es del contacto de la venta, así
             // que solo con uno cargado.
-            isEditMode && opportunityQuery.data?.contactId ? (
+            isEditMode &&
+            opportunityQuery.data?.contactId &&
+            !contactoDeLaVenta.data?.personalDataErasedAt ? (
               <Button type="button" onClick={() => setCreandoCupon(true)}>
                 Crear cupón
               </Button>

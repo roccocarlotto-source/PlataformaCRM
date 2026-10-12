@@ -35,6 +35,7 @@ import {
 } from "../repositories/stage.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
+import { exigirContactoConDatos } from "../utils/contactoBorrado";
 import { enParalelo } from "../utils/enParalelo";
 import { lastPeriodsInZone, periodWindowInZone, type ZonedWindow } from "../utils/zonedWindow";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
@@ -149,6 +150,7 @@ async function validateCompanyId(
 async function validateContactId(
   organizationId: string,
   contactId: string | undefined,
+  exigirDatos = true,
 ): Promise<string | null> {
   if (!contactId) {
     return null;
@@ -159,6 +161,11 @@ async function validateContactId(
       "El contactId indicado no existe, no pertenece a tu organización, o está eliminado",
       400,
     );
+  }
+  // Crear una oportunidad o pasarle una a un contacto con los datos borrados:
+  // 409 (utils/contactoBorrado.ts). Editar la que ya era suya, no.
+  if (exigirDatos) {
+    exigirContactoConDatos(contact);
   }
   return contact.id;
 }
@@ -551,7 +558,13 @@ export async function updateOpportunity(
         ? resolveOwnerId(organizationId, actorUserId, input.ownerId)
         : Promise.resolve(undefined),
       input.companyId ? validateCompanyId(organizationId, input.companyId) : Promise.resolve(null),
-      input.contactId ? validateContactId(organizationId, input.contactId) : Promise.resolve(null),
+      input.contactId
+        ? validateContactId(
+            organizationId,
+            input.contactId,
+            input.contactId !== opportunity.contactId,
+          )
+        : Promise.resolve(null),
       // Mover de stage: el nuevo stage tiene que pertenecer al pipeline actual
       // de la oportunidad, salvo que el pipeline también se esté cambiando en
       // esta misma operación — nunca se cambia el pipeline "solo" implícito

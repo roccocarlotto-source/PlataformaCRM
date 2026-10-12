@@ -85,7 +85,14 @@ export function ContactSelect({ id, label, value, onChange }: ContactSelectProps
       }
       loading={searchQuery.isLoading}
       error={searchQuery.isError ? "No pudimos buscar contactos." : null}
-      results={searchQuery.isSuccess ? searchQuery.data.data : undefined}
+      // Un contacto con los datos personales borrados no se elige para nada
+      // nuevo (agendar, cupón, unir, notas, oportunidades): el backend
+      // respondería 409.
+      results={
+        searchQuery.isSuccess
+          ? searchQuery.data.data.filter((contact) => !contact.personalDataErasedAt)
+          : undefined
+      }
       getKey={(contact) => contact.id}
       renderItem={(contact) => `${contact.firstName} ${contact.lastName}`}
       onSelect={(contact) => {

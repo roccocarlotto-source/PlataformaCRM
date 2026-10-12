@@ -5,6 +5,7 @@ import { createActivity } from "../repositories/activity.repository";
 import { cancelPendingInboundJobsOfConversation } from "../repositories/agentInboundJob.repository";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
+import { exigirContactoConDatos } from "../utils/contactoBorrado";
 import { appendLeadNotes, getContactById, mergeLeadAiData } from "./contact.service";
 
 // ---------------------------------------------------------------------------
@@ -460,6 +461,8 @@ export async function vistaPreviaDeLaUnion(
   if (!kept || !absorbed) {
     throw new AppError("Contacto no encontrado", 404);
   }
+  exigirContactoConDatos(kept);
+  exigirContactoConDatos(absorbed);
   const [aMover, chatsWebACortar] = await Promise.all([
     contarRelaciones(organizationId, absorbedId),
     // Para advertirlo antes de confirmar: ver cortarSesionesWebDelUnido.
@@ -512,6 +515,10 @@ export async function unirContactos(
       if (!kept || !absorbed) {
         throw new AppError("Contacto no encontrado", 404);
       }
+      // Con las dos filas ya bloqueadas: un borrado que entra al mismo tiempo
+      // espera a esta unión o se ve acá.
+      exigirContactoConDatos(kept);
+      exigirContactoConDatos(absorbed);
       const elecciones = resolverElecciones(kept, absorbed, pedidas);
       const datos = datosDelQueQueda(kept, absorbed, elecciones);
 

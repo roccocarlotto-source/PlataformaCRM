@@ -533,6 +533,14 @@ fieldset.ds-field {
   min-inline-size: 0;
 }
 
+/* Lo mismo para un <fieldset> que hace de .ds-stack: la ficha del contacto lo
+   usa para deshabilitar todos sus campos de una vez cuando tiene los datos
+   personales borrados (features/contact/ContactFormPage.tsx). */
+fieldset.ds-stack {
+  border: 0;
+  min-inline-size: 0;
+}
+
 /* Rótulo de campo: 13px/600 en el gris mutado, medido en los formularios de
    Claude Design ("Nueva empresa"): el rótulo es un dato secundario, el valor
    del control es el dato. Antes heredaba el 14px/500 del label base, por eso

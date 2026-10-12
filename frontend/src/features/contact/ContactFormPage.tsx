@@ -267,10 +267,16 @@ export function ContactFormPage() {
     }
   }
 
+  // Con los datos personales borrados la ficha queda en solo lectura: campos
+  // deshabilitados y sin Guardar, Crear cupón, Marcar sin interés ni Unir (el
+  // backend responde 409 a todo eso, utils/contactoBorrado.ts).
+  const datosBorrados = Boolean(contactQuery.data?.personalDataErasedAt);
   // D2: un USER que abre el contacto de otro lo ve, pero no lo guarda (el
   // backend respondería 403).
   const soloLectura =
-    isEditMode && contactQuery.data !== undefined && !puedeEditarContacto(me, contactQuery.data);
+    isEditMode &&
+    contactQuery.data !== undefined &&
+    (datosBorrados || !puedeEditarContacto(me, contactQuery.data));
 
   if (isEditMode && contactQuery.isLoading) {
     return <LoadingState variant="lines" />;
@@ -307,9 +313,11 @@ export function ContactFormPage() {
           actions={
             isEditMode && id ? (
               <>
-                <Button type="button" onClick={() => setCreandoCupon(true)}>
-                  Crear cupón
-                </Button>
+                {!datosBorrados ? (
+                  <Button type="button" onClick={() => setCreandoCupon(true)}>
+                    Crear cupón
+                  </Button>
+                ) : null}
                 {/* La marca "sin interés" (ítem 185): la pone o la quita quien
                     puede editar el contacto (D2). Sin nota desde acá: la nota
                     es lo que el cliente le dijo al agente. */}
@@ -324,7 +332,7 @@ export function ContactFormPage() {
                   </Button>
                 ) : null}
                 {/* Unir sigue siendo de ADMIN (D2). */}
-                {esAdmin(me) ? (
+                {esAdmin(me) && !datosBorrados ? (
                   <Button type="button" onClick={() => setUniendo(true)}>
                     Unir con otro contacto
                   </Button>
@@ -394,7 +402,7 @@ export function ContactFormPage() {
             {borrandoDatos.error instanceof Error ? `: ${borrandoDatos.error.message}` : "."}
           </ErrorState>
         ) : null}
-        <div className="ds-stack">
+        <fieldset className="ds-stack" disabled={datosBorrados}>
           <Card heading="Datos del contacto">
             <div className="ds-field-grid">
               <FormField label={<span className="ds-required">Nombre</span>}>
@@ -508,23 +516,25 @@ export function ContactFormPage() {
             disabled={soloLectura}
           />
           {error ? <ErrorState>{error}</ErrorState> : null}
-          <div>
-            <RequiredFieldsHint />
-            {soloLectura ? (
-              <p className="ds-hint" role="status">
-                {AVISO_SOLO_LECTURA}
-              </p>
-            ) : null}
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={isSubmitting || soloLectura}
-              loading={isSubmitting}
-            >
-              {isSubmitting ? "Guardando…" : "Guardar"}
-            </Button>
-          </div>
-        </div>
+          {!datosBorrados ? (
+            <div>
+              <RequiredFieldsHint />
+              {soloLectura ? (
+                <p className="ds-hint" role="status">
+                  {AVISO_SOLO_LECTURA}
+                </p>
+              ) : null}
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={isSubmitting || soloLectura}
+                loading={isSubmitting}
+              >
+                {isSubmitting ? "Guardando…" : "Guardar"}
+              </Button>
+            </div>
+          ) : null}
+        </fieldset>
       </form>
       {isEditMode && id ? <ContactVouchersSection contactId={id} /> : null}
       {creandoCupon && id ? (

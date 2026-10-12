@@ -398,6 +398,19 @@ la base puede dejar ahí cualquier cosa— la redacción es **fail-closed**:
 borra la columna entera. En una operación de borrado, "no reconozco esto"
 no puede significar "lo dejo como está".
 
+**Después del borrado el contacto queda en solo lectura** *(2026-10-12)*.
+Editarlo (incluida la marca "sin interés"), darle un cupón, unirlo de
+cualquiera de los dos lados, agendarle un turno o cargarle una nota, una
+tarea o una oportunidad —o pasarle una ajena— responde 409
+(`src/utils/contactoBorrado.ts`): volvería a meter datos de la persona donde
+se acaban de borrar. El PATCH y el alta de turno lo chequean en la misma
+escritura (`personalDataErasedAt` en el WHERE; la fila del contacto tomada
+`FOR SHARE`), así que un borrado simultáneo no se pisa. Sigue permitido lo
+que es registro y no agrega datos: completar sus tareas, editar sus
+oportunidades, cancelar, reprogramar o marcar atendidos sus turnos, darlo de
+baja y repetir el borrado. Las tareas que crean las automatizaciones no pasan
+por ese chequeo.
+
 **Qué NO alcanza, y hay que leerlo antes de dar el borrado por completo:**
 
 1. **`IngestionEvent.errorMessage`**. Desde `D2-7` hay tests que fijan
