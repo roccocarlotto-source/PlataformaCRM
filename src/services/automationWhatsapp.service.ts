@@ -20,6 +20,7 @@ import {
   type DepsDePlantillas,
   type ResumenDeAprobacion,
 } from "./whatsappTemplate.service";
+import { wabaPropioDe } from "./whatsappConexion.service";
 
 // ---------------------------------------------------------------------------
 // La regla y su plantilla de WhatsApp, juntas. Lo que la pantalla de
@@ -61,6 +62,29 @@ function assertFormatoDisponible(
   }
 }
 
+// Decisión de Rocco del 2026-10-12 (docs/whatsapp-alta-clinica.md): una
+// clínica usa SU número, así que sin WABA propio no activa una regla que manda
+// una plantilla, y ni siquiera se sincroniza con Meta (se crearía en el WABA
+// global, desde donde sus números no pueden mandarla). Una inactiva se guarda
+// igual, sin plantilla. Una automotora sigue con el WABA global, como hoy.
+export const CONECTA_EL_NUMERO_DE_LA_CLINICA = "Conectá el número de WhatsApp de la clínica";
+
+const SIN_PLANTILLA_HASTA_CONECTAR =
+  "La plantilla se manda a aprobación cuando la clínica tenga su número de WhatsApp conectado.";
+
+async function clinicaSinWabaPropio(
+  organizationId: string,
+  actionType: string,
+  deps: DepsDeReglaConMensaje,
+): Promise<boolean> {
+  if (!esAccionConPlantilla(actionType)) return false;
+  const rubro = deps.plantillas.rubroDe
+    ? await deps.plantillas.rubroDe(organizationId)
+    : "AUTOMOTORA";
+  if (rubro !== "CLINICA") return false;
+  return (await wabaPropioDe(organizationId, deps.plantillas)) === null;
+}
+
 type ReglaGuardada = Awaited<ReturnType<typeof getAutomationById>>;
 
 export type ReglaConAprobacion = ReglaGuardada & {
@@ -87,12 +111,30 @@ async function conSincronizacion(
   return { ...regla, whatsappApproval: aprobacion, whatsappSyncError: error };
 }
 
+// Una regla de clínica guardada sin WABA propio: sin llamar a Meta, con el
+// estado de lo que ya tenga y el motivo para la pantalla.
+async function sinSincronizar(
+  organizationId: string,
+  regla: ReglaGuardada,
+): Promise<ReglaConAprobacion> {
+  return {
+    ...regla,
+    whatsappApproval: await getAprobacionDeLaRegla(organizationId, regla.id),
+    whatsappSyncError: SIN_PLANTILLA_HASTA_CONECTAR,
+  };
+}
+
 export async function crearReglaConMensaje(
   organizationId: string,
   input: CreateAutomationInput,
   deps: DepsDeReglaConMensaje = depsDeReglaConMensajeReales,
 ): Promise<ReglaConAprobacion> {
   assertFormatoDisponible(input.actionType, input.actionConfig, deps);
+  if (await clinicaSinWabaPropio(organizationId, input.actionType, deps)) {
+    if (input.isActive ?? true) throw new AppError(CONECTA_EL_NUMERO_DE_LA_CLINICA, 409);
+    const regla = await createAutomation(organizationId, input);
+    return sinSincronizar(organizationId, regla);
+  }
   const regla = await createAutomation(organizationId, input);
   return conSincronizacion(organizationId, regla, deps);
 }
@@ -103,13 +145,17 @@ export async function actualizarReglaConMensaje(
   input: UpdateAutomationInput,
   deps: DepsDeReglaConMensaje = depsDeReglaConMensajeReales,
 ): Promise<ReglaConAprobacion> {
+  const existente = await getAutomationById(organizationId, id);
+  const actionType = input.actionType ?? existente.actionType;
   if (input.actionConfig !== undefined || input.actionType !== undefined) {
-    const existente = await getAutomationById(organizationId, id);
-    assertFormatoDisponible(
-      input.actionType ?? existente.actionType,
-      input.actionConfig ?? existente.actionConfig,
-      deps,
-    );
+    assertFormatoDisponible(actionType, input.actionConfig ?? existente.actionConfig, deps);
+  }
+  if (await clinicaSinWabaPropio(organizationId, actionType, deps)) {
+    if (input.isActive ?? existente.isActive) {
+      throw new AppError(CONECTA_EL_NUMERO_DE_LA_CLINICA, 409);
+    }
+    const regla = await updateAutomation(organizationId, id, input);
+    return sinSincronizar(organizationId, regla);
   }
   const regla = await updateAutomation(organizationId, id, input);
   return conSincronizacion(organizationId, regla, deps);

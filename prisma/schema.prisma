@@ -862,6 +862,9 @@ model Organization {
   // La plantilla de WhatsApp con la que salen sus seguimientos (ítem 160).
   // Una activa a la vez; las borradas quedan como historial.
   whatsappTemplates             WhatsappTemplate[]
+  // El WABA propio de una clínica (docs/whatsapp-alta-clinica.md). Sin fila,
+  // el WABA global de la plataforma (WHATSAPP_BUSINESS_ACCOUNT_ID).
+  whatsappBusinessConnection    WhatsappBusinessConnection?
 
   vehicles          Vehicle[]
   vehiclePhotos     VehiclePhoto[]
@@ -3677,6 +3680,31 @@ model InquiryFollowUp {
 //     conocida de este alcance (sin onboarding de WABA por negocio).
 // Parciales para que borrar LIBERE el nombre y el lugar.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// WhatsappBusinessConnection — el WABA propio de una organización (decisión de
+// Rocco del 2026-10-12: cada clínica usa su número). UNA fila por
+// organización. Sin token: la clínica nos agrega como socio de su WABA y la
+// plataforma opera con su token de siempre (WHATSAPP_ACCESS_TOKEN). Por eso no
+// guarda secretos y lleva la política de aislamiento uniforme.
+//
+// Sin fila (o no ACTIVE): el WABA global, como hasta ahora. Una automotora no
+// tiene fila. La carga el platform admin (alta manual de la v1); el código la
+// lee en un solo punto (whatsappConexion.service.ts).
+// ---------------------------------------------------------------------------
+
+model WhatsappBusinessConnection {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String           @unique @map("organization_id") @db.Uuid
+  wabaId         String           @unique @map("waba_id") @db.VarChar(64)
+  status         ConnectionStatus @default(ACTIVE)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("whatsapp_business_connections")
+}
+
 model WhatsappTemplate {
   id             String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String                       @map("organization_id") @db.Uuid
@@ -3694,6 +3722,11 @@ model WhatsappTemplate {
   // El id que Meta le dio. NULL solo en la ventana entre reservar la fila y
   // que Meta conteste el alta (ver whatsappTemplate.service.ts).
   metaTemplateId String?                      @map("meta_template_id") @db.VarChar(64)
+  // El WABA donde vive en Meta. NULL = el WABA global de la plataforma (toda
+  // plantilla anterior a la migración 20261115120000, y las de una
+  // organización sin WABA propio). Lo usan el borrado y el reemplazo, que
+  // tienen que ir al WABA donde se creó, no al de hoy.
+  wabaId         String?                      @map("waba_id") @db.VarChar(64)
   status         WhatsappTemplateStatus       @default(PENDING)
   rejectedReason String?                      @map("rejected_reason")
   deletedAt      DateTime?                    @map("deleted_at")

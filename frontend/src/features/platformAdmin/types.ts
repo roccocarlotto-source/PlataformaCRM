@@ -160,3 +160,18 @@ export interface MetaConnectionPendiente {
   code: string;
   state: string;
 }
+
+// El WABA propio de una clínica (docs/whatsapp-alta-clinica.md). null = la
+// organización usa el WABA de la plataforma.
+export interface ConexionDeWhatsappDeLaClinica {
+  wabaId: string;
+  status: "ACTIVE" | "REVOKED" | "ERROR";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AltaDeWabaDeLaClinica {
+  conexion: ConexionDeWhatsappDeLaClinica;
+  reglasSincronizadas: number;
+  erroresDeSincronizacion: { automationId: string; error: string }[];
+}

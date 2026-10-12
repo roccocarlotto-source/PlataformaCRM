@@ -82,6 +82,7 @@ export const AYUDA = {
   nuevaOrganizacion: "plataforma#nueva-organizacion",
   organizaciones: "plataforma#organizaciones",
   numeroDeWhatsapp: "plataforma#whatsapp",
+  wabaDeLaClinica: "plataforma#whatsapp-de-una-clinica",
   paginaDeFacebook: "plataforma#facebook",
   modeloDeIa: "plataforma#modelo-de-ia",
   usoDeIa: "plataforma#uso-de-ia",

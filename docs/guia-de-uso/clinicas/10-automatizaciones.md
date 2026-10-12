@@ -303,6 +303,12 @@ recordatorio, muestra también los botones.
 
 ## Aprobación de WhatsApp {#aprobacion}
 
+> **Primero, el número de la clínica.** Los mensajes salen desde el número de
+> WhatsApp de tu clínica. Hasta que el equipo de la plataforma lo conecte, una
+> regla que manda WhatsApp se puede guardar desactivada, pero **no se puede
+> activar**: el sistema dice "Conectá el número de WhatsApp de la clínica".
+> Pedíselo al equipo de la plataforma.
+
 WhatsApp no deja escribirle a alguien que no escribió en las últimas 24 horas
 con cualquier texto: solo con mensajes que revisó y aprobó de antemano. Por
 eso, al guardar una regla, el sistema le manda el texto a WhatsApp para que lo

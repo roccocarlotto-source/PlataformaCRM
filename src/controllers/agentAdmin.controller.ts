@@ -8,6 +8,11 @@ import {
   listarAgentesDeOrganizacionParaPlataforma,
 } from "../services/agent.service";
 import { asignarModeloDeAgenteInterno } from "../services/internalAgent.service";
+import {
+  conectarWabaDeLaClinica,
+  desconectarWabaDeLaClinica,
+  obtenerConexionDeWhatsapp,
+} from "../services/whatsappBusinessConnection.service";
 import { OPENROUTER_PROVIDER_NAME } from "../services/llmProvider.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -127,5 +132,58 @@ export const asignarModeloDeAgenteInternoHandler = asyncHandler<AuthenticatedReq
       platformAdminUserId: req.auth.userId,
     });
     res.status(200).json(agente);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// El WABA propio de una clínica (docs/whatsapp-alta-clinica.md): el platform
+// admin lo registra después de que la clínica nos agregó como socio. Solo
+// dígitos, como los ids de Meta de arriba.
+// ---------------------------------------------------------------------------
+
+export const conectarWabaSchema = z
+  .object({
+    wabaId: z
+      .string()
+      .trim()
+      .min(1, "wabaId es requerido")
+      .max(64, "wabaId no puede superar los 64 caracteres")
+      .regex(
+        /^\d+$/,
+        "wabaId solo admite dígitos (es el ID de la cuenta de WhatsApp que muestra Meta)",
+      ),
+  })
+  .strict();
+
+export const obtenerWabaDeLaClinicaHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdParamSchema, req.params.organizationId);
+    res.status(200).json({ conexion: await obtenerConexionDeWhatsapp(organizationId) });
+  },
+);
+
+export const conectarWabaDeLaClinicaHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdParamSchema, req.params.organizationId);
+    const { wabaId } = parseOrThrow(conectarWabaSchema, req.body);
+    res.status(200).json(
+      await conectarWabaDeLaClinica({
+        organizationId,
+        wabaId,
+        platformAdminUserId: req.auth.userId,
+      }),
+    );
+  },
+);
+
+export const desconectarWabaDeLaClinicaHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdParamSchema, req.params.organizationId);
+    res.status(200).json({
+      conexion: await desconectarWabaDeLaClinica({
+        organizationId,
+        platformAdminUserId: req.auth.userId,
+      }),
+    });
   },
 );

@@ -121,6 +121,7 @@ function plantilla(extra: Partial<PlantillaConMeta> = {}): PlantillaConMeta {
     status: "APPROVED",
     rejectedReason: null,
     metaTemplateId: "123",
+    wabaId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...extra,

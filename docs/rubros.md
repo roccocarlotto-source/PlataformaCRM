@@ -1529,6 +1529,30 @@ Reglas:
 
 ### 6.3 La plantilla
 
+> **El WABA de la clínica (decisión de Rocco del 2026-10-12).** Hasta acá,
+> todas las plantillas se creaban en el WABA global de la plataforma
+> (`WHATSAPP_BUSINESS_ACCOUNT_ID`), y guardar una regla de cualquier
+> organización llamaba a Meta (hallazgo #14 de la prueba de la Clínica Demo).
+> Ahora cada clínica usa su propio WABA, que comparte con la plataforma como
+> socio (sin token: la plataforma lo opera con el suyo). Pasos del alta:
+> `docs/whatsapp-alta-clinica.md`.
+>
+> - `whatsapp_business_connections` (una fila por organización) y
+>   `whatsapp_templates.waba_id` (NULL = global), migración
+>   `20261115120000_whatsapp_waba_por_organizacion`.
+> - Un solo punto decide el WABA: `conexionDeWhatsapp`
+>   (`src/services/whatsappConexion.service.ts`). Con fila ACTIVE, el WABA
+>   propio; sin fila, el global. El token es siempre el de la plataforma, y los
+>   envíos no cambian (salen del número de la sede).
+> - **Una clínica sin WABA propio no activa una regla con plantilla** (409
+>   "Conectá el número de WhatsApp de la clínica") y guardarla inactiva no
+>   llama a Meta. **Una automotora sigue con el WABA global**, como hoy.
+> - Al conectar el WABA (Plataforma → WhatsApp de una clínica), sus reglas se
+>   vuelven a sincronizar: la plantilla nueva se crea en el WABA propio y la
+>   del global se da de baja cuando la nueva se aprueba.
+> - Con WABA propio, el número que se le asigna a un agente tiene que ser de
+>   ese WABA (400 si no).
+
 **Categoría `UTILITY`.** Meta clasifica como utility los mensajes que no tienen
 intención promocional y son específicos de una transacción o un pedido del
 usuario. Un recordatorio de un turno que el paciente pidió encaja. Un mensaje

@@ -153,6 +153,12 @@ import {
   leerConfiguracionDeSede,
 } from "../clinicas/repositories/clinicSettings.repository";
 import {
+  findConexionDeWhatsapp,
+  findWabaPropio,
+  guardarConexionDeWhatsapp,
+  revocarConexionDeWhatsapp,
+} from "./whatsappBusinessConnection.repository";
+import {
   contarTurnosPorRecurso,
   esProfesionalDeLaPrestacion,
   profesionalesDeLasPrestaciones,
@@ -1923,6 +1929,10 @@ before(async () => {
   await prisma.clinicBranchSettings.create({
     data: { organizationId: org, branchId: branchY.id, reminderHoursBefore: 48 },
   });
+  // El WABA propio de Y (docs/whatsapp-alta-clinica.md).
+  await prisma.whatsappBusinessConnection.create({
+    data: { organizationId: org, wabaId: `h01${randomUUID().replace(/D/g, "").slice(0, 12)}` },
+  });
 
   nx = {
     orgX: orgX.id,
@@ -1994,6 +2004,7 @@ after(async () => {
   await prisma.conversation.deleteMany(w);
   await prisma.branchBusinessHours.deleteMany(w);
   await prisma.clinicBranchSettings.deleteMany(w);
+  await prisma.whatsappBusinessConnection.deleteMany(w);
   await prisma.clinicSettings.deleteMany(w);
   await prisma.automationExecution.deleteMany(w);
   await prisma.outboxEvent.deleteMany(w);
@@ -2676,6 +2687,26 @@ test("H-01 ClinicSettings: leer y guardar con la organización de X no ven ni to
       .contactTerm,
     "PACIENTE",
   );
+});
+
+// El WABA propio (docs/whatsapp-alta-clinica.md): una fila por organización.
+// Con la organización de X no se lee ni se revoca el WABA de Y, y guardar el
+// de X crea la fila de X, no toca la de Y.
+test("H-01 WhatsappBusinessConnection: X no lee, no revoca ni pisa el WABA de Y", async () => {
+  const antes = await prisma.whatsappBusinessConnection.findUniqueOrThrow({
+    where: { organizationId: nx.orgY },
+  });
+  assert.equal(await findWabaPropio(nx.orgX), null);
+  assert.equal(await findConexionDeWhatsapp(nx.orgX), null);
+  assert.equal((await revocarConexionDeWhatsapp(nx.orgX)).count, 0);
+  await guardarConexionDeWhatsapp(nx.orgX, `h01x${Date.now()}`);
+  assert.deepEqual(
+    await prisma.whatsappBusinessConnection.findUniqueOrThrow({
+      where: { organizationId: nx.orgY },
+    }),
+    antes,
+  );
+  await prisma.whatsappBusinessConnection.deleteMany({ where: { organizationId: nx.orgX } });
 });
 
 test("H-01 ClinicBranchSettings: X no lee la configuración de la sede de Y ni puede crearle una", async () => {

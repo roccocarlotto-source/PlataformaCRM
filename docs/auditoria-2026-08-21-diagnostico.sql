@@ -279,7 +279,10 @@ from (
       ('resource_time_offs'),
       -- Los mensajes de un turno de clínica: el recordatorio (docs/rubros.md §6,
       -- migración 20261109120000).
-      ('booking_messages')
+      ('booking_messages'),
+      -- El WABA propio de una organización (docs/whatsapp-alta-clinica.md,
+      -- migración 20261115120000).
+      ('whatsapp_business_connections')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'

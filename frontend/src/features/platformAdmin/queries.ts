@@ -6,6 +6,7 @@ import {
   listEditions,
   listIndustries,
   listOrganizations,
+  getWabaDeLaClinica,
 } from "./api";
 
 // Las lecturas de las pantallas de plataforma. Con namespace propio: los datos
@@ -21,6 +22,8 @@ export const platformAdminKeys = {
   llmUsage: () => [...platformAdminKeys.all, "llm-usage"] as const,
   editions: () => [...platformAdminKeys.all, "editions"] as const,
   industries: () => [...platformAdminKeys.all, "industries"] as const,
+  wabaDeLaClinica: (organizationId: string) =>
+    [...platformAdminKeys.all, "waba", organizationId] as const,
 };
 
 // Los rubros que se pueden elegir al dar de alta una organización.
@@ -82,6 +85,16 @@ export function usePlatformAgentesDeOrganizacion(organizationId: string) {
   return useQuery({
     queryKey: platformAdminKeys.agentesDeOrganizacion(organizationId),
     queryFn: ({ signal }) => listAgentesDeOrganizacion(organizationId, signal),
+    enabled: organizationId !== "",
+  });
+}
+
+// El WABA propio de la clínica elegida (docs/whatsapp-alta-clinica.md). Sin
+// organización elegida no consulta.
+export function useWabaDeLaClinica(organizationId: string) {
+  return useQuery({
+    queryKey: platformAdminKeys.wabaDeLaClinica(organizationId),
+    queryFn: ({ signal }) => getWabaDeLaClinica(organizationId, signal),
     enabled: organizationId !== "",
   });
 }
