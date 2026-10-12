@@ -409,9 +409,10 @@ const PALABRAS_DE_AUTOMOTORA = /\bclientes?\b/i;
 const PERMITIDOS = new Set(["Unidad", "[aria-label] Unidad"]);
 const conPalabra = (textos: string[], palabras: RegExp) =>
   textos.filter((t) => !PERMITIDOS.has(t) && palabras.test(t)).join(" | ");
-// Y el vocabulario de la automotora que la clínica dice de otra forma (§3).
+// Y el vocabulario de la automotora que la clínica dice de otra forma (§3),
+// más las oportunidades, que una clínica no tiene.
 const VOCABULARIO_DE_AUTOMOTORA =
-  /\b(vendedor(es)?|reservas?|recursos?|tipos? de servicio|sucursal(es)?)\b/i;
+  /\b(vendedor(es)?|reservas?|recursos?|tipos? de servicio|sucursal(es)?|oportunidad(es)?)\b/i;
 
 describe("textos de una clínica (§3.1): nada de autos", () => {
   for (const pantalla of PANTALLAS) {

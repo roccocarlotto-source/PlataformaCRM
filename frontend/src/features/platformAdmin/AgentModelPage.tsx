@@ -5,10 +5,8 @@ import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
-import { LoadingState } from "../../design-system/LoadingState";
-import { Select } from "../../design-system/Select";
 import { useAssignAgentModel, useAssignInternalAgentModel } from "./mutations";
-import { usePlatformAgentesDeOrganizacion, usePlatformOrganizations } from "./queries";
+import { AgenteSelect, OrganizacionSelect } from "./SelectoresDeAgente";
 
 // Modelo de IA de un agente — B-05 de la auditoría del 24/09. El modelo lo
 // elige SOLO la plataforma (es la que paga el proveedor): el formulario del
@@ -29,82 +27,6 @@ function mensajeDeError(err: unknown, porDefecto: string): string {
   return err instanceof Error ? err.message : porDefecto;
 }
 
-interface SelectorProps {
-  value: string;
-  onChange: (value: string) => void;
-}
-
-// El selector de organización de las dos tarjetas. Las dos leen la misma
-// query (usePlatformOrganizations), así que la lista se pide una sola vez.
-function OrganizacionSelect({ value, onChange }: SelectorProps) {
-  const organizationsQuery = usePlatformOrganizations();
-
-  if (organizationsQuery.isLoading) return <LoadingState />;
-  if (organizationsQuery.isError) {
-    return (
-      <ErrorState>
-        No pudimos cargar las organizaciones
-        {organizationsQuery.error instanceof Error ? `: ${organizationsQuery.error.message}` : "."}
-      </ErrorState>
-    );
-  }
-  return (
-    <Select
-      label="Organización"
-      value={value}
-      options={(organizationsQuery.data ?? []).map((org) => ({
-        value: org.id,
-        label: org.name,
-        subtitle: org.slug,
-      }))}
-      emptyOption={{ label: "Elegir organización…" }}
-      onChange={onChange}
-      required
-    />
-  );
-}
-
-// Los agentes de la organización elegida, con la sucursal y el modelo actual
-// como subtítulo. Sin organización el selector queda deshabilitado; una
-// organización sin agentes lo dice en vez de mostrar una lista vacía.
-function AgenteSelect({
-  organizationId,
-  value,
-  onChange,
-}: SelectorProps & { organizationId: string }) {
-  const agentesQuery = usePlatformAgentesDeOrganizacion(organizationId);
-
-  if (agentesQuery.isLoading) return <LoadingState />;
-  if (agentesQuery.isError) {
-    return (
-      <ErrorState>
-        No pudimos cargar los agentes
-        {agentesQuery.error instanceof Error ? `: ${agentesQuery.error.message}` : "."}
-      </ErrorState>
-    );
-  }
-  if (agentesQuery.isSuccess && agentesQuery.data.length === 0) {
-    return <p className="ds-hint">Esta organización no tiene agentes de atención a clientes.</p>;
-  }
-  return (
-    <Select
-      label="Agente"
-      value={value}
-      options={(agentesQuery.data ?? []).map((agente) => ({
-        value: agente.id,
-        label: agente.name,
-        subtitle: [agente.branchName, agente.modelName, agente.isActive ? null : "Inactivo"]
-          .filter(Boolean)
-          .join(" · "),
-      }))}
-      emptyOption={{ label: "Elegir agente…" }}
-      onChange={onChange}
-      disabled={organizationId === ""}
-      required
-    />
-  );
-}
-
 function ModeloDeAgenteCard() {
   const mutation = useAssignAgentModel();
   const [organizationId, setOrganizationId] = useState("");
@@ -123,6 +45,11 @@ function ModeloDeAgenteCard() {
     event.preventDefault();
     setError(null);
     setResultado(null);
+    // Una organización sin agentes no muestra el selector (y su `required`).
+    if (agentId === "") {
+      setError("Elegí un agente.");
+      return;
+    }
     try {
       const agente = await mutation.mutateAsync({ agentId, modelName: modelName.trim() });
       setResultado({ texto: `${agente.name} ahora usa ${agente.modelName}.` });

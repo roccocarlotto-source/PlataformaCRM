@@ -6,12 +6,10 @@ import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
-import { LoadingState } from "../../design-system/LoadingState";
-import { Select } from "../../design-system/Select";
 import type { Agent } from "../agent/types";
 import { useAssignFacebookPage } from "./mutations";
 import { OrganizationMetaConnectionCard } from "./OrganizationMetaConnectionCard";
-import { usePlatformOrganizations } from "./queries";
+import { AgenteSelect, OrganizacionSelect } from "./SelectoresDeAgente";
 import type { MetaConnectionPendiente } from "./types";
 
 interface AgentFacebookPageFormValues {
@@ -40,11 +38,15 @@ function leerConexionPendiente(hash: string): MetaConnectionPendiente | null {
 //   2. Debajo, la asignación de la página a un agente — ítem 173 (backend del
 //      ítem 169). Calco de AgentWhatsappNumberPage: con ella el webhook de
 //      Messenger e Instagram sabe de qué agente es cada mensaje. El agente se
-//      identifica por su id. Vaciar la página la libera. Al confirmar se
-//      reemplaza el formulario por el resultado.
+//      elige entre los de la organización de arriba (antes se pegaba su id a
+//      mano): un solo selector de organización para las dos cosas. Vaciar la
+//      página la libera. Al confirmar se reemplaza el formulario por el
+//      resultado.
 export function AgentFacebookPagePage() {
   const assignMutation = useAssignFacebookPage();
-  const organizationsQuery = usePlatformOrganizations();
+  const [values, setValues] = useState<AgentFacebookPageFormValues>(EMPTY_FORM);
+  const [error, setError] = useState<string | null>(null);
+  const [assigned, setAssigned] = useState<Agent | null>(null);
 
   // La vuelta del callback de Meta: ?organizationId=, y ?metaError=<mensaje> o
   // el code y el state en el fragmento. El fragmento se lee una vez y se saca
@@ -73,19 +75,22 @@ export function AgentFacebookPagePage() {
   function handleOrganizationChange(value: string) {
     // Elegir otra organización también descarta el ?metaError= de la vuelta.
     setSearchParams(value ? { organizationId: value } : {}, { replace: true });
+    // Otra organización, otros agentes: el elegido deja de valer.
+    setValues((actuales) => ({ ...actuales, agentId: "" }));
   }
-
-  const [values, setValues] = useState<AgentFacebookPageFormValues>(EMPTY_FORM);
-  const [error, setError] = useState<string | null>(null);
-  const [assigned, setAssigned] = useState<Agent | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    // Una organización sin agentes no muestra el selector (y su `required`).
+    if (values.agentId === "") {
+      setError("Elegí un agente.");
+      return;
+    }
     const pagina = values.facebookPageId.trim();
     try {
       const agent = await assignMutation.mutateAsync({
-        agentId: values.agentId.trim(),
+        agentId: values.agentId,
         facebookPageId: pagina === "" ? null : pagina,
       });
       setAssigned(agent);
@@ -105,28 +110,12 @@ export function AgentFacebookPagePage() {
       <PageHeader help={AYUDA.paginaDeFacebook} title="Página de Facebook" />
       <div className="ds-stack">
         <Card heading="Organización">
-          {organizationsQuery.isLoading ? <LoadingState /> : null}
-          {organizationsQuery.isError ? (
-            <ErrorState>
-              No pudimos cargar las organizaciones
-              {organizationsQuery.error instanceof Error
-                ? `: ${organizationsQuery.error.message}`
-                : "."}
-            </ErrorState>
-          ) : null}
-          {organizationsQuery.isSuccess ? (
-            <Select
-              label="Organización"
-              value={organizationId}
-              options={organizationsQuery.data.map((org) => ({
-                value: org.id,
-                label: org.name,
-                subtitle: org.slug,
-              }))}
-              emptyOption={{ label: "Elegir organización…" }}
-              onChange={handleOrganizationChange}
-            />
-          ) : null}
+          {/* Fuera de un formulario: sin "*" ni `required`. */}
+          <OrganizacionSelect
+            value={organizationId}
+            onChange={handleOrganizationChange}
+            required={false}
+          />
         </Card>
 
         {organizationId ? (
@@ -166,14 +155,16 @@ export function AgentFacebookPagePage() {
           <form onSubmit={handleSubmit} className="ds-stack">
             <Card heading="Página de un agente">
               <div className="ds-field-grid">
-                <FormField label={<span className="ds-required">ID del agente</span>}>
-                  <input
-                    type="text"
-                    value={values.agentId}
-                    onChange={(event) => setValues({ ...values, agentId: event.target.value })}
-                    required
-                  />
-                </FormField>
+                <AgenteSelect
+                  organizationId={organizationId}
+                  value={values.agentId}
+                  onChange={(agentId) => setValues({ ...values, agentId })}
+                />
+                {organizationId === "" ? (
+                  <p className="ds-hint ds-field-grid--full">
+                    Elegí la organización arriba para ver sus agentes.
+                  </p>
+                ) : null}
                 <FormField label="ID de la página de Facebook">
                   <input
                     type="text"
