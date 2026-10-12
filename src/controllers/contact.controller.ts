@@ -237,7 +237,7 @@ export const erasePersonalDataHandler = asyncHandler<AuthenticatedRequest>(
       detalle: { contactId: id, operacion: "borrado_irreversible" },
     });
 
-    const resultado = await erasePersonalData(req.auth.organizationId, id);
+    const resultado = await erasePersonalData(req.auth.organizationId, id, req.auth.userId);
     res.status(200).json(resultado);
   },
 );

@@ -67,7 +67,12 @@ import {
 } from "./quote.repository";
 import { confirmDeliveryConditional, updatePendingDelivery } from "./delivery.repository";
 import { deletePayment, updatePayment } from "./payment.repository";
-import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
+import {
+  MARCADOR_DE_DATO_BORRADO,
+  borrarRastroDelContacto,
+  marcarBorradoDeDatosPersonales,
+  marcarPendienteDelBorrado,
+} from "./contact.repository";
 import type { NotaIgnorado, PromotionNote } from "../types/promotion";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -2171,6 +2176,43 @@ test("H-01 BranchBusinessHours: replaceBusinessHours con la sucursal de Y no bor
     "BranchBusinessHours de X sobre la sucursal de Y",
   );
   assert.deepEqual(await leerY.horarios(), antes);
+});
+
+// Borrado completo a pedido del titular (data-classification.md §5.2): con la
+// organización de X y el contacto de Y, ni el rastro (mensajes,
+// conversaciones, identidades) ni la marca de quién y cuándo tocan nada de Y.
+test("H-01 borrado completo: con la organización de X, el contacto de Y queda intacto", async () => {
+  const antesConversacion = await leerY.conversation();
+  const antesMensaje = await leerY.message();
+  const antesIdentidad = await leerY.identity();
+  const antesContacto = await prisma.contact.findUniqueOrThrow({ where: { id: nx.contactY } });
+  const rastro = await prisma.$transaction((tx) =>
+    borrarRastroDelContacto(nx.contactY, nx.orgX, tx),
+  );
+  assert.deepEqual(rastro, {
+    mensajes: 0,
+    conversaciones: 0,
+    trabajosDeEntrada: 0,
+    actividades: 0,
+    identidades: 0,
+    seguimientosCancelados: 0,
+  });
+  assert.equal(
+    (await marcarBorradoDeDatosPersonales(nx.contactY, nx.orgX, nx.userY, prisma)).count,
+    0,
+  );
+  assert.equal(
+    (await marcarPendienteDelBorrado(nx.contactY, nx.orgX, [{ bookingId: "x", motivo: "y" }]))
+      .count,
+    0,
+  );
+  assert.deepEqual(await leerY.conversation(), antesConversacion);
+  assert.deepEqual(await leerY.message(), antesMensaje);
+  assert.deepEqual(await leerY.identity(), antesIdentidad);
+  assert.deepEqual(
+    await prisma.contact.findUniqueOrThrow({ where: { id: nx.contactY } }),
+    antesContacto,
+  );
 });
 
 test("H-01 Conversation: las cinco escrituras con el id de Y y la organización de X no la tocan", async () => {

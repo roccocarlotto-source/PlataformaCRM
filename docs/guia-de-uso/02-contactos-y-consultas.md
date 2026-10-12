@@ -114,6 +114,8 @@ sus cupones.
   [Marca «sin interés»](#sin-interes).
 - **Unir con otro contacto** (solo administradores): ver
   [Unir contactos](#unir-contactos).
+- **Borrar datos personales** (solo administradores): ver
+  [Borrar datos personales](#borrar-datos-personales).
 
 ### Datos del contacto
 
@@ -327,6 +329,60 @@ Qué más tener en cuenta:
 
 > Asegurate de que los dos son la misma persona antes de unir. **No se puede
 > deshacer desde la pantalla.**
+
+## Borrar datos personales {#borrar-datos-personales}
+
+Solo para administradores. Es lo que hay que hacer cuando un cliente pide que se
+borren sus datos. **No se puede deshacer.**
+
+En la ficha, tocá **Borrar datos personales** y confirmá. El sistema borra:
+
+- su nombre y apellido (quedan como "[dato borrado]"), email, teléfono y
+  puesto;
+- lo que anotó el asistente de IA o una persona sobre el contacto: intención,
+  producto o servicio de interés, urgencia, presupuesto, zona, notas y los
+  campos personalizados, y el vehículo de interés;
+- el texto de todas sus conversaciones (quedan cerradas y con "[dato
+  borrado]" en cada mensaje) y el resumen de la derivación;
+- el asunto y el texto de sus tareas y notas;
+- sus identidades de WhatsApp, Messenger e Instagram;
+- los seguimientos y recordatorios que todavía no salieron (se cancelan).
+
+Lo que **no** se borra: sus oportunidades y turnos quedan como registro, pero
+ya sin su nombre.
+
+Después, la ficha dice **"Datos personales borrados el … por …"**: queda
+registrado quién lo hizo y cuándo, y el botón ya no aparece.
+
+### Google Calendar
+
+Si la sede tiene Google Calendar conectado, el sistema también saca el nombre
+del título del evento de cada turno ("Limpieza facial — [dato borrado]"). Si
+Google no responde, o la sede ya no tiene el calendario conectado, el borrado
+de todo lo demás **se hace igual**, y la ficha avisa cuántos eventos quedaron
+con el nombre. Podés volver a tocar el borrado más tarde, o corregir el evento
+a mano en el calendario.
+
+### Lo que no se puede borrar desde acá
+
+El sistema borra lo que guarda. No puede borrar lo que ya está en manos de
+otros:
+
+- **WhatsApp, Messenger e Instagram (Meta):** los mensajes siguen en el
+  teléfono o la cuenta de la persona y en los servidores de Meta, según sus
+  propias reglas.
+- **El proveedor de inteligencia artificial:** los mensajes que el asistente
+  ya procesó. El sistema le pide que no los guarde para entrenar, pero lo que
+  conserve depende de sus políticas.
+- **Los registros técnicos del servidor (logs):** se borran solos con el tiempo.
+- **Las copias de seguridad de la base de datos:** se borran solas cuando
+  vencen.
+- **Lo que la empresa sacó del sistema:** exportaciones a Excel, capturas de
+  pantalla, mails o mensajes reenviados.
+
+Tampoco alcanza al texto de las oportunidades, ni a los envíos de un formulario o una
+importación que nunca llegaron a convertirse en contacto: si hace falta, se
+revisan a mano.
 
 ## Empresas {#empresas}
 

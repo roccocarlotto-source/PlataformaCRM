@@ -24,8 +24,13 @@ import {
 import {
   countContacts,
   createContact as createContactRepo,
+  borrarRastroDelContacto,
   erasePersonalDataDeLosUnidos,
   erasePersonalDataFromContact,
+  MARCADOR_DE_DATO_BORRADO,
+  marcarBorradoDeDatosPersonales,
+  marcarPendienteDelBorrado,
+  type PendienteDelBorrado,
   existsOtherContactWithPhone,
   findContactByIdIncludingDeleted,
   findContactsByIds,
@@ -62,6 +67,9 @@ import {
   vieneDeUnPerfilDeCanal,
 } from "../utils/nombreProvisorio";
 import { limpiarRecordatoriosDelContacto } from "../clinicas/recordatorios/repository";
+import { quitarNombreDeLosEventos } from "./googleCalendarConnection.service";
+import type { ClienteGoogleCalendar } from "./googleCalendar.service";
+import { logger } from "../lib/logger";
 
 // Las dos pestañas de Contactos (ítem 184). Sin `vista`, el listado es el de
 // siempre, con todos los contactos: el selector de contacto de oportunidades
@@ -704,6 +712,17 @@ export async function deleteContact(organizationId: string, id: string) {
 
 export interface ResultadoDeBorrado {
   contactId: string;
+  // Borrado completo (2026-10-12): lo que se limpió fuera de la fila, y lo
+  // que quedó pendiente fuera de la base (Google Calendar), sin datos
+  // personales.
+  mensajesBorrados: number;
+  conversacionesCerradas: number;
+  trabajosDeEntradaAnonimizados: number;
+  actividadesBorradas: number;
+  identidadesBorradas: number;
+  seguimientosCancelados: number;
+  eventosDeGoogleLimpiados: number;
+  pendientes: PendienteDelBorrado[];
   // Cuántos eventos de ingesta perdieron su rawPayload. Se devuelve porque el
   // estándar pide que el borrado sea verificable, y porque quien lo pide tiene
   // que poder decir cuánto se borró sin ir a mirar la base.
@@ -716,6 +735,10 @@ export interface ResultadoDeBorrado {
 export async function erasePersonalData(
   organizationId: string,
   id: string,
+  // Quién lo pide: queda en el contacto (cuándo y quién).
+  erasedById: string,
+  // Inyectable para los tests: ninguna llamada real a Google.
+  clienteDeGoogle?: ClienteGoogleCalendar,
 ): Promise<ResultadoDeBorrado> {
   // M-18 (auditoría 2026-08-29): INCLUYENDO los soft-deleteados, y no
   // getContactById. Ese helper filtra deletedAt: null —correcto para
@@ -731,7 +754,7 @@ export async function erasePersonalData(
     throw new AppError("Contacto no encontrado", 404);
   }
 
-  return prisma.$transaction(async (tx) => {
+  const { resultado, turnosEnGoogle } = await prisma.$transaction(async (tx) => {
     const contacto = await erasePersonalDataFromContact(id, organizationId, tx);
 
     if (contacto.count === 0) {
@@ -747,13 +770,67 @@ export async function erasePersonalData(
     // R13: sus recordatorios de turno pendientes no salen y el historial queda
     // sin last_error (podía tener un dato del envío). Una automotora no tiene.
     await limpiarRecordatoriosDelContacto(organizationId, id, tx);
+    // Borrado completo: mensajes, conversaciones, cola, tareas, identidades y
+    // seguimientos; y quién y cuándo.
+    const rastro = await borrarRastroDelContacto(id, organizationId, tx);
+    await marcarBorradoDeDatosPersonales(id, organizationId, erasedById, tx);
+    const turnosEnGoogle = await tx.booking.findMany({
+      where: { organizationId, contactId: id, googleEventId: { not: null } },
+      select: {
+        id: true,
+        branchId: true,
+        googleEventId: true,
+        googleCalendarId: true,
+        serviceType: { select: { name: true } },
+      },
+    });
 
     return {
-      contactId: id,
-      ingestionEventsAnonimizados: eventos.count,
-      contactosUnidosAnonimizados: unidos.contactosUnidos,
+      resultado: {
+        contactId: id,
+        ingestionEventsAnonimizados: eventos.count,
+        contactosUnidosAnonimizados: unidos.contactosUnidos,
+        mensajesBorrados: rastro.mensajes,
+        conversacionesCerradas: rastro.conversaciones,
+        trabajosDeEntradaAnonimizados: rastro.trabajosDeEntrada,
+        actividadesBorradas: rastro.actividades,
+        identidadesBorradas: rastro.identidades,
+        seguimientosCancelados: rastro.seguimientosCancelados,
+      },
+      turnosEnGoogle,
     };
   });
+
+  // DESPUÉS DEL COMMIT: el nombre en los eventos de Google de sus turnos. Una
+  // falla de Google no deshace ni frena el borrado; queda como pendiente, en
+  // la respuesta y en el contacto.
+  const google = await quitarNombreDeLosEventos(
+    organizationId,
+    turnosEnGoogle.map((turno) => ({
+      bookingId: turno.id,
+      branchId: turno.branchId,
+      googleEventId: turno.googleEventId as string,
+      googleCalendarId: turno.googleCalendarId,
+      titulo: `${turno.serviceType.name} — ${MARCADOR_DE_DATO_BORRADO}`,
+    })),
+    clienteDeGoogle,
+  );
+  if (google.pendientes.length > 0) {
+    try {
+      await marcarPendienteDelBorrado(id, organizationId, google.pendientes);
+    } catch (err) {
+      // El borrado ya está hecho: lo pendiente igual vuelve en la respuesta.
+      logger.error(
+        { err, organizationId, contactId: id },
+        "Borrado de datos personales: no se pudo anotar lo pendiente de Google",
+      );
+    }
+  }
+  return {
+    ...resultado,
+    eventosDeGoogleLimpiados: google.limpiados,
+    pendientes: google.pendientes,
+  };
 }
 
 // ---------------------------------------------------------------------------

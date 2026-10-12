@@ -549,6 +549,10 @@ from (
     -- estar unido a otro, y nunca a sí mismo.
     ('contacts_merged_into_check', 'contacts',
      'CHECK (merged_into_id IS NULL OR deleted_at IS NOT NULL AND merged_into_id <> id)'),
+    -- Borrado de datos personales (migración 20261116120000): cuándo y quién,
+    -- los dos o ninguno.
+    ('contacts_personal_data_erased_check', 'contacts',
+     'CHECK ((personal_data_erased_at IS NULL) = (personal_data_erased_by_id IS NULL))'),
     -- Módulo de Agentes de IA (migración 20260912130000): el único CHECK del
     -- módulo. sender_type y sender_user_id van juntos — HUMAN exige usuario,
     -- CONTACT/AGENT lo prohíben. Transcripto de pg_get_constraintdef: el `IN
@@ -1086,6 +1090,10 @@ from (
     -- contacto que absorbió a este. Una FK hacia users (quien unió) o hacia
     -- companies pasaría la fila 14 entera.
     ('contacts_organization_id_merged_into_id_fkey|contacts(organization_id,merged_into_id)->contacts(organization_id,id)'),
+    -- Borrado de datos personales (migración 20261116120000): quien lo hizo
+    -- es de la misma organización. Una FK bien formada hacia contacts o
+    -- agents pasaría la fila 14 entera.
+    ('contacts_personal_data_erased_by_fkey|contacts(organization_id,personal_data_erased_by_id)->users(organization_id,id)'),
     ('google_calendar_connections_organization_id_branch_id_fkey|google_calendar_connections(organization_id,branch_id)->branches(organization_id,id)'),
     ('ingestion_events_organization_id_promoted_contact_id_fkey|ingestion_events(organization_id,promoted_contact_id)->contacts(organization_id,id)'),
     ('ingestion_events_organization_id_source_id_fkey|ingestion_events(organization_id,source_id)->sources(organization_id,id)'),

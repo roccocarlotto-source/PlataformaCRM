@@ -1,4 +1,9 @@
-import type { LeadUrgency, LifecycleStage, Prisma, VehicleInterestSource } from "@prisma/client";
+import {
+  Prisma,
+  type LeadUrgency,
+  type LifecycleStage,
+  type VehicleInterestSource,
+} from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 export interface ContactFilters {
@@ -133,7 +138,11 @@ export function findContactWithVehicleOfInterest(
 ) {
   return db.contact.findFirst({
     where: { id, organizationId, deletedAt: null },
-    include: { vehicleOfInterest: { select: vehicleOfInterestSelect } },
+    include: {
+      vehicleOfInterest: { select: vehicleOfInterestSelect },
+      // Borrado de datos personales: quién lo hizo, para la ficha.
+      personalDataErasedBy: { select: { id: true, fullName: true } },
+    },
   });
 }
 
@@ -857,13 +866,184 @@ export function erasePersonalDataFromContact(id: string, organizationId: string,
   });
 }
 
+// Borrado completo (2026-10-12): además de la identidad, todo lo que se
+// sabe de la persona como lead —lo que escribió el agente o una persona—, sus
+// campos personalizados y el vehículo de interés (los dos campos juntos: CHECK
+// contacts_vehicle_of_interest_set_by_check). Se queda lo que no la describe:
+// etapa, fuente, fechas, dueño.
 const DATOS_BORRADOS = {
   firstName: MARCADOR_DE_DATO_BORRADO,
   lastName: MARCADOR_DE_DATO_BORRADO,
   email: null,
   phone: null,
   jobTitle: null,
+  leadScore: null,
+  leadIntent: null,
+  leadServiceOfInterest: null,
+  leadUrgency: null,
+  leadBudgetAmount: null,
+  leadBudgetCurrency: null,
+  leadLocation: null,
+  leadNotes: null,
+  leadAiData: Prisma.DbNull,
+  customFields: Prisma.DbNull,
+  noInterestNote: null,
+  vehicleOfInterestId: null,
+  vehicleOfInterestSetBy: null,
 };
+
+// ---------------------------------------------------------------------------
+// BORRADO COMPLETO A PEDIDO DEL TITULAR (data-classification.md §5.2,
+// 2026-10-12): lo que el contacto dejó fuera de su fila. Corre en la misma
+// transacción que el resto del borrado (la recibe en `db`).
+//
+//   - mensajes de sus conversaciones: el texto pasa al marcador; toolCalls (la
+//     auditoría de un guardrail guarda la respuesta bloqueada), el error de
+//     entrega y el id de Meta, a NULL;
+//   - conversaciones: sin brief ni hilo externo (en WhatsApp es su número), y
+//     CERRADAS: una persona no puede responder a un hilo sin destino;
+//   - la cola del webhook: su número o id en el canal pasa al marcador;
+//   - sus tareas y notas: asunto al marcador, cuerpo a NULL;
+//   - sus identidades de canal, de TODOS los canales (Instagram y Messenger
+//     también: son ids de la persona);
+//   - los seguimientos que todavía no salieron se cancelan (saldrían a un
+//     contacto sin datos), y ninguno conserva su último error.
+//
+// Los turnos quedan como registro: no tienen texto propio y apuntan a un
+// contacto ya anonimizado. Idempotente, como el resto del borrado.
+// ---------------------------------------------------------------------------
+
+export const MOTIVO_SEGUIMIENTO_CANCELADO_POR_BORRADO =
+  "Cancelado: se borraron los datos personales del contacto";
+
+export interface RastroBorrado {
+  mensajes: number;
+  conversaciones: number;
+  trabajosDeEntrada: number;
+  actividades: number;
+  identidades: number;
+  seguimientosCancelados: number;
+}
+
+export async function borrarRastroDelContacto(
+  id: string,
+  organizationId: string,
+  db: Db,
+): Promise<RastroBorrado> {
+  const deSusConversaciones = { organizationId, conversation: { contactId: id } };
+  const mensajes = await db.message.updateMany({
+    where: deSusConversaciones,
+    data: {
+      content: MARCADOR_DE_DATO_BORRADO,
+      toolCalls: Prisma.DbNull,
+      deliveryError: null,
+      externalMessageId: null,
+    },
+  });
+  const trabajos = await db.agentInboundJob.updateMany({
+    where: { organizationId, message: { conversation: { contactId: id } } },
+    data: { externalUserId: MARCADOR_DE_DATO_BORRADO, lastError: null },
+  });
+  // Un entrante todavía sin turno no se procesa: la conversación se cierra y
+  // su texto ya es el marcador. Mismo corte que al cerrar una conversación
+  // (cancelPendingInboundJobsOfConversation).
+  await db.agentInboundJob.updateMany({
+    where: {
+      organizationId,
+      status: "PENDING",
+      responseMessageId: null,
+      message: { conversation: { contactId: id } },
+    },
+    data: {
+      status: "FAILED",
+      lockedUntil: null,
+      nextAttemptAt: null,
+      lastError: MOTIVO_SEGUIMIENTO_CANCELADO_POR_BORRADO,
+    },
+  });
+  const conversaciones = await db.conversation.updateMany({
+    where: { organizationId, contactId: id },
+    data: { brief: null, briefEditedByUserId: null, externalThreadId: null, status: "CLOSED" },
+  });
+  const actividades = await db.activity.updateMany({
+    where: { organizationId, contactId: id },
+    data: { subject: MARCADOR_DE_DATO_BORRADO, body: null },
+  });
+  const identidades = await db.contactChannelIdentity.deleteMany({
+    where: { organizationId, contactId: id },
+  });
+
+  const pendientes = { organizationId, contactId: id, status: "PENDING" as const };
+  const cancelado = {
+    status: "CANCELLED" as const,
+    lastError: MOTIVO_SEGUIMIENTO_CANCELADO_POR_BORRADO,
+  };
+  const qr = await db.qrFollowUp.updateMany({ where: pendientes, data: cancelado });
+  const consultas = await db.inquiryFollowUp.updateMany({ where: pendientes, data: cancelado });
+  const cupones = await db.discountVoucherFollowUp.updateMany({
+    where: pendientes,
+    data: cancelado,
+  });
+  const yaSalidos = {
+    organizationId,
+    contactId: id,
+    lastError: { not: MOTIVO_SEGUIMIENTO_CANCELADO_POR_BORRADO },
+  };
+  await db.qrFollowUp.updateMany({ where: yaSalidos, data: { lastError: null } });
+  await db.inquiryFollowUp.updateMany({ where: yaSalidos, data: { lastError: null } });
+  await db.discountVoucherFollowUp.updateMany({ where: yaSalidos, data: { lastError: null } });
+
+  return {
+    mensajes: mensajes.count,
+    conversaciones: conversaciones.count,
+    trabajosDeEntrada: trabajos.count,
+    actividades: actividades.count,
+    identidades: identidades.count,
+    seguimientosCancelados: qr.count + consultas.count + cupones.count,
+  };
+}
+
+/** Quién y cuándo (CHECK: los dos juntos). Lo pendiente fuera de la base lo
+ *  escribe después marcarPendienteDelBorrado. */
+export function marcarBorradoDeDatosPersonales(
+  id: string,
+  organizationId: string,
+  erasedById: string,
+  db: Db,
+) {
+  return db.contact.updateMany({
+    where: { id, organizationId },
+    data: {
+      personalDataErasedAt: new Date(),
+      personalDataErasedById: erasedById,
+      personalDataErasePending: Prisma.DbNull,
+    },
+  });
+}
+
+export interface PendienteDelBorrado {
+  bookingId: string;
+  motivo: string;
+}
+
+/** Lo que el borrado no pudo limpiar fuera de la base (sin datos
+ *  personales). Lista vacía = nada pendiente (NULL). */
+export function marcarPendienteDelBorrado(
+  id: string,
+  organizationId: string,
+  pendientes: readonly PendienteDelBorrado[],
+  db: Db = prisma,
+) {
+  return db.contact.updateMany({
+    where: { id, organizationId },
+    data: {
+      personalDataErasePending:
+        pendientes.length === 0
+          ? Prisma.DbNull
+          : (pendientes.map((p) => ({ ...p })) as Prisma.InputJsonArray),
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // EL BORRADO ALCANZA A LOS CONTACTOS QUE SE UNIERON EN ESTE (OPUS-C-02 de
@@ -878,7 +1058,9 @@ const DATOS_BORRADOS = {
 // Lo que deja una unión y se limpia acá:
 //   - las filas de los contactos unidos (merged_into_id = este);
 //   - las identidades de WhatsApp del contacto: son teléfonos (los que
-//     "perdió" la unión, para seguir encontrándolo por ese número);
+//     "perdió" la unión, para seguir encontrándolo por ese número). Desde el
+//     borrado completo las borra borrarRastroDelContacto, con las de los demás
+//     canales;
 //   - el nombre del unido en las notas del lead ("(del contacto unido …)") y
 //     en la nota que deja la unión ("Se unió el contacto …").
 // Un nivel alcanza: al unir, los que ya estaban unidos al absorbido se
@@ -900,9 +1082,8 @@ export async function erasePersonalDataDeLosUnidos(
     data: DATOS_BORRADOS,
   });
 
-  await db.contactChannelIdentity.deleteMany({
-    where: { organizationId, contactId: id, channel: "WHATSAPP" },
-  });
+  // Las identidades de canal (las de WhatsApp son los teléfonos que "perdió"
+  // la unión) las borra borrarRastroDelContacto, de todos los canales.
 
   const contacto = await db.contact.findFirst({
     where: { id, organizationId },

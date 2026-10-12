@@ -27,7 +27,8 @@ import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { ContactCustomFieldsCard } from "../contactCustomField/ContactCustomFieldsCard";
 import type { ContactCustomFieldValue } from "../contactCustomField/types";
 import { etiquetasDeEtapa, LIFECYCLE_STAGES } from "./labels";
-import { useCreateContact, useUpdateContact } from "./mutations";
+import { useCreateContact, useErasePersonalData, useUpdateContact } from "./mutations";
+import { Notice } from "../../design-system/Notice";
 import { useContact } from "./queries";
 
 // "Cliente desde" es un día del calendario guardado como medianoche UTC: se
@@ -200,8 +201,13 @@ export function ContactFormPage() {
     ? EMPTY_FORM
     : { ...EMPTY_FORM, ownerId: me?.id };
 
+  // La clave del borrador incluye el borrado de datos personales: después de
+  // borrar, el formulario se vuelve a derivar del contacto anonimizado. Si no,
+  // seguiría mostrando (y un Guardar volvería a escribir) los datos borrados.
   const [values, setValues] = useFormDraft<ContactFormValues>(
-    contactQuery.data?.id,
+    contactQuery.data
+      ? `${contactQuery.data.id}:${contactQuery.data.personalDataErasedAt ?? ""}`
+      : undefined,
     contactQuery.data ? toFormValues(contactQuery.data) : initialValues,
   );
   const [error, setError] = useState<string | null>(null);
@@ -226,6 +232,21 @@ export function ContactFormPage() {
       return;
     }
     marcandoSinInteres.mutate({ noInterest: marcar });
+  }
+
+  // Borrado de datos personales a pedido del titular: solo ADMIN, irreversible.
+  const borrandoDatos = useErasePersonalData(id ?? "");
+
+  async function handleBorrarDatosPersonales() {
+    if (
+      !(await confirm(
+        "¿Borrar los datos personales de este contacto? Se borran su nombre, email y teléfono, lo que escribió en las conversaciones, sus notas y tareas, y sus datos de calificación. Los turnos quedan, sin su nombre. No se puede deshacer.",
+        { confirmLabel: "Borrar datos personales", danger: true },
+      ))
+    ) {
+      return;
+    }
+    borrandoDatos.mutate();
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -308,6 +329,18 @@ export function ContactFormPage() {
                     Unir con otro contacto
                   </Button>
                 ) : null}
+                {/* Borrar los datos personales: ADMIN, y una sola vez. */}
+                {esAdmin(me) && contactQuery.data && !contactQuery.data.personalDataErasedAt ? (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    onClick={() => void handleBorrarDatosPersonales()}
+                    disabled={borrandoDatos.isPending}
+                    loading={borrandoDatos.isPending}
+                  >
+                    Borrar datos personales
+                  </Button>
+                ) : null}
               </>
             ) : undefined
           }
@@ -332,6 +365,34 @@ export function ContactFormPage() {
           <p className="ds-hint" role="status">
             {unido}
           </p>
+        ) : null}
+        {contactQuery.data?.personalDataErasedAt ? (
+          <p className="ds-hint" role="status">
+            Datos personales borrados el {formatDateOnly(contactQuery.data.personalDataErasedAt)}
+            {contactQuery.data.personalDataErasedBy
+              ? ` por ${contactQuery.data.personalDataErasedBy.fullName}`
+              : ""}
+            .
+          </p>
+        ) : null}
+        {contactQuery.data?.personalDataErasePending?.length ? (
+          <Notice tone="warning" alert={false}>
+            No se pudo sacar el nombre de{" "}
+            {contactQuery.data.personalDataErasePending.length === 1
+              ? "1 evento"
+              : `${contactQuery.data.personalDataErasePending.length} eventos`}{" "}
+            de Google Calendar de sus turnos:{" "}
+            {[...new Set(contactQuery.data.personalDataErasePending.map((p) => p.motivo))].join(
+              " · ",
+            )}
+            . Volvé a tocar el borrado más tarde o corregilo a mano en el calendario.
+          </Notice>
+        ) : null}
+        {borrandoDatos.isError ? (
+          <ErrorState>
+            No pudimos borrar los datos personales
+            {borrandoDatos.error instanceof Error ? `: ${borrandoDatos.error.message}` : "."}
+          </ErrorState>
         ) : null}
         <div className="ds-stack">
           <Card heading="Datos del contacto">

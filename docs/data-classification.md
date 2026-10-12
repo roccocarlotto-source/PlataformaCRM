@@ -350,6 +350,19 @@ porque el marcador no es reversible ni re-identificable; conservar el
 | `Contact.email`, `.phone`, `.jobTitle` | `NULL` |
 | `IngestionEvent.rawPayload` de los eventos que promovieron a ese contacto | `{ erased: true }`. Es `NOT NULL`, así que no puede ir a `NULL`; un `{}` se leería como "el formulario no mandó nada", que es un estado real y distinto |
 | `IngestionEvent.promotionNotes` de esos mismos eventos | **Redactado, no borrado.** Se conservan `tipo`, `campo` y `motivo`; los valores —`crm` y `entrante`— pasan al mismo marcador fijo |
+| Los campos del lead: `leadScore`, `leadIntent`, `leadServiceOfInterest`, `leadUrgency`, `leadBudget*`, `leadLocation`, `leadNotes`, `leadAiData`, `customFields`, `noInterestNote`, `vehicleOfInterest*` | `NULL` *(borrado completo, 2026-10-12)* |
+| `Message.content` de sus conversaciones | El marcador. `toolCalls`, `deliveryError` y `externalMessageId`, `NULL` |
+| `Conversation` | `brief` y `externalThreadId` (en WhatsApp, su número) a `NULL`, y **cerrada** |
+| `AgentInboundJob` de esos mensajes | `externalUserId` al marcador, `lastError` a `NULL`; los pendientes se cancelan |
+| `Activity` del contacto | `subject` al marcador, `body` a `NULL` |
+| `ContactChannelIdentity` | Borradas, de todos los canales |
+| Seguimientos (`QrFollowUp`, `InquiryFollowUp`, `DiscountVoucherFollowUp`) y recordatorios (`BookingMessage`) | Los pendientes se cancelan; ninguno conserva su último error |
+| El título del evento de Google Calendar de cada turno | El nombre pasa al marcador, **después** del commit y sin frenar el borrado: lo que Google no acepta queda en `Contact.personalDataErasePending` y en la respuesta |
+| `Booking` | **Queda**, como registro: no tiene texto propio y apunta al contacto anonimizado |
+
+Quién y cuándo quedan en `Contact.personalDataErasedById` y
+`personalDataErasedAt` (migración 20261116120000). La ficha tiene el botón
+"Borrar datos personales" (solo ADMIN).
 
 `email` va a `NULL` y no a un marcador por una razón concreta, no por
 gusto: existe el único parcial `contacts_org_email_unique` sobre
@@ -389,9 +402,17 @@ no puede significar "lo dejo como está".
 3. **Los eventos de esa persona que nunca se promovieron** (`FAILED`,
    `PENDING`): no tienen `promotedContactId`, así que nada los vincula
    al contacto y el borrado no los encuentra.
-4. **El texto libre** de `Activity` y `Opportunity` (§2.5).
+4. **El texto libre de `Opportunity`** (§2.5). El de `Activity` salió de
+   esta lista con el borrado completo (2026-10-12), salvo las actividades
+   colgadas solo de una oportunidad, sin `contactId`.
+5. **Lo que está fuera de la base**: los mensajes en Meta (WhatsApp,
+   Messenger, Instagram); lo que ya procesó el proveedor del modelo (se le
+   pide `data_collection: "deny"`; la retención es la suya); los logs del
+   backend (con redacción, §4); los backups de Supabase hasta que roten; y lo
+   que la organización exportó o copió. El evento de Google Calendar sí se
+   limpia desde acá (arriba), salvo lo que quede pendiente.
 
-Las cuatro están escritas también en el código que las deja afuera.
+Las de la base están escritas también en el código que las deja afuera.
 **`promotionNotes` salió de esta lista el 2026-08-28**: era el punto 1 y
 se resolvió redactándolo, como se explica más arriba.
 
@@ -403,7 +424,7 @@ El estándar pide cuatro, framework-agnósticos. Estado real:
 |---|---|
 | **Acceso** (entregar copia de los datos) | **No soportado mecánicamente.** Se puede armar a mano consultando `Contact` e `IngestionEvent`; no hay endpoint |
 | **Corrección** | Sí — `PATCH /api/contacts/:id` |
-| **Borrado** | Sí — §5.2, con los límites de §6 |
+| **Borrado** | Sí — §5.2 (completo desde 2026-10-12, con botón en la ficha), con los límites de §5.2 y §6 |
 | **Objeción** | **No soportado.** No hay noción de "no procesar a esta persona": un lead objetado que vuelva a enviar el formulario se reingesta igual |
 
 ---

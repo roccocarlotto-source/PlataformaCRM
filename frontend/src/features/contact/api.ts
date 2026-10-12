@@ -6,6 +6,7 @@ import type {
   ContactListResponse,
   ConsultasListResponse,
   CreateContactInput,
+  ResultadoDeBorrado,
   UpdateContactInput,
 } from "./types";
 
@@ -74,6 +75,14 @@ export function updateContact(id: string, input: UpdateContactInput): Promise<Co
   return request<Contact>(`/contacts/${id}`, {
     method: "PATCH",
     body: input,
+    getAccessToken,
+  });
+}
+
+// Borrado de datos personales a pedido del titular: irreversible, solo ADMIN.
+export function erasePersonalData(id: string): Promise<ResultadoDeBorrado> {
+  return request<ResultadoDeBorrado>(`/contacts/${id}/erase-personal-data`, {
+    method: "POST",
     getAccessToken,
   });
 }

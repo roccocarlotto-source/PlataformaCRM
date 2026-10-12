@@ -37,9 +37,31 @@ export interface Contact {
   // "Sin interés" (ítem 185): desde cuándo, y lo que dijo. null = sin marca.
   noInterestAt?: string | null;
   noInterestNote?: string | null;
+  // Borrado de datos personales a pedido del titular: cuándo, quién (solo en
+  // el GET de la ficha) y lo que no se pudo limpiar fuera de la base.
+  personalDataErasedAt?: string | null;
+  personalDataErasedBy?: { id: string; fullName: string } | null;
+  personalDataErasePending?: PendienteDelBorrado[] | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+}
+
+// Lo que el borrado no pudo limpiar fuera de la base (hoy, un evento de
+// Google Calendar de un turno), sin datos personales.
+export interface PendienteDelBorrado {
+  bookingId: string;
+  motivo: string;
+}
+
+// La respuesta de POST /api/contacts/:id/erase-personal-data.
+export interface ResultadoDeBorrado {
+  contactId: string;
+  mensajesBorrados: number;
+  conversacionesCerradas: number;
+  actividadesBorradas: number;
+  eventosDeGoogleLimpiados: number;
+  pendientes: PendienteDelBorrado[];
 }
 
 export interface VehicleOfInterestSummary {
