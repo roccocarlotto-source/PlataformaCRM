@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getMetaConnection, getOrganizationSettings } from "./api";
+import { getMensajesDeSalud, getMetaConnection, getOrganizationSettings } from "./api";
 
 // Una sola clave: la configuración es un singleton por organización (no hay
 // lista ni detail por id). Sin namespacing por organizationId, por el mismo
@@ -9,6 +9,7 @@ export const organizationKeys = {
   all: ["organization"] as const,
   settings: () => [...organizationKeys.all, "settings"] as const,
   metaConnection: () => [...organizationKeys.all, "meta-connection"] as const,
+  mensajesDeSalud: () => [...organizationKeys.all, "mensajes-de-salud"] as const,
 };
 
 // La consumen dos pantallas con necesidades distintas: la página de
@@ -29,5 +30,14 @@ export function useMetaConnection() {
   return useQuery({
     queryKey: organizationKeys.metaConnection(),
     queryFn: ({ signal }) => getMetaConnection(signal),
+  });
+}
+
+// Los mensajes de salud de una clínica (docs/rubros.md §5.3, D11 revisada).
+// Solo la usa la sección de una clínica: en una automotora la ruta es 403.
+export function useMensajesDeSalud() {
+  return useQuery({
+    queryKey: organizationKeys.mensajesDeSalud(),
+    queryFn: ({ signal }) => getMensajesDeSalud(signal),
   });
 }

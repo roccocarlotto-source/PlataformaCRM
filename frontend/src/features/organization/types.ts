@@ -93,3 +93,26 @@ export interface MetaPageConnection {
   createdAt: string;
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Mensajes de salud de una clínica (docs/rubros.md §5.3, D11 revisada). GET y
+// PUT /api/clinica/mensajes-de-salud, solo ADMIN de una CLINICA. null en un
+// texto = el texto por defecto; las listas son solo los términos agregados.
+// ---------------------------------------------------------------------------
+
+export interface MensajesDeSaludInput {
+  urgencyMessageText: string | null;
+  clinicalMessageText: string | null;
+  extraUrgencyTerms: string[];
+  extraClinicalTerms: string[];
+}
+
+export interface MensajesDeSalud extends MensajesDeSaludInput {
+  porDefecto: {
+    urgencyMessageText: string;
+    clinicalMessageText: string;
+    urgencyTerms: string[];
+    clinicalTerms: string[];
+  };
+  ultimoCambio: { changedBy: { id: string; fullName: string }; createdAt: string } | null;
+}

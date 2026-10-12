@@ -12,7 +12,7 @@ En el menú: **Administración → Organización**. Es una sola pantalla con los
 datos generales de la clínica, agrupados en tarjetas. Los cambios de
 **Moneda**, **Teléfonos**, **Zona horaria**, **Cómo llamar a los contactos** y
 **Aviso de privacidad** se guardan todos juntos con el botón **Guardar** del
-final; el resto es informativo.
+final. **Mensajes de salud** tiene su propio botón. El resto es informativo.
 
 ### Moneda
 
@@ -66,6 +66,36 @@ su primera respuesta. Tiene dos campos:
 > agentes activos no se pueden borrar. El texto de ejemplo **no es
 > asesoramiento legal**: revisalo con un profesional antes de usarlo. El
 > detalle está en [Aviso de privacidad](/ayuda/agentes-de-ia#aviso-de-privacidad).
+
+### Mensajes de salud {#mensajes-de-salud}
+
+Cuando un paciente escribe algo que parece una urgencia o una consulta
+clínica, el asistente no le contesta con sus palabras: le manda uno de estos
+dos mensajes y te pasa la conversación (ver
+[Lo que el asistente no responde](/ayuda/agentes-de-ia#consultas-de-salud)).
+Acá podés cambiar el texto de los dos mensajes y sumar palabras a las que ya
+detecta.
+
+> **El contenido de estos mensajes es responsabilidad de la clínica.**
+> Revisalos con un profesional antes de usarlos con pacientes.
+
+- **Mensaje de urgencia**: viene cargado con el texto por defecto ("Si es una
+  urgencia, llamá ya al 911…"). **Tiene que incluir un teléfono de
+  emergencia** (por ejemplo, 911): sin un número, el sistema no lo guarda.
+- **Mensaje de consulta clínica**: el que recibe un paciente que pregunta por
+  un síntoma, una medicación o "¿es normal que…?".
+- En los dos, donde escribas `{clinica}` va el nombre de la clínica. Cada
+  uno va de 20 a 500 caracteres. **Volver al texto por defecto** lo deja como
+  venía.
+- **Palabras que también son urgencia** y **Palabras que también son consulta
+  clínica**: escribí una palabra o una frase corta y tocá **+ Agregar** (o
+  Enter). Se comparan sin mayúsculas ni tildes. Las que el sistema ya detecta
+  se ven en **Ver las que ya detecta**: esas **no se pueden sacar**, solo
+  sumar otras. Las que agregaste sí: tocá la ✕ del chip.
+
+Los cambios se guardan con **Guardar mensajes de salud**, aparte del
+**Guardar** de la página. Abajo queda **quién hizo el último cambio y
+cuándo**; cada cambio queda registrado.
 
 ### Cotización vigente
 

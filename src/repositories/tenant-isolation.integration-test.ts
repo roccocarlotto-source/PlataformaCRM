@@ -153,9 +153,13 @@ import {
   CONFIGURACION_DE_CLINICA_POR_DEFECTO,
   CONFIGURACION_DE_SEDE_POR_DEFECTO,
   crearConfiguracionDeSede,
+  SALUD_DE_LA_CLINICA_POR_DEFECTO,
+  guardarSaludDeLaClinica,
   guardarTerminoDelContacto,
   leerConfiguracionDeClinica,
   leerConfiguracionDeSede,
+  leerSaludDeLaClinica,
+  listarCambiosDeSalud,
 } from "../clinicas/repositories/clinicSettings.repository";
 import {
   contarTurnosPorRecurso,
@@ -1923,7 +1927,20 @@ before(async () => {
   // con valores distintos de los defaults para que un lector que caiga en
   // los defaults no se confunda con la fila de Y.
   await prisma.clinicSettings.create({
-    data: { organizationId: org, contactTerm: "CLIENTE", privacyNoticeText: "Aviso de Y" },
+    data: {
+      organizationId: org,
+      contactTerm: "CLIENTE",
+      privacyNoticeText: "Aviso de Y",
+      extraClinicalTerms: ["termino de y"],
+    },
+  });
+  // El historial de los mensajes de salud de Y (§5.3, D11 revisada).
+  await prisma.clinicHealthSettingsChange.create({
+    data: {
+      organizationId: org,
+      changedById: userY.id,
+      changes: { extraClinicalTerms: { antes: [], despues: ["termino de y"] } },
+    },
   });
   await prisma.clinicBranchSettings.create({
     data: { organizationId: org, branchId: branchY.id, reminderHoursBefore: 48 },
@@ -1999,6 +2016,7 @@ after(async () => {
   await prisma.conversation.deleteMany(w);
   await prisma.branchBusinessHours.deleteMany(w);
   await prisma.clinicBranchSettings.deleteMany(w);
+  await prisma.clinicHealthSettingsChange.deleteMany(w);
   await prisma.clinicSettings.deleteMany(w);
   await prisma.automationExecution.deleteMany(w);
   await prisma.outboxEvent.deleteMany(w);
@@ -2718,6 +2736,37 @@ test("H-01 ClinicSettings: leer y guardar con la organización de X no ven ni to
       .contactTerm,
     "PACIENTE",
   );
+});
+
+// D11 revisada (docs/rubros.md §5.3): los mensajes de salud viven en la fila
+// de la organización y su historial, con FK compuesta a users. Con la
+// organización de X: no se leen los términos ni el historial de Y, y la base
+// rechaza un cambio de X atribuido a un usuario de Y.
+test("H-01 ClinicHealthSettingsChange: X no lee los mensajes ni el historial de Y, ni anota un cambio a nombre de un usuario de Y", async () => {
+  const antes = await leerY.clinica();
+  assert.deepEqual(
+    (await leerSaludDeLaClinica(nx.orgX)).extraClinicalTerms,
+    [],
+    "X no ve los términos de Y",
+  );
+  assert.deepEqual(await listarCambiosDeSalud(nx.orgX, { skip: 0, take: 10 }), []);
+  await assertViolaFk(
+    () =>
+      prisma.$transaction((tx) =>
+        guardarSaludDeLaClinica(
+          nx.orgX,
+          SALUD_DE_LA_CLINICA_POR_DEFECTO,
+          { changedById: nx.userY, changes: {} },
+          tx,
+        ),
+      ),
+    "ClinicHealthSettingsChange de X a nombre de un usuario de Y",
+  );
+  assert.equal(
+    await prisma.clinicHealthSettingsChange.count({ where: { organizationId: nx.orgX } }),
+    0,
+  );
+  assert.deepEqual(await leerY.clinica(), antes, "la fila de Y sigue igual");
 });
 
 test("H-01 ClinicBranchSettings: X no lee la configuración de la sede de Y ni puede crearle una", async () => {

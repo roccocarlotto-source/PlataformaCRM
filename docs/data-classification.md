@@ -184,6 +184,13 @@ el brief de una derivación que no es por salud. La pantalla de campos
 personalizados de una clínica avisa que no se carguen datos de salud
 (`docs/rubros.md` §8.2, con su PR de pantallas).
 
+**Mensajes de salud editados por la clínica** (`docs/rubros.md` §5.3, D11
+revisada): `ClinicSettings.urgencyMessageText`, `clinicalMessageText` y los
+términos agregados son configuración que escribe el ADMIN, no datos de un
+paciente. Su historial, `ClinicHealthSettingsChange`, guarda quién los cambió
+(`changedById`, una persona usuaria: §2.1) y el antes y el después de esos
+mismos textos. Nada de lo que escribe un paciente entra ahí.
+
 ---
 
 ## 3. Por dónde salen del servidor

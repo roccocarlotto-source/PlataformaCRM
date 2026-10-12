@@ -1187,6 +1187,41 @@ agenda", y el formulario del agente de clínicas lo dice así.
 
 ### 5.3 Guardrails de salud, en el backend (D11)
 
+> **D11 revisada (decisión de Rocco del 2026-10-12): mensajes de salud
+> configurables por el ADMIN, solo en clínicas.** Cambia dos puntos de lo de
+> abajo, y nada más:
+>
+> - **Los dos mensajes fijos** (urgencia y consulta clínica) los puede
+>   reemplazar el ADMIN (`ClinicSettings.urgencyMessageText` y
+>   `clinicalMessageText`; NULL = el texto por defecto del código, que es el
+>   valor inicial de la pantalla). `{clinica}` sigue siendo la única variable.
+>   **El de urgencia tiene que incluir un teléfono** (una secuencia de 3 a 15
+>   dígitos, `incluyeUnTelefono`): sin él, el backend responde 400. Que el
+>   número sea de emergencias no se puede verificar: lo valida la clínica.
+> - **Términos agregados:** el ADMIN puede **sumar** frases a las dos listas
+>   del detector de la capa 1 (`extraUrgencyTerms`, `extraClinicalTerms`, hasta
+>   100 por lista, normalizadas como el mensaje y sin comodín). **Los términos
+>   del código no se pueden sacar**: no se guardan en la base, así que no hay
+>   forma de editarlos.
+> - Siguen fijos en el código: la capa 2, la capa 3, los cuerpos de las tareas
+>   de derivación y el silencio después de derivar. Los términos agregados no
+>   cambian la capa 3; su mensaje sí es el de la clínica.
+> - **Quién y cuándo:** cada guardado que cambia algo deja una fila en
+>   `clinic_health_settings_changes` (append-only: quién, cuándo y
+>   `{ campo: { antes, despues } }`). La pantalla muestra el último cambio.
+> - Pantalla: Configuración → Organización → **Mensajes de salud**, solo ADMIN
+>   de una CLINICA, con su propio botón de guardar y el aviso **"El contenido de
+>   estos mensajes es responsabilidad de la clínica"**. Rutas
+>   `GET|PUT /api/clinica/mensajes-de-salud` y `GET …/historial`, del módulo
+>   `agenda_clinica`: una automotora recibe 403 con motivo RUBRO.
+> - **En AUTOMOTORA nada cambia:** `SIN_REGLAS.contextoDeLaOrganizacion` es
+>   null, así que el loop no hace ninguna consulta nueva (suite §14.1).
+> - Implementación: el contexto de las reglas (`ContextoDeLaRegla`) suma
+>   `saludDeLaClinica`, que lee una vez por turno
+>   `REGLAS_DE_CLINICA.contextoDeLaOrganizacion`
+>   (`armarContextoDeLaRegla`, en los dos lugares donde el loop arma el
+>   contexto). Migración `20261114120000_clinicas_mensajes_de_salud`.
+
 > **Pendiente (decisión de Rocco del 2026-10-10):** las preguntas comunes que
 > hoy la capa 1 deriva a propósito ("¿la depilación duele?") y que el agente
 > podría contestar con lo cargado en la base de conocimiento van en un **PR chico
@@ -1262,7 +1297,9 @@ agenda", y el formulario del agente de clínicas lo dice así.
 
 **Regla:** en CLINICA, en **todos** los niveles y **todos** los canales
 (incluido el widget web), el agente no da historia clínica, diagnósticos ni
-consejos médicos. Tres capas. **Ninguna es configurable por el ADMIN.** En
+consejos médicos. Tres capas. **Ninguna se puede apagar.** Desde D11 revisada
+(2026-10-12), el ADMIN de la clínica puede cambiar el texto de los dos
+mensajes fijos y sumar términos a la capa 1 (ver la nota del principio). En
 AUTOMOTORA no corre ninguna: el loop de una automotora es el de hoy.
 
 **Cómo se engancha sin ensuciar el núcleo:** el loop
@@ -1287,7 +1324,8 @@ Un detector **determinístico**, puro y sin red.
   letras repetidas reducidas ("ardeeee").
 - **Lista de términos en código** (D11): cambiarla es un PR con tests. La lista
   final la revisa una persona del área de salud antes del primer cliente
-  (§10).
+  (§10). Desde D11 revisada, la clínica puede **sumar** términos (no sacar los
+  del código).
 - **Un falso positivo es aceptable; un falso negativo no.** Por eso la lista es
   amplia.
 - **La urgencia gana** sobre `humanoAtiendeLaConversacion`, sobre el horario y
@@ -1315,8 +1353,9 @@ se deriva. Queda en `Message.toolCalls` para auditar.
 
 #### Mensajes fijos
 
-En `src/clinicas/config/rubro.ts`, con el nombre de la clínica como única
-variable. Borradores:
+En `src/clinicas/config/mensajesDeSalud.ts`, con el nombre de la clínica como
+única variable. Son el texto por defecto: desde D11 revisada, el ADMIN puede
+reemplazarlos (el de urgencia, siempre con un teléfono). Borradores:
 
 - **Urgencia:** "Si es una urgencia, llamá ya al 911 o a tu servicio de
   emergencia móvil. Este chat no puede ayudarte con eso. Ya le avisamos al
@@ -1326,7 +1365,7 @@ variable. Borradores:
   {clinica} para que te contacte."
 
 El texto exacto y el número de emergencias los valida la clínica y un
-profesional (§10).
+profesional (§10). Un texto editado es responsabilidad de la clínica.
 
 #### Lo que no hace
 
@@ -1865,7 +1904,12 @@ criterio que `data-classification.md` §6.1.
 9. **Historia clínica.** ¿Algo de lo que guarda el CRM podría considerarse parte
    de la historia clínica? El diseño apunta a que no; conviene confirmarlo.
 10. **Mensajes fijos.** ¿Quién valida el de urgencia (incluido el número) y el de
-    derivación clínica?
+    derivación clínica? Desde D11 revisada (2026-10-12) los puede editar el
+    ADMIN de cada clínica: el sistema exige que el de urgencia tenga un
+    teléfono, muestra "El contenido de estos mensajes es responsabilidad de la
+    clínica" y registra quién y cuándo los cambió. ¿Alcanza eso, o hace falta
+    algo más (una aceptación expresa, una revisión antes de que se usen)? Lo
+    mismo para los términos que la clínica suma al detector.
 11. **Recordatorios.** ¿Puede un recordatorio por WhatsApp nombrar la
     prestación? ¿Y el profesional?
 12. **Menores de edad.** ¿Qué pasa si escribe o agenda un menor?
@@ -2561,7 +2605,7 @@ A1–A6 de la segunda.
 | D8 | Recordatorio de un turno dado con poca anticipación | **Configurable por sucursal:** horas de anticipación (default 24) y política de turno tardío (no mandar, en el momento, unas horas antes; default no mandar). | §1.3, §6.2 |
 | D9 | ¿El agente ofrece sobreturnos? | **No**, solo el personal. | §4.4 |
 | D10 | Plazo mínimo para cancelar o reprogramar por chat | **Configurable por sucursal, sin valor por defecto.** | §5.1 |
-| D11 | Detector de síntomas y urgencias | **Lista de términos en código** en la v1. | §5.3 |
+| D11 | Detector de síntomas y urgencias | **Lista de términos en código** en la v1. **Revisada el 2026-10-12:** el ADMIN de la clínica puede editar los dos mensajes fijos (el de urgencia, con un teléfono) y sumar términos; los del código no se sacan; cada cambio queda registrado (quién y cuándo). | §5.3 |
 | D12 | Texto del 403 | **Campo aditivo `motivo: "EDICION" \| "RUBRO"`.** | §1.2 |
 | D13 | ¿Recordatorios también para automotoras? | **Solo clínicas en la v1.** | §2, §6 |
 | D14 | Clínica Demo | **Endpoint del platform admin** con datos inventados. Rocco la limpia después de cobrarle al primer cliente. | §12 |

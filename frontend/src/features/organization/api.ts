@@ -1,6 +1,8 @@
 import { ApiError, request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type {
+  MensajesDeSalud,
+  MensajesDeSaludInput,
   MetaPageConnection,
   OrganizationSettings,
   UpdateOrganizationSettingsInput,
@@ -43,4 +45,21 @@ export async function getMetaConnection(signal?: AbortSignal): Promise<MetaPageC
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Mensajes de salud de una clínica (docs/rubros.md §5.3, D11 revisada). Solo
+// ADMIN de una CLINICA: la página solo los pide en una clínica.
+// ---------------------------------------------------------------------------
+
+export function getMensajesDeSalud(signal?: AbortSignal): Promise<MensajesDeSalud> {
+  return request<MensajesDeSalud>("/clinica/mensajes-de-salud", { getAccessToken, signal });
+}
+
+export function guardarMensajesDeSalud(input: MensajesDeSaludInput): Promise<MensajesDeSalud> {
+  return request<MensajesDeSalud>("/clinica/mensajes-de-salud", {
+    method: "PUT",
+    body: input,
+    getAccessToken,
+  });
 }

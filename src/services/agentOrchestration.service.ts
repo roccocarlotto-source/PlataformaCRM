@@ -72,6 +72,7 @@ import { PREFIJO_TAREA_DE_DERIVACION, findTareaAbiertaDelPedido } from "./tareaD
 import {
   AUDITORIA_DE_CORRECCION_DEL_RUBRO,
   AUDITORIA_DE_REGLA_DEL_RUBRO,
+  armarContextoDeLaRegla,
   primeraCorreccionDeSalida,
   primeraDecisionDeEntrada,
   primeraDecisionDeSalida,
@@ -1689,11 +1690,14 @@ export async function derivarEntranteSinAgente(entrada: {
     const organizacion = await findEdicionYRubro(organizationId);
     const reglas = reglasDelRubro(organizacion.industry);
     if (reglas.entradaPrioritaria.length > 0) {
-      const ultimos = await findLastMessages(conversationId, organizationId, VENTANA_DE_MENSAJES);
+      const [ultimos, contexto] = await Promise.all([
+        findLastMessages(conversationId, organizationId, VENTANA_DE_MENSAJES),
+        armarContextoDeLaRegla(reglas, organizationId, organizacion.name),
+      ]);
       const decision = primeraDecisionDeEntrada(
         reglas.entradaPrioritaria,
         textosEntrantesDelTurno(ultimos, null),
-        { nombreDeLaOrganizacion: organizacion.name },
+        contexto,
       );
       if (decision) {
         const [agent, contact] = await Promise.all([
@@ -2482,7 +2486,9 @@ export async function responderEnLaConversacion(
   // La prioritaria (la urgencia de salud de una clínica) va ANTES del gate de
   // una persona atendiendo: gana sobre todo. La otra, después.
   const reglas = reglasDelRubro(organizacion.industry);
-  const contextoDeLaRegla = { nombreDeLaOrganizacion: organizacion.name };
+  // En una clínica, con los mensajes y los términos que configuró el ADMIN
+  // (una consulta); en una automotora, solo el nombre.
+  const contextoDeLaRegla = await armarContextoDeLaRegla(reglas, organizationId, organizacion.name);
   const entrantesDelTurno = textosEntrantesDelTurno(ultimosMensajes, texto);
   const sinRespuesta: RespuestaEnLaConversacion = {
     resultado: {

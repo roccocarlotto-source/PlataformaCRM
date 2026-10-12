@@ -421,12 +421,49 @@ export const TERMINOS_CLINICOS: readonly Termino[] = [
   "consulta clinica",
 ];
 
-export function clasificarMensajeDeSalud(texto: string): ClasificacionDeSalud {
+/** Los términos que una clínica SUMA a las listas de arriba (D11 revisada,
+ *  2026-10-12). Frases simples, ya normalizadas al guardarlas
+ *  (normalizarTerminoDeLaClinica): sin asterisco ni partes. Nunca reemplazan
+ *  a los del código, solo se agregan. */
+export interface TerminosDeLaClinica {
+  urgencia: readonly string[];
+  clinicos: readonly string[];
+}
+
+export const SIN_TERMINOS_DE_LA_CLINICA: TerminosDeLaClinica = { urgencia: [], clinicos: [] };
+
+export function clasificarMensajeDeSalud(
+  texto: string,
+  deLaClinica: TerminosDeLaClinica = SIN_TERMINOS_DE_LA_CLINICA,
+): ClasificacionDeSalud {
   const palabras = palabrasDe(texto);
   if (palabras.length === 0) return "NINGUNO";
-  if (TERMINOS_DE_URGENCIA.some((t) => contieneTermino(palabras, t))) return "URGENCIA";
-  if (TERMINOS_CLINICOS.some((t) => contieneTermino(palabras, t))) return "CLINICA";
+  const coincide = (t: Termino) => contieneTermino(palabras, t);
+  if (TERMINOS_DE_URGENCIA.some(coincide) || deLaClinica.urgencia.some(coincide)) {
+    return "URGENCIA";
+  }
+  if (TERMINOS_CLINICOS.some(coincide) || deLaClinica.clinicos.some(coincide)) return "CLINICA";
   return "NINGUNO";
+}
+
+/** Un término que escribió el ADMIN, como se guarda y se compara: la misma
+ *  normalización que el mensaje. Como `normalizar` saca los signos, un
+ *  asterisco no llega a ser comodín. */
+export function normalizarTerminoDeLaClinica(termino: string): string {
+  return normalizar(termino);
+}
+
+/** ¿El término ya está en la lista del código? Solo cuenta un término simple
+ *  igual (una frase): con asterisco o con partes, el agregado es distinto y se
+ *  conserva. */
+export function esTerminoDelCodigo(normalizado: string, lista: readonly Termino[]): boolean {
+  return lista.some((t) => typeof t === "string" && normalizar(t) === normalizado);
+}
+
+/** Un término del código como se le muestra al ADMIN: las partes que tienen
+ *  que aparecer juntas en el mensaje, con " + ". */
+export function describirTermino(termino: Termino): string {
+  return typeof termino === "string" ? termino : termino.join(" + ");
 }
 
 // ---------------------------------------------------------------------------
