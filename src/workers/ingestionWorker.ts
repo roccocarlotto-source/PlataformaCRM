@@ -1,6 +1,6 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { describirError, resolverFallo } from "../utils/backoff";
 import {
   claimNextPendingEvent,
@@ -115,7 +115,7 @@ export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<
         };
         await opciones.antesDePromover?.(evento, tx);
         return await promoverEvento(evento, tx);
-      });
+      }, OPCIONES_DE_TRANSACCION_LARGA);
     } catch (err) {
       // Un error acá NO es una fila mala: los payloads inválidos ya se
       // marcaron FAILED adentro, sin lanzar. Lo que llega hasta este catch es

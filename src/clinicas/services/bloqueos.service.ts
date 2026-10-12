@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { prisma } from "../../lib/prisma";
+import { prisma, OPCIONES_DE_TRANSACCION_LARGA } from "../../lib/prisma";
 import { createActivity as createActivityRepo } from "../../repositories/activity.repository";
 import { findResourceById, lockResourceForUpdate } from "../../repositories/resource.repository";
 import { getBranchById } from "../../services/branch.service";
@@ -132,7 +132,7 @@ export async function crearBloqueoDeProfesional(
       });
     }
     return { bloqueo, turnosAfectados };
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }
 
 export async function borrarBloqueoDeProfesional(

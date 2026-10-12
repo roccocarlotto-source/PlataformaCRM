@@ -1,6 +1,6 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
-import { prisma } from "../lib/prisma";
+import { prisma, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { findActiveAutomationsByTriggerForSweep } from "../repositories/automation.repository";
 import { findStalledInquiries } from "../repositories/inquiryFollowUp.repository";
 import { findEdicionYRubro } from "../repositories/organization.repository";
@@ -154,7 +154,7 @@ export async function barrerConsultasSinAvance(
           );
         }
         return aEmitir.length;
-      });
+      }, OPCIONES_DE_TRANSACCION_LARGA);
 
       if (emitidas === 0) {
         continue;

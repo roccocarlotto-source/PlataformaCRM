@@ -1,4 +1,4 @@
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { countActiveBookingsByServiceType } from "../repositories/booking.repository";
 import { findBranchById, lockBranchForUpdate } from "../repositories/branch.repository";
 import { findResourceById, lockResourceForUpdate } from "../repositories/resource.repository";
@@ -234,7 +234,7 @@ export async function updateServiceType(
         }
 
         return updateServiceTypeRepo(id, organizationId, input, tx);
-      })
+      }, OPCIONES_DE_TRANSACCION_LARGA)
     : await updateServiceTypeRepo(id, organizationId, input);
 
   if (result.count === 0) {

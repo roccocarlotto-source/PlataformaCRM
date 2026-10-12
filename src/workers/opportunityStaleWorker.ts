@@ -1,6 +1,6 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
-import { prisma } from "../lib/prisma";
+import { prisma, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { findActiveAutomationsByTriggerForSweep } from "../repositories/automation.repository";
 import { findStaleOpportunities } from "../repositories/opportunity.repository";
 import {
@@ -198,7 +198,7 @@ export async function barrerOportunidadesEstancadas(
           );
         }
         return aEmitir.length;
-      });
+      }, OPCIONES_DE_TRANSACCION_LARGA);
 
       if (emitidas === 0) {
         continue;

@@ -114,35 +114,38 @@ async function deshacerUno(resumen: ResumenDeLotes): Promise<boolean> {
 }
 
 async function terminarUno(resumen: ResumenDeLotes): Promise<boolean> {
-  return prisma.$transaction(async (tx) => {
-    const lote = await claimLoteTerminado(tx);
-    if (!lote) return false;
-    const final = await resumenDeFilas(lote.organizationId, lote.id, tx);
-    // Una corrida de una sincronización: las unidades que ya no están en la
-    // planilla (§7).
-    const sync = await marcarFaltantes(lote, tx);
-    const previos =
-      lote.counters !== null && typeof lote.counters === "object" && !Array.isArray(lote.counters)
-        ? lote.counters
-        : {};
-    await transicionarLote(
-      lote.organizationId,
-      lote.id,
-      ["RUNNING"],
-      {
-        status: "DONE",
-        finishedAt: new Date(),
-        counters: {
-          ...previos,
-          final,
-          ...(sync ? { sync } : {}),
-        } as unknown as Prisma.InputJsonValue,
-      },
-      tx,
-    );
-    resumen.terminados++;
-    return true;
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      const lote = await claimLoteTerminado(tx);
+      if (!lote) return false;
+      const final = await resumenDeFilas(lote.organizationId, lote.id, tx);
+      // Una corrida de una sincronización: las unidades que ya no están en la
+      // planilla (§7).
+      const sync = await marcarFaltantes(lote, tx);
+      const previos =
+        lote.counters !== null && typeof lote.counters === "object" && !Array.isArray(lote.counters)
+          ? lote.counters
+          : {};
+      await transicionarLote(
+        lote.organizationId,
+        lote.id,
+        ["RUNNING"],
+        {
+          status: "DONE",
+          finishedAt: new Date(),
+          counters: {
+            ...previos,
+            final,
+            ...(sync ? { sync } : {}),
+          } as unknown as Prisma.InputJsonValue,
+        },
+        tx,
+      );
+      resumen.terminados++;
+      return true;
+    },
+    { timeout: ANALISIS_TRANSACTION_TIMEOUT_MS },
+  );
 }
 
 // Una pasada: analiza y cierra todo lo que haya, de a un lote por vez.

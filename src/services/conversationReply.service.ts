@@ -2,7 +2,7 @@ import type { Conversation, ConversationChannel, Message } from "@prisma/client"
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { avisoDeRecepcion } from "../clinicas/services/sedesDeUsuarios.service";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { createActivity } from "../repositories/activity.repository";
 import { findAgentById } from "../repositories/agent.repository";
 import { findChannelAccountIdOfConversation } from "../repositories/agentInboundJob.repository";
@@ -768,7 +768,7 @@ async function devolverYAvisar(
       );
     }
     return { mensaje: creado, enviar: motivoSinEnvio === null };
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 
   if (aviso?.enviar && destino && !("motivo" in destino)) {
     await enviarPorElCanal(aviso.mensaje, destino, deps);

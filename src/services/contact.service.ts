@@ -4,7 +4,7 @@ import {
   type LeadUrgency,
   type LifecycleStage,
 } from "@prisma/client";
-import { prisma, type Db } from "../lib/prisma";
+import { OPCIONES_DE_TRANSACCION_LARGA, prisma, type Db } from "../lib/prisma";
 import { normalizarTelefono, soloDigitos, TELEFONO_NO_NORMALIZABLE } from "../lib/telefono";
 import { cancelPendingInboundJobsOfConversation } from "../repositories/agentInboundJob.repository";
 import { countConfirmedBookingsOf } from "../repositories/booking.repository";
@@ -754,6 +754,13 @@ export async function erasePersonalData(
     throw new AppError("Contacto no encontrado", 404);
   }
 
+  // TIMEOUT EXPLÍCITO (2026-10-12). Son ~22 sentencias en serie aunque el
+  // contacto no tenga nada más que la fila: cada tabla se recorre igual. Con el
+  // pooler de Supabase (pgbouncer=true) eso midió ~52 idas y vueltas, y con la
+  // latencia de producción hasta la base (São Paulo) pasaba los 5 s por
+  // defecto de Prisma: vencía con P2028, el usuario veía "conflicto temporal"
+  // y el borrado se revertía entero. Mismos valores que la unión de contactos
+  // (contactMerge.service.ts). Lo fija borradoCompleto.integration-test.ts.
   const { resultado, turnosEnGoogle } = await prisma.$transaction(async (tx) => {
     const contacto = await erasePersonalDataFromContact(id, organizationId, tx);
 
@@ -799,7 +806,7 @@ export async function erasePersonalData(
       },
       turnosEnGoogle,
     };
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 
   // DESPUÉS DEL COMMIT: el nombre en los eventos de Google de sus turnos. Una
   // falla de Google no deshace ni frena el borrado; queda como pendiente, en

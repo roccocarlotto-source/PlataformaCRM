@@ -1,5 +1,5 @@
 import { Prisma, type DeliveryStatus, type VehicleStatus } from "@prisma/client";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import {
   confirmDeliveryConditional,
   createDelivery,
@@ -329,7 +329,7 @@ export async function confirmDelivery(organizationId: string, actorUserId: strin
       "DELIVERED",
       tx,
     );
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 
   return requireDelivery(organizationId, id);
 }

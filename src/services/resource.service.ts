@@ -1,5 +1,5 @@
 import type { ResourceType } from "@prisma/client";
-import { prisma, type Db } from "../lib/prisma";
+import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { findBranchById, lockBranchForUpdate } from "../repositories/branch.repository";
 import {
   countResources,
@@ -195,7 +195,7 @@ export async function deleteResource(
       await tareasPorTurnosFuturosDelProfesional(organizationId, resource, asignadoDeLasTareas, tx);
     }
     return quitarFilaDelProfesional(organizationId, id, tx);
-  });
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 
   for (const canal of canales) {
     if (canal.channelId && canal.channelResourceId) {

@@ -30,3 +30,13 @@ if (!env.isProduction) {
 // que entrega `prisma.$transaction(async (tx) => { ... })` cuando el service
 // necesita que varias escrituras sean atómicas (ver onboarding.service.ts).
 export type Db = PrismaClient | Prisma.TransactionClient;
+
+// Para las transacciones interactivas LARGAS: 8 o más consultas en serie en el
+// peor caso, un loop que crece con los datos o una llamada HTTP adentro. El
+// default de Prisma es 5 s, y en producción cada consulta cuesta varias idas y
+// vueltas hasta la base (Supabase en São Paulo, pooler con pgbouncer): el
+// borrado de datos personales, ~22 consultas, midió ~52 idas y vueltas y
+// vencía con P2028 ("conflicto temporal"). maxWait: cuánto se espera una
+// conexión libre del pool antes de abrirla (default 2 s). Mismos valores que
+// la unión de contactos. Una transacción corta no los necesita.
+export const OPCIONES_DE_TRANSACCION_LARGA = { maxWait: 10_000, timeout: 20_000 } as const;
