@@ -2590,9 +2590,14 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
 - R4 y R16 desplegados;
 - la lista de §10 respondida por un profesional;
 - §6.6 confirmado con Meta o el BSP;
-- en Render: región del servicio pago: Virginia (US East), la más cercana a
-  Supabase sa-east-1. Con la región actual, las transacciones largas pueden
-  pasar los 5 s.
+- en Render: el servicio sigue en Virginia (US East), la región de Render más
+  cercana a Supabase sa-east-1 (Render no tiene región en Sudamérica; ~120 ms de
+  ida y vuelta a la base). Con esa latencia, una transacción interactiva con
+  muchas consultas puede pasar los 5 s por defecto de Prisma: las largas llevan
+  `OPCIONES_DE_TRANSACCION_LARGA` (`src/lib/prisma.ts`);
+- en Render: `DATABASE_URL` termina exactamente en
+  `/postgres?pgbouncer=true&connection_limit=10` y `AGENT_TURN_MAX_CONCURRENT`
+  es 8 (docs/deployment.md §2.3).
 
 Hasta R3 nadie puede crear una organización CLINICA: todo lo anterior es inerte.
 

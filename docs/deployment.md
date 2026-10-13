@@ -155,7 +155,7 @@ de negocio funciona):
 | Variable | Qué pasa si falta | Notas |
 |---|---|---|
 | `CORS_ORIGIN` | **El proceso no arranca** — la única que Zod exige | Lista separada por comas con los orígenes del frontend. **El primero** es el que la invitación de platform admin usa como `redirectTo` (`<primero>/reset-password`, Fase 4a): el dominio real del frontend va primero |
-| `DATABASE_URL` | `/health` reporta la base caída; toda ruta de negocio falla | Conexión **pooled** (PgBouncer, 6543) con `?pgbouncer=true`. Conviene fijar `&connection_limit=N` (no `1`): de ahí sale cuántos turnos del agente pueden tener el lock por conversación a la vez (la mitad del pool, `AGENT_TURN_MAX_CONCURRENT` lo pisa; sin `connection_limit` son 2) |
+| `DATABASE_URL` | `/health` reporta la base caída; toda ruta de negocio falla | Conexión **pooled** (Supavisor, puerto 6543, modo transacción). En producción **tiene que terminar exactamente en `/postgres?pgbouncer=true&connection_limit=10`** (ver abajo). `connection_limit` es el pool de Prisma; el cupo de turnos del agente se fija aparte con `AGENT_TURN_MAX_CONCURRENT` (en producción, 8). Al arrancar, el backend registra un error si la URL usa el 6543 sin `pgbouncer=true` o tiene un `?` de más (`src/utils/urlDeLaBase.ts`) |
 | `SUPABASE_URL` | Ningún JWT se puede verificar (el JWKS sale de acá) | Sin barra final |
 | `SUPABASE_SERVICE_ROLE_KEY` | Invitaciones, alta de organización por platform admin, purgas y el bucket de fotos fallan con 500 | Exclusiva del backend. Nunca con prefijo `VITE_` |
 | `NODE_ENV` | — | La imagen ya lo fija en `production` |
@@ -199,6 +199,20 @@ sepa que existen y qué tocan:
 
 Los booleanos son el string `"true"` o `"false"` literal: cualquier otro valor
 es rechazado al arrancar (no se usa `z.coerce.boolean()` a propósito).
+
+**`DATABASE_URL` contra el pooler: el final exacto.** Sin `pgbouncer=true`,
+Prisma 5 prepara cada consulta con nombre en una conexión de Postgres y el pooler
+puede ejecutarla en otra: con consultas en paralelo falla con `prepared statement
+"sN" does not exist`. Con pocas consultas en serie no se nota, así que puede
+pasar desapercibido hasta un reinicio. Se edita copiando y pegando el final, no
+tipeándolo: un `?` de más (`/postgres??connection_limit=10`) hace que Prisma
+rechace la URL (P1013).
+
+*Incidente del 2026-10-12:* la URL de Render terminaba en `/postgres?`; al
+agregarle `?connection_limit=10` quedó con dos `?` y la base dejó de responder
+(P1013), y al volver a `/postgres` los workers fallaron con `prepared statement
+"sN" does not exist`. Quedó en `/postgres?pgbouncer=true&connection_limit=10`
+(~12 minutos sin base; sin trabajos perdidos).
 
 ### 2.4 Lo que la plataforma tiene que saber del backend
 
