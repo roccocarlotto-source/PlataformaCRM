@@ -4,6 +4,7 @@ import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { registrarAutomatizaciones } from "./services/automationRegistrations";
 import { crearShutdown } from "./shutdown";
+import { problemaDeLaUrlDeLaBase } from "./utils/urlDeLaBase";
 import { workersHabilitados } from "./utils/workersHabilitados";
 import { iniciarWorkerDeTurnosDeAgente } from "./workers/agentInboundWorker";
 import { iniciarWorkerDeIngesta } from "./workers/ingestionWorker";
@@ -26,6 +27,14 @@ import { iniciarWorkerDeSincronizaciones } from "./workers/importSyncWorker";
 const server = app.listen(env.PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
 });
+
+// La URL de la base contra el pooler (utils/urlDeLaBase.ts; incidente del
+// 2026-10-12): sin pgbouncer=true en el 6543, los workers fallan con
+// "prepared statement sN does not exist". Se avisa como error, sin la URL.
+const problemaDeLaBase = problemaDeLaUrlDeLaBase(env.DATABASE_URL);
+if (problemaDeLaBase) {
+  logger.error(problemaDeLaBase);
+}
 
 // En development contra una base que no es local, ningún worker ni registro de
 // automatizaciones arranca salvo DEV_ALLOW_REMOTE_DB=true (G-02 de
