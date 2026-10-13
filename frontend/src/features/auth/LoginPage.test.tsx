@@ -252,7 +252,19 @@ describe("LoginPage — después del login, el perfil no resuelve", () => {
   });
 
   it("la sesión nunca llega a la pestaña: a los 10 s avisa y libera el botón", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // El timer de 10 s lo programa un EFECTO que corre después de que login()
+    // resuelve y React confirma el render, fuera de act y en una tarea
+    // aparte. `await ingresar(user)` no espera esa tarea: en ~1 de cada 200
+    // corridas (medido), el avance de 10 s de abajo llegaba antes que el
+    // efecto, el timer se programaba después, y el aviso no aparecía —
+    // "Unable to find role alert" con el botón todavía en "Ingresando…", en
+    // el CI de #508 y #511. Por eso se espera a que el timer exista antes de
+    // adelantar el reloj. Solo setTimeout/clearTimeout/Date son falsos para
+    // que getTimerCount() cuente únicamente ese timer.
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ["setTimeout", "clearTimeout", "Date"],
+    });
     try {
       const login = vi.fn().mockResolvedValue(undefined);
       useAuthMock.mockReturnValue(mockAuth({ login }));
@@ -261,6 +273,10 @@ describe("LoginPage — después del login, el perfil no resuelve", () => {
 
       await ingresar(user);
       expect(screen.getByRole("button", { name: /ingresando/i })).toBeDisabled();
+
+      // Recién con el timer de 10 s programado tiene sentido adelantar el
+      // reloj: es el único setTimeout falso pendiente después del login.
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
 
       await act(async () => {
         vi.advanceTimersByTime(10_000);
