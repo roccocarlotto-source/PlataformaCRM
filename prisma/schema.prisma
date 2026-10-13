@@ -877,6 +877,18 @@ model Organization {
   deliveries Delivery[]
   payments   Payment[]
 
+  // Módulo Servicios (docs/servicios.md).
+  organizationModules         OrganizationModule[]
+  workshopSettings            WorkshopSettings?
+  customerVehicles            CustomerVehicle[]
+  customerVehicleOwnerChanges CustomerVehicleOwnerChange[]
+  serviceJobTypes             ServiceJobType[]
+  serviceOrders               ServiceOrder[]
+  serviceOrderStatusChanges   ServiceOrderStatusChange[]
+  serviceOrderApprovals       ServiceOrderApproval[]
+  serviceOrderJobTypes        ServiceOrderJobType[]
+  serviceOrderPhotos          ServiceOrderPhoto[]
+
   @@index([deletedAt])
   @@map("organizations")
 }
@@ -981,6 +993,14 @@ model User {
 
   // Los contactos cuyos datos personales borró (data-classification.md §5.2).
   erasedContacts Contact[] @relation("ContactPersonalDataErasedBy")
+
+  // Módulo Servicios (docs/servicios.md).
+  customerVehicleOwnerChanges CustomerVehicleOwnerChange[] @relation("CustomerVehicleOwnerChangedBy")
+  assignedServiceOrders       ServiceOrder[]               @relation("ServiceOrderAssignee")
+  createdServiceOrders        ServiceOrder[]               @relation("ServiceOrderCreatedBy")
+  serviceOrderStatusChanges   ServiceOrderStatusChange[]   @relation("ServiceOrderStatusChangedBy")
+  serviceOrderApprovals       ServiceOrderApproval[]       @relation("ServiceOrderApprovalRecordedBy")
+  serviceOrderPhotos          ServiceOrderPhoto[]          @relation("ServiceOrderPhotoUploadedBy")
 
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -1210,6 +1230,12 @@ model Contact {
   // motivo }]. NULL = nada pendiente.
   personalDataErasePending Json?     @map("personal_data_erase_pending")
 
+  // Módulo Servicios (docs/servicios.md).
+  customerVehicles           CustomerVehicle[]            @relation("CustomerVehicleOwner")
+  customerVehicleChangesFrom CustomerVehicleOwnerChange[] @relation("CustomerVehicleOwnerChangeFrom")
+  customerVehicleChangesTo   CustomerVehicleOwnerChange[] @relation("CustomerVehicleOwnerChangeTo")
+  serviceOrders              ServiceOrder[]               @relation("ServiceOrderContact")
+
   @@unique([organizationId, id])
   // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
   // deleted_at IS NULL — índice único parcial; su versión actual (con
@@ -1406,6 +1432,9 @@ model Opportunity {
   // agendados para mandarse (ítem 177).
   discountVouchers         DiscountVoucher[]
   discountVoucherFollowUps DiscountVoucherFollowUp[]
+
+  // Módulo Servicios (docs/servicios.md).
+  customerVehicles CustomerVehicle[] @relation("CustomerVehicleSourceOpportunity")
 
   @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
@@ -2087,6 +2116,10 @@ model Branch {
   invitationBranches InvitationBranch[]
   activities         Activity[]
 
+  // Módulo Servicios (docs/servicios.md).
+  customerVehicles CustomerVehicle[]
+  serviceOrders    ServiceOrder[]
+
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3).
   @@unique([organizationId, id])
   // (organization_id, created_at) desde el arranque, sin esperar a que alguien
@@ -2616,6 +2649,9 @@ model Booking {
   messages           BookingMessage[]
   // §7.3: las tareas después del turno que creó una regla.
   followUpActivities Activity[]
+
+  // Módulo Servicios (docs/servicios.md).
+  serviceOrders ServiceOrder[]
 
   // R13: para la FK compuesta de booking_messages.
   @@unique([organizationId, id])
@@ -4134,6 +4170,10 @@ model Vehicle {
   knowledgeBaseEntries KnowledgeBaseEntry[]
   photoImports         VehiclePhotoImport[]
 
+  // Módulo Servicios (docs/servicios.md).
+  customerVehiclesFromSale CustomerVehicle[]            @relation("CustomerVehicleSourceVehicle")
+  customerVehicleTradeIns  CustomerVehicleOwnerChange[] @relation("CustomerVehicleOwnerChangeStockVehicle")
+
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3): photos,
   // change log, opportunities.vehicle_id, quotes.vehicle_id y
   // deliveries.vehicle_id.
@@ -5251,4 +5291,389 @@ model BookingMessage {
   @@index([organizationId, contactId])
   @@index([organizationId, automationId])
   @@map("booking_messages")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Módulo Servicios: el taller de postventa (docs/servicios.md). S1: SOLO
+// ESQUEMA. Sin rutas, sin services, sin frontend: nadie lee ni escribe estas
+// tablas hasta S2 (activación y gate) y S3/S4 (vehículos y órdenes).
+//
+// Un módulo ACTIVABLE: lo tiene la organización que tenga una fila vigente en
+// organization_modules (lo activa el platform admin), sea ESENCIAL o COMPLETA,
+// y solo en AUTOMOTORA. Para el resto de las organizaciones, estas tablas
+// están vacías.
+//
+// Lo que el DSL de Prisma no expresa (CHECKs, índices únicos parciales, RLS)
+// está en la migración 20261118120000_servicios_tablas y en
+// docs/auditoria-2026-08-21-diagnostico.sql (filas 5, 7, 8, 16 y la de
+// índices parciales).
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum ServiceOrderStatus {
+  AGENDADO
+  RECIBIDO
+  EN_TRABAJO
+  ESPERANDO_APROBACION
+  LISTO_PARA_RETIRAR
+  ENTREGADO
+  CANCELADO
+}
+
+// Por qué un vehículo dejó de ser de un cliente nuestro (§2.2.1). PERMUTA lo
+// escribe el barrido de S10 (entró a nuestro stock); la acción manual de S3
+// admite solo VENDIDO_A_TERCERO y OTRO.
+enum CustomerVehicleEndReason {
+  VENDIDO_A_TERCERO
+  PERMUTA
+  OTRO
+}
+
+enum CustomerVehicleOwnerChangeKind {
+  CAMBIO_DE_DUENO
+  FIN
+}
+
+enum ServiceOrderApprovalChannel {
+  TELEFONO
+  WHATSAPP
+  PRESENCIAL
+  OTRO
+}
+
+enum ServiceOrderApprovalDecision {
+  APROBADO
+  RECHAZADO
+}
+
+enum ServiceOrderPhotoPhase {
+  ANTES
+  DESPUES
+}
+
+// Los módulos activables de una organización (docs/servicios.md §1.2). Activo
+// = la fila existe y disabled_at es NULL. Reactivar limpia disabled_at y NO
+// toca enabled_at: la primera activación es la que define qué ventas reciben
+// el primer service (§6.1). Solo la escribe el service de Plataforma.
+//
+// enabled_by_id / disabled_by_id son el user_id del platform admin, que es un
+// usuario de OTRA organización: no hay FK compuesta posible, y una FK a
+// platform_admins impediría quitarle el rol a quien alguna vez activó un
+// módulo. Es un dato de auditoría, sin FK.
+model OrganizationModule {
+  organizationId String    @map("organization_id") @db.Uuid
+  // CHECK organization_modules_module_check: solo los activables ('servicios').
+  module         String    @db.VarChar(50)
+  enabledAt      DateTime  @default(now()) @map("enabled_at")
+  enabledById    String    @map("enabled_by_id") @db.Uuid
+  disabledAt     DateTime? @map("disabled_at")
+  disabledById   String?   @map("disabled_by_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@id([organizationId, module])
+  @@map("organization_modules")
+}
+
+// La configuración del taller, 1:1 con la organización (§2.6). Se crea al
+// activar el módulo; si falta, el código usa estos mismos defaults.
+model WorkshopSettings {
+  organizationId           String   @id @map("organization_id") @db.Uuid
+  // El próximo número de orden ("OS-0042"): UPDATE ... RETURNING en el alta.
+  nextOrderNumber          Int      @default(1) @map("next_order_number")
+  // Próximo service si la orden no tiene un tipo con intervalo. NULL = no
+  // proponer fecha. CHECK 1..60.
+  defaultNextServiceMonths Int?     @default(12) @map("default_next_service_months")
+  // Primer service de un auto vendido después de activar el módulo (§6.1,
+  // D6). NULL = no fijarlo. CHECK 1..60.
+  firstServiceAfterMonths  Int?     @default(12) @map("first_service_after_months")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("workshop_settings")
+}
+
+// El vehículo de un cliente (§2.2): distinto de una unidad del stock. Un
+// contacto puede tener varios. "Vigente" = deleted_at y ownership_ended_at en
+// NULL: solo los vigentes reciben recordatorios y cuentan para la unicidad de
+// matrícula, chasis y unidad de origen (índices únicos parciales de la
+// migración).
+model CustomerVehicle {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  // El dueño. Cambia solo por la acción "Cambiar dueño" (§2.2.1), que deja su
+  // fila en customer_vehicle_owner_changes.
+  contactId      String  @map("contact_id") @db.Uuid
+  // Sucursal de referencia: de qué número salen los recordatorios.
+  branchId       String? @map("branch_id") @db.Uuid
+
+  make             String  @db.VarChar(60)
+  model            String  @db.VarChar(80)
+  // CHECK 1900..2100; el "año actual + 1" lo valida la API.
+  year             Int?
+  // Como la escribió el usuario, y normalizada (mayúsculas, solo letras y
+  // dígitos) para buscar y para la unicidad. Las dos o ninguna (CHECK).
+  licensePlate     String? @map("license_plate") @db.VarChar(20)
+  licensePlateNorm String? @map("license_plate_norm") @db.VarChar(20)
+  // Chasis, normalizado igual (CHECK).
+  vin              String? @db.VarChar(30)
+  // Último km conocido. CHECK >= 0.
+  mileage          Int?
+
+  // Fecha de compra, si se sabe (§7). La limpia un cambio de dueño.
+  purchasedOn               DateTime? @map("purchased_on") @db.Date
+  // Próximo service (§6). NULL = sin recordatorio.
+  nextServiceDueOn          DateTime? @map("next_service_due_on") @db.Date
+  // De qué orden salió la fecha. NULL = cargada a mano o primer service.
+  nextServiceSetFromOrderId String?   @map("next_service_set_from_order_id") @db.Uuid
+  // "No recordar": el cliente pidió no recibir recordatorios.
+  remindersOptOut           Boolean   @default(false) @map("reminders_opt_out")
+
+  // La venta de la que salió (§5). NO ACTION: la unidad y la oportunidad usan
+  // soft delete; el vehículo del cliente no depende de que sigan vigentes.
+  sourceVehicleId     String? @map("source_vehicle_id") @db.Uuid
+  sourceOpportunityId String? @map("source_opportunity_id") @db.Uuid
+
+  // "Ya no es del cliente" (§2.2.1). Los dos o ninguno (CHECK).
+  ownershipEndedAt   DateTime?                 @map("ownership_ended_at")
+  ownershipEndReason CustomerVehicleEndReason? @map("ownership_end_reason")
+
+  notes     String?   @db.VarChar(2000)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  organization            Organization  @relation(fields: [organizationId], references: [id])
+  contact                 Contact       @relation("CustomerVehicleOwner", fields: [organizationId, contactId], references: [organizationId, id], map: "customer_vehicles_contact_fkey")
+  branch                  Branch?       @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction, map: "customer_vehicles_branch_fkey")
+  nextServiceSetFromOrder ServiceOrder? @relation("CustomerVehicleNextServiceFromOrder", fields: [organizationId, nextServiceSetFromOrderId], references: [organizationId, id], onDelete: NoAction, map: "customer_vehicles_next_service_order_fkey")
+  sourceVehicle           Vehicle?      @relation("CustomerVehicleSourceVehicle", fields: [organizationId, sourceVehicleId], references: [organizationId, id], onDelete: NoAction, map: "customer_vehicles_source_vehicle_fkey")
+  sourceOpportunity       Opportunity?  @relation("CustomerVehicleSourceOpportunity", fields: [organizationId, sourceOpportunityId], references: [organizationId, id], onDelete: NoAction, map: "customer_vehicles_source_opportunity_fkey")
+
+  serviceOrders ServiceOrder[]               @relation("ServiceOrderCustomerVehicle")
+  ownerChanges  CustomerVehicleOwnerChange[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, contactId])
+  @@index([organizationId, branchId])
+  @@index([organizationId, sourceOpportunityId])
+  @@map("customer_vehicles")
+}
+
+// El registro de cada cambio de dueño o fin de propiedad (§2.2.1, D16). Solo
+// se inserta.
+model CustomerVehicleOwnerChange {
+  id                  String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId      String                         @map("organization_id") @db.Uuid
+  customerVehicleId   String                         @map("customer_vehicle_id") @db.Uuid
+  kind                CustomerVehicleOwnerChangeKind
+  fromContactId       String                         @map("from_contact_id") @db.Uuid
+  // Solo con CAMBIO_DE_DUENO; end_reason solo con FIN (CHECK).
+  toContactId         String?                        @map("to_contact_id") @db.Uuid
+  endReason           CustomerVehicleEndReason?      @map("end_reason")
+  // La fecha de compra que el cambio limpió.
+  previousPurchasedOn DateTime?                      @map("previous_purchased_on") @db.Date
+  // Con PERMUTA: la unidad del stock que coincidió (CHECK).
+  stockVehicleId      String?                        @map("stock_vehicle_id") @db.Uuid
+  note                String?                        @db.VarChar(1000)
+  changedAt           DateTime                       @default(now()) @map("changed_at")
+  // NULL solo con PERMUTA: lo escribe el barrido, no una persona (CHECK).
+  changedById         String?                        @map("changed_by_id") @db.Uuid
+
+  organization    Organization    @relation(fields: [organizationId], references: [id])
+  customerVehicle CustomerVehicle @relation(fields: [organizationId, customerVehicleId], references: [organizationId, id], map: "cv_owner_changes_vehicle_fkey")
+  fromContact     Contact         @relation("CustomerVehicleOwnerChangeFrom", fields: [organizationId, fromContactId], references: [organizationId, id], map: "cv_owner_changes_from_contact_fkey")
+  toContact       Contact?        @relation("CustomerVehicleOwnerChangeTo", fields: [organizationId, toContactId], references: [organizationId, id], onDelete: NoAction, map: "cv_owner_changes_to_contact_fkey")
+  stockVehicle    Vehicle?        @relation("CustomerVehicleOwnerChangeStockVehicle", fields: [organizationId, stockVehicleId], references: [organizationId, id], onDelete: NoAction, map: "cv_owner_changes_stock_vehicle_fkey")
+  changedBy       User?           @relation("CustomerVehicleOwnerChangedBy", fields: [organizationId, changedById], references: [organizationId, id], onDelete: NoAction, map: "cv_owner_changes_changed_by_fkey")
+
+  @@index([organizationId, customerVehicleId, changedAt], map: "cv_owner_changes_vehicle_idx")
+  @@index([organizationId, fromContactId], map: "cv_owner_changes_from_contact_idx")
+  @@index([organizationId, toContactId], map: "cv_owner_changes_to_contact_idx")
+  @@map("customer_vehicle_owner_changes")
+}
+
+// El catálogo del taller: "Service 10.000 km", "Cambio de aceite" (§2.6, D4).
+// No es el ServiceType de la agenda: el taller no tiene por qué usar turnos.
+model ServiceJobType {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId         String    @map("organization_id") @db.Uuid
+  name                   String    @db.VarChar(120)
+  // Próximo service a los N meses. NULL = este trabajo no fija próximo
+  // service. CHECK 1..60.
+  nextServiceAfterMonths Int?      @map("next_service_after_months")
+  isActive               Boolean   @default(true) @map("is_active")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  deletedAt              DateTime? @map("deleted_at")
+
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  orders       ServiceOrderJobType[]
+
+  // El nombre es único entre los no borrados, sin distinguir mayúsculas:
+  // índice parcial service_job_types_name_vigente_key de la migración.
+  @@unique([organizationId, id])
+  @@map("service_job_types")
+}
+
+// La orden de servicio (§2.3). No se borra: se cancela.
+model ServiceOrder {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String             @map("organization_id") @db.Uuid
+  // Consecutivo por organización (D18), de workshop_settings.next_order_number.
+  number            Int
+  customerVehicleId String             @map("customer_vehicle_id") @db.Uuid
+  // Quien trae el auto; por defecto, el dueño.
+  contactId         String             @map("contact_id") @db.Uuid
+  branchId          String             @map("branch_id") @db.Uuid
+  // Turno de la agenda, opcional (§4.4).
+  bookingId         String?            @map("booking_id") @db.Uuid
+  // El encargado de taller: un dato de la orden, no un rol (D9).
+  assigneeId        String?            @map("assignee_id") @db.Uuid
+  status            ServiceOrderStatus @default(AGENDADO)
+
+  scheduledFor DateTime? @map("scheduled_for")
+  // Km al ingreso. CHECK >= 0.
+  mileageIn    Int?      @map("mileage_in")
+  damageNotes  String?   @map("damage_notes") @db.VarChar(4000)
+  // "Notas": qué servicio se hace, texto libre.
+  notes        String?   @db.VarChar(8000)
+  // "Valor": lo que se le cobra al cliente. Informativo: no hay cobro ni
+  // factura. Monto y moneda van juntos (CHECK), moneda ISO 4217.
+  amount       Decimal?  @db.Decimal(14, 2)
+  currency     String?   @db.VarChar(3)
+
+  // La ÚLTIMA vez que la orden entró en cada estado; el historial completo
+  // está en service_order_status_changes. CHECKs: ENTREGADO exige
+  // delivered_at, CANCELADO exige cancelled_at y el motivo.
+  receivedAt    DateTime? @map("received_at")
+  workStartedAt DateTime? @map("work_started_at")
+  readyAt       DateTime? @map("ready_at")
+  deliveredAt   DateTime? @map("delivered_at")
+  cancelledAt   DateTime? @map("cancelled_at")
+  cancelReason  String?   @map("cancel_reason") @db.VarChar(500)
+
+  // La fecha de próximo service que se fijó al entregar (§6.1).
+  nextServiceDueOn DateTime? @map("next_service_due_on") @db.Date
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization    Organization    @relation(fields: [organizationId], references: [id])
+  customerVehicle CustomerVehicle @relation("ServiceOrderCustomerVehicle", fields: [organizationId, customerVehicleId], references: [organizationId, id], map: "service_orders_customer_vehicle_fkey")
+  contact         Contact         @relation("ServiceOrderContact", fields: [organizationId, contactId], references: [organizationId, id], map: "service_orders_contact_fkey")
+  branch          Branch          @relation(fields: [organizationId, branchId], references: [organizationId, id], map: "service_orders_branch_fkey")
+  booking         Booking?        @relation(fields: [organizationId, bookingId], references: [organizationId, id], onDelete: NoAction, map: "service_orders_booking_fkey")
+  assignee        User?           @relation("ServiceOrderAssignee", fields: [organizationId, assigneeId], references: [organizationId, id], onDelete: NoAction, map: "service_orders_assignee_fkey")
+  createdBy       User            @relation("ServiceOrderCreatedBy", fields: [organizationId, createdById], references: [organizationId, id], map: "service_orders_created_by_fkey")
+
+  statusChanges           ServiceOrderStatusChange[]
+  approvals               ServiceOrderApproval[]
+  jobTypes                ServiceOrderJobType[]
+  photos                  ServiceOrderPhoto[]
+  vehiclesWithNextService CustomerVehicle[]          @relation("CustomerVehicleNextServiceFromOrder")
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, number])
+  // Un mismo auto no puede estar dos veces en el taller: índice único parcial
+  // service_orders_vehiculo_en_taller_key de la migración.
+  @@index([organizationId, status, branchId])
+  @@index([organizationId, customerVehicleId, createdAt], map: "service_orders_vehicle_created_idx")
+  @@index([organizationId, contactId])
+  @@index([organizationId, bookingId])
+  @@index([organizationId, assigneeId])
+  @@map("service_orders")
+}
+
+// El historial de estados de una orden (§2.4). Solo se inserta, en la misma
+// transacción que el cambio.
+model ServiceOrderStatusChange {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  serviceOrderId String              @map("service_order_id") @db.Uuid
+  // NULL en el alta. CHECK: distinto de to_status.
+  fromStatus     ServiceOrderStatus? @map("from_status")
+  toStatus       ServiceOrderStatus  @map("to_status")
+  changedAt      DateTime            @default(now()) @map("changed_at")
+  changedById    String              @map("changed_by_id") @db.Uuid
+  note           String?             @db.VarChar(1000)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  serviceOrder ServiceOrder @relation(fields: [organizationId, serviceOrderId], references: [organizationId, id], map: "so_status_changes_order_fkey")
+  changedBy    User         @relation("ServiceOrderStatusChangedBy", fields: [organizationId, changedById], references: [organizationId, id], map: "so_status_changes_changed_by_fkey")
+
+  @@index([organizationId, serviceOrderId, changedAt], map: "so_status_changes_order_idx")
+  @@map("service_order_status_changes")
+}
+
+// Una aprobación (o un rechazo) de un trabajo extra, registrada a mano (§2.5).
+// Es solo un registro: no cambia el Valor de la orden.
+model ServiceOrderApproval {
+  id             String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String                       @map("organization_id") @db.Uuid
+  serviceOrderId String                       @map("service_order_id") @db.Uuid
+  // Qué se le consultó al cliente.
+  description    String                       @db.VarChar(2000)
+  decision       ServiceOrderApprovalDecision
+  // Quién respondió, del lado del cliente: "el titular", "su hijo".
+  approverName   String                       @map("approver_name") @db.VarChar(200)
+  channel        ServiceOrderApprovalChannel
+  // Cuándo respondió (puede ser antes de registrarlo).
+  decidedAt      DateTime                     @map("decided_at")
+  // Cuánto se le dijo, opcional. Monto y moneda van juntos (CHECK).
+  amount         Decimal?                     @db.Decimal(14, 2)
+  currency       String?                      @db.VarChar(3)
+  recordedById   String                       @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime                     @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  serviceOrder ServiceOrder @relation(fields: [organizationId, serviceOrderId], references: [organizationId, id], map: "so_approvals_order_fkey")
+  recordedBy   User         @relation("ServiceOrderApprovalRecordedBy", fields: [organizationId, recordedById], references: [organizationId, id], map: "so_approvals_recorded_by_fkey")
+
+  @@index([organizationId, serviceOrderId], map: "so_approvals_order_idx")
+  @@map("service_order_approvals")
+}
+
+// Los tipos de service de una orden (§2.6, D5): manda el intervalo menor.
+model ServiceOrderJobType {
+  organizationId   String   @map("organization_id") @db.Uuid
+  serviceOrderId   String   @map("service_order_id") @db.Uuid
+  serviceJobTypeId String   @map("service_job_type_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  serviceOrder   ServiceOrder   @relation(fields: [organizationId, serviceOrderId], references: [organizationId, id], map: "so_job_types_order_fkey")
+  serviceJobType ServiceJobType @relation(fields: [organizationId, serviceJobTypeId], references: [organizationId, id], map: "so_job_types_job_type_fkey")
+
+  @@id([serviceOrderId, serviceJobTypeId])
+  @@index([organizationId, serviceOrderId], map: "so_job_types_order_idx")
+  @@index([organizationId, serviceJobTypeId], map: "so_job_types_job_type_idx")
+  @@map("service_order_job_types")
+}
+
+// Fotos de antes y después de una orden, OPCIONALES (§4.9). El objeto vive en
+// el bucket privado service-order-photos de Supabase Storage; acá solo el
+// path. Hasta 10 por fase y por orden (lo cuenta el service, con lock de la
+// orden).
+model ServiceOrderPhoto {
+  id             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String                 @map("organization_id") @db.Uuid
+  serviceOrderId String                 @map("service_order_id") @db.Uuid
+  phase          ServiceOrderPhotoPhase
+  storagePath    String                 @unique @map("storage_path") @db.VarChar(500)
+  // CHECK >= 0.
+  position       Int
+  uploadedById   String                 @map("uploaded_by_id") @db.Uuid
+  createdAt      DateTime               @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  serviceOrder ServiceOrder @relation(fields: [organizationId, serviceOrderId], references: [organizationId, id], map: "so_photos_order_fkey")
+  uploadedBy   User         @relation("ServiceOrderPhotoUploadedBy", fields: [organizationId, uploadedById], references: [organizationId, id], map: "so_photos_uploaded_by_fkey")
+
+  @@index([organizationId, serviceOrderId, phase, position], map: "so_photos_order_idx")
+  @@map("service_order_photos")
 }

@@ -288,7 +288,14 @@ from (
       ('whatsapp_business_connections'),
       -- El lock del turno del agente como lease (conLockDeConversacion,
       -- migración 20261117120000).
-      ('agent_turn_leases')
+      ('agent_turn_leases'),
+      -- El módulo Servicios, el taller de postventa (docs/servicios.md, S1,
+      -- migración 20261118120000): las diez tablas con organization_id propio y la
+      -- política uniforme.
+      ('organization_modules'), ('workshop_settings'), ('customer_vehicles'),
+      ('customer_vehicle_owner_changes'), ('service_job_types'), ('service_orders'),
+      ('service_order_status_changes'), ('service_order_approvals'),
+      ('service_order_job_types'), ('service_order_photos')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -428,7 +435,21 @@ from (
     -- La tarea después del turno de una clínica (migración 20261113120000,
     -- docs/rubros.md §7.3): una sola tarea por regla y por turno.
     ('activities_follow_up_por_turno_key',
-     'CREATE UNIQUE INDEX activities_follow_up_por_turno_key ON public.activities USING btree (source_automation_id, source_booking_id) WHERE (source_booking_id IS NOT NULL)')
+     'CREATE UNIQUE INDEX activities_follow_up_por_turno_key ON public.activities USING btree (source_automation_id, source_booking_id) WHERE (source_booking_id IS NOT NULL)'),
+    -- El módulo Servicios (docs/servicios.md §2.2, §2.3 y §2.6, migración 20261118120000):
+    -- matrícula, chasis y unidad de origen únicos entre los vehículos de
+    -- cliente VIGENTES; el nombre de un tipo de service, entre los no borrados;
+    -- y un mismo auto no está dos veces en el taller.
+    ('customer_vehicles_plate_vigente_key',
+     'CREATE UNIQUE INDEX customer_vehicles_plate_vigente_key ON public.customer_vehicles USING btree (organization_id, license_plate_norm) WHERE ((deleted_at IS NULL) AND (ownership_ended_at IS NULL) AND (license_plate_norm IS NOT NULL))'),
+    ('customer_vehicles_source_vehicle_vigente_key',
+     'CREATE UNIQUE INDEX customer_vehicles_source_vehicle_vigente_key ON public.customer_vehicles USING btree (organization_id, source_vehicle_id) WHERE ((deleted_at IS NULL) AND (ownership_ended_at IS NULL) AND (source_vehicle_id IS NOT NULL))'),
+    ('customer_vehicles_vin_vigente_key',
+     'CREATE UNIQUE INDEX customer_vehicles_vin_vigente_key ON public.customer_vehicles USING btree (organization_id, vin) WHERE ((deleted_at IS NULL) AND (ownership_ended_at IS NULL) AND (vin IS NOT NULL))'),
+    ('service_job_types_name_vigente_key',
+     'CREATE UNIQUE INDEX service_job_types_name_vigente_key ON public.service_job_types USING btree (organization_id, lower((name)::text)) WHERE (deleted_at IS NULL)'),
+    ('service_orders_vehiculo_en_taller_key',
+     'CREATE UNIQUE INDEX service_orders_vehiculo_en_taller_key ON public.service_orders USING btree (organization_id, customer_vehicle_id) WHERE (status = ANY (ARRAY[''RECIBIDO''::"ServiceOrderStatus", ''EN_TRABAJO''::"ServiceOrderStatus", ''ESPERANDO_APROBACION''::"ServiceOrderStatus", ''LISTO_PARA_RETIRAR''::"ServiceOrderStatus"]))')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
@@ -657,7 +678,40 @@ from (
     ('clinic_settings_extra_urgency_terms_max_check', 'clinic_settings',
      'CHECK (cardinality(extra_urgency_terms) <= 100)'),
     ('clinic_settings_extra_clinical_terms_max_check', 'clinic_settings',
-     'CHECK (cardinality(extra_clinical_terms) <= 100)')
+     'CHECK (cardinality(extra_clinical_terms) <= 100)'),
+    -- El módulo Servicios (docs/servicios.md §2, migración 20261118120000).
+    ('cv_owner_changes_kind_check', 'customer_vehicle_owner_changes',
+     'CHECK ((((kind = ''CAMBIO_DE_DUENO''::"CustomerVehicleOwnerChangeKind") AND (to_contact_id IS NOT NULL) AND (end_reason IS NULL)) OR ((kind = ''FIN''::"CustomerVehicleOwnerChangeKind") AND (to_contact_id IS NULL) AND (end_reason IS NOT NULL))))'),
+    ('cv_owner_changes_permuta_check', 'customer_vehicle_owner_changes',
+     'CHECK ((((stock_vehicle_id IS NULL) OR (end_reason = ''PERMUTA''::"CustomerVehicleEndReason")) AND ((changed_by_id IS NOT NULL) OR (end_reason = ''PERMUTA''::"CustomerVehicleEndReason"))))'),
+    ('customer_vehicles_numbers_check', 'customer_vehicles',
+     'CHECK ((((year IS NULL) OR ((year >= 1900) AND (year <= 2100))) AND ((mileage IS NULL) OR (mileage >= 0))))'),
+    ('customer_vehicles_ownership_end_check', 'customer_vehicles',
+     'CHECK (((ownership_ended_at IS NULL) = (ownership_end_reason IS NULL)))'),
+    ('customer_vehicles_plate_check', 'customer_vehicles',
+     'CHECK ((((license_plate IS NULL) = (license_plate_norm IS NULL)) AND ((license_plate_norm IS NULL) OR ((license_plate_norm)::text ~ ''^[A-Z0-9]+$''::text)) AND ((vin IS NULL) OR ((vin)::text ~ ''^[A-Z0-9]+$''::text))))'),
+    ('organization_modules_disabled_check', 'organization_modules',
+     'CHECK (((disabled_at IS NULL) = (disabled_by_id IS NULL)))'),
+    ('organization_modules_module_check', 'organization_modules',
+     'CHECK (((module)::text = ''servicios''::text))'),
+    ('service_job_types_months_check', 'service_job_types',
+     'CHECK (((next_service_after_months IS NULL) OR ((next_service_after_months >= 1) AND (next_service_after_months <= 60))))'),
+    ('so_approvals_amount_check', 'service_order_approvals',
+     'CHECK ((((amount IS NULL) = (currency IS NULL)) AND ((amount IS NULL) OR (amount >= (0)::numeric)) AND ((currency IS NULL) OR ((currency)::text ~ ''^[A-Z]{3}$''::text))))'),
+    ('so_photos_position_check', 'service_order_photos',
+     'CHECK (("position" >= 0))'),
+    ('so_status_changes_distinct_check', 'service_order_status_changes',
+     'CHECK (((from_status IS NULL) OR (from_status <> to_status)))'),
+    ('service_orders_amount_check', 'service_orders',
+     'CHECK ((((amount IS NULL) = (currency IS NULL)) AND ((amount IS NULL) OR (amount >= (0)::numeric)) AND ((currency IS NULL) OR ((currency)::text ~ ''^[A-Z]{3}$''::text))))'),
+    ('service_orders_numbers_check', 'service_orders',
+     'CHECK (((number >= 1) AND ((mileage_in IS NULL) OR (mileage_in >= 0))))'),
+    ('service_orders_status_dates_check', 'service_orders',
+     'CHECK ((((status <> ''ENTREGADO''::"ServiceOrderStatus") OR (delivered_at IS NOT NULL)) AND ((status <> ''CANCELADO''::"ServiceOrderStatus") OR ((cancelled_at IS NOT NULL) AND (cancel_reason IS NOT NULL)))))'),
+    ('workshop_settings_months_check', 'workshop_settings',
+     'CHECK ((((default_next_service_months IS NULL) OR ((default_next_service_months >= 1) AND (default_next_service_months <= 60))) AND ((first_service_after_months IS NULL) OR ((first_service_after_months >= 1) AND (first_service_after_months <= 60)))))'),
+    ('workshop_settings_next_order_number_check', 'workshop_settings',
+     'CHECK ((next_order_number >= 1))')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -1054,7 +1108,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 95 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 126 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -1078,7 +1132,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 95 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 126 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1316,7 +1370,36 @@ from (
     -- §5.3, migración 20261114120000): quien cambió es de la misma
     -- organización. Una FK bien formada hacia agents o resources pasaría la
     -- fila 14 entera.
-    ('clinic_health_settings_changes_changed_by_fkey|clinic_health_settings_changes(organization_id,changed_by_id)->users(organization_id,id)')
+    ('clinic_health_settings_changes_changed_by_fkey|clinic_health_settings_changes(organization_id,changed_by_id)->users(organization_id,id)'),
+    -- El módulo Servicios (docs/servicios.md §2, migración 20261118120000): cada FK del
+    -- taller apunta a su padre de diseño. Una FK bien formada hacia otro padre
+    -- con UNIQUE (organization_id, id) —el contacto de una orden apuntando a
+    -- users, la orden de una foto apuntando a customer_vehicles— pasaría la
+    -- fila 14 entera.
+    ('customer_vehicles_branch_fkey|customer_vehicles(organization_id,branch_id)->branches(organization_id,id)'),
+    ('customer_vehicles_contact_fkey|customer_vehicles(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('customer_vehicles_next_service_order_fkey|customer_vehicles(organization_id,next_service_set_from_order_id)->service_orders(organization_id,id)'),
+    ('customer_vehicles_source_opportunity_fkey|customer_vehicles(organization_id,source_opportunity_id)->opportunities(organization_id,id)'),
+    ('customer_vehicles_source_vehicle_fkey|customer_vehicles(organization_id,source_vehicle_id)->vehicles(organization_id,id)'),
+    ('cv_owner_changes_changed_by_fkey|customer_vehicle_owner_changes(organization_id,changed_by_id)->users(organization_id,id)'),
+    ('cv_owner_changes_from_contact_fkey|customer_vehicle_owner_changes(organization_id,from_contact_id)->contacts(organization_id,id)'),
+    ('cv_owner_changes_stock_vehicle_fkey|customer_vehicle_owner_changes(organization_id,stock_vehicle_id)->vehicles(organization_id,id)'),
+    ('cv_owner_changes_to_contact_fkey|customer_vehicle_owner_changes(organization_id,to_contact_id)->contacts(organization_id,id)'),
+    ('cv_owner_changes_vehicle_fkey|customer_vehicle_owner_changes(organization_id,customer_vehicle_id)->customer_vehicles(organization_id,id)'),
+    ('service_orders_assignee_fkey|service_orders(organization_id,assignee_id)->users(organization_id,id)'),
+    ('service_orders_booking_fkey|service_orders(organization_id,booking_id)->bookings(organization_id,id)'),
+    ('service_orders_branch_fkey|service_orders(organization_id,branch_id)->branches(organization_id,id)'),
+    ('service_orders_contact_fkey|service_orders(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('service_orders_created_by_fkey|service_orders(organization_id,created_by_id)->users(organization_id,id)'),
+    ('service_orders_customer_vehicle_fkey|service_orders(organization_id,customer_vehicle_id)->customer_vehicles(organization_id,id)'),
+    ('so_approvals_order_fkey|service_order_approvals(organization_id,service_order_id)->service_orders(organization_id,id)'),
+    ('so_approvals_recorded_by_fkey|service_order_approvals(organization_id,recorded_by_id)->users(organization_id,id)'),
+    ('so_job_types_job_type_fkey|service_order_job_types(organization_id,service_job_type_id)->service_job_types(organization_id,id)'),
+    ('so_job_types_order_fkey|service_order_job_types(organization_id,service_order_id)->service_orders(organization_id,id)'),
+    ('so_photos_order_fkey|service_order_photos(organization_id,service_order_id)->service_orders(organization_id,id)'),
+    ('so_photos_uploaded_by_fkey|service_order_photos(organization_id,uploaded_by_id)->users(organization_id,id)'),
+    ('so_status_changes_changed_by_fkey|service_order_status_changes(organization_id,changed_by_id)->users(organization_id,id)'),
+    ('so_status_changes_order_fkey|service_order_status_changes(organization_id,service_order_id)->service_orders(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
@@ -1393,7 +1476,14 @@ from (
     ('booking_messages_sin_respuesta_idx',
      'CREATE INDEX booking_messages_sin_respuesta_idx ON public.booking_messages USING btree (sent_at) WHERE ((status = ''SENT''::"BookingMessageStatus") AND (responded_at IS NULL) AND (no_response_task_at IS NULL))'),
     ('sources_org_created_at_idx',
-     'CREATE INDEX sources_org_created_at_idx ON public.sources USING btree (organization_id, created_at) WHERE (deleted_at IS NULL)')
+     'CREATE INDEX sources_org_created_at_idx ON public.sources USING btree (organization_id, created_at) WHERE (deleted_at IS NULL)'),
+    -- El módulo Servicios (docs/servicios.md §6.2 y §7.2, migración 20261118120000): los
+    -- barridos diarios del próximo service y del recambio, solo sobre vehículos
+    -- vigentes.
+    ('customer_vehicles_next_service_idx',
+     'CREATE INDEX customer_vehicles_next_service_idx ON public.customer_vehicles USING btree (organization_id, next_service_due_on) WHERE ((deleted_at IS NULL) AND (ownership_ended_at IS NULL) AND (NOT reminders_opt_out) AND (next_service_due_on IS NOT NULL))'),
+    ('customer_vehicles_purchased_on_idx',
+     'CREATE INDEX customer_vehicles_purchased_on_idx ON public.customer_vehicles USING btree (organization_id, purchased_on) WHERE ((deleted_at IS NULL) AND (ownership_ended_at IS NULL) AND (purchased_on IS NOT NULL))')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
