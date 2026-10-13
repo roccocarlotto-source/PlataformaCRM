@@ -40,6 +40,11 @@ import { appendLeadNotes, getContactById, mergeLeadAiData } from "./contact.serv
 //   qr_follow_ups.contact_id                 seguimientos con QR
 //   contacts.merged_into_id                  los que ya se habían unido a
 //                                            este: pasan a apuntar al que queda
+//   customer_vehicles.contact_id             vehículos de clientes (Servicios,
+//                                            docs/servicios.md §2.8)
+//   customer_vehicle_owner_changes.from_contact_id / .to_contact_id
+//                                            el registro de cambios de dueño
+//   service_orders.contact_id                órdenes de servicio
 //
 // LOS CHOQUES CON ÍNDICES ÚNICOS, y cómo se resuelven:
 //   - contacts_org_email_unique (email por organización, solo no borrados) y
@@ -71,12 +76,16 @@ export const FKS_A_CONTACTS = [
   "contact_channel_identities.contact_id",
   "contacts.merged_into_id",
   "conversations.contact_id",
+  "customer_vehicle_owner_changes.from_contact_id",
+  "customer_vehicle_owner_changes.to_contact_id",
+  "customer_vehicles.contact_id",
   "discount_voucher_follow_ups.contact_id",
   "discount_vouchers.contact_id",
   "ingestion_events.promoted_contact_id",
   "inquiry_follow_ups.contact_id",
   "opportunities.contact_id",
   "qr_follow_ups.contact_id",
+  "service_orders.contact_id",
 ] as const;
 
 // Los campos que se eligen uno por uno. leadBudget es el par monto + moneda:
@@ -407,6 +416,9 @@ export async function contarRelaciones(
     seguimientosQr,
     seguimientosDeConsultas,
     recordatorios,
+    vehiculosDeCliente,
+    ordenesDeServicio,
+    cambiosDeDueno,
     unidos,
   ] = await Promise.all([
     db.activity.count({ where: { ...w, deletedAt: null } }),
@@ -421,6 +433,13 @@ export async function contarRelaciones(
     db.inquiryFollowUp.count({ where: w }),
     // R13: los recordatorios de turno de una clínica.
     db.bookingMessage.count({ where: w }),
+    // Servicios (docs/servicios.md §2.8): sus vehículos, sus órdenes y los
+    // cambios de dueño en los que figura, de un lado o del otro.
+    db.customerVehicle.count({ where: w }),
+    db.serviceOrder.count({ where: w }),
+    db.customerVehicleOwnerChange.count({
+      where: { organizationId, OR: [{ fromContactId: contactId }, { toContactId: contactId }] },
+    }),
     db.contact.count({ where: { organizationId, mergedIntoId: contactId } }),
   ]);
   return {
@@ -435,6 +454,9 @@ export async function contarRelaciones(
     seguimientosQr,
     seguimientosDeConsultas,
     recordatorios,
+    vehiculosDeCliente,
+    ordenesDeServicio,
+    cambiosDeDueno,
     unidos,
   };
 }
@@ -555,6 +577,21 @@ export async function unirContactos(
         seguimientosDeConsultas: (await tx.inquiryFollowUp.updateMany({ where: de, data: a }))
           .count,
         recordatorios: (await tx.bookingMessage.updateMany({ where: de, data: a })).count,
+        vehiculosDeCliente: (await tx.customerVehicle.updateMany({ where: de, data: a })).count,
+        ordenesDeServicio: (await tx.serviceOrder.updateMany({ where: de, data: a })).count,
+        cambiosDeDueno:
+          (
+            await tx.customerVehicleOwnerChange.updateMany({
+              where: { organizationId, fromContactId: absorbedId },
+              data: { fromContactId: keptId },
+            })
+          ).count +
+          (
+            await tx.customerVehicleOwnerChange.updateMany({
+              where: { organizationId, toContactId: absorbedId },
+              data: { toContactId: keptId },
+            })
+          ).count,
         unidos: (
           await tx.contact.updateMany({
             where: { organizationId, mergedIntoId: absorbedId },

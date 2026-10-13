@@ -213,6 +213,9 @@ after(async () => {
     if (!id) continue;
     const where = { organizationId: id };
     await prisma.activity.deleteMany({ where });
+    await prisma.customerVehicleOwnerChange.deleteMany({ where });
+    await prisma.serviceOrder.deleteMany({ where });
+    await prisma.customerVehicle.deleteMany({ where });
     await prisma.bookingMessage.deleteMany({ where });
     await prisma.booking.deleteMany({ where });
     await prisma.contactChannelIdentity.deleteMany({ where });
@@ -363,6 +366,42 @@ async function colgarDeTodo(contactId: string) {
   await prisma.ingestionEvent.create({
     data: { organizationId: orgId, sourceId, rawPayload: {}, promotedContactId: contactId },
   });
+  // Servicios (docs/servicios.md §2.8): un vehículo del cliente con una orden,
+  // y un cambio de dueño hacia y desde el contacto.
+  const vehiculo = await prisma.customerVehicle.create({
+    data: { organizationId: orgId, contactId, make: "Toyota", model: "Hilux" },
+  });
+  await prisma.serviceOrder.create({
+    data: {
+      organizationId: orgId,
+      number: Math.floor(Math.random() * 1_000_000_000) + 1,
+      customerVehicleId: vehiculo.id,
+      contactId,
+      branchId,
+      createdById: admin.userId,
+    },
+  });
+  const otro = await contacto();
+  await prisma.customerVehicleOwnerChange.create({
+    data: {
+      organizationId: orgId,
+      customerVehicleId: vehiculo.id,
+      kind: "CAMBIO_DE_DUENO",
+      fromContactId: otro.id,
+      toContactId: contactId,
+      changedById: admin.userId,
+    },
+  });
+  await prisma.customerVehicleOwnerChange.create({
+    data: {
+      organizationId: orgId,
+      customerVehicleId: vehiculo.id,
+      kind: "FIN",
+      fromContactId: contactId,
+      endReason: "OTRO",
+      changedById: admin.userId,
+    },
+  });
   const yaUnido = await contacto({ deletedAt: new Date(), mergedIntoId: contactId });
   return { oppId: opp.id, conversationId: conv.id, yaUnidoId: yaUnido.id };
 }
@@ -382,6 +421,14 @@ async function contarDe(contactId: string) {
     }),
     opportunities: await prisma.opportunity.count({ where: w }),
     qr_follow_ups: await prisma.qrFollowUp.count({ where: w }),
+    customer_vehicles: await prisma.customerVehicle.count({ where: w }),
+    service_orders: await prisma.serviceOrder.count({ where: w }),
+    customer_vehicle_owner_changes_from: await prisma.customerVehicleOwnerChange.count({
+      where: { organizationId: orgId, fromContactId: contactId },
+    }),
+    customer_vehicle_owner_changes_to: await prisma.customerVehicleOwnerChange.count({
+      where: { organizationId: orgId, toContactId: contactId },
+    }),
     merged: await prisma.contact.count({
       where: { organizationId: orgId, mergedIntoId: contactId },
     }),
@@ -438,6 +485,9 @@ test("se mueven TODAS las relaciones; el unido queda dado de baja con mergedInto
   // El unido se creó después: es el más reciente, y su email no está vacío.
   assert.equal(vista.defaults.email, "absorbed");
   assert.equal(vista.aMover.oportunidades, 1);
+  assert.equal(vista.aMover.vehiculosDeCliente, 1);
+  assert.equal(vista.aMover.ordenesDeServicio, 1);
+  assert.equal(vista.aMover.cambiosDeDueno, 2, "uno hacia el contacto y otro desde él");
 
   const res = await call("POST", `/api/contacts/${kept.id}/merge`, admin.accessToken, {
     absorbedId: absorbed.id,

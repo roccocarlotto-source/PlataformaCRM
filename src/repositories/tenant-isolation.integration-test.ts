@@ -660,6 +660,19 @@ after(async () => {
   // de Resource/Branch; ServiceType de Branch y Resource.
   // R13: los recordatorios cuelgan de Booking, Contact y Automation.
   await prisma.bookingMessage.deleteMany({ where: { organizationId: ambas } });
+  // Servicios (docs/servicios.md, S1): las hijas de la orden, la orden (que
+  // cuelga del turno, la sucursal, el contacto y el usuario de B) y el
+  // vehículo del cliente. El ciclo vehículo <-> orden no se arma en el test.
+  await prisma.serviceOrderPhoto.deleteMany({ where: { organizationId: ambas } });
+  await prisma.serviceOrderJobType.deleteMany({ where: { organizationId: ambas } });
+  await prisma.serviceOrderApproval.deleteMany({ where: { organizationId: ambas } });
+  await prisma.serviceOrderStatusChange.deleteMany({ where: { organizationId: ambas } });
+  await prisma.serviceOrder.deleteMany({ where: { organizationId: ambas } });
+  await prisma.serviceJobType.deleteMany({ where: { organizationId: ambas } });
+  await prisma.customerVehicleOwnerChange.deleteMany({ where: { organizationId: ambas } });
+  await prisma.customerVehicle.deleteMany({ where: { organizationId: ambas } });
+  await prisma.workshopSettings.deleteMany({ where: { organizationId: ambas } });
+  await prisma.organizationModule.deleteMany({ where: { organizationId: ambas } });
   await prisma.automation.deleteMany({
     where: { organizationId: ambas, triggerType: "booking.reminder_due" },
   });
@@ -3069,6 +3082,178 @@ test("H-01 calendario por profesional: A no toca el calendario ni el canal del p
       data: { googleCalendarId: null },
     });
   }
+});
+
+// Servicios (docs/servicios.md, S1). Todavía sin repositorios: lo que esta
+// migración garantiza por sí sola son las FKs compuestas (C-3). Una fila de A
+// no puede colgar del contacto, la sucursal, el turno, el usuario, el vehículo
+// del cliente, la orden ni el tipo de service de B, aunque el código le pase
+// esos ids: la base la rechaza. Los H-01 de las escrituras llegan con los
+// repositorios (S2 en adelante). La marca del módulo y la configuración del
+// taller solo cuelgan de la organización: la de B no se ve filtrando por A.
+test("H-01 Servicios: una fila de A no puede apuntar al contacto, la sucursal, el turno, el usuario, el vehículo, la orden ni el tipo de service de B (FKs compuestas)", async () => {
+  await prisma.organizationModule.create({
+    data: { organizationId: fx.orgB.id, module: "servicios", enabledById: randomUUID() },
+  });
+  await prisma.workshopSettings.create({ data: { organizationId: fx.orgB.id } });
+  assert.equal(await prisma.organizationModule.count({ where: { organizationId: fx.orgA.id } }), 0);
+  assert.equal(await prisma.workshopSettings.count({ where: { organizationId: fx.orgA.id } }), 0);
+
+  const vehiculoB = await prisma.customerVehicle.create({
+    data: {
+      organizationId: fx.orgB.id,
+      contactId: fx.contactB.id,
+      branchId: fx.branchB.id,
+      make: "Toyota",
+      model: "Hilux",
+    },
+  });
+  const tipoB = await prisma.serviceJobType.create({
+    data: { organizationId: fx.orgB.id, name: "Service 10.000 km", nextServiceAfterMonths: 12 },
+  });
+  const ordenB = await prisma.serviceOrder.create({
+    data: {
+      organizationId: fx.orgB.id,
+      number: 1,
+      customerVehicleId: vehiculoB.id,
+      contactId: fx.contactB.id,
+      branchId: fx.branchB.id,
+      bookingId: fx.bookingB.id,
+      assigneeId: fx.userB.id,
+      createdById: fx.userB.id,
+    },
+  });
+  const deA = { organizationId: fx.orgA.id };
+  const rechazos: [string, () => Promise<unknown>][] = [
+    [
+      "customer_vehicles -> contacts de B",
+      () =>
+        prisma.customerVehicle.create({
+          data: { ...deA, contactId: fx.contactB.id, make: "Ford", model: "Ranger" },
+        }),
+    ],
+    [
+      "customer_vehicles -> branches de B",
+      () =>
+        prisma.customerVehicle.create({
+          data: {
+            ...deA,
+            contactId: fx.contactA.id,
+            branchId: fx.branchB.id,
+            make: "Ford",
+            model: "Ranger",
+          },
+        }),
+    ],
+    [
+      "customer_vehicles -> opportunities de B",
+      () =>
+        prisma.customerVehicle.create({
+          data: {
+            ...deA,
+            contactId: fx.contactA.id,
+            sourceOpportunityId: fx.opportunityB.id,
+            make: "Ford",
+            model: "Ranger",
+          },
+        }),
+    ],
+    [
+      "customer_vehicles -> service_orders de B (próximo service)",
+      () =>
+        prisma.customerVehicle.create({
+          data: {
+            ...deA,
+            contactId: fx.contactA.id,
+            nextServiceSetFromOrderId: ordenB.id,
+            make: "Ford",
+            model: "Ranger",
+          },
+        }),
+    ],
+    [
+      "customer_vehicle_owner_changes -> customer_vehicles de B",
+      () =>
+        prisma.customerVehicleOwnerChange.create({
+          data: {
+            ...deA,
+            customerVehicleId: vehiculoB.id,
+            kind: "FIN",
+            fromContactId: fx.contactA.id,
+            endReason: "PERMUTA",
+          },
+        }),
+    ],
+    [
+      "service_job_types de A en una orden de B",
+      () =>
+        prisma.serviceOrderJobType.create({
+          data: { ...deA, serviceOrderId: ordenB.id, serviceJobTypeId: tipoB.id },
+        }),
+    ],
+    [
+      "service_orders -> customer_vehicles de B",
+      () =>
+        prisma.serviceOrder.create({
+          data: {
+            ...deA,
+            number: 1,
+            customerVehicleId: vehiculoB.id,
+            contactId: fx.contactA.id,
+            branchId: fx.branchB.id,
+            createdById: fx.userB.id,
+          },
+        }),
+    ],
+    [
+      "service_order_status_changes -> service_orders de B",
+      () =>
+        prisma.serviceOrderStatusChange.create({
+          data: {
+            ...deA,
+            serviceOrderId: ordenB.id,
+            toStatus: "RECIBIDO",
+            changedById: fx.userB.id,
+          },
+        }),
+    ],
+    [
+      "service_order_approvals -> service_orders de B",
+      () =>
+        prisma.serviceOrderApproval.create({
+          data: {
+            ...deA,
+            serviceOrderId: ordenB.id,
+            description: "Pastillas de freno",
+            decision: "APROBADO",
+            approverName: "El titular",
+            channel: "TELEFONO",
+            decidedAt: new Date(),
+            recordedById: fx.userB.id,
+          },
+        }),
+    ],
+    [
+      "service_order_photos -> service_orders de B",
+      () =>
+        prisma.serviceOrderPhoto.create({
+          data: {
+            ...deA,
+            serviceOrderId: ordenB.id,
+            phase: "ANTES",
+            storagePath: `h01/${randomUUID()}.jpg`,
+            position: 0,
+            uploadedById: fx.userB.id,
+          },
+        }),
+    ],
+  ];
+  for (const [etiqueta, escribir] of rechazos) await assertViolaFk(escribir, etiqueta);
+
+  // Lo de B sigue igual.
+  const igual = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: ordenB.id } });
+  assert.equal(igual.status, "AGENDADO");
+  assert.equal(await prisma.serviceOrderJobType.count({ where: { serviceOrderId: ordenB.id } }), 0);
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {
