@@ -520,10 +520,12 @@ model ServiceOrderApproval {
 - **Es solo un registro.** No cambia el Valor de la orden por su cuenta: el
   diálogo ofrece "Sumar al valor de la orden" y, si se marca, hace un `PATCH`
   aparte en la misma transacción.
-- **Salir de ESPERANDO_APROBACION exige una aprobación registrada** después de
-  la entrada a ese estado, sea aprobada o rechazada. Si no hay, da 409
-  `FALTA_REGISTRAR_LA_APROBACION`. Es la única regla del módulo que obliga a
-  registrar algo, y es lo que hace útil el estado.
+- **Salir de ESPERANDO_APROBACION hacia EN_TRABAJO o LISTO_PARA_RETIRAR exige
+  una aprobación registrada** después de la entrada a ese estado, sea aprobada o
+  rechazada. Si no hay, da 409 `FALTA_REGISTRAR_LA_APROBACION`. Es la única
+  regla del módulo que obliga a registrar algo, y es lo que hace útil el estado.
+- **Cancelar no la exige** (Rocco, 2026-10-14): cancelar ya pide el motivo, y
+  alcanza. Cubre al cliente que nunca respondió.
 - Con `channel = WHATSAPP`, la ficha ofrece abrir la conversación del contacto
   para ver el mensaje. **No se vincula a un mensaje concreto** en esta versión.
 
@@ -634,7 +636,7 @@ Las tablas con FK a `contacts` son `customer_vehicles`, `service_orders`,
 | `AGENDADO` | `RECIBIDO`, `CANCELADO` |
 | `RECIBIDO` | `EN_TRABAJO`, `ESPERANDO_APROBACION`, `LISTO_PARA_RETIRAR`, `CANCELADO` |
 | `EN_TRABAJO` | `ESPERANDO_APROBACION`, `LISTO_PARA_RETIRAR`, `CANCELADO` |
-| `ESPERANDO_APROBACION` | `EN_TRABAJO`, `LISTO_PARA_RETIRAR`, `CANCELADO` (exige aprobación registrada, §2.5) |
+| `ESPERANDO_APROBACION` | `EN_TRABAJO`, `LISTO_PARA_RETIRAR` (exigen aprobación registrada, §2.5), `CANCELADO` (no la exige: pide el motivo) |
 | `LISTO_PARA_RETIRAR` | `ENTREGADO`, `EN_TRABAJO` (volvió a trabajo: el cliente reclamó algo antes de retirar) |
 
 - **Una sola ruta,** `POST /api/servicios/ordenes/:id/estado`, con

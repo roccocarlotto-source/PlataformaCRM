@@ -45,8 +45,9 @@ import { exigirContacto, exigirSucursal } from "./vehiculos.service";
 //     es un 409 con la orden que lo ocupa. Agendado queda fuera.
 //   - El estado cambia solo por POST /estado, condicional sobre `desde`: si
 //     alguien la movió antes, 409. Cada cambio deja su fila en el historial.
-//   - Salir de Esperando aprobación exige una aprobación registrada después de
-//     entrar a ese estado (§2.5).
+//   - Salir de Esperando aprobación hacia En trabajo o Listo para retirar
+//     exige una aprobación registrada después de entrar a ese estado (§2.5).
+//     Cancelar no: ya pide el motivo.
 //   - Entregado y Cancelado son finales (D11): no se mueven ni se editan.
 //   - Los eventos de la orden llegan con S8; las fotos con S5.
 // ---------------------------------------------------------------------------
@@ -463,7 +464,7 @@ export async function cambiarEstado(
 
   try {
     await prisma.$transaction(async (tx) => {
-      if (desde === "ESPERANDO_APROBACION") {
+      if (desde === "ESPERANDO_APROBACION" && hacia !== "CANCELADO") {
         const entrada = await ultimaEntradaA(organizationId, id, desde, tx);
         if (!entrada || !(await hayAprobacionDesde(organizationId, id, entrada, tx))) {
           throw new AppError(

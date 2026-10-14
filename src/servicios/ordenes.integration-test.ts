@@ -318,6 +318,21 @@ test("esperando aprobación: no sale sin una aprobación registrada después de 
   assert.equal(otraVez.status, 409);
 });
 
+test("esperando aprobación: cancelar no exige la aprobación, solo el motivo", async () => {
+  const o = await recibida((await vehiculo()).id);
+  await mover(o.id, { desde: "RECIBIDO", hacia: "ESPERANDO_APROBACION" });
+  const sinMotivo = await mover(o.id, { desde: "ESPERANDO_APROBACION", hacia: "CANCELADO" });
+  assert.equal(sinMotivo.status, 400);
+  const r = await mover(o.id, {
+    desde: "ESPERANDO_APROBACION",
+    hacia: "CANCELADO",
+    cancelReason: "El cliente no respondió",
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.status, "CANCELADO");
+  assert.equal(await prisma.serviceOrderApproval.count({ where: { serviceOrderId: o.id } }), 0);
+});
+
 test("sumar al valor en otra moneda es 400 y no registra nada", async () => {
   const o = await recibida((await vehiculo()).id, { amount: 100 });
   const r = await comoUser("POST", `${ORDENES}/${o.id}/aprobaciones`, {
