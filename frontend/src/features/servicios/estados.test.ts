@@ -13,7 +13,10 @@ describe("estados de la orden: la copia del frontend es la del backend", () => {
   it("puedePasar y los textos de los botones", () => {
     expect(puedePasar("LISTO_PARA_RETIRAR", "ENTREGADO")).toBe(true);
     expect(puedePasar("AGENDADO", "EN_TRABAJO")).toBe(false);
-    expect(accionHacia("RECIBIDO", "EN_TRABAJO")).toBe("Empezar el trabajo");
-    expect(accionHacia("LISTO_PARA_RETIRAR", "EN_TRABAJO")).toBe("Volver a trabajo");
+    // "Volver a trabajo" solo si ya estuvo en trabajo: una orden que fue de
+    // Recibido a Esperando aprobación todavía no volvió (prueba de S4a).
+    expect(accionHacia("EN_TRABAJO")).toBe("Pasar a En trabajo");
+    expect(accionHacia("EN_TRABAJO", { yaEstuvoEnTrabajo: true })).toBe("Volver a trabajo");
+    expect(accionHacia("CANCELADO")).toBe("Cancelar la orden");
   });
 });

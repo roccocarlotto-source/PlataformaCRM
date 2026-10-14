@@ -143,6 +143,27 @@ test("alta agendada: número OS-, historial, encargado y Valor en la moneda de l
   assert.equal(alta.toStatus, "AGENDADO");
 });
 
+test("valor sin moneda: la de la organización y, si no configuró ninguna, USD (prueba de S4a)", async () => {
+  // Una organización sin moneda de preferencia devolvía 400 "Elegí la moneda
+  // del valor" aunque el formulario prometía "la de la organización".
+  try {
+    await prisma.organization.update({
+      where: { id: taller.id },
+      data: { preferredCurrency: null },
+    });
+    const sinMoneda = await recibida((await vehiculo()).id, { amount: 40 });
+    assert.equal(sinMoneda.amount, "40.00");
+    assert.equal(sinMoneda.currency, "USD", "la misma moneda por defecto que el dashboard");
+  } finally {
+    await prisma.organization.update({
+      where: { id: taller.id },
+      data: { preferredCurrency: "UYU" },
+    });
+  }
+  const conMoneda = await recibida((await vehiculo()).id, { amount: 40 });
+  assert.equal(conMoneda.currency, "UYU");
+});
+
 test("agendada sin fecha o recibida sin km: 400", async () => {
   const v = await vehiculo();
   assert.equal(

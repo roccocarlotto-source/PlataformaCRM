@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import type { AuthContextValue } from "../../auth/AuthContext";
+import { makeOrganizationSettings } from "../../test/organizationFixtures";
 import { makeFichaDeOrden, makeVehiculoDeCliente } from "../../test/vehiculoDeClienteFixtures";
 import { ConfiguracionDelTallerPage } from "./ConfiguracionDelTallerPage";
 import { NuevaOrdenPage } from "./NuevaOrdenPage";
@@ -55,8 +56,11 @@ beforeEach(() => {
 const API = `${env.apiUrl}/api`;
 const ORDENES = `${API}/servicios/ordenes`;
 
-function comunes() {
+function comunes(preferredCurrency: string | null = "UYU") {
   return [
+    http.get(`${API}/organization`, () =>
+      HttpResponse.json(makeOrganizationSettings({ preferredCurrency })),
+    ),
     http.get(`${API}/servicios/usuarios`, () =>
       HttpResponse.json([{ id: "u1", fullName: "Encargado" }]),
     ),
@@ -126,7 +130,7 @@ describe("Órdenes — ficha", () => {
     );
     const { unmount } = renderEn("/taller/ordenes/o1");
     for (const boton of [
-      "Empezar el trabajo",
+      "Pasar a En trabajo",
       "Esperar aprobación",
       "Listo para retirar",
       "Cancelar la orden",
@@ -252,7 +256,15 @@ describe("Órdenes — ficha", () => {
     const user = userEvent.setup();
     renderEn("/taller/ordenes/o1");
     expect(await screen.findByText("Falta registrar la respuesta del cliente")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Registrar aprobación" }));
+    // Sin la respuesta del cliente, salir hacia trabajo o retiro está frenado
+    // antes de intentarlo; cancelar no (prueba de S4a).
+    expect(screen.getByRole("button", { name: "Pasar a En trabajo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Listo para retirar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancelar la orden" })).toBeEnabled();
+    // El aviso trae el atajo (y la tarjeta de Aprobaciones, el suyo).
+    const atajos = screen.getAllByRole("button", { name: "Registrar aprobación" });
+    expect(atajos).toHaveLength(2);
+    await user.click(atajos[0]);
     const dialogo = screen.getByRole("dialog");
     await user.type(within(dialogo).getByLabelText("Qué se le consultó"), "Pastillas de freno");
     await user.type(within(dialogo).getByLabelText("Quién respondió"), "El titular");
@@ -313,6 +325,79 @@ describe("Órdenes — nueva", () => {
   });
 });
 
+describe("Órdenes — correcciones de la prueba de S4a", () => {
+  it("nueva orden: el encargado es quien la crea y la moneda, la de la organización (editables)", async () => {
+    const cuerpos: Record<string, unknown>[] = [];
+    for (const [monedaDeLaOrg, esperada] of [
+      ["UYU", "UYU"],
+      [null, "USD"],
+    ] as const) {
+      server.use(
+        ...comunes(monedaDeLaOrg),
+        http.get(`${API}/servicios/vehiculos/:id`, () =>
+          HttpResponse.json({ ...makeVehiculoDeCliente({ branchId: "b1" }), cambiosDeDueno: [] }),
+        ),
+        http.post(ORDENES, async ({ request }) => {
+          cuerpos.push((await request.json()) as Record<string, unknown>);
+          return HttpResponse.json(makeFichaDeOrden(), { status: 201 });
+        }),
+        // Después de crear, navega a la ficha.
+        http.get(`${ORDENES}/:id`, () => HttpResponse.json(makeFichaDeOrden())),
+      );
+      const user = userEvent.setup();
+      const { unmount } = renderEn("/taller/ordenes/nueva?vehiculoId=cv1");
+      expect(await screen.findByRole("combobox", { name: "Encargado" })).toHaveValue("Encargado");
+      await waitFor(() =>
+        expect(screen.getByRole("combobox", { name: "Moneda" })).toHaveValue(esperada),
+      );
+      await user.type(screen.getByLabelText("Valor"), "40");
+      await user.click(screen.getByRole("button", { name: "Crear orden" }));
+      await waitFor(() => expect(cuerpos).toHaveLength(monedaDeLaOrg ? 1 : 2));
+      expect(cuerpos.at(-1)).toMatchObject({ assigneeId: "u1", amount: 40, currency: esperada });
+      unmount();
+    }
+  });
+
+  it('"Volver a trabajo" solo si ya estuvo en trabajo; el diálogo se cierra con Cancelar', async () => {
+    server.use(
+      ...comunes(),
+      http.get(`${ORDENES}/:id`, () =>
+        HttpResponse.json(
+          makeFichaDeOrden({
+            status: "LISTO_PARA_RETIRAR",
+            workStartedAt: "2026-10-14T15:00:00.000Z",
+          }),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderEn("/taller/ordenes/o1");
+    await user.click(await screen.findByRole("button", { name: "Volver a trabajo" }));
+    const dialogo = screen.getByRole("dialog");
+    expect(within(dialogo).queryByRole("button", { name: "Volver" })).toBeNull();
+    await user.click(within(dialogo).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("lista: el mensaje vacío dice si no hay abiertas o si la búsqueda no encontró nada", async () => {
+    server.use(
+      ...comunes(),
+      http.get(ORDENES, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+        }),
+      ),
+    );
+    localStorage.setItem("servicios:ordenes:vista", "lista");
+    const user = userEvent.setup();
+    renderEn("/taller/ordenes");
+    expect(await screen.findByText("No hay órdenes abiertas")).toBeInTheDocument();
+    await user.type(screen.getByRole("searchbox"), "zzz");
+    expect(await screen.findByText("Ninguna orden coincide con «zzz»")).toBeInTheDocument();
+  });
+});
+
 describe("Configuración del taller", () => {
   it("intervalos y tipos: guarda los meses y agrega un tipo", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
@@ -347,8 +432,16 @@ describe("Configuración del taller", () => {
       expect(configuracion).toEqual({ defaultNextServiceMonths: 6, firstServiceAfterMonths: null }),
     );
 
-    await user.type(screen.getByLabelText("Nombre del tipo nuevo"), "Alineación");
-    await user.click(screen.getByRole("button", { name: "Agregar tipo" }));
+    // El botón no está apagado: sin nombre, lo dice al apretarlo.
+    const agregar = screen.getByRole("button", { name: "Agregar tipo" });
+    expect(agregar).toBeEnabled();
+    await user.click(agregar);
+    expect(await screen.findByText("Escribí el nombre del service.")).toBeInTheDocument();
+    expect(tipo).toBeUndefined();
+
+    await user.type(screen.getByLabelText("Nombre del service"), "Alineación");
+    expect(screen.getByLabelText("Cada cuántos meses")).toBeInTheDocument();
+    await user.click(agregar);
     await waitFor(() => expect(tipo).toEqual({ name: "Alineación", nextServiceAfterMonths: null }));
   });
 });

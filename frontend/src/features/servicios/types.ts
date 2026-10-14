@@ -145,6 +145,8 @@ export interface OrdenDeLista {
   contact: ContactoResumido;
   branch: { id: string; name: string };
   assignee: UsuarioResumido | null;
+  // Si ya pasó por En trabajo ("Pasar a" o "Volver a" trabajo).
+  workStartedAt: string | null;
   enEstadoDesde: string;
 }
 
@@ -187,7 +189,6 @@ export interface FichaDeOrden extends OrdenDeLista {
   damageNotes: string | null;
   notes: string | null;
   receivedAt: string | null;
-  workStartedAt: string | null;
   readyAt: string | null;
   cancelReason: string | null;
   nextServiceDueOn: string | null;

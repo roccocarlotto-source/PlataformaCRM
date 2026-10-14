@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent } from "react";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { Modal } from "../../design-system/Modal";
+import { useMonedaPorDefecto } from "./monedaPorDefecto";
 import { aInputLocal, aMonto, deInputLocal, ETIQUETA_DE_CANAL } from "./formato";
 import { useRegistrarAprobacion } from "./mutations";
 import type { Aprobacion } from "./types";
@@ -23,6 +24,10 @@ export function RegistrarAprobacionDialog({
 }) {
   const formId = useId();
   const registrar = useRegistrarAprobacion(ordenId);
+  // Sin Valor en la orden, el monto va en la moneda por defecto (la que usa el
+  // backend): se muestra igual, para que se sepa en qué moneda se carga.
+  const monedaPorDefecto = useMonedaPorDefecto();
+  const monedaDelMonto = moneda ?? monedaPorDefecto;
   const [descripcion, setDescripcion] = useState("");
   const [decision, setDecision] = useState<Aprobacion["decision"]>("APROBADO");
   const [quien, setQuien] = useState("");
@@ -127,7 +132,7 @@ export function RegistrarAprobacionDialog({
             onChange={(event) => setCuando(event.target.value)}
           />
         </FormField>
-        <FormField label={moneda ? `Monto (${moneda})` : "Monto"}>
+        <FormField label={monedaDelMonto ? `Monto (${monedaDelMonto})` : "Monto"}>
           <input
             type="text"
             inputMode="decimal"
@@ -145,6 +150,9 @@ export function RegistrarAprobacionDialog({
             />{" "}
             Sumar al valor de la orden
           </label>
+        ) : null}
+        {decision === "APROBADO" && !monto.trim() ? (
+          <p className="ds-hint">Para sumarlo al valor de la orden, cargá el monto.</p>
         ) : null}
         {error ? <ErrorState>{error}</ErrorState> : null}
       </form>

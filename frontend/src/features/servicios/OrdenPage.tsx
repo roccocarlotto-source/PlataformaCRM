@@ -14,7 +14,7 @@ import { Modal } from "../../design-system/Modal";
 import { Notice } from "../../design-system/Notice";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
-import { EncargadoSelect, TiposDeLaOrden } from "./camposDeLaOrden";
+import { EncargadoSelect, MonedaSelect, TiposDeLaOrden } from "./camposDeLaOrden";
 import { accionHacia, esAbierto, TRANSICIONES } from "./estados";
 import {
   aInputLocal,
@@ -26,6 +26,7 @@ import {
   formatearFecha,
   nombreDe,
 } from "./formato";
+import { useMonedaPorDefecto } from "./monedaPorDefecto";
 import { useActualizarOrden } from "./mutations";
 import { useOrden } from "./queries";
 import { RegistrarAprobacionDialog } from "./RegistrarAprobacionDialog";
@@ -71,16 +72,23 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
         title={`${orden.numero} · ${vehiculo}`}
         actions={
           <>
-            {TRANSICIONES[orden.status].map((destino) => (
-              <Button
-                key={destino}
-                type="button"
-                variant={destino === "CANCELADO" ? "danger" : "secondary"}
-                onClick={() => setHacia(destino)}
-              >
-                {accionHacia(orden.status, destino)}
-              </Button>
-            ))}
+            {TRANSICIONES[orden.status].map((destino) => {
+              // Sin la respuesta del cliente no sale de Esperando aprobación
+              // salvo para cancelar (§2.5): el botón lo dice antes de intentar.
+              const frenado = orden.aprobacionPendiente && destino !== "CANCELADO";
+              return (
+                <Button
+                  key={destino}
+                  type="button"
+                  variant={destino === "CANCELADO" ? "danger" : "secondary"}
+                  disabled={frenado}
+                  title={frenado ? "Primero registrá qué respondió el cliente" : undefined}
+                  onClick={() => setHacia(destino)}
+                >
+                  {accionHacia(destino, { yaEstuvoEnTrabajo: orden.workStartedAt !== null })}
+                </Button>
+              );
+            })}
             {abierta ? (
               <Button type="button" onClick={() => setEditando(true)}>
                 Editar
@@ -92,8 +100,15 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
       <div className="ds-stack">
         {orden.aprobacionPendiente ? (
           <Notice tone="warning" alert={false} title="Falta registrar la respuesta del cliente">
-            Para pasarla a En trabajo o a Listo para retirar, registrá qué respondió el cliente con
-            Registrar aprobación. Para cancelarla alcanza con el motivo.
+            <p>
+              Para pasarla a En trabajo o a Listo para retirar, registrá qué respondió el cliente.
+              Para cancelarla alcanza con el motivo.
+            </p>
+            <p>
+              <Button type="button" variant="primary" onClick={() => setAprobando(true)}>
+                Registrar aprobación
+              </Button>
+            </p>
           </Notice>
         ) : null}
 
@@ -262,6 +277,8 @@ function EditarOrdenDialog({ orden, onClose }: { orden: FichaDeOrden; onClose: (
   const [tipos, setTipos] = useState(orden.tipos.map((t) => t.id));
   const [monto, setMonto] = useState(orden.amount ?? "");
   const [moneda, setMoneda] = useState(orden.currency ?? "");
+  const monedaPorDefecto = useMonedaPorDefecto();
+  const monedaElegida = moneda || monedaPorDefecto;
   const [error, setError] = useState<string | null>(null);
 
   async function guardar(event: FormEvent<HTMLFormElement>) {
@@ -275,7 +292,7 @@ function EditarOrdenDialog({ orden, onClose }: { orden: FichaDeOrden; onClose: (
         damageNotes: danos.trim() || null,
         jobTypeIds: tipos,
         amount,
-        currency: amount !== null && moneda.trim() ? moneda.trim().toUpperCase() : null,
+        currency: amount !== null && monedaElegida ? monedaElegida : null,
         ...(orden.status === "AGENDADO"
           ? { scheduledFor: deInputLocal(fecha) }
           : { mileageIn: km === "" ? null : Number(km) }),
@@ -339,15 +356,7 @@ function EditarOrdenDialog({ orden, onClose }: { orden: FichaDeOrden; onClose: (
             onChange={(event) => setMonto(event.target.value)}
           />
         </FormField>
-        <FormField label="Moneda">
-          <input
-            type="text"
-            maxLength={3}
-            placeholder="La de la organización"
-            value={moneda}
-            onChange={(event) => setMoneda(event.target.value)}
-          />
-        </FormField>
+        <MonedaSelect id="orden-editar-moneda" value={moneda} onChange={setMoneda} />
         {error ? <ErrorState>{error}</ErrorState> : null}
       </form>
     </Modal>

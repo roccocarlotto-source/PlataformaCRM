@@ -1,4 +1,9 @@
-import type { Prisma, ServiceOrderStatus } from "@prisma/client";
+import {
+  Prisma,
+  type ServiceOrderApprovalChannel,
+  type ServiceOrderApprovalDecision,
+  type ServiceOrderStatus,
+} from "@prisma/client";
 import { prisma, type Db } from "../../lib/prisma";
 import { ESTADOS_ABIERTOS } from "../config/estados";
 
@@ -24,6 +29,8 @@ export const camposDeLaLista = {
   cancelledAt: true,
   amount: true,
   currency: true,
+  // Si ya pasó por En trabajo: el botón dice "Volver a trabajo" o "Pasar a".
+  workStartedAt: true,
   customerVehicle: vehiculoResumido,
   contact: contactoResumido,
   branch: { select: { id: true, name: true } },
@@ -43,7 +50,6 @@ export const camposDeLaFicha = {
   damageNotes: true,
   notes: true,
   receivedAt: true,
-  workStartedAt: true,
   readyAt: true,
   cancelReason: true,
   nextServiceDueOn: true,
@@ -141,12 +147,252 @@ export async function countOrders(organizationId: string, filtros: FiltrosDeOrde
   return prisma.serviceOrder.count({ where: whereDeOrdenes(organizationId, filtros) });
 }
 
+// --- La ficha en una sola consulta -----------------------------------------
+//
+// Con `select: camposDeLaFicha` Prisma hace una consulta por relación (11), y
+// cada una es una ida y vuelta a la base: ~300 ms en producción (prueba de S4a,
+// 2026-10-14). Acá va todo en una: la orden y sus relaciones de a uno como
+// columnas (el driver devuelve Date y Decimal como Prisma), y las tres listas
+// como json_agg, con las fechas en milisegundos y los montos como texto para no
+// perder ni la zona ni los centavos. Devuelve exactamente FilaDeLaFicha:
+// camposDeLaFicha sigue siendo la forma de referencia, y el test de integración
+// compara las dos lecturas campo por campo.
+
+interface CambioCrudo {
+  id: string;
+  fromStatus: ServiceOrderStatus | null;
+  toStatus: ServiceOrderStatus;
+  changedAt: number;
+  note: string | null;
+  changedById: string;
+  changedByName: string;
+}
+
+interface TipoCrudo {
+  id: string;
+  name: string;
+  nextServiceAfterMonths: number | null;
+}
+
+interface AprobacionCruda {
+  id: string;
+  description: string;
+  decision: ServiceOrderApprovalDecision;
+  approverName: string;
+  channel: ServiceOrderApprovalChannel;
+  decidedAt: number;
+  amount: string | null;
+  currency: string | null;
+  createdAt: number;
+  recordedById: string;
+  recordedByName: string;
+}
+
+interface FichaCruda {
+  id: string;
+  number: number;
+  status: ServiceOrderStatus;
+  scheduledFor: Date | null;
+  createdAt: Date;
+  deliveredAt: Date | null;
+  cancelledAt: Date | null;
+  amount: Prisma.Decimal | null;
+  currency: string | null;
+  customerVehicleId: string;
+  contactId: string;
+  branchId: string;
+  bookingId: string | null;
+  assigneeId: string | null;
+  mileageIn: number | null;
+  damageNotes: string | null;
+  notes: string | null;
+  receivedAt: Date | null;
+  workStartedAt: Date | null;
+  readyAt: Date | null;
+  cancelReason: string | null;
+  nextServiceDueOn: Date | null;
+  updatedAt: Date;
+  make: string;
+  model: string;
+  year: number | null;
+  licensePlate: string | null;
+  firstName: string;
+  lastName: string;
+  branchName: string;
+  assigneeName: string | null;
+  createdById: string;
+  createdByName: string;
+  historial: CambioCrudo[];
+  tipos: TipoCrudo[];
+  aprobaciones: AprobacionCruda[];
+}
+
+function aFilaDeLaFicha(f: FichaCruda): FilaDeLaFicha {
+  return {
+    id: f.id,
+    number: f.number,
+    status: f.status,
+    scheduledFor: f.scheduledFor,
+    createdAt: f.createdAt,
+    deliveredAt: f.deliveredAt,
+    cancelledAt: f.cancelledAt,
+    amount: f.amount,
+    currency: f.currency,
+    customerVehicle: {
+      id: f.customerVehicleId,
+      make: f.make,
+      model: f.model,
+      year: f.year,
+      licensePlate: f.licensePlate,
+    },
+    contact: { id: f.contactId, firstName: f.firstName, lastName: f.lastName },
+    branch: { id: f.branchId, name: f.branchName },
+    assignee:
+      f.assigneeId && f.assigneeName !== null
+        ? { id: f.assigneeId, fullName: f.assigneeName }
+        : null,
+    customerVehicleId: f.customerVehicleId,
+    contactId: f.contactId,
+    branchId: f.branchId,
+    bookingId: f.bookingId,
+    assigneeId: f.assigneeId,
+    mileageIn: f.mileageIn,
+    damageNotes: f.damageNotes,
+    notes: f.notes,
+    receivedAt: f.receivedAt,
+    workStartedAt: f.workStartedAt,
+    readyAt: f.readyAt,
+    cancelReason: f.cancelReason,
+    nextServiceDueOn: f.nextServiceDueOn,
+    updatedAt: f.updatedAt,
+    createdBy: { id: f.createdById, fullName: f.createdByName },
+    jobTypes: f.tipos.map((t) => ({ serviceJobType: t })),
+    approvals: f.aprobaciones.map((a) => ({
+      id: a.id,
+      description: a.description,
+      decision: a.decision,
+      approverName: a.approverName,
+      channel: a.channel,
+      decidedAt: new Date(a.decidedAt),
+      amount: a.amount === null ? null : new Prisma.Decimal(a.amount),
+      currency: a.currency,
+      createdAt: new Date(a.createdAt),
+      recordedBy: { id: a.recordedById, fullName: a.recordedByName },
+    })),
+    statusChanges: f.historial.map((c) => ({
+      id: c.id,
+      fromStatus: c.fromStatus,
+      toStatus: c.toStatus,
+      changedAt: new Date(c.changedAt),
+      note: c.note,
+      changedBy: { id: c.changedById, fullName: c.changedByName },
+    })),
+  };
+}
+
 export async function findOrderById(
   organizationId: string,
   id: string,
   db: Db = prisma,
 ): Promise<FilaDeLaFicha | null> {
+  const filas = await db.$queryRaw<FichaCruda[]>`
+    SELECT
+      o.id, o.number, o.status::text AS "status", o.scheduled_for AS "scheduledFor",
+      o.created_at AS "createdAt", o.delivered_at AS "deliveredAt",
+      o.cancelled_at AS "cancelledAt", o.amount, o.currency,
+      o.customer_vehicle_id AS "customerVehicleId", o.contact_id AS "contactId",
+      o.branch_id AS "branchId", o.booking_id AS "bookingId", o.assignee_id AS "assigneeId",
+      o.mileage_in AS "mileageIn", o.damage_notes AS "damageNotes", o.notes,
+      o.received_at AS "receivedAt", o.work_started_at AS "workStartedAt",
+      o.ready_at AS "readyAt", o.cancel_reason AS "cancelReason",
+      o.next_service_due_on AS "nextServiceDueOn", o.updated_at AS "updatedAt",
+      v.make, v.model, v.year, v.license_plate AS "licensePlate",
+      c.first_name AS "firstName", c.last_name AS "lastName",
+      b.name AS "branchName",
+      a.full_name AS "assigneeName",
+      cb.id AS "createdById", cb.full_name AS "createdByName",
+      COALESCE((
+        SELECT json_agg(json_build_object(
+          'id', s.id,
+          'fromStatus', s.from_status,
+          'toStatus', s.to_status,
+          'changedAt', (extract(epoch FROM s.changed_at) * 1000)::bigint,
+          'note', s.note,
+          'changedById', u.id,
+          'changedByName', u.full_name
+        ) ORDER BY s.changed_at DESC)
+        FROM service_order_status_changes s
+        JOIN users u ON u.id = s.changed_by_id
+        WHERE s.organization_id = o.organization_id AND s.service_order_id = o.id
+      ), '[]'::json) AS "historial",
+      COALESCE((
+        SELECT json_agg(json_build_object(
+          'id', t.id,
+          'name', t.name,
+          'nextServiceAfterMonths', t.next_service_after_months
+        ) ORDER BY ot.created_at ASC)
+        FROM service_order_job_types ot
+        JOIN service_job_types t ON t.id = ot.service_job_type_id
+        WHERE ot.organization_id = o.organization_id AND ot.service_order_id = o.id
+      ), '[]'::json) AS "tipos",
+      COALESCE((
+        SELECT json_agg(json_build_object(
+          'id', ap.id,
+          'description', ap.description,
+          'decision', ap.decision,
+          'approverName', ap.approver_name,
+          'channel', ap.channel,
+          'decidedAt', (extract(epoch FROM ap.decided_at) * 1000)::bigint,
+          'amount', ap.amount::text,
+          'currency', ap.currency,
+          'createdAt', (extract(epoch FROM ap.created_at) * 1000)::bigint,
+          'recordedById', r.id,
+          'recordedByName', r.full_name
+        ) ORDER BY ap.created_at DESC)
+        FROM service_order_approvals ap
+        JOIN users r ON r.id = ap.recorded_by_id
+        WHERE ap.organization_id = o.organization_id AND ap.service_order_id = o.id
+      ), '[]'::json) AS "aprobaciones"
+    FROM service_orders o
+    JOIN customer_vehicles v ON v.id = o.customer_vehicle_id
+    JOIN contacts c ON c.id = o.contact_id
+    JOIN branches b ON b.id = o.branch_id
+    LEFT JOIN users a ON a.id = o.assignee_id
+    JOIN users cb ON cb.id = o.created_by_id
+    WHERE o.id = ${id}::uuid AND o.organization_id = ${organizationId}::uuid
+  `;
+  return filas[0] ? aFilaDeLaFicha(filas[0]) : null;
+}
+
+/** La ficha por el camino de Prisma (una consulta por relación). Es la forma
+ *  de referencia: el test de integración la compara con findOrderById. */
+export async function findOrderByIdConPrisma(
+  organizationId: string,
+  id: string,
+  db: Db = prisma,
+): Promise<FilaDeLaFicha | null> {
   return db.serviceOrder.findFirst({ where: { id, organizationId }, select: camposDeLaFicha });
+}
+
+/** Lo mínimo para validar una escritura antes de hacerla (una consulta). */
+export async function findOrdenParaEscribir(organizationId: string, id: string, db: Db = prisma) {
+  return db.serviceOrder.findFirst({
+    where: { id, organizationId },
+    select: { id: true, status: true, customerVehicleId: true, amount: true, currency: true },
+  });
+}
+
+/** Los tipos que la orden ya tiene (ids). */
+export async function findIdsDeTiposDeLaOrden(
+  organizationId: string,
+  serviceOrderId: string,
+  db: Db = prisma,
+): Promise<string[]> {
+  const filas = await db.serviceOrderJobType.findMany({
+    where: { organizationId, serviceOrderId },
+    select: { serviceJobTypeId: true },
+  });
+  return filas.map((f) => f.serviceJobTypeId);
 }
 
 /** La orden que tiene el vehículo dentro del taller (de Recibido a Listo), si
@@ -216,14 +462,18 @@ export async function createStatusChange(
   await tx.serviceOrderStatusChange.create({ data });
 }
 
-/** Reemplaza los tipos de la orden por estos. */
+/** Reemplaza los tipos de la orden por estos. `esNueva`: la orden se acaba de
+ *  crear y no tiene tipos que borrar (una consulta menos). */
 export async function setJobTypes(
   organizationId: string,
   serviceOrderId: string,
   ids: readonly string[],
   tx: Prisma.TransactionClient,
+  { esNueva = false }: { esNueva?: boolean } = {},
 ): Promise<void> {
-  await tx.serviceOrderJobType.deleteMany({ where: { organizationId, serviceOrderId } });
+  if (!esNueva) {
+    await tx.serviceOrderJobType.deleteMany({ where: { organizationId, serviceOrderId } });
+  }
   if (ids.length === 0) return;
   await tx.serviceOrderJobType.createMany({
     data: ids.map((serviceJobTypeId) => ({ organizationId, serviceOrderId, serviceJobTypeId })),
