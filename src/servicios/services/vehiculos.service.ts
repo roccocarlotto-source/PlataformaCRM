@@ -172,13 +172,13 @@ async function traducirChoqueDeUnicidad(
   throw err;
 }
 
-async function exigirContacto(organizationId: string, contactId: string): Promise<void> {
+export async function exigirContacto(organizationId: string, contactId: string): Promise<void> {
   const contacto = await findContactoDelVehiculo(organizationId, contactId);
   if (!contacto) throw new AppError("Contacto no encontrado", 404);
   exigirContactoConDatos(contacto);
 }
 
-async function exigirSucursal(organizationId: string, branchId: string | null | undefined) {
+export async function exigirSucursal(organizationId: string, branchId: string | null | undefined) {
   if (branchId && !(await existeSucursal(organizationId, branchId))) {
     throw new AppError("Sucursal no encontrada", 404);
   }

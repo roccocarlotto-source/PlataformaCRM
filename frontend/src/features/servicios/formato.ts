@@ -1,5 +1,5 @@
 import { ApiError } from "../../lib/api";
-import { VEHICULO_DUPLICADO, type EstadoDeOrden, type MotivoDeFin } from "./types";
+import { VEHICULO_DUPLICADO, type Aprobacion, type EstadoDeOrden, type MotivoDeFin } from "./types";
 
 // Textos y formatos del taller (docs/servicios.md §4).
 
@@ -44,3 +44,28 @@ export function vehiculoDuplicadoDe(err: unknown): string | null {
   if (err.details?.code !== VEHICULO_DUPLICADO) return null;
   return typeof err.details.vehiculoId === "string" ? err.details.vehiculoId : null;
 }
+
+/** <input type="datetime-local"> ↔ ISO: el input trabaja en la hora local. */
+export function aInputLocal(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const dos = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}T${dos(d.getHours())}:${dos(d.getMinutes())}`;
+}
+
+export function deInputLocal(valor: string): string | null {
+  return valor ? new Date(valor).toISOString() : null;
+}
+
+/** "1234.5" → 1234.5; "" → null. */
+export function aMonto(valor: string): number | null {
+  if (!valor.trim()) return null;
+  return Number(valor.replace(",", "."));
+}
+
+export const ETIQUETA_DE_CANAL: Readonly<Record<Aprobacion["channel"], string>> = {
+  TELEFONO: "Teléfono",
+  WHATSAPP: "WhatsApp",
+  PRESENCIAL: "En persona",
+  OTRO: "Otro",
+};

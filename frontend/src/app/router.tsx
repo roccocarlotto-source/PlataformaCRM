@@ -39,6 +39,10 @@ import { VehicleListPage } from "../features/vehicle/VehicleListPage";
 import { VehiculoDeClienteDetailPage } from "../features/servicios/VehiculoDeClienteDetailPage";
 import { VehiculoDeClienteFormPage } from "../features/servicios/VehiculoDeClienteFormPage";
 import { VehiculosDeClientesPage } from "../features/servicios/VehiculosDeClientesPage";
+import { ConfiguracionDelTallerPage } from "../features/servicios/ConfiguracionDelTallerPage";
+import { NuevaOrdenPage } from "../features/servicios/NuevaOrdenPage";
+import { OrdenesPage } from "../features/servicios/OrdenesPage";
+import { OrdenPage } from "../features/servicios/OrdenPage";
 import { AgentFacebookPagePage } from "../features/platformAdmin/AgentFacebookPagePage";
 import { AgentModelPage } from "../features/platformAdmin/AgentModelPage";
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
@@ -220,6 +224,17 @@ export const router = createBrowserRouter([
               { path: "/taller/vehiculos/nuevo", element: <VehiculoDeClienteFormPage /> },
               { path: "/taller/vehiculos/:id", element: <VehiculoDeClienteDetailPage /> },
               { path: "/taller/vehiculos/:id/editar", element: <VehiculoDeClienteFormPage /> },
+              // S4a: órdenes, para ADMIN y USER (D9).
+              { path: "/taller/ordenes", element: <OrdenesPage /> },
+              { path: "/taller/ordenes/nueva", element: <NuevaOrdenPage /> },
+              { path: "/taller/ordenes/:id", element: <OrdenPage /> },
+              // La configuración, solo ADMIN (§4.8).
+              {
+                element: <AdminRoute />,
+                children: [
+                  { path: "/taller/configuracion", element: <ConfiguracionDelTallerPage /> },
+                ],
+              },
             ],
           },
           // Reservas de la Agenda (ítem 75 de docs/frontend-cambios-pendientes.md).

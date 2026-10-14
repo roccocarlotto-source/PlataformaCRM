@@ -190,6 +190,10 @@ const DEL_TALLER: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
   "vehiculosDeClientes",
   "vehiculoDeClienteForm",
   "fichaDeVehiculoDeCliente",
+  "ordenes",
+  "nuevaOrden",
+  "fichaDeOrden",
+  "configuracionDelTaller",
 ]);
 const CON_SERVICIOS = (regla: (modulo: string) => boolean) => (modulo: string) =>
   modulo === "servicios" || regla(modulo);
