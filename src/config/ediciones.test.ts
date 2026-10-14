@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import type { Express, Request } from "express";
+import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import {
   CAMPOS_POR_RUTA,
   MODULOS,
+  MODULOS_ACTIVABLES,
   MODULOS_POR_EDICION,
   MODULOS_SIN_RUTAS,
   RUTAS_POR_MODULO,
@@ -113,6 +115,121 @@ test("COMPLETA tiene todos los módulos; ESENCIAL, todos menos los de solo COMPL
   for (const modulo of ["plataforma", "comun", "dashboard_atencion"] as const) {
     assert.ok(modulosDe("ESENCIAL", "AUTOMOTORA").has(modulo), modulo);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Módulos activables (docs/servicios.md §1.3). La garantía de S2: sin ningún
+// módulo activado, modulosDe da EXACTAMENTE la lista de antes de S2 en las
+// cuatro combinaciones, con y sin el tercer argumento. Las listas están
+// escritas a mano a propósito (las de automotora también las fija
+// src/clinicas/automotoraSinCambios.test.ts): una lista calculada desde el
+// catálogo cambiaría junto con el error.
+// ---------------------------------------------------------------------------
+
+const DE_UNA_CLINICA = [
+  "comun",
+  "plataforma",
+  "usuarios",
+  "contactos",
+  "conversaciones",
+  "agentes",
+  "canales",
+  "base_de_conocimiento",
+  "sucursales",
+  "agenda",
+  "tareas",
+  "cupones_y_qr",
+  "automatizaciones",
+  "campos_personalizados",
+  "agente_interno",
+  "ingesta",
+  "dashboard_atencion",
+  "agenda_clinica",
+  "recordatorios_de_turno",
+  "post_turno",
+];
+const DE_UNA_AUTOMOTORA_ESENCIAL = [
+  "comun",
+  "plataforma",
+  "usuarios",
+  "contactos",
+  "conversaciones",
+  "agentes",
+  "canales",
+  "base_de_conocimiento",
+  "sucursales",
+  "agenda",
+  "stock",
+  "tareas",
+  "cupones_y_qr",
+  "automatizaciones",
+  "oportunidades",
+  "campos_personalizados",
+  "agente_interno",
+  "ingesta",
+  "dashboard_atencion",
+];
+const LISTA_FIJA_DE_ANTES_DE_S2: Record<string, readonly string[]> = {
+  "COMPLETA/AUTOMOTORA": [
+    ...DE_UNA_AUTOMOTORA_ESENCIAL,
+    "procesos_de_venta",
+    "cotizaciones",
+    "pagos",
+    "entregas",
+    "empresas",
+    "dashboard_comercial",
+    "financiacion",
+    "permutas",
+  ],
+  "ESENCIAL/AUTOMOTORA": DE_UNA_AUTOMOTORA_ESENCIAL,
+  "COMPLETA/CLINICA": DE_UNA_CLINICA,
+  "ESENCIAL/CLINICA": DE_UNA_CLINICA,
+};
+const COMBINACIONES: [OrganizationEdition, OrganizationIndustry][] = [
+  ["COMPLETA", "AUTOMOTORA"],
+  ["ESENCIAL", "AUTOMOTORA"],
+  ["COMPLETA", "CLINICA"],
+  ["ESENCIAL", "CLINICA"],
+];
+const enOrden = (modulos: ReadonlySet<string>) => MODULOS.filter((m) => modulos.has(m));
+
+test("sin módulos activados, modulosDe(e, r) y modulosDe(e, r, ∅) son la lista de antes de S2 en las cuatro combinaciones", () => {
+  for (const [edition, industry] of COMBINACIONES) {
+    const esperado = LISTA_FIJA_DE_ANTES_DE_S2[`${edition}/${industry}`];
+    assert.deepEqual(enOrden(modulosDe(edition, industry)), esperado, `${edition}/${industry}`);
+    assert.deepEqual(
+      enOrden(modulosDe(edition, industry, [])),
+      esperado,
+      `${edition}/${industry}, ∅`,
+    );
+  }
+});
+
+test("con servicios activado: una automotora suma servicios (en el orden del catálogo); una clínica no cambia", () => {
+  for (const [edition, industry] of COMBINACIONES) {
+    const antes = LISTA_FIJA_DE_ANTES_DE_S2[`${edition}/${industry}`];
+    const con = enOrden(modulosDe(edition, industry, ["servicios"]));
+    if (industry === "AUTOMOTORA") {
+      assert.deepEqual(
+        con,
+        MODULOS.filter((m) => antes.includes(m) || m === "servicios"),
+      );
+    } else {
+      assert.deepEqual(con, antes, `${edition}/CLINICA: una fila escrita a mano no da nada`);
+    }
+  }
+});
+
+test("los activados solo suman activables: un nombre cualquiera, o un módulo que el rubro no tiene, no agrega nada", () => {
+  for (const [edition, industry] of COMBINACIONES) {
+    const antes = LISTA_FIJA_DE_ANTES_DE_S2[`${edition}/${industry}`];
+    assert.deepEqual(
+      enOrden(modulosDe(edition, industry, ["stock", "cotizaciones", "agenda_clinica", "x"])),
+      antes,
+      `${edition}/${industry}`,
+    );
+  }
+  assert.deepEqual([...MODULOS_ACTIVABLES], ["servicios"]);
 });
 
 test("las rutas con bloqueo por campo están en el catálogo y en un módulo incluido en ESENCIAL", () => {
@@ -309,4 +426,42 @@ test("ESENCIAL: un campo excluido con valor → 400 CAMPO_NO_INCLUIDO; null o au
     ),
     undefined,
   );
+});
+
+// docs/servicios.md §1.4: el gate con el módulo Servicios, en las cuatro
+// combinaciones. Una clínica con servicios "activado" (una fila escrita a
+// mano) sigue sin tenerlo: 403 con motivo RUBRO.
+test("gate de servicios: NO_ACTIVADO sin la fila, pasa con el módulo en una automotora, RUBRO en una clínica aunque esté activado", () => {
+  for (const edition of ["COMPLETA", "ESENCIAL"] as const) {
+    const sinActivar = errorDe(() =>
+      exigirModuloDeLaEdicion(pedido("GET", "/servicios/configuracion"), auth(edition)),
+    );
+    assert.deepEqual(sinActivar?.details, {
+      code: MODULO_NO_INCLUIDO,
+      modulo: "servicios",
+      motivo: "NO_ACTIVADO",
+    });
+    assert.equal(sinActivar?.statusCode, 403);
+
+    const activado = { ...auth(edition), modulosActivados: ["servicios"] };
+    assert.equal(
+      errorDe(() => exigirModuloDeLaEdicion(pedido("GET", "/servicios/configuracion"), activado)),
+      undefined,
+      `${edition}: con el módulo activado pasa`,
+    );
+
+    const clinica = {
+      ...auth(edition),
+      industry: "CLINICA" as const,
+      modulosActivados: ["servicios"],
+    };
+    const enClinica = errorDe(() =>
+      exigirModuloDeLaEdicion(pedido("GET", "/servicios/configuracion"), clinica),
+    );
+    assert.deepEqual(enClinica?.details, {
+      code: MODULO_NO_INCLUIDO,
+      modulo: "servicios",
+      motivo: "RUBRO",
+    });
+  }
 });

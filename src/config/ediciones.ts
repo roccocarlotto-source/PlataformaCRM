@@ -6,7 +6,8 @@ import { AppError } from "../utils/AppError";
 // Catálogo de módulos por edición y por rubro (docs/ediciones.md §5,
 // docs/rubros.md §1.2). ÚNICA fuente de verdad de qué puede usar una
 // organización según su edición y su rubro, que se combinan por intersección
-// en modulosDe:
+// en modulosDe, más los módulos ACTIVABLES que un platform admin le activó
+// (docs/servicios.md §1, organization_modules):
 //
 //   - el gate de rutas (middlewares/moduloDeLaEdicion.ts, que corre dentro de
 //     `authenticate`) lo lee para responder 403 MODULO_NO_INCLUIDO;
@@ -73,6 +74,10 @@ export const MODULOS = [
   "recordatorios_de_turno",
   // R14 (docs/rubros.md §7): el QR de reseña y el control después del turno.
   "post_turno",
+  // ACTIVABLE (docs/servicios.md §1): el taller de postventa. No lo da la
+  // edición ni el rubro: lo tiene una organización solo si un platform admin
+  // se lo activó (organization_modules). Solo AUTOMOTORA.
+  "servicios",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
@@ -106,9 +111,23 @@ export const SOLO_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>([
   "post_turno",
 ]);
 
+/** Los módulos que no da la edición ni el rubro: una organización los tiene
+ *  solo si un platform admin se los activó (organization_modules,
+ *  docs/servicios.md §1.2). Sin activar, una ruta de estos módulos da 403
+ *  MODULO_NO_INCLUIDO con motivo NO_ACTIVADO, también en COMPLETA +
+ *  AUTOMOTORA. Los rubros que pueden tenerlos los dice MODULOS_POR_RUBRO, como
+ *  para cualquier otro módulo. El CHECK organization_modules_module_check de
+ *  la base acepta exactamente estos valores. */
+export const MODULOS_ACTIVABLES: ReadonlySet<Modulo> = new Set<Modulo>(["servicios"]);
+
+/** El conjunto vacío de módulos activados: el default de modulosDe. Un
+ *  llamador que no pasa los activados no ve ninguno (falla cerrado). */
+export const SIN_ACTIVADOS: ReadonlySet<string> = new Set<string>();
+
 // Lo que una clínica no tiene (docs/rubros.md §2 y §2.1, D3): el stock de
 // vehículos (con sync-vehicles, que es del módulo stock), las oportunidades y
-// todo lo que cuelga de ellas.
+// todo lo que cuelga de ellas. Y el taller de una concesionaria
+// (docs/servicios.md §0.2: solo AUTOMOTORA).
 const FUERA_DE_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>([
   "stock",
   "oportunidades",
@@ -120,6 +139,7 @@ const FUERA_DE_CLINICA: ReadonlySet<Modulo> = new Set<Modulo>([
   "dashboard_comercial",
   "financiacion",
   "permutas",
+  "servicios",
 ]);
 
 export const MODULOS_POR_RUBRO: Readonly<Record<OrganizationIndustry, ReadonlySet<Modulo>>> = {
@@ -127,42 +147,73 @@ export const MODULOS_POR_RUBRO: Readonly<Record<OrganizationIndustry, ReadonlySe
   CLINICA: new Set<Modulo>(MODULOS.filter((m) => !FUERA_DE_CLINICA.has(m))),
 };
 
-// Las cuatro combinaciones, precalculadas: el gate no arma sets por request.
+// Las cuatro combinaciones sin activados, precalculadas: el gate no arma sets
+// por request. Sin los activables: esos los suma modulosDe, uno por uno.
 const MODULOS_POR_COMBINACION: ReadonlyMap<string, ReadonlySet<Modulo>> = (() => {
   const mapa = new Map<string, ReadonlySet<Modulo>>();
   for (const [edition, deLaEdicion] of Object.entries(MODULOS_POR_EDICION)) {
     for (const [industry, delRubro] of Object.entries(MODULOS_POR_RUBRO)) {
       mapa.set(
         `${edition}/${industry}`,
-        new Set<Modulo>(MODULOS.filter((m) => deLaEdicion.has(m) && delRubro.has(m))),
+        new Set<Modulo>(
+          MODULOS.filter(
+            (m) => deLaEdicion.has(m) && delRubro.has(m) && !MODULOS_ACTIVABLES.has(m),
+          ),
+        ),
       );
     }
   }
   return mapa;
 })();
 
+// Las combinaciones CON activados, armadas la primera vez que se piden: hay
+// pocas (cuatro combinaciones por cada subconjunto de activables que exista).
+const MODULOS_CON_ACTIVADOS = new Map<string, ReadonlySet<Modulo>>();
+
 /** Los módulos de una organización: los de su edición Y los de su rubro (el
- *  rubro nunca agrega lo que la edición quita, docs/rubros.md §0.4). La única
- *  función que decide: el gate, /api/me y las tools la usan. */
+ *  rubro nunca agrega lo que la edición quita, docs/rubros.md §0.4), más los
+ *  activables que tenga activados, si la edición y el rubro los admiten
+ *  (docs/servicios.md §1.3). La única función que decide: el gate, /api/me y
+ *  las tools la usan. Sin `activados` (o con un nombre que no es activable),
+ *  ningún activable: falla cerrado. */
 export function modulosDe(
   edition: OrganizationEdition,
   industry: OrganizationIndustry,
+  activados: Iterable<string> = SIN_ACTIVADOS,
 ): ReadonlySet<Modulo> {
-  const modulos = MODULOS_POR_COMBINACION.get(`${edition}/${industry}`);
-  if (!modulos) throw new Error(`Combinación sin catálogo: ${edition}/${industry}`);
+  const base = MODULOS_POR_COMBINACION.get(`${edition}/${industry}`);
+  if (!base) throw new Error(`Combinación sin catálogo: ${edition}/${industry}`);
+  const suman = [...new Set(activados)]
+    .filter(
+      (m): m is Modulo =>
+        MODULOS_ACTIVABLES.has(m as Modulo) &&
+        MODULOS_POR_EDICION[edition].has(m as Modulo) &&
+        MODULOS_POR_RUBRO[industry].has(m as Modulo),
+    )
+    .sort();
+  if (suman.length === 0) return base;
+  const clave = `${edition}/${industry}/${suman.join(",")}`;
+  let modulos = MODULOS_CON_ACTIVADOS.get(clave);
+  if (!modulos) {
+    const extra = new Set<Modulo>(suman);
+    modulos = new Set<Modulo>(MODULOS.filter((m) => base.has(m) || extra.has(m)));
+    MODULOS_CON_ACTIVADOS.set(clave, modulos);
+  }
   return modulos;
 }
 
 /** Por qué una organización no tiene un módulo (D12 de docs/rubros.md). Si su
  *  rubro no lo tiene, "RUBRO", aunque la edición tampoco lo tenga: subir de
- *  edición no se lo daría. Si no, "EDICION". */
-export type MotivoDeExclusion = "EDICION" | "RUBRO";
+ *  edición no se lo daría. Si el rubro lo admite y es un activable, es que no
+ *  está activado: "NO_ACTIVADO" (docs/servicios.md §1.4). Si no, "EDICION". */
+export type MotivoDeExclusion = "EDICION" | "RUBRO" | "NO_ACTIVADO";
 
 export function motivoDeExclusion(
   modulo: Modulo,
   industry: OrganizationIndustry,
 ): MotivoDeExclusion {
-  return MODULOS_POR_RUBRO[industry].has(modulo) ? "EDICION" : "RUBRO";
+  if (!MODULOS_POR_RUBRO[industry].has(modulo)) return "RUBRO";
+  return MODULOS_ACTIVABLES.has(modulo) ? "NO_ACTIVADO" : "EDICION";
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +314,9 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     // cambiar el rubro de una organización sin datos (D1).
     "GET /api/admin/organizations/industries",
     "PATCH /api/admin/organizations/:organizationId/industry",
+    // Módulos activables (docs/servicios.md §1.5): activar y desactivar.
+    "PUT /api/admin/organizations/:organizationId/modulos/:modulo",
+    "DELETE /api/admin/organizations/:organizationId/modulos/:modulo",
     // R19 (§12.1): la Clínica Demo con datos de ejemplo.
     "POST /api/admin/organizations/clinica-demo",
     // §12.3: reiniciar los datos de una Clínica Demo.
@@ -541,6 +595,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   recordatorios_de_turno: [],
   // R14: el control de una prestación ("Recordar control a los N días").
   post_turno: ["PUT /api/clinica/prestaciones/:serviceTypeId/control"],
+  // El taller (docs/servicios.md §1.6). S2: solo la configuración, de lectura.
+  servicios: ["GET /api/servicios/configuracion"],
 };
 
 /** Rutas sin sesión de usuario (sin `authenticate`). No dependen de la

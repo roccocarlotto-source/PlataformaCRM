@@ -116,6 +116,8 @@ export interface PlatformOrganization {
   slug: string;
   edition: OrganizationEdition;
   industry: OrganizationIndustry;
+  // Los módulos activables vigentes (docs/servicios.md §1.5), en orden.
+  modulosActivados: string[];
 }
 
 // Contrato de GET /api/admin/organizations/editions.

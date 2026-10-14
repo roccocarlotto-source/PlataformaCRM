@@ -62,6 +62,28 @@ export function changeOrganizationEdition(
   );
 }
 
+// Módulos activables (docs/servicios.md §1.5): activar y desactivar uno en
+// una organización. Idempotentes del lado del backend.
+export function activarModulo(
+  organizationId: string,
+  modulo: string,
+): Promise<{ organizationId: string; modulo: string; activo: boolean }> {
+  return request(
+    `/admin/organizations/${encodeURIComponent(organizationId)}/modulos/${encodeURIComponent(modulo)}`,
+    { method: "PUT", getAccessToken },
+  );
+}
+
+export function desactivarModulo(
+  organizationId: string,
+  modulo: string,
+): Promise<{ organizationId: string; modulo: string; activo: boolean }> {
+  return request(
+    `/admin/organizations/${encodeURIComponent(organizationId)}/modulos/${encodeURIComponent(modulo)}`,
+    { method: "DELETE", getAccessToken },
+  );
+}
+
 // Reenviar el mail de invitación al administrador de una organización que
 // todavía no la aceptó. Responde a qué email salió; 409 si ya la aceptó.
 export function reenviarInvitacionDelAdministrador(

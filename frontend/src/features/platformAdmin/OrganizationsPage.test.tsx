@@ -27,6 +27,7 @@ const ORGS: PlatformOrganization[] = [
     slug: "automotora-centro",
     edition: "COMPLETA",
     industry: "AUTOMOTORA",
+    modulosActivados: [],
   },
   {
     id: "org-2",
@@ -34,6 +35,7 @@ const ORGS: PlatformOrganization[] = [
     slug: "automotora-norte",
     edition: "ESENCIAL",
     industry: "AUTOMOTORA",
+    modulosActivados: [],
   },
 ];
 
@@ -212,6 +214,7 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
       slug: "clinica-demo-norte",
       edition: "COMPLETA",
       industry: "CLINICA",
+      modulosActivados: [],
     },
     {
       id: "org-clinica",
@@ -219,6 +222,7 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
       slug: "clinica-centro",
       edition: "COMPLETA",
       industry: "CLINICA",
+      modulosActivados: [],
     },
     {
       id: "org-auto-demo",
@@ -226,6 +230,7 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
       slug: "clinica-demo-automotora",
       edition: "COMPLETA",
       industry: "AUTOMOTORA",
+      modulosActivados: [],
     },
   ];
   const RESPUESTA = {
@@ -349,5 +354,145 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
       await screen.findByText(/La regla del recordatorio de la demo está activa/),
     ).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+});
+
+// Módulos activables (docs/servicios.md §1.5): la columna "Módulos" y
+// "Activar Servicios" / "Desactivar Servicios", solo en una AUTOMOTORA.
+describe("OrganizationsPage: módulos activables", () => {
+  const moduloUrl = (id: string) => `${env.apiUrl}/api/admin/organizations/${id}/modulos/servicios`;
+  const CON_CLINICA: PlatformOrganization[] = [
+    ...ORGS,
+    {
+      id: "org-clinica",
+      name: "Clínica Centro",
+      slug: "clinica-centro",
+      edition: "COMPLETA",
+      industry: "CLINICA",
+      modulosActivados: [],
+    },
+  ];
+
+  beforeEach(() => {
+    server.use(
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+    );
+  });
+
+  async function filaDe(nombre: string) {
+    return (await screen.findByText(nombre)).closest("tr") as HTMLElement;
+  }
+
+  it("muestra los módulos activados y ofrece activar o desactivar solo en las automotoras", async () => {
+    server.use(
+      http.get(listUrl, () =>
+        HttpResponse.json(
+          CON_CLINICA.map((o) =>
+            o.id === "org-2" ? { ...o, modulosActivados: ["servicios"] } : o,
+          ),
+        ),
+      ),
+    );
+    renderPage();
+
+    const centro = await filaDe("Automotora Centro");
+    const norte = await filaDe("Automotora Norte");
+    const clinica = await filaDe("Clínica Centro");
+    expect(within(norte).getByText("Servicios")).toBeInTheDocument();
+    expect(within(centro).queryByText("Servicios")).not.toBeInTheDocument();
+    expect(within(centro).getByRole("button", { name: "Activar Servicios" })).toBeInTheDocument();
+    expect(within(norte).getByRole("button", { name: "Desactivar Servicios" })).toBeInTheDocument();
+    expect(within(clinica).queryByRole("button", { name: /Servicios/ })).not.toBeInTheDocument();
+  });
+
+  it("activar: pide confirmación, manda el PUT, avisa y recarga el listado", async () => {
+    let lista = CON_CLINICA;
+    let pedidos = 0;
+    server.use(
+      http.get(listUrl, () => HttpResponse.json(lista)),
+      http.put(moduloUrl("org-1"), () => {
+        pedidos += 1;
+        lista = lista.map((o) =>
+          o.id === "org-1" ? { ...o, modulosActivados: ["servicios"] } : o,
+        );
+        return HttpResponse.json({ organizationId: "org-1", modulo: "servicios", activo: true });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(
+      within(await filaDe("Automotora Centro")).getByRole("button", { name: "Activar Servicios" }),
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "¿Activar Servicios en «Automotora Centro»?",
+    );
+    await user.click(screen.getByRole("button", { name: "Activar" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Servicios activado en «Automotora Centro».",
+    );
+    expect(pedidos).toBe(1);
+    await waitFor(async () =>
+      expect(
+        within(await filaDe("Automotora Centro")).getByRole("button", {
+          name: "Desactivar Servicios",
+        }),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("desactivar: confirma que los datos se conservan y manda el DELETE; cancelar no manda nada", async () => {
+    let pedidos = 0;
+    server.use(
+      http.get(listUrl, () =>
+        HttpResponse.json(
+          CON_CLINICA.map((o) =>
+            o.id === "org-1" ? { ...o, modulosActivados: ["servicios"] } : o,
+          ),
+        ),
+      ),
+      http.delete(moduloUrl("org-1"), () => {
+        pedidos += 1;
+        return HttpResponse.json({ organizationId: "org-1", modulo: "servicios", activo: false });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const boton = within(await filaDe("Automotora Centro")).getByRole("button", {
+      name: "Desactivar Servicios",
+    });
+    await user.click(boton);
+    expect(screen.getByRole("dialog")).toHaveTextContent(/Los datos se conservan/);
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(pedidos).toBe(0);
+
+    await user.click(boton);
+    await user.click(screen.getByRole("button", { name: "Desactivar" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Servicios desactivado en «Automotora Centro».",
+    );
+    expect(pedidos).toBe(1);
+  });
+
+  it("si el backend rechaza, muestra su error", async () => {
+    server.use(
+      http.get(listUrl, () => HttpResponse.json(CON_CLINICA)),
+      http.put(moduloUrl("org-1"), () =>
+        HttpResponse.json(
+          { error: { message: "El módulo servicios no está disponible para el rubro CLINICA." } },
+          { status: 400 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(
+      within(await filaDe("Automotora Centro")).getByRole("button", { name: "Activar Servicios" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Activar" }));
+    expect(await screen.findByText(/no está disponible para el rubro/)).toBeInTheDocument();
   });
 });

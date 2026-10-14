@@ -161,3 +161,21 @@ describe("automotora sin cambios: tieneModulo en las dos ediciones", () => {
     }
   });
 });
+
+// docs/servicios.md §1: un módulo activable falla cerrado. Sin `modulos` en
+// /me no se muestra (al revés que el resto); con la lista, decide la lista.
+describe("tieneModulo con un módulo activable (servicios)", () => {
+  it("sin modulos (un backend anterior): false para servicios, true para el resto como siempre", () => {
+    const me = { id: "u1", role: "ADMIN" } as MeResponse;
+    expect(tieneModulo(me, "servicios")).toBe(false);
+    expect(tieneModulo(me, "empresas")).toBe(true);
+    expect(tieneModulo(null, "servicios")).toBe(false);
+  });
+
+  it("con modulos: lo tiene solo si la lista lo trae", () => {
+    const sin = { id: "u1", role: "ADMIN", ...automotoraDeMe("COMPLETA") } as MeResponse;
+    expect(tieneModulo(sin, "servicios")).toBe(false);
+    const con = { ...sin, modulos: [...(sin.modulos ?? []), "servicios"] } as MeResponse;
+    expect(tieneModulo(con, "servicios")).toBe(true);
+  });
+});

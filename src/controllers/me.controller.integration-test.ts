@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import express from "express";
-import { MODULOS, SOLO_CLINICA } from "../config/ediciones";
+import { MODULOS, MODULOS_ACTIVABLES, SOLO_CLINICA } from "../config/ediciones";
 import { env } from "../config/env";
 import { authenticate } from "../middlewares/authenticate";
 import { errorHandler } from "../middlewares/errorHandler";
@@ -208,12 +208,13 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     assert.equal(body.canUseInternalAgent, true);
     // Una organización sin edición ni rubro explícitos es COMPLETA y
     // AUTOMOTORA: tiene todos los módulos del catálogo menos los solo de
-    // clínica (R5).
+    // clínica (R5) y los activables que no tiene activados
+    // (docs/servicios.md §1.4): la lista de siempre.
     assert.equal(body.edition, "COMPLETA");
     assert.equal(body.industry, "AUTOMOTORA");
     assert.deepEqual(
       body.modulos,
-      MODULOS.filter((m) => !SOLO_CLINICA.has(m)),
+      MODULOS.filter((m) => !SOLO_CLINICA.has(m) && !MODULOS_ACTIVABLES.has(m)),
     );
   } finally {
     await close();

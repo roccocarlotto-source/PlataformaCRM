@@ -352,6 +352,8 @@ test("listado: 403 para un ADMIN común; el platform admin ve las vigentes con i
         slug: vigente.slug,
         edition: "COMPLETA",
         industry: "AUTOMOTORA",
+        // Los módulos activables vigentes (docs/servicios.md §1.5): ninguno.
+        modulosActivados: [],
       });
       assert.equal(
         lista.some((o) => o.id === deBaja.id),

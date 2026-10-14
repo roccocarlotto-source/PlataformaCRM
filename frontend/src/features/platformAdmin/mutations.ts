@@ -2,6 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentKeys } from "../agent/queries";
 import { internalAgentKeys } from "../internalAgent/queries";
 import {
+  activarModulo,
+  desactivarModulo,
   assignAgentModel,
   assignFacebookPage,
   assignInternalAgentModel,
@@ -57,6 +59,27 @@ export function useChangeOrganizationEdition() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (organizationId: string) => changeOrganizationEdition(organizationId, "COMPLETA"),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
+    },
+  });
+}
+
+// Activar o desactivar un módulo activable (docs/servicios.md §1.5): el
+// listado se recarga para mostrar la columna "Módulos" al día.
+export function useCambiarModulo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      organizationId,
+      modulo,
+      activo,
+    }: {
+      organizationId: string;
+      modulo: string;
+      activo: boolean;
+    }) =>
+      activo ? activarModulo(organizationId, modulo) : desactivarModulo(organizationId, modulo),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
     },

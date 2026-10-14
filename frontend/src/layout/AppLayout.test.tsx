@@ -827,3 +827,28 @@ describe("AppLayout — menú por edición", () => {
     );
   });
 });
+
+// docs/servicios.md (S2): activar Servicios todavía no agrega nada al menú (la
+// entrada "Taller" llega con S3, con su primera pantalla). El menú es el
+// mismo, link por link, con y sin servicios en me.modulos.
+describe("AppLayout — el módulo Servicios no cambia el menú en S2", () => {
+  function menu(modulos: string[]) {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: { ...base.me!, ...edicionDeMe("COMPLETA"), modulos },
+    });
+    const { unmount } = renderLayout();
+    const links = screen
+      .getAllByRole("link")
+      .map((l) => `${l.textContent}→${l.getAttribute("href")}`);
+    const botones = screen.getAllByRole("button").map((b) => b.textContent);
+    unmount();
+    return { links, botones };
+  }
+
+  it("con y sin servicios en /me, los mismos links y las mismas secciones", () => {
+    const sin = edicionDeMe("COMPLETA").modulos ?? [];
+    expect(menu([...sin, "servicios"])).toEqual(menu(sin));
+  });
+});

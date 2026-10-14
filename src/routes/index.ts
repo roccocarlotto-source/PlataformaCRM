@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { agendaClinicaRouter } from "../clinicas/routes/agendaClinica.routes";
+import { serviciosRouter } from "../servicios/routes/servicios.routes";
 import { activityRouter } from "./activity.routes";
 import { agentAdminRouter } from "./agentAdmin.routes";
 import { agentEmbedTokenRouter } from "./agentEmbedToken.routes";
@@ -109,6 +110,10 @@ routes.use("/api", serviceTypeRouter);
 // La agenda de una clínica (docs/rubros.md §1.3 y §4.3): módulo de clínicas,
 // montado como un router más. El gate la reserva al rubro CLINICA.
 routes.use("/api", agendaClinicaRouter);
+// El taller de postventa (docs/servicios.md): módulo activable por
+// organización, montado como un router más. El gate lo reserva a quien lo
+// tiene activado.
+routes.use("/api", serviciosRouter);
 // B6: las definiciones de campos personalizados de contactos.
 routes.use("/api", contactCustomFieldDefinitionRouter);
 

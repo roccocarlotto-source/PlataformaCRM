@@ -118,7 +118,19 @@ export function findActiveOrganizationEdition(organizationId: string, db: Db = p
 export function listActiveOrganizations(db: Db = prisma) {
   return db.organization.findMany({
     where: { deletedAt: null },
-    select: { id: true, name: true, slug: true, edition: true, industry: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      edition: true,
+      industry: true,
+      // Los módulos activables vigentes (docs/servicios.md §1.5).
+      organizationModules: {
+        where: { disabledAt: null },
+        select: { module: true },
+        orderBy: { module: "asc" },
+      },
+    },
     orderBy: { name: "asc" },
   });
 }

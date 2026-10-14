@@ -93,6 +93,10 @@ export async function borrarOrgDePrueba(org: OrgDePrueba | undefined): Promise<v
   // Antes que los usuarios: la FK a users es RESTRICT (historial append-only).
   await prisma.clinicHealthSettingsChange.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
+  // Módulos activables y configuración del taller (docs/servicios.md §1.5):
+  // los escribe activar un módulo, y su FK a organizations es RESTRICT.
+  await prisma.workshopSettings.deleteMany({ where });
+  await prisma.organizationModule.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.organization.delete({ where: { id: org.id } });
   for (const id of org.authIds) await getSupabaseAdmin().auth.admin.deleteUser(id);

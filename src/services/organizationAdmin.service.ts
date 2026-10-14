@@ -5,7 +5,9 @@ import { crearConfiguracionDeClinica } from "../clinicas/repositories/clinicSett
 import {
   CLINICA_HABILITADA,
   ESENCIAL_HABILITADA,
+  MODULOS_POR_RUBRO,
   ROLES_POR_RUBRO,
+  type Modulo,
   edicionesDisponibles,
   rubrosDisponibles,
 } from "../config/ediciones";
@@ -27,6 +29,7 @@ import {
   subirOrganizacionACompleta,
   updateOrganizationIndustry,
 } from "../repositories/organization.repository";
+import { activeModulesOfOrganization } from "../repositories/organizationModule.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import {
   adminsVigentesDeLaOrganizacion,
@@ -527,6 +530,17 @@ export async function cambiarRubroDeOrganizacion(
 
     if ((await contarDatosDeNegocio(organizationId, tx)) > 0) {
       throw new AppError(RUBRO_CON_DATOS, 409);
+    }
+    // Un módulo activable activado que el rubro nuevo no admite
+    // (docs/servicios.md §1.5): servicios solo en AUTOMOTORA.
+    const activadosNoAdmitidos = (await activeModulesOfOrganization(organizationId, tx)).filter(
+      (m) => !MODULOS_POR_RUBRO[rubroPedido].has(m as Modulo),
+    );
+    if (activadosNoAdmitidos.length > 0) {
+      throw new AppError(
+        `No se puede cambiar el rubro: la organización tiene activado un módulo que ${rubroPedido} no admite (${activadosNoAdmitidos.join(", ")}).`,
+        409,
+      );
     }
     const noAdmitidos = KNOWN_ROLES.filter((rol) => !ROLES_POR_RUBRO[rubroPedido].includes(rol));
     if (

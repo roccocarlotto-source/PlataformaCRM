@@ -21,7 +21,10 @@ import { prisma, type Db } from "../lib/prisma";
 // mismo JOIN, así el gate de módulos no suma ninguna consulta. Y las sedes de
 // una Recepción de clínica (docs/rubros.md §11.5, R20): una subconsulta en el
 // mismo SELECT que solo corre para ese rol en ese rubro (para el resto el CASE
-// devuelve NULL sin tocar user_branches), sin las sedes borradas.
+// devuelve NULL sin tocar user_branches), sin las sedes borradas. Y los
+// módulos activables vigentes de la organización (docs/servicios.md §1.4):
+// otra subconsulta en el mismo SELECT, por la clave primaria de
+// organization_modules; sigue siendo una sola ida a la base.
 export interface UsuarioParaAuth {
   id: string;
   organizationId: string;
@@ -37,6 +40,9 @@ export interface UsuarioParaAuth {
   role: { name: string };
   // null salvo para Recepción en una clínica ([] si no tiene sedes).
   sedes: string[] | null;
+  // Los módulos activables vigentes de la organización (docs/servicios.md
+  // §1.4), en orden. [] si no tiene ninguno.
+  modulosActivados: string[];
 }
 
 interface FilaUsuarioParaAuth {
@@ -51,6 +57,7 @@ interface FilaUsuarioParaAuth {
   organization_industry: OrganizationIndustry;
   role_name: string;
   sedes: string[] | null;
+  modulos_activados: string[];
 }
 
 export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth | null> {
@@ -68,7 +75,11 @@ export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth |
                                         AND b.deleted_at IS NULL
                         WHERE ub.organization_id = u.organization_id
                           AND ub.user_id = u.id), ARRAY[]::text[])
-           END AS sedes
+           END AS sedes,
+           COALESCE((SELECT array_agg(om.module::text ORDER BY om.module)
+                       FROM organization_modules om
+                      WHERE om.organization_id = u.organization_id
+                        AND om.disabled_at IS NULL), ARRAY[]::text[]) AS modulos_activados
     FROM users u
     JOIN organizations o ON o.id = u.organization_id
     JOIN roles r ON r.id = u.role_id
@@ -89,6 +100,7 @@ export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth |
     },
     role: { name: fila.role_name },
     sedes: fila.sedes,
+    modulosActivados: fila.modulos_activados,
   };
 }
 
