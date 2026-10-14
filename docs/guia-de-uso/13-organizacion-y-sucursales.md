@@ -35,9 +35,8 @@ teléfonos que se cargan sin código de país, en formato local. Por ejemplo,
 con **598** cargado, un contacto con el teléfono "099 123 456" se guarda como
 un número de Uruguay. Va sin el signo "+", de 1 a 3 dígitos.
 
-> Sin un código de país configurado, un teléfono cargado en formato local
-> (sin el código adelante) se rechaza. Si ves que a los contactos que entran
-> por una landing les falta el teléfono, lo más probable es que falte esto.
+> Sin un código de país configurado, el sistema usa el de Uruguay (598). Las
+> organizaciones nuevas ya lo traen cargado desde el alta.
 
 ### Zona horaria
 

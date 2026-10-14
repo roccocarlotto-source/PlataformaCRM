@@ -18,6 +18,11 @@ export interface CreateOrganizationInput {
   edition?: OrganizationEdition;
   // Ídem, con los rubros.
   industry?: OrganizationIndustry;
+  // País (código, sin "+"), moneda y zona. Sin ellos el backend usa Uruguay,
+  // USD y America/Montevideo; el formulario los manda siempre.
+  defaultPhoneCountryCode?: string;
+  preferredCurrency?: string;
+  timezone?: string;
 }
 
 export interface CreateOrganizationResponse {

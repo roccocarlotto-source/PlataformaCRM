@@ -569,7 +569,7 @@ test("F5-a: un FAILED por teléfono local, reprocesado, entra sin teléfono y el
     sourceId: fx.sourceRetry,
     status: "FAILED",
     errorMessage: "phone: phone tiene que estar en formato internacional",
-    rawPayload: { firstName: "Tel", lastName: "Local", phone: "099 555 000" },
+    rawPayload: { firstName: "Tel", lastName: "Local", phone: "099 555 000 int 4" },
   });
 
   const res = await call("POST", `/api/ingestion-events/${id}/retry`, fx.adminA.accessToken);
@@ -593,7 +593,7 @@ test("F5-a: un FAILED por teléfono local, reprocesado, entra sin teléfono y el
   const body = (await lista.json()) as RespuestaListado;
   const fila = body.data.find((e) => e.id === id);
   assert.ok(fila);
-  assert.equal(fila.telefonoDescartado, "099 555 000");
+  assert.equal(fila.telefonoDescartado, "099 555 000 int 4");
   assert.equal(fila.errorMessage, null);
   assert.equal("promotionNotes" in (fila as unknown as Record<string, unknown>), false);
 });

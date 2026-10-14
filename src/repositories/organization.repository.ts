@@ -1,22 +1,36 @@
 import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import type { RoleName } from "../types/auth";
 import { PROCESO_DE_VENTA_FIJO } from "../config/ediciones";
+import { DATOS_DE_ORGANIZACION_NUEVA } from "../config/organizacionNueva";
 import { prisma, type Db } from "../lib/prisma";
 
 export function findOrganizationBySlug(slug: string, db: Db = prisma) {
   return db.organization.findUnique({ where: { slug } });
 }
 
+/** Toda organización nace con país, moneda y zona (config/organizacionNueva.ts):
+ *  lo que no venga, el valor por defecto. */
 export function createOrganization(
   data: {
     name: string;
     slug: string;
     edition?: OrganizationEdition;
     industry?: OrganizationIndustry;
+    defaultPhoneCountryCode?: string;
+    preferredCurrency?: string;
+    timezone?: string;
   },
   db: Db = prisma,
 ) {
-  return db.organization.create({ data });
+  return db.organization.create({
+    data: {
+      ...data,
+      defaultPhoneCountryCode:
+        data.defaultPhoneCountryCode ?? DATOS_DE_ORGANIZACION_NUEVA.defaultPhoneCountryCode,
+      preferredCurrency: data.preferredCurrency ?? DATOS_DE_ORGANIZACION_NUEVA.preferredCurrency,
+      timezone: data.timezone ?? DATOS_DE_ORGANIZACION_NUEVA.timezone,
+    },
+  });
 }
 
 // El proceso de venta fijo de ESENCIAL (docs/ediciones.md §2.1), dentro de la

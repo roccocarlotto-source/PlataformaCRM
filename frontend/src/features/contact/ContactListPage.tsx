@@ -198,7 +198,7 @@ export function ContactListPage() {
               <span className="ds-sr-only">Buscar</span>
               <input
                 type="search"
-                placeholder="Buscar por nombre o email"
+                placeholder="Buscar por nombre, email o teléfono"
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value);
@@ -400,9 +400,12 @@ export function ContactListPage() {
                   { label: "Apellido", value: detalle.lastName },
                   { label: "Email", value: detalle.email },
                   { label: "Teléfono", value: detalle.phone },
-                  { label: "Puesto", value: detalle.jobTitle },
                   ...(tieneEmpresas
                     ? [{ label: "Empresa", value: nombreDeEmpresa(detalle.companyId) }]
+                    : []),
+                  // Puesto solo con empresa, como en el formulario.
+                  ...(tieneEmpresas && detalle.companyId
+                    ? [{ label: "Puesto", value: detalle.jobTitle }]
                     : []),
                   { label: "Fuente", value: detalle.source },
                   {

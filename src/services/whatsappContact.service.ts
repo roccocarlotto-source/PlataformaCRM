@@ -65,15 +65,17 @@ export async function resolveWhatsappContact(
   // contacto si algún día no lo hiciera: el wa_id ES la identidad del
   // remitente, y se guarda igual en la forma "+dígitos".
   //
-  // F5-b: con el país por defecto de la organización, como toda escritura de
-  // Contact.phone. Un wa_id nunca empieza con 0 (ya es internacional), así que
-  // hoy no cambia el resultado; se pasa igual para que la regla sea una sola.
-  // Lo trae el mismo lock que ya se tomaba: no cuesta una ida más a la base.
+  // El wa_id ya es internacional: se normaliza con "+" adelante, así NO pasa
+  // por la regla de los números locales (desde 2026-10-14 un número sin "+"
+  // de 8 dígitos se lee como uruguayo, y un wa_id extranjero corto no tiene
+  // que convertirse en uno). Para cualquier wa_id real el resultado es el
+  // mismo de antes. El lock de la organización se sigue tomando: serializa las
+  // altas simultáneas del mismo remitente.
   const digitos = soloDigitos(waId);
 
   return prisma.$transaction(async (tx) => {
-    const { defaultPhoneCountryCode } = await lockOrganizationForUpdate(organizationId, tx);
-    const telefono = normalizarTelefono(digitos, defaultPhoneCountryCode) ?? `+${digitos}`;
+    await lockOrganizationForUpdate(organizationId, tx);
+    const telefono = normalizarTelefono(`+${digitos}`) ?? `+${digitos}`;
 
     const existente = await findContactIdByNormalizedPhone(organizationId, digitos, tx);
     if (existente) {

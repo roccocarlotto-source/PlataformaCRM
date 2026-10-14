@@ -64,7 +64,7 @@ export const createContactSchema = z.object({
     .email("email inválido")
     .max(255, "email no puede superar los 255 caracteres")
     .optional(),
-  phone: z.string().trim().max(30, "phone no puede superar los 30 caracteres").optional(),
+  phone: z.string().trim().max(30, "Teléfono: no puede superar los 30 caracteres").optional(),
   jobTitle: z.string().trim().max(100, "jobTitle no puede superar los 100 caracteres").optional(),
   source: z.string().trim().max(100, "source no puede superar los 100 caracteres").optional(),
   companyId: z.string().uuid("companyId inválido").optional(),
@@ -89,7 +89,7 @@ export const updateContactSchema = z
     phone: z
       .string()
       .trim()
-      .max(30, "phone no puede superar los 30 caracteres")
+      .max(30, "Teléfono: no puede superar los 30 caracteres")
       .nullable()
       .optional(),
     jobTitle: z

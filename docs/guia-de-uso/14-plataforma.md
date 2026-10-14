@@ -25,10 +25,15 @@ un mail para elegir su contraseña y, cuando lo complete, entra como
 1. Entrá a **Plataforma → Nueva organización**.
 2. En **Organización**, escribí el **Nombre de la organización**, tal como se
    llama el negocio (por ejemplo, *Automotores del Sur*).
-3. En **Primer administrador**, completá el **Nombre completo** y el **Email**
+3. Revisá **Código de país**, **Moneda** y **Zona horaria**. Vienen con los
+   de Uruguay (598, USD y Montevideo); cambialos si el cliente es de otro
+   país o trabaja en otra moneda. El código de país completa los teléfonos
+   que se cargan en formato local. Los tres se pueden cambiar después en
+   [Organización](/organization).
+4. En **Primer administrador**, completá el **Nombre completo** y el **Email**
    de la persona que va a administrar el CRM en esa automotora (por ejemplo,
    *Ana Pérez*, *ana@example.com*).
-4. Tocá **Crear organización**.
+5. Tocá **Crear organización**.
 
 En **Organización** aparece también **Edición**: **Completa** o **Esencial**
 (ver [Las ediciones](#las-ediciones)). Es obligatoria y viene sin ninguna

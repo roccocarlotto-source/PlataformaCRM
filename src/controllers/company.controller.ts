@@ -32,7 +32,7 @@ export const createCompanySchema = z.object({
   ...companyFields,
   domain: z.string().trim().max(255, "domain no puede superar los 255 caracteres").optional(),
   industry: z.string().trim().max(100, "industry no puede superar los 100 caracteres").optional(),
-  phone: z.string().trim().max(30, "phone no puede superar los 30 caracteres").optional(),
+  phone: z.string().trim().max(30, "Teléfono: no puede superar los 30 caracteres").optional(),
   city: z.string().trim().max(100, "city no puede superar los 100 caracteres").optional(),
   country: z.string().trim().max(100, "country no puede superar los 100 caracteres").optional(),
 });
@@ -61,7 +61,7 @@ export const updateCompanySchema = z
     phone: z
       .string()
       .trim()
-      .max(30, "phone no puede superar los 30 caracteres")
+      .max(30, "Teléfono: no puede superar los 30 caracteres")
       .nullable()
       .optional(),
     city: z

@@ -62,7 +62,45 @@ async function completarYEnviar(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: /crear organización/i }));
 }
 
+// País, moneda y zona con que nace una organización: el formulario los trae
+// precargados (Uruguay, USD, Montevideo) y los manda siempre (2026-10-14).
+const CON_QUE_NACE = {
+  defaultPhoneCountryCode: "598",
+  preferredCurrency: "USD",
+  timezone: "America/Montevideo",
+};
+
 describe("NewOrganizationPage", () => {
+  it("país, moneda y zona vienen precargados y se pueden cambiar", async () => {
+    let postedBody: unknown;
+    server.use(
+      http.post(url, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(CREATED, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    const codigo = await screen.findByLabelText("Código de país");
+    expect(codigo).toHaveValue("598");
+    expect(screen.getByLabelText("Moneda")).toHaveValue("USD");
+    expect(screen.getByLabelText("Zona horaria")).toHaveValue("America/Montevideo");
+    await user.clear(codigo);
+    await user.type(codigo, "54");
+    await user.selectOptions(screen.getByLabelText("Moneda"), "UYU");
+    await user.selectOptions(
+      screen.getByLabelText("Zona horaria"),
+      "America/Argentina/Buenos_Aires",
+    );
+    await completarYEnviar(user);
+    await waitFor(() => expect(postedBody).toBeDefined());
+    expect(postedBody).toMatchObject({
+      defaultPhoneCountryCode: "54",
+      preferredCurrency: "UYU",
+      timezone: "America/Argentina/Buenos_Aires",
+    });
+  });
+
   it("submit: POST /api/admin/organizations con los tres campos, y al confirmar muestra nombre, slug y a quién se invitó — sin redirect", async () => {
     let postedBody: unknown;
     let authHeader: string | null = null;
@@ -83,6 +121,7 @@ describe("NewOrganizationPage", () => {
       organizationName: "Automotora Pérez",
       adminFullName: "Juan Pérez",
       adminEmail: "juan@perez.test",
+      ...CON_QUE_NACE,
     });
     expect(authHeader).toBe("Bearer test-token");
 
@@ -206,6 +245,7 @@ describe("NewOrganizationPage", () => {
       adminFullName: "Juan Pérez",
       adminEmail: "juan@perez.test",
       edition: "ESENCIAL",
+      ...CON_QUE_NACE,
     });
   });
 
@@ -264,6 +304,7 @@ describe("NewOrganizationPage", () => {
       adminEmail: "juan@perez.test",
       edition: "COMPLETA",
       industry: "CLINICA",
+      ...CON_QUE_NACE,
     });
   });
 

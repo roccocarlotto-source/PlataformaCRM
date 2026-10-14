@@ -434,15 +434,10 @@ export function ContactFormPage() {
               <FormField label="Teléfono">
                 <input
                   type="text"
+                  inputMode="tel"
+                  placeholder="099 123 456"
                   value={values.phone}
                   onChange={(event) => setValues({ ...values, phone: event.target.value })}
-                />
-              </FormField>
-              <FormField label="Puesto">
-                <input
-                  type="text"
-                  value={values.jobTitle}
-                  onChange={(event) => setValues({ ...values, jobTitle: event.target.value })}
                 />
               </FormField>
               {tieneEmpresas ? (
@@ -452,6 +447,19 @@ export function ContactFormPage() {
                   value={values.companyId}
                   onChange={(companyId) => setValues({ ...values, companyId })}
                 />
+              ) : null}
+              {/* Puesto es el cargo EN la empresa: solo con una elegida. Si se
+                quita la empresa, el campo se oculta pero el valor queda en el
+                formulario y se guarda igual (no se borra sin que nadie lo
+                pida). En ESENCIAL no hay empresas, así que nunca aparece. */}
+              {tieneEmpresas && values.companyId ? (
+                <FormField label="Puesto">
+                  <input
+                    type="text"
+                    value={values.jobTitle}
+                    onChange={(event) => setValues({ ...values, jobTitle: event.target.value })}
+                  />
+                </FormField>
               ) : null}
               <FormField label="Fuente">
                 <input

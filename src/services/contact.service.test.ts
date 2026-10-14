@@ -377,12 +377,13 @@ test("F5: telefonoParaGuardar deja undefined como 'no vino' y trata null y vací
   assert.equal(telefonoParaGuardar("   "), null);
 });
 
-test("F5: telefonoParaGuardar rechaza con 400 un local con 0 inicial — no inventa código de país", () => {
+test("telefonoParaGuardar rechaza con 400, en español, lo que no es un teléfono", () => {
   assert.throws(
-    () => telefonoParaGuardar("099 123 456"),
+    () => telefonoParaGuardar("llamar a la tarde"),
     (err: unknown) =>
       err instanceof AppError && err.statusCode === 400 && err.message === TELEFONO_NO_NORMALIZABLE,
   );
+  assert.match(TELEFONO_NO_NORMALIZABLE, /^Teléfono: /);
 });
 
 // F5-b (pendientes post F1–F5): con el país por defecto de la organización, un
@@ -390,10 +391,9 @@ test("F5: telefonoParaGuardar rechaza con 400 un local con 0 inicial — no inve
 test("F5-b: telefonoParaGuardar completa un local con el país por defecto", () => {
   assert.equal(telefonoParaGuardar("099 123 456", "598"), "+59899123456");
   assert.equal(telefonoParaGuardar("00598 99 123 456"), "+59899123456");
-  assert.throws(
-    () => telefonoParaGuardar("099 123 456", null),
-    (err: unknown) => err instanceof AppError && err.statusCode === 400,
-  );
+  // Sin país configurado, Uruguay (2026-10-14; antes era un 400).
+  assert.equal(telefonoParaGuardar("099 123 456", null), "+59899123456");
+  assert.equal(telefonoParaGuardar("24001234", null), "+59824001234");
 });
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,10 @@ import { prisma, type Db } from "../lib/prisma";
 
 export interface ContactFilters {
   search?: string;
+  // Si `search` parece un teléfono: lo que se busca dentro de Contact.phone
+  // (variantesDeBusquedaDeTelefono, lib/telefono.ts). Lo arma el service, que
+  // sabe el país de la organización.
+  telefonosABuscar?: string[];
   firstName?: string;
   lastName?: string;
   email?: string;
@@ -27,7 +31,8 @@ export type SortOrder = "asc" | "desc";
 // lecturas — el único lugar donde se arma el filtro multi-tenant + soft
 // delete para esta entidad, para que findMany/count nunca puedan divergir.
 //
-// `search` (OR entre firstName/lastName/email) y los filtros específicos
+// `search` (OR entre firstName/lastName/email, y el teléfono si el texto
+// parece uno) y los filtros específicos
 // conviven en el mismo objeto: Prisma combina con AND implícito los campos
 // de un mismo nivel, así que "search AND filtros adicionales" sale gratis
 // sin necesitar un `AND: [...]` explícito.
@@ -41,6 +46,7 @@ function buildWhere(organizationId: string, filters: ContactFilters): Prisma.Con
             { firstName: { contains: filters.search, mode: "insensitive" } },
             { lastName: { contains: filters.search, mode: "insensitive" } },
             { email: { contains: filters.search, mode: "insensitive" } },
+            ...(filters.telefonosABuscar ?? []).map((t) => ({ phone: { contains: t } })),
           ],
         }
       : {}),
