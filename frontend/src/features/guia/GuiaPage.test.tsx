@@ -44,14 +44,29 @@ function renderEn(ruta: string) {
 }
 
 describe("GuiaPage — índice", () => {
-  it("lista todas las secciones menos Plataforma para quien no es platform admin", () => {
+  it("lista todas las secciones menos Plataforma (y Taller, sin el módulo) para quien no es platform admin", () => {
     useAuthMock.mockReturnValue(mockAuth(false));
     renderEn("/ayuda");
     for (const seccion of SECCIONES) {
       const link = screen.queryByRole("link", { name: seccion.titulo });
-      if (seccion.soloPlataforma) expect(link).toBeNull();
+      // Taller (docs/servicios.md §13.1): un módulo activable; sin él en /me,
+      // la guía es la de siempre.
+      if (seccion.soloPlataforma || seccion.slug === "servicios") expect(link).toBeNull();
       else expect(link).toHaveAttribute("href", `/ayuda/${seccion.slug}`);
     }
+  });
+
+  it("con el módulo Servicios aparece la sección Taller", () => {
+    const base = mockAuth(false);
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: { ...base.me!, ...automotoraDeMe("COMPLETA"), modulos: ["servicios"] },
+    });
+    renderEn("/ayuda");
+    expect(screen.getByRole("link", { name: "Taller" })).toHaveAttribute(
+      "href",
+      "/ayuda/servicios",
+    );
   });
 
   it("un platform admin también ve Plataforma", () => {

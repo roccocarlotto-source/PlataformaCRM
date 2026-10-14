@@ -301,6 +301,11 @@ describe("router.tsx — gates del rubro (docs/rubros.md §2, R17)", () => {
       ["/vehicles", "stock"],
       ["/vehicles/new", "stock"],
       ["/vehicles/:id/edit", "stock"],
+      // El taller (docs/servicios.md §4): un módulo activable.
+      ["/taller/vehiculos", "servicios"],
+      ["/taller/vehiculos/nuevo", "servicios"],
+      ["/taller/vehiculos/:id", "servicios"],
+      ["/taller/vehiculos/:id/editar", "servicios"],
     ];
     for (const [path, modulo] of casos) {
       const parent = findParentElement(router.routes, path) as

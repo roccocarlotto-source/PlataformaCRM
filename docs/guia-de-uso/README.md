@@ -32,6 +32,7 @@ Un archivo por sección, con prefijo numérico para el orden del índice:
 | `12-usuarios-y-permisos.md` | Usuarios y permisos | todos |
 | `13-organizacion-y-sucursales.md` | Configuración de la organización y sucursales | todos (configuración: ADMIN) |
 | `14-plataforma.md` | Plataforma | solo platform admin |
+| `15-servicios.md` | Taller | todos, solo con el módulo Servicios activado |
 
 El **slug** de la sección (la parte de la URL, `/ayuda/<slug>`) es el nombre
 del archivo sin el prefijo numérico ni la extensión. No se renombran archivos:

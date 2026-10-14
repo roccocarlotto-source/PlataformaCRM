@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ModuloRoute } from "./ModuloRoute";
-import { tieneModulo, useModulo } from "./useModulo";
+import { MODULOS_ACTIVABLES, tieneModulo, useModulo } from "./useModulo";
 import { edicionDeMe } from "../test/edicionFixtures";
 import { automotoraDeMe, clinicaDeMe } from "../test/rubroFixtures";
 import { MODULO_DE_ANCLA, SOLO_SIN_MODULO } from "../features/guia/secciones";
@@ -154,7 +154,10 @@ describe("automotora sin cambios: tieneModulo en las dos ediciones", () => {
     for (const edition of ["COMPLETA", "ESENCIAL"] as const) {
       for (const rubro of [automotoraDeMe(edition), edicionDeMe(edition)]) {
         const me = { id: "u1", role: "ADMIN", ...rubro } as MeResponse;
-        for (const modulo of preguntados) {
+        // Los activables (servicios, S3) no existían antes: no tienen "regla
+        // anterior" contra la que comparar. Su regla la fija el describe de
+        // abajo (falla cerrado).
+        for (const modulo of [...preguntados].filter((m) => !MODULOS_ACTIVABLES.has(m))) {
           expect(tieneModulo(me, modulo), `${edition} ${modulo}`).toBe(reglaAnterior(me, modulo));
         }
       }

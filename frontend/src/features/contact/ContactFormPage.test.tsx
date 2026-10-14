@@ -16,6 +16,7 @@ import { ContactFormPage } from "./ContactFormPage";
 import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 import { formatDateOnly } from "../../design-system/detailFormat";
 import { automotoraDeMe, clinicaDeMe } from "../../test/rubroFixtures";
+import { makeVehiculoDeCliente } from "../../test/vehiculoDeClienteFixtures";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -1017,5 +1018,59 @@ describe("ContactFormPage — por edición", () => {
     server.use(usersHandler());
     renderForm("/contacts/new");
     expect(await screen.findByLabelText("Empresa")).toBeInTheDocument();
+  });
+});
+
+// docs/servicios.md §4.6 y §13.1: la tarjeta Vehículos solo con el módulo
+// Servicios. Sin él, la ficha no la monta ni pide nada a /api/servicios (MSW
+// corre con onUnhandledRequest: "error": un pedido sin handler rompe el test).
+describe("ContactFormPage — tarjeta Vehículos del taller", () => {
+  it("sin el módulo: no hay tarjeta y no se llama a /api/servicios", async () => {
+    let pidioServicios = false;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () => HttpResponse.json(makeContact({ id: "ct1" }))),
+      http.get(`${env.apiUrl}/api/servicios/*`, () => {
+        pidioServicios = true;
+        return HttpResponse.json({}, { status: 403 });
+      }),
+    );
+    const base = mockAuth();
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...automotoraDeMe("COMPLETA") } });
+    renderForm("/contacts/ct1/edit");
+    await screen.findByDisplayValue(makeContact().firstName);
+    expect(screen.queryByRole("heading", { name: "Vehículos" })).toBeNull();
+    expect(pidioServicios).toBe(false);
+  });
+
+  it("con el módulo: lista sus vehículos y ofrece agregar uno con este dueño", async () => {
+    let contactIdPedido: string | null = null;
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () => HttpResponse.json(makeContact({ id: "ct1" }))),
+      http.get(`${env.apiUrl}/api/servicios/vehiculos`, ({ request }) => {
+        contactIdPedido = new URL(request.url).searchParams.get("contactId");
+        return HttpResponse.json({
+          data: [makeVehiculoDeCliente({ contactId: "ct1" })],
+          pagination: { page: 1, pageSize: 50, total: 1, totalPages: 1 },
+        });
+      }),
+    );
+    const base = mockAuth();
+    const automotora = automotoraDeMe("COMPLETA");
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: { ...base.me!, ...automotora, modulos: [...(automotora.modulos ?? []), "servicios"] },
+    });
+    renderForm("/contacts/ct1/edit");
+    expect(await screen.findByRole("heading", { name: "Vehículos" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: "Toyota Hilux 2020 · SBC 1001" }),
+    ).toHaveAttribute("href", "/taller/vehiculos/cv1");
+    expect(screen.getByRole("link", { name: "Agregar vehículo" })).toHaveAttribute(
+      "href",
+      "/taller/vehiculos/nuevo?contactId=ct1",
+    );
+    expect(contactIdPedido).toBe("ct1");
   });
 });

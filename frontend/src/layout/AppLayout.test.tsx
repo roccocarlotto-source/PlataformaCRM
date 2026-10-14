@@ -828,10 +828,10 @@ describe("AppLayout — menú por edición", () => {
   });
 });
 
-// docs/servicios.md (S2): activar Servicios todavía no agrega nada al menú (la
-// entrada "Taller" llega con S3, con su primera pantalla). El menú es el
-// mismo, link por link, con y sin servicios en me.modulos.
-describe("AppLayout — el módulo Servicios no cambia el menú en S2", () => {
+// docs/servicios.md §4.1 (S3): activar Servicios suma la sección "Taller" con
+// "Vehículos de clientes", y NADA más: sacando eso, el menú es el mismo, link
+// por link, con y sin servicios en me.modulos. (En S2 el menú era idéntico.)
+describe("AppLayout — el módulo Servicios suma solo la sección Taller", () => {
   function menu(modulos: string[]) {
     const base = mockAuth("ADMIN");
     useAuthMock.mockReturnValue({
@@ -847,8 +847,18 @@ describe("AppLayout — el módulo Servicios no cambia el menú en S2", () => {
     return { links, botones };
   }
 
-  it("con y sin servicios en /me, los mismos links y las mismas secciones", () => {
+  it("con servicios en /me: Taller → Vehículos de clientes, y lo demás igual", () => {
     const sin = edicionDeMe("COMPLETA").modulos ?? [];
-    expect(menu([...sin, "servicios"])).toEqual(menu(sin));
+    const antes = menu(sin);
+    const con = menu([...sin, "servicios"]);
+    const delTaller = "Vehículos de clientes→/taller/vehiculos";
+    expect(con.links).toContain(delTaller);
+    expect(con.botones).toContain("Taller");
+    expect(antes.links).not.toContain(delTaller);
+    expect(antes.botones).not.toContain("Taller");
+    expect({
+      links: con.links.filter((l) => l !== delTaller),
+      botones: con.botones.filter((b) => b !== "Taller"),
+    }).toEqual(antes);
   });
 });

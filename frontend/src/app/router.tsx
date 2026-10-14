@@ -36,6 +36,9 @@ import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { QrListPage } from "../features/qr/QrListPage";
 import { VehicleFormPage } from "../features/vehicle/VehicleFormPage";
 import { VehicleListPage } from "../features/vehicle/VehicleListPage";
+import { VehiculoDeClienteDetailPage } from "../features/servicios/VehiculoDeClienteDetailPage";
+import { VehiculoDeClienteFormPage } from "../features/servicios/VehiculoDeClienteFormPage";
+import { VehiculosDeClientesPage } from "../features/servicios/VehiculosDeClientesPage";
 import { AgentFacebookPagePage } from "../features/platformAdmin/AgentFacebookPagePage";
 import { AgentModelPage } from "../features/platformAdmin/AgentModelPage";
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
@@ -206,6 +209,18 @@ export const router = createBrowserRouter([
           {
             element: <ModuloRoute modulo="stock" />,
             children: [{ path: "/vehicles", element: <VehicleListPage /> }],
+          },
+          // El taller (docs/servicios.md §4): un módulo activable. ACÁ AFUERA
+          // del AdminRoute: ADMIN y USER crean y editan vehículos (D9); borrar
+          // es solo ADMIN y lo decide el backend.
+          {
+            element: <ModuloRoute modulo="servicios" />,
+            children: [
+              { path: "/taller/vehiculos", element: <VehiculosDeClientesPage /> },
+              { path: "/taller/vehiculos/nuevo", element: <VehiculoDeClienteFormPage /> },
+              { path: "/taller/vehiculos/:id", element: <VehiculoDeClienteDetailPage /> },
+              { path: "/taller/vehiculos/:id/editar", element: <VehiculoDeClienteFormPage /> },
+            ],
           },
           // Reservas de la Agenda (ítem 75 de docs/frontend-cambios-pendientes.md).
           // ACÁ AFUERA, a diferencia de /resources y /service-types: las dos

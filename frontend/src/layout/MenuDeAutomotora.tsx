@@ -6,6 +6,7 @@ import {
   CalendarDays,
   CalendarRange,
   Car,
+  CarFront,
   CheckSquare,
   Clock,
   Coins,
@@ -47,6 +48,9 @@ export function MenuDeAutomotora({
   // Ediciones (docs/ediciones.md §7): sin el módulo, el link no aparece.
   const tieneEmpresas = tieneModulo(me, "empresas");
   const tieneProcesosDeVenta = tieneModulo(me, "procesos_de_venta");
+  // El taller (docs/servicios.md §4.1): un módulo activable. Sin él, el menú es
+  // el de siempre (lo fija menuPorRubro.test.tsx).
+  const tieneServicios = tieneModulo(me, "servicios");
 
   return (
     <>
@@ -116,6 +120,15 @@ export function MenuDeAutomotora({
           Stock
         </SidebarLink>
       </SidebarSection>
+      {/* Taller (docs/servicios.md §4.1): para ambos roles. S3 trae Vehículos
+          de clientes; Órdenes y Configuración (solo ADMIN) llegan con S4. */}
+      {tieneServicios ? (
+        <SidebarSection label="Taller" paths={["/taller"]}>
+          <SidebarLink to="/taller/vehiculos" icon={CarFront}>
+            Vehículos de clientes
+          </SidebarLink>
+        </SidebarSection>
+      ) : null}
       {/* Actividades (ítem 79): fusiona los grupos "Actividad" y "Agenda"
           que había antes; cada link conserva su propio permiso. */}
       <SidebarSection

@@ -23,6 +23,7 @@ import { Badge } from "../../design-system/Badge";
 import { formatDateOnly } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { ContactVouchersSection } from "../voucher/ContactVouchersSection";
+import { TarjetaVehiculosDelContacto } from "../servicios/TarjetaVehiculosDelContacto";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { ContactCustomFieldsCard } from "../contactCustomField/ContactCustomFieldsCard";
 import type { ContactCustomFieldValue } from "../contactCustomField/types";
@@ -179,6 +180,8 @@ export function ContactFormPage() {
   // Ediciones (docs/ediciones.md §2.2): sin el módulo empresas, sin el
   // selector (y sin pedir la lista de empresas, que daría 403).
   const tieneEmpresas = useModulo("empresas");
+  // El taller (docs/servicios.md §4.6): un módulo activable.
+  const tieneServicios = useModulo("servicios");
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
@@ -537,6 +540,12 @@ export function ContactFormPage() {
         </fieldset>
       </form>
       {isEditMode && id ? <ContactVouchersSection contactId={id} /> : null}
+      {/* El taller (docs/servicios.md §4.6): solo con el módulo. Sin él no se
+          monta ni se pide nada a /api/servicios. Agregar vehículo no depende
+          de quién tiene asignado el contacto (D9), solo de que tenga datos. */}
+      {tieneServicios && isEditMode && id ? (
+        <TarjetaVehiculosDelContacto contactId={id} puedeAgregar={!datosBorrados} />
+      ) : null}
       {creandoCupon && id ? (
         <CreateVoucherDialog
           contactId={id}
