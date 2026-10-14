@@ -51,9 +51,9 @@ Los pasos posibles:
 - de **Recibido**: a En trabajo, Esperando aprobación, Listo para retirar o
   Cancelado;
 - de **En trabajo**: a Esperando aprobación, Listo para retirar o Cancelado;
-- de **Esperando aprobación**: a En trabajo, Listo para retirar o Cancelado,
-  **siempre que se haya registrado la respuesta del cliente** (ver
-  [Aprobaciones](#aprobaciones));
+- de **Esperando aprobación**: a En trabajo o Listo para retirar **siempre que
+  se haya registrado la respuesta del cliente** (ver
+  [Aprobaciones](#aprobaciones)), o a Cancelado, que solo pide el motivo;
 - de **Listo para retirar**: a Entregado, o de vuelta a En trabajo si el cliente
   reclamó algo antes de retirarlo.
 
@@ -106,8 +106,11 @@ o rechazó, quién respondió, por dónde y cuándo, y el monto si se habló de 
 
 - Con **Sumar al valor de la orden**, el monto aprobado se suma al valor, en la
   misma moneda.
-- **No se puede sacar la orden de Esperando aprobación sin registrar la
-  respuesta.** Si vuelve a ese estado, hace falta una respuesta nueva.
+- **Para pasar de Esperando aprobación a En trabajo o a Listo para retirar
+  hay que registrar la respuesta.** Si vuelve a ese estado, hace falta una
+  respuesta nueva.
+- **Cancelar no la pide**: si el cliente nunca respondió, se cancela con el
+  motivo.
 
 ### Entregar y el próximo service {#entregar}
 

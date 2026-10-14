@@ -92,8 +92,8 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
       <div className="ds-stack">
         {orden.aprobacionPendiente ? (
           <Notice tone="warning" alert={false} title="Falta registrar la respuesta del cliente">
-            Para sacar la orden de Esperando aprobación, registrá qué respondió el cliente con
-            Registrar aprobación.
+            Para pasarla a En trabajo o a Listo para retirar, registrá qué respondió el cliente con
+            Registrar aprobación. Para cancelarla alcanza con el motivo.
           </Notice>
         ) : null}
 
