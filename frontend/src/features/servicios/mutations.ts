@@ -24,6 +24,7 @@ import type {
   CrearOrdenInput,
   CrearVehiculoInput,
   FichaDeOrden,
+  OrdenesResponse,
   TipoDeService,
 } from "./types";
 
@@ -101,10 +102,30 @@ export function useActualizarOrden(id: string) {
   });
 }
 
+/** Cambiar de estado mueve la tarjeta en el momento (actualización optimista
+ *  de las listas): sin esto, durante el guardado la tarjeta volvía a su columna
+ *  de origen y parecía que el arrastre no había funcionado (prueba de S4a). Si
+ *  el servidor la rechaza, vuelve a donde estaba. */
 export function useCambiarEstado(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CambiarEstadoInput) => cambiarEstado(id, input),
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: ordenKeys.lists() });
+      const antes = queryClient.getQueriesData<OrdenesResponse>({ queryKey: ordenKeys.lists() });
+      queryClient.setQueriesData<OrdenesResponse>({ queryKey: ordenKeys.lists() }, (lista) =>
+        lista
+          ? {
+              ...lista,
+              data: lista.data.map((o) => (o.id === id ? { ...o, status: input.hacia } : o)),
+            }
+          : lista,
+      );
+      return { antes };
+    },
+    onError: (_error, _input, contexto) => {
+      for (const [clave, datos] of contexto?.antes ?? []) queryClient.setQueryData(clave, datos);
+    },
     onSuccess: alGuardarLaOrden(queryClient),
   });
 }

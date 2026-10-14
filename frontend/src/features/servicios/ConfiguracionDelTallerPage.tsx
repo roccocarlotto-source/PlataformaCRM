@@ -116,9 +116,14 @@ function Tipos() {
   const crear = useCrearTipo();
   const [nombre, setNombre] = useState("");
   const [meses, setMeses] = useState("");
+  const [falta, setFalta] = useState<string | null>(null);
 
+  // El botón no se apaga mientras falte el nombre (parecía roto: prueba de
+  // S4a); si falta, lo dice al apretarlo.
   async function agregar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setFalta(null);
+    if (!nombre.trim()) return setFalta("Escribí el nombre del service.");
     await crear.mutateAsync({ name: nombre.trim(), nextServiceAfterMonths: aMeses(meses) });
     setNombre("");
     setMeses("");
@@ -148,32 +153,41 @@ function Tipos() {
           </tbody>
         </Table>
       ) : null}
-      <form onSubmit={agregar} className="ds-filters">
-        <label>
-          <span className="ds-sr-only">Nombre del tipo nuevo</span>
-          <input
-            type="text"
-            required
-            maxLength={120}
-            placeholder="Service 10.000 km"
-            value={nombre}
-            onChange={(event) => setNombre(event.target.value)}
-          />
-        </label>
-        <label>
-          <span className="ds-sr-only">Meses hasta el próximo service</span>
-          <input
-            type="number"
-            min={1}
-            max={60}
-            placeholder="Meses (vacío: no fija)"
-            value={meses}
-            onChange={(event) => setMeses(event.target.value)}
-          />
-        </label>
-        <Button type="submit" disabled={crear.isPending || !nombre.trim()}>
-          Agregar tipo
-        </Button>
+      <form onSubmit={agregar} className="ds-stack" noValidate>
+        <p className="ds-hint">
+          Cada tipo dice cada cuántos meses vuelve el auto. Al entregar una orden se propone el
+          próximo service con el intervalo más corto de sus tipos; sin meses, el tipo no fija fecha.
+        </p>
+        <div className="ds-field-grid">
+          <FormField label="Nombre del service">
+            <input
+              type="text"
+              maxLength={120}
+              placeholder="Service 10.000 km"
+              value={nombre}
+              onChange={(event) => {
+                setNombre(event.target.value);
+                setFalta(null);
+              }}
+            />
+          </FormField>
+          <FormField label="Cada cuántos meses">
+            <input
+              type="number"
+              min={1}
+              max={60}
+              placeholder="Vacío: no fija fecha"
+              value={meses}
+              onChange={(event) => setMeses(event.target.value)}
+            />
+          </FormField>
+        </div>
+        {falta ? <ErrorState>{falta}</ErrorState> : null}
+        <div>
+          <Button type="submit" disabled={crear.isPending} loading={crear.isPending}>
+            Agregar tipo
+          </Button>
+        </div>
       </form>
       {crear.isError ? (
         <ErrorState>

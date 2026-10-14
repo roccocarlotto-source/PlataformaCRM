@@ -29,9 +29,14 @@ recordadas en tu navegador, igual que la sucursal):
   retirar. Cada tarjeta muestra el número, el vehículo, el cliente, el
   encargado y hace cuánto está en ese estado. **Arrastrar una tarjeta** a otra
   columna abre el paso a ese estado; mientras se arrastra, las columnas a las
-  que no se puede pasar se ven apagadas y no la aceptan.
+  que no se puede pasar se ven apagadas y no la aceptan. Al confirmar, la
+  tarjeta queda en la columna nueva enseguida; si el paso no se pudo hacer,
+  vuelve a la de antes con el aviso. En una pantalla de computadora entran las
+  cinco columnas; en el celular se ven de a una, deslizando hacia el costado.
 - **Lista**: todas las órdenes, también las entregadas y canceladas, con
-  búsqueda por número (`OS-42` o `42`), matrícula o cliente.
+  búsqueda por número (`OS-42` o `42`), matrícula o cliente. Por defecto
+  muestra las **abiertas**; las entregadas y canceladas aparecen eligiendo
+  **Todas** (o ese estado) en **Estado**.
 
 ### Estados {#estados}
 
@@ -75,9 +80,11 @@ Con **Nueva orden** (en Órdenes, o en la ficha de un vehículo):
      ingreso** (obligatorio) y los daños, si hay. Los km del vehículo se
      actualizan si son más que los que tenía.
    - **Agendado**: viene más adelante, con la fecha en que se lo espera.
-4. Opcional: los **tipos de service**, el **encargado** (cualquier usuario
-   activo), las **notas** y el **valor**. Si no se elige moneda, va la de la
-   organización.
+4. Opcional: los **tipos de service**, el **encargado** (viene elegido quien
+   crea la orden; se puede cambiar por cualquier usuario activo o dejar sin
+   encargado), las **notas** y el **valor**. La **moneda** viene elegida con la
+   de la organización (si la organización no configuró ninguna, USD) y se
+   puede cambiar.
 
 **Un auto no puede estar dos veces en el taller**: si ya tiene una orden de
 Recibido a Listo para retirar, no se puede recibir otra y el aviso ofrece
@@ -86,7 +93,10 @@ Recibido a Listo para retirar, no se puede recibir otra y el aviso ofrece
 ## La ficha de la orden {#ficha-de-la-orden}
 
 Arriba, el número y los botones de los pasos posibles desde el estado actual
-(por ejemplo, **Empezar el trabajo** o **Entregar**), más **Editar**.
+(por ejemplo, **Pasar a En trabajo** o **Entregar**), más **Editar**. El paso a
+En trabajo dice **Volver a trabajo** solo si la orden ya estuvo en trabajo
+antes. En los diálogos de cada paso, **Cancelar** cierra sin cambiar nada (en
+el de cancelar la orden, ese botón dice **No cancelar**).
 
 - **Orden**: estado, vehículo (con link a su ficha), cliente, sucursal,
   encargado, cuándo se espera y quién la creó.
@@ -105,10 +115,11 @@ respondió se anota con **Registrar aprobación**: qué se le consultó, si apro
 o rechazó, quién respondió, por dónde y cuándo, y el monto si se habló de uno.
 
 - Con **Sumar al valor de la orden**, el monto aprobado se suma al valor, en la
-  misma moneda.
+  misma moneda. La casilla se activa al cargar el monto.
 - **Para pasar de Esperando aprobación a En trabajo o a Listo para retirar
-  hay que registrar la respuesta.** Si vuelve a ese estado, hace falta una
-  respuesta nueva.
+  hay que registrar la respuesta.** Mientras falte, esos botones están
+  apagados y el aviso de arriba de la ficha trae **Registrar aprobación**. Si
+  vuelve a ese estado, hace falta una respuesta nueva.
 - **Cancelar no la pide**: si el cliente nunca respondió, se cancela con el
   motivo.
 
@@ -117,8 +128,8 @@ o rechazó, quién respondió, por dónde y cuándo, y el monto si se habló de 
 Al entregar, el diálogo propone la fecha del **próximo service**: la fecha de
 hoy más el intervalo **más corto** entre los tipos de service de la orden (si
 dos trabajos piden plazos distintos, manda el que vence antes). Si ningún tipo
-tiene intervalo, se usa el de la [Configuración](#configuracion). La fecha se
-puede cambiar, o marcar **Sin próximo service**.
+tiene intervalo, se usa el de la [Configuración](#configuracion), y el diálogo
+lo aclara. La fecha se puede cambiar, o marcar **Sin próximo service**.
 
 Lo que se confirma queda en el vehículo: es la fecha de la que van a salir los
 recordatorios al cliente.
@@ -130,8 +141,9 @@ En **Taller → Configuración** (solo administradores):
 - **Intervalo por defecto**: los meses hasta el próximo service para una orden
   sin tipos con intervalo. Vacío: no se propone fecha.
 - **Primer service de un auto vendido**: los meses desde la venta.
-- **Tipos de service**: el nombre ("Service 10.000 km", "Alineación") y, si
-  corresponde, a los cuántos meses toca el próximo service. Un tipo inactivo no
+- **Tipos de service**: se agregan con **Nombre del service** ("Service 10.000
+  km", "Alineación") y **Cada cuántos meses** vuelve el auto (vacío: el tipo no
+  fija fecha), y el botón **Agregar tipo**. Un tipo inactivo no
   se ofrece en las órdenes nuevas; uno eliminado desaparece del catálogo pero
   las órdenes que lo tuvieron lo siguen mostrando.
 

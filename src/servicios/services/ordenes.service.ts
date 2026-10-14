@@ -1,12 +1,13 @@
 import { Prisma, type ServiceOrderStatus } from "@prisma/client";
 import { OPCIONES_DE_TRANSACCION_LARGA, prisma } from "../../lib/prisma";
+import { DASHBOARD_DEFAULT_CURRENCY } from "../../services/opportunity.service";
 import { filtroDeSedes, type ActorConSedes } from "../../services/permisos";
 import { AppError } from "../../utils/AppError";
 import { esAbierto, puedePasar } from "../config/estados";
 import { formatearNumeroDeOrden, normalizarIdentificador } from "../identificadores";
 import { proponerProximoService } from "../proximoService";
 import {
-  findCustomerVehicleById,
+  findVehiculoParaOrden,
   updateCustomerVehicle,
 } from "../repositories/customerVehicle.repository";
 import { findJobTypesActivos } from "../repositories/serviceJobType.repository";
@@ -17,8 +18,10 @@ import {
   createStatusChange,
   existeUsuarioActivo,
   findDatosDeLaOrganizacion,
+  findIdsDeTiposDeLaOrden,
   findManyOrders,
   findOrdenEnElTaller,
+  findOrdenParaEscribir,
   findOrderById,
   hayAprobacionDesde,
   setJobTypes,
@@ -142,14 +145,23 @@ export function aOrdenDeLista(fila: FilaDeLaLista) {
   };
 }
 
+/** En Esperando aprobación, ¿falta registrar la respuesta del cliente? Mismo
+ *  criterio que ultimaEntradaA + hayAprobacionDesde (§2.5), con el historial y
+ *  las aprobaciones que la ficha ya trae: sin otra ida a la base. */
+export function aprobacionPendienteDe(
+  fila: Pick<FilaDeLaFicha, "status" | "statusChanges" | "approvals">,
+): boolean {
+  if (fila.status !== "ESPERANDO_APROBACION") return false;
+  // statusChanges viene del más nuevo al más viejo.
+  const entrada = fila.statusChanges.find((c) => c.toStatus === "ESPERANDO_APROBACION")?.changedAt;
+  if (!entrada) return true;
+  return !fila.approvals.some((a) => a.createdAt.getTime() >= entrada.getTime());
+}
+
 async function aFicha(organizationId: string, fila: FilaDeLaFicha) {
   const { number, amount, statusChanges, customerVehicle, jobTypes, approvals, ...resto } = fila;
 
-  let aprobacionPendiente = false;
-  if (fila.status === "ESPERANDO_APROBACION") {
-    const entrada = await ultimaEntradaA(organizationId, fila.id, "ESPERANDO_APROBACION");
-    aprobacionPendiente = !entrada || !(await hayAprobacionDesde(organizationId, fila.id, entrada));
-  }
+  const aprobacionPendiente = aprobacionPendienteDe(fila);
 
   // La fecha que se propone al entregar (§6.1), calculada como si se entregara
   // hoy. Solo cuando la orden puede entregarse.
@@ -184,12 +196,16 @@ async function aFicha(organizationId: string, fila: FilaDeLaFicha) {
 
 // --- Validaciones -----------------------------------------------------------
 
-async function ordenOError(
-  organizationId: string,
-  id: string,
-  db: Prisma.TransactionClient | typeof prisma = prisma,
-) {
-  const fila = await findOrderById(organizationId, id, db);
+async function fichaOError(organizationId: string, id: string) {
+  const fila = await findOrderById(organizationId, id);
+  if (!fila) throw new AppError(ORDEN_NO_ENCONTRADA, 404);
+  return fila;
+}
+
+/** Antes de escribir alcanza con el estado y poco más: la ficha completa se lee
+ *  una sola vez, al final, para la respuesta. */
+async function ordenOError(organizationId: string, id: string) {
+  const fila = await findOrdenParaEscribir(organizationId, id);
   if (!fila) throw new AppError(ORDEN_NO_ENCONTRADA, 404);
   return fila;
 }
@@ -217,7 +233,8 @@ async function exigirTipos(
 }
 
 /** El Valor (D17): monto y moneda juntos. Sin moneda, la principal de la
- *  organización. `undefined` = no vino. */
+ *  organización; si la organización no la configuró, la misma que usa el
+ *  dashboard (USD). `undefined` = no vino. */
 async function valorDe(
   organizationId: string,
   amount: Monto | null | undefined,
@@ -230,8 +247,7 @@ async function valorDe(
   }
   if (currency) return { amount, currency };
   const org = await findDatosDeLaOrganizacion(organizationId);
-  if (!org.preferredCurrency) throw new AppError("Elegí la moneda del valor", 400);
-  return { amount, currency: org.preferredCurrency };
+  return { amount, currency: org.preferredCurrency ?? DASHBOARD_DEFAULT_CURRENCY };
 }
 
 /** El P2002 del índice "un auto, una orden dentro del taller" → 409 con la
@@ -316,30 +332,32 @@ export async function listarOrdenes(
 }
 
 export async function obtenerOrden(organizationId: string, id: string) {
-  return aFicha(organizationId, await ordenOError(organizationId, id));
+  return aFicha(organizationId, await fichaOError(organizationId, id));
 }
 
 export async function crearOrden(organizationId: string, userId: string, input: CrearOrdenInput) {
-  const vehiculo = await findCustomerVehicleById(organizationId, input.customerVehicleId);
+  const vehiculo = await findVehiculoParaOrden(organizationId, input.customerVehicleId);
   if (!vehiculo) throw new AppError("Vehículo no encontrado", 404);
   if (vehiculo.ownershipEndedAt) {
     throw new AppError("Este vehículo ya no es de un cliente: no se le abren órdenes.", 409);
   }
   const contactId = input.contactId ?? vehiculo.contactId;
-  await exigirContacto(organizationId, contactId);
   const branchId = input.branchId ?? vehiculo.branchId;
   if (!branchId) throw new AppError("Elegí la sucursal de la orden", 400);
-  await exigirSucursal(organizationId, branchId);
-  await exigirEncargado(organizationId, input.assigneeId);
-  const tipos = await exigirTipos(organizationId, input.jobTypeIds ?? []);
-  const valor = await valorDe(organizationId, input.amount, input.currency);
-
   if (input.estado === "AGENDADO" && !input.scheduledFor) {
     throw new AppError("Una orden agendada lleva la fecha en que se espera el auto", 400);
   }
   if (input.estado === "RECIBIDO" && (input.mileageIn === undefined || input.mileageIn === null)) {
     throw new AppError("Al recibir el auto se cargan los km al ingreso", 400);
   }
+  // Independientes entre sí: en paralelo, una sola espera en vez de cinco.
+  const [, , , tipos, valor] = await Promise.all([
+    exigirContacto(organizationId, contactId),
+    exigirSucursal(organizationId, branchId),
+    exigirEncargado(organizationId, input.assigneeId),
+    exigirTipos(organizationId, input.jobTypeIds ?? []),
+    valorDe(organizationId, input.amount, input.currency),
+  ]);
 
   let id: string;
   try {
@@ -376,7 +394,7 @@ export async function crearOrden(organizationId: string, userId: string, input: 
         },
         tx,
       );
-      await setJobTypes(organizationId, creada.id, tipos, tx);
+      await setJobTypes(organizationId, creada.id, tipos, tx, { esNueva: true });
       if (input.estado === "RECIBIDO" && input.mileageIn != null) {
         await actualizarKmDelVehiculo(organizationId, vehiculo.id, input.mileageIn, tx);
       }
@@ -395,16 +413,16 @@ export async function actualizarOrden(
 ) {
   const actual = await ordenOError(organizationId, id);
   if (!esAbierto(actual.status)) throw new AppError(ORDEN_FINAL, 409);
-  await exigirEncargado(organizationId, input.assigneeId);
-  const tipos =
-    input.jobTypeIds === undefined
+  const jobTypeIds = input.jobTypeIds;
+  const [, tipos, valor] = await Promise.all([
+    exigirEncargado(organizationId, input.assigneeId),
+    jobTypeIds === undefined
       ? undefined
-      : await exigirTipos(
-          organizationId,
-          input.jobTypeIds,
-          actual.jobTypes.map((t) => t.serviceJobType.id),
-        );
-  const valor = await valorDe(organizationId, input.amount, input.currency);
+      : findIdsDeTiposDeLaOrden(organizationId, id).then((yaEstaban) =>
+          exigirTipos(organizationId, jobTypeIds, yaEstaban),
+        ),
+    valorDe(organizationId, input.amount, input.currency),
+  ]);
   const resto = {
     assigneeId: input.assigneeId,
     scheduledFor: input.scheduledFor,

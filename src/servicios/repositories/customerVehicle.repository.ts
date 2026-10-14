@@ -117,6 +117,14 @@ export async function findCustomerVehicleById(
   });
 }
 
+/** Lo que necesita el alta de una orden (una consulta, sin relaciones). */
+export async function findVehiculoParaOrden(organizationId: string, id: string, db: Db = prisma) {
+  return db.customerVehicle.findFirst({
+    where: { id, organizationId, deletedAt: null },
+    select: { id: true, contactId: true, branchId: true, ownershipEndedAt: true },
+  });
+}
+
 /** El vehículo vigente que ya tiene esta matrícula o este chasis, si hay
  *  (el 409 de D16). `exceptoId`: el propio, al editar. */
 export async function findVigenteConIdentificador(

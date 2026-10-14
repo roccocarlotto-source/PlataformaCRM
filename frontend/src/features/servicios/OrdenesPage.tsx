@@ -7,8 +7,10 @@ import {
   useDroppable,
   useSensor,
   useSensors,
+  type Announcements,
   type DragEndEvent,
   type DragStartEvent,
+  type UniqueIdentifier,
 } from "@dnd-kit/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -29,6 +31,26 @@ import { descripcionDe, ETIQUETA_DE_ESTADO, nombreDe } from "./formato";
 import { useOrdenes } from "./queries";
 import { TransicionDialog } from "./TransicionDialog";
 import type { EstadoDeOrden, OrdenDeLista } from "./types";
+
+/** Lo que oye un lector de pantalla al arrastrar. Los de dnd-kit por defecto
+ *  salen en inglés y con el id interno ("Draggable item 0456… was dropped over
+ *  droppable area EN_TRABAJO": prueba de S4a). */
+function anunciosDelTablero(todas: OrdenDeLista[]): Announcements {
+  const numero = (id: UniqueIdentifier) => todas.find((o) => o.id === id)?.numero ?? "La orden";
+  const columna = (id: UniqueIdentifier) => ETIQUETA_DE_ESTADO[id as EstadoDeOrden] ?? String(id);
+  return {
+    onDragStart: ({ active }) => `Moviendo ${numero(active.id)}.`,
+    onDragOver: ({ active, over }) =>
+      over
+        ? `${numero(active.id)} sobre ${columna(over.id)}.`
+        : `${numero(active.id)} fuera de las columnas.`,
+    onDragEnd: ({ active, over }) =>
+      over
+        ? `${numero(active.id)} soltada en ${columna(over.id)}.`
+        : `${numero(active.id)} soltada fuera de las columnas: no se movió.`,
+    onDragCancel: ({ active }) => `Se canceló el movimiento de ${numero(active.id)}.`,
+  };
+}
 
 // Taller → Órdenes (docs/servicios.md §4.2). Tablero por defecto, con una
 // columna por estado abierto; arrastrar una tarjeta abre el diálogo de la
@@ -159,13 +181,17 @@ function Tablero({ sucursal }: { sucursal: string | undefined }) {
         onDragEnd={alSoltar}
         onDragCancel={() => setArrastrando(null)}
         accessibility={{
+          announcements: anunciosDelTablero(todas),
           screenReaderInstructions: {
             draggable:
               "Para mover una orden de estado, presioná Espacio o Enter, movela con las flechas y volvé a presionar Espacio para soltarla. Escape cancela.",
           },
         }}
       >
-        <div className="ds-board">
+        {/* Ajustado: las cinco columnas abiertas se reparten el ancho y entran
+          en 1366–1440 px sin scroll (prueba de S4a). El tablero de
+          oportunidades sigue con columnas fijas. */}
+        <div className="ds-board ds-board--ajustado">
           {ESTADOS_ABIERTOS.map((estado) => (
             <Columna
               key={estado}
@@ -322,7 +348,20 @@ function Lista({ sucursal }: { sucursal: string | undefined }) {
       {ordenes.isLoading ? <LoadingState variant="rows" /> : null}
       {ordenes.isError ? <ErrorState>No pudimos cargar las órdenes.</ErrorState> : null}
       {ordenes.isSuccess && ordenes.data.data.length === 0 ? (
-        <EmptyState title="No hay órdenes para mostrar" icon={ClipboardList} />
+        <EmptyState
+          title={
+            busqueda.trim()
+              ? `Ninguna orden coincide con «${busqueda.trim()}»`
+              : estado === "ABIERTAS"
+                ? "No hay órdenes abiertas"
+                : "No hay órdenes en este estado"
+          }
+          icon={ClipboardList}
+        >
+          {!busqueda.trim() && estado === "ABIERTAS"
+            ? "Las entregadas y canceladas se ven eligiendo Todas en Estado."
+            : null}
+        </EmptyState>
       ) : null}
       {ordenes.isSuccess && ordenes.data.data.length > 0 ? (
         <Table>

@@ -3632,6 +3632,15 @@ a.ds-button--secondary:hover {
   border-radius: var(--radius-md);
 }
 
+/* Tablero ajustado (órdenes del taller): las columnas se reparten el ancho en
+   vez de medir 296px fijos, para que las cinco entren en 1366–1440px sin
+   scroll. Por debajo del mínimo (celular) vuelve el scroll horizontal. */
+.ds-board--ajustado .ds-board-column {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 176px;
+}
+
 /* Columna que está recibiendo un arrastre. */
 .ds-board-column--over {
   background: var(--color-accent-soft);

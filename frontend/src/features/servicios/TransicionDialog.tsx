@@ -17,7 +17,21 @@ export interface OrdenParaTransicion {
   id: string;
   numero: string;
   status: EstadoDeOrden;
+  // Si ya pasó por En trabajo: decide "Pasar a En trabajo" o "Volver a trabajo".
+  workStartedAt: string | null;
   proximoServicePropuesto?: { fecha: string | null; meses: number | null } | null;
+  // Solo la ficha los trae: para decir de dónde sale la fecha propuesta.
+  tipos?: { nextServiceAfterMonths: number | null }[];
+}
+
+/** De dónde sale la fecha propuesta al entregar (prueba de S4a, obs. 18). */
+function origenDeLaPropuesta(orden: OrdenParaTransicion): string {
+  if (orden.tipos === undefined) {
+    return "el intervalo más corto de los tipos de la orden, o el de la configuración";
+  }
+  return orden.tipos.some((t) => t.nextServiceAfterMonths)
+    ? "el intervalo más corto de los tipos de la orden"
+    : "el intervalo por defecto de Taller → Configuración: la orden no tiene tipos con intervalo";
 }
 
 export function TransicionDialog({
@@ -62,14 +76,18 @@ export function TransicionDialog({
     }
   }
 
+  const accion = accionHacia(hacia, { yaEstuvoEnTrabajo: orden.workStartedAt !== null });
   return (
     <Modal
       variant="dialog"
-      title={`${accionHacia(orden.status, hacia)} · ${orden.numero}`}
-      closeLabel="Volver"
+      title={`${accion} · ${orden.numero}`}
+      // "Cancelar" cierra sin cambiar nada; en el diálogo de cancelar la orden
+      // quedaría "Cancelar" al lado de "Cancelar la orden", así que ahí dice
+      // otra cosa.
+      closeLabel={hacia === "CANCELADO" ? "No cancelar" : "Cancelar"}
       onClose={onClose}
       primaryAction={{
-        label: accionHacia(orden.status, hacia),
+        label: accion,
         formId,
         disabled: cambiar.isPending,
         loading: cambiar.isPending,
@@ -105,7 +123,7 @@ export function TransicionDialog({
             </FormField>
             <p className="ds-hint">
               {orden.proximoServicePropuesto?.meses
-                ? `Propuesta: ${formatearFecha(propuesta)}, a los ${orden.proximoServicePropuesto.meses} meses (el intervalo más corto de los tipos de la orden, o el de la configuración).`
+                ? `Propuesta: ${formatearFecha(propuesta)}, a los ${orden.proximoServicePropuesto.meses} meses (${origenDeLaPropuesta(orden)}).`
                 : "Ningún tipo de la orden ni la configuración fijan un intervalo: elegí la fecha a mano."}{" "}
               La fecha queda en el vehículo y de ahí salen los recordatorios.
             </p>

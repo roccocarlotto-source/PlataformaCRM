@@ -1,9 +1,41 @@
 import { FormField } from "../../design-system/FormField";
 import { InlineLoading } from "../../design-system/LoadingState";
 import { Select } from "../../design-system/Select";
+import { CURRENCY_OPTIONS, isKnownCurrency } from "../../lib/currencies";
+import { useMonedaPorDefecto } from "./monedaPorDefecto";
 import { useTiposDeService, useUsuariosDelTaller } from "./queries";
 
 // Piezas que comparten "Nueva orden" y la edición de una orden.
+
+/** Moneda del Valor: un selector cerrado (antes era texto libre y, vacío,
+ *  fallaba en una organización sin moneda: prueba de S4a). `value` vacío =
+ *  todavía no eligió, se muestra la de la organización. */
+export function MonedaSelect({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (moneda: string) => void;
+}) {
+  const porDefecto = useMonedaPorDefecto();
+  const vigente = value || porDefecto || "";
+  return (
+    <Select
+      id={id}
+      label="Moneda"
+      value={vigente || undefined}
+      options={[
+        // Una moneda guardada fuera de la lista se muestra mientras sea la
+        // vigente (mismo criterio que Organización y Oportunidad).
+        ...(vigente === "" || isKnownCurrency(vigente) ? [] : [{ value: vigente, label: vigente }]),
+        ...CURRENCY_OPTIONS.map((moneda) => ({ value: moneda, label: moneda })),
+      ]}
+      onChange={(moneda) => onChange(moneda)}
+    />
+  );
+}
 
 /** El encargado: cualquier usuario activo de la organización (D9). Sale de
  *  GET /api/servicios/usuarios, abierto a ADMIN y USER. */

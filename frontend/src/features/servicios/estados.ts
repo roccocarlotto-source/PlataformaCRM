@@ -31,13 +31,19 @@ export function esAbierto(estado: EstadoDeOrden): boolean {
   return ESTADOS_ABIERTOS.includes(estado);
 }
 
-/** El texto del botón que lleva a cada estado, según desde dónde. */
-export function accionHacia(desde: EstadoDeOrden, hacia: EstadoDeOrden): string {
+/** El texto del botón que lleva a cada estado. `yaEstuvoEnTrabajo`: "Volver a
+ *  trabajo" solo si la orden ya pasó por En trabajo (workStartedAt); una que
+ *  fue de Recibido a Esperando aprobación todavía no volvió a nada (prueba de
+ *  S4a, 2026-10-14). */
+export function accionHacia(
+  hacia: EstadoDeOrden,
+  { yaEstuvoEnTrabajo = false }: { yaEstuvoEnTrabajo?: boolean } = {},
+): string {
   switch (hacia) {
     case "RECIBIDO":
       return "Recibir el auto";
     case "EN_TRABAJO":
-      return desde === "RECIBIDO" ? "Empezar el trabajo" : "Volver a trabajo";
+      return yaEstuvoEnTrabajo ? "Volver a trabajo" : "Pasar a En trabajo";
     case "ESPERANDO_APROBACION":
       return "Esperar aprobación";
     case "LISTO_PARA_RETIRAR":

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../../auth/AuthContext";
 import { ApiError } from "../../lib/api";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -11,7 +12,8 @@ import { PageHeader } from "../../design-system/PageHeader";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { BranchSelect } from "../branch/BranchSelect";
 import { AYUDA } from "../guia/anclas";
-import { EncargadoSelect, TiposDeLaOrden } from "./camposDeLaOrden";
+import { EncargadoSelect, MonedaSelect, TiposDeLaOrden } from "./camposDeLaOrden";
+import { useMonedaPorDefecto } from "./monedaPorDefecto";
 import { aMonto, deInputLocal, descripcionDe, nombreDe } from "./formato";
 import { useCrearOrden } from "./mutations";
 import { useVehiculo, useVehiculos } from "./queries";
@@ -93,16 +95,21 @@ function FormularioDeOrden({
 }) {
   const navigate = useNavigate();
   const crear = useCrearOrden();
+  const { me } = useAuth();
   const [sucursal, setSucursal] = useState<string | undefined>(vehiculo.branchId ?? undefined);
   const [estado, setEstado] = useState<"AGENDADO" | "RECIBIDO">("RECIBIDO");
   const [fecha, setFecha] = useState("");
   const [km, setKm] = useState(vehiculo.mileage === null ? "" : String(vehiculo.mileage));
   const [danos, setDanos] = useState("");
   const [tipos, setTipos] = useState<string[]>([]);
-  const [encargado, setEncargado] = useState<string | null>(null);
+  // Por defecto, quien la crea (editable; decisión de Rocco tras la prueba de S4a).
+  const [encargado, setEncargado] = useState<string | null>(me?.id ?? null);
   const [notas, setNotas] = useState("");
   const [monto, setMonto] = useState("");
   const [moneda, setMoneda] = useState("");
+  // Se manda la que muestra el selector: la elegida o la de la organización.
+  const monedaPorDefecto = useMonedaPorDefecto();
+  const monedaElegida = moneda || monedaPorDefecto;
   const [error, setError] = useState<string | null>(null);
   const [ocupada, setOcupada] = useState<string | null>(null);
 
@@ -126,7 +133,7 @@ function FormularioDeOrden({
         assigneeId: encargado,
         notes: notas.trim() || null,
         amount,
-        ...(amount !== null && moneda.trim() ? { currency: moneda.trim().toUpperCase() } : {}),
+        ...(amount !== null && monedaElegida ? { currency: monedaElegida } : {}),
       });
       navigate(`/taller/ordenes/${orden.id}`);
     } catch (err) {
@@ -240,15 +247,7 @@ function FormularioDeOrden({
                 onChange={(event) => setMonto(event.target.value)}
               />
             </FormField>
-            <FormField label="Moneda">
-              <input
-                type="text"
-                maxLength={3}
-                placeholder="La de la organización"
-                value={moneda}
-                onChange={(event) => setMoneda(event.target.value)}
-              />
-            </FormField>
+            <MonedaSelect id="orden-moneda" value={moneda} onChange={setMoneda} />
           </div>
         </Card>
         {error ? (
