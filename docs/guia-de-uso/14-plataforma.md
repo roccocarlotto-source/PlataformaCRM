@@ -98,7 +98,8 @@ cliente tiene que elegir **Cuánto hace la IA** antes de activarlo.
 ## Organizaciones {#organizaciones}
 
 En **Plataforma → Organizaciones** está la lista de las organizaciones vigentes,
-con su **Identificador** y su **Edición**.
+con su **Identificador**, su **Edición** y sus **Módulos** (los que se activan
+aparte, como **Servicios**).
 
 ### Pasar a edición completa
 
@@ -115,6 +116,23 @@ Quien esté usando la app del cliente ve los módulos nuevos al volver a cargar 
 página.
 
 > No se puede deshacer: una organización **Completa** no vuelve a **Esencial**.
+
+### Activar o desactivar Servicios
+
+**Servicios** es el taller de postventa de una concesionaria. No viene con
+ninguna edición: se activa por organización, en las dos ediciones, y solo en
+las automotoras.
+
+1. En la fila de una automotora, tocá **Activar Servicios**.
+2. Confirmá con **Activar**.
+
+Arriba de la lista aparece *Servicios activado*, y en la columna **Módulos** se
+ve **Servicios**. Por ahora el módulo no agrega pantallas: las de Taller llegan
+en las próximas versiones.
+
+Para sacarlo, tocá **Desactivar Servicios** y confirmá con **Desactivar**. Los
+usuarios de esa organización dejan de verlo enseguida, pero sus datos se
+conservan y vuelven si lo activás de nuevo.
 
 ### Reenviar la invitación del administrador
 

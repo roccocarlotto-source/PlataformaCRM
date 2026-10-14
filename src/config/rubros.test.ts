@@ -4,6 +4,7 @@ import type { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import type { Request } from "express";
 import {
   MODULOS,
+  MODULOS_ACTIVABLES,
   MODULOS_POR_EDICION,
   MODULOS_POR_RUBRO,
   MODULO_DE_LA_TOOL,
@@ -40,7 +41,7 @@ const COMBINACIONES = EDICIONES.flatMap((edition) =>
   RUBROS.map((industry) => ({ edition, industry })),
 );
 
-test("CLINICA no tiene stock, oportunidades ni lo que cuelga de ellas (§2)", () => {
+test("CLINICA no tiene stock, oportunidades ni lo que cuelga de ellas (§2), ni el taller", () => {
   assert.deepEqual(MODULOS.filter((m) => !MODULOS_POR_RUBRO.CLINICA.has(m)).sort(), [
     "cotizaciones",
     "dashboard_comercial",
@@ -51,14 +52,21 @@ test("CLINICA no tiene stock, oportunidades ni lo que cuelga de ellas (§2)", ()
     "pagos",
     "permutas",
     "procesos_de_venta",
+    // El taller de una concesionaria (docs/servicios.md §0.2): solo AUTOMOTORA.
+    "servicios",
     "stock",
   ]);
 });
 
 test("modulosDe es la intersección de la edición y el rubro, en las cuatro combinaciones", () => {
   for (const { edition, industry } of COMBINACIONES) {
+    // Sin los activables: esos los suma modulosDe solo si están activados
+    // (docs/servicios.md §1.3; los prueba ediciones.test.ts).
     const esperado = MODULOS.filter(
-      (m) => MODULOS_POR_EDICION[edition].has(m) && MODULOS_POR_RUBRO[industry].has(m),
+      (m) =>
+        MODULOS_POR_EDICION[edition].has(m) &&
+        MODULOS_POR_RUBRO[industry].has(m) &&
+        !MODULOS_ACTIVABLES.has(m),
     );
     assert.deepEqual(
       MODULOS.filter((m) => modulosDe(edition, industry).has(m)),
@@ -75,9 +83,15 @@ test("modulosDe es la intersección de la edición y el rubro, en las cuatro com
 test("motivoDeExclusion: RUBRO si el rubro no lo tiene (aunque la edición tampoco), si no EDICION", () => {
   for (const { edition, industry } of COMBINACIONES) {
     for (const modulo of MODULOS.filter((m) => !modulosDe(edition, industry).has(m))) {
+      // Un activable que el rubro admite y no está activado: NO_ACTIVADO
+      // (docs/servicios.md §1.4).
       assert.equal(
         motivoDeExclusion(modulo, industry),
-        MODULOS_POR_RUBRO[industry].has(modulo) ? "EDICION" : "RUBRO",
+        !MODULOS_POR_RUBRO[industry].has(modulo)
+          ? "RUBRO"
+          : MODULOS_ACTIVABLES.has(modulo)
+            ? "NO_ACTIVADO"
+            : "EDICION",
         `${edition}/${industry}: ${modulo}`,
       );
     }
@@ -85,6 +99,9 @@ test("motivoDeExclusion: RUBRO si el rubro no lo tiene (aunque la edición tampo
   // Una clínica ESENCIAL sin cotizaciones: subir de edición no se las daría.
   assert.equal(motivoDeExclusion("cotizaciones", "CLINICA"), "RUBRO");
   assert.equal(motivoDeExclusion("cotizaciones", "AUTOMOTORA"), "EDICION");
+  // El taller: sin activar en una automotora, NO_ACTIVADO; en una clínica, RUBRO.
+  assert.equal(motivoDeExclusion("servicios", "AUTOMOTORA"), "NO_ACTIVADO");
+  assert.equal(motivoDeExclusion("servicios", "CLINICA"), "RUBRO");
 });
 
 // ---------------------------------------------------------------------------

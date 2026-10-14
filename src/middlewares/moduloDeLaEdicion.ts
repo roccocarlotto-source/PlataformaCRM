@@ -1,6 +1,7 @@
 import type { Request } from "express";
 import {
   CAMPOS_POR_RUTA,
+  MODULOS_ACTIVABLES,
   SOLO_CLINICA,
   moduloDeLaRuta,
   modulosDe,
@@ -30,19 +31,21 @@ import { AppError } from "../utils/AppError";
 // (req.baseUrl + req.route.path, "/api/quotes/:id"), sin regex de paths.
 //
 // COMPLETA + AUTOMOTORA (todas las organizaciones de hoy) tiene todos los
-// módulos menos los solo de clínica: para ella esto no hace NADA salvo
-// rechazar una ruta de un módulo solo de clínica (403 con motivo RUBRO). En
-// cualquier otra combinación:
+// módulos menos los solo de clínica y los activables que no tenga activados:
+// para ella esto no hace NADA salvo rechazar una ruta de un módulo solo de
+// clínica (403 con motivo RUBRO) o de un activable sin activar (403 con
+// motivo NO_ACTIVADO, docs/servicios.md §1.4). En cualquier otra combinación:
 //   - ruta de un módulo excluido → 403 MODULO_NO_INCLUIDO;
 //   - ruta sin clasificar → 403 MODULO_NO_INCLUIDO con modulo "sin_clasificar"
 //     y un log de error (falla cerrado; el test de clasificación ya impide
 //     mergearla);
 //   - campo de un módulo excluido con valor no nulo → 400 CAMPO_NO_INCLUIDO.
 //
-// El 403 y el 400 llevan `motivo: "EDICION" | "RUBRO"` (D12 de
-// docs/rubros.md), un campo aditivo: el código y el resto del cuerpo no
-// cambian. Con EDICION el frontend ofrece la edición completa; con RUBRO no
-// ofrece nada.
+// El 403 y el 400 llevan `motivo: "EDICION" | "RUBRO" | "NO_ACTIVADO"` (D12
+// de docs/rubros.md, docs/servicios.md §1.4), un campo aditivo: el código y
+// el resto del cuerpo no cambian. Con EDICION el frontend ofrece la edición
+// completa; con RUBRO o NO_ACTIVADO no ofrece nada (activar un módulo es cosa
+// del platform admin).
 // ---------------------------------------------------------------------------
 
 export const MODULO_NO_INCLUIDO = "MODULO_NO_INCLUIDO";
@@ -52,6 +55,7 @@ export const MODULO_SIN_CLASIFICAR = "sin_clasificar";
 const MENSAJE: Record<MotivoDeExclusion, string> = {
   EDICION: "Esta función no está incluida en tu edición.",
   RUBRO: "Esta función no está disponible para tu rubro.",
+  NO_ACTIVADO: "Este módulo no está activado para tu organización.",
 };
 
 /** "MÉTODO patrón" de la ruta que está atendiendo el request. HEAD lo atiende
@@ -64,10 +68,11 @@ export function rutaDelRequest(req: Request): string {
 
 export function exigirModuloDeLaEdicion(req: Request, auth: AuthContext): void {
   if (auth.edition === "COMPLETA" && auth.industry === "AUTOMOTORA") {
-    // Sigue siendo un no-op para COMPLETA + AUTOMOTORA, con UNA excepción
-    // desde R5: las rutas de un módulo solo de clínica (SOLO_CLINICA, hoy
-    // agenda_clinica) no son de una automotora. Todo lo demás (rutas sin
-    // clasificar, campos) queda como antes.
+    // Sigue siendo un no-op para COMPLETA + AUTOMOTORA, con DOS excepciones:
+    // las rutas de un módulo solo de clínica (SOLO_CLINICA, desde R5) no son
+    // de una automotora, y las de un módulo activable (MODULOS_ACTIVABLES,
+    // docs/servicios.md §1.4) solo pasan si la organización lo tiene
+    // activado. Todo lo demás (rutas sin clasificar, campos) queda como antes.
     const modulo = moduloDeLaRuta(rutaDelRequest(req));
     if (modulo !== undefined && SOLO_CLINICA.has(modulo)) {
       throw new AppError(MENSAJE.RUBRO, 403, true, {
@@ -76,10 +81,21 @@ export function exigirModuloDeLaEdicion(req: Request, auth: AuthContext): void {
         motivo: "RUBRO",
       });
     }
+    if (
+      modulo !== undefined &&
+      MODULOS_ACTIVABLES.has(modulo) &&
+      !(auth.modulosActivados ?? []).includes(modulo)
+    ) {
+      throw new AppError(MENSAJE.NO_ACTIVADO, 403, true, {
+        code: MODULO_NO_INCLUIDO,
+        modulo,
+        motivo: "NO_ACTIVADO",
+      });
+    }
     return;
   }
 
-  const permitidos = modulosDe(auth.edition, auth.industry);
+  const permitidos = modulosDe(auth.edition, auth.industry, auth.modulosActivados);
   const ruta = rutaDelRequest(req);
   const modulo = moduloDeLaRuta(ruta);
 

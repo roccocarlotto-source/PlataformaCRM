@@ -4,6 +4,7 @@ import { z } from "zod";
 import { edicionesDisponibles, rubrosDisponibles } from "../config/ediciones";
 import { listActiveOrganizations } from "../repositories/organization.repository";
 import { DIAS_DE_LA_VISTA_DE_USO, gastoPorOrganizacion } from "../services/llmUsage.service";
+import { activarModulo, desactivarModulo } from "../services/organizationModules.service";
 import {
   cambiarEdicionDeOrganizacion,
   cambiarRubroDeOrganizacion,
@@ -50,6 +51,8 @@ export const createOrganizationSchema = z.object({
 });
 
 const organizationIdSchema = z.string().uuid("organizationId inválido");
+// El nombre del módulo: si no es activable, el service responde 400.
+const moduloSchema = z.string().min(1, "modulo es requerido").max(50, "modulo inválido");
 
 const cambiarEdicionSchema = z
   .object({
@@ -112,6 +115,24 @@ export const changeOrganizationIndustryHandler = asyncHandler<AuthenticatedReque
   },
 );
 
+// Módulos activables (docs/servicios.md §1.5): activar y desactivar uno en
+// una organización. Idempotentes; ver organizationModules.service.ts.
+export const activarModuloHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
+    const modulo = parseOrThrow(moduloSchema, req.params.modulo);
+    res.status(200).json(await activarModulo(organizationId, modulo, req.auth.userId));
+  },
+);
+
+export const desactivarModuloHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
+    const modulo = parseOrThrow(moduloSchema, req.params.modulo);
+    res.status(200).json(await desactivarModulo(organizationId, modulo, req.auth.userId));
+  },
+);
+
 // Reenviar el mail de invitación al administrador que todavía no lo abrió
 // (prueba de la Clínica Demo, 2026-10-11). Responde a qué email salió.
 export const reenviarInvitacionDelAdministradorHandler = asyncHandler<AuthenticatedRequest>(
@@ -124,9 +145,17 @@ export const reenviarInvitacionDelAdministradorHandler = asyncHandler<Authentica
 // El listado de organizaciones vigentes, para el selector de las pantallas de
 // plataforma (la conexión con Facebook, 02/10/2026). Sin paginación: es una
 // herramienta interna y la plataforma tiene decenas de clientes, no miles.
+// Con los módulos activables vigentes de cada una (docs/servicios.md §1.5),
+// para la columna "Módulos" de Plataforma → Organizaciones.
 export const listOrganizationsHandler = asyncHandler<AuthenticatedRequest>(
   async (_req, res: Response) => {
-    res.status(200).json(await listActiveOrganizations());
+    const organizaciones = await listActiveOrganizations();
+    res.status(200).json(
+      organizaciones.map(({ organizationModules, ...org }) => ({
+        ...org,
+        modulosActivados: organizationModules.map((m) => m.module),
+      })),
+    );
   },
 );
 

@@ -1,8 +1,10 @@
 import { Router } from "express";
 import {
+  activarModuloHandler,
   changeOrganizationEditionHandler,
   changeOrganizationIndustryHandler,
   createOrganizationHandler,
+  desactivarModuloHandler,
   listEditionsHandler,
   listIndustriesHandler,
   listLlmUsageHandler,
@@ -84,6 +86,24 @@ organizationAdminRouter.patch(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   changeOrganizationEditionHandler,
+);
+
+// Módulos activables (docs/servicios.md §1.5): activar y desactivar uno en
+// una organización. Misma cadena.
+organizationAdminRouter.put(
+  "/admin/organizations/:organizationId/modulos/:modulo",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  activarModuloHandler,
+);
+
+organizationAdminRouter.delete(
+  "/admin/organizations/:organizationId/modulos/:modulo",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  desactivarModuloHandler,
 );
 
 // Rubros (docs/rubros.md §15, R3): los que se pueden elegir en el alta, y

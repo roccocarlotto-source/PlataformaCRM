@@ -200,7 +200,9 @@ export function modulosDe(
   - El listado `GET /api/admin/organizations` suma `modulosActivados`.
 - **Validaciones:**
   - un módulo que no está en `MODULOS_ACTIVABLES` da 400;
-  - un rubro que no admite el módulo da 409 `MODULO_NO_DISPONIBLE_EN_EL_RUBRO`;
+  - un rubro que no admite el módulo da 400 `MODULO_NO_DISPONIBLE_EN_EL_RUBRO`
+    (decisión de Rocco al aprobar el plan de S2: 400, como
+    `ROL_NO_DISPONIBLE_EN_EL_RUBRO`);
   - el cambio de rubro de una organización con `servicios` activado da 409, como
     el de una organización con datos (rubros D1).
 - **Al activar:** se crea `workshop_settings` con los defaults (§2.6), en la
@@ -1368,8 +1370,8 @@ autorice**. Cada PR:
 | # | PR | 🗄 | Riesgo | Contenido | Depende de |
 |---|---|---|---|---|---|
 | S0 | `docs: diseño del módulo Servicios` | — | Nulo | Este documento. | — |
-| S1 | `feat(servicios): tablas del módulo` 🗄 | **Sí** | Bajo | `organization_modules`, `workshop_settings` (con `first_service_after_months`), `customer_vehicles` (con las columnas de fin de propiedad), `customer_vehicle_owner_changes`, `service_orders` (con su enum), `service_order_status_changes`, `service_order_approvals`, `service_job_types`, `service_order_job_types` y `service_order_photos`. CHECKs, índices y únicos parciales, RLS, H-01, fila 5 del diagnóstico, `verify:schema`, FKs a `contacts` en el inventario de `contactMerge`, catálogo de slugs. **Nadie las lee todavía:** inerte para todos. | — |
-| S2 | `feat(servicios): activación y gate` | — | **Medio-alto** | `MODULOS_ACTIVABLES`, `modulosDe` con activados, `modulosActivados` en `AuthContext` (subconsulta en el mismo SELECT), gate con `motivo: "NO_ACTIVADO"`, `/me`, rutas de Plataforma para activar y desactivar, columna y acción en Plataforma → Organizaciones, regla de `useModulo` para activables, guía sección 14. Toca cada request autenticado: la suite de §13 es la red. | S1 aplicado |
+| S1 | `feat(servicios): tablas del módulo` 🗄 | **Sí** | Bajo | **Hecho** (#514, migración aplicada en producción el 2026-10-13). `organization_modules`, `workshop_settings` (con `first_service_after_months`), `customer_vehicles` (con las columnas de fin de propiedad), `customer_vehicle_owner_changes`, `service_orders` (con su enum), `service_order_status_changes`, `service_order_approvals`, `service_job_types`, `service_order_job_types` y `service_order_photos`. CHECKs, índices y únicos parciales, RLS, H-01, fila 5 del diagnóstico, `verify:schema`, FKs a `contacts` en el inventario de `contactMerge`, catálogo de slugs. **Nadie las lee todavía:** inerte para todos. | — |
+| S2 | `feat(servicios): activación y gate` | — | **Medio-alto** | Trae además `GET /api/servicios/configuracion` (de lectura, defaults sin fila), para que el barrido de rutas cubra el gate de punta a punta. Sin el conteo de ventas (llega con S10). `MODULOS_ACTIVABLES`, `modulosDe` con activados, `modulosActivados` en `AuthContext` (subconsulta en el mismo SELECT), gate con `motivo: "NO_ACTIVADO"`, `/me`, rutas de Plataforma para activar y desactivar, columna y acción en Plataforma → Organizaciones, regla de `useModulo` para activables, guía sección 14. Toca cada request autenticado: la suite de §13 es la red. | S1 aplicado |
 | S3 | `feat(servicios): vehículos de clientes` | — | Medio | CRUD, búsqueda por matrícula, ficha con historial (vacío), **"Cambiar dueño" manual** (§2.2.1), tarjeta en la ficha del contacto, unir y borrado completo, guía. | S2 |
 | S4 | `feat(servicios): órdenes de servicio` | — | Medio | Alta, tablero y lista, ficha, transiciones con historial, aprobaciones, tipos y configuración, vincular turno y "Crear orden" desde la agenda, fecha del próximo service al entregar (sin envío), guía. | S3 |
 | S5 | `feat(servicios): fotos de la orden` | — | Medio | Bucket, subida, límites, firma y borrado, más el borrado completo y la purga. `data-classification.md`. | S4 |

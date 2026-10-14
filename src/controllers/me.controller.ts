@@ -67,7 +67,11 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     // (docs/rubros.md §1.2), los módulos son los de la edición Y los del rubro.
     edition,
     industry,
-    modulos: MODULOS.filter((modulo) => modulosDe(edition, industry).has(modulo)),
+    // Con los módulos activables que la organización tenga activados
+    // (docs/servicios.md §1.4): sin ninguno, la lista de siempre.
+    modulos: MODULOS.filter((modulo) =>
+      modulosDe(edition, industry, req.auth.modulosActivados).has(modulo),
+    ),
     // Rubros (docs/rubros.md §3): el término del contacto, solo en una clínica
     // (una automotora no tiene la clave), y el vocabulario armado acá, por el
     // mismo motivo que `modulos`.

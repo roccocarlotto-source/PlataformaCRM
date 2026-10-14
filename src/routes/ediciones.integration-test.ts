@@ -5,6 +5,7 @@ import {
   MODULOS,
   PROCESO_DE_VENTA_FIJO,
   RUTAS_POR_MODULO,
+  MODULOS_ACTIVABLES,
   SOLO_CLINICA,
   modulosDe,
   motivoDeExclusion,
@@ -32,7 +33,8 @@ import {
 // LOS CASOS SALEN DEL CATÁLOGO (RUTAS_POR_MODULO y modulosDe), no de una
 // lista a mano:
 //   - COMPLETA + AUTOMOTORA: TODAS las rutas del catálogo, ninguna da
-//     MODULO_NO_INCLUIDO (el gate es un no-op para las organizaciones de hoy);
+//     MODULO_NO_INCLUIDO (el gate es un no-op para las organizaciones de hoy)
+//     salvo las de un módulo solo de clínica o activable sin activar;
 //   - cualquier otra combinación: cada ruta de un módulo excluido da 403
 //     MODULO_NO_INCLUIDO con su módulo y el motivo de motivoDeExclusion, y
 //     cada ruta de un módulo incluido no lo da.
@@ -103,12 +105,29 @@ async function barrer(
 
 const TOTAL_DEL_CATALOGO = MODULOS.reduce((n, m) => n + RUTAS_POR_MODULO[m].length, 0);
 
-test("COMPLETA: TODAS las rutas del catálogo; ninguna da MODULO_NO_INCLUIDO salvo las de un módulo solo de clínica", async () => {
+test("COMPLETA: TODAS las rutas del catálogo; ninguna da MODULO_NO_INCLUIDO salvo las de un módulo solo de clínica o activable sin activar", async () => {
   const resultado = await barrer(completa);
   assert.equal(resultado.length, TOTAL_DEL_CATALOGO, "el barrido recorre el catálogo entero");
+  // docs/servicios.md §1.4: COMPLETA + AUTOMOTORA deja de ser un no-op total
+  // en las rutas de un módulo activable que la organización no tiene
+  // activado (motivo NO_ACTIVADO, que ya afirma barrer con
+  // motivoDeExclusion). Todas las demás, como siempre.
   assert.deepEqual(
-    resultado.filter((r) => r.bloqueada && !SOLO_CLINICA.has(r.modulo)).map((r) => r.ruta),
+    resultado
+      .filter(
+        (r) => r.bloqueada && !SOLO_CLINICA.has(r.modulo) && !MODULOS_ACTIVABLES.has(r.modulo),
+      )
+      .map((r) => r.ruta),
     [],
+  );
+  assert.deepEqual(
+    resultado.filter((r) => MODULOS_ACTIVABLES.has(r.modulo) && !r.bloqueada).map((r) => r.ruta),
+    [],
+    "una ruta de un módulo activable sin activar pasó el gate",
+  );
+  assert.ok(
+    resultado.some((r) => MODULOS_ACTIVABLES.has(r.modulo)),
+    "el barrido cubre servicios",
   );
   // R5: las de agenda_clinica no son de una automotora (motivo RUBRO, que ya
   // afirma barrer con motivoDeExclusion).
@@ -196,10 +215,11 @@ test("/api/me devuelve la edición y los módulos, en las dos ediciones", async 
   assert.equal(meCompleta.status, 200);
   assert.equal(meCompleta.json.edition, "COMPLETA");
   assert.equal(meCompleta.json.industry, "AUTOMOTORA");
-  // Todos los del catálogo menos los solo de clínica (R5).
+  // Todos los del catálogo menos los solo de clínica (R5) y los activables
+  // que no tiene activados (docs/servicios.md §1.4): la lista de siempre.
   assert.deepEqual(
     meCompleta.json.modulos,
-    MODULOS.filter((m) => !SOLO_CLINICA.has(m)),
+    MODULOS.filter((m) => !SOLO_CLINICA.has(m) && !MODULOS_ACTIVABLES.has(m)),
   );
 
   const meEsencial = await pedir(esencial, "GET", "/api/me");

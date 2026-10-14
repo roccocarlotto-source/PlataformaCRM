@@ -13,6 +13,7 @@ import { useConfirm } from "../../design-system/useConfirm";
 import { CONFIRMACION_DEL_REINICIO, esClinicaDemo } from "./clinicaDemo";
 import { NOMBRE_DE_EDICION } from "./ediciones";
 import {
+  useCambiarModulo,
   useChangeOrganizationEdition,
   useReenviarInvitacionDelAdministrador,
   useReiniciarDatosDeLaDemo,
@@ -35,6 +36,12 @@ import type { PlatformOrganization } from "./types";
 // filas, porque saber si el administrador ya la aceptó es preguntarle a
 // Supabase por cada organización; lo decide el backend al reenviar (409 si ya
 // la aceptó).
+//
+// "Módulos" (docs/servicios.md §1.5): los activables vigentes de cada
+// organización, y "Activar Servicios" / "Desactivar Servicios" con
+// confirmación. Activar solo se ofrece en una AUTOMOTORA: el backend responde
+// 400 a cualquier otro rubro. El conteo de ventas que se van a convertir en
+// vehículos de clientes llega con S10, no acá.
 //
 // "Reiniciar datos de demo" (docs/rubros.md §12.3): solo en las filas de una
 // Clínica Demo (esClinicaDemo). Borra pacientes, turnos, conversaciones y
@@ -59,12 +66,32 @@ function ListaDeOrganizaciones() {
   const [reenviada, setReenviada] = useState<string | null>(null);
   const reiniciar = useReiniciarDatosDeLaDemo();
   const [reiniciada, setReiniciada] = useState<string | null>(null);
+  const cambiarModulo = useCambiarModulo();
+  const [moduloCambiado, setModuloCambiado] = useState<string | null>(null);
 
   function limpiarMensajes() {
     setError(null);
     setSubida(null);
     setReenviada(null);
     setReiniciada(null);
+    setModuloCambiado(null);
+  }
+
+  async function cambiarServicios(org: PlatformOrganization, activo: boolean) {
+    limpiarMensajes();
+    const ok = await confirm(
+      activo
+        ? `¿Activar Servicios en «${org.name}»? Sus usuarios van a ver el módulo Taller cuando esté disponible. Se puede desactivar y los datos se conservan.`
+        : `¿Desactivar Servicios en «${org.name}»? Sus usuarios dejan de verlo enseguida. Los datos se conservan y vuelven si se reactiva.`,
+      { confirmLabel: activo ? "Activar" : "Desactivar", danger: !activo },
+    );
+    if (!ok) return;
+    try {
+      await cambiarModulo.mutateAsync({ organizationId: org.id, modulo: "servicios", activo });
+      setModuloCambiado(`Servicios ${activo ? "activado" : "desactivado"} en «${org.name}».`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No pudimos cambiar el módulo");
+    }
   }
 
   async function reiniciarDemo(org: PlatformOrganization) {
@@ -126,6 +153,7 @@ function ListaDeOrganizaciones() {
         {subida ? <p role="status">«{subida}» ya tiene la edición completa.</p> : null}
         {reenviada ? <p role="status">{reenviada}</p> : null}
         {reiniciada ? <p role="status">{reiniciada}</p> : null}
+        {moduloCambiado ? <p role="status">{moduloCambiado}</p> : null}
         {organizationsQuery.isSuccess ? (
           organizationsQuery.data.length === 0 ? (
             <EmptyState>No hay organizaciones vigentes.</EmptyState>
@@ -136,6 +164,7 @@ function ListaDeOrganizaciones() {
                   <th>Organización</th>
                   <th>Identificador</th>
                   <th>Edición</th>
+                  <th>Módulos</th>
                   <th>
                     <span className="ds-sr-only">Acciones</span>
                   </th>
@@ -154,6 +183,13 @@ function ListaDeOrganizaciones() {
                       </Badge>
                     </td>
                     <td>
+                      {org.modulosActivados.includes("servicios") ? (
+                        <Badge variant="info">Servicios</Badge>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td>
                       <div className="ds-row-actions">
                         <Button
                           type="button"
@@ -169,6 +205,22 @@ function ListaDeOrganizaciones() {
                             disabled={cambiarEdicion.isPending}
                           >
                             Pasar a edición completa
+                          </Button>
+                        ) : null}
+                        {org.industry === "AUTOMOTORA" ? (
+                          <Button
+                            type="button"
+                            onClick={() =>
+                              void cambiarServicios(
+                                org,
+                                !org.modulosActivados.includes("servicios"),
+                              )
+                            }
+                            disabled={cambiarModulo.isPending}
+                          >
+                            {org.modulosActivados.includes("servicios")
+                              ? "Desactivar Servicios"
+                              : "Activar Servicios"}
                           </Button>
                         ) : null}
                         {esClinicaDemo(org) ? (

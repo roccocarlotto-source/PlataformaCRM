@@ -44,6 +44,12 @@ export interface AuthContext {
   // usuario la clave no está, y el contexto de una automotora es el mismo de
   // antes. No se lee directo: se pasa por sedesDelActor (services/permisos.ts).
   sedes?: readonly string[];
+  // Los módulos ACTIVABLES que un platform admin le activó a la organización
+  // (docs/servicios.md §1.4), por el mismo SELECT que la edición. Solo está
+  // si hay alguno: el contexto de una organización sin módulos activados es
+  // el mismo de antes. Ausente = ninguno. No se lee directo: se pasa a
+  // modulosDe, que además descarta lo que el rubro o la edición no admiten.
+  modulosActivados?: readonly string[];
 }
 
 // Para controllers que corren después de `authenticate`: `auth` ya no es

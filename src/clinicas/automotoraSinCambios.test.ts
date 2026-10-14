@@ -8,6 +8,7 @@ import {
   MODULOS,
   MODULO_DE_LA_TOOL,
   RUTAS_POR_MODULO,
+  MODULOS_ACTIVABLES,
   SOLO_CLINICA,
   modulosDe,
   toolDelRubro,
@@ -254,13 +255,15 @@ function errorDe(fn: () => void): AppError | undefined {
 }
 
 // Las rutas de una automotora: todas menos las de los módulos solo de
-// clínica (R5 en adelante), que no existían antes y no son suyas (las prueba
-// el test de abajo). Que ningún módulo de una automotora termine en
-// SOLO_CLINICA lo fija el primer test (la lista fija de sus módulos).
-const TODAS_LAS_RUTAS = MODULOS.filter((m) => !SOLO_CLINICA.has(m)).flatMap(
-  (m: Modulo) => RUTAS_POR_MODULO[m],
-);
+// clínica (R5 en adelante) y las de los módulos activables
+// (docs/servicios.md §1), que no existían antes; las prueban los tests de
+// abajo. Que ningún módulo de una automotora termine en SOLO_CLINICA o en
+// MODULOS_ACTIVABLES lo fija el primer test (la lista fija de sus módulos).
+const TODAS_LAS_RUTAS = MODULOS.filter(
+  (m) => !SOLO_CLINICA.has(m) && !MODULOS_ACTIVABLES.has(m),
+).flatMap((m: Modulo) => RUTAS_POR_MODULO[m]);
 const RUTAS_SOLO_DE_CLINICA = [...SOLO_CLINICA].flatMap((m: Modulo) => RUTAS_POR_MODULO[m]);
+const RUTAS_ACTIVABLES = [...MODULOS_ACTIVABLES].flatMap((m: Modulo) => RUTAS_POR_MODULO[m]);
 
 test("gate, COMPLETA: no-op total, en todas las rutas, sin clasificar y con cualquier campo", () => {
   const id = "33333333-3333-3333-3333-333333333333";
@@ -318,6 +321,50 @@ test("gate: las rutas de los módulos solo de clínica dan 403 con motivo RUBRO 
       assert.equal(detalles.code, "MODULO_NO_INCLUIDO");
       assert.equal(detalles.motivo, "RUBRO");
       assert.ok(SOLO_CLINICA.has(detalles.modulo as Modulo), ruta);
+    }
+  }
+});
+
+// docs/servicios.md §1.4: una automotora SIN el módulo activado recibe 403
+// con motivo NO_ACTIVADO en las rutas de un activable, en las dos ediciones;
+// con el módulo activado, pasan. El resto de sus rutas ya lo fijan los dos
+// tests de arriba (no-op en COMPLETA, las 29 de siempre en ESENCIAL).
+test("gate: las rutas de un módulo activable dan 403 NO_ACTIVADO a una automotora sin activarlo, y pasan con el módulo activado", () => {
+  assert.ok(RUTAS_ACTIVABLES.length > 0);
+  for (const edition of EDICIONES) {
+    for (const ruta of RUTAS_ACTIVABLES) {
+      const [metodo, patron] = ruta.split(" ");
+      const err = errorDe(() =>
+        exigirModuloDeLaEdicion(pedido(metodo, patron), automotora(edition)),
+      );
+      assert.equal(err?.statusCode, 403, `${edition}: ${ruta}`);
+      assert.equal(err?.message, "Este módulo no está activado para tu organización.");
+      const { code, modulo, motivo, ...resto } = err?.details as Record<string, unknown>;
+      assert.equal(code, "MODULO_NO_INCLUIDO");
+      assert.equal(motivo, "NO_ACTIVADO");
+      assert.ok(MODULOS_ACTIVABLES.has(modulo as Modulo), ruta);
+      assert.deepEqual(resto, {});
+
+      const conElModulo = { ...automotora(edition), modulosActivados: [modulo as string] };
+      assert.equal(
+        errorDe(() => exigirModuloDeLaEdicion(pedido(metodo, patron), conElModulo)),
+        undefined,
+        `${edition} con el módulo: ${ruta}`,
+      );
+    }
+  }
+});
+
+test("gate: un módulo activado no cambia nada en las demás rutas de una automotora", () => {
+  for (const edition of EDICIONES) {
+    const conServicios = { ...automotora(edition), modulosActivados: ["servicios"] };
+    for (const ruta of TODAS_LAS_RUTAS) {
+      const [metodo, patron] = ruta.split(" ");
+      const sin = errorDe(() =>
+        exigirModuloDeLaEdicion(pedido(metodo, patron), automotora(edition)),
+      );
+      const con = errorDe(() => exigirModuloDeLaEdicion(pedido(metodo, patron), conServicios));
+      assert.deepEqual(con?.details, sin?.details, `${edition}: ${ruta}`);
     }
   }
 });
