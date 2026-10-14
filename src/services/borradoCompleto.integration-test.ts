@@ -565,3 +565,70 @@ test("un borrado que tarda más de 5 s termina igual (P2028 en producción)", as
   assert.equal(despues.personalDataErasedById, org.authIds[0]);
   assert.equal(await prisma.booking.count({ where: { contactId: contact.id } }), 3);
 });
+
+test("servicios (D14): anonimiza matrícula, chasis y notas de sus vehículos y la nota de sus cambios de dueño; el vehículo queda", async () => {
+  const org = await crearOrgDePrueba("borrado-completo", "COMPLETA", "AUTOMOTORA", 1);
+  orgs.push(org);
+  const organizationId = org.id;
+  const [duena, comprador] = await Promise.all(
+    ["Duena", "Comprador"].map((firstName) =>
+      prisma.contact.create({ data: { organizationId, firstName, lastName: APELLIDO } }),
+    ),
+  );
+  const suyo = await prisma.customerVehicle.create({
+    data: {
+      organizationId,
+      contactId: duena.id,
+      make: "Toyota",
+      model: "Hilux",
+      year: 2020,
+      mileage: 50000,
+      licensePlate: "sbc 9999",
+      licensePlateNorm: "SBC9999",
+      vin: "CHASIS9999",
+      notes: `Lo trae ${NOMBRE}`,
+    },
+  });
+  // Un vehículo que fue suyo y ahora es de otro: su matrícula es del dueño
+  // nuevo y queda; la nota del cambio, donde figura ella, no.
+  const vendido = await prisma.customerVehicle.create({
+    data: {
+      organizationId,
+      contactId: comprador.id,
+      make: "Fiat",
+      model: "Uno",
+      licensePlate: "AAA1111",
+      licensePlateNorm: "AAA1111",
+    },
+  });
+  await prisma.customerVehicleOwnerChange.create({
+    data: {
+      organizationId,
+      customerVehicleId: vendido.id,
+      kind: "CAMBIO_DE_DUENO",
+      fromContactId: duena.id,
+      toContactId: comprador.id,
+      note: `${NOMBRE} se lo vendió`,
+      changedById: org.authIds[0],
+    },
+  });
+
+  await erasePersonalData(organizationId, duena.id, org.authIds[0]);
+
+  const despues = await prisma.customerVehicle.findUniqueOrThrow({ where: { id: suyo.id } });
+  assert.equal(despues.licensePlate, null);
+  assert.equal(despues.licensePlateNorm, null);
+  assert.equal(despues.vin, null);
+  assert.equal(despues.notes, null);
+  assert.equal(despues.make, "Toyota", "el vehículo queda: los números del taller no cambian");
+  assert.equal(despues.mileage, 50000);
+  assert.equal(despues.deletedAt, null);
+  const delComprador = await prisma.customerVehicle.findUniqueOrThrow({
+    where: { id: vendido.id },
+  });
+  assert.equal(delComprador.licensePlate, "AAA1111", "lo del dueño nuevo no se toca");
+  const [cambio] = await prisma.customerVehicleOwnerChange.findMany({
+    where: { customerVehicleId: vendido.id },
+  });
+  assert.equal(cambio.note, null);
+});

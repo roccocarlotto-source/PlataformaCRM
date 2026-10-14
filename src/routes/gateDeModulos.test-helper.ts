@@ -84,6 +84,19 @@ export async function borrarOrgDePrueba(org: OrgDePrueba | undefined): Promise<v
   const where = { organizationId: org.id };
   await prisma.outboxEvent.deleteMany({ where });
   await prisma.activity.deleteMany({ where });
+  // El taller (docs/servicios.md §2): antes que contactos, oportunidades,
+  // sucursales y usuarios (FKs RESTRICT). customer_vehicles y service_orders se
+  // apuntan entre sí (el próximo service sale de una orden): primero se corta
+  // esa referencia.
+  await prisma.customerVehicle.updateMany({ where, data: { nextServiceSetFromOrderId: null } });
+  await prisma.customerVehicleOwnerChange.deleteMany({ where });
+  await prisma.serviceOrderPhoto.deleteMany({ where });
+  await prisma.serviceOrderJobType.deleteMany({ where });
+  await prisma.serviceOrderApproval.deleteMany({ where });
+  await prisma.serviceOrderStatusChange.deleteMany({ where });
+  await prisma.serviceOrder.deleteMany({ where });
+  await prisma.serviceJobType.deleteMany({ where });
+  await prisma.customerVehicle.deleteMany({ where });
   await prisma.opportunity.deleteMany({ where });
   await prisma.stage.deleteMany({ where });
   await prisma.pipeline.deleteMany({ where });

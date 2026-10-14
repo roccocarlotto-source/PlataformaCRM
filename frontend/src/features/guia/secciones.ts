@@ -1,3 +1,4 @@
+import { MODULOS_ACTIVABLES } from "../../auth/useModulo";
 import { asignarAnclas } from "./markdown";
 
 // Las secciones de la guía de uso, leídas de docs/guia-de-uso/ EN EL BUILD:
@@ -92,16 +93,27 @@ const FUERA_DE_CLINICA: ReadonlySet<string> = new Set([
 export const MODULO_DE_SECCION: Readonly<Record<string, string>> = {
   "cupones-y-qr": "cupones_y_qr",
   "campos-personalizados": "campos_personalizados",
+  // El taller (docs/servicios.md §11): un módulo activable, solo automotora.
+  servicios: "servicios",
 };
 
-/** Las secciones del rubro. Una automotora: las de la raíz, las MISMAS. Una
- *  clínica: cada sección de la raíz reemplazada por la de clinicas/ con el
- *  mismo número; nunca stock ni oportunidades; y solo las de módulos que tiene. */
+/** Las secciones del rubro. Una automotora: las de la raíz, las MISMAS, salvo
+ *  las de un módulo activable que no tiene (docs/servicios.md §13.1: sin el
+ *  módulo, la guía es la de siempre). Una clínica: cada sección de la raíz
+ *  reemplazada por la de clinicas/ con el mismo número; nunca stock ni
+ *  oportunidades; y solo las de módulos que tiene. */
 export function seccionesDelRubro(
   esClinica: boolean,
   tiene: (modulo: string) => boolean = () => true,
 ): Seccion[] {
-  if (!esClinica) return SECCIONES;
+  if (!esClinica) {
+    const visibles = SECCIONES.filter((seccion) => {
+      const modulo = MODULO_DE_SECCION[seccion.slug];
+      return modulo === undefined || !MODULOS_ACTIVABLES.has(modulo) || tiene(modulo);
+    });
+    // Si no saca nada, el MISMO arreglo de siempre (lo fija secciones.test.ts).
+    return visibles.length === SECCIONES.length ? SECCIONES : visibles;
+  }
   const propias = new Map(SECCIONES_DE_CLINICA.map((seccion) => [seccion.orden, seccion]));
   return SECCIONES.flatMap((seccion) => {
     if (FUERA_DE_CLINICA.has(seccion.slug)) return [];

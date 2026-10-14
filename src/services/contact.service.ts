@@ -49,6 +49,7 @@ import {
 import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
 import { countOpenOpportunitiesOf } from "../repositories/opportunity.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
+import { anonimizarVehiculosDelContacto } from "../servicios/repositories/customerVehicle.repository";
 import {
   findDefaultPhoneCountryCode,
   lockOrganizationForUpdate,
@@ -791,6 +792,10 @@ export async function erasePersonalData(
     // R13: sus recordatorios de turno pendientes no salen y el historial queda
     // sin last_error (podía tener un dato del envío). Una automotora no tiene.
     await limpiarRecordatoriosDelContacto(organizationId, id, tx);
+    // Servicios (docs/servicios.md §2.8, D14): matrícula, chasis y notas de sus
+    // vehículos, y la nota de sus cambios de dueño. Los vehículos quedan, sin
+    // datos personales. Un contacto sin vehículos no cambia nada.
+    await anonimizarVehiculosDelContacto(organizationId, id, tx);
     // Borrado completo: mensajes, conversaciones, cola, tareas, identidades y
     // seguimientos; y quién y cuándo.
     const rastro = await borrarRastroDelContacto(id, organizationId, tx);

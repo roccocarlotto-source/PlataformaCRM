@@ -221,6 +221,14 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "servicios-activacion-{etiqueta}-{ts}-{hex8}",
     "src/servicios/activacion.integration-test.ts",
   ),
+  patron(
+    "servicios-vehiculos-{etiqueta}-{ts}-{hex8}",
+    "src/servicios/vehiculos.integration-test.ts",
+  ),
+  patron(
+    "servicios-sin-modulo-{etiqueta}-{ts}-{hex8}",
+    "src/servicios/sinElModuloSinCambios.integration-test.ts",
+  ),
   patron("rubro-{etiqueta}-{ts}-{hex8}", `${R}organizationIndustry.integration-test.ts`),
   patron("llm-uso-{etiqueta}-{ts}-{hex8}", `${R}llmTurnUsage.integration-test.ts`),
   patron("b17-{ts}-{hex8}", `${R}lockForUpdate.integration-test.ts`),

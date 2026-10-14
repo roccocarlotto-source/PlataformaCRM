@@ -595,8 +595,18 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   recordatorios_de_turno: [],
   // R14: el control de una prestación ("Recordar control a los N días").
   post_turno: ["PUT /api/clinica/prestaciones/:serviceTypeId/control"],
-  // El taller (docs/servicios.md §1.6). S2: solo la configuración, de lectura.
-  servicios: ["GET /api/servicios/configuracion"],
+  // El taller (docs/servicios.md §1.6). S2: la configuración, de lectura. S3:
+  // los vehículos de clientes.
+  servicios: [
+    "GET /api/servicios/configuracion",
+    "GET /api/servicios/vehiculos",
+    "POST /api/servicios/vehiculos",
+    "GET /api/servicios/vehiculos/:id",
+    "PATCH /api/servicios/vehiculos/:id",
+    "DELETE /api/servicios/vehiculos/:id",
+    "GET /api/servicios/vehiculos/:id/ordenes",
+    "POST /api/servicios/vehiculos/:id/dueno",
+  ],
 };
 
 /** Rutas sin sesión de usuario (sin `authenticate`). No dependen de la

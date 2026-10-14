@@ -184,6 +184,16 @@ const SOLO_DE_CLINICA: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
   "sobreturnos",
 ]);
 
+// Las claves del taller (docs/servicios.md): sus pantallas existen solo con el
+// módulo activable Servicios, que ninguna edición trae por defecto.
+const DEL_TALLER: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
+  "vehiculosDeClientes",
+  "vehiculoDeClienteForm",
+  "fichaDeVehiculoDeCliente",
+]);
+const CON_SERVICIOS = (regla: (modulo: string) => boolean) => (modulo: string) =>
+  modulo === "servicios" || regla(modulo);
+
 function anclaVisible(secciones: Seccion[], destino: string): boolean {
   const [slug, ancla] = destino.split("#");
   const seccion = secciones.find((s) => s.slug === slug);
@@ -298,7 +308,8 @@ describe("la guía real por edición", () => {
         const original = SECCIONES[i];
         if (seccion.slug !== "oportunidades-y-procesos-de-venta") expect(seccion).toBe(original);
       });
-      expect(visibles).toEqual(seccionesVisibles(true));
+      // Sin Servicios (activable, S3): todo menos la sección del taller.
+      expect(visibles).toEqual(seccionesVisibles(true).filter((s) => s.slug !== "servicios"));
     }
   });
 
@@ -306,12 +317,22 @@ describe("la guía real por edición", () => {
     const esencial = seccionesVisibles(true, ESENCIAL);
     const completa = seccionesVisibles(true, COMPLETA);
     for (const [clave, destino] of Object.entries(AYUDA) as [ClaveDeAyuda, string][]) {
-      if (SOLO_DE_CLINICA.has(clave)) continue;
+      if (SOLO_DE_CLINICA.has(clave) || DEL_TALLER.has(clave)) continue;
       if (!FUERA_DE_ESENCIAL.has(clave)) {
         expect(anclaVisible(esencial, destino), `ESENCIAL ${clave} → ${destino}`).toBe(true);
       }
       if (!SOLO_DE_ESENCIAL.has(clave)) {
         expect(anclaVisible(completa, destino), `COMPLETA ${clave} → ${destino}`).toBe(true);
+      }
+    }
+  });
+
+  it("el taller: sin el módulo no está la sección; con él, cada '?' del taller se ve", () => {
+    for (const regla of [ESENCIAL, COMPLETA]) {
+      expect(seccionesVisibles(true, regla).some((s) => s.slug === "servicios")).toBe(false);
+      const con = seccionesVisibles(true, CON_SERVICIOS(regla));
+      for (const clave of DEL_TALLER) {
+        expect(anclaVisible(con, AYUDA[clave]), clave).toBe(true);
       }
     }
   });
@@ -361,6 +382,7 @@ const CLINICA = (edition: "COMPLETA" | "ESENCIAL") => (modulo: string) =>
 const NO_SON_DE_CLINICA: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
   ...FUERA_DE_ESENCIAL,
   ...SOLO_DE_ESENCIAL,
+  ...DEL_TALLER,
   "stock",
   "unidadForm",
   "recursos",
@@ -382,8 +404,9 @@ describe("automotora sin cambios: la guía de una automotora", () => {
       expect(seccionesVisibles(true, regla, false)).toEqual(seccionesVisibles(true, regla));
       expect(seccionesVisibles(false, regla, false)).toEqual(seccionesVisibles(false, regla));
     }
+    // Sin el módulo Servicios: todas menos la del taller (§13.1).
     expect(seccionesVisibles(true, COMPLETA, false).map((s) => s.slug)).toEqual(
-      SECCIONES.map((s) => s.slug),
+      SECCIONES.map((s) => s.slug).filter((slug) => slug !== "servicios"),
     );
   });
 });
