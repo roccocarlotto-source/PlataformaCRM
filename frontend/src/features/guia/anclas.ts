@@ -36,6 +36,10 @@ export const AYUDA = {
   vehiculosDeClientes: "servicios#vehiculos-de-clientes",
   vehiculoDeClienteForm: "servicios#nuevo-vehiculo",
   fichaDeVehiculoDeCliente: "servicios#ficha-del-vehiculo",
+  ordenes: "servicios#ordenes",
+  nuevaOrden: "servicios#nueva-orden",
+  fichaDeOrden: "servicios#ficha-de-la-orden",
+  configuracionDelTaller: "servicios#configuracion",
 
   actividades: "actividades-y-agenda#actividades",
   misTareas: "actividades-y-agenda#mis-tareas",

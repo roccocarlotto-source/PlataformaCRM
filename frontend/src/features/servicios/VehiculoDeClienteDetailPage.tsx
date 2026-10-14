@@ -76,6 +76,14 @@ function Ficha({ vehiculo }: { vehiculo: FichaDeVehiculo }) {
               Editar
             </Link>
             {vigente ? (
+              <Link
+                to={`/taller/ordenes/nueva?vehiculoId=${vehiculo.id}`}
+                className="ds-link-button"
+              >
+                Nueva orden
+              </Link>
+            ) : null}
+            {vigente ? (
               <Button type="button" onClick={() => setCambiandoDueno(true)}>
                 Cambiar dueño
               </Button>
@@ -234,7 +242,9 @@ function HistorialDeOrdenes({ vehiculoId }: { vehiculoId: string }) {
           <tbody>
             {ordenesQuery.data.map((o) => (
               <tr key={o.id}>
-                <td className="ds-cell-primary">{o.numero}</td>
+                <td className="ds-cell-primary">
+                  <Link to={`/taller/ordenes/${o.id}`}>{o.numero}</Link>
+                </td>
                 <td>
                   <Badge>{ETIQUETA_DE_ESTADO[o.status]}</Badge>
                 </td>

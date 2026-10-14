@@ -1,7 +1,31 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { actualizarVehiculo, borrarVehiculo, cambiarDueno, crearVehiculo } from "./api";
-import { vehiculoKeys } from "./queries";
-import type { CambiarDuenoInput, CamposDelVehiculoInput, CrearVehiculoInput } from "./types";
+import {
+  actualizarOrden,
+  actualizarTipo,
+  actualizarVehiculo,
+  borrarTipo,
+  borrarVehiculo,
+  cambiarDueno,
+  cambiarEstado,
+  crearOrden,
+  crearTipo,
+  crearVehiculo,
+  guardarConfiguracion,
+  registrarAprobacion,
+} from "./api";
+import { ordenKeys, tallerKeys, vehiculoKeys } from "./queries";
+import type {
+  ActualizarOrdenInput,
+  AprobacionInput,
+  CambiarDuenoInput,
+  CambiarEstadoInput,
+  CamposDelVehiculoInput,
+  ConfiguracionDelTaller,
+  CrearOrdenInput,
+  CrearVehiculoInput,
+  FichaDeOrden,
+  TipoDeService,
+} from "./types";
 
 // Invalidación mínima: cada escritura invalida los listados (el de la pantalla
 // y el de la tarjeta del contacto) y, si corresponde, la ficha.
@@ -45,5 +69,89 @@ export function useCambiarDueno(id: string) {
       queryClient.setQueryData(vehiculoKeys.detail(id), ficha);
       queryClient.invalidateQueries({ queryKey: vehiculoKeys.lists() });
     },
+  });
+}
+
+// --- Órdenes (S4a) ----------------------------------------------------------
+// Toda escritura de una orden devuelve la ficha: se guarda en la caché y se
+// invalidan los listados y los vehículos (el historial, la orden abierta y el
+// próximo service salen de ahí).
+
+function alGuardarLaOrden(queryClient: ReturnType<typeof useQueryClient>) {
+  return (ficha: FichaDeOrden) => {
+    queryClient.setQueryData(ordenKeys.detail(ficha.id), ficha);
+    queryClient.invalidateQueries({ queryKey: ordenKeys.lists() });
+    queryClient.invalidateQueries({ queryKey: vehiculoKeys.all });
+  };
+}
+
+export function useCrearOrden() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CrearOrdenInput) => crearOrden(input),
+    onSuccess: alGuardarLaOrden(queryClient),
+  });
+}
+
+export function useActualizarOrden(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ActualizarOrdenInput) => actualizarOrden(id, input),
+    onSuccess: alGuardarLaOrden(queryClient),
+  });
+}
+
+export function useCambiarEstado(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CambiarEstadoInput) => cambiarEstado(id, input),
+    onSuccess: alGuardarLaOrden(queryClient),
+  });
+}
+
+export function useRegistrarAprobacion(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AprobacionInput) => registrarAprobacion(id, input),
+    onSuccess: alGuardarLaOrden(queryClient),
+  });
+}
+
+// --- Configuración y tipos (S4a) -------------------------------------------
+
+type CamposDelTipo = Partial<Pick<TipoDeService, "name" | "nextServiceAfterMonths" | "isActive">>;
+
+export function useGuardarConfiguracion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Partial<ConfiguracionDelTaller>) => guardarConfiguracion(input),
+    onSuccess: (configuracion) => {
+      queryClient.setQueryData(tallerKeys.configuracion, configuracion);
+    },
+  });
+}
+
+export function useCrearTipo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; nextServiceAfterMonths: number | null }) =>
+      crearTipo(input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: tallerKeys.todosLosTipos }),
+  });
+}
+
+export function useActualizarTipo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: { id: string } & CamposDelTipo) => actualizarTipo(id, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: tallerKeys.todosLosTipos }),
+  });
+}
+
+export function useBorrarTipo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => borrarTipo(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: tallerKeys.todosLosTipos }),
   });
 }

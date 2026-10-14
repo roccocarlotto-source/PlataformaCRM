@@ -2,7 +2,23 @@ import { Router } from "express";
 import { authenticate } from "../../middlewares/authenticate";
 import { authorize } from "../../middlewares/authorize";
 import { businessWriteRateLimiter } from "../../middlewares/rateLimit";
-import { leerConfiguracionHandler } from "../controllers/configuracion.controller";
+import {
+  actualizarTipoHandler,
+  borrarTipoHandler,
+  crearTipoHandler,
+  guardarConfiguracionHandler,
+  leerConfiguracionHandler,
+  listarTiposHandler,
+} from "../controllers/configuracion.controller";
+import {
+  actualizarOrdenHandler,
+  cambiarEstadoHandler,
+  crearOrdenHandler,
+  listarOrdenesHandler,
+  listarUsuariosHandler,
+  obtenerOrdenHandler,
+  registrarAprobacionHandler,
+} from "../controllers/ordenes.controller";
 import {
   actualizarVehiculoHandler,
   borrarVehiculoHandler,
@@ -23,8 +39,70 @@ import {
 
 export const serviciosRouter = Router();
 
-// S2: la configuración, de lectura. La edición (PUT, solo ADMIN) llega con S4.
+// La configuración (S2 la lectura; S4a la edición, solo ADMIN, §4.8).
 serviciosRouter.get("/servicios/configuracion", authenticate, leerConfiguracionHandler);
+serviciosRouter.put(
+  "/servicios/configuracion",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  guardarConfiguracionHandler,
+);
+
+// S4a: tipos de service (§2.6). Leer, cualquiera (se eligen en la orden);
+// escribir, solo ADMIN.
+serviciosRouter.get("/servicios/tipos", authenticate, listarTiposHandler);
+serviciosRouter.post(
+  "/servicios/tipos",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  crearTipoHandler,
+);
+serviciosRouter.patch(
+  "/servicios/tipos/:id",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  actualizarTipoHandler,
+);
+serviciosRouter.delete(
+  "/servicios/tipos/:id",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  borrarTipoHandler,
+);
+
+// S4a: órdenes de servicio (§2.3–§2.5, §3). ADMIN y USER operan todas (D9).
+serviciosRouter.get("/servicios/ordenes", authenticate, listarOrdenesHandler);
+serviciosRouter.post(
+  "/servicios/ordenes",
+  authenticate,
+  businessWriteRateLimiter,
+  crearOrdenHandler,
+);
+serviciosRouter.get("/servicios/ordenes/:id", authenticate, obtenerOrdenHandler);
+serviciosRouter.patch(
+  "/servicios/ordenes/:id",
+  authenticate,
+  businessWriteRateLimiter,
+  actualizarOrdenHandler,
+);
+serviciosRouter.post(
+  "/servicios/ordenes/:id/estado",
+  authenticate,
+  businessWriteRateLimiter,
+  cambiarEstadoHandler,
+);
+serviciosRouter.post(
+  "/servicios/ordenes/:id/aprobaciones",
+  authenticate,
+  businessWriteRateLimiter,
+  registrarAprobacionHandler,
+);
+// Para elegir el encargado: id y nombre de los usuarios activos (D9).
+serviciosRouter.get("/servicios/usuarios", authenticate, listarUsuariosHandler);
 
 // S3: vehículos de clientes (§2.2). ADMIN y USER los crean y editan (D9);
 // borrar, solo ADMIN (§10).

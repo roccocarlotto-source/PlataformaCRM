@@ -606,6 +606,19 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "DELETE /api/servicios/vehiculos/:id",
     "GET /api/servicios/vehiculos/:id/ordenes",
     "POST /api/servicios/vehiculos/:id/dueno",
+    // S4a: órdenes, configuración, tipos y encargados.
+    "PUT /api/servicios/configuracion",
+    "GET /api/servicios/tipos",
+    "POST /api/servicios/tipos",
+    "PATCH /api/servicios/tipos/:id",
+    "DELETE /api/servicios/tipos/:id",
+    "GET /api/servicios/ordenes",
+    "POST /api/servicios/ordenes",
+    "GET /api/servicios/ordenes/:id",
+    "PATCH /api/servicios/ordenes/:id",
+    "POST /api/servicios/ordenes/:id/estado",
+    "POST /api/servicios/ordenes/:id/aprobaciones",
+    "GET /api/servicios/usuarios",
   ],
 };
 

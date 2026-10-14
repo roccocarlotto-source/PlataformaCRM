@@ -613,6 +613,26 @@ test("servicios (D14): anonimiza matrícula, chasis y notas de sus vehículos y 
     },
   });
 
+  // Una orden de ella, con daños y notas que la nombran (S4a).
+  const branch = await createBranch(organizationId, { name: "Taller", timezone: "UTC" });
+  const orden = await prisma.serviceOrder.create({
+    data: {
+      organizationId,
+      number: 1,
+      customerVehicleId: suyo.id,
+      contactId: duena.id,
+      branchId: branch.id,
+      createdById: org.authIds[0],
+      status: "ENTREGADO",
+      deliveredAt: new Date(),
+      mileageIn: 50000,
+      damageNotes: `Rayón que hizo ${NOMBRE}`,
+      notes: `Lo retira ${NOMBRE}`,
+      amount: 1000,
+      currency: "UYU",
+    },
+  });
+
   await erasePersonalData(organizationId, duena.id, org.authIds[0]);
 
   const despues = await prisma.customerVehicle.findUniqueOrThrow({ where: { id: suyo.id } });
@@ -631,4 +651,9 @@ test("servicios (D14): anonimiza matrícula, chasis y notas de sus vehículos y 
     where: { customerVehicleId: vendido.id },
   });
   assert.equal(cambio.note, null);
+  const ordenDespues = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: orden.id } });
+  assert.equal(ordenDespues.damageNotes, null);
+  assert.equal(ordenDespues.notes, null);
+  assert.equal(ordenDespues.mileageIn, 50000, "la orden queda, con sus números");
+  assert.equal(ordenDespues.amount?.toFixed(2), "1000.00");
 });

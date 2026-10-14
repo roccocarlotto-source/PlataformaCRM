@@ -851,13 +851,17 @@ describe("AppLayout — el módulo Servicios suma solo la sección Taller", () =
     const sin = edicionDeMe("COMPLETA").modulos ?? [];
     const antes = menu(sin);
     const con = menu([...sin, "servicios"]);
-    const delTaller = "Vehículos de clientes→/taller/vehiculos";
-    expect(con.links).toContain(delTaller);
+    const delTaller = [
+      "Órdenes→/taller/ordenes",
+      "Vehículos de clientes→/taller/vehiculos",
+      "Configuración→/taller/configuracion",
+    ];
+    for (const link of delTaller) expect(con.links).toContain(link);
     expect(con.botones).toContain("Taller");
-    expect(antes.links).not.toContain(delTaller);
+    for (const link of delTaller) expect(antes.links).not.toContain(link);
     expect(antes.botones).not.toContain("Taller");
     expect({
-      links: con.links.filter((l) => l !== delTaller),
+      links: con.links.filter((l) => !delTaller.includes(l)),
       botones: con.botones.filter((b) => b !== "Taller"),
     }).toEqual(antes);
   });

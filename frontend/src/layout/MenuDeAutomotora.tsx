@@ -27,6 +27,7 @@ import {
   TicketCheck,
   UserCog,
   Users,
+  Wrench,
   Zap,
 } from "lucide-react";
 import type { MeResponse } from "../auth/AuthContext";
@@ -120,13 +121,21 @@ export function MenuDeAutomotora({
           Stock
         </SidebarLink>
       </SidebarSection>
-      {/* Taller (docs/servicios.md §4.1): para ambos roles. S3 trae Vehículos
-          de clientes; Órdenes y Configuración (solo ADMIN) llegan con S4. */}
+      {/* Taller (docs/servicios.md §4.1): Órdenes y Vehículos de clientes
+          para ambos roles; Configuración, solo ADMIN. */}
       {tieneServicios ? (
         <SidebarSection label="Taller" paths={["/taller"]}>
+          <SidebarLink to="/taller/ordenes" icon={Wrench}>
+            Órdenes
+          </SidebarLink>
           <SidebarLink to="/taller/vehiculos" icon={CarFront}>
             Vehículos de clientes
           </SidebarLink>
+          {isAdmin ? (
+            <SidebarLink to="/taller/configuracion" icon={Settings2}>
+              Configuración
+            </SidebarLink>
+          ) : null}
         </SidebarSection>
       ) : null}
       {/* Actividades (ítem 79): fusiona los grupos "Actividad" y "Agenda"

@@ -50,6 +50,7 @@ import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEven
 import { countOpenOpportunitiesOf } from "../repositories/opportunity.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { anonimizarVehiculosDelContacto } from "../servicios/repositories/customerVehicle.repository";
+import { anonimizarOrdenesDelContacto } from "../servicios/repositories/serviceOrder.repository";
 import {
   findDefaultPhoneCountryCode,
   lockOrganizationForUpdate,
@@ -796,6 +797,8 @@ export async function erasePersonalData(
     // vehículos, y la nota de sus cambios de dueño. Los vehículos quedan, sin
     // datos personales. Un contacto sin vehículos no cambia nada.
     await anonimizarVehiculosDelContacto(organizationId, id, tx);
+    // Y las órdenes: daños al ingreso y notas. Las órdenes quedan (D14).
+    await anonimizarOrdenesDelContacto(organizationId, id, tx);
     // Borrado completo: mensajes, conversaciones, cola, tareas, identidades y
     // seguimientos; y quién y cuándo.
     const rastro = await borrarRastroDelContacto(id, organizationId, tx);

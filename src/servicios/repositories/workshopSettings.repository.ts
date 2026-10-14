@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma, type Db } from "../../lib/prisma";
 
 // ---------------------------------------------------------------------------
@@ -36,4 +37,36 @@ export async function leerConfiguracionDelTaller(
  *  que ya está (una reactivación conserva la configuración). */
 export async function asegurarConfiguracionDelTaller(organizationId: string, db: Db) {
   await db.workshopSettings.createMany({ data: [{ organizationId }], skipDuplicates: true });
+}
+
+/** Edición de la configuración (ADMIN, §4.8). Crea la fila si faltaba. */
+export async function actualizarConfiguracionDelTaller(
+  organizationId: string,
+  data: Partial<ConfiguracionDelTaller>,
+  db: Db = prisma,
+): Promise<ConfiguracionDelTaller> {
+  return db.workshopSettings.upsert({
+    where: { organizationId },
+    create: { organizationId, ...data },
+    update: data,
+    select: { defaultNextServiceMonths: true, firstServiceAfterMonths: true },
+  });
+}
+
+/** El número de la orden nueva (D18): consecutivo por organización, tomado con
+ *  UPDATE … RETURNING dentro de la transacción del alta. El UPDATE bloquea la
+ *  fila hasta el commit, así que dos altas simultáneas no pueden llevarse el
+ *  mismo número, y si el alta se revierte el número vuelve (sin huecos). El
+ *  patrón de nextVehicleStockNumber. */
+export async function tomarNumeroDeOrden(
+  organizationId: string,
+  tx: Prisma.TransactionClient,
+): Promise<number> {
+  await asegurarConfiguracionDelTaller(organizationId, tx);
+  const [fila] = await tx.$queryRaw<{ numero: number }[]>`
+    UPDATE workshop_settings
+    SET next_order_number = next_order_number + 1, updated_at = now()
+    WHERE organization_id = ${organizationId}::uuid
+    RETURNING next_order_number - 1 AS numero`;
+  return Number(fila.numero);
 }

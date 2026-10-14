@@ -8,11 +8,129 @@ Solo aparece si la organización tiene el módulo **Servicios** activado. Lo
 activa el equipo de la plataforma; si no lo ves en el menú, tu organización no
 lo tiene.
 
-Está en el menú **Taller**.
+Está en el menú **Taller**, con tres entradas: **Órdenes**, **Vehículos de
+clientes** y **Configuración**.
 
-- Todos los usuarios ven, cargan y editan los vehículos de clientes, y pueden
-  cambiar su dueño.
-- Eliminar un vehículo: solo un administrador.
+- Todos los usuarios ven, cargan y editan los vehículos de clientes y las
+  órdenes, cambian su estado, registran aprobaciones y pueden cambiar el dueño
+  de un vehículo.
+- Eliminar un vehículo y la **Configuración**: solo un administrador.
+
+## Órdenes de servicio {#ordenes}
+
+Una **orden de servicio** es cada vez que un auto entra al taller: qué auto,
+de quién, qué se le hace, quién la lleva y cuánto se cobra. Cada orden tiene un
+número consecutivo, como **OS-0042**.
+
+Está en **Taller → Órdenes**, con dos vistas que se eligen arriba (y quedan
+recordadas en tu navegador, igual que la sucursal):
+
+- **Tablero**: una columna por estado abierto, de Agendado a Listo para
+  retirar. Cada tarjeta muestra el número, el vehículo, el cliente, el
+  encargado y hace cuánto está en ese estado. **Arrastrar una tarjeta** a otra
+  columna abre el paso a ese estado; mientras se arrastra, las columnas a las
+  que no se puede pasar se ven apagadas y no la aceptan.
+- **Lista**: todas las órdenes, también las entregadas y canceladas, con
+  búsqueda por número (`OS-42` o `42`), matrícula o cliente.
+
+### Estados {#estados}
+
+| Estado | Qué significa |
+|---|---|
+| Agendado | Se acordó que el auto viene, con fecha. |
+| Recibido | El auto está en el taller. Se cargan los km y los daños al ingreso. |
+| En trabajo | Se está trabajando. |
+| Esperando aprobación | Apareció un trabajo extra y se le consultó al cliente. |
+| Listo para retirar | Terminado; falta que el cliente lo retire. |
+| Entregado | El cliente lo retiró. Se fija el próximo service. **Final.** |
+| Cancelado | No se hizo. **Final.** |
+
+Los pasos posibles:
+
+- de **Agendado**: a Recibido o Cancelado;
+- de **Recibido**: a En trabajo, Esperando aprobación, Listo para retirar o
+  Cancelado;
+- de **En trabajo**: a Esperando aprobación, Listo para retirar o Cancelado;
+- de **Esperando aprobación**: a En trabajo, Listo para retirar o Cancelado,
+  **siempre que se haya registrado la respuesta del cliente** (ver
+  [Aprobaciones](#aprobaciones));
+- de **Listo para retirar**: a Entregado, o de vuelta a En trabajo si el cliente
+  reclamó algo antes de retirarlo.
+
+Una orden **Entregada** o **Cancelada** ya no se mueve ni se edita. Si se
+entregó por error, se corrige el próximo service en la ficha del vehículo.
+
+Si dos personas mueven la misma orden a la vez, la segunda ve el aviso "La
+orden cambió de estado mientras tanto": hay que volver a abrirla.
+
+## Nueva orden {#nueva-orden}
+
+Con **Nueva orden** (en Órdenes, o en la ficha de un vehículo):
+
+1. Se busca el vehículo por matrícula, chasis o dueño. Si no está, se ofrece
+   **Crear vehículo con esta matrícula**.
+2. El cliente de la orden es el dueño del vehículo.
+3. Se elige la **sucursal** (por defecto, la del vehículo) y cómo empieza:
+   - **Recibido**: el auto ya está en el taller. Se cargan los **km al
+     ingreso** (obligatorio) y los daños, si hay. Los km del vehículo se
+     actualizan si son más que los que tenía.
+   - **Agendado**: viene más adelante, con la fecha en que se lo espera.
+4. Opcional: los **tipos de service**, el **encargado** (cualquier usuario
+   activo), las **notas** y el **valor**. Si no se elige moneda, va la de la
+   organización.
+
+**Un auto no puede estar dos veces en el taller**: si ya tiene una orden de
+Recibido a Listo para retirar, no se puede recibir otra y el aviso ofrece
+**Abrir la orden**. Sí se puede agendar el próximo turno mientras está adentro.
+
+## La ficha de la orden {#ficha-de-la-orden}
+
+Arriba, el número y los botones de los pasos posibles desde el estado actual
+(por ejemplo, **Empezar el trabajo** o **Entregar**), más **Editar**.
+
+- **Orden**: estado, vehículo (con link a su ficha), cliente, sucursal,
+  encargado, cuándo se espera y quién la creó.
+- **Ingreso**: cuándo se recibió, km y daños al ingreso.
+- **Trabajo**: tipos de service, notas y valor.
+- **Aprobaciones** y **Historial**: cada cambio de estado, con quién y cuándo.
+
+Con **Editar** se cambian el encargado, la fecha esperada o los km, los daños,
+las notas, los tipos y el valor. El estado se cambia solo con los botones.
+
+### Aprobaciones {#aprobaciones}
+
+Cuando aparece un trabajo extra, la orden pasa a **Esperando aprobación** y
+alguien le consulta al cliente por teléfono, WhatsApp o en persona. Lo que
+respondió se anota con **Registrar aprobación**: qué se le consultó, si aprobó
+o rechazó, quién respondió, por dónde y cuándo, y el monto si se habló de uno.
+
+- Con **Sumar al valor de la orden**, el monto aprobado se suma al valor, en la
+  misma moneda.
+- **No se puede sacar la orden de Esperando aprobación sin registrar la
+  respuesta.** Si vuelve a ese estado, hace falta una respuesta nueva.
+
+### Entregar y el próximo service {#entregar}
+
+Al entregar, el diálogo propone la fecha del **próximo service**: la fecha de
+hoy más el intervalo **más corto** entre los tipos de service de la orden (si
+dos trabajos piden plazos distintos, manda el que vence antes). Si ningún tipo
+tiene intervalo, se usa el de la [Configuración](#configuracion). La fecha se
+puede cambiar, o marcar **Sin próximo service**.
+
+Lo que se confirma queda en el vehículo: es la fecha de la que van a salir los
+recordatorios al cliente.
+
+## Configuración {#configuracion}
+
+En **Taller → Configuración** (solo administradores):
+
+- **Intervalo por defecto**: los meses hasta el próximo service para una orden
+  sin tipos con intervalo. Vacío: no se propone fecha.
+- **Primer service de un auto vendido**: los meses desde la venta.
+- **Tipos de service**: el nombre ("Service 10.000 km", "Alineación") y, si
+  corresponde, a los cuántos meses toca el próximo service. Un tipo inactivo no
+  se ofrece en las órdenes nuevas; uno eliminado desaparece del catálogo pero
+  las órdenes que lo tuvieron lo siguen mostrando.
 
 ## Vehículos de clientes {#vehiculos-de-clientes}
 
@@ -65,7 +183,9 @@ Al abrir un vehículo se ve:
 - el **próximo service** y si está marcado **No recordar**;
 - la **fecha de compra**, si se sabe, y de dónde salió el vehículo;
 - los **cambios de dueño**;
-- el **historial de órdenes**, de la más nueva a la más vieja.
+- el **historial de órdenes**, de la más nueva a la más vieja, con link a
+  cada una;
+- **Nueva orden**, para abrirle una orden a ese vehículo.
 
 Con **Editar** se cambian los datos. El dueño no se edita: se cambia con
 **Cambiar dueño**.
