@@ -76,6 +76,7 @@ import {
   vieneDeUnPerfilDeCanal,
 } from "../utils/nombreProvisorio";
 import { limpiarRecordatoriosDelContacto } from "../clinicas/recordatorios/repository";
+import { limpiarMensajesDelTallerDelContacto } from "../servicios/recordatorio/repository";
 import { quitarNombreDeLosEventos } from "./googleCalendarConnection.service";
 import type { ClienteGoogleCalendar } from "./googleCalendar.service";
 import { logger } from "../lib/logger";
@@ -811,6 +812,8 @@ export async function erasePersonalData(
     // R13: sus recordatorios de turno pendientes no salen y el historial queda
     // sin last_error (podía tener un dato del envío). Una automotora no tiene.
     await limpiarRecordatoriosDelContacto(organizationId, id, tx);
+    // S7: lo mismo con sus recordatorios del próximo service.
+    await limpiarMensajesDelTallerDelContacto(organizationId, id, tx);
     // Servicios (docs/servicios.md §2.8, D14): matrícula, chasis y notas de sus
     // vehículos, y la nota de sus cambios de dueño. Los vehículos quedan, sin
     // datos personales. Un contacto sin vehículos no cambia nada.

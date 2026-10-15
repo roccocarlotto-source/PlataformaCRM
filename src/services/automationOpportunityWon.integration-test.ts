@@ -84,6 +84,8 @@ test("registrarAutomatizaciones deja un handler por trigger conocido y las accio
     "contact.inquiry_stalled",
     TRIGGER_OPPORTUNITY_STALE,
     TRIGGER_OPPORTUNITY_WON,
+    // S7: el próximo service (lo emite el barrido del módulo Servicios).
+    "service.next_service_due",
   ]);
   assert.deepEqual(acciones.tiposRegistrados(), [
     "activity.create_follow_up",
@@ -95,6 +97,8 @@ test("registrarAutomatizaciones deja un handler por trigger conocido y las accio
     "inquiry.follow_up",
     "opportunity.send_discount_voucher",
     "opportunity.send_qr_followup",
+    // S7: solo con el módulo Servicios.
+    "service.send_next_service_reminder",
   ]);
 });
 

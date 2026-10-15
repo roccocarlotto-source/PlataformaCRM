@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AYUDA } from "./anclas";
 import type { ClaveDeAyuda } from "./anclas";
 import type { MeResponse } from "../../auth/AuthContext";
-import { tieneModulo } from "../../auth/useModulo";
+import { MODULOS_ACTIVABLES, tieneModulo } from "../../auth/useModulo";
 import { edicionDeMe, MODULOS_COMPLETA } from "../../test/edicionFixtures";
 import { clinicaDeMe } from "../../test/rubroFixtures";
 
@@ -300,20 +300,30 @@ describe("la guía real por edición", () => {
   it("COMPLETA ve la guía de siempre: todo menos el bloque de Esencial", () => {
     for (const regla of [COMPLETA]) {
       const visibles = seccionesVisibles(true, regla);
-      for (const destino of Object.keys(MODULO_DE_ANCLA)) {
-        expect(anclaVisible(visibles, destino), destino).toBe(true);
+      const conServicios = seccionesVisibles(true, CON_SERVICIOS(regla));
+      for (const [destino, modulo] of Object.entries(MODULO_DE_ANCLA)) {
+        // S7: los bloques de un módulo activable (Servicios) no los da la
+        // edición: se ven recién con el módulo.
+        expect(anclaVisible(visibles, destino), destino).toBe(!MODULOS_ACTIVABLES.has(modulo));
+        expect(anclaVisible(conServicios, destino), destino).toBe(true);
       }
       for (const destino of Object.keys(SOLO_SIN_MODULO)) {
         expect(anclaVisible(visibles, destino), destino).toBe(false);
       }
-      // Las secciones sin bloques de Esencial son las MISMAS, sin copiar ni
-      // reescribir links.
+      // Las secciones sin bloques de Esencial ni del taller son las MISMAS,
+      // sin copiar ni reescribir links.
       visibles.forEach((seccion, i) => {
         const original = SECCIONES[i];
-        if (seccion.slug !== "oportunidades-y-procesos-de-venta") expect(seccion).toBe(original);
+        if (!["oportunidades-y-procesos-de-venta", "automatizaciones"].includes(seccion.slug)) {
+          expect(seccion).toBe(original);
+        }
       });
-      // Sin Servicios (activable, S3): todo menos la sección del taller.
-      expect(visibles).toEqual(seccionesVisibles(true).filter((s) => s.slug !== "servicios"));
+      // Sin Servicios (activable, S3): todas las secciones menos la del taller.
+      expect(visibles.map((s) => s.slug)).toEqual(
+        seccionesVisibles(true)
+          .filter((s) => s.slug !== "servicios")
+          .map((s) => s.slug),
+      );
     }
   });
 

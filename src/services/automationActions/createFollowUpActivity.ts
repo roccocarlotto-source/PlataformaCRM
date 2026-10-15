@@ -3,8 +3,13 @@ import { z } from "zod";
 import { findOpportunityById } from "../../repositories/opportunity.repository";
 import { createActivity } from "../activity.service";
 import type { AccionRegistrada } from "../automationActions";
-import { TRIGGER_BOOKING_COMPLETED, TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
+import {
+  TRIGGER_BOOKING_COMPLETED,
+  TRIGGER_OPPORTUNITY_WON,
+  TRIGGER_SERVICE_NEXT_SERVICE_DUE,
+} from "../automationTriggers";
 import { crearTareaDespuesDelTurno } from "../../clinicas/postTurno/tarea";
+import { crearTareaDelAviso } from "../../servicios/recordatorio/tarea";
 
 // ---------------------------------------------------------------------------
 // Acción `activity.create_follow_up` — la primera del catálogo
@@ -78,6 +83,11 @@ const payloadDelTurnoSchema = z.object({
   bookingId: z.string().uuid("payload.bookingId debe ser un UUID"),
 });
 
+// S7 (docs/servicios.md §6.3): el aviso del próximo service.
+const payloadDelAvisoSchema = z.object({
+  noticeId: z.string().uuid("payload.noticeId debe ser un UUID"),
+});
+
 // Aritmética de calendario en UTC: `0` = vence hoy. Exportada para probarla
 // sin base.
 export function fechaDeVencimiento(ahora: Date, diasHastaVencer: number): Date {
@@ -98,7 +108,7 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
   // clínica. El trigger es del módulo post_turno: una automotora no lo puede
   // elegir (MODULO_DEL_TRIGGER), así que para ella la acción es la de siempre.
   // La lógica del turno vive en src/clinicas/postTurno/tarea.ts.
-  triggers: [TRIGGER_OPPORTUNITY_WON, TRIGGER_BOOKING_COMPLETED],
+  triggers: [TRIGGER_OPPORTUNITY_WON, TRIGGER_BOOKING_COMPLETED, TRIGGER_SERVICE_NEXT_SERVICE_DUE],
   async handler({ organizationId, automationId, config, payload }) {
     // El dispatcher ya validó `config` contra el schema de arriba; se vuelve a
     // parsear acá solo para recuperar el TIPO (config llega como
@@ -111,6 +121,19 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
         organizationId,
         automationId,
         bookingId,
+        subject,
+        daysUntilDue,
+        ...(notes === undefined ? {} : { notes }),
+      });
+      return;
+    }
+    // S7: "Llamar a {cliente} por el service de {vehiculo}", una por aviso.
+    if (payload && typeof payload === "object" && "noticeId" in payload) {
+      const { noticeId } = payloadDelAvisoSchema.parse(payload);
+      await crearTareaDelAviso({
+        organizationId,
+        automationId,
+        noticeId,
         subject,
         daysUntilDue,
         ...(notes === undefined ? {} : { notes }),

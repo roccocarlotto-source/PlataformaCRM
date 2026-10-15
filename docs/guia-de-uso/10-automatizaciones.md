@@ -55,8 +55,9 @@ porque no significan lo mismo para la nueva.
 
 ## Eventos {#eventos}
 
-Hoy hay tres eventos. Para los dos que se revisan una vez por día, solo puede
-haber una regla activa con ese evento.
+Hoy hay tres eventos, y un cuarto con el módulo Servicios (**Próximo
+service**). Para los dos de oportunidades y consultas que se revisan una vez
+por día, solo puede haber una regla activa con ese evento.
 
 ### Oportunidad ganada
 
@@ -87,15 +88,36 @@ cada vez que el cliente escribió: con 1, un solo seguimiento; con 2, otro más
 si sigue sin contestar. Si el cliente responde, la cuenta arranca de cero.
 Viene en 3 días y 1 seguimiento. Admite la acción **Retomar la consulta**.
 
-Un cuarto caso previsto, el recordatorio de turno por WhatsApp, todavía no
-está disponible.
+### Próximo service {#evento-proximo-service}
+
+Solo con el módulo Servicios (ver [Taller](/ayuda/servicios#proximo-service)).
+Se dispara con los vehículos de clientes cuya fecha de **próximo service**
+está a la cantidad de **Días** que indiques, **Antes** o **Después** de esa
+fecha (hasta 60 días antes o 90 después). Viene en 7 días antes.
+
+- Se revisa todos los días desde las 10:00. Si un día no se pudo avisar, se
+  avisa en los 7 días siguientes.
+- Cada vehículo recibe un solo aviso por regla y por fecha de service. Si la
+  fecha cambia (por ejemplo, porque se entregó otra orden), cuenta como una
+  fecha nueva.
+- No se avisa si el vehículo tiene una orden abierta, está marcado **No
+  recordar**, ya no es del cliente, o si el cliente está marcado **sin
+  interés**.
+- Puede haber varias reglas con este evento (por ejemplo, una 7 días antes y
+  otra 15 días después).
+
+Admite las acciones **Mandar el recordatorio por WhatsApp** y **Crear
+actividad de seguimiento**.
 
 ## Acciones {#acciones}
 
 ### Crear actividad de seguimiento
 
 Crea una tarea para el dueño de la oportunidad, en
-[Actividades](/ayuda/actividades-y-agenda).
+[Actividades](/ayuda/actividades-y-agenda). Con **Próximo service**, la tarea
+es para llamar al cliente y va al encargado de la última orden del vehículo;
+si no hay, al responsable por defecto de la sucursal, y si tampoco, al
+administrador más antiguo.
 
 - **Título de la tarea**: por ejemplo, "Llamar para coordinar la entrega".
 - **Vence en (días)**: contados desde que se dispara la regla, de 0 a 365.
@@ -163,10 +185,29 @@ del canal por el que escribió:
 
 Si el cliente responde, el agente de IA sigue la conversación.
 
+### Mandar el recordatorio por WhatsApp {#accion-proximo-service}
+
+Solo con el evento **Próximo service**. Le manda al cliente el mensaje de la
+tarjeta de abajo, desde el número de WhatsApp de la sucursal del vehículo (o
+el de la organización), dentro del horario de esa sucursal.
+
+Antes de mandarlo se vuelve a revisar: si mientras tanto se le abrió una
+orden al vehículo, se marcó **No recordar** o cambió la fecha del service, no
+sale.
+
+**Si no tiene WhatsApp, crear una tarea para llamarlo** (viene activada): si
+el cliente no tiene teléfono, si la organización no tiene un número de
+WhatsApp conectado, si el mensaje todavía no está aprobado o si el cliente
+desactivó los mensajes de promociones en WhatsApp, el mensaje no sale y se
+crea la tarea "Llamar a … por el service de su …" para quien corresponda
+(igual que en **Crear actividad de seguimiento**). Sin la casilla, no pasa
+nada más.
+
 ## Mensaje de WhatsApp {#mensaje-de-whatsapp}
 
 Las acciones que mandan un WhatsApp (**Enviar QR por WhatsApp**, **Enviar
-cupón de descuento** y **Retomar la consulta**) muestran la tarjeta
+cupón de descuento**, **Retomar la consulta** y **Mandar el recordatorio por
+WhatsApp**) muestran la tarjeta
 **Mensaje de WhatsApp**, donde escribís lo que le llega al cliente. La regla
 arranca con un texto sugerido que podés usar tal cual o cambiar.
 
@@ -192,6 +233,10 @@ cada cliente. Los botones **Insertar** las agregan donde está el cursor.
 | QR y cupón (con link) | `{link}` | El link del QR o del cupón. Obligatoria, una sola vez, después de `{nombre}`. Con **Solo imagen** no va. |
 | Retomar la consulta | `{saludo}` | El saludo con el nombre del cliente ("Hola Ana"), o "Hola" a secas si no lo dio. Obligatoria. |
 | Retomar la consulta | `{vehiculo}` | El vehículo que consultó, o "el vehículo que consultaste" si no se sabe. Opcional, a lo sumo una vez, después de `{saludo}`. |
+| Próximo service | `{nombre}` | El nombre del cliente. Obligatoria, una sola vez. |
+| Próximo service | `{lugar}` | La empresa, o "Empresa (sucursal Centro)" si tiene más de una sucursal. Opcional. |
+| Próximo service | `{vehiculo}` | El vehículo, con la matrícula si la tiene ("Volkswagen Gol (ABC 1234)"). Obligatoria, una sola vez. |
+| Próximo service | `{fecha}` | La fecha del próximo service ("el 15 de noviembre"). Obligatoria, una sola vez. |
 
 Ninguna variable puede ir al principio ni al final del texto: es una regla de
 WhatsApp. "Hola {nombre}, gracias por tu compra…" está bien; "{nombre},
@@ -210,7 +255,11 @@ texto a WhatsApp para que lo apruebe. Vos no tenés que hacer nada más que
 guardar.
 
 - La aprobación suele tardar de unos minutos a un día. Hasta entonces, la
-  regla no le manda nada a nadie, aunque esté activa.
+  regla no le manda nada a nadie, aunque esté activa. (Con **Próximo
+  service** y la casilla activada, mientras no esté aprobado se crea la
+  tarea para llamar.)
+- El recordatorio del próximo service WhatsApp lo cuenta como un mensaje de
+  promoción (marketing): el cliente puede desactivarlos desde WhatsApp.
 - El estado se ve en la tarjeta **Mensaje de WhatsApp** de la regla y en la
   columna **Aprobación de WhatsApp** de la lista:
   - **Sin enviar**: todavía no se mandó a aprobar; se manda al guardar.

@@ -11,6 +11,7 @@ import {
   registroDeAcciones as registroPorDefecto,
   type RegistroDeAcciones,
 } from "./automationActions";
+import { TRIGGERS_DIRIGIDOS_A_UNA_REGLA } from "./automationTriggers";
 import type { EventoAEntregar } from "./outboxHandlers";
 import { findEdicionYRubro } from "../repositories/organization.repository";
 
@@ -134,6 +135,12 @@ interface FalloDeRegla {
   error: string;
 }
 
+/** La regla a la que va un evento de un trigger dirigido (payload.automationId). */
+function reglaDelEvento(payload: unknown): string | null {
+  const id = (payload as { automationId?: unknown } | null)?.automationId;
+  return typeof id === "string" ? id : null;
+}
+
 export async function despacharAutomatizaciones(
   evento: EventoAEntregar,
   triggerType: string,
@@ -141,7 +148,13 @@ export async function despacharAutomatizaciones(
 ): Promise<void> {
   const registro = opciones.registro ?? registroPorDefecto;
 
-  const automatizaciones = await findActiveAutomationsByTrigger(evento.organizationId, triggerType);
+  const todas = await findActiveAutomationsByTrigger(evento.organizationId, triggerType);
+  // Un trigger dirigido (S7) corre solo la regla que produjo el evento.
+  const automatizaciones = (TRIGGERS_DIRIGIDOS_A_UNA_REGLA as readonly string[]).includes(
+    triggerType,
+  )
+    ? todas.filter((automation) => automation.id === reglaDelEvento(evento.payload))
+    : todas;
   if (automatizaciones.length === 0) {
     return;
   }

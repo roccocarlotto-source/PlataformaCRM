@@ -69,6 +69,9 @@ export const TOKEN_HORA = "{hora}";
 export const TOKEN_PROFESIONAL = "{profesional}";
 // R14 (docs/rubros.md §7.2): el control, "ya pasaron {semanas} semanas".
 export const TOKEN_SEMANAS = "{semanas}";
+// S7 (docs/servicios.md §6.4): la fecha del próximo service, "el 15 de
+// noviembre". {vehiculo} y {lugar} se reusan.
+export const TOKEN_FECHA = "{fecha}";
 
 // Tope del cuerpo de una plantilla en Meta, medido sobre el texto que viaja.
 export const LARGO_MAXIMO_DEL_CUERPO = 1024;
@@ -85,6 +88,7 @@ export const EJEMPLO_DIA = "lunes 1 de marzo";
 export const EJEMPLO_HORA = "10:30";
 export const EJEMPLO_PROFESIONAL = "Ana";
 export const EJEMPLO_SEMANAS = "4";
+export const EJEMPLO_FECHA = "el 15 de noviembre";
 
 export interface VariableDePlantilla {
   token: string;
@@ -140,6 +144,17 @@ export const VARIABLES_DE_CONTROL: readonly VariableDePlantilla[] = [
   { token: TOKEN_LUGAR, requerida: false, ejemplo: EJEMPLO_LUGAR },
 ];
 
+// S7: las del recordatorio del próximo service, en este orden. {nombre},
+// {vehiculo} y {fecha} obligatorias; {lugar}, opcional. Los ejemplos son los
+// que ve Meta al revisar la plantilla: de una automotora, con la matrícula
+// dentro del vehículo (como sale en el envío).
+export const VARIABLES_DE_PROXIMO_SERVICE: readonly VariableDePlantilla[] = [
+  { token: TOKEN_NOMBRE, requerida: true, ejemplo: "Laura" },
+  { token: TOKEN_LUGAR, requerida: false, ejemplo: "Automotores del Sur" },
+  { token: TOKEN_VEHICULO, requerida: true, ejemplo: "Volkswagen Gol (ABC 1234)" },
+  { token: TOKEN_FECHA, requerida: true, ejemplo: EJEMPLO_FECHA },
+];
+
 // La familia de {nombre} y {link} (el QR y el cupón): sus mensajes de error
 // hablan del link aunque el formato no lo lleve.
 function esFamiliaDelNombre(variables: readonly VariableDePlantilla[]): boolean {
@@ -161,6 +176,7 @@ const TODOS_LOS_TOKENS: readonly string[] = [
   TOKEN_HORA,
   TOKEN_PROFESIONAL,
   TOKEN_SEMANAS,
+  TOKEN_FECHA,
 ];
 
 function contar(texto: string, token: string): number {

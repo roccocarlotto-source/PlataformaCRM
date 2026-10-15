@@ -1120,3 +1120,31 @@ test("invitaciones: el ADMIN reenvía una pendiente con el mismo enlace, y una r
     for (const { id } of filas) await getSupabaseAdmin().auth.admin.deleteUser(id);
   }
 });
+
+// ---------------------------------------------------------------------------
+// S7 (docs/servicios.md §6): el próximo service es del módulo Servicios. Sin el
+// módulo, el trigger no existe (el 400 de siempre, con la lista de siempre) y
+// tampoco la acción de WhatsApp.
+// ---------------------------------------------------------------------------
+
+test("S7: sin el módulo Servicios, service.next_service_due no existe (el 400 de siempre)", async () => {
+  await assert.rejects(
+    createAutomation(conSucursales.id, {
+      name: "Próximo service",
+      triggerType: "service.next_service_due",
+      triggerConfig: { offsetDays: -7 },
+      actionType: "activity.create_follow_up",
+      actionConfig: { subject: "Llamar", daysUntilDue: 1 },
+    }),
+    /triggerType "service.next_service_due" no existe: debe ser uno de opportunity.won, opportunity.stale, contact.inquiry_stalled$/,
+  );
+  await assert.rejects(
+    createAutomation(conSucursales.id, {
+      name: "Próximo service",
+      triggerType: "opportunity.won",
+      actionType: "service.send_next_service_reminder",
+      actionConfig: {},
+    }),
+    /actionType/,
+  );
+});

@@ -161,6 +161,8 @@ export interface CreateActivityData {
   // La tarea después del turno (docs/rubros.md §7.3): el turno y la regla.
   sourceBookingId?: string | null;
   sourceAutomationId?: string | null;
+  // S7 (docs/servicios.md §6.3): el aviso del próximo service.
+  sourceNoticeId?: string | null;
 }
 
 export function createActivity(data: CreateActivityData, db: Db = prisma) {

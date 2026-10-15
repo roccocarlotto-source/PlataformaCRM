@@ -227,6 +227,10 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   ),
   patron("servicios-ordenes-{etiqueta}-{ts}-{hex8}", "src/servicios/ordenes.integration-test.ts"),
   patron(
+    "servicios-recordatorio-{etiqueta}-{ts}-{hex8}",
+    "src/servicios/recordatorio.integration-test.ts",
+  ),
+  patron(
     "servicios-sin-modulo-{etiqueta}-{ts}-{hex8}",
     "src/servicios/sinElModuloSinCambios.integration-test.ts",
   ),

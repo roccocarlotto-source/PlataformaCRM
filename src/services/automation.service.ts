@@ -14,6 +14,7 @@ import {
 } from "../repositories/automation.repository";
 import { AppError } from "../utils/AppError";
 import { findEdicionYRubro } from "../repositories/organization.repository";
+import { activeModulesOfOrganization } from "../repositories/organizationModule.repository";
 import { prisma } from "../lib/prisma";
 import { MOTIVO_REGLA_INACTIVA } from "../clinicas/recordatorios/config";
 import { cancelarPendientesDeLaRegla } from "../clinicas/recordatorios/repository";
@@ -106,13 +107,24 @@ export interface OpcionesDeValidacion {
 // (booking.reminder_due fuera de una clínica) es, para ella, uno que no existe:
 // el mismo 400, con la lista de los que sí tiene. Para una automotora, la
 // lista y el mensaje de siempre.
+// S7 (docs/servicios.md §1.4): con los módulos activables que tenga activados
+// (Servicios): sin ellos, el próximo service no existe para ella.
 interface Rubro {
   edition: OrganizationEdition;
   industry: OrganizationIndustry;
+  modulosActivados: readonly string[];
+}
+
+async function rubroDe(organizationId: string): Promise<Rubro> {
+  const [org, modulosActivados] = await Promise.all([
+    findEdicionYRubro(organizationId),
+    activeModulesOfOrganization(organizationId),
+  ]);
+  return { edition: org.edition, industry: org.industry, modulosActivados };
 }
 
 function triggersDelRubro(rubro: Rubro): readonly string[] {
-  const modulos = modulosDe(rubro.edition, rubro.industry);
+  const modulos = modulosDe(rubro.edition, rubro.industry, rubro.modulosActivados);
   return TRIGGERS_CONOCIDOS.filter((t) => {
     const modulo = MODULO_DEL_TRIGGER[t];
     return modulo === undefined || modulos.has(modulo);
@@ -196,7 +208,7 @@ function validarAccion(
   rubro: Rubro,
 ): Record<string, unknown> {
   const { industry } = rubro;
-  const modulos = modulosDe(rubro.edition, rubro.industry);
+  const modulos = modulosDe(rubro.edition, rubro.industry, rubro.modulosActivados);
   const delRubro = (tipo: string) => {
     const modulo = registro.obtener(tipo)?.modulo;
     return modulo === undefined || modulos.has(modulo);
@@ -247,7 +259,7 @@ export async function createAutomation(
 ) {
   const registro = opciones.registro ?? registroPorDefecto;
 
-  const rubro = await findEdicionYRubro(organizationId);
+  const rubro = await rubroDe(organizationId);
   assertTriggerConocido(input.triggerType, rubro);
   const triggerConfig = validarConfigDeTrigger(input.triggerType, input.triggerConfig ?? {});
   const actionConfig = validarAccion(input.actionType, input.actionConfig, registro, rubro);
@@ -285,7 +297,7 @@ export async function updateAutomation(
 ) {
   const registro = opciones.registro ?? registroPorDefecto;
   const existente = await getAutomationById(organizationId, id);
-  const rubro = await findEdicionYRubro(organizationId);
+  const rubro = await rubroDe(organizationId);
 
   const triggerEfectivo = input.triggerType ?? existente.triggerType;
   if (input.triggerType !== undefined) {
