@@ -882,6 +882,7 @@ test("R15: el seguimiento de consultas de una automotora no cambia", async () =>
       turnosLeidos++;
       return true;
     },
+    zonaDe: async () => "America/Montevideo",
     ahora: () => new Date("2026-10-09T15:00:00.000Z"),
   });
   await accion.handler({

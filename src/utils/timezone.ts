@@ -1,3 +1,5 @@
+import { DateTime } from "luxon";
+
 // Valida que una cadena sea una zona horaria IANA que este runtime reconoce
 // ("America/Argentina/Buenos_Aires", "UTC").
 //
@@ -93,4 +95,17 @@ export function isoEnZona(fecha: Date, zona: string): string {
   const mm = String(abs % 60).padStart(2, "0");
 
   return `${partes.year}-${partes.month}-${partes.day}T${partes.hour}:${partes.minute}:${partes.second}${signo}${hh}:${mm}`;
+}
+
+// ---------------------------------------------------------------------------
+// VENCIMIENTO AL FINAL DEL DÍA (prueba de S7, 2026-10-15)
+// ---------------------------------------------------------------------------
+// Las tareas que crea una regla ("vence en N días", 0 = hoy) vencen al final de
+// ese día en la zona de la organización. Antes vencían en el instante en que
+// corría la regla (+N días): con 0 nacían vencidas, unos segundos antes de
+// crearse. Una zona inválida cae en UTC.
+export function vencimientoAlFinDelDia(ahora: Date, zona: string, dias = 0): Date {
+  const local = DateTime.fromJSDate(ahora).setZone(zona);
+  const base = local.isValid ? local : DateTime.fromJSDate(ahora, { zone: "utc" });
+  return base.plus({ days: dias }).endOf("day").toJSDate();
 }

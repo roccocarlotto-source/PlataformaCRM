@@ -20,6 +20,7 @@ import {
 import { accionCrearActividadDeSeguimiento } from "./automationActions/createFollowUpActivity";
 import { despacharAutomatizaciones } from "./automationDispatch.service";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
+import { vencimientoAlFinDelDia } from "../utils/timezone";
 import { createOpportunity } from "./opportunity.service";
 
 // ---------------------------------------------------------------------------
@@ -402,12 +403,19 @@ test("activity.create_follow_up crea la Activity con los campos esperados: TASK,
   assert.equal(actividad.contactId, null);
   assert.equal(actividad.completedAt, null);
   assert.ok(actividad.dueDate, "tiene fecha de vencimiento");
-  const tresDias = 3 * 24 * 60 * 60 * 1000;
-  const margen = 60 * 1000;
+  // Vence al final del tercer día en la zona de la organización (no a 3 días
+  // exactos del instante en que corrió la regla).
+  const { timezone } = await prisma.organization.findUniqueOrThrow({
+    where: { id: e.organizationId },
+    select: { timezone: true },
+  });
+  const esperados = [
+    vencimientoAlFinDelDia(new Date(antes), timezone, 3).toISOString(),
+    vencimientoAlFinDelDia(new Date(), timezone, 3).toISOString(),
+  ];
   assert.ok(
-    actividad.dueDate.getTime() >= antes + tresDias - margen &&
-      actividad.dueDate.getTime() <= Date.now() + tresDias + margen,
-    `dueDate ${actividad.dueDate.toISOString()} no está a ~3 días`,
+    esperados.includes(actividad.dueDate.toISOString()),
+    `dueDate ${actividad.dueDate.toISOString()} no es el final del tercer día (${esperados.join(" o ")})`,
   );
 
   assert.equal((await ejecucionesDe(regla.id))[0].status, "SUCCESS");

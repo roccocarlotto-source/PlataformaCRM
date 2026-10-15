@@ -121,8 +121,8 @@ administrador más antiguo.
 
 - **Título de la tarea**: por ejemplo, "Llamar para coordinar la entrega".
 - **Vence en (días)**: contados desde que se dispara la regla, de 0 a 365.
-  Con 0 vence el mismo día. Con **Próximo service**, vence al final de ese
-  día (hora de la organización).
+  Vence al final de ese día, en la hora de la organización: con 0, al final
+  del mismo día.
 - **Notas** (opcional): quedan en el campo **Notas** de la tarea.
 
 ### Redactar seguimiento con IA
@@ -130,7 +130,7 @@ administrador más antiguo.
 La inteligencia artificial redacta un mensaje breve para retomar el contacto
 con el cliente, usando los datos de la oportunidad y su última conversación
 si la hay, y lo deja como una tarea para el dueño de la oportunidad, que
-vence ese mismo día. No tiene datos propios: cuántos días sin movimiento es
+vence al final de ese mismo día. No tiene datos propios: cuántos días sin movimiento es
 del evento.
 
 > El mensaje no se le manda a nadie. Lo revisa y lo envía el vendedor, si le
@@ -182,7 +182,8 @@ del canal por el que escribió:
   conversación.
 - **Por Messenger, Instagram o el chat del sitio web**, o si una persona del
   equipo ya está atendiendo la conversación, no se le escribe: se crea una
-  tarea para el vendedor asignado con el resumen de lo que preguntó.
+  tarea para el vendedor asignado con el resumen de lo que preguntó, que
+  vence al final de ese mismo día.
 
 Si el cliente responde, el agente de IA sigue la conversación.
 

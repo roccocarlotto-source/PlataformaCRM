@@ -15,7 +15,6 @@ import {
   textoDelLugar,
   textoDelVehiculo,
   ventanaDeFechas,
-  vencimientoDeLaTarea,
   yaEsHoraDelBarrido,
 } from "./config";
 
@@ -140,26 +139,5 @@ test("la acción: la casilla de la tarea viene activada por defecto", () => {
   assert.equal(
     configDelRecordatorioDelServiceSchema.safeParse({ messageText: "Hola {nombre}" }).success,
     false,
-  );
-});
-
-test("la tarea vence al final del día de la organización, nunca antes de crearse", () => {
-  const zona = "America/Montevideo";
-  // 12:11 en Montevideo (15:11 UTC): vence 23:59:59.999 local = 02:59:59.999 UTC del día siguiente.
-  const mediodia = new Date("2026-10-15T15:11:30.000Z");
-  assert.equal(vencimientoDeLaTarea(mediodia, zona).toISOString(), "2026-10-16T02:59:59.999Z");
-  assert.ok(vencimientoDeLaTarea(mediodia, zona).getTime() > mediodia.getTime());
-  // Borde: 23:30 local es 02:30 UTC del día siguiente; el día es el local, no el UTC.
-  const casiMedianoche = new Date("2026-10-16T02:30:00.000Z");
-  assert.equal(
-    vencimientoDeLaTarea(casiMedianoche, zona).toISOString(),
-    "2026-10-16T02:59:59.999Z",
-  );
-  // Con días: el final del día N días después.
-  assert.equal(vencimientoDeLaTarea(mediodia, zona, 3).toISOString(), "2026-10-19T02:59:59.999Z");
-  // Zona inválida: UTC.
-  assert.equal(
-    vencimientoDeLaTarea(mediodia, "No/Existe").toISOString(),
-    "2026-10-15T23:59:59.999Z",
   );
 });

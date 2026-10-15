@@ -90,6 +90,7 @@ function doblar(overrides: Partial<DependenciasDelBorrador> & { fila?: Opportuni
       registro.marcas.push({ id, organizationId, cuando });
       return Promise.resolve(1);
     },
+    zonaDe: async () => "America/Montevideo",
     ahora: () => AHORA,
     ...overrides,
   };
@@ -148,7 +149,12 @@ test("crea UNA Activity TASK con el texto del modelo, asignada al dueño y venci
   assert.equal(input.body, "Hola, ¿cómo estás? ¿Pudiste pensar lo del Corolla?");
   assert.equal(input.assigneeId, OWNER);
   assert.equal(input.opportunityId, OPP);
-  assert.equal(input.dueDate?.toISOString(), AHORA.toISOString(), "vence hoy");
+  // Vence hoy, al final del día en Montevideo (21/09 23:59:59.999 = 22/09 02:59:59.999Z).
+  assert.equal(
+    input.dueDate?.toISOString(),
+    "2026-09-22T02:59:59.999Z",
+    "vence hoy, al final del día",
+  );
 
   assert.deepEqual(registro.marcas, [{ id: OPP, organizationId: ORG, cuando: AHORA }]);
 });

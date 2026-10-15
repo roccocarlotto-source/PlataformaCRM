@@ -10,7 +10,6 @@ import {
   MAX_NOTES,
   accionCrearActividadDeSeguimiento,
   configDeSeguimientoSchema,
-  fechaDeVencimiento,
 } from "./automationActions/createFollowUpActivity";
 import { payloadComoObjeto } from "./automationDispatch.service";
 import {
@@ -323,24 +322,6 @@ test("notes que no es string falla", () => {
       `notes=${JSON.stringify(notes)} debía rechazarse`,
     );
   }
-});
-
-// ---------------------------------------------------------------------------
-// Vencimiento
-// ---------------------------------------------------------------------------
-
-test("fechaDeVencimiento suma días de calendario en UTC y no muta la fecha de entrada", () => {
-  const ahora = new Date("2026-09-13T15:30:00.000Z");
-  const copia = new Date(ahora);
-
-  assert.equal(fechaDeVencimiento(ahora, 3).toISOString(), "2026-09-16T15:30:00.000Z");
-  assert.equal(fechaDeVencimiento(ahora, 0).toISOString(), "2026-09-13T15:30:00.000Z");
-  // Cruza fin de mes y de año sin aritmética a mano.
-  assert.equal(
-    fechaDeVencimiento(new Date("2026-12-30T00:00:00.000Z"), 3).toISOString(),
-    "2027-01-02T00:00:00.000Z",
-  );
-  assert.equal(ahora.toISOString(), copia.toISOString());
 });
 
 // ---------------------------------------------------------------------------

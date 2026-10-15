@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { logger } from "../../lib/logger";
 import { createActivity } from "../../repositories/activity.repository";
-import { asuntoDeLaTarea, textoDelVehiculo, vencimientoDeLaTarea } from "./config";
+import { vencimientoAlFinDelDia } from "../../utils/timezone";
+import { asuntoDeLaTarea, textoDelVehiculo } from "./config";
 import { asignadoDeLaTarea, leerAvisoParaLaTarea } from "./repository";
 
 // ---------------------------------------------------------------------------
@@ -39,7 +40,7 @@ export async function crearTareaDelAviso(t: TareaDelAviso): Promise<ResultadoDeL
     return "SIN_ASIGNADO";
   }
   const cliente = `${v.contact.firstName} ${v.contact.lastName}`.trim() || "el cliente";
-  const vence = vencimientoDeLaTarea(
+  const vence = vencimientoAlFinDelDia(
     t.ahora ?? new Date(),
     aviso.organization.timezone,
     t.daysUntilDue ?? 0,
