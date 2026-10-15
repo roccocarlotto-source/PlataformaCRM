@@ -68,6 +68,7 @@ function deps(extra: Partial<DependenciasDelSeguimientoDeConsulta> = {}) {
       registro.frenos++;
       return false;
     },
+    zonaDe: async () => "America/Montevideo",
     ahora: () => AHORA,
     ...extra,
   };

@@ -1,6 +1,6 @@
 import { ActivityType } from "@prisma/client";
 import { z } from "zod";
-import { findOrganizationById } from "../../repositories/organization.repository";
+import { findZonaDeLaOrganizacion } from "../../repositories/organization.repository";
 import { findOpportunityById } from "../../repositories/opportunity.repository";
 import { vencimientoAlFinDelDia } from "../../utils/timezone";
 import { createActivity } from "../activity.service";
@@ -90,14 +90,6 @@ const payloadDelAvisoSchema = z.object({
   noticeId: z.string().uuid("payload.noticeId debe ser un UUID"),
 });
 
-// Aritmética de calendario en UTC: `0` = vence hoy. Exportada para probarla
-// sin base.
-export function fechaDeVencimiento(ahora: Date, diasHastaVencer: number): Date {
-  const fecha = new Date(ahora);
-  fecha.setUTCDate(fecha.getUTCDate() + diasHastaVencer);
-  return fecha;
-}
-
 export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
   actionType: ACTION_CREATE_FOLLOW_UP,
   schema: configDeSeguimientoSchema,
@@ -175,11 +167,11 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
     const oportunidad = await findOpportunityById(opportunityId, organizationId);
     // Vence al final del día (hoy + daysUntilDue) en la zona de la
     // organización: con 0 nacía vencida, en el instante en que corría la regla.
-    const organizacion = await findOrganizationById(organizationId);
+    const zona = await findZonaDeLaOrganizacion(organizationId);
     await createActivity(organizationId, ownerId, {
       type: ActivityType.TASK,
       subject,
-      dueDate: vencimientoAlFinDelDia(new Date(), organizacion?.timezone ?? "UTC", daysUntilDue),
+      dueDate: vencimientoAlFinDelDia(new Date(), zona, daysUntilDue),
       assigneeId: ownerId,
       opportunityId,
       ...(oportunidad?.contactId ? { contactId: oportunidad.contactId } : {}),

@@ -9,7 +9,9 @@ import { createActivity } from "../activity.service";
 import type { AccionRegistrada } from "../automationActions";
 import { TRIGGER_OPPORTUNITY_STALE } from "../automationTriggers";
 import { generarBorradorDeSeguimiento } from "../opportunityFollowUpDraft.service";
-import { fechaDeVencimiento, payloadDeOportunidadSchema } from "./createFollowUpActivity";
+import { findZonaDeLaOrganizacion } from "../../repositories/organization.repository";
+import { vencimientoAlFinDelDia } from "../../utils/timezone";
+import { payloadDeOportunidadSchema } from "./createFollowUpActivity";
 
 // ---------------------------------------------------------------------------
 // Acción `agent.draft_follow_up` (ítem 76 de docs/frontend-cambios-pendientes
@@ -61,6 +63,8 @@ export interface DependenciasDelBorrador {
   ) => Promise<string>;
   crearActividad: typeof createActivity;
   marcarBorrador: (id: string, organizationId: string, cuando: Date) => Promise<unknown>;
+  // La zona de la organización: la tarea vence al final del día local.
+  zonaDe: (organizationId: string) => Promise<string>;
   ahora: () => Date;
 }
 
@@ -70,6 +74,7 @@ const dependenciasReales: DependenciasDelBorrador = {
     generarBorradorDeSeguimiento(organizationId, opportunityId, { signal }),
   crearActividad: createActivity,
   marcarBorrador: markStaleFollowUpDrafted,
+  zonaDe: findZonaDeLaOrganizacion,
   ahora: () => new Date(),
 };
 
@@ -156,12 +161,14 @@ export function crearAccionBorradorDeSeguimiento(
       // VENCE HOY (daysUntilDue 0, no mañana): la oportunidad ya lleva los días
       // que la regla considera demasiados, y el borrador está listo para
       // mandar ahora. Ponerle un día más de margen sería sumarle un día al
-      // estancamiento que la regla existe para cortar.
+      // estancamiento que la regla existe para cortar. Al FINAL del día, en
+      // la zona de la organización: en el instante de crearse nacía vencida.
+      const zona = await deps.zonaDe(organizationId);
       await deps.crearActividad(organizationId, ownerId, {
         type: ActivityType.TASK,
         subject: asuntoDelBorrador(oportunidad.title),
         body: borrador,
-        dueDate: fechaDeVencimiento(ahora, 0),
+        dueDate: vencimientoAlFinDelDia(ahora, zona, 0),
         assigneeId: ownerId,
         opportunityId,
         // F4 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): también el contacto, para

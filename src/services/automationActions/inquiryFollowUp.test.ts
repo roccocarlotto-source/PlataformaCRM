@@ -165,6 +165,7 @@ function deps(extra: Partial<DependenciasDelSeguimientoDeConsulta> = {}): {
     // R15: una automotora por defecto.
     esClinica: async () => false,
     turnoFrena: async () => false,
+    zonaDe: async () => "America/Montevideo",
     ahora: () => AHORA,
     ...extra,
   };
@@ -225,6 +226,8 @@ test("Messenger: crea la tarea para el vendedor del contacto, con la fila SENT",
   const tarea = registro.tareas[0] as { assigneeId: string; subject: string; dueDate: Date };
   assert.equal(tarea.assigneeId, "vendedor");
   assert.equal(tarea.subject, "Seguimiento de consulta: Martín Pérez");
+  // Vence hoy, al final del día en Montevideo (08/10 23:59:59.999 = 09/10 02:59:59.999Z).
+  assert.equal(tarea.dueDate.toISOString(), "2026-10-09T02:59:59.999Z");
   const fila = registro.agendados[0] as { kind: string; status: string; sentAt: Date };
   assert.equal(fila.kind, InquiryFollowUpKind.TASK);
   assert.equal(fila.status, InquiryFollowUpStatus.SENT);

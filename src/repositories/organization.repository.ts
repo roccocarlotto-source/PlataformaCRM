@@ -266,3 +266,16 @@ export function findLatestExchangeRates(targetCurrencies: string[], db: Db = pri
     orderBy: [{ targetCurrency: "asc" }, { rateDate: "desc" }],
   });
 }
+
+/** La zona horaria de la organización (UTC si no existe). La usan las tareas
+ *  que crean las reglas para vencer al final del día local. */
+export async function findZonaDeLaOrganizacion(
+  organizationId: string,
+  db: Db = prisma,
+): Promise<string> {
+  const org = await db.organization.findUnique({
+    where: { id: organizationId },
+    select: { timezone: true },
+  });
+  return org?.timezone ?? "UTC";
+}

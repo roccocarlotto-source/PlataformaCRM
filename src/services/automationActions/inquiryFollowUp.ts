@@ -26,8 +26,11 @@ import {
   VARIABLES_DE_CONSULTA,
   validarTextoDePlantilla,
 } from "../../utils/whatsappTemplateText";
-import { fechaDeVencimiento } from "./createFollowUpActivity";
-import { findEdicionYRubro } from "../../repositories/organization.repository";
+import {
+  findEdicionYRubro,
+  findZonaDeLaOrganizacion,
+} from "../../repositories/organization.repository";
+import { vencimientoAlFinDelDia } from "../../utils/timezone";
 import {
   MOTIVO_TURNO_DEL_PACIENTE,
   prestacionParaElMensaje,
@@ -248,6 +251,8 @@ export interface DependenciasDelSeguimientoDeConsulta {
     contactId: string,
     ahora: Date,
   ) => Promise<boolean>;
+  // La zona de la organización: la tarea vence al final del día local.
+  zonaDe: (organizationId: string) => Promise<string>;
   ahora: () => Date;
 }
 
@@ -326,6 +331,7 @@ const dependenciasReales: DependenciasDelSeguimientoDeConsulta = {
     findEdicionYRubro(organizationId).then((o) => o.industry === "CLINICA"),
   turnoFrena: (organizationId, automationId, contactId, ahora) =>
     turnoFrenaElSeguimiento(organizationId, automationId, contactId, ahora, true),
+  zonaDe: findZonaDeLaOrganizacion,
   ahora: () => new Date(),
 };
 
@@ -437,9 +443,9 @@ export function crearAccionSeguimientoDeConsulta(
           contactId: consulta.contactId,
           subject: tarea.subject,
           body: tarea.body,
-          // Vence hoy: la consulta ya lleva los días que la regla considera
-          // demasiados.
-          dueDate: fechaDeVencimiento(ahora, 0),
+          // Vence hoy, al final del día en la zona de la organización: la
+          // consulta ya lleva los días que la regla considera demasiados.
+          dueDate: vencimientoAlFinDelDia(ahora, await deps.zonaDe(organizationId), 0),
         },
       );
       logger.info(
