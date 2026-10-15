@@ -20,6 +20,13 @@ import {
   type DepsDePlantillas,
   type ResumenDeAprobacion,
 } from "./whatsappTemplate.service";
+import {
+  SIN_ERROR_DE_SINCRONIZACION,
+  resumenDeSincronizacion,
+  type EstadoDeSincronizacion,
+  type EstadoGuardadoDeSincronizacion,
+} from "./whatsappTemplateReintento";
+import { updateEstadoDeSincronizacion } from "../repositories/automation.repository";
 import { wabaPropioDe } from "./whatsappConexion.service";
 
 // ---------------------------------------------------------------------------
@@ -87,7 +94,33 @@ async function clinicaSinWabaPropio(
 
 type ReglaGuardada = Awaited<ReturnType<typeof getAutomationById>>;
 
-export type ReglaConAprobacion = ReglaGuardada & {
+// H-1: las columnas del reintento no viajan crudas; la pantalla recibe su
+// resumen (whatsappSync).
+type ReglaSinSincronizacion = Omit<ReglaGuardada, keyof EstadoGuardadoDeSincronizacion>;
+
+function separarSincronizacion<T extends EstadoGuardadoDeSincronizacion>(regla: T) {
+  const {
+    templateSyncAttempts,
+    templateSyncNextAt,
+    templateSyncError,
+    templateSyncErrorKind,
+    ...resto
+  } = regla;
+  return {
+    resto,
+    sincronizacion: resumenDeSincronizacion({
+      templateSyncAttempts,
+      templateSyncNextAt,
+      templateSyncError,
+      templateSyncErrorKind,
+    }),
+  };
+}
+
+export type ReglaConAprobacion = ReglaSinSincronizacion & {
+  // H-1: si el último intento de mandar la plantilla a Meta falló, por qué y
+  // si se reintenta sola. Null sin error (o si la regla no manda WhatsApp).
+  whatsappSync: EstadoDeSincronizacion | null;
   // Null para una regla que no manda WhatsApp.
   whatsappApproval: ResumenDeAprobacion | null;
   // Solo al guardar: por qué no se pudo mandar la versión nueva a Meta. La
@@ -100,15 +133,26 @@ async function conSincronizacion(
   regla: ReglaGuardada,
   deps: DepsDeReglaConMensaje,
 ): Promise<ReglaConAprobacion> {
+  const { resto } = separarSincronizacion(regla);
   if (!esAccionConPlantilla(regla.actionType)) {
-    return { ...regla, whatsappApproval: null };
+    // Una regla que dejó de mandar WhatsApp no tiene nada que reintentar.
+    if (regla.templateSyncError !== null || regla.templateSyncNextAt !== null) {
+      await updateEstadoDeSincronizacion(regla.id, organizationId, SIN_ERROR_DE_SINCRONIZACION);
+    }
+    return { ...resto, whatsappApproval: null, whatsappSync: null };
   }
-  const { aprobacion, error } = await sincronizarPlantillaDeLaRegla(
+  const { aprobacion, error, sincronizacion } = await sincronizarPlantillaDeLaRegla(
     organizationId,
     regla,
     deps.plantillas,
+    { reiniciar: true },
   );
-  return { ...regla, whatsappApproval: aprobacion, whatsappSyncError: error };
+  return {
+    ...resto,
+    whatsappApproval: aprobacion,
+    whatsappSync: sincronizacion,
+    whatsappSyncError: error,
+  };
 }
 
 // Una regla de clínica guardada sin WABA propio: sin llamar a Meta, con el
@@ -117,9 +161,11 @@ async function sinSincronizar(
   organizationId: string,
   regla: ReglaGuardada,
 ): Promise<ReglaConAprobacion> {
+  const { resto, sincronizacion } = separarSincronizacion(regla);
   return {
-    ...regla,
+    ...resto,
     whatsappApproval: await getAprobacionDeLaRegla(organizationId, regla.id),
+    whatsappSync: sincronizacion,
     whatsappSyncError: SIN_PLANTILLA_HASTA_CONECTAR,
   };
 }
@@ -166,12 +212,54 @@ export async function obtenerReglaConAprobacion(
   id: string,
 ): Promise<ReglaConAprobacion> {
   const regla = await getAutomationById(organizationId, id);
+  const { resto, sincronizacion } = separarSincronizacion(regla);
+  const conPlantilla = esAccionConPlantilla(regla.actionType);
   return {
-    ...regla,
-    whatsappApproval: esAccionConPlantilla(regla.actionType)
-      ? await getAprobacionDeLaRegla(organizationId, regla.id)
-      : null,
+    ...resto,
+    whatsappApproval: conPlantilla ? await getAprobacionDeLaRegla(organizationId, regla.id) : null,
+    whatsappSync: conPlantilla ? sincronizacion : null,
   };
+}
+
+// H-1: "Reintentar" en la pantalla de la regla. Vuelve a mandar la plantilla
+// a Meta ahora, con la cuenta de intentos automáticos en cero. Las mismas
+// reglas que guardar: una clínica sin su número conectado no sincroniza.
+export async function reintentarPlantillaDeLaRegla(
+  organizationId: string,
+  id: string,
+  deps: DepsDeReglaConMensaje = depsDeReglaConMensajeReales,
+): Promise<ReglaConAprobacion> {
+  const regla = await getAutomationById(organizationId, id);
+  if (!esAccionConPlantilla(regla.actionType)) {
+    throw new AppError("Esta regla no manda WhatsApp.", 400);
+  }
+  if (await clinicaSinWabaPropio(organizationId, regla.actionType, deps)) {
+    throw new AppError(CONECTA_EL_NUMERO_DE_LA_CLINICA, 409);
+  }
+  return conSincronizacion(organizationId, regla, deps);
+}
+
+// H-1: el reintento del worker (workers/plantillaReintentoWorker.ts). Sigue la
+// cuenta de intentos. Una regla que ya no manda WhatsApp, o una clínica que se
+// quedó sin su número, deja de reintentar.
+export async function reintentoAutomaticoDeLaPlantilla(
+  regla: { id: string; organizationId: string; actionType: string; actionConfig: unknown },
+  deps: DepsDeReglaConMensaje = depsDeReglaConMensajeReales,
+): Promise<EstadoDeSincronizacion | null> {
+  if (
+    !esAccionConPlantilla(regla.actionType) ||
+    (await clinicaSinWabaPropio(regla.organizationId, regla.actionType, deps))
+  ) {
+    await updateEstadoDeSincronizacion(regla.id, regla.organizationId, SIN_ERROR_DE_SINCRONIZACION);
+    return null;
+  }
+  const { sincronizacion } = await sincronizarPlantillaDeLaRegla(
+    regla.organizationId,
+    regla,
+    deps.plantillas,
+    { reiniciar: false },
+  );
+  return sincronizacion;
 }
 
 // El listado, con el estado de aprobación de las reglas que mandan WhatsApp
@@ -188,6 +276,14 @@ export async function listarReglasConAprobacion(
   );
   return {
     ...pagina,
-    data: pagina.data.map((r) => ({ ...r, whatsappApproval: aprobaciones.get(r.id) ?? null })),
+    data: pagina.data.map((r) => {
+      const { resto, sincronizacion } = separarSincronizacion(r);
+      const conPlantilla = esAccionConPlantilla(r.actionType);
+      return {
+        ...resto,
+        whatsappApproval: aprobaciones.get(r.id) ?? null,
+        whatsappSync: conPlantilla ? sincronizacion : null,
+      };
+    }),
   };
 }

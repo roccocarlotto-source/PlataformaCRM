@@ -42,6 +42,19 @@ export interface Automation {
   // Solo al guardar: por qué no se pudo mandar el mensaje a aprobación. La
   // regla quedó guardada igual.
   whatsappSyncError?: string | null;
+  // H-1: si el último intento de mandar el mensaje a aprobación falló, por qué
+  // y si se reintenta solo. Null sin error.
+  whatsappSync?: WhatsappSync | null;
+}
+
+// Espejo de EstadoDeSincronizacion (services/whatsappTemplateReintento.ts).
+export interface WhatsappSync {
+  // REINTENTANDO: WhatsApp no respondió y se reintenta solo en proximoIntento.
+  // DETENIDO: se acabaron los reintentos automáticos. RECHAZADO: WhatsApp
+  // rechazó el pedido; no se reintenta solo.
+  estado: "REINTENTANDO" | "DETENIDO" | "RECHAZADO";
+  motivo: string;
+  proximoIntento: string | null;
 }
 
 // Espejo de los formatos del backend (utils/whatsappTemplateText.ts).

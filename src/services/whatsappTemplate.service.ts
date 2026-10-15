@@ -5,6 +5,17 @@ import {
   type OrganizationIndustry,
 } from "@prisma/client";
 import { findEdicionYRubro } from "../repositories/organization.repository";
+import {
+  findEstadoDeSincronizacion,
+  updateEstadoDeSincronizacion,
+} from "../repositories/automation.repository";
+import {
+  siguienteEstadoDeSincronizacion,
+  resumenDeSincronizacion,
+  tipoDeError,
+  type EstadoDeSincronizacion,
+  type TipoDeErrorDeSincronizacion,
+} from "./whatsappTemplateReintento";
 import { randomUUID } from "node:crypto";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
@@ -608,8 +619,18 @@ async function crearVersionNueva(
 export interface ResultadoDeSincronizacion {
   aprobacion: ResumenDeAprobacion;
   // El motivo por el que no se pudo mandar la versión nueva a Meta, para la
-  // pantalla. La regla quedó guardada igual: el próximo guardado reintenta.
+  // pantalla. La regla quedó guardada igual.
   error: string | null;
+  // H-1: lo que quedó en la regla después de este intento (si se reintenta
+  // sola, cuándo; si Meta lo rechazó, por qué). Null = sin error.
+  sincronizacion: EstadoDeSincronizacion | null;
+}
+
+export interface OpcionesDeSincronizacion {
+  // Lo lanzó una persona (guardar la regla, "Reintentar", conectar un WABA):
+  // la cuenta de intentos automáticos vuelve a empezar. El worker pasa false.
+  reiniciar?: boolean;
+  ahora?: Date;
 }
 
 // Al guardar una regla que manda WhatsApp: deja en Meta la plantilla que la
@@ -620,8 +641,10 @@ export async function sincronizarPlantillaDeLaRegla(
   organizationId: string,
   regla: { id: string; actionType: string; actionConfig: unknown },
   deps: DepsDePlantillas = depsDePlantillasReales,
+  opciones: OpcionesDeSincronizacion = {},
 ): Promise<ResultadoDeSincronizacion> {
   let error: string | null = null;
+  let tipo: TipoDeErrorDeSincronizacion | null = null;
   try {
     const guardadas = await findPlantillasDeLaRegla(organizationId, regla.id);
     // Una plantilla de OTRO WABA (la del global, cuando la organización
@@ -670,8 +693,41 @@ export async function sincronizarPlantillaDeLaRegla(
   } catch (err) {
     if (!(err instanceof AppError)) throw err;
     error = err.message;
+    tipo = tipoDeError(err.statusCode);
   }
-  return { aprobacion: await getAprobacionDeLaRegla(organizationId, regla.id), error };
+  const sincronizacion = await guardarResultadoDeSincronizacion(
+    organizationId,
+    regla.id,
+    error === null || tipo === null ? null : { tipo, mensaje: error },
+    opciones,
+  );
+  return {
+    aprobacion: await getAprobacionDeLaRegla(organizationId, regla.id),
+    error,
+    sincronizacion,
+  };
+}
+
+// H-1: deja en la regla el resultado del intento (whatsappTemplateReintento.ts).
+async function guardarResultadoDeSincronizacion(
+  organizationId: string,
+  automationId: string,
+  error: { tipo: TipoDeErrorDeSincronizacion; mensaje: string } | null,
+  opciones: OpcionesDeSincronizacion,
+): Promise<EstadoDeSincronizacion | null> {
+  const previo = await findEstadoDeSincronizacion(automationId, organizationId);
+  if (!previo) return null;
+  const siguiente = siguienteEstadoDeSincronizacion(previo, error, opciones.ahora ?? new Date(), {
+    reiniciar: opciones.reiniciar ?? true,
+  });
+  await updateEstadoDeSincronizacion(automationId, organizationId, siguiente);
+  if (siguiente.templateSyncErrorKind === "TEMPORAL" && siguiente.templateSyncNextAt === null) {
+    logger.warn(
+      { organizationId, automationId, intentos: siguiente.templateSyncAttempts },
+      "Plantilla de WhatsApp: se acabaron los reintentos automáticos; queda el aviso en la regla",
+    );
+  }
+  return resumenDeSincronizacion(siguiente);
 }
 
 // ---------------------------------------------------------------------------

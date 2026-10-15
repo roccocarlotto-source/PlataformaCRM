@@ -737,7 +737,12 @@ from (
     ('service_messages_cancel_check', 'service_messages',
      'CHECK (((status <> ''CANCELLED''::"BookingMessageStatus") OR (cancel_reason IS NOT NULL)))'),
     ('service_messages_attempts_check', 'service_messages',
-     'CHECK ((attempts >= 0))')
+     'CHECK ((attempts >= 0))'),
+    -- H-1 (migración 20261120120000).
+    ('automations_template_sync_attempts_check', 'automations',
+     'CHECK ((template_sync_attempts >= 0))'),
+    ('automations_template_sync_kind_check', 'automations',
+     'CHECK (((template_sync_error_kind IS NULL) OR ((template_sync_error_kind)::text = ANY ((ARRAY[''TEMPORAL''::character varying, ''DEFINITIVO''::character varying])::text[]))))')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -1524,7 +1529,11 @@ from (
      'CREATE INDEX customer_vehicles_purchased_on_idx ON public.customer_vehicles USING btree (organization_id, purchased_on) WHERE ((deleted_at IS NULL) AND (ownership_ended_at IS NULL) AND (purchased_on IS NOT NULL))'),
     -- S6 (migración 20261119120000): el reclamo de la cola del módulo.
     ('service_messages_claimable_idx',
-     'CREATE INDEX service_messages_claimable_idx ON public.service_messages USING btree (next_attempt_at) WHERE (status = ''PENDING''::"BookingMessageStatus")')
+     'CREATE INDEX service_messages_claimable_idx ON public.service_messages USING btree (next_attempt_at) WHERE (status = ''PENDING''::"BookingMessageStatus")'),
+    -- H-1 (migración 20261120120000): el reintento automático de la plantilla
+    -- de WhatsApp de una regla, cuando mandarla a Meta falló por algo temporal.
+    ('automations_template_sync_next_at_idx',
+     'CREATE INDEX automations_template_sync_next_at_idx ON public.automations USING btree (template_sync_next_at) WHERE (template_sync_next_at IS NOT NULL)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
