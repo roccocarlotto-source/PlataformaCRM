@@ -121,8 +121,8 @@ test("cada escritura de una orden entra en su presupuesto de consultas", async (
   // autenticación de lo que cuesta la orden.
   await medir("GET /api/me (base: autenticación)", 3, () => comoAdmin("GET", "/api/me"));
 
-  // S8: el alta y cada cambio de estado insertan su evento del outbox (+1);
-  // Entregado inserta dos (status_changed y delivered).
+  // S8: el alta y cada cambio de estado insertan su evento del outbox (+1;
+  // Entregado inserta los dos, status_changed y delivered, en un solo INSERT).
   const { json: orden } = await medir("POST orden (Recibido, 2 tipos, valor)", 16, () =>
     comoAdmin("POST", ORDENES, {
       customerVehicleId: vehiculoId,
@@ -169,7 +169,7 @@ test("cada escritura de una orden entra en su presupuesto de consultas", async (
   await medir("estado En trabajo → Listo para retirar", 10, () =>
     estado({ desde: "EN_TRABAJO", hacia: "LISTO_PARA_RETIRAR" }),
   );
-  const { json: entregada } = await medir("estado Listo para retirar → Entregado", 10, () =>
+  const { json: entregada } = await medir("estado Listo para retirar → Entregado", 9, () =>
     estado({ desde: "LISTO_PARA_RETIRAR", hacia: "ENTREGADO", proximoService: "2027-01-14" }),
   );
   assert.equal(entregada.status, "ENTREGADO");

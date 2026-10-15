@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { emitOutboxEvent } from "../../repositories/outboxEvent.repository";
+import { emitOutboxEvents } from "../../repositories/outboxEvent.repository";
 import type { ServiceOrderStatus } from "../config/estados";
 import {
   TRIGGER_ORDEN_CAMBIA_DE_ESTADO,
@@ -32,18 +32,20 @@ export async function emitirEventosDeLaOrden(
     from: orden.from,
     to: orden.to,
   };
-  await emitOutboxEvent(
-    { organizationId: orden.organizationId, eventType: TRIGGER_ORDEN_CAMBIA_DE_ESTADO, payload },
+  // Los dos de la entrega en un solo INSERT, en este orden.
+  await emitOutboxEvents(
+    [
+      { organizationId: orden.organizationId, eventType: TRIGGER_ORDEN_CAMBIA_DE_ESTADO, payload },
+      ...(orden.to === "ENTREGADO"
+        ? [
+            {
+              organizationId: orden.organizationId,
+              eventType: TRIGGER_ORDEN_ENTREGADA,
+              payload: { ...payload, deliveredAt: orden.ahora.toISOString() },
+            },
+          ]
+        : []),
+    ],
     tx,
   );
-  if (orden.to === "ENTREGADO") {
-    await emitOutboxEvent(
-      {
-        organizationId: orden.organizationId,
-        eventType: TRIGGER_ORDEN_ENTREGADA,
-        payload: { ...payload, deliveredAt: orden.ahora.toISOString() },
-      },
-      tx,
-    );
-  }
 }

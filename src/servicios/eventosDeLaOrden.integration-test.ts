@@ -89,7 +89,9 @@ async function hastaEntregar(id: string) {
 async function eventosDe(serviceOrderId: string): Promise<OutboxEvent[]> {
   const todos = await prisma.outboxEvent.findMany({
     where: { organizationId: taller.id, eventType: { startsWith: "service_order." } },
-    orderBy: { createdAt: "asc" },
+    // Los dos de la entrega comparten created_at (un solo INSERT): status_changed
+    // va antes que delivered.
+    orderBy: [{ createdAt: "asc" }, { eventType: "desc" }],
   });
   return todos.filter(
     (e) => (e.payload as { serviceOrderId?: string }).serviceOrderId === serviceOrderId,
