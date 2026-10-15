@@ -623,6 +623,9 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "PATCH /api/servicios/ordenes/:id",
     "POST /api/servicios/ordenes/:id/estado",
     "POST /api/servicios/ordenes/:id/aprobaciones",
+    // S12: avisar al cliente.
+    "GET /api/servicios/ordenes/:id/avisos",
+    "POST /api/servicios/ordenes/:id/avisos",
     "GET /api/servicios/usuarios",
     "GET /api/servicios/turnos",
   ],

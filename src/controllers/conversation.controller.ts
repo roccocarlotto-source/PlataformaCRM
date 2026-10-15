@@ -1,3 +1,4 @@
+import { registrarAvisoDesdeLaConversacion } from "../servicios/services/avisos.service";
 import { ConversationChannel } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
@@ -152,6 +153,10 @@ const replySchema = z.object({
       LARGO_MAXIMO_DE_RESPUESTA,
       `El mensaje no puede superar los ${LARGO_MAXIMO_DE_RESPUESTA} caracteres`,
     ),
+  // S12 (docs/servicios.md §8.1): la orden de servicio desde la que se abrió
+  // la conversación para avisarle al cliente. Opcional; sin él, el envío es
+  // exactamente el de siempre.
+  serviceOrderId: z.string().uuid("serviceOrderId inválido").optional(),
 });
 
 const messageIdParamSchema = z.string().uuid("messageId inválido");
@@ -171,7 +176,7 @@ export function createConversationReplyHandlers(
   return {
     reply: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
       const id = parseOrThrow(idParamSchema, req.params.id);
-      const { text } = parseOrThrow(replySchema, req.body);
+      const { text, serviceOrderId } = parseOrThrow(replySchema, req.body);
       const conversation = await responderDesdeElCrm(
         actorDe(req),
         req.auth.organizationId,
@@ -179,6 +184,16 @@ export function createConversationReplyHandlers(
         text,
         deps,
       );
+      // S12: el mensaje ya salió; registrar el aviso en la orden nunca lo
+      // hace fallar (registrarAvisoDesdeLaConversacion no lanza).
+      if (serviceOrderId) {
+        await registrarAvisoDesdeLaConversacion(
+          req.auth.organizationId,
+          req.auth.userId,
+          serviceOrderId,
+          conversation.contactId,
+        );
+      }
       res.status(201).json(conversation);
     }),
 

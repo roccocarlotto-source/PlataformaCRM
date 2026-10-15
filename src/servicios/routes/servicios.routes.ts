@@ -1,3 +1,4 @@
+import { obtenerAvisosHandler, registrarAvisoHandler } from "../controllers/avisos.controller";
 import { Router } from "express";
 import { resumenDelTallerHandler } from "../controllers/dashboard.controller";
 import { authenticate } from "../../middlewares/authenticate";
@@ -103,6 +104,14 @@ serviciosRouter.post(
   authenticate,
   businessWriteRateLimiter,
   registrarAprobacionHandler,
+);
+// S12: avisar al cliente (§8.1). Leer y registrar, ADMIN y USER.
+serviciosRouter.get("/servicios/ordenes/:id/avisos", authenticate, obtenerAvisosHandler);
+serviciosRouter.post(
+  "/servicios/ordenes/:id/avisos",
+  authenticate,
+  businessWriteRateLimiter,
+  registrarAvisoHandler,
 );
 // Para elegir el encargado: id y nombre de los usuarios activos (D9).
 serviciosRouter.get("/servicios/usuarios", authenticate, listarUsuariosHandler);

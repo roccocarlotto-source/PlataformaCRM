@@ -11,6 +11,7 @@ import {
   obtenerVehiculo,
   ordenesDelVehiculo,
   obtenerResumenDelTaller,
+  obtenerAvisos,
 } from "./api";
 import type { OrdenesQuery, VehiculosQuery } from "./types";
 
@@ -119,5 +120,15 @@ export function useResumenDelTaller(branchId?: string) {
   return useQuery({
     queryKey: ["servicios", "resumen", branchId ?? "todas"] as const,
     queryFn: ({ signal }) => obtenerResumenDelTaller(branchId, signal),
+  });
+}
+
+// S12: el texto sugerido, la conversación y los avisos de la orden.
+export const avisosKey = (id: string) => ["servicios", "ordenes", id, "avisos"] as const;
+
+export function useAvisosDeLaOrden(id: string) {
+  return useQuery({
+    queryKey: avisosKey(id),
+    queryFn: ({ signal }) => obtenerAvisos(id, signal),
   });
 }

@@ -28,7 +28,8 @@ import {
 } from "./formato";
 import { useMonedaPorDefecto } from "./monedaPorDefecto";
 import { useActualizarOrden } from "./mutations";
-import { useOrden } from "./queries";
+import { useAvisosDeLaOrden, useOrden } from "./queries";
+import { AvisarAlClienteDialog } from "./AvisarAlClienteDialog";
 import { RegistrarAprobacionDialog } from "./RegistrarAprobacionDialog";
 import { TransicionDialog } from "./TransicionDialog";
 import { AvisoDelTurno, TurnoEnLaFicha } from "./TurnoDeLaOrden";
@@ -61,6 +62,10 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
   const [hacia, setHacia] = useState<EstadoDeOrden | null>(null);
   const [editando, setEditando] = useState(false);
   const [aprobando, setAprobando] = useState(false);
+  // S12 (§8.1): avisar al cliente, en Recibido, Esperando aprobación o Listo
+  // para retirar (los estados con texto sugerido).
+  const [avisando, setAvisando] = useState(false);
+  const avisos = useAvisosDeLaOrden(orden.id);
   const abierta = esAbierto(orden.status);
   const vehiculo = [descripcionDe(orden.vehiculo), orden.vehiculo.licensePlate]
     .filter(Boolean)
@@ -90,6 +95,11 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
                 </Button>
               );
             })}
+            {avisos.data?.sugerencia ? (
+              <Button type="button" onClick={() => setAvisando(true)}>
+                Avisar al cliente
+              </Button>
+            ) : null}
             {abierta ? (
               <Button type="button" onClick={() => setEditando(true)}>
                 Editar
@@ -235,6 +245,19 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
           ) : null}
         </Card>
 
+        {avisos.data && avisos.data.avisos.length > 0 ? (
+          <Card heading="Avisos al cliente">
+            <ul className="ds-stack">
+              {avisos.data.avisos.map((a) => (
+                <li key={a.id}>
+                  <strong>{a.detalle}</strong>
+                  <div className="ds-cell-muted">{`${formatDateTime(a.cuando)} · ${a.persona}`}</div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ) : null}
+
         <Card heading="Historial">
           <ul className="ds-stack">
             {orden.historial.map((c) => (
@@ -254,6 +277,13 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
         </Card>
       </div>
 
+      {avisando && avisos.data ? (
+        <AvisarAlClienteDialog
+          ordenId={orden.id}
+          avisos={avisos.data}
+          onClose={() => setAvisando(false)}
+        />
+      ) : null}
       {hacia ? (
         <TransicionDialog orden={orden} hacia={hacia} onClose={() => setHacia(null)} />
       ) : null}

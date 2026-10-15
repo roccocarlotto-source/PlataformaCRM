@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { vocabularioDe } from "../../auth/vocabulario";
 import { useConfirm } from "../../design-system/useConfirm";
@@ -182,6 +182,7 @@ export interface ConversationDetailProps {
 export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = {}) {
   const confirm = useConfirm();
   const { id: idDeLaRuta } = useParams<{ id: string }>();
+  const [busqueda] = useSearchParams();
   const id = idDelProp ?? idDeLaRuta;
   const conversationQuery = useConversation(id);
   // `id ?? ""`: el hook no se puede llamar condicionalmente, y sin id la
@@ -379,7 +380,12 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
           ) : null}
         </Card>
 
-        <ConversationReplyCard conversation={conversation} />
+        <ConversationReplyCard
+          conversation={conversation}
+          // S12: llegando desde "Avisar al cliente" de una orden del taller.
+          borradorInicial={busqueda.get("borrador") ?? undefined}
+          serviceOrderId={busqueda.get("orden") ?? undefined}
+        />
       </div>
     </div>
   );

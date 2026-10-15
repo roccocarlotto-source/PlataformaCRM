@@ -35,6 +35,7 @@ import { MENSAJE_PAGINA_RECONECTADA } from "../services/metaPageConnection.servi
 import { MetaSendError, type SendMetaTextInput } from "../services/metaSend.service";
 import { AppError } from "../utils/AppError";
 import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
+import { activarModulo } from "../services/organizationModules.service";
 
 // ---------------------------------------------------------------------------
 // Responder desde el CRM (I-03 de
@@ -1163,4 +1164,111 @@ test("Messenger con la ventana cerrada: el aviso no sale, queda FAILED con el mo
   const [aviso] = avisos(detalle);
   assert.equal(aviso.deliveryStatus, "FAILED");
   assert.equal(aviso.deliveryError, MOTIVO_VENTANA_CERRADA_META);
+});
+
+// ---------------------------------------------------------------------------
+// S12 (docs/servicios.md §8.1): el dato opcional serviceOrderId
+// ---------------------------------------------------------------------------
+
+/** Lo que importa de la respuesta, sin ids ni horas. */
+function forma(detalle: Detalle) {
+  return {
+    status: detalle.status,
+    assignedUserId: detalle.assignedUserId,
+    agentPaused: detalle.agentPaused,
+    humanos: humanos(detalle).map((m) => ({
+      direction: m.direction,
+      senderUserId: m.senderUserId,
+      content: m.content,
+      deliveryStatus: m.deliveryStatus,
+    })),
+  };
+}
+
+test("S12: sin serviceOrderId, responder queda exactamente igual que antes (respuesta, envío y ninguna nota)", async () => {
+  const a = await crearConversacion({ assignedUserId: vendedor.userId });
+  const b = await crearConversacion({ assignedUserId: vendedor.userId });
+  const notasAntes = await prisma.activity.count({ where: { organizationId: orgId } });
+  const enviosAntes = envios.length;
+
+  // El pedido de siempre, y el mismo con una clave de más que el schema descarta.
+  const r1 = await responder(vendedor.accessToken, a.id, "Hola, tu auto está listo.");
+  const r2 = await call("POST", `/api/conversations/${b.id}/messages`, vendedor.accessToken, {
+    text: "Hola, tu auto está listo.",
+  });
+  assert.equal(r1.status, 201);
+  assert.equal(r2.status, 201);
+  assert.deepEqual(forma((await r1.json()) as Detalle), forma((await r2.json()) as Detalle));
+  assert.equal(envios.length, enviosAntes + 2);
+  assert.equal(
+    await prisma.activity.count({ where: { organizationId: orgId } }),
+    notasAntes,
+    "responder no crea ninguna nota",
+  );
+});
+
+test("S12: con serviceOrderId y el módulo, la orden registra el aviso por WhatsApp; con otro cliente o sin módulo, no", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  const otra = await crearConversacion({ assignedUserId: vendedor.userId });
+  const vehiculo = await prisma.customerVehicle.create({
+    data: { organizationId: orgId, contactId: conv.contactId, make: "Fiat", model: "Uno" },
+  });
+  const orden = await prisma.serviceOrder.create({
+    data: {
+      organizationId: orgId,
+      number: 1,
+      customerVehicleId: vehiculo.id,
+      contactId: conv.contactId,
+      branchId,
+      status: "LISTO_PARA_RETIRAR",
+      createdById: admin.userId,
+    },
+  });
+  const avisos = () =>
+    prisma.activity.findMany({ where: { organizationId: orgId, sourceServiceOrderId: orden.id } });
+  const conOrden = (conversationId: string) =>
+    call("POST", `/api/conversations/${conversationId}/messages`, vendedor.accessToken, {
+      text: "Hola, tu Fiat Uno ya está listo.",
+      serviceOrderId: orden.id,
+    });
+  try {
+    // Sin el módulo: el mensaje sale igual, y no se registra nada.
+    assert.equal((await conOrden(conv.id)).status, 201);
+    assert.equal((await avisos()).length, 0);
+
+    await activarModulo(orgId, "servicios", admin.userId);
+    // La conversación es de otro cliente: no se registra.
+    assert.equal((await conOrden(otra.id)).status, 201);
+    assert.equal((await avisos()).length, 0);
+    // La del cliente de la orden: se registra el aviso.
+    assert.equal((await conOrden(conv.id)).status, 201);
+    const [aviso] = await avisos();
+    assert.equal(aviso.type, "NOTE");
+    assert.equal(aviso.subject, "Aviso al cliente (WhatsApp): Listo para retirar");
+    assert.equal(aviso.authorId, vendedor.userId);
+    assert.equal(aviso.contactId, conv.contactId);
+    assert.ok(aviso.completedAt);
+
+    // Un serviceOrderId mal formado es un 400, y no sale nada.
+    const antes = envios.length;
+    const malo = await call(
+      "POST",
+      `/api/conversations/${conv.id}/messages`,
+      vendedor.accessToken,
+      {
+        text: "x",
+        serviceOrderId: "no-es-un-id",
+      },
+    );
+    assert.equal(malo.status, 400);
+    assert.equal(envios.length, antes);
+  } finally {
+    await prisma.activity.deleteMany({
+      where: { organizationId: orgId, sourceServiceOrderId: orden.id },
+    });
+    await prisma.serviceOrder.deleteMany({ where: { organizationId: orgId } });
+    await prisma.customerVehicle.deleteMany({ where: { organizationId: orgId } });
+    await prisma.workshopSettings.deleteMany({ where: { organizationId: orgId } });
+    await prisma.organizationModule.deleteMany({ where: { organizationId: orgId } });
+  }
 });

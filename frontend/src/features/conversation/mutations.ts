@@ -80,10 +80,10 @@ export function useCloseConversation(id: string) {
 // Responder desde el CRM (I-03). Mismo onSuccess que el resto: la respuesta
 // es la conversación entera, y el listado se invalida porque muestra el
 // status y el último mensaje.
-export function useReplyToConversation(id: string) {
+export function useReplyToConversation(id: string, serviceOrderId?: string) {
   const guardarEnCache = useGuardarEnCache(id);
   return useMutation({
-    mutationFn: (text: string) => replyToConversation(id, text),
+    mutationFn: (text: string) => replyToConversation(id, text, serviceOrderId),
     onSuccess: guardarEnCache,
   });
 }
