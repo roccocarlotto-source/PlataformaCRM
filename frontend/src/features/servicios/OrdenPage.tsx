@@ -31,6 +31,7 @@ import { useActualizarOrden } from "./mutations";
 import { useOrden } from "./queries";
 import { RegistrarAprobacionDialog } from "./RegistrarAprobacionDialog";
 import { TransicionDialog } from "./TransicionDialog";
+import { AvisoDelTurno, TurnoEnLaFicha } from "./TurnoDeLaOrden";
 import type { EstadoDeOrden, FichaDeOrden } from "./types";
 
 // La ficha de la orden (docs/servicios.md §4.3): cabecera con los botones de
@@ -98,6 +99,7 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
         }
       />
       <div className="ds-stack">
+        <AvisoDelTurno orden={orden} />
         {orden.aprobacionPendiente ? (
           <Notice tone="warning" alert={false} title="Falta registrar la respuesta del cliente">
             <p>
@@ -139,6 +141,7 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
                     label: "Se espera",
                     value: orden.scheduledFor ? formatDateTime(orden.scheduledFor) : null,
                   },
+                  { label: "Turno", value: <TurnoEnLaFicha orden={orden} /> },
                   {
                     label: "Creada",
                     value: `${formatDateTime(orden.createdAt)} · ${orden.createdBy.fullName}`,

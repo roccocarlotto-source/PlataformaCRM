@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useModulo } from "../../auth/useModulo";
 import {
   concordancia,
   VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
@@ -25,6 +26,7 @@ import type { ServiceType } from "../serviceType/types";
 import { BookingDetailDialog } from "./BookingDetailDialog";
 import { ReprogramarTurnoDialog } from "../clinica/ReprogramarTurnoDialog";
 import { MarcarTurno } from "../clinica/MarcarTurno";
+import { AccionesDelTurno } from "../servicios/AccionesDelTurno";
 import { NuevoTurnoDialog } from "../clinica/NuevoTurnoDialog";
 import { usePrestaciones } from "../clinica/queries";
 import { ROTULO_DE_ESTADO } from "../clinica/estadosDeTurno";
@@ -95,6 +97,7 @@ interface ReservaAbierta {
 // ---------------------------------------------------------------------------
 export function BookingCalendarPage() {
   const { me } = useAuth();
+  const tieneServicios = useModulo("servicios");
   const isAdmin = me?.role === "ADMIN";
   // Rubros (docs/rubros.md §3.1): calendario o agenda, recurso o profesional,
   // sucursal o sede.
@@ -329,6 +332,10 @@ export function BookingCalendarPage() {
                   <MarcarTurno booking={abierta.booking} onDone={() => setAbierta(null)} />
                 ),
               }
+            : {})}
+          // S4b: la orden de servicio del turno, solo con el módulo Servicios.
+          {...(tieneServicios
+            ? { accionesDelTaller: <AccionesDelTurno booking={abierta.booking} /> }
             : {})}
           // R9: reprogramar, solo en una clínica y para un turno confirmado
           // y futuro.

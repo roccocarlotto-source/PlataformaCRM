@@ -61,3 +61,66 @@ test("S3: la ficha del contacto no gana campos del taller", async () => {
     assert.doesNotMatch(clave, /vehicul|customerVehicle|serviceOrder|taller/i, clave);
   }
 });
+
+// S4b (§4.4): el turno y la orden viven bajo /api/servicios. El detalle de un
+// turno de una automotora sin el módulo responde EXACTAMENTE lo de antes: las
+// mismas claves y los mismos valores, sin nada del taller.
+test("S4b: el detalle de un turno responde lo mismo que antes del módulo, y la orden del turno da 403", async () => {
+  const sucursal = await prisma.branch.create({
+    data: { organizationId: automotora.id, name: "Centro", timezone: "America/Montevideo" },
+  });
+  const recurso = await prisma.resource.create({
+    data: { organizationId: automotora.id, branchId: sucursal.id, name: "Box", type: "ROOM" },
+  });
+  const servicio = await prisma.serviceType.create({
+    data: {
+      organizationId: automotora.id,
+      branchId: sucursal.id,
+      resourceId: recurso.id,
+      name: "Prueba de manejo",
+      durationMin: 30,
+    },
+  });
+  const contacto = await prisma.contact.create({
+    data: { organizationId: automotora.id, firstName: "Turno", lastName: "Igual" },
+  });
+  const startsAt = new Date("2030-01-10T13:00:00.000Z");
+  const endsAt = new Date("2030-01-10T13:30:00.000Z");
+  const turno = await prisma.booking.create({
+    data: {
+      organizationId: automotora.id,
+      branchId: sucursal.id,
+      serviceTypeId: servicio.id,
+      resourceId: recurso.id,
+      contactId: contacto.id,
+      startsAt,
+      endsAt,
+    },
+  });
+
+  const r = await pedir(automotora, "GET", `/api/bookings/${turno.id}`);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const { createdAt, updatedAt, ...resto } = r.json as Record<string, unknown>;
+  assert.equal(typeof createdAt, "string");
+  assert.equal(typeof updatedAt, "string");
+  // El cuerpo de antes de S4b (el controlador de turnos no cambia): ni un
+  // campo de más, ni uno de menos.
+  assert.deepEqual(resto, {
+    id: turno.id,
+    organizationId: automotora.id,
+    branchId: sucursal.id,
+    serviceTypeId: servicio.id,
+    resourceId: recurso.id,
+    contactId: contacto.id,
+    opportunityId: null,
+    startsAt: startsAt.toISOString(),
+    endsAt: endsAt.toISOString(),
+    status: "CONFIRMED",
+    googleEventId: null,
+  });
+
+  const orden = await pedir(automotora, "GET", `/api/servicios/ordenes?bookingId=${turno.id}`);
+  assert.equal(orden.status, 403);
+  const turnos = await pedir(automotora, "GET", `/api/servicios/turnos?contactId=${contacto.id}`);
+  assert.equal(turnos.status, 403);
+});

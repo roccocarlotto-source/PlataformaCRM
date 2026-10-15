@@ -43,3 +43,19 @@ test("S3: el módulo no suma rutas fuera de /api/servicios ni clasifica rutas de
     }
   }
 });
+
+test("S4b: el turno y la orden van por /api/servicios; las rutas de la agenda no cambian de módulo", () => {
+  const turnos = montadas.find((r) => r.ruta === "GET /api/servicios/turnos");
+  assert.ok(turnos, "GET /api/servicios/turnos montada");
+  assert.ok(turnos.autenticada);
+  assert.ok(RUTAS_POR_MODULO.servicios.includes("GET /api/servicios/turnos"));
+  // La agenda es de todas las organizaciones: ni el detalle ni la cancelación
+  // de un turno pasan a depender del módulo.
+  for (const ruta of ["GET /api/bookings/:id", "PATCH /api/bookings/:id/cancel"]) {
+    assert.ok(
+      montadas.some((r) => r.ruta === ruta),
+      `${ruta} sigue montada`,
+    );
+    assert.ok(!RUTAS_POR_MODULO.servicios.includes(ruta), `${ruta} no es del taller`);
+  }
+});

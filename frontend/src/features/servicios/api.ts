@@ -1,6 +1,8 @@
 import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
+import type { Booking } from "../booking/types";
 import type {
+  TurnoVinculable,
   ActualizarOrdenInput,
   AprobacionInput,
   CambiarEstadoInput,
@@ -91,6 +93,7 @@ function queryDeOrdenes(query: OrdenesQuery): string {
   if (query.estados && query.estados.length > 0) params.set("estados", query.estados.join(","));
   if (query.branchId) params.set("branchId", query.branchId);
   if (query.assigneeId) params.set("assigneeId", query.assigneeId);
+  if (query.bookingId) params.set("bookingId", query.bookingId);
   if (query.q) params.set("q", query.q);
   const texto = params.toString();
   return texto ? `?${texto}` : "";
@@ -129,6 +132,22 @@ export function registrarAprobacion(id: string, input: AprobacionInput): Promise
     method: "POST",
     body: input,
     getAccessToken,
+  });
+}
+
+/** El turno desde el que se crea una orden (Nueva orden con ?turnoId=). Es la
+ *  ruta de siempre de la agenda: S4b no le cambia nada. */
+export function obtenerTurno(id: string, signal?: AbortSignal): Promise<Booking> {
+  return request<Booking>(`/bookings/${id}`, { getAccessToken, signal });
+}
+
+export function listarTurnosVinculables(
+  contactId: string,
+  signal?: AbortSignal,
+): Promise<TurnoVinculable[]> {
+  return request<TurnoVinculable[]>(`/servicios/turnos?contactId=${contactId}`, {
+    getAccessToken,
+    signal,
   });
 }
 

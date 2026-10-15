@@ -20,10 +20,13 @@ import {
   findDatosDeLaOrganizacion,
   findIdsDeTiposDeLaOrden,
   findManyOrders,
+  findOrdenAbiertaDelTurno,
   findOrdenEnElTaller,
+  findTurnosVinculables,
   findOrdenParaEscribir,
   findOrderById,
   hayAprobacionDesde,
+  lockTurnoParaOrden,
   setJobTypes,
   ultimaEntradaA,
   updateOrdenAbierta,
@@ -61,6 +64,7 @@ export const ORDEN_MOVIDA =
 export const ORDEN_FINAL = "La orden ya está entregada o cancelada: no se puede modificar.";
 export const VEHICULO_EN_EL_TALLER = "VEHICULO_EN_EL_TALLER";
 export const FALTA_REGISTRAR_LA_APROBACION = "FALTA_REGISTRAR_LA_APROBACION";
+export const TURNO_CON_ORDEN = "TURNO_CON_ORDEN";
 
 type Monto = number;
 
@@ -77,6 +81,8 @@ export interface CrearOrdenInput {
   damageNotes?: string | null;
   amount?: Monto | null;
   currency?: string | null;
+  // El turno de la agenda (§4.4): la orden queda Agendada para su horario.
+  bookingId?: string;
 }
 
 export interface ActualizarOrdenInput {
@@ -88,6 +94,8 @@ export interface ActualizarOrdenInput {
   amount?: Monto | null;
   currency?: string | null;
   jobTypeIds?: string[];
+  // Vincular (id) o desvincular (null) el turno.
+  bookingId?: string | null;
 }
 
 export interface CambiarEstadoInput {
@@ -159,7 +167,8 @@ export function aprobacionPendienteDe(
 }
 
 async function aFicha(organizationId: string, fila: FilaDeLaFicha) {
-  const { number, amount, statusChanges, customerVehicle, jobTypes, approvals, ...resto } = fila;
+  const { number, amount, statusChanges, customerVehicle, jobTypes, approvals, booking, ...resto } =
+    fila;
 
   const aprobacionPendiente = aprobacionPendienteDe(fila);
 
@@ -186,6 +195,18 @@ async function aFicha(organizationId: string, fila: FilaDeLaFicha) {
     nextServiceDueOn: deFecha(fila.nextServiceDueOn),
     vehiculo: customerVehicle,
     tipos: jobTypes.map((t) => t.serviceJobType),
+    // El turno con su estado y horario de AHORA (§4.4): si se canceló o no
+    // vino, la ficha lo avisa; la orden no se entera sola.
+    turno: booking
+      ? {
+          id: booking.id,
+          startsAt: booking.startsAt,
+          endsAt: booking.endsAt,
+          status: booking.status,
+          servicio: booking.serviceType.name,
+          recurso: booking.resource.name,
+        }
+      : null,
     aprobaciones: approvals.map((a) => ({ ...a, amount: deMonto(a.amount) })),
     historial: statusChanges,
     enEstadoDesde: statusChanges[0]?.changedAt ?? fila.createdAt,
@@ -248,6 +269,37 @@ async function valorDe(
   if (currency) return { amount, currency };
   const org = await findDatosDeLaOrganizacion(organizationId);
   return { amount, currency: org.preferredCurrency ?? DASHBOARD_DEFAULT_CURRENCY };
+}
+
+/** Vincula el turno a la orden (§4.4), dentro de la transacción y con el
+ *  turno bloqueado. Tiene que ser de la organización, estar CONFIRMED, ser del
+ *  mismo cliente y no tener otra orden abierta. Devuelve su horario, que pasa a
+ *  ser el "se espera" de la orden. */
+async function vincularTurno(
+  organizationId: string,
+  bookingId: string,
+  contactId: string,
+  ordenId: string | null,
+  tx: Prisma.TransactionClient,
+): Promise<Date> {
+  const turno = await lockTurnoParaOrden(organizationId, bookingId, tx);
+  if (!turno) throw new AppError("Turno no encontrado", 404);
+  if (turno.status !== "CONFIRMED") {
+    throw new AppError("Ese turno ya no está confirmado: no se puede vincular.", 409);
+  }
+  if (turno.contactId !== contactId) {
+    throw new AppError("El turno es de otro cliente.", 400);
+  }
+  const ocupada = await findOrdenAbiertaDelTurno(organizationId, bookingId, ordenId, tx);
+  if (ocupada) {
+    throw new AppError(
+      `El turno ya está vinculado a la orden ${formatearNumeroDeOrden(ocupada.number)}.`,
+      409,
+      true,
+      { code: TURNO_CON_ORDEN, ordenId: ocupada.id },
+    );
+  }
+  return turno.startsAt;
 }
 
 /** El P2002 del índice "un auto, una orden dentro del taller" → 409 con la
@@ -331,6 +383,26 @@ export async function listarOrdenes(
   };
 }
 
+/** GET /api/servicios/turnos?contactId= (§4.4): los turnos CONFIRMED futuros
+ *  del cliente, en las sedes que ve quien pregunta, para "Vincular turno". */
+export async function listarTurnosVinculables(
+  organizationId: string,
+  actor: ActorConSedes,
+  contactId: string,
+) {
+  const turnos = await findTurnosVinculables(
+    organizationId,
+    contactId,
+    filtroDeSedes(actor),
+    new Date(),
+  );
+  return turnos.map(({ serviceType, resource, ...t }) => ({
+    ...t,
+    servicio: serviceType.name,
+    recurso: resource.name,
+  }));
+}
+
 export async function obtenerOrden(organizationId: string, id: string) {
   return aFicha(organizationId, await fichaOError(organizationId, id));
 }
@@ -344,7 +416,8 @@ export async function crearOrden(organizationId: string, userId: string, input: 
   const contactId = input.contactId ?? vehiculo.contactId;
   const branchId = input.branchId ?? vehiculo.branchId;
   if (!branchId) throw new AppError("Elegí la sucursal de la orden", 400);
-  if (input.estado === "AGENDADO" && !input.scheduledFor) {
+  // Con turno, la fecha es la del turno.
+  if (input.estado === "AGENDADO" && !input.scheduledFor && !input.bookingId) {
     throw new AppError("Una orden agendada lleva la fecha en que se espera el auto", 400);
   }
   if (input.estado === "RECIBIDO" && (input.mileageIn === undefined || input.mileageIn === null)) {
@@ -362,6 +435,9 @@ export async function crearOrden(organizationId: string, userId: string, input: 
   let id: string;
   try {
     id = await prisma.$transaction(async (tx) => {
+      const horarioDelTurno = input.bookingId
+        ? await vincularTurno(organizationId, input.bookingId, contactId, null, tx)
+        : null;
       const number = await tomarNumeroDeOrden(organizationId, tx);
       const ahora = new Date();
       const creada = await createOrder(
@@ -373,7 +449,8 @@ export async function crearOrden(organizationId: string, userId: string, input: 
           branchId,
           status: input.estado,
           assigneeId: input.assigneeId ?? null,
-          scheduledFor: input.scheduledFor ?? null,
+          scheduledFor: horarioDelTurno ?? input.scheduledFor ?? null,
+          bookingId: input.bookingId ?? null,
           mileageIn: input.mileageIn ?? null,
           receivedAt: input.estado === "RECIBIDO" ? ahora : null,
           notes: input.notes ?? null,
@@ -432,7 +509,20 @@ export async function actualizarOrden(
   };
 
   await prisma.$transaction(async (tx) => {
-    const n = await updateOrdenAbierta(organizationId, id, { ...resto, ...valor }, tx);
+    // Vincular toma el horario del turno; desvincular deja la fecha como está.
+    const turno: { bookingId?: string | null; scheduledFor?: Date } = {};
+    if (input.bookingId === null) turno.bookingId = null;
+    if (input.bookingId) {
+      turno.scheduledFor = await vincularTurno(
+        organizationId,
+        input.bookingId,
+        actual.contactId,
+        id,
+        tx,
+      );
+      turno.bookingId = input.bookingId;
+    }
+    const n = await updateOrdenAbierta(organizationId, id, { ...resto, ...valor, ...turno }, tx);
     if (n === 0) throw new AppError(ORDEN_FINAL, 409);
     if (tipos) await setJobTypes(organizationId, id, tipos, tx);
   });

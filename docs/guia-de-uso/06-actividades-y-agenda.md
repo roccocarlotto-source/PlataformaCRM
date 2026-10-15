@@ -176,7 +176,10 @@ Qué se ve en cada columna:
   servicio. Si el servicio admite más de una persona por turno, las reservas
   que se superponen se ven una al lado de la otra.
 - Tocar un bloque abre el detalle de la reserva (contacto, servicio, recurso,
-  horario) con el botón **Cancelar reserva**, igual que en la lista.
+  horario) con el botón **Cancelar reserva**, igual que en la lista. Con el
+  módulo **Servicios** (taller) activado, el detalle muestra además la orden de
+  servicio del turno o, si no tiene, **Crear orden de servicio** (lo explica la
+  sección Taller de esta guía).
 - Tocar un horario libre y abierto empieza una [nueva reserva](#nueva-reserva).
 - Un horario que **ya empezó** no se puede tocar: no se reserva en el pasado.
 

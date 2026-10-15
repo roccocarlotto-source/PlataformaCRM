@@ -80,6 +80,7 @@ export function makeFichaDeOrden(overrides: Partial<FichaDeOrden> = {}): FichaDe
       },
     ],
     aprobacionPendiente: false,
+    turno: null,
     proximoServicePropuesto: null,
     ...overrides,
   };

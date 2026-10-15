@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { IntegerInput } from "../../design-system/IntegerInput";
@@ -22,6 +23,8 @@ export interface OrdenParaTransicion {
   proximoServicePropuesto?: { fecha: string | null; meses: number | null } | null;
   // Solo la ficha los trae: para decir de dónde sale la fecha propuesta.
   tipos?: { nextServiceAfterMonths: number | null }[];
+  // Y el turno vinculado: al cancelar la orden se aclara que el turno sigue.
+  turno?: { startsAt: string; status: string } | null;
 }
 
 /** De dónde sale la fecha propuesta al entregar (prueba de S4a, obs. 18). */
@@ -100,6 +103,11 @@ export function TransicionDialog({
           <FormField label={<span className="ds-required">Km al ingreso</span>}>
             <IntegerInput value={km} onChange={setKm} />
           </FormField>
+        ) : null}
+        {hacia === "CANCELADO" && orden.turno?.status === "CONFIRMED" ? (
+          <p className="ds-hint">
+            {`El turno del ${formatDateTime(orden.turno.startsAt)} sigue en la agenda: cancelalo desde ahí si corresponde.`}
+          </p>
         ) : null}
         {hacia === "CANCELADO" ? (
           <FormField label={<span className="ds-required">Motivo</span>}>

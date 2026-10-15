@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeOrganizationSettings } from "../../test/organizationFixtures";
+import { makeBooking } from "../../test/bookingFixtures";
 import { makeFichaDeOrden, makeVehiculoDeCliente } from "../../test/vehiculoDeClienteFixtures";
 import { ConfiguracionDelTallerPage } from "./ConfiguracionDelTallerPage";
 import { NuevaOrdenPage } from "./NuevaOrdenPage";
@@ -395,6 +396,145 @@ describe("Órdenes — correcciones de la prueba de S4a", () => {
     expect(await screen.findByText("No hay órdenes abiertas")).toBeInTheDocument();
     await user.type(screen.getByRole("searchbox"), "zzz");
     expect(await screen.findByText("Ninguna orden coincide con «zzz»")).toBeInTheDocument();
+  });
+});
+
+// S4b (§4.4): el turno de la agenda y la orden.
+describe("Órdenes — el turno de la agenda (S4b)", () => {
+  const TURNO = {
+    id: "bk1",
+    startsAt: "2030-01-20T13:00:00.000Z",
+    endsAt: "2030-01-20T14:00:00.000Z",
+    status: "CONFIRMED" as const,
+    servicio: "Service",
+    recurso: "Elevador 1",
+  };
+
+  it("crear desde el turno: vehículo del cliente, Agendada en la sucursal del turno y vinculada", async () => {
+    let cuerpo: Record<string, unknown> | undefined;
+    server.use(
+      ...comunes(),
+      http.get(`${API}/bookings/:id`, () =>
+        HttpResponse.json(
+          makeBooking({
+            id: "bk1",
+            contactId: "ct1",
+            branchId: "b1",
+            startsAt: TURNO.startsAt,
+            endsAt: TURNO.endsAt,
+          }),
+        ),
+      ),
+      http.get(`${API}/servicios/vehiculos`, ({ request }) => {
+        expect(new URL(request.url).searchParams.get("contactId")).toBe("ct1");
+        return HttpResponse.json({
+          data: [makeVehiculoDeCliente()],
+          pagination: { page: 1, pageSize: 50, total: 1, totalPages: 1 },
+        });
+      }),
+      http.get(`${API}/servicios/vehiculos/:id`, () =>
+        HttpResponse.json({ ...makeVehiculoDeCliente(), cambiosDeDueno: [] }),
+      ),
+      http.post(ORDENES, async ({ request }) => {
+        cuerpo = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeFichaDeOrden(), { status: 201 });
+      }),
+      http.get(`${ORDENES}/:id`, () => HttpResponse.json(makeFichaDeOrden())),
+    );
+    const user = userEvent.setup();
+    renderEn("/taller/ordenes/nueva?turnoId=bk1");
+    expect(
+      await screen.findByText("La orden queda Agendada para ese horario y vinculada al turno."),
+    ).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /SBC 1001/ }));
+    expect(await screen.findByText(/(el horario del turno)/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Crear orden" }));
+    await waitFor(() => expect(cuerpo).toBeDefined());
+    expect(cuerpo).toMatchObject({
+      customerVehicleId: "cv1",
+      branchId: "b1",
+      estado: "AGENDADO",
+      bookingId: "bk1",
+    });
+    expect(cuerpo).not.toHaveProperty("scheduledFor");
+  });
+
+  it("turno cancelado: la ficha lo avisa, y Vincular otro turno manda el elegido", async () => {
+    let cuerpo: Record<string, unknown> | undefined;
+    server.use(
+      ...comunes(),
+      http.get(`${ORDENES}/:id`, () =>
+        HttpResponse.json(
+          makeFichaDeOrden({
+            status: "AGENDADO",
+            bookingId: "bk1",
+            scheduledFor: TURNO.startsAt,
+            turno: { ...TURNO, status: "CANCELLED" },
+          }),
+        ),
+      ),
+      http.get(`${API}/servicios/turnos`, () =>
+        HttpResponse.json([
+          {
+            id: "bk2",
+            startsAt: "2030-01-27T13:00:00.000Z",
+            endsAt: "2030-01-27T14:00:00.000Z",
+            branch: { id: "b1", name: "Taller Centro" },
+            servicio: "Service",
+            recurso: "Elevador 1",
+          },
+        ]),
+      ),
+      http.patch(`${ORDENES}/:id`, async ({ request }) => {
+        cuerpo = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeFichaDeOrden());
+      }),
+    );
+    const user = userEvent.setup();
+    renderEn("/taller/ordenes/o1");
+    expect(await screen.findByText("El turno vinculado fue cancelado")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Vincular otro turno" }));
+    const dialogo = await screen.findByRole("dialog");
+    await user.click(await within(dialogo).findByRole("button", { name: "Vincular" }));
+    await waitFor(() => expect(cuerpo).toEqual({ bookingId: "bk2" }));
+  });
+
+  it("desvincular confirma y manda null; cancelar la orden aclara que el turno sigue", async () => {
+    let cuerpo: Record<string, unknown> | undefined;
+    server.use(
+      ...comunes(),
+      http.get(`${ORDENES}/:id`, () =>
+        HttpResponse.json(
+          makeFichaDeOrden({
+            status: "AGENDADO",
+            bookingId: "bk1",
+            scheduledFor: TURNO.startsAt,
+            turno: TURNO,
+          }),
+        ),
+      ),
+      http.patch(`${ORDENES}/:id`, async ({ request }) => {
+        cuerpo = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeFichaDeOrden());
+      }),
+    );
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderEn("/taller/ordenes/o1");
+    // Sin aviso: el turno sigue confirmado y en el mismo horario.
+    expect(await screen.findByText(/Service · Elevador 1/)).toBeInTheDocument();
+    expect(screen.queryByText("El turno vinculado fue cancelado")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Cancelar la orden" }));
+    const dialogo = await screen.findByRole("dialog");
+    expect(
+      within(dialogo).getByText(/sigue en la agenda: cancelalo desde ahí/),
+    ).toBeInTheDocument();
+    await user.click(within(dialogo).getByRole("button", { name: "No cancelar" }));
+
+    await user.click(screen.getByRole("button", { name: "Desvincular" }));
+    await waitFor(() => expect(cuerpo).toEqual({ bookingId: null }));
+    confirmar.mockRestore();
   });
 });
 

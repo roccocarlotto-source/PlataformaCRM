@@ -10,6 +10,7 @@ import {
   cambiarEstado,
   crearOrden,
   listarOrdenes,
+  listarTurnosVinculables,
   obtenerOrden,
   registrarAprobacion,
 } from "../services/ordenes.service";
@@ -76,6 +77,8 @@ export const crearOrdenSchema = z.object({
   damageNotes: texto(4000, "damageNotes"),
   amount: montoSchema.nullable().optional(),
   currency: currencySchema.nullable().optional(),
+  // El turno de la agenda (§4.4, S4b).
+  bookingId: z.string().uuid("bookingId inválido").optional(),
 });
 
 export const actualizarOrdenSchema = z
@@ -88,6 +91,8 @@ export const actualizarOrdenSchema = z
     amount: montoSchema.nullable(),
     currency: currencySchema.nullable(),
     jobTypeIds: tiposSchema,
+    // Vincular (id) o desvincular (null) el turno.
+    bookingId: z.string().uuid("bookingId inválido").nullable(),
   })
   .partial()
   .strict()
@@ -135,6 +140,7 @@ export const listarOrdenesQuerySchema = z.object({
   branchId: z.string().uuid("branchId inválido").optional(),
   assigneeId: z.string().uuid("assigneeId inválido").optional(),
   customerVehicleId: z.string().uuid("customerVehicleId inválido").optional(),
+  bookingId: z.string().uuid("bookingId inválido").optional(),
   desde: instanteSchema.optional(),
   hasta: instanteSchema.optional(),
   q: z.string().trim().min(1).max(100).optional(),
@@ -190,5 +196,21 @@ export const registrarAprobacionHandler = asyncHandler<AuthenticatedRequest>(
 export const listarUsuariosHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     res.status(200).json(await findUsuariosActivos(req.auth.organizationId));
+  },
+);
+
+const turnosQuerySchema = z.object({
+  contactId: z.string().uuid("contactId inválido"),
+});
+
+// GET /api/servicios/turnos?contactId=: los turnos que se pueden vincular a
+// una orden (§4.4). Bajo /api/servicios para no tocar /api/bookings, que es de
+// todas las organizaciones (§1.6).
+export const listarTurnosHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const { contactId } = parseOrThrow(turnosQuerySchema, req.query);
+    res
+      .status(200)
+      .json(await listarTurnosVinculables(req.auth.organizationId, req.auth, contactId));
   },
 );

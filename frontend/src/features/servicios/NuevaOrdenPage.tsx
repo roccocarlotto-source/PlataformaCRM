@@ -10,36 +10,106 @@ import { IntegerInput } from "../../design-system/IntegerInput";
 import { LoadingState } from "../../design-system/LoadingState";
 import { PageHeader } from "../../design-system/PageHeader";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { BranchSelect } from "../branch/BranchSelect";
+import type { Booking } from "../booking/types";
 import { AYUDA } from "../guia/anclas";
 import { EncargadoSelect, MonedaSelect, TiposDeLaOrden } from "./camposDeLaOrden";
 import { useMonedaPorDefecto } from "./monedaPorDefecto";
 import { aMonto, deInputLocal, descripcionDe, nombreDe } from "./formato";
 import { useCrearOrden } from "./mutations";
-import { useVehiculo, useVehiculos } from "./queries";
+import { useTurno, useVehiculo, useVehiculos } from "./queries";
 import { VEHICULO_EN_EL_TALLER, type VehiculoDeCliente } from "./types";
 
 // "Nueva orden" (docs/servicios.md §4.2): elegir el vehículo buscando por
 // matrícula (o crearlo si no está), y cargar sucursal, estado inicial (Agendado
 // con fecha, o Recibido con km), tipos, notas, encargado y valor. El cliente es
-// el dueño del vehículo. Acepta ?vehiculoId= (el botón de la ficha del vehículo).
+// el dueño del vehículo. Acepta ?vehiculoId= (el botón de la ficha del vehículo)
+// y ?turnoId= ("Crear orden de servicio" en el detalle de un turno, §4.4, S4b):
+// se elige entre los vehículos del cliente del turno, y la orden nace Agendada
+// para su horario, en su sucursal y vinculada a él.
 
 export function NuevaOrdenPage() {
   const [params] = useSearchParams();
   const desdeLaFicha = params.get("vehiculoId") ?? undefined;
+  const turnoId = params.get("turnoId") ?? undefined;
   const [elegido, setElegido] = useState<string | undefined>(desdeLaFicha);
   const vehiculo = useVehiculo(elegido);
+  const turno = useTurno(turnoId);
+
+  if (turnoId && turno.isLoading) return <LoadingState variant="lines" />;
+  if (turnoId && !turno.data) {
+    return <ErrorState>No pudimos cargar el turno.</ErrorState>;
+  }
 
   return (
     <div>
       <PageHeader help={AYUDA.nuevaOrden} title="Nueva orden" />
-      {!elegido ? <ElegirVehiculo onElegir={setElegido} /> : null}
+      {turno.data ? <TurnoDeLaOrdenNueva turno={turno.data} /> : null}
+      {!elegido ? (
+        turno.data ? (
+          <ElegirVehiculoDelCliente contactId={turno.data.contactId} onElegir={setElegido} />
+        ) : (
+          <ElegirVehiculo onElegir={setElegido} />
+        )
+      ) : null}
       {elegido && vehiculo.isLoading ? <LoadingState variant="lines" /> : null}
       {elegido && vehiculo.isError ? <ErrorState>No pudimos cargar el vehículo.</ErrorState> : null}
       {vehiculo.data ? (
-        <FormularioDeOrden vehiculo={vehiculo.data} onCambiar={() => setElegido(undefined)} />
+        <FormularioDeOrden
+          vehiculo={vehiculo.data}
+          turno={turno.data}
+          onCambiar={() => setElegido(undefined)}
+        />
       ) : null}
     </div>
+  );
+}
+
+/** El turno desde el que se crea la orden: de solo lectura. */
+function TurnoDeLaOrdenNueva({ turno }: { turno: Booking }) {
+  return (
+    <Card heading="Turno">
+      <p>{formatDateTime(turno.startsAt)}</p>
+      <p className="ds-hint">La orden queda Agendada para ese horario y vinculada al turno.</p>
+    </Card>
+  );
+}
+
+/** Con turno, el vehículo es uno del cliente del turno (o uno nuevo). */
+function ElegirVehiculoDelCliente({
+  contactId,
+  onElegir,
+}: {
+  contactId: string;
+  onElegir: (id: string) => void;
+}) {
+  const vehiculos = useVehiculos({ contactId, pageSize: 50 });
+  return (
+    <Card heading="Vehículo">
+      <div className="ds-stack">
+        {vehiculos.isLoading ? <LoadingState variant="lines" /> : null}
+        {vehiculos.isSuccess && vehiculos.data.data.length === 0 ? (
+          <p>El cliente del turno todavía no tiene vehículos cargados.</p>
+        ) : null}
+        {vehiculos.isSuccess && vehiculos.data.data.length > 0 ? (
+          <ul className="ds-stack">
+            {vehiculos.data.data.map((v) => (
+              <li key={v.id}>
+                <button type="button" className="ds-linklike" onClick={() => onElegir(v.id)}>
+                  {[v.licensePlate ?? "Sin matrícula", descripcionDe(v)].join(" · ")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <p>
+          <Link to={`/taller/vehiculos/nuevo?contactId=${contactId}`}>
+            Cargar un vehículo de este cliente
+          </Link>
+        </p>
+      </div>
+    </Card>
   );
 }
 
@@ -88,16 +158,21 @@ function ElegirVehiculo({ onElegir }: { onElegir: (id: string) => void }) {
 
 function FormularioDeOrden({
   vehiculo,
+  turno,
   onCambiar,
 }: {
   vehiculo: VehiculoDeCliente;
+  // Con turno: Agendada para su horario, en su sucursal y vinculada.
+  turno?: Booking;
   onCambiar: () => void;
 }) {
   const navigate = useNavigate();
   const crear = useCrearOrden();
   const { me } = useAuth();
-  const [sucursal, setSucursal] = useState<string | undefined>(vehiculo.branchId ?? undefined);
-  const [estado, setEstado] = useState<"AGENDADO" | "RECIBIDO">("RECIBIDO");
+  const [sucursal, setSucursal] = useState<string | undefined>(
+    turno?.branchId ?? vehiculo.branchId ?? undefined,
+  );
+  const [estado, setEstado] = useState<"AGENDADO" | "RECIBIDO">(turno ? "AGENDADO" : "RECIBIDO");
   const [fecha, setFecha] = useState("");
   const [km, setKm] = useState(vehiculo.mileage === null ? "" : String(vehiculo.mileage));
   const [danos, setDanos] = useState("");
@@ -118,7 +193,9 @@ function FormularioDeOrden({
     setError(null);
     setOcupada(null);
     if (!sucursal) return setError("Elegí la sucursal.");
-    if (estado === "AGENDADO" && !fecha) return setError("Elegí cuándo se espera el auto.");
+    if (estado === "AGENDADO" && !fecha && !turno) {
+      return setError("Elegí cuándo se espera el auto.");
+    }
     if (estado === "RECIBIDO" && km === "") return setError("Cargá los km al ingreso.");
     try {
       const amount = aMonto(monto);
@@ -127,8 +204,11 @@ function FormularioDeOrden({
         branchId: sucursal,
         estado,
         ...(estado === "AGENDADO"
-          ? { scheduledFor: deInputLocal(fecha) }
+          ? turno
+            ? {}
+            : { scheduledFor: deInputLocal(fecha) }
           : { mileageIn: Number(km), damageNotes: danos.trim() || null }),
+        ...(turno ? { bookingId: turno.id } : {}),
         jobTypeIds: tipos,
         assigneeId: encargado,
         notes: notas.trim() || null,
@@ -199,7 +279,11 @@ function FormularioDeOrden({
                 Agendado: viene más adelante
               </label>
             </fieldset>
-            {estado === "AGENDADO" ? (
+            {estado === "AGENDADO" && turno ? (
+              <FormField label="Cuándo se espera">
+                <span>{`${formatDateTime(turno.startsAt)} (el horario del turno)`}</span>
+              </FormField>
+            ) : estado === "AGENDADO" ? (
               <FormField label={<span className="ds-required">Cuándo se espera</span>}>
                 <input
                   type="datetime-local"
