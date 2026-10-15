@@ -19,8 +19,8 @@ import {
   textoParaFormato,
   type ConfigDraft,
 } from "./catalog";
-import { useRefreshWhatsappApproval } from "./mutations";
-import type { WhatsappApproval } from "./types";
+import { useRefreshWhatsappApproval, useRetryWhatsappTemplate } from "./mutations";
+import type { WhatsappApproval, WhatsappSync } from "./types";
 import {
   EJEMPLO_LINK,
   EJEMPLO_LUGAR_DEL_TALLER,
@@ -29,14 +29,62 @@ import {
   previewDePlantilla,
 } from "./whatsappPreview";
 
+// H-1: el día y la hora del próximo intento, en la hora del navegador.
+function cuando(iso: string): string {
+  return new Date(iso).toLocaleString("es-UY", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// H-1: el último intento de mandar el mensaje a aprobación falló. Si WhatsApp
+// no respondió, se reintenta solo; si lo rechazó, no. En los dos casos se
+// puede reintentar a mano.
+function SincronizacionDeWhatsapp({
+  sync,
+  automationId,
+}: {
+  sync: WhatsappSync;
+  automationId: string;
+}) {
+  const retry = useRetryWhatsappTemplate(automationId);
+  const texto =
+    sync.estado === "REINTENTANDO"
+      ? `No se pudo mandar a aprobación de WhatsApp: ${sync.motivo} Se reintenta solo${
+          sync.proximoIntento ? ` (próximo intento: ${cuando(sync.proximoIntento)})` : ""
+        }.`
+      : sync.estado === "DETENIDO"
+        ? `No se pudo mandar a aprobación de WhatsApp después de varios intentos: ${sync.motivo}`
+        : `WhatsApp rechazó el mensaje: ${sync.motivo} Revisá el texto y guardá la regla, o reintentá.`;
+  return (
+    <div className="ds-stack">
+      <ErrorState>{texto}</ErrorState>
+      <div>
+        <Button onClick={() => retry.mutate()} disabled={retry.isPending} loading={retry.isPending}>
+          Reintentar
+        </Button>
+      </div>
+      {retry.isError ? (
+        <ErrorState>
+          {retry.error instanceof Error ? retry.error.message : "No pudimos reintentar."}
+        </ErrorState>
+      ) : null}
+    </div>
+  );
+}
+
 // El estado de aprobación de WhatsApp de la regla: UNA línea, el de la versión
 // más nueva del mensaje. La plantilla de Meta no aparece por ningún lado: el
 // negocio solo necesita saber si ya puede salir.
 function AprobacionDeWhatsapp({
   approval,
+  sync,
   automationId,
 }: {
   approval: WhatsappApproval | null | undefined;
+  sync: WhatsappSync | null | undefined;
   automationId: string | undefined;
 }) {
   const refresh = useRefreshWhatsappApproval(automationId ?? "");
@@ -67,9 +115,10 @@ function AprobacionDeWhatsapp({
       {approval.estado === "RECHAZADA" ? (
         <p className="ds-hint">Cambiá el texto y guardá la regla para mandarlo de nuevo.</p>
       ) : null}
-      {approval.estado === "SIN_PLANTILLA" ? (
+      {approval.estado === "SIN_PLANTILLA" && !sync ? (
         <p className="ds-hint">Se manda a aprobar cuando guardes la regla.</p>
       ) : null}
+      {sync ? <SincronizacionDeWhatsapp sync={sync} automationId={automationId} /> : null}
       {approval.estado === "PENDIENTE" ? (
         <div>
           <Button
@@ -144,6 +193,7 @@ export function MensajeDeWhatsappCard({
   onChange,
   disabled,
   approval,
+  sync,
   automationId,
   esClinica = false,
   contacto,
@@ -153,6 +203,8 @@ export function MensajeDeWhatsappCard({
   onChange: (values: ConfigDraft) => void;
   disabled: boolean;
   approval: WhatsappApproval | null | undefined;
+  // H-1: el último intento de mandarlo a aprobación, si falló.
+  sync?: WhatsappSync | null;
   automationId: string | undefined;
   // R15: en una clínica, {prestacion} en lugar de {vehiculo}.
   esClinica?: boolean;
@@ -254,7 +306,7 @@ export function MensajeDeWhatsappCard({
         </div>
 
         <div className="ds-field-grid--full">
-          <AprobacionDeWhatsapp approval={approval} automationId={automationId} />
+          <AprobacionDeWhatsapp approval={approval} sync={sync} automationId={automationId} />
         </div>
       </div>
     </Card>

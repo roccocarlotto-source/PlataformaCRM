@@ -53,6 +53,14 @@ export function createAutomationRouter(deps?: DepsDeReglaConMensaje) {
     authorize("ADMIN"),
     handlers.refreshWhatsappApproval,
   );
+  // H-1: volver a mandar la plantilla a Meta ahora. ADMIN, misma razón.
+  router.post(
+    "/automations/:id/whatsapp-approval/retry",
+    authenticate,
+    businessWriteRateLimiter,
+    authorize("ADMIN"),
+    handlers.retryWhatsappTemplate,
+  );
 
   return router;
 }

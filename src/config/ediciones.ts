@@ -486,6 +486,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "PATCH /api/automations/:id",
     "DELETE /api/automations/:id",
     "POST /api/automations/:id/whatsapp-approval/refresh",
+    "POST /api/automations/:id/whatsapp-approval/retry",
   ],
   oportunidades: [
     "GET /api/opportunities",

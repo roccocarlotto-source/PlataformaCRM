@@ -188,6 +188,10 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   ),
   patron("waba-clinica-{etiqueta}-{ts}-{hex8}", `${S}whatsappWabaPorClinica.integration-test.ts`),
   patron(
+    "plantilla-reintento-automotora-{ts}-{hex8}",
+    `${S}whatsappTemplateReintento.integration-test.ts`,
+  ),
+  patron(
     "configuracion-de-sede-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/configuracionDeSede.integration-test.ts",
   ),

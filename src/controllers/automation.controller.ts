@@ -8,6 +8,7 @@ import {
   listarReglasConAprobacion,
   obtenerReglaConAprobacion,
   type DepsDeReglaConMensaje,
+  reintentarPlantillaDeLaRegla,
 } from "../services/automationWhatsapp.service";
 import { refreshAprobacionDeLaRegla } from "../services/whatsappTemplate.service";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -149,6 +150,13 @@ export function createAutomationHandlers(
         deps.plantillas,
       );
       res.status(200).json(aprobacion);
+    }),
+
+    // H-1: "Reintentar" — vuelve a mandar la plantilla de la regla a Meta
+    // ahora. Devuelve la regla con su estado (como guardar).
+    retryWhatsappTemplate: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const id = parseOrThrow(idParamSchema, req.params.id);
+      res.status(200).json(await reintentarPlantillaDeLaRegla(req.auth.organizationId, id, deps));
     }),
   };
 }

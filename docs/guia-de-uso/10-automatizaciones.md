@@ -276,8 +276,18 @@ guardar.
 
 > Si al guardar aparece "La regla se guardó, pero el mensaje no se pudo
 > mandar a aprobación de WhatsApp", la regla existe pero el mensaje no llegó
-> a WhatsApp (por ejemplo, por un problema de conexión o de configuración
-> del número). Leé el motivo y tocá **Guardar** de nuevo para reintentar.
+> a WhatsApp. La tarjeta **Mensaje de WhatsApp** dice por qué y qué pasa
+> después:
+>
+> - **WhatsApp no respondió** (un problema de conexión de su lado): **se
+>   reintenta solo**, primero a los 5 minutos y después cada vez más espaciado,
+>   hasta un día. La tarjeta muestra el próximo intento. Si después de eso
+>   sigue sin responder, queda el aviso para que lo reintentes vos.
+> - **WhatsApp rechazó el pedido** (por ejemplo, el texto no cumple sus
+>   reglas): no se reintenta solo, porque daría lo mismo. Revisá el texto y
+>   guardá la regla.
+>
+> En los dos casos, **Reintentar** lo vuelve a mandar en el momento.
 
 ### Horario de la sucursal
 

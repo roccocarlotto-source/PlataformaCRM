@@ -15,7 +15,7 @@ import { ProtectedRoute } from "../../auth/ProtectedRoute";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { AutomationFormPage } from "./AutomationFormPage";
 import { textoInicial } from "./catalog";
-import type { WhatsappApproval } from "./types";
+import type { WhatsappSync, WhatsappApproval } from "./types";
 import { edicionDeMe } from "../../test/edicionFixtures";
 
 vi.mock("../../auth/getAccessToken", () => ({
@@ -1083,6 +1083,99 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
     expect(
       await screen.findByRole("heading", { name: "Editar automatización" }),
     ).toBeInTheDocument();
+  });
+
+  // H-1: el último intento de mandar el mensaje a aprobación falló.
+  function servirConSincronizacion(whatsappSync: WhatsappSync) {
+    servirRegla(aprobacion({ estado: "SIN_PLANTILLA", bodyText: null, formato: null }));
+    server.use(
+      http.get(`${baseUrl}/a1`, () =>
+        HttpResponse.json({
+          ...makeAutomation({
+            id: "a1",
+            actionType: "opportunity.send_qr_followup",
+            actionConfig: { qrCodeId: QR, delayHours: 24, messageText: TEXTO_APROBADO },
+          }),
+          whatsappApproval: aprobacion({ estado: "SIN_PLANTILLA", bodyText: null, formato: null }),
+          whatsappSync,
+        }),
+      ),
+    );
+  }
+
+  it("WhatsApp no respondió: dice que se reintenta solo, y 'Reintentar' lo manda ahora", async () => {
+    servirConSincronizacion({
+      estado: "REINTENTANDO",
+      motivo: "No se pudo contactar a WhatsApp al mandar la plantilla a aprobación.",
+      proximoIntento: "2026-10-15T18:05:00.000Z",
+    });
+    let reintentos = 0;
+    server.use(
+      http.post(`${baseUrl}/a1/whatsapp-approval/retry`, () => {
+        reintentos++;
+        return HttpResponse.json({
+          ...makeAutomation({ id: "a1" }),
+          whatsappApproval: aprobacion({ estado: "PENDIENTE" }),
+          whatsappSync: null,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/a1/edit");
+
+    expect(await screen.findByText(/Se reintenta solo \(próximo intento:/)).toBeInTheDocument();
+    expect(
+      screen.queryByText("Se manda a aprobar cuando guardes la regla."),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reintentar" }));
+    await waitFor(() => expect(reintentos).toBe(1));
+  });
+
+  it("se acabaron los reintentos o WhatsApp lo rechazó: el motivo y 'Reintentar'", async () => {
+    servirConSincronizacion({
+      estado: "DETENIDO",
+      motivo: "No se pudo contactar a WhatsApp.",
+      proximoIntento: null,
+    });
+    renderForm("/automations/a1/edit");
+    expect(await screen.findByText(/después de varios intentos/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
+
+  it("rechazado por WhatsApp: qué hacer, y 'Reintentar'", async () => {
+    servirConSincronizacion({
+      estado: "RECHAZADO",
+      motivo: "Meta rechazó el pedido al mandar la plantilla a aprobación: texto inválido.",
+      proximoIntento: null,
+    });
+    renderForm("/automations/a1/edit");
+    expect(
+      await screen.findByText(/WhatsApp rechazó el mensaje: .*Revisá el texto/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
+
+  it("al guardar, si WhatsApp no respondió, avisa que se va a reintentar solo", async () => {
+    servirRegla(aprobacion());
+    server.use(
+      http.patch(`${baseUrl}/a1`, () =>
+        HttpResponse.json({
+          ...makeAutomation({ id: "a1" }),
+          whatsappApproval: aprobacion(),
+          whatsappSyncError: "No se pudo contactar a WhatsApp.",
+          whatsappSync: {
+            estado: "REINTENTANDO",
+            motivo: "No se pudo contactar a WhatsApp.",
+            proximoIntento: "2026-10-15T18:05:00.000Z",
+          },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/a1/edit");
+    await screen.findByLabelText("Texto del mensaje");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByText(/Se va a reintentar solo/)).toBeInTheDocument();
   });
 });
 

@@ -263,3 +263,64 @@ export async function upsertAutomationExecution(
     throw err;
   }
 }
+
+// ---------------------------------------------------------------------------
+// H-1: el estado del alta de la plantilla de WhatsApp de la regla
+// (services/whatsappTemplateReintento.ts)
+// ---------------------------------------------------------------------------
+
+const camposDeSincronizacion = {
+  templateSyncAttempts: true,
+  templateSyncNextAt: true,
+  templateSyncError: true,
+  templateSyncErrorKind: true,
+} satisfies Prisma.AutomationSelect;
+
+export function findEstadoDeSincronizacion(id: string, organizationId: string, db: Db = prisma) {
+  return db.automation.findFirst({
+    where: { id, organizationId, deletedAt: null },
+    select: camposDeSincronizacion,
+  });
+}
+
+export function updateEstadoDeSincronizacion(
+  id: string,
+  organizationId: string,
+  data: Prisma.AutomationUncheckedUpdateManyInput,
+  db: Db = prisma,
+) {
+  return db.automation.updateMany({ where: { id, organizationId, deletedAt: null }, data });
+}
+
+/** Las reglas cuyo reintento ya venció, de todas las organizaciones (el
+ *  worker corre sin tenant). */
+export function findReglasParaReintentar(ahora: Date, limite: number, db: Db = prisma) {
+  return db.automation.findMany({
+    where: { templateSyncNextAt: { lte: ahora }, deletedAt: null },
+    select: {
+      id: true,
+      organizationId: true,
+      actionType: true,
+      actionConfig: true,
+      templateSyncNextAt: true,
+    },
+    orderBy: { templateSyncNextAt: "asc" },
+    take: limite,
+  });
+}
+
+/** Reclama el reintento: corre el próximo intento a `hasta` solo si nadie lo
+ *  tocó desde la lectura. Dos instancias del worker no reintentan la misma
+ *  regla a la vez. */
+export async function reclamarReintento(
+  id: string,
+  leido: Date,
+  hasta: Date,
+  db: Db = prisma,
+): Promise<boolean> {
+  const r = await db.automation.updateMany({
+    where: { id, templateSyncNextAt: leido, deletedAt: null },
+    data: { templateSyncNextAt: hasta },
+  });
+  return r.count === 1;
+}
