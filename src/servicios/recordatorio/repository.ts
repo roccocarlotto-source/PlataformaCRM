@@ -302,6 +302,8 @@ export function leerAvisoParaLaTarea(organizationId: string, noticeId: string, d
     where: { id: noticeId, organizationId },
     select: {
       id: true,
+      // El vencimiento de la tarea es el fin del día en su zona.
+      organization: { select: { timezone: true } },
       customerVehicle: {
         select: {
           id: true,

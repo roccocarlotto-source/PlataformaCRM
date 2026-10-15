@@ -395,6 +395,10 @@ test("sin WhatsApp y con el marketing apagado: se cancela y va la tarea al encar
   assert.equal(tarea.assigneeId, taller.authIds[0]);
   assert.equal(tarea.contactId, sinTelefono.id);
   assert.match(tarea.subject, /^Llamar a Ana Prueba por el service de su Volkswagen Gol/);
+  // No nace vencida: vence al final del día de la organización (Montevideo),
+  // no en el instante en que empezó la pasada.
+  assert.equal(tarea.dueDate?.toISOString(), "2030-01-15T02:59:59.999Z");
+  assert.ok(tarea.dueDate! > tarea.createdAt);
 
   // El marketing apagado (131050) es lo mismo.
   await limpiar(taller);

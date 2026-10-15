@@ -121,7 +121,8 @@ administrador más antiguo.
 
 - **Título de la tarea**: por ejemplo, "Llamar para coordinar la entrega".
 - **Vence en (días)**: contados desde que se dispara la regla, de 0 a 365.
-  Con 0 vence el mismo día.
+  Con 0 vence el mismo día. Con **Próximo service**, vence al final de ese
+  día (hora de la organización).
 - **Notas** (opcional): quedan en el campo **Notas** de la tarea.
 
 ### Redactar seguimiento con IA
@@ -200,8 +201,8 @@ el cliente no tiene teléfono, si la organización no tiene un número de
 WhatsApp conectado, si el mensaje todavía no está aprobado o si el cliente
 desactivó los mensajes de promociones en WhatsApp, el mensaje no sale y se
 crea la tarea "Llamar a … por el service de su …" para quien corresponda
-(igual que en **Crear actividad de seguimiento**). Sin la casilla, no pasa
-nada más.
+(igual que en **Crear actividad de seguimiento**), que vence al final del día
+en que se crea. Sin la casilla, no pasa nada más.
 
 ## Mensaje de WhatsApp {#mensaje-de-whatsapp}
 
