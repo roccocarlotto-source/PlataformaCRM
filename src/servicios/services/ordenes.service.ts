@@ -1,3 +1,4 @@
+import { emitirEventosDeLaOrden } from "../eventosDeLaOrden/emitir";
 import { Prisma, type ServiceOrderStatus } from "@prisma/client";
 import { OPCIONES_DE_TRANSACCION_LARGA, prisma } from "../../lib/prisma";
 import { DASHBOARD_DEFAULT_CURRENCY } from "../../services/opportunity.service";
@@ -471,6 +472,20 @@ export async function crearOrden(organizationId: string, userId: string, input: 
         },
         tx,
       );
+      // S8: nacer en un estado es entrar a él (decisión de Rocco, 2026-10-15).
+      await emitirEventosDeLaOrden(
+        {
+          organizationId,
+          serviceOrderId: creada.id,
+          customerVehicleId: vehiculo.id,
+          contactId,
+          branchId,
+          from: null,
+          to: input.estado,
+          ahora,
+        },
+        tx,
+      );
       await setJobTypes(organizationId, creada.id, tipos, tx, { esNueva: true });
       if (input.estado === "RECIBIDO" && input.mileageIn != null) {
         await actualizarKmDelVehiculo(organizationId, vehiculo.id, input.mileageIn, tx);
@@ -593,6 +608,20 @@ export async function cambiarEstado(
           toStatus: hacia,
           changedById: userId,
           note: input.nota ?? null,
+        },
+        tx,
+      );
+      // S8: en la misma transacción. Si algo de abajo falla, no queda evento.
+      await emitirEventosDeLaOrden(
+        {
+          organizationId,
+          serviceOrderId: id,
+          customerVehicleId: actual.customerVehicleId,
+          contactId: actual.contactId,
+          branchId: actual.branchId,
+          from: desde,
+          to: hacia,
+          ahora,
         },
         tx,
       );

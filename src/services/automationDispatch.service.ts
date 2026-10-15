@@ -11,7 +11,11 @@ import {
   registroDeAcciones as registroPorDefecto,
   type RegistroDeAcciones,
 } from "./automationActions";
-import { TRIGGERS_DIRIGIDOS_A_UNA_REGLA } from "./automationTriggers";
+import {
+  FILTRO_DE_LA_REGLA,
+  TRIGGERS_DIRIGIDOS_A_UNA_REGLA,
+  type TriggerType,
+} from "./automationTriggers";
 import type { EventoAEntregar } from "./outboxHandlers";
 import { findEdicionYRubro } from "../repositories/organization.repository";
 
@@ -150,11 +154,16 @@ export async function despacharAutomatizaciones(
 
   const todas = await findActiveAutomationsByTrigger(evento.organizationId, triggerType);
   // Un trigger dirigido (S7) corre solo la regla que produjo el evento.
-  const automatizaciones = (TRIGGERS_DIRIGIDOS_A_UNA_REGLA as readonly string[]).includes(
-    triggerType,
-  )
+  const dirigidas = (TRIGGERS_DIRIGIDOS_A_UNA_REGLA as readonly string[]).includes(triggerType)
     ? todas.filter((automation) => automation.id === reglaDelEvento(evento.payload))
     : todas;
+  // S8: un trigger con condición por regla (FILTRO_DE_LA_REGLA) corre solo las
+  // reglas que la cumplen. Una regla que no la cumple no corre ni deja marca:
+  // ese evento no era para ella. Los triggers sin filtro, como siempre.
+  const filtro = FILTRO_DE_LA_REGLA[triggerType as TriggerType];
+  const automatizaciones = filtro
+    ? dirigidas.filter((automation) => filtro(automation.triggerConfig, evento.payload))
+    : dirigidas;
   if (automatizaciones.length === 0) {
     return;
   }

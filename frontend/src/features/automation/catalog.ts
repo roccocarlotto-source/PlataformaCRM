@@ -6,6 +6,8 @@ import {
 import type { BadgeVariant } from "../../design-system/Badge";
 import type { SelectOption } from "../../design-system/Select";
 import type { WhatsappApproval, WhatsappFormat } from "./types";
+import { ETIQUETA_DE_ESTADO } from "../servicios/formato";
+import type { EstadoDeOrden } from "../servicios/types";
 import {
   TOKEN_DIA,
   TOKEN_FECHA,
@@ -66,6 +68,9 @@ export const TRIGGER_BOOKING_REMINDER_DUE = "booking.reminder_due";
 export const TRIGGER_BOOKING_COMPLETED = "booking.completed";
 // S7 (docs/servicios.md §6): solo con el módulo Servicios.
 export const TRIGGER_SERVICE_NEXT_SERVICE_DUE = "service.next_service_due";
+// S8 (docs/servicios.md §9): los eventos de la orden, solo con el módulo.
+export const TRIGGER_SERVICE_ORDER_STATUS_CHANGED = "service_order.status_changed";
+export const TRIGGER_SERVICE_ORDER_DELIVERED = "service_order.delivered";
 
 export const TRIGGER_OPTIONS: SelectOption<string>[] = [
   {
@@ -114,6 +119,16 @@ export const TRIGGER_OPTIONS_DE_SERVICIOS: SelectOption<string>[] = [
     value: TRIGGER_SERVICE_NEXT_SERVICE_DUE,
     label: "Próximo service",
     subtitle: "Antes o después de la fecha de service de cada vehículo",
+  },
+  {
+    value: TRIGGER_SERVICE_ORDER_STATUS_CHANGED,
+    label: "Orden de servicio cambia de estado",
+    subtitle: "Cuando una orden pasa a alguno de los estados que elijas",
+  },
+  {
+    value: TRIGGER_SERVICE_ORDER_DELIVERED,
+    label: "Orden de servicio entregada",
+    subtitle: "Cuando se le entrega el auto al cliente",
   },
 ];
 
@@ -268,6 +283,9 @@ export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
   ],
   // S7: el recordatorio por WhatsApp o la tarea para llamar (§6.3).
   [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: [ACTION_SEND_NEXT_SERVICE_REMINDER, ACTION_CREATE_FOLLOW_UP],
+  // S8: la tarea de la orden (§9).
+  [TRIGGER_SERVICE_ORDER_STATUS_CHANGED]: [ACTION_CREATE_FOLLOW_UP],
+  [TRIGGER_SERVICE_ORDER_DELIVERED]: [ACTION_CREATE_FOLLOW_UP],
 };
 
 // La acción que se elige SOLA al pasar a ese evento, aunque la que estaba
@@ -1182,6 +1200,26 @@ const configDelProximoServiceTrigger: ConfigDeTrigger = {
   },
 };
 
+// S8: a qué estados pasa la orden. Espejo de configDelCambioDeEstadoSchema
+// (al menos uno, sin repetir). En el borrador, los estados separados por coma,
+// en el orden de la tabla.
+export const ESTADOS_DE_LA_ORDEN = Object.keys(ETIQUETA_DE_ESTADO) as EstadoDeOrden[];
+
+export function estadosDelBorrador(draft: Record<string, string>): EstadoDeOrden[] {
+  const elegidos = new Set((draft.estados ?? "").split(",").filter(Boolean));
+  return ESTADOS_DE_LA_ORDEN.filter((estado) => elegidos.has(estado));
+}
+
+const configDelCambioDeEstado: ConfigDeTrigger = {
+  draftVacio: () => ({ estados: "" }),
+  draftDesde: (config) => ({
+    estados: Array.isArray(config.toStatuses) ? config.toStatuses.join(",") : "",
+  }),
+  validar: (draft) =>
+    estadosDelBorrador(draft).length === 0 ? "Elegí al menos un estado de la orden." : null,
+  aPayload: (draft) => ({ toStatuses: estadosDelBorrador(draft) }),
+};
+
 export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
   [TRIGGER_OPPORTUNITY_WON]: configVacia,
   [TRIGGER_OPPORTUNITY_STALE]: configDeEstancada,
@@ -1191,6 +1229,8 @@ export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
   // R14: sin configuración propia (la demora es de cada acción).
   [TRIGGER_BOOKING_COMPLETED]: configVacia,
   [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: configDelProximoServiceTrigger,
+  [TRIGGER_SERVICE_ORDER_STATUS_CHANGED]: configDelCambioDeEstado,
+  [TRIGGER_SERVICE_ORDER_DELIVERED]: configVacia,
 };
 
 // El default del formulario: la PRIMERA entrada de cada catálogo, no un valor

@@ -90,6 +90,9 @@ describe("catálogo de triggers y acciones", () => {
       ],
       // S7: solo con el módulo Servicios.
       "service.next_service_due": ["service.send_next_service_reminder", ACTION_CREATE_FOLLOW_UP],
+      // S8: los eventos de la orden, solo con el módulo Servicios.
+      "service_order.status_changed": [ACTION_CREATE_FOLLOW_UP],
+      "service_order.delivered": [ACTION_CREATE_FOLLOW_UP],
     });
     // Un trigger que el espejo no conoce no restringe: decide el backend.
     expect(accionesParaTrigger("booking.reminder")).toEqual(ACTION_OPTIONS);
@@ -633,10 +636,29 @@ describe("después del turno (clínica)", () => {
 // S7 (docs/servicios.md §6): el próximo service, solo con el módulo Servicios.
 describe("próximo service (módulo Servicios)", () => {
   it("sin el módulo no se ve; con el módulo, al final, en las dos ediciones", () => {
+    const delTaller = [
+      "service.next_service_due",
+      "service_order.status_changed",
+      "service_order.delivered",
+    ];
     for (const simple of [false, true]) {
-      expect(triggerOptions(simple).map((o) => o.value)).not.toContain("service.next_service_due");
-      expect(triggerOptions(simple, false, true).at(-1)?.value).toBe("service.next_service_due");
+      // Sin el módulo, exactamente lo de antes (S8: §13.1).
+      expect(triggerOptions(simple).map((o) => o.value)).toEqual([
+        "opportunity.won",
+        "opportunity.stale",
+        "contact.inquiry_stalled",
+      ]);
+      expect(
+        triggerOptions(simple, false, true)
+          .map((o) => o.value)
+          .slice(-3),
+      ).toEqual(delTaller);
     }
+    expect(triggerOptions(false, true).map((o) => o.value)).toEqual([
+      "booking.reminder_due",
+      "booking.completed",
+      "contact.inquiry_stalled",
+    ]);
     expect(accionesParaTrigger("service.next_service_due").map((o) => o.value)).toEqual([
       "service.send_next_service_reminder",
       "activity.create_follow_up",
@@ -700,5 +722,28 @@ describe("próximo service (módulo Servicios)", () => {
     ).toBe(
       "Hola Ana, te escribimos de Automotores del Sur. El próximo service de tu Volkswagen Gol (ABC 1234) está previsto para el 15 de noviembre. Si querés agendarlo, respondé este mensaje y te damos un turno.",
     );
+  });
+});
+
+// S8 (docs/servicios.md §9): los eventos de la orden de servicio.
+describe("eventos de la orden (módulo Servicios)", () => {
+  it("rótulos y la acción de la tarea", () => {
+    expect(triggerLabel("service_order.status_changed")).toBe("Orden de servicio cambia de estado");
+    expect(triggerLabel("service_order.delivered")).toBe("Orden de servicio entregada");
+    for (const trigger of ["service_order.status_changed", "service_order.delivered"]) {
+      expect(accionesParaTrigger(trigger).map((o) => o.value)).toEqual([
+        "activity.create_follow_up",
+      ]);
+    }
+  });
+
+  it("cambia de estado: al menos un estado; se guardan en el orden de la tabla", () => {
+    const config = CONFIG_DE_TRIGGER["service_order.status_changed"];
+    expect(config.validar(config.draftVacio())).toBe("Elegí al menos un estado de la orden.");
+    const draft = { estados: "LISTO_PARA_RETIRAR,RECIBIDO" };
+    expect(config.validar(draft)).toBeNull();
+    expect(config.aPayload(draft)).toEqual({ toStatuses: ["RECIBIDO", "LISTO_PARA_RETIRAR"] });
+    expect(config.draftDesde({ toStatuses: ["ENTREGADO"] })).toEqual({ estados: "ENTREGADO" });
+    expect(CONFIG_DE_TRIGGER["service_order.delivered"].aPayload({})).toEqual({});
   });
 });

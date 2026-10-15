@@ -239,6 +239,10 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "src/servicios/vehiculosVendidos.integration-test.ts",
   ),
   patron(
+    "servicios-eventos-{etiqueta}-{ts}-{hex8}",
+    "src/servicios/eventosDeLaOrden.integration-test.ts",
+  ),
+  patron(
     "servicios-sin-modulo-{etiqueta}-{ts}-{hex8}",
     "src/servicios/sinElModuloSinCambios.integration-test.ts",
   ),

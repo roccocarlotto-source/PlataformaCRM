@@ -87,6 +87,8 @@ test("registrarAutomatizaciones deja un handler por trigger conocido y las accio
     TRIGGER_OPPORTUNITY_WON,
     // S7: el próximo service (lo emite el barrido del módulo Servicios).
     "service.next_service_due",
+    "service_order.delivered",
+    "service_order.status_changed",
   ]);
   assert.deepEqual(acciones.tiposRegistrados(), [
     "activity.create_follow_up",

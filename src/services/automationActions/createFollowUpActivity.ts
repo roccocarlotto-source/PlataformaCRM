@@ -9,9 +9,13 @@ import {
   TRIGGER_BOOKING_COMPLETED,
   TRIGGER_OPPORTUNITY_WON,
   TRIGGER_SERVICE_NEXT_SERVICE_DUE,
+  TRIGGER_SERVICE_ORDER_DELIVERED,
+  TRIGGER_SERVICE_ORDER_STATUS_CHANGED,
 } from "../automationTriggers";
 import { crearTareaDespuesDelTurno } from "../../clinicas/postTurno/tarea";
 import { crearTareaDelAviso } from "../../servicios/recordatorio/tarea";
+import { payloadDeLaOrdenSchema } from "../../servicios/eventosDeLaOrden/config";
+import { crearTareaDeLaOrden } from "../../servicios/eventosDeLaOrden/tarea";
 
 // ---------------------------------------------------------------------------
 // Acción `activity.create_follow_up` — la primera del catálogo
@@ -102,7 +106,17 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
   // clínica. El trigger es del módulo post_turno: una automotora no lo puede
   // elegir (MODULO_DEL_TRIGGER), así que para ella la acción es la de siempre.
   // La lógica del turno vive en src/clinicas/postTurno/tarea.ts.
-  triggers: [TRIGGER_OPPORTUNITY_WON, TRIGGER_BOOKING_COMPLETED, TRIGGER_SERVICE_NEXT_SERVICE_DUE],
+  //
+  // S8 (docs/servicios.md §9): los eventos de la orden de servicio, solo con
+  // el módulo Servicios (MODULO_DEL_TRIGGER). La tarea de la orden vive en
+  // src/servicios/eventosDeLaOrden/tarea.ts.
+  triggers: [
+    TRIGGER_OPPORTUNITY_WON,
+    TRIGGER_BOOKING_COMPLETED,
+    TRIGGER_SERVICE_NEXT_SERVICE_DUE,
+    TRIGGER_SERVICE_ORDER_STATUS_CHANGED,
+    TRIGGER_SERVICE_ORDER_DELIVERED,
+  ],
   async handler({ organizationId, automationId, config, payload }) {
     // El dispatcher ya validó `config` contra el schema de arriba; se vuelve a
     // parsear acá solo para recuperar el TIPO (config llega como
@@ -128,6 +142,19 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
         organizationId,
         automationId,
         noticeId,
+        subject,
+        daysUntilDue,
+        ...(notes === undefined ? {} : { notes }),
+      });
+      return;
+    }
+    // S8: la tarea de la orden de servicio, una por (regla, orden).
+    if (payload && typeof payload === "object" && "serviceOrderId" in payload) {
+      const { serviceOrderId } = payloadDeLaOrdenSchema.parse(payload);
+      await crearTareaDeLaOrden({
+        organizationId,
+        automationId,
+        serviceOrderId,
         subject,
         daysUntilDue,
         ...(notes === undefined ? {} : { notes }),

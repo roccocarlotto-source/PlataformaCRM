@@ -109,6 +109,27 @@ fecha (hasta 60 días antes o 90 después). Viene en 7 días antes.
 Admite las acciones **Mandar el recordatorio por WhatsApp** y **Crear
 actividad de seguimiento**.
 
+### Orden de servicio cambia de estado {#evento-orden-cambia-de-estado}
+
+Solo con el módulo Servicios (ver [Taller](/ayuda/servicios#estados)). Se
+dispara cuando una orden de servicio pasa a alguno de los estados que marques
+en **Cuando pasa a** (al menos uno). Por ejemplo, con **Listo para retirar**,
+para avisarle al cliente que puede pasar a buscar el auto.
+
+- También cuenta una orden que se crea directamente en ese estado: muchas
+  nacen en **Recibido**, con el cliente sin turno.
+- Cada regla crea una sola tarea por orden, aunque la orden vuelva a ese
+  estado (por ejemplo, a **En trabajo** después de la aprobación del cliente).
+
+Admite la acción **Crear actividad de seguimiento**.
+
+### Orden de servicio entregada {#evento-orden-entregada}
+
+Solo con el módulo Servicios. Se dispara cuando se entrega una orden de
+servicio (por ejemplo, para pedirle una reseña al cliente al día siguiente).
+No tiene nada que configurar. Admite la acción **Crear actividad de
+seguimiento**.
+
 ## Acciones {#acciones}
 
 ### Crear actividad de seguimiento
@@ -117,7 +138,8 @@ Crea una tarea para el dueño de la oportunidad, en
 [Actividades](/ayuda/actividades-y-agenda). Con **Próximo service**, la tarea
 es para llamar al cliente y va al encargado de la última orden del vehículo;
 si no hay, al responsable por defecto de la sucursal, y si tampoco, al
-administrador más antiguo.
+administrador más antiguo. Con los eventos de la orden de servicio, va al
+encargado de la orden, con la misma cadena si no tiene.
 
 - **Título de la tarea**: por ejemplo, "Llamar para coordinar la entrega".
 - **Vence en (días)**: contados desde que se dispara la regla, de 0 a 365.

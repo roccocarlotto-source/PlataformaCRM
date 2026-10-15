@@ -6,6 +6,12 @@ import {
   OFFSET_MINIMO,
   TRIGGER_NEXT_SERVICE_DUE as TRIGGER_DEL_PROXIMO_SERVICE,
 } from "../servicios/recordatorio/config";
+import {
+  TRIGGER_ORDEN_CAMBIA_DE_ESTADO,
+  TRIGGER_ORDEN_ENTREGADA,
+  configDelCambioDeEstadoSchema,
+  laReglaCorreConElCambio,
+} from "../servicios/eventosDeLaOrden/config";
 
 // ---------------------------------------------------------------------------
 // Catálogo de triggers del motor de automatizaciones
@@ -62,6 +68,12 @@ export const TRIGGER_BOOKING_COMPLETED = "booking.completed";
 // el barrido diario de src/servicios/recordatorio/barrido.ts, un evento por
 // (regla, vehículo, fecha).
 export const TRIGGER_SERVICE_NEXT_SERVICE_DUE = TRIGGER_DEL_PROXIMO_SERVICE;
+// S8 (docs/servicios.md §9): "Cuando una orden de servicio cambia de estado" y
+// "Cuando se entrega una orden de servicio", solo con el módulo Servicios. Dos
+// CAMBIOS, como opportunity.won: los emite el alta y el cambio de estado de la
+// orden (src/servicios/services/ordenes.service.ts) en su transacción.
+export const TRIGGER_SERVICE_ORDER_STATUS_CHANGED = TRIGGER_ORDEN_CAMBIA_DE_ESTADO;
+export const TRIGGER_SERVICE_ORDER_DELIVERED = TRIGGER_ORDEN_ENTREGADA;
 
 export const TRIGGERS_CONOCIDOS = [
   TRIGGER_OPPORTUNITY_WON,
@@ -70,6 +82,8 @@ export const TRIGGERS_CONOCIDOS = [
   TRIGGER_BOOKING_REMINDER_DUE,
   TRIGGER_BOOKING_COMPLETED,
   TRIGGER_SERVICE_NEXT_SERVICE_DUE,
+  TRIGGER_SERVICE_ORDER_STATUS_CHANGED,
+  TRIGGER_SERVICE_ORDER_DELIVERED,
 ] as const;
 
 export type TriggerType = (typeof TRIGGERS_CONOCIDOS)[number];
@@ -167,6 +181,9 @@ export const CONFIG_DE_TRIGGER: Record<TriggerType, EsquemaDeTrigger> = {
   // R14: sin configuración propia (la demora es de cada acción).
   [TRIGGER_BOOKING_COMPLETED]: z.object({}),
   [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: configDelProximoServiceSchema,
+  // S8: a qué estados (toStatuses). La entrega no tiene nada que configurar.
+  [TRIGGER_SERVICE_ORDER_STATUS_CHANGED]: configDelCambioDeEstadoSchema,
+  [TRIGGER_SERVICE_ORDER_DELIVERED]: z.object({}),
 };
 
 /** El módulo que necesita un trigger (R13). Sin entrada: lo tiene cualquiera
@@ -181,6 +198,33 @@ export const MODULO_DEL_TRIGGER: Readonly<Partial<Record<TriggerType, Modulo>>> 
   [TRIGGER_BOOKING_COMPLETED]: "post_turno",
   // S7: el taller (docs/servicios.md §1).
   [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: "servicios",
+  // S8.
+  [TRIGGER_SERVICE_ORDER_STATUS_CHANGED]: "servicios",
+  [TRIGGER_SERVICE_ORDER_DELIVERED]: "servicios",
+};
+
+/** Los triggers que una organización puede usar con estos módulos: los que no
+ *  piden módulo, más los de sus módulos. Pura: la usa el CRUD de reglas y la
+ *  fija el test de "sin el módulo, sin cambios". */
+export function triggersParaLosModulos(modulos: ReadonlySet<Modulo>): readonly TriggerType[] {
+  return TRIGGERS_CONOCIDOS.filter((t) => {
+    const modulo = MODULO_DEL_TRIGGER[t];
+    return modulo === undefined || modulos.has(modulo);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Filtro de la regla (S8)
+//
+// Un trigger con condición POR REGLA sobre el evento: el dispatcher corre solo
+// las reglas activas cuyo filtro da true. "Cambia de estado" la tiene (los
+// estados destino de cada regla). Un trigger sin entrada corre todas sus reglas,
+// como siempre: los de antes de S8 no tienen ninguna.
+// ---------------------------------------------------------------------------
+export const FILTRO_DE_LA_REGLA: Readonly<
+  Partial<Record<TriggerType, (config: unknown, payload: unknown) => boolean>>
+> = {
+  [TRIGGER_SERVICE_ORDER_STATUS_CHANGED]: laReglaCorreConElCambio,
 };
 
 // ---------------------------------------------------------------------------

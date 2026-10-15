@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { modulosDe } from "../config/ediciones";
 import {
   accionAdmiteTrigger,
   crearRegistroDeAcciones,
@@ -25,6 +26,8 @@ import {
   configDeOportunidadEstancadaSchema,
   configDeOportunidadGanadaSchema,
   esTriggerConocido,
+  FILTRO_DE_LA_REGLA,
+  triggersParaLosModulos,
 } from "./automationTriggers";
 
 // ---------------------------------------------------------------------------
@@ -80,7 +83,7 @@ test("dos registros creados con la factory no comparten estado", () => {
 // Catálogo de triggers
 // ---------------------------------------------------------------------------
 
-test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunity.stale, contact.inquiry_stalled, booking.reminder_due (R13), booking.completed (R14) y service.next_service_due (S7), los dos de clínicas y el del taller con su módulo", () => {
+test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunity.stale, contact.inquiry_stalled, booking.reminder_due (R13), booking.completed (R14), service.next_service_due (S7) y los dos de la orden (S8), los de clínicas y los del taller con su módulo", () => {
   assert.deepEqual(
     [...TRIGGERS_CONOCIDOS],
     [
@@ -90,6 +93,8 @@ test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunit
       "booking.reminder_due",
       "booking.completed",
       "service.next_service_due",
+      "service_order.status_changed",
+      "service_order.delivered",
     ],
   );
   assert.deepEqual(MODULO_DEL_TRIGGER, {
@@ -98,7 +103,11 @@ test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunit
     "booking.reminder_due": "recordatorios_de_turno",
     "booking.completed": "post_turno",
     "service.next_service_due": "servicios",
+    "service_order.status_changed": "servicios",
+    "service_order.delivered": "servicios",
   });
+  // S8: el único trigger con condición por regla (los estados destino).
+  assert.deepEqual(Object.keys(FILTRO_DE_LA_REGLA), ["service_order.status_changed"]);
   // S7: el único trigger dirigido (el evento lleva la regla).
   assert.deepEqual(TRIGGERS_DIRIGIDOS_A_UNA_REGLA, ["service.next_service_due"]);
   assert.equal(esTriggerConocido("opportunity.won"), true);
@@ -333,4 +342,26 @@ test("payloadComoObjeto acepta un objeto plano y rechaza null, arrays y escalare
   for (const payload of [null, [], "texto", 42, undefined]) {
     assert.throws(() => payloadComoObjeto(payload), /no es un objeto JSON/);
   }
+});
+
+// S8 (docs/servicios.md §13.1): sin el módulo Servicios, lo que se le ofrece a
+// cada organización es EXACTAMENTE lo de antes del módulo. Lista escrita a
+// mano a propósito: un cambio de catálogo que le sume algo a quien no tiene el
+// módulo tiene que romper acá.
+test("sin el módulo Servicios, los triggers de cada organización son los de antes del módulo", () => {
+  const deAntes = ["opportunity.won", "opportunity.stale", "contact.inquiry_stalled"];
+  assert.deepEqual(triggersParaLosModulos(modulosDe("COMPLETA", "AUTOMOTORA")), deAntes);
+  assert.deepEqual(triggersParaLosModulos(modulosDe("ESENCIAL", "AUTOMOTORA")), deAntes);
+  assert.deepEqual(triggersParaLosModulos(modulosDe("COMPLETA", "CLINICA")), [
+    "contact.inquiry_stalled",
+    "booking.reminder_due",
+    "booking.completed",
+  ]);
+  // Con el módulo: los de antes más los tres del taller.
+  assert.deepEqual(triggersParaLosModulos(modulosDe("COMPLETA", "AUTOMOTORA", ["servicios"])), [
+    ...deAntes,
+    "service.next_service_due",
+    "service_order.status_changed",
+    "service_order.delivered",
+  ]);
 });

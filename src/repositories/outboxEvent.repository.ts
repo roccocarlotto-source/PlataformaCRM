@@ -47,6 +47,18 @@ export function emitOutboxEvent(input: EmitOutboxEventInput, tx: Prisma.Transact
   });
 }
 
+/** Varios eventos del mismo cambio en UN solo INSERT (S8: la entrega emite
+ *  status_changed y delivered). Mismos defaults que emitOutboxEvent. */
+export function emitOutboxEvents(inputs: EmitOutboxEventInput[], tx: Prisma.TransactionClient) {
+  return tx.outboxEvent.createMany({
+    data: inputs.map((input) => ({
+      organizationId: input.organizationId,
+      eventType: input.eventType,
+      payload: input.payload,
+    })),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // RECLAMO
 // ---------------------------------------------------------------------------
