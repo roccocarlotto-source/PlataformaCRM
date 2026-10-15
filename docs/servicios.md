@@ -888,6 +888,35 @@ where o.status = 'WON' and o.vehicle_id is not null and o.contact_id is not null
 - **Un botón manual "Pasar a cliente":** depende de que alguien se acuerde, que
   es justo el problema que el módulo viene a resolver.
 
+**Cómo quedó en S10** (`src/servicios/vehiculosVendidos/`), con lo que se
+decidió al implementarlo:
+
+- **Orden de la pasada:** permutas, ventas revertidas y ventas nuevas. Las
+  permutas van primero: si el auto que entró al stock se vende en la misma
+  ventana, el vehículo del dueño anterior ya terminó y el del nuevo se crea sin
+  chocar con la matrícula.
+- **El vehículo existente se busca por matrícula O chasis** (Rocco, 15/10). Si
+  es de **otro** contacto, no se toca y queda como conflicto para una persona:
+  el registro de cambios exige un usuario salvo en una permuta.
+- **Una venta se convierte una sola vez:** cuenta como convertida si tiene un
+  vehículo no borrado con su `source_opportunity_id`, aunque después haya
+  dejado de ser del cliente (si no, una permuta lo volvería a crear).
+- **Permuta, dos condiciones más que §2.2.1:** la unidad tiene que haber entrado
+  al stock **después** de que existía el vehículo del cliente (si no, la unidad
+  de una venta vieja del mismo auto, que sigue como vendida, terminaría el
+  vehículo del dueño nuevo), y no puede ser una unidad vendida a **ese** cliente
+  (es la venta registrada tarde, no una permuta). Con una orden abierta espera.
+- **Reversa:** solo si el vehículo sigue siendo del comprador. Se borra si lo
+  creó la venta (se cargó después de la oportunidad) y no tiene órdenes; si no,
+  queda sin el vínculo a la venta, con una nota en el contacto.
+- **Primer service:** `actual_close_date` es una fecha sin hora: se le suman
+  meses en UTC (`sumarMesesAUnaFecha`), no con `fechaDelProximoService`, que la
+  leería como instante en la zona y la correría al día anterior. La activación
+  sí es un instante: se compara su día en la zona de la organización.
+- **Los envíos pendientes** de un vehículo que se borra o termina no se cancelan
+  en el barrido: el worker del recordatorio revalida antes de mandar y los
+  cancela por "vehículo no vigente" (§6.3).
+
 ---
 
 ## 6. Recordatorio del próximo service

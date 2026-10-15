@@ -5,7 +5,11 @@ import { edicionesDisponibles, rubrosDisponibles } from "../config/ediciones";
 import { CODIGO_DE_PAIS } from "../lib/telefono";
 import { listActiveOrganizations } from "../repositories/organization.repository";
 import { DIAS_DE_LA_VISTA_DE_USO, gastoPorOrganizacion } from "../services/llmUsage.service";
-import { activarModulo, desactivarModulo } from "../services/organizationModules.service";
+import {
+  activarModulo,
+  desactivarModulo,
+  previaDeActivacion,
+} from "../services/organizationModules.service";
 import {
   cambiarEdicionDeOrganizacion,
   cambiarRubroDeOrganizacion,
@@ -143,6 +147,16 @@ export const desactivarModuloHandler = asyncHandler<AuthenticatedRequest>(
     const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
     const modulo = parseOrThrow(moduloSchema, req.params.modulo);
     res.status(200).json(await desactivarModulo(organizationId, modulo, req.auth.userId));
+  },
+);
+
+// Lo que va a pasar al activar (S10: cuántas ventas se convierten en vehículos
+// de clientes), para la confirmación. Solo lee.
+export const previaDeActivacionHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
+    const modulo = parseOrThrow(moduloSchema, req.params.modulo);
+    res.status(200).json(await previaDeActivacion(organizationId, modulo));
   },
 );
 

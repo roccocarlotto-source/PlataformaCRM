@@ -24,6 +24,7 @@ import { iniciarWorkerDeCierreAutomatico } from "./clinicas/workers/cierreAutoma
 import { iniciarWorkerDeRecordatorios } from "./clinicas/recordatorios/recordatorioWorker";
 import { iniciarBarridoDelProximoService } from "./servicios/recordatorio/barrido";
 import { iniciarWorkerDeMensajesDelTaller } from "./servicios/recordatorio/worker";
+import { iniciarBarridoDeVehiculosVendidos } from "./servicios/vehiculosVendidos/barrido";
 import { iniciarWorkerDeSincronizaciones } from "./workers/importSyncWorker";
 
 const server = app.listen(env.PORT, () => {
@@ -181,6 +182,14 @@ const detenerWorkerDeMensajesDelTaller = arrancarWorkers
   ? iniciarWorkerDeMensajesDelTaller()
   : sinWorker;
 
+// De la venta al vehículo del cliente (docs/servicios.md §5, S10): cada 15
+// minutos, en las organizaciones con el módulo Servicios, convierte las ventas
+// ganadas en vehículos de clientes, revierte las que dejaron de estar ganadas y
+// marca las permutas. Escribe datos de clientes reales: misma guarda.
+const detenerBarridoDeVehiculosVendidos = arrancarWorkers
+  ? iniciarBarridoDeVehiculosVendidos()
+  : sinWorker;
+
 // El apagado ordenado (M-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -213,6 +222,7 @@ const shutdown = crearShutdown({
       detenerWorkerDeCierreAutomatico(),
       detenerBarridoDelProximoService(),
       detenerWorkerDeMensajesDelTaller(),
+      detenerBarridoDeVehiculosVendidos(),
       detenerWorkerDeRecordatorios(),
       detenerWorkerDeSincronizaciones(),
       detenerWorkerDeCupones(),

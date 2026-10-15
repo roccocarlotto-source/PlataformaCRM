@@ -62,6 +62,19 @@ export function changeOrganizationEdition(
   );
 }
 
+// Lo que va a pasar al activar un módulo, para la confirmación. Servicios
+// (docs/servicios.md §5, S10): cuántas ventas ganadas se convierten en
+// vehículos de clientes.
+export function previaDeActivacion(
+  organizationId: string,
+  modulo: string,
+): Promise<{ organizationId: string; modulo: string; ventasAConvertir: number }> {
+  return request(
+    `/admin/organizations/${encodeURIComponent(organizationId)}/modulos/${encodeURIComponent(modulo)}/previa`,
+    { getAccessToken },
+  );
+}
+
 // Módulos activables (docs/servicios.md §1.5): activar y desactivar uno en
 // una organización. Idempotentes del lado del backend.
 export function activarModulo(

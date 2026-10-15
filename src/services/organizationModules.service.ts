@@ -11,6 +11,7 @@ import {
   reactivateOrganizationModule,
 } from "../repositories/organizationModule.repository";
 import { asegurarConfiguracionDelTaller } from "../servicios/repositories/workshopSettings.repository";
+import { contarVentasParaConvertir } from "../servicios/vehiculosVendidos/repository";
 import { AppError } from "../utils/AppError";
 import { vaciarContextosDeAuth } from "./auth.service";
 
@@ -120,4 +121,27 @@ export async function desactivarModulo(
   });
   if (cambio) deps.vaciarCacheDeAuth();
   return { organizationId, modulo, activo: false };
+}
+
+export interface PreviaDeActivacion {
+  organizationId: string;
+  modulo: Modulo;
+  // Servicios (docs/servicios.md §5, S10): las ventas ganadas que el barrido
+  // va a convertir en vehículos de clientes apenas se active. 0 en cualquier
+  // otro módulo.
+  ventasAConvertir: number;
+}
+
+/** Lo que va a pasar al activar, para la confirmación de Plataforma. Solo lee. */
+export async function previaDeActivacion(
+  organizationId: string,
+  moduloPedido: string,
+): Promise<PreviaDeActivacion> {
+  const modulo = exigirActivable(moduloPedido);
+  if (!(await rubroDeLaOrganizacionVigente(organizationId))) {
+    throw new AppError("Organización no encontrada", 404);
+  }
+  const ventasAConvertir =
+    modulo === "servicios" ? await contarVentasParaConvertir(organizationId) : 0;
+  return { organizationId, modulo, ventasAConvertir };
 }

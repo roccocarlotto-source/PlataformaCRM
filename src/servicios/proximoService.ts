@@ -40,3 +40,24 @@ export function proponerProximoService(
   const meses = mesesHastaElProximoService(intervalosDeLosTipos, porDefecto);
   return { meses, fecha: meses === null ? null : fechaDelProximoService(entrega, zona, meses) };
 }
+
+// ---------------------------------------------------------------------------
+// El primer service de un auto vendido (§6.1, S10). La fecha de la venta
+// (`opportunities.actual_close_date`) y la de compra son @db.Date: llegan como
+// medianoche UTC y NO son instantes. Pasarlas por fechaDelProximoService (que
+// lee un instante en la zona) las corre un día para atrás en cualquier zona al
+// oeste de UTC: 15/10 00:00Z es el 14/10 a las 21:00 en Montevideo.
+// ---------------------------------------------------------------------------
+
+/** Una fecha sin hora + N meses, sin pasar por zonas. Si el día no existe en
+ *  ese mes, el último día del mes (31/01 + 1 mes = 28 o 29/02). */
+export function sumarMesesAUnaFecha(fecha: Date, meses: number): Date {
+  return DateTime.fromJSDate(fecha, { zone: "utc" }).plus({ months: meses }).toJSDate();
+}
+
+/** El día calendario de un instante en la zona, como fecha sin hora
+ *  (medianoche UTC), para compararlo con una @db.Date. */
+export function diaEnLaZona(instante: Date, zona: string): Date {
+  const dia = DateTime.fromJSDate(instante, { zone: zonaValidaOUtc(zona) }).toISODate() as string;
+  return new Date(`${dia}T00:00:00.000Z`);
+}

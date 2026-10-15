@@ -233,7 +233,10 @@ export async function createOwnerChange(
     endReason?: CustomerVehicleEndReason;
     previousPurchasedOn: Date | null;
     note?: string | null;
-    changedById: string;
+    // null solo en una permuta (la detecta el barrido de ventas, no una
+    // persona): lo exige el CHECK de la tabla, junto con stockVehicleId.
+    changedById: string | null;
+    stockVehicleId?: string;
   },
   tx: Prisma.TransactionClient,
 ): Promise<void> {
