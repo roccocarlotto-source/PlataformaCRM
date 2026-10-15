@@ -152,6 +152,8 @@ export const MODULO_DE_ANCLA: Readonly<Record<string, string>> = {
   "stock#desde-una-permuta": "permutas",
   // S7: el próximo service (docs/servicios.md §6), solo con el módulo.
   "automatizaciones#evento-proximo-service": "servicios",
+  // S11: el bloque del taller en el inicio.
+  "primeros-pasos#dashboard-taller": "servicios",
   "automatizaciones#accion-proximo-service": "servicios",
   // S8: los eventos de la orden (docs/servicios.md §9).
   "automatizaciones#evento-orden-cambia-de-estado": "servicios",

@@ -295,3 +295,37 @@ export interface ConfiguracionDelTaller {
 /** Los 409 de la orden que la pantalla trata distinto. */
 export const VEHICULO_EN_EL_TALLER = "VEHICULO_EN_EL_TALLER";
 export const FALTA_REGISTRAR_LA_APROBACION = "FALTA_REGISTRAR_LA_APROBACION";
+
+// S11 (docs/servicios.md §4.7): el resumen del taller. Espejo de
+// ResumenDelTaller (src/servicios/services/dashboard.service.ts).
+export interface OrdenDelResumen {
+  id: string;
+  numero: string;
+  cliente: string;
+  vehiculo: string;
+  // Desde cuándo está en ese estado (instante ISO).
+  desde: string | null;
+}
+
+export interface VehiculoDelResumen {
+  id: string;
+  cliente: string;
+  vehiculo: string;
+  // "AAAA-MM-DD"
+  fecha: string;
+}
+
+export interface ListaDelResumen<T> {
+  total: number;
+  items: T[];
+}
+
+export interface ResumenDelTaller {
+  hoy: string;
+  enElTaller: { total: number; porEstado: Partial<Record<EstadoDeOrden, number>> };
+  listosParaRetirar: ListaDelResumen<OrdenDelResumen>;
+  esperandoAprobacion: ListaDelResumen<OrdenDelResumen>;
+  servicesVencidos: ListaDelResumen<VehiculoDelResumen>;
+  servicesEn30Dias: ListaDelResumen<VehiculoDelResumen>;
+  turnosCancelados: ListaDelResumen<OrdenDelResumen>;
+}

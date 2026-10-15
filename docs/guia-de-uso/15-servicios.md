@@ -8,13 +8,40 @@ Solo aparece si la organización tiene el módulo **Servicios** activado. Lo
 activa el equipo de la plataforma; si no lo ves en el menú, tu organización no
 lo tiene.
 
-Está en el menú **Taller**, con tres entradas: **Órdenes**, **Vehículos de
-clientes** y **Configuración**.
+Está en el menú **Taller**, con cuatro entradas: **Resumen**, **Órdenes**,
+**Vehículos de clientes** y **Configuración**.
 
 - Todos los usuarios ven, cargan y editan los vehículos de clientes y las
   órdenes, cambian su estado, registran aprobaciones y pueden cambiar el dueño
   de un vehículo.
 - Eliminar un vehículo y la **Configuración**: solo un administrador.
+
+## Resumen del taller {#resumen}
+
+En **Taller → Resumen** está lo que hay que mirar cada día. Arriba se puede
+elegir una **Sucursal** (o todas).
+
+- **Autos en el taller**: cuántas órdenes hay en Recibido, En trabajo y
+  Esperando aprobación.
+- **Listos para retirar**: las órdenes terminadas, desde la que espera hace más
+  tiempo.
+- **Esperando aprobación hace más de 24 h**: las que el cliente todavía no
+  respondió, para que no queden colgadas.
+- **Services vencidos**: los vehículos cuya fecha de próximo service ya pasó.
+  Es la lista para llamar.
+- **Services en los próximos 30 días**: los que vencen pronto.
+- **Agendados con el turno cancelado**: órdenes agendadas cuyo turno de la
+  agenda se canceló; revisalas.
+
+En las listas de services solo aparecen los vehículos que siguen siendo del
+cliente, sin una orden abierta y sin **No recordar**. "Hoy" es el día de la
+zona horaria de la organización.
+
+Cada lista muestra hasta 10, con un link a la orden o al vehículo. Si hay más,
+abajo dice **y N más**.
+
+En el [Dashboard](/ayuda/primeros-pasos#dashboard-taller) de inicio hay un
+bloque **Taller** con los tres primeros totales y un link a este resumen.
 
 ## Órdenes de servicio {#ordenes}
 

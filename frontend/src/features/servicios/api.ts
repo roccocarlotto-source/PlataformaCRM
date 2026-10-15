@@ -2,6 +2,7 @@ import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type { Booking } from "../booking/types";
 import type {
+  ResumenDelTaller,
   TurnoVinculable,
   ActualizarOrdenInput,
   AprobacionInput,
@@ -202,4 +203,13 @@ export function actualizarTipo(
 
 export function borrarTipo(id: string): Promise<void> {
   return request<void>(`/servicios/tipos/${id}`, { method: "DELETE", getAccessToken });
+}
+
+// S11: el resumen del taller (§4.7). Sin sucursal, todas las del usuario.
+export function obtenerResumenDelTaller(
+  branchId: string | undefined,
+  signal?: AbortSignal,
+): Promise<ResumenDelTaller> {
+  const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : "";
+  return request<ResumenDelTaller>(`/servicios/dashboard${query}`, { getAccessToken, signal });
 }

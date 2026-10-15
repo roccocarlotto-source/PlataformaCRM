@@ -165,6 +165,13 @@ Las tarjetas, de arriba hacia abajo:
 - **Acciones rápidas** (solo administradores): atajos a **Nueva empresa**,
   **Nuevo contacto**, **Nueva oportunidad** y **Nueva actividad**.
 
+### Taller {#dashboard-taller}
+
+Con el módulo Servicios, debajo del stock aparece el bloque **Taller**: cuántos
+autos hay en el taller, cuántos están listos para retirar y cuántas órdenes
+esperan la aprobación del cliente hace más de 24 horas. **Ver el resumen del
+taller** lleva a [Taller → Resumen](/ayuda/servicios#resumen), con las listas.
+
 ## El menú {#menu}
 
 El menú está en la columna de la izquierda. Arriba de todo, **Plataforma
