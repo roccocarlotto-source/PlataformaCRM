@@ -8,7 +8,7 @@ describe("PhoneNumber", () => {
     const wrapper = container.querySelector(".ds-phone");
     expect(wrapper).not.toBeNull();
     const groups = Array.from(wrapper!.children).map((child) => child.textContent);
-    expect(groups).toEqual(["+598", "990", "000", "04"]);
+    expect(groups).toEqual(["+598", "99", "000", "004"]);
     expect(wrapper!.textContent).toBe("+59899000004");
   });
 

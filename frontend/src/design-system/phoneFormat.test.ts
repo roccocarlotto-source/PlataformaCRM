@@ -2,8 +2,19 @@ import { describe, expect, it } from "vitest";
 import { formatPhoneGroups } from "./phoneFormat";
 
 describe("formatPhoneGroups", () => {
-  it("separa el +598 y agrupa de a 3 desde la izquierda, con el último grupo más corto", () => {
-    expect(formatPhoneGroups("+59899000004")).toEqual(["+598", "990", "000", "04"]);
+  it("celular uruguayo como se dicta: +598 99 777 778", () => {
+    expect(formatPhoneGroups("+59899777778")).toEqual(["+598", "99", "777", "778"]);
+    expect(formatPhoneGroups("+59891234567")).toEqual(["+598", "91", "234", "567"]);
+  });
+
+  it("fijo uruguayo de Montevideo y del interior: +598 2400 1234, +598 4372 1234", () => {
+    expect(formatPhoneGroups("+59824001234")).toEqual(["+598", "2400", "1234"]);
+    expect(formatPhoneGroups("+59843721234")).toEqual(["+598", "4372", "1234"]);
+  });
+
+  it("con otro largo u otro prefijo, separa el +598 y agrupa de a 3 desde la izquierda", () => {
+    expect(formatPhoneGroups("+598990000045")).toEqual(["+598", "990", "000", "045"]);
+    expect(formatPhoneGroups("+59880012345")).toEqual(["+598", "800", "123", "45"]);
   });
 
   it("deja un último grupo de 1 dígito o completo según el total", () => {
