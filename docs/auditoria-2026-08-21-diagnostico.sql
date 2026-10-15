@@ -295,7 +295,9 @@ from (
       ('organization_modules'), ('workshop_settings'), ('customer_vehicles'),
       ('customer_vehicle_owner_changes'), ('service_job_types'), ('service_orders'),
       ('service_order_status_changes'), ('service_order_approvals'),
-      ('service_order_job_types'), ('service_order_photos')
+      ('service_order_job_types'), ('service_order_photos'),
+      -- S6 (migración 20261119120000): el registro de avisos y la cola.
+      ('customer_vehicle_notices'), ('service_messages')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -449,7 +451,20 @@ from (
     ('service_job_types_name_vigente_key',
      'CREATE UNIQUE INDEX service_job_types_name_vigente_key ON public.service_job_types USING btree (organization_id, lower((name)::text)) WHERE (deleted_at IS NULL)'),
     ('service_orders_vehiculo_en_taller_key',
-     'CREATE UNIQUE INDEX service_orders_vehiculo_en_taller_key ON public.service_orders USING btree (organization_id, customer_vehicle_id) WHERE (status = ANY (ARRAY[''RECIBIDO''::"ServiceOrderStatus", ''EN_TRABAJO''::"ServiceOrderStatus", ''ESPERANDO_APROBACION''::"ServiceOrderStatus", ''LISTO_PARA_RETIRAR''::"ServiceOrderStatus"]))')
+     'CREATE UNIQUE INDEX service_orders_vehiculo_en_taller_key ON public.service_orders USING btree (organization_id, customer_vehicle_id) WHERE (status = ANY (ARRAY[''RECIBIDO''::"ServiceOrderStatus", ''EN_TRABAJO''::"ServiceOrderStatus", ''ESPERANDO_APROBACION''::"ServiceOrderStatus", ''LISTO_PARA_RETIRAR''::"ServiceOrderStatus"]))'),
+    -- S6 (migración 20261119120000): avisos, cola y tareas, idempotentes.
+    ('cv_notices_automatico_key',
+     'CREATE UNIQUE INDEX cv_notices_automatico_key ON public.customer_vehicle_notices USING btree (automation_id, customer_vehicle_id, kind, due_on) WHERE (source = ''AUTOMATICO''::"CustomerVehicleNoticeSource")'),
+    ('cv_notices_manual_key',
+     'CREATE UNIQUE INDEX cv_notices_manual_key ON public.customer_vehicle_notices USING btree (customer_vehicle_id, kind, due_on) WHERE (source = ''MANUAL''::"CustomerVehicleNoticeSource")'),
+    ('service_messages_vigente_key',
+     'CREATE UNIQUE INDEX service_messages_vigente_key ON public.service_messages USING btree (notice_id) WHERE (status = ANY (ARRAY[''PENDING''::"BookingMessageStatus", ''SENT''::"BookingMessageStatus"]))'),
+    ('service_messages_external_message_id_key',
+     'CREATE UNIQUE INDEX service_messages_external_message_id_key ON public.service_messages USING btree (external_message_id) WHERE (external_message_id IS NOT NULL)'),
+    ('activities_tarea_por_aviso_key',
+     'CREATE UNIQUE INDEX activities_tarea_por_aviso_key ON public.activities USING btree (source_notice_id) WHERE (source_notice_id IS NOT NULL)'),
+    ('activities_tarea_por_orden_key',
+     'CREATE UNIQUE INDEX activities_tarea_por_orden_key ON public.activities USING btree (source_automation_id, source_service_order_id) WHERE (source_service_order_id IS NOT NULL)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
@@ -711,7 +726,18 @@ from (
     ('workshop_settings_months_check', 'workshop_settings',
      'CHECK ((((default_next_service_months IS NULL) OR ((default_next_service_months >= 1) AND (default_next_service_months <= 60))) AND ((first_service_after_months IS NULL) OR ((first_service_after_months >= 1) AND (first_service_after_months <= 60)))))'),
     ('workshop_settings_next_order_number_check', 'workshop_settings',
-     'CHECK ((next_order_number >= 1))')
+     'CHECK ((next_order_number >= 1))'),
+    -- S6 (migración 20261119120000).
+    ('cv_notices_source_check', 'customer_vehicle_notices',
+     'CHECK ((((source = ''AUTOMATICO''::"CustomerVehicleNoticeSource") AND (automation_id IS NOT NULL) AND (created_by_id IS NULL)) OR ((source = ''MANUAL''::"CustomerVehicleNoticeSource") AND (automation_id IS NULL) AND (created_by_id IS NOT NULL))))'),
+    ('service_messages_kind_check', 'service_messages',
+     'CHECK (((kind <> ''NEXT_SERVICE''::"ServiceMessageKind") OR ((notice_id IS NOT NULL) AND (customer_vehicle_id IS NOT NULL) AND (due_key IS NOT NULL))))'),
+    ('service_messages_sent_check', 'service_messages',
+     'CHECK (((status <> ''SENT''::"BookingMessageStatus") OR (sent_at IS NOT NULL)))'),
+    ('service_messages_cancel_check', 'service_messages',
+     'CHECK (((status <> ''CANCELLED''::"BookingMessageStatus") OR (cancel_reason IS NOT NULL)))'),
+    ('service_messages_attempts_check', 'service_messages',
+     'CHECK ((attempts >= 0))')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -1399,7 +1425,19 @@ from (
     ('so_photos_order_fkey|service_order_photos(organization_id,service_order_id)->service_orders(organization_id,id)'),
     ('so_photos_uploaded_by_fkey|service_order_photos(organization_id,uploaded_by_id)->users(organization_id,id)'),
     ('so_status_changes_changed_by_fkey|service_order_status_changes(organization_id,changed_by_id)->users(organization_id,id)'),
-    ('so_status_changes_order_fkey|service_order_status_changes(organization_id,service_order_id)->service_orders(organization_id,id)')
+    ('so_status_changes_order_fkey|service_order_status_changes(organization_id,service_order_id)->service_orders(organization_id,id)'),
+    -- S6 (migración 20261119120000).
+    ('activities_source_notice_fkey|activities(organization_id,source_notice_id)->customer_vehicle_notices(organization_id,id)'),
+    ('activities_source_service_order_fkey|activities(organization_id,source_service_order_id)->service_orders(organization_id,id)'),
+    ('cv_notices_vehicle_fkey|customer_vehicle_notices(organization_id,customer_vehicle_id)->customer_vehicles(organization_id,id)'),
+    ('cv_notices_automation_fkey|customer_vehicle_notices(organization_id,automation_id)->automations(organization_id,id)'),
+    ('cv_notices_created_by_fkey|customer_vehicle_notices(organization_id,created_by_id)->users(organization_id,id)'),
+    ('service_messages_organization_id_automation_id_fkey|service_messages(organization_id,automation_id)->automations(organization_id,id)'),
+    ('service_messages_organization_id_notice_id_fkey|service_messages(organization_id,notice_id)->customer_vehicle_notices(organization_id,id)'),
+    ('service_messages_organization_id_customer_vehicle_id_fkey|service_messages(organization_id,customer_vehicle_id)->customer_vehicles(organization_id,id)'),
+    ('service_messages_organization_id_service_order_id_fkey|service_messages(organization_id,service_order_id)->service_orders(organization_id,id)'),
+    ('service_messages_organization_id_contact_id_fkey|service_messages(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('service_messages_organization_id_branch_id_fkey|service_messages(organization_id,branch_id)->branches(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
@@ -1483,7 +1521,10 @@ from (
     ('customer_vehicles_next_service_idx',
      'CREATE INDEX customer_vehicles_next_service_idx ON public.customer_vehicles USING btree (organization_id, next_service_due_on) WHERE ((deleted_at IS NULL) AND (ownership_ended_at IS NULL) AND (NOT reminders_opt_out) AND (next_service_due_on IS NOT NULL))'),
     ('customer_vehicles_purchased_on_idx',
-     'CREATE INDEX customer_vehicles_purchased_on_idx ON public.customer_vehicles USING btree (organization_id, purchased_on) WHERE ((deleted_at IS NULL) AND (ownership_ended_at IS NULL) AND (purchased_on IS NOT NULL))')
+     'CREATE INDEX customer_vehicles_purchased_on_idx ON public.customer_vehicles USING btree (organization_id, purchased_on) WHERE ((deleted_at IS NULL) AND (ownership_ended_at IS NULL) AND (purchased_on IS NOT NULL))'),
+    -- S6 (migración 20261119120000): el reclamo de la cola del módulo.
+    ('service_messages_claimable_idx',
+     'CREATE INDEX service_messages_claimable_idx ON public.service_messages USING btree (next_attempt_at) WHERE (status = ''PENDING''::"BookingMessageStatus")')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def

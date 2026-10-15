@@ -213,6 +213,8 @@ after(async () => {
     if (!id) continue;
     const where = { organizationId: id };
     await prisma.activity.deleteMany({ where });
+    await prisma.serviceMessage.deleteMany({ where });
+    await prisma.customerVehicleNotice.deleteMany({ where });
     await prisma.customerVehicleOwnerChange.deleteMany({ where });
     await prisma.serviceOrder.deleteMany({ where });
     await prisma.customerVehicle.deleteMany({ where });
@@ -381,6 +383,32 @@ async function colgarDeTodo(contactId: string) {
       createdById: admin.userId,
     },
   });
+  // S6 (§6.3): un recordatorio del próximo service en la cola del taller, con
+  // su aviso. El aviso no tiene contacto (sale del vehículo); el mensaje sí.
+  const dueOn = new Date("2027-01-14T00:00:00.000Z");
+  const aviso = await prisma.customerVehicleNotice.create({
+    data: {
+      organizationId: orgId,
+      customerVehicleId: vehiculo.id,
+      kind: "NEXT_SERVICE",
+      dueOn,
+      source: "AUTOMATICO",
+      automationId,
+    },
+  });
+  await prisma.serviceMessage.create({
+    data: {
+      organizationId: orgId,
+      kind: "NEXT_SERVICE",
+      automationId,
+      noticeId: aviso.id,
+      customerVehicleId: vehiculo.id,
+      contactId,
+      dueKey: dueOn,
+      scheduledFor: new Date(),
+      nextAttemptAt: new Date(),
+    },
+  });
   const otro = await contacto();
   await prisma.customerVehicleOwnerChange.create({
     data: {
@@ -423,6 +451,7 @@ async function contarDe(contactId: string) {
     qr_follow_ups: await prisma.qrFollowUp.count({ where: w }),
     customer_vehicles: await prisma.customerVehicle.count({ where: w }),
     service_orders: await prisma.serviceOrder.count({ where: w }),
+    service_messages: await prisma.serviceMessage.count({ where: w }),
     customer_vehicle_owner_changes_from: await prisma.customerVehicleOwnerChange.count({
       where: { organizationId: orgId, fromContactId: contactId },
     }),
@@ -487,6 +516,7 @@ test("se mueven TODAS las relaciones; el unido queda dado de baja con mergedInto
   assert.equal(vista.aMover.oportunidades, 1);
   assert.equal(vista.aMover.vehiculosDeCliente, 1);
   assert.equal(vista.aMover.ordenesDeServicio, 1);
+  assert.equal(vista.aMover.mensajesDelTaller, 1);
   assert.equal(vista.aMover.cambiosDeDueno, 2, "uno hacia el contacto y otro desde él");
 
   const res = await call("POST", `/api/contacts/${kept.id}/merge`, admin.accessToken, {

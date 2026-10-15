@@ -663,6 +663,16 @@ after(async () => {
   // Servicios (docs/servicios.md, S1): las hijas de la orden, la orden (que
   // cuelga del turno, la sucursal, el contacto y el usuario de B) y el
   // vehículo del cliente. El ciclo vehículo <-> orden no se arma en el test.
+  // S6: la cola y los avisos cuelgan del vehículo, la orden, la regla y el
+  // contacto; las tareas con aviso u orden, de esas dos.
+  await prisma.serviceMessage.deleteMany({ where: { organizationId: ambas } });
+  await prisma.activity.deleteMany({
+    where: {
+      organizationId: ambas,
+      OR: [{ sourceNoticeId: { not: null } }, { sourceServiceOrderId: { not: null } }],
+    },
+  });
+  await prisma.customerVehicleNotice.deleteMany({ where: { organizationId: ambas } });
   await prisma.serviceOrderPhoto.deleteMany({ where: { organizationId: ambas } });
   await prisma.serviceOrderJobType.deleteMany({ where: { organizationId: ambas } });
   await prisma.serviceOrderApproval.deleteMany({ where: { organizationId: ambas } });
@@ -674,7 +684,10 @@ after(async () => {
   await prisma.workshopSettings.deleteMany({ where: { organizationId: ambas } });
   await prisma.organizationModule.deleteMany({ where: { organizationId: ambas } });
   await prisma.automation.deleteMany({
-    where: { organizationId: ambas, triggerType: "booking.reminder_due" },
+    where: {
+      organizationId: ambas,
+      triggerType: { in: ["booking.reminder_due", "service.next_service_due"] },
+    },
   });
   await prisma.booking.deleteMany({ where: { organizationId: ambas } });
   // R6: los bloqueos cuelgan de Resource.
@@ -3254,6 +3267,159 @@ test("H-01 Servicios: una fila de A no puede apuntar al contacto, la sucursal, e
   const igual = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: ordenB.id } });
   assert.equal(igual.status, "AGENDADO");
   assert.equal(await prisma.serviceOrderJobType.count({ where: { serviceOrderId: ordenB.id } }), 0);
+});
+
+// S6 de docs/servicios.md (§6.3): el registro de avisos y la cola del módulo.
+// Una fila de A, válida en todo lo demás, no puede apuntar al vehículo, la
+// regla, el aviso, la orden, el contacto, la sucursal ni el usuario de B. Y una
+// tarea de A no puede salir de un aviso ni de una orden de B.
+test("H-01 CustomerVehicleNotice y ServiceMessage: una fila de A no puede apuntar a lo de B (FKs compuestas)", async () => {
+  const regla = (organizationId: string) =>
+    prisma.automation.create({
+      data: {
+        organizationId,
+        name: "Recordatorio del próximo service",
+        triggerType: "service.next_service_due",
+        actionType: "service.send_next_service_reminder",
+        actionConfig: {},
+        triggerConfig: {},
+      },
+    });
+  const vehiculo = (organizationId: string, contactId: string, branchId: string) =>
+    prisma.customerVehicle.create({
+      data: { organizationId, contactId, branchId, make: "Toyota", model: "Etios" },
+    });
+  const [reglaA, reglaB] = await Promise.all([regla(fx.orgA.id), regla(fx.orgB.id)]);
+  // El fixture no tiene sucursal en A: la del test.
+  const branchA = await prisma.branch.create({
+    data: { organizationId: fx.orgA.id, name: "H-01 S6 sucursal A" },
+  });
+  const [vehiculoA, vehiculoB] = await Promise.all([
+    vehiculo(fx.orgA.id, fx.contactA.id, branchA.id),
+    vehiculo(fx.orgB.id, fx.contactB.id, fx.branchB.id),
+  ]);
+  const dueOn = new Date("2027-01-14T00:00:00.000Z");
+  const aviso = (organizationId: string, customerVehicleId: string, automationId: string) =>
+    prisma.customerVehicleNotice.create({
+      data: {
+        organizationId,
+        customerVehicleId,
+        kind: "NEXT_SERVICE",
+        dueOn,
+        source: "AUTOMATICO",
+        automationId,
+      },
+    });
+  const avisoA = await aviso(fx.orgA.id, vehiculoA.id, reglaA.id);
+  const avisoB = await aviso(fx.orgB.id, vehiculoB.id, reglaB.id);
+  const ordenB = await prisma.serviceOrder.create({
+    data: {
+      organizationId: fx.orgB.id,
+      number: 900,
+      customerVehicleId: vehiculoB.id,
+      contactId: fx.contactB.id,
+      branchId: fx.branchB.id,
+      createdById: fx.userB.id,
+    },
+  });
+
+  // Un mensaje de A válido; cada caso cambia UN campo por el de B.
+  const mensajeDeA = {
+    organizationId: fx.orgA.id,
+    kind: "NEXT_SERVICE" as const,
+    automationId: reglaA.id,
+    noticeId: avisoA.id,
+    customerVehicleId: vehiculoA.id,
+    contactId: fx.contactA.id,
+    branchId: branchA.id,
+    dueKey: dueOn,
+    scheduledFor: new Date(),
+    nextAttemptAt: new Date(),
+  };
+  const deA = { organizationId: fx.orgA.id };
+  const rechazos: [string, () => Promise<unknown>][] = [
+    [
+      "customer_vehicle_notices -> customer_vehicles de B",
+      () => aviso(fx.orgA.id, vehiculoB.id, reglaA.id),
+    ],
+    [
+      "customer_vehicle_notices -> automations de B",
+      () => aviso(fx.orgA.id, vehiculoA.id, reglaB.id),
+    ],
+    [
+      "customer_vehicle_notices -> users de B (marca manual)",
+      () =>
+        prisma.customerVehicleNotice.create({
+          data: {
+            ...deA,
+            customerVehicleId: vehiculoA.id,
+            kind: "NEXT_SERVICE",
+            dueOn,
+            source: "MANUAL",
+            createdById: fx.userB.id,
+          },
+        }),
+    ],
+    [
+      "service_messages -> automations de B",
+      () => prisma.serviceMessage.create({ data: { ...mensajeDeA, automationId: reglaB.id } }),
+    ],
+    [
+      "service_messages -> customer_vehicle_notices de B",
+      () => prisma.serviceMessage.create({ data: { ...mensajeDeA, noticeId: avisoB.id } }),
+    ],
+    [
+      "service_messages -> customer_vehicles de B",
+      () =>
+        prisma.serviceMessage.create({ data: { ...mensajeDeA, customerVehicleId: vehiculoB.id } }),
+    ],
+    [
+      "service_messages -> service_orders de B",
+      () => prisma.serviceMessage.create({ data: { ...mensajeDeA, serviceOrderId: ordenB.id } }),
+    ],
+    [
+      "service_messages -> contacts de B",
+      () => prisma.serviceMessage.create({ data: { ...mensajeDeA, contactId: fx.contactB.id } }),
+    ],
+    [
+      "service_messages -> branches de B",
+      () => prisma.serviceMessage.create({ data: { ...mensajeDeA, branchId: fx.branchB.id } }),
+    ],
+    // El fixture no tiene usuario en A: la tarea es de B y apunta al aviso
+    // de A (el mismo cruce, al revés). source_service_order_id lo cubren las
+    // filas 14 y 16 (C-3) del diagnóstico.
+    [
+      "activities.source_notice_id -> customer_vehicle_notices de A (tarea de B)",
+      () =>
+        prisma.activity.create({
+          data: {
+            organizationId: fx.orgB.id,
+            type: "TASK",
+            authorId: fx.userB.id,
+            subject: "Llamar",
+            contactId: fx.contactB.id,
+            sourceNoticeId: avisoA.id,
+          },
+        }),
+    ],
+  ];
+  for (const [etiqueta, escribir] of rechazos) await assertViolaFk(escribir, etiqueta);
+
+  // Lo de A, completo y válido, sí entra; y A no ve lo de B.
+  const propio = await prisma.serviceMessage.create({ data: mensajeDeA });
+  assert.equal(propio.status, "PENDING");
+  assert.equal(
+    await prisma.customerVehicleNotice.count({
+      where: { organizationId: fx.orgA.id, id: avisoB.id },
+    }),
+    0,
+  );
+  assert.equal(
+    await prisma.serviceMessage.count({
+      where: { organizationId: fx.orgA.id, noticeId: avisoB.id },
+    }),
+    0,
+  );
 });
 
 test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {

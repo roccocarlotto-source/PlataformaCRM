@@ -157,6 +157,7 @@ export const ETIQUETA_DE_LO_QUE_SE_MUEVE: Record<string, string> = {
   recordatorios: "recordatorios de turno",
   vehiculosDeCliente: "vehículos del taller",
   ordenesDeServicio: "órdenes de servicio",
+  mensajesDelTaller: "mensajes del taller",
   cambiosDeDueno: "cambios de dueño de vehículos",
   eventos: "eventos de ingesta",
   identidades: "identidades de Messenger e Instagram",

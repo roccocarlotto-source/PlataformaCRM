@@ -124,3 +124,25 @@ test("S4b: el detalle de un turno responde lo mismo que antes del módulo, y la 
   const turnos = await pedir(automotora, "GET", `/api/servicios/turnos?contactId=${contacto.id}`);
   assert.equal(turnos.status, 403);
 });
+
+// S6 (§6.3): activities suma source_notice_id y source_service_order_id. Una
+// organización sin el módulo recibe la tarea con las claves de antes.
+test("S6: la tarea de una automotora sin el módulo no gana las columnas del taller", async () => {
+  const c = await prisma.contact.create({
+    data: { organizationId: automotora.id, firstName: "Tarea", lastName: "Igual" },
+  });
+  const r = await pedir(automotora, "POST", "/api/activities", {
+    type: "TASK",
+    subject: "Llamar",
+    contactId: c.id,
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  const claves = Object.keys(r.json);
+  assert.ok(!claves.includes("sourceNoticeId"), claves.join(","));
+  assert.ok(!claves.includes("sourceServiceOrderId"), claves.join(","));
+  const listado = await pedir(automotora, "GET", `/api/activities?contactId=${c.id}`);
+  assert.equal(listado.status, 200);
+  for (const fila of (listado.json as { data: Record<string, unknown>[] }).data) {
+    assert.ok(!("sourceNoticeId" in fila) && !("sourceServiceOrderId" in fila));
+  }
+});
