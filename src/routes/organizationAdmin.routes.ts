@@ -9,6 +9,7 @@ import {
   listIndustriesHandler,
   listLlmUsageHandler,
   listOrganizationsHandler,
+  previaDeActivacionHandler,
   reenviarInvitacionDelAdministradorHandler,
 } from "../controllers/organizationAdmin.controller";
 import {
@@ -104,6 +105,15 @@ organizationAdminRouter.delete(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   desactivarModuloHandler,
+);
+
+// Qué va a pasar al activar el módulo (S10, docs/servicios.md §5). Misma cadena.
+organizationAdminRouter.get(
+  "/admin/organizations/:organizationId/modulos/:modulo/previa",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  previaDeActivacionHandler,
 );
 
 // Rubros (docs/rubros.md §15, R3): los que se pueden elegir en el alta, y

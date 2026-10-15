@@ -129,11 +129,14 @@ ninguna edición: se activa por organización, en las dos ediciones, y solo en
 las automotoras.
 
 1. En la fila de una automotora, tocá **Activar Servicios**.
-2. Confirmá con **Activar**.
+2. La confirmación dice cuántos **vehículos de clientes** se van a crear a
+   partir de las ventas ganadas que ya tiene la organización (si tiene alguna).
+3. Confirmá con **Activar**.
 
 Arriba de la lista aparece *Servicios activado*, y en la columna **Módulos** se
-ve **Servicios**. Por ahora el módulo no agrega pantallas: las de Taller llegan
-en las próximas versiones.
+ve **Servicios**. Sus usuarios ven el menú **Taller** al volver a cargar la
+página, y en los minutos siguientes aparecen sus autos vendidos en **Taller →
+Vehículos de clientes**.
 
 Para sacarlo, tocá **Desactivar Servicios** y confirmá con **Desactivar**. Los
 usuarios de esa organización dejan de verlo enseguida, pero sus datos se

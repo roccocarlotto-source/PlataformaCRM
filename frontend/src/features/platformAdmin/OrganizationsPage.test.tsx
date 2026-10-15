@@ -361,6 +361,11 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
 // "Activar Servicios" / "Desactivar Servicios", solo en una AUTOMOTORA.
 describe("OrganizationsPage: módulos activables", () => {
   const moduloUrl = (id: string) => `${env.apiUrl}/api/admin/organizations/${id}/modulos/servicios`;
+  const previaUrl = (id: string) => `${moduloUrl(id)}/previa`;
+  const previa = (ventasAConvertir: number) =>
+    http.get(previaUrl("org-1"), () =>
+      HttpResponse.json({ organizationId: "org-1", modulo: "servicios", ventasAConvertir }),
+    );
   const CON_CLINICA: PlatformOrganization[] = [
     ...ORGS,
     {
@@ -376,6 +381,7 @@ describe("OrganizationsPage: módulos activables", () => {
   beforeEach(() => {
     server.use(
       http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+      previa(0),
     );
   });
 
@@ -424,9 +430,10 @@ describe("OrganizationsPage: módulos activables", () => {
     await user.click(
       within(await filaDe("Automotora Centro")).getByRole("button", { name: "Activar Servicios" }),
     );
-    expect(screen.getByRole("dialog")).toHaveTextContent(
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
       "¿Activar Servicios en «Automotora Centro»?",
     );
+    expect(screen.getByRole("dialog")).not.toHaveTextContent(/vehículos? de clientes?/);
     await user.click(screen.getByRole("button", { name: "Activar" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(
@@ -492,7 +499,49 @@ describe("OrganizationsPage: módulos activables", () => {
     await user.click(
       within(await filaDe("Automotora Centro")).getByRole("button", { name: "Activar Servicios" }),
     );
-    await user.click(screen.getByRole("button", { name: "Activar" }));
+    await user.click(await screen.findByRole("button", { name: "Activar" }));
     expect(await screen.findByText(/no está disponible para el rubro/)).toBeInTheDocument();
+  });
+
+  it("activar: la confirmación dice cuántas ventas se convierten en vehículos de clientes (S10)", async () => {
+    server.use(
+      http.get(listUrl, () => HttpResponse.json(CON_CLINICA)),
+      previa(3),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const boton = within(await filaDe("Automotora Centro")).getByRole("button", {
+      name: "Activar Servicios",
+    });
+    await user.click(boton);
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Se van a crear 3 vehículos de clientes a partir de ventas anteriores.",
+    );
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    server.use(previa(1));
+    await user.click(boton);
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Se va a crear 1 vehículo de cliente a partir de una venta anterior.",
+    );
+  });
+
+  it("activar: si la previa falla, confirma igual, sin el número", async () => {
+    server.use(
+      http.get(listUrl, () => HttpResponse.json(CON_CLINICA)),
+      http.get(previaUrl("org-1"), () =>
+        HttpResponse.json({ error: { message: "Error" } }, { status: 500 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(
+      within(await filaDe("Automotora Centro")).getByRole("button", { name: "Activar Servicios" }),
+    );
+    const dialogo = await screen.findByRole("dialog");
+    expect(dialogo).toHaveTextContent("¿Activar Servicios en «Automotora Centro»?");
+    expect(dialogo).not.toHaveTextContent(/vehículos? de clientes?/);
   });
 });

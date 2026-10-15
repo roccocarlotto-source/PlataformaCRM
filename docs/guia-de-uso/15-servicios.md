@@ -216,6 +216,27 @@ matrícula o ese chasis, el sistema no deja guardar y ofrece **Abrir el
 vehículo** que ya la tiene. Un vehículo que ya no es de un cliente no cuenta: el
 mismo auto puede volver a cargarse para su dueño nuevo.
 
+### Los autos que vende la concesionaria {#vehiculos-vendidos}
+
+No hace falta cargarlos: cada **venta ganada** con una unidad del
+[Stock](/ayuda/stock) y un contacto se convierte sola en un vehículo de ese
+cliente, en los 15 minutos siguientes. Lleva la marca, el modelo, el año, la
+matrícula, el chasis, los kilómetros y la sucursal de la unidad, y la **fecha
+de compra** es la de la venta. En su ficha, **Origen** dice **Vendido por
+nosotros**, con link a la oportunidad.
+
+- **Primer service**: las ventas desde que se activó el módulo nacen con el
+  próximo service a los meses de **Primer service de un auto vendido** (en
+  [Configuración](#configuracion)). Las ventas de antes entran sin fecha.
+- **Si el cliente ya traía el auto** (con esa matrícula o ese chasis), no se
+  crea otro: se le completan la venta y la fecha de compra, y no se le cambia
+  un próximo service que ya tenga.
+- **Si la matrícula o el chasis ya son de un vehículo de otro cliente**, no se
+  toca nada: revisalo y usá [Cambiar dueño](#cambiar-dueno) si corresponde.
+- **Si la venta deja de estar ganada** (se reabre, se pierde o se borra), el
+  vehículo se borra. Si ya tiene órdenes, o el cliente lo traía desde antes,
+  queda, y el contacto recibe una nota que lo explica.
+
 ## La ficha del vehículo {#ficha-del-vehiculo}
 
 Al abrir un vehículo se ve:
@@ -266,6 +287,14 @@ En los dos casos:
 
 No hay "deshacer": un cambio hecho por error se corrige con otro cambio, y el
 registro muestra los dos.
+
+**Parte de pago.** Cuando un auto con la matrícula o el chasis de un vehículo de
+cliente entra al [Stock](/ayuda/stock) (el cliente lo entregó como parte de
+pago), el vehículo pasa solo a **Ya no es del cliente**. El registro de cambios
+lo muestra como **Entró a nuestro stock (permuta)** y el contacto recibe una
+nota con la unidad. Si tiene una orden abierta, espera a que se entregue o se
+cancele. Si fue un error de carga (una matrícula equivocada en el stock), se
+corrige la matrícula y se vuelve a cargar el vehículo para su dueño.
 
 ### Eliminar un vehículo {#eliminar-vehiculo}
 

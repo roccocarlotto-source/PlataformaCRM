@@ -317,6 +317,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     // Módulos activables (docs/servicios.md §1.5): activar y desactivar.
     "PUT /api/admin/organizations/:organizationId/modulos/:modulo",
     "DELETE /api/admin/organizations/:organizationId/modulos/:modulo",
+    // S10: qué va a pasar al activar (las ventas que se convierten).
+    "GET /api/admin/organizations/:organizationId/modulos/:modulo/previa",
     // R19 (§12.1): la Clínica Demo con datos de ejemplo.
     "POST /api/admin/organizations/clinica-demo",
     // §12.3: reiniciar los datos de una Clínica Demo.

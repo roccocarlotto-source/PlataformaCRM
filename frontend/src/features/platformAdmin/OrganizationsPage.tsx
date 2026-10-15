@@ -11,6 +11,7 @@ import { PageHeader } from "../../design-system/PageHeader";
 import { Table } from "../../design-system/Table";
 import { useConfirm } from "../../design-system/useConfirm";
 import { CONFIRMACION_DEL_REINICIO, esClinicaDemo } from "./clinicaDemo";
+import { previaDeActivacion } from "./api";
 import { NOMBRE_DE_EDICION } from "./ediciones";
 import {
   useCambiarModulo,
@@ -40,8 +41,9 @@ import type { PlatformOrganization } from "./types";
 // "Módulos" (docs/servicios.md §1.5): los activables vigentes de cada
 // organización, y "Activar Servicios" / "Desactivar Servicios" con
 // confirmación. Activar solo se ofrece en una AUTOMOTORA: el backend responde
-// 400 a cualquier otro rubro. El conteo de ventas que se van a convertir en
-// vehículos de clientes llega con S10, no acá.
+// 400 a cualquier otro rubro. Antes de confirmar la activación se pide la
+// previa (S10): cuántas ventas ganadas se van a convertir en vehículos de
+// clientes. Si la previa falla, se confirma igual, sin el número.
 //
 // "Reiniciar datos de demo" (docs/rubros.md §12.3): solo en las filas de una
 // Clínica Demo (esClinicaDemo). Borra pacientes, turnos, conversaciones y
@@ -79,9 +81,23 @@ function ListaDeOrganizaciones() {
 
   async function cambiarServicios(org: PlatformOrganization, activo: boolean) {
     limpiarMensajes();
+    let ventas = "";
+    if (activo) {
+      try {
+        const { ventasAConvertir: n } = await previaDeActivacion(org.id, "servicios");
+        if (n > 0) {
+          ventas =
+            n === 1
+              ? " Se va a crear 1 vehículo de cliente a partir de una venta anterior."
+              : ` Se van a crear ${String(n)} vehículos de clientes a partir de ventas anteriores.`;
+        }
+      } catch {
+        // Sin la previa se confirma igual: el número es informativo.
+      }
+    }
     const ok = await confirm(
       activo
-        ? `¿Activar Servicios en «${org.name}»? Sus usuarios van a ver el módulo Taller cuando esté disponible. Se puede desactivar y los datos se conservan.`
+        ? `¿Activar Servicios en «${org.name}»? Sus usuarios van a ver el módulo Taller.${ventas} Se puede desactivar y los datos se conservan.`
         : `¿Desactivar Servicios en «${org.name}»? Sus usuarios dejan de verlo enseguida. Los datos se conservan y vuelven si se reactiva.`,
       { confirmLabel: activo ? "Activar" : "Desactivar", danger: !activo },
     );
