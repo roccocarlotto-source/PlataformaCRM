@@ -163,6 +163,8 @@ export interface CreateActivityData {
   sourceAutomationId?: string | null;
   // S7 (docs/servicios.md §6.3): el aviso del próximo service.
   sourceNoticeId?: string | null;
+  // S8 (docs/servicios.md §9): la orden de servicio que la originó.
+  sourceServiceOrderId?: string | null;
 }
 
 export function createActivity(data: CreateActivityData, db: Db = prisma) {

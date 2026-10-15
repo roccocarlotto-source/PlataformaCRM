@@ -68,6 +68,12 @@ entregó por error, se corrige el próximo service en la ficha del vehículo.
 Si dos personas mueven la misma orden a la vez, la segunda ve el aviso "La
 orden cambió de estado mientras tanto": hay que volver a abrirla.
 
+**Tareas automáticas por estado.** En
+[Automatizaciones](/ayuda/automatizaciones#evento-orden-cambia-de-estado) se
+puede pedir una tarea cuando una orden pasa a un estado (por ejemplo, "Avisarle
+al cliente que el auto está listo" al pasar a **Listo para retirar**) o cuando
+se entrega. Va al encargado de la orden.
+
 ## Nueva orden {#nueva-orden}
 
 Con **Nueva orden** (en Órdenes, o en la ficha de un vehículo):

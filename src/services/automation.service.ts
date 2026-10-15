@@ -25,10 +25,9 @@ import {
 } from "./automationActions";
 import {
   CONFIG_DE_TRIGGER,
-  MODULO_DEL_TRIGGER,
-  TRIGGERS_CONOCIDOS,
   TRIGGERS_DE_REGLA_UNICA,
   esTriggerConocido,
+  triggersParaLosModulos,
   type TriggerType,
 } from "./automationTriggers";
 
@@ -124,11 +123,7 @@ async function rubroDe(organizationId: string): Promise<Rubro> {
 }
 
 function triggersDelRubro(rubro: Rubro): readonly string[] {
-  const modulos = modulosDe(rubro.edition, rubro.industry, rubro.modulosActivados);
-  return TRIGGERS_CONOCIDOS.filter((t) => {
-    const modulo = MODULO_DEL_TRIGGER[t];
-    return modulo === undefined || modulos.has(modulo);
-  });
+  return triggersParaLosModulos(modulosDe(rubro.edition, rubro.industry, rubro.modulosActivados));
 }
 
 function assertTriggerConocido(

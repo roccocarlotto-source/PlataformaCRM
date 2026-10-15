@@ -153,6 +153,9 @@ export const MODULO_DE_ANCLA: Readonly<Record<string, string>> = {
   // S7: el próximo service (docs/servicios.md §6), solo con el módulo.
   "automatizaciones#evento-proximo-service": "servicios",
   "automatizaciones#accion-proximo-service": "servicios",
+  // S8: los eventos de la orden (docs/servicios.md §9).
+  "automatizaciones#evento-orden-cambia-de-estado": "servicios",
+  "automatizaciones#evento-orden-entregada": "servicios",
 };
 
 export const SOLO_SIN_MODULO: Readonly<Record<string, string>> = {

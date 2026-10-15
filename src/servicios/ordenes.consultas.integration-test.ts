@@ -121,7 +121,9 @@ test("cada escritura de una orden entra en su presupuesto de consultas", async (
   // autenticación de lo que cuesta la orden.
   await medir("GET /api/me (base: autenticación)", 3, () => comoAdmin("GET", "/api/me"));
 
-  const { json: orden } = await medir("POST orden (Recibido, 2 tipos, valor)", 15, () =>
+  // S8: el alta y cada cambio de estado insertan su evento del outbox (+1);
+  // Entregado inserta dos (status_changed y delivered).
+  const { json: orden } = await medir("POST orden (Recibido, 2 tipos, valor)", 16, () =>
     comoAdmin("POST", ORDENES, {
       customerVehicleId: vehiculoId,
       estado: "RECIBIDO",
@@ -143,10 +145,10 @@ test("cada escritura de una orden entra en su presupuesto de consultas", async (
       jobTypeIds: [tipos[1]],
     }),
   );
-  await medir("estado Recibido → En trabajo", 7, () =>
+  await medir("estado Recibido → En trabajo", 8, () =>
     estado({ desde: "RECIBIDO", hacia: "EN_TRABAJO" }),
   );
-  await medir("estado En trabajo → Esperando aprobación", 7, () =>
+  await medir("estado En trabajo → Esperando aprobación", 8, () =>
     estado({ desde: "EN_TRABAJO", hacia: "ESPERANDO_APROBACION", nota: "Presupuesto enviado" }),
   );
   await medir("POST aprobación (sumar al valor)", 8, () =>
@@ -161,13 +163,13 @@ test("cada escritura de una orden entra en su presupuesto de consultas", async (
     }),
   );
   await fichaIgualAPrisma(id, "con encargado, historial y una aprobación");
-  await medir("estado Esperando aprobación → En trabajo", 9, () =>
+  await medir("estado Esperando aprobación → En trabajo", 10, () =>
     estado({ desde: "ESPERANDO_APROBACION", hacia: "EN_TRABAJO" }),
   );
-  await medir("estado En trabajo → Listo para retirar", 9, () =>
+  await medir("estado En trabajo → Listo para retirar", 10, () =>
     estado({ desde: "EN_TRABAJO", hacia: "LISTO_PARA_RETIRAR" }),
   );
-  const { json: entregada } = await medir("estado Listo para retirar → Entregado", 8, () =>
+  const { json: entregada } = await medir("estado Listo para retirar → Entregado", 10, () =>
     estado({ desde: "LISTO_PARA_RETIRAR", hacia: "ENTREGADO", proximoService: "2027-01-14" }),
   );
   assert.equal(entregada.status, "ENTREGADO");

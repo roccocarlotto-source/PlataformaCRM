@@ -420,6 +420,8 @@ export async function findOrdenParaEscribir(organizationId: string, id: string, 
       status: true,
       customerVehicleId: true,
       contactId: true,
+      // S8: los eventos de la orden llevan la sucursal.
+      branchId: true,
       amount: true,
       currency: true,
     },

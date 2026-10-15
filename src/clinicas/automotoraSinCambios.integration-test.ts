@@ -1148,3 +1148,29 @@ test("S7: sin el módulo Servicios, service.next_service_due no existe (el 400 d
     /actionType/,
   );
 });
+
+test("S8: sin el módulo Servicios, los eventos de la orden no existen (el 400 de siempre) y no se emite ninguno", async () => {
+  for (const [triggerType, triggerConfig] of [
+    ["service_order.status_changed", { toStatuses: ["RECIBIDO"] }],
+    ["service_order.delivered", {}],
+  ] as const) {
+    await assert.rejects(
+      createAutomation(conSucursales.id, {
+        name: "Orden",
+        triggerType,
+        triggerConfig,
+        actionType: "activity.create_follow_up",
+        actionConfig: { subject: "Llamar", daysUntilDue: 1 },
+      }),
+      new RegExp(
+        `^Error: triggerType "${triggerType}" no existe: debe ser uno de opportunity.won, opportunity.stale, contact.inquiry_stalled$`,
+      ),
+    );
+  }
+  assert.equal(
+    await prisma.outboxEvent.count({
+      where: { organizationId: conSucursales.id, eventType: { startsWith: "service_order." } },
+    }),
+    0,
+  );
+});

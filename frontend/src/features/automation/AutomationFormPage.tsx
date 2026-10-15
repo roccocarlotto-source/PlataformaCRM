@@ -1,3 +1,4 @@
+import { ETIQUETA_DE_ESTADO } from "../servicios/formato";
 import { useAuth } from "../../auth/AuthContext";
 import { vocabularioDe } from "../../auth/vocabulario";
 import { useModulo } from "../../auth/useModulo";
@@ -23,6 +24,10 @@ import {
   MAX_DIAS_ANTES_DEL_SERVICE,
   MAX_DIAS_DESPUES_DEL_SERVICE,
   TRIGGER_SERVICE_NEXT_SERVICE_DUE,
+  TRIGGER_SERVICE_ORDER_DELIVERED,
+  TRIGGER_SERVICE_ORDER_STATUS_CHANGED,
+  ESTADOS_DE_LA_ORDEN,
+  estadosDelBorrador,
   ACTION_DRAFT_FOLLOW_UP,
   ACTION_INQUIRY_FOLLOW_UP,
   ACTION_SEND_DISCOUNT_VOUCHER,
@@ -292,6 +297,36 @@ function CamposDelTrigger({
           </p>
         </>
       );
+    // S8 (docs/servicios.md §9): a qué estados pasa la orden.
+    case TRIGGER_SERVICE_ORDER_STATUS_CHANGED: {
+      const elegidos = estadosDelBorrador(values);
+      return (
+        <>
+          <div className="ds-field-grid--full" role="group" aria-label="Cuando pasa a">
+            <span className="ds-field-label ds-required">Cuando pasa a</span>
+          </div>
+          {ESTADOS_DE_LA_ORDEN.map((estado) => (
+            <FormField key={estado} label={ETIQUETA_DE_ESTADO[estado]}>
+              <input
+                type="checkbox"
+                checked={elegidos.includes(estado)}
+                onChange={(event) => {
+                  const siguiente = event.target.checked
+                    ? [...elegidos, estado]
+                    : elegidos.filter((e) => e !== estado);
+                  onChange({ ...values, estados: siguiente.join(",") });
+                }}
+                disabled={disabled}
+              />
+            </FormField>
+          ))}
+          <p className="ds-hint ds-field-grid--full">
+            También cuenta una orden que se crea directamente en ese estado (por ejemplo, Recibido).
+            Una tarea por orden y regla, aunque la orden vuelva a ese estado.
+          </p>
+        </>
+      );
+    }
     default:
       return null;
   }
@@ -375,11 +410,17 @@ function CamposDeLaAccion({
   triggerType?: string;
 }) {
   const delProximoService = triggerType === TRIGGER_SERVICE_NEXT_SERVICE_DUE;
+  // S8: con un evento de la orden, la tarea es del encargado de la orden.
+  const deLaOrden =
+    triggerType === TRIGGER_SERVICE_ORDER_STATUS_CHANGED ||
+    triggerType === TRIGGER_SERVICE_ORDER_DELIVERED;
   // Un solo nodo de texto con el resto de la frase: el texto de siempre no
   // cambia para quien no tiene el módulo (textosDelRubro.test.tsx).
   const asignadaA = delProximoService
     ? "Asignada al encargado de la última orden del vehículo (o al responsable de la sucursal)"
-    : "Asignada al dueño de la oportunidad";
+    : deLaOrden
+      ? "Asignada al encargado de la orden (o al responsable de la sucursal)"
+      : "Asignada al dueño de la oportunidad";
   switch (actionType) {
     case ACTION_CREATE_FOLLOW_UP:
       return (
@@ -392,9 +433,11 @@ function CamposDeLaAccion({
               placeholder={
                 delProximoService
                   ? "Llamar para agendar el service"
-                  : esClinica
-                    ? "Llamar para ver cómo siguió"
-                    : "Llamar para coordinar la entrega"
+                  : deLaOrden
+                    ? "Avisarle al cliente que el auto está listo"
+                    : esClinica
+                      ? "Llamar para ver cómo siguió"
+                      : "Llamar para coordinar la entrega"
               }
               onChange={(event) => onChange({ ...values, subject: event.target.value })}
               disabled={disabled}
