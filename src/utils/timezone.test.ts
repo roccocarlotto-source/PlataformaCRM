@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { esZonaHorariaValida, isoEnZona } from "./timezone";
+import { esZonaHorariaValida, isoEnZona, vencimientoAlFinDelDia } from "./timezone";
 
 // Unitario, sin base ni red. Es la validación que impide que una sucursal nazca
 // con una zona horaria que no existe — un dato que no falla al guardarse y
@@ -101,4 +101,25 @@ test("isoEnZona respeta el horario de verano", () => {
 
 test("isoEnZona escribe la medianoche como 00, no como 24", () => {
   assert.match(isoEnZona(new Date("2026-09-30T03:00:00.000Z"), "America/Montevideo"), /T00:00:00/);
+});
+
+test("la tarea vence al final del día de la organización, nunca antes de crearse", () => {
+  const zona = "America/Montevideo";
+  // 12:11 en Montevideo (15:11 UTC): vence 23:59:59.999 local = 02:59:59.999 UTC del día siguiente.
+  const mediodia = new Date("2026-10-15T15:11:30.000Z");
+  assert.equal(vencimientoAlFinDelDia(mediodia, zona).toISOString(), "2026-10-16T02:59:59.999Z");
+  assert.ok(vencimientoAlFinDelDia(mediodia, zona).getTime() > mediodia.getTime());
+  // Borde: 23:30 local es 02:30 UTC del día siguiente; el día es el local, no el UTC.
+  const casiMedianoche = new Date("2026-10-16T02:30:00.000Z");
+  assert.equal(
+    vencimientoAlFinDelDia(casiMedianoche, zona).toISOString(),
+    "2026-10-16T02:59:59.999Z",
+  );
+  // Con días: el final del día N días después.
+  assert.equal(vencimientoAlFinDelDia(mediodia, zona, 3).toISOString(), "2026-10-19T02:59:59.999Z");
+  // Zona inválida: UTC.
+  assert.equal(
+    vencimientoAlFinDelDia(mediodia, "No/Existe").toISOString(),
+    "2026-10-15T23:59:59.999Z",
+  );
 });

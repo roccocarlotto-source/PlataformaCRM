@@ -1,6 +1,8 @@
 import { ActivityType } from "@prisma/client";
 import { z } from "zod";
+import { findOrganizationById } from "../../repositories/organization.repository";
 import { findOpportunityById } from "../../repositories/opportunity.repository";
+import { vencimientoAlFinDelDia } from "../../utils/timezone";
 import { createActivity } from "../activity.service";
 import type { AccionRegistrada } from "../automationActions";
 import {
@@ -171,10 +173,13 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
     // si ya no existe o no tiene contacto, la tarea sale como antes y
     // createActivity decide sobre la oportunidad con su propia validación.
     const oportunidad = await findOpportunityById(opportunityId, organizationId);
+    // Vence al final del día (hoy + daysUntilDue) en la zona de la
+    // organización: con 0 nacía vencida, en el instante en que corría la regla.
+    const organizacion = await findOrganizationById(organizationId);
     await createActivity(organizationId, ownerId, {
       type: ActivityType.TASK,
       subject,
-      dueDate: fechaDeVencimiento(new Date(), daysUntilDue),
+      dueDate: vencimientoAlFinDelDia(new Date(), organizacion?.timezone ?? "UTC", daysUntilDue),
       assigneeId: ownerId,
       opportunityId,
       ...(oportunidad?.contactId ? { contactId: oportunidad.contactId } : {}),

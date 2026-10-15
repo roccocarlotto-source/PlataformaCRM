@@ -121,8 +121,8 @@ administrador más antiguo.
 
 - **Título de la tarea**: por ejemplo, "Llamar para coordinar la entrega".
 - **Vence en (días)**: contados desde que se dispara la regla, de 0 a 365.
-  Con 0 vence el mismo día. Con **Próximo service**, vence al final de ese
-  día (hora de la organización).
+  Vence al final de ese día, en la hora de la organización: con 0, al final
+  del mismo día.
 - **Notas** (opcional): quedan en el campo **Notas** de la tarea.
 
 ### Redactar seguimiento con IA

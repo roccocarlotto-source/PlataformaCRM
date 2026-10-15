@@ -17,6 +17,7 @@ import { configDeSeguimientoSchema } from "./automationActions/createFollowUpAct
 import { registrarAutomatizaciones } from "./automationRegistrations";
 import { TRIGGER_OPPORTUNITY_STALE, TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
+import { vencimientoAlFinDelDia } from "../utils/timezone";
 import { crearRegistroDeHandlers, type RegistroDeHandlers } from "./outboxHandlers";
 
 // ---------------------------------------------------------------------------
@@ -234,7 +235,16 @@ test("flujo completo: updateOpportunity a WON -> evento -> worker -> Activity de
   assert.equal(actividades[0].body, null);
   assert.equal(actividades[0].assigneeId, e.userId);
   assert.equal(actividades[0].authorId, e.userId);
-  assert.ok(actividades[0].dueDate);
+  // Vence al final del día (hoy + 3) en la zona de la organización, nunca
+  // en el instante en que corrió la regla.
+  const { timezone } = await prisma.organization.findUniqueOrThrow({
+    where: { id: e.organizationId },
+    select: { timezone: true },
+  });
+  assert.equal(
+    actividades[0].dueDate?.toISOString(),
+    vencimientoAlFinDelDia(actividades[0].createdAt, timezone, 3).toISOString(),
+  );
 
   const marcas = await ejecucionesDe(regla.id);
   const marca = marcas.find((m) => m.outboxEventId === evento.id);

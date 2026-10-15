@@ -113,16 +113,6 @@ export function textoDelLugar(
   return sucursal && sucursales > 1 ? `${organizacion} (sucursal ${sucursal})` : organizacion;
 }
 
-/** El vencimiento de la tarea "Llamar a…": el final del día, en la zona de la
- *  organización, `dias` días después de hoy (0 = hoy). Nunca nace vencida:
- *  antes vencía en el instante en que el worker empezaba la pasada, unos
- *  segundos ANTES de crearla. Una zona inválida cae en UTC. */
-export function vencimientoDeLaTarea(ahora: Date, timezone: string, dias = 0): Date {
-  const local = DateTime.fromJSDate(ahora).setZone(timezone);
-  const base = local.isValid ? local : DateTime.fromJSDate(ahora, { zone: "utc" });
-  return base.plus({ days: dias }).endOf("day").toJSDate();
-}
-
 /** El asunto de la tarea "Llamar a…" (§6.3), corto para la lista. */
 export function asuntoDeLaTarea(cliente: string, vehiculo: string): string {
   return `Llamar a ${cliente} por el service de su ${vehiculo}`.slice(0, 255);
