@@ -65,6 +65,63 @@ describe("contact/mutations — invalidación de cache", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contactKeys.lists() });
   });
 
+  it("delete saca la fila de las listas en el momento, antes de que responda el servidor", async () => {
+    let responder: () => void = () => {};
+    server.use(
+      http.delete(
+        `${baseUrl}/:id`,
+        () =>
+          new Promise<Response>((r) => {
+            responder = () => r(new HttpResponse(null, { status: 204 }));
+          }),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const clave = contactKeys.list({ page: 1, pageSize: 20 });
+    queryClient.setQueryData(clave, {
+      data: [makeContact({ id: "ct1" }), makeContact({ id: "ct2" })],
+      pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+    });
+
+    const { result } = renderHook(() => useDeleteContact(), {
+      wrapper: wrapperFor(queryClient),
+    });
+    result.current.mutate("ct1");
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<{ data: { id: string }[] }>(clave)?.data.map((c) => c.id),
+      ).toEqual(["ct2"]),
+    );
+    expect(result.current.isPending).toBe(true);
+    responder();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+
+  it("delete rechazado devuelve la fila a la lista", async () => {
+    server.use(
+      http.delete(`${baseUrl}/:id`, () =>
+        HttpResponse.json({ error: { message: "No se pudo" } }, { status: 409 }),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const clave = contactKeys.list({ page: 1, pageSize: 20 });
+    queryClient.setQueryData(clave, {
+      data: [makeContact({ id: "ct1" }), makeContact({ id: "ct2" })],
+      pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+    });
+
+    const { result } = renderHook(() => useDeleteContact(), {
+      wrapper: wrapperFor(queryClient),
+    });
+    result.current.mutate("ct1");
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(
+      queryClient.getQueryData<{ data: { id: string }[] }>(clave)?.data.map((c) => c.id),
+    ).toEqual(["ct1", "ct2"]);
+  });
+
   it("una mutation fallida (incluido 409 por email duplicado) no ejecuta ninguna invalidación", async () => {
     server.use(
       http.post(baseUrl, () =>

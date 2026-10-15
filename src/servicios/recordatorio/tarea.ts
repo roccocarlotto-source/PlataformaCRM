@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { logger } from "../../lib/logger";
 import { createActivity } from "../../repositories/activity.repository";
-import { asuntoDeLaTarea, textoDelVehiculo } from "./config";
+import { asuntoDeLaTarea, textoDelVehiculo, vencimientoDeLaTarea } from "./config";
 import { asignadoDeLaTarea, leerAvisoParaLaTarea } from "./repository";
 
 // ---------------------------------------------------------------------------
@@ -39,8 +39,11 @@ export async function crearTareaDelAviso(t: TareaDelAviso): Promise<ResultadoDeL
     return "SIN_ASIGNADO";
   }
   const cliente = `${v.contact.firstName} ${v.contact.lastName}`.trim() || "el cliente";
-  const vence = new Date(t.ahora ?? new Date());
-  vence.setUTCDate(vence.getUTCDate() + (t.daysUntilDue ?? 0));
+  const vence = vencimientoDeLaTarea(
+    t.ahora ?? new Date(),
+    aviso.organization.timezone,
+    t.daysUntilDue ?? 0,
+  );
   try {
     await createActivity({
       organizationId: t.organizationId,
