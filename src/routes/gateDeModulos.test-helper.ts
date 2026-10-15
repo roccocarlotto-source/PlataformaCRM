@@ -90,6 +90,9 @@ export async function borrarOrgDePrueba(org: OrgDePrueba | undefined): Promise<v
   // esa referencia.
   await prisma.customerVehicle.updateMany({ where, data: { nextServiceSetFromOrderId: null } });
   await prisma.customerVehicleOwnerChange.deleteMany({ where });
+  // S6: la cola y los avisos cuelgan del vehículo, la orden y la regla.
+  await prisma.serviceMessage.deleteMany({ where });
+  await prisma.customerVehicleNotice.deleteMany({ where });
   await prisma.serviceOrderPhoto.deleteMany({ where });
   await prisma.serviceOrderJobType.deleteMany({ where });
   await prisma.serviceOrderApproval.deleteMany({ where });

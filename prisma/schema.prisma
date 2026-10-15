@@ -888,6 +888,8 @@ model Organization {
   serviceOrderApprovals       ServiceOrderApproval[]
   serviceOrderJobTypes        ServiceOrderJobType[]
   serviceOrderPhotos          ServiceOrderPhoto[]
+  customerVehicleNotices      CustomerVehicleNotice[]
+  serviceMessages             ServiceMessage[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -1001,6 +1003,7 @@ model User {
   serviceOrderStatusChanges   ServiceOrderStatusChange[]   @relation("ServiceOrderStatusChangedBy")
   serviceOrderApprovals       ServiceOrderApproval[]       @relation("ServiceOrderApprovalRecordedBy")
   serviceOrderPhotos          ServiceOrderPhoto[]          @relation("ServiceOrderPhotoUploadedBy")
+  customerVehicleNotices      CustomerVehicleNotice[]      @relation("CustomerVehicleNoticeCreatedBy")
 
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -1235,6 +1238,7 @@ model Contact {
   customerVehicleChangesFrom CustomerVehicleOwnerChange[] @relation("CustomerVehicleOwnerChangeFrom")
   customerVehicleChangesTo   CustomerVehicleOwnerChange[] @relation("CustomerVehicleOwnerChangeTo")
   serviceOrders              ServiceOrder[]               @relation("ServiceOrderContact")
+  serviceMessages            ServiceMessage[]
 
   @@unique([organizationId, id])
   // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
@@ -1465,23 +1469,23 @@ model Opportunity {
 // ---------------------------------------------------------------------------
 
 model Activity {
-  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId     String       @map("organization_id") @db.Uuid
-  type               ActivityType
-  authorId           String       @map("author_id") @db.Uuid
-  assigneeId         String?      @map("assignee_id") @db.Uuid
-  companyId          String?      @map("company_id") @db.Uuid
-  contactId          String?      @map("contact_id") @db.Uuid
-  opportunityId      String?      @map("opportunity_id") @db.Uuid
-  subject            String       @db.VarChar(255)
-  body               String?
-  dueDate            DateTime?    @map("due_date")
-  completedAt        DateTime?    @map("completed_at")
+  id                   String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId       String       @map("organization_id") @db.Uuid
+  type                 ActivityType
+  authorId             String       @map("author_id") @db.Uuid
+  assigneeId           String?      @map("assignee_id") @db.Uuid
+  companyId            String?      @map("company_id") @db.Uuid
+  contactId            String?      @map("contact_id") @db.Uuid
+  opportunityId        String?      @map("opportunity_id") @db.Uuid
+  subject              String       @db.VarChar(255)
+  body                 String?
+  dueDate              DateTime?    @map("due_date")
+  completedAt          DateTime?    @map("completed_at")
   // Cuándo PASÓ (la nota, la llamada, la tarea): la línea de tiempo se ordena
   // por esto. createdAt es cuándo se cargó en ESTE CRM. Iguales en la carga
   // manual (default now()); distintos en el historial importado, que trae su
   // fecha original (migración 20261026120000, docs/importacion-de-datos.md §5.3).
-  occurredAt         DateTime     @default(now()) @map("occurred_at")
+  occurredAt           DateTime     @default(now()) @map("occurred_at")
   // Confirmación del ADMIN sobre una tarea que el asignado marcó como hecha
   // (docs/frontend-cambios-pendientes.md §29). Tres estados derivados de dos
   // columnas: pendiente (completedAt null) → pendiente de confirmar
@@ -1489,36 +1493,43 @@ model Activity {
   // que sostiene activity.service.ts en toda escritura: confirmedAt y
   // confirmedById nunca quedan con valor si completedAt es null. Ninguna de
   // las dos la escribe el cliente: las calcula el service (quién y cuándo).
-  confirmedAt        DateTime?    @map("confirmed_at")
-  confirmedById      String?      @map("confirmed_by_id") @db.Uuid
+  confirmedAt          DateTime?    @map("confirmed_at")
+  confirmedById        String?      @map("confirmed_by_id") @db.Uuid
   // La sede de la tarea (docs/rubros.md §11.2, R20). Nullable y sin default:
   // la escriben SOLO los flujos de clínica (las tareas que nacen de una
   // conversación de una sede). Una automotora nunca la llena, y una tarea sin
   // sede la ve y la toma cualquier Recepción de la organización.
-  branchId           String?      @map("branch_id") @db.Uuid
+  branchId             String?      @map("branch_id") @db.Uuid
   // La tarea después del turno de una clínica (docs/rubros.md §7.3): el turno
   // y la regla que la crearon. Una tarea por regla y por turno (índice único
   // parcial activities_follow_up_por_turno_key, en la migración). Solo los
   // escribe código de clínicas.
-  sourceBookingId    String?      @map("source_booking_id") @db.Uuid
-  sourceAutomationId String?      @map("source_automation_id") @db.Uuid
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
-  deletedAt          DateTime?    @map("deleted_at")
+  sourceBookingId      String?      @map("source_booking_id") @db.Uuid
+  sourceAutomationId   String?      @map("source_automation_id") @db.Uuid
+  // S6 de docs/servicios.md: el aviso del próximo service (§6.3) o la orden
+  // (§8, S8) que originó la tarea. Una tarea por aviso, y una por regla y
+  // orden (índices únicos parciales de la migración).
+  sourceNoticeId       String?      @map("source_notice_id") @db.Uuid
+  sourceServiceOrderId String?      @map("source_service_order_id") @db.Uuid
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+  deletedAt            DateTime?    @map("deleted_at")
 
-  organization     Organization @relation(fields: [organizationId], references: [id])
-  author           User         @relation("ActivityAuthor", fields: [organizationId, authorId], references: [organizationId, id])
-  assignee         User?        @relation("ActivityAssignee", fields: [organizationId, assigneeId], references: [organizationId, id], onDelete: NoAction)
+  organization       Organization           @relation(fields: [organizationId], references: [id])
+  author             User                   @relation("ActivityAuthor", fields: [organizationId, authorId], references: [organizationId, id])
+  assignee           User?                  @relation("ActivityAssignee", fields: [organizationId, assigneeId], references: [organizationId, id], onDelete: NoAction)
   // Mismo criterio que assignee: FK compuesta por organización y NoAction
   // para no perder el rastro de quién confirmó si se borra el usuario.
-  confirmedBy      User?        @relation("ActivityConfirmedBy", fields: [organizationId, confirmedById], references: [organizationId, id], onDelete: NoAction)
-  company          Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
-  contact          Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
-  opportunity      Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
+  confirmedBy        User?                  @relation("ActivityConfirmedBy", fields: [organizationId, confirmedById], references: [organizationId, id], onDelete: NoAction)
+  company            Company?               @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
+  contact            Contact?               @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
+  opportunity        Opportunity?           @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
   // Nullable, y por eso NO ACTION (la regla de 20260821140200).
-  branch           Branch?      @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
-  sourceBooking    Booking?     @relation(fields: [organizationId, sourceBookingId], references: [organizationId, id], onDelete: NoAction)
-  sourceAutomation Automation?  @relation(fields: [organizationId, sourceAutomationId], references: [organizationId, id], onDelete: NoAction)
+  branch             Branch?                @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
+  sourceBooking      Booking?               @relation(fields: [organizationId, sourceBookingId], references: [organizationId, id], onDelete: NoAction)
+  sourceAutomation   Automation?            @relation(fields: [organizationId, sourceAutomationId], references: [organizationId, id], onDelete: NoAction)
+  sourceNotice       CustomerVehicleNotice? @relation(fields: [organizationId, sourceNoticeId], references: [organizationId, id], onDelete: NoAction, map: "activities_source_notice_fkey")
+  sourceServiceOrder ServiceOrder?          @relation(fields: [organizationId, sourceServiceOrderId], references: [organizationId, id], onDelete: NoAction, map: "activities_source_service_order_fkey")
 
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL OR
   // opportunity_id IS NOT NULL) vive en la migración
@@ -1909,6 +1920,8 @@ model Automation {
   inquiryFollowUps         InquiryFollowUp[]
   // La plantilla de WhatsApp con que manda esta regla (ítem 181).
   whatsappTemplates        WhatsappTemplate[]
+  customerVehicleNotices   CustomerVehicleNotice[]
+  serviceMessages          ServiceMessage[]
 
   // El UNIQUE que habilita la FK compuesta de automation_executions (C-3).
   @@unique([organizationId, id])
@@ -2119,6 +2132,7 @@ model Branch {
   // Módulo Servicios (docs/servicios.md).
   customerVehicles CustomerVehicle[]
   serviceOrders    ServiceOrder[]
+  serviceMessages  ServiceMessage[]
 
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3).
   @@unique([organizationId, id])
@@ -5455,6 +5469,8 @@ model CustomerVehicle {
 
   serviceOrders ServiceOrder[]               @relation("ServiceOrderCustomerVehicle")
   ownerChanges  CustomerVehicleOwnerChange[]
+  notices       CustomerVehicleNotice[]
+  messages      ServiceMessage[]
 
   @@unique([organizationId, id])
   @@index([organizationId, contactId])
@@ -5576,6 +5592,8 @@ model ServiceOrder {
   jobTypes                ServiceOrderJobType[]
   photos                  ServiceOrderPhoto[]
   vehiclesWithNextService CustomerVehicle[]          @relation("CustomerVehicleNextServiceFromOrder")
+  messages                ServiceMessage[]
+  followUpActivities      Activity[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, number])
@@ -5676,4 +5694,99 @@ model ServiceOrderPhoto {
 
   @@index([organizationId, serviceOrderId, phase, position], map: "so_photos_order_idx")
   @@map("service_order_photos")
+}
+
+// ---------------------------------------------------------------------------
+// S6 de docs/servicios.md (§6.3): el registro de avisos y la cola de mensajes
+// del módulo Servicios. Inertes hasta S7 (nadie las lee ni las escribe).
+// ---------------------------------------------------------------------------
+
+enum CustomerVehicleNoticeKind {
+  NEXT_SERVICE
+  REPLACEMENT
+}
+
+enum CustomerVehicleNoticeSource {
+  AUTOMATICO
+  MANUAL
+}
+
+// REPLACEMENT (§7) y REVIEW_QR (§9) entran con sus PR y su migración, si se piden.
+enum ServiceMessageKind {
+  NEXT_SERVICE
+}
+
+// Un aviso dado sobre un vehículo: es lo que hace idempotentes los barridos del
+// próximo service y del recambio, sin depender de las acciones de la regla.
+// AUTOMATICO lleva la regla; MANUAL, quién marcó "contactado" (§7.4) (CHECK).
+// Sin FK a contacts: el contacto sale del vehículo.
+model CustomerVehicleNotice {
+  id                String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String                      @map("organization_id") @db.Uuid
+  customerVehicleId String                      @map("customer_vehicle_id") @db.Uuid
+  kind              CustomerVehicleNoticeKind
+  // La fecha de service (o de recambio) que se avisa.
+  dueOn             DateTime                    @map("due_on") @db.Date
+  source            CustomerVehicleNoticeSource
+  automationId      String?                     @map("automation_id") @db.Uuid
+  createdById       String?                     @map("created_by_id") @db.Uuid
+  createdAt         DateTime                    @default(now()) @map("created_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  customerVehicle CustomerVehicle  @relation(fields: [organizationId, customerVehicleId], references: [organizationId, id], map: "cv_notices_vehicle_fkey")
+  automation      Automation?      @relation(fields: [organizationId, automationId], references: [organizationId, id], onDelete: NoAction, map: "cv_notices_automation_fkey")
+  createdBy       User?            @relation("CustomerVehicleNoticeCreatedBy", fields: [organizationId, createdById], references: [organizationId, id], onDelete: NoAction, map: "cv_notices_created_by_fkey")
+  messages        ServiceMessage[]
+  activities      Activity[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, customerVehicleId], map: "cv_notices_vehicle_idx")
+  @@index([organizationId, automationId], map: "cv_notices_automation_idx")
+  @@map("customer_vehicle_notices")
+}
+
+// La cola de mensajes del módulo, con el patrón de BookingMessage (reclamar,
+// reintentar, cancelar). Un mensaje vigente por aviso (único parcial).
+model ServiceMessage {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String             @map("organization_id") @db.Uuid
+  kind              ServiceMessageKind
+  // La regla: de ahí sale la plantilla.
+  automationId      String             @map("automation_id") @db.Uuid
+  // El aviso que lo originó (NEXT_SERVICE).
+  noticeId          String?            @map("notice_id") @db.Uuid
+  customerVehicleId String?            @map("customer_vehicle_id") @db.Uuid
+  // En REVIEW_QR (§9), si entra.
+  serviceOrderId    String?            @map("service_order_id") @db.Uuid
+  contactId         String             @map("contact_id") @db.Uuid
+  // De qué número sale.
+  branchId          String?            @map("branch_id") @db.Uuid
+  // La fecha de service que se recuerda: si el vehículo cambió de fecha, se cancela.
+  dueKey            DateTime?          @map("due_key") @db.Date
+
+  scheduledFor      DateTime             @map("scheduled_for")
+  nextAttemptAt     DateTime             @map("next_attempt_at")
+  status            BookingMessageStatus @default(PENDING)
+  attempts          Int                  @default(0)
+  // Sin tokens y cortado a 500, como en booking_messages.
+  lastError         String?              @map("last_error") @db.VarChar(500)
+  cancelReason      String?              @map("cancel_reason") @db.VarChar(200)
+  sentAt            DateTime?            @map("sent_at")
+  externalMessageId String?              @map("external_message_id") @db.VarChar(255)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization    Organization           @relation(fields: [organizationId], references: [id])
+  automation      Automation             @relation(fields: [organizationId, automationId], references: [organizationId, id])
+  notice          CustomerVehicleNotice? @relation(fields: [organizationId, noticeId], references: [organizationId, id], onDelete: NoAction)
+  customerVehicle CustomerVehicle?       @relation(fields: [organizationId, customerVehicleId], references: [organizationId, id], onDelete: NoAction)
+  serviceOrder    ServiceOrder?          @relation(fields: [organizationId, serviceOrderId], references: [organizationId, id], onDelete: NoAction)
+  contact         Contact                @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  branch          Branch?                @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
+
+  @@index([organizationId, contactId])
+  @@index([organizationId, automationId])
+  @@index([organizationId, customerVehicleId])
+  @@map("service_messages")
 }

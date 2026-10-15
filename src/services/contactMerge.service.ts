@@ -45,6 +45,8 @@ import { appendLeadNotes, getContactById, mergeLeadAiData } from "./contact.serv
 //   customer_vehicle_owner_changes.from_contact_id / .to_contact_id
 //                                            el registro de cambios de dueño
 //   service_orders.contact_id                órdenes de servicio
+//   service_messages.contact_id              la cola de mensajes del taller
+//                                            (S6, docs/servicios.md §6.3)
 //
 // LOS CHOQUES CON ÍNDICES ÚNICOS, y cómo se resuelven:
 //   - contacts_org_email_unique (email por organización, solo no borrados) y
@@ -85,6 +87,7 @@ export const FKS_A_CONTACTS = [
   "inquiry_follow_ups.contact_id",
   "opportunities.contact_id",
   "qr_follow_ups.contact_id",
+  "service_messages.contact_id",
   "service_orders.contact_id",
 ] as const;
 
@@ -418,6 +421,7 @@ export async function contarRelaciones(
     recordatorios,
     vehiculosDeCliente,
     ordenesDeServicio,
+    mensajesDelTaller,
     cambiosDeDueno,
     unidos,
   ] = await Promise.all([
@@ -437,6 +441,7 @@ export async function contarRelaciones(
     // cambios de dueño en los que figura, de un lado o del otro.
     db.customerVehicle.count({ where: w }),
     db.serviceOrder.count({ where: w }),
+    db.serviceMessage.count({ where: w }),
     db.customerVehicleOwnerChange.count({
       where: { organizationId, OR: [{ fromContactId: contactId }, { toContactId: contactId }] },
     }),
@@ -456,6 +461,7 @@ export async function contarRelaciones(
     recordatorios,
     vehiculosDeCliente,
     ordenesDeServicio,
+    mensajesDelTaller,
     cambiosDeDueno,
     unidos,
   };
@@ -579,6 +585,7 @@ export async function unirContactos(
         recordatorios: (await tx.bookingMessage.updateMany({ where: de, data: a })).count,
         vehiculosDeCliente: (await tx.customerVehicle.updateMany({ where: de, data: a })).count,
         ordenesDeServicio: (await tx.serviceOrder.updateMany({ where: de, data: a })).count,
+        mensajesDelTaller: (await tx.serviceMessage.updateMany({ where: de, data: a })).count,
         cambiosDeDueno:
           (
             await tx.customerVehicleOwnerChange.updateMany({

@@ -10,6 +10,7 @@ import {
   type ActivityActor,
 } from "../services/activity.service";
 import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClinica";
+import { CAMPOS_DE_SERVICIOS, sinCamposDeServicios } from "../servicios/camposDeServicios";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -17,9 +18,18 @@ import { parseOrThrow } from "../utils/validation";
 const idParamSchema = z.string().uuid("id inválido");
 
 // R20 (docs/rubros.md §11.2): activities.branch_id es de las clínicas. Una
-// automotora recibe la tarea con las claves de antes (camposDeClinica.ts).
-function paraElRubro<T extends object>(activity: T, industry: OrganizationIndustry): T {
-  return sinCamposDeClinica(activity, industry, CAMPOS_DE_CLINICA.activity);
+// automotora recibe la tarea con las claves de antes (camposDeClinica.ts). Y
+// las columnas del módulo Servicios (S6) solo salen con el módulo activado
+// (camposDeServicios.ts).
+function paraElRubro<T extends object>(
+  activity: T,
+  auth: { industry: OrganizationIndustry; modulosActivados?: readonly string[] },
+): T {
+  return sinCamposDeServicios(
+    sinCamposDeClinica(activity, auth.industry, CAMPOS_DE_CLINICA.activity),
+    auth.modulosActivados,
+    CAMPOS_DE_SERVICIOS.activity,
+  );
 }
 
 // z.nativeEnum sobre el enum real de Prisma: si ActivityType cambia en
@@ -156,7 +166,7 @@ export const createActivityHandler = asyncHandler<AuthenticatedRequest>(
       actorFromRequest(req),
       input,
     );
-    res.status(201).json(paraElRubro(activity, req.auth.industry));
+    res.status(201).json(paraElRubro(activity, req.auth));
   },
 );
 
@@ -168,7 +178,7 @@ export const listActivitiesHandler = asyncHandler<AuthenticatedRequest>(
     const result = await listActivities(req.auth.organizationId, query, actorFromRequest(req));
     res.status(200).json({
       ...result,
-      data: result.data.map((a) => paraElRubro(a, req.auth.industry)),
+      data: result.data.map((a) => paraElRubro(a, req.auth)),
     });
   },
 );
@@ -176,7 +186,7 @@ export const listActivitiesHandler = asyncHandler<AuthenticatedRequest>(
 export const getActivityHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
   const activity = await getActivityById(req.auth.organizationId, id, actorFromRequest(req));
-  res.status(200).json(paraElRubro(activity, req.auth.industry));
+  res.status(200).json(paraElRubro(activity, req.auth));
 });
 
 export const updateActivityHandler = asyncHandler<AuthenticatedRequest>(
@@ -191,7 +201,7 @@ export const updateActivityHandler = asyncHandler<AuthenticatedRequest>(
       input,
       actorFromRequest(req),
     );
-    res.status(200).json(paraElRubro(activity, req.auth.industry));
+    res.status(200).json(paraElRubro(activity, req.auth));
   },
 );
 
