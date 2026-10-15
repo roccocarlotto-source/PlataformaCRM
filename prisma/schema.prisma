@@ -1908,6 +1908,15 @@ model Automation {
   // Es configuración, no historial: soft delete, como Agent/Branch/Resource.
   deletedAt DateTime? @map("deleted_at")
 
+  // H-1 (migración 20261120120000): el alta de la plantilla de WhatsApp que
+  // falló. TEMPORAL (Meta no respondió) se reintenta sola en templateSyncNextAt;
+  // DEFINITIVO (Meta rechazó el pedido) no. Todo en null/0 = sin error.
+  // CHECKs e índice parcial en la migración (verify:schema los afirma).
+  templateSyncAttempts  Int       @default(0) @map("template_sync_attempts")
+  templateSyncNextAt    DateTime? @map("template_sync_next_at")
+  templateSyncError     String?   @map("template_sync_error") @db.VarChar(500)
+  templateSyncErrorKind String?   @map("template_sync_error_kind") @db.VarChar(20)
+
   organization             Organization              @relation(fields: [organizationId], references: [id])
   executions               AutomationExecution[]
   qrFollowUps              QrFollowUp[]

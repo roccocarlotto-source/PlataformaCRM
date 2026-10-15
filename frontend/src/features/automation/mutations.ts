@@ -3,6 +3,7 @@ import {
   createAutomation,
   deleteAutomation,
   refreshWhatsappApproval,
+  retryWhatsappTemplate,
   updateAutomation,
 } from "./api";
 import { automationKeys } from "./queries";
@@ -41,6 +42,19 @@ export function useRefreshWhatsappApproval(id: string) {
     mutationFn: () => refreshWhatsappApproval(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: automationKeys.detail(id) });
+    },
+  });
+}
+
+// H-1: "Reintentar". La regla vuelve con el estado nuevo; el detalle y el
+// listado se recargan para mostrarlo.
+export function useRetryWhatsappTemplate(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => retryWhatsappTemplate(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: automationKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: automationKeys.lists() });
     },
   });
 }

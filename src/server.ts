@@ -26,6 +26,7 @@ import { iniciarBarridoDelProximoService } from "./servicios/recordatorio/barrid
 import { iniciarWorkerDeMensajesDelTaller } from "./servicios/recordatorio/worker";
 import { iniciarBarridoDeVehiculosVendidos } from "./servicios/vehiculosVendidos/barrido";
 import { iniciarWorkerDeSincronizaciones } from "./workers/importSyncWorker";
+import { iniciarWorkerDeReintentoDePlantillas } from "./workers/plantillaReintentoWorker";
 
 const server = app.listen(env.PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
@@ -186,6 +187,13 @@ const detenerWorkerDeMensajesDelTaller = arrancarWorkers
 // minutos, en las organizaciones con el módulo Servicios, convierte las ventas
 // ganadas en vehículos de clientes, revierte las que dejaron de estar ganadas y
 // marca las permutas. Escribe datos de clientes reales: misma guarda.
+// H-1: reintenta mandar a Meta las plantillas de WhatsApp cuyo alta falló por
+// algo temporal (espera creciente, con tope). Crea plantillas en el WABA real:
+// misma guarda.
+const detenerWorkerDeReintentoDePlantillas = arrancarWorkers
+  ? iniciarWorkerDeReintentoDePlantillas()
+  : sinWorker;
+
 const detenerBarridoDeVehiculosVendidos = arrancarWorkers
   ? iniciarBarridoDeVehiculosVendidos()
   : sinWorker;
@@ -223,6 +231,7 @@ const shutdown = crearShutdown({
       detenerBarridoDelProximoService(),
       detenerWorkerDeMensajesDelTaller(),
       detenerBarridoDeVehiculosVendidos(),
+      detenerWorkerDeReintentoDePlantillas(),
       detenerWorkerDeRecordatorios(),
       detenerWorkerDeSincronizaciones(),
       detenerWorkerDeCupones(),

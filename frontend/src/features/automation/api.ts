@@ -52,6 +52,15 @@ export function updateAutomation(id: string, input: UpdateAutomationInput): Prom
   });
 }
 
+// H-1: vuelve a mandar a aprobación la plantilla de WhatsApp de la regla
+// ahora. Devuelve la regla, como guardar.
+export function retryWhatsappTemplate(id: string): Promise<Automation> {
+  return request<Automation>(`/automations/${id}/whatsapp-approval/retry`, {
+    method: "POST",
+    getAccessToken,
+  });
+}
+
 // Repregunta a Meta el estado de la plantilla de WhatsApp de la regla, por si
 // el aviso de Meta (webhook) no llegó o tarda.
 export function refreshWhatsappApproval(id: string): Promise<WhatsappApproval> {

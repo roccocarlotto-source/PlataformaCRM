@@ -564,8 +564,12 @@ function CamposDeLaAccion({
   }
 }
 
-function mensajeDeSincronizacion(motivo: string): string {
-  return `La regla se guardó, pero el mensaje no se pudo mandar a aprobación de WhatsApp: ${motivo} Guardá de nuevo para reintentar.`;
+// H-1: si WhatsApp no respondió, se reintenta solo (y en la tarjeta del
+// mensaje está "Reintentar"); si no, el aviso de siempre.
+function mensajeDeSincronizacion(motivo: string, seReintentaSolo = false): string {
+  return seReintentaSolo
+    ? `La regla se guardó, pero el mensaje no se pudo mandar a aprobación de WhatsApp: ${motivo} Se va a reintentar solo; también podés tocar Reintentar.`
+    : `La regla se guardó, pero el mensaje no se pudo mandar a aprobación de WhatsApp: ${motivo} Guardá de nuevo para reintentar.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -612,9 +616,15 @@ export function AutomationFormPage() {
   const location = useLocation();
   // Un alta cuyo mensaje no llegó a Meta vuelve a esta pantalla, ya en
   // edición, con el motivo (ver handleSubmit).
-  const errorAlCrear = (location.state as { whatsappSyncError?: string } | null)?.whatsappSyncError;
+  const estadoDeNavegacion = location.state as {
+    whatsappSyncError?: string;
+    seReintentaSolo?: boolean;
+  } | null;
+  const errorAlCrear = estadoDeNavegacion?.whatsappSyncError;
   const [error, setError] = useState<string | null>(
-    errorAlCrear ? mensajeDeSincronizacion(errorAlCrear) : null,
+    errorAlCrear
+      ? mensajeDeSincronizacion(errorAlCrear, estadoDeNavegacion?.seReintentaSolo)
+      : null,
   );
 
   const isSubmitting = createAutomationMutation.isPending || updateAutomationMutation.isPending;
@@ -660,11 +670,12 @@ export function AutomationFormPage() {
         // También en el alta: React Router reusa esta misma instancia al
         // pasar de /new a /:id/edit, y el estado inicial de abajo no vuelve a
         // correr. El state de la navegación cubre el remonte.
-        setError(mensajeDeSincronizacion(guardada.whatsappSyncError));
+        const seReintentaSolo = guardada.whatsappSync?.estado === "REINTENTANDO";
+        setError(mensajeDeSincronizacion(guardada.whatsappSyncError, seReintentaSolo));
         if (!isEditMode) {
           navigate(`/automations/${guardada.id}/edit`, {
             replace: true,
-            state: { whatsappSyncError: guardada.whatsappSyncError },
+            state: { whatsappSyncError: guardada.whatsappSyncError, seReintentaSolo },
           });
         }
         return;
@@ -825,6 +836,7 @@ export function AutomationFormPage() {
             onChange={(actionConfig) => setValues({ ...values, actionConfig })}
             disabled={isSubmitting}
             approval={automationQuery.data?.whatsappApproval}
+            sync={automationQuery.data?.whatsappSync}
             automationId={isEditMode ? id : undefined}
             esClinica={esClinica}
             contacto={vocabularioDe(me).contacto}
