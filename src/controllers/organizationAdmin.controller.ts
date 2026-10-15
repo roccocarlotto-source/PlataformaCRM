@@ -2,6 +2,7 @@ import type { Response } from "express";
 import { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import { z } from "zod";
 import { edicionesDisponibles, rubrosDisponibles } from "../config/ediciones";
+import { CODIGO_DE_PAIS } from "../lib/telefono";
 import { listActiveOrganizations } from "../repositories/organization.repository";
 import { DIAS_DE_LA_VISTA_DE_USO, gastoPorOrganizacion } from "../services/llmUsage.service";
 import { activarModulo, desactivarModulo } from "../services/organizationModules.service";
@@ -13,7 +14,7 @@ import {
 } from "../services/organizationAdmin.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
-import { parseOrThrow } from "../utils/validation";
+import { currencySchema, parseOrThrow, timezoneSchema } from "../utils/validation";
 
 // ---------------------------------------------------------------------------
 // Endpoint de platform admin para dar de alta una organización nueva con su
@@ -48,6 +49,18 @@ export const createOrganizationSchema = z.object({
   industry: z
     .nativeEnum(OrganizationIndustry, { invalid_type_error: "industry inválido" })
     .optional(),
+  // País, moneda y zona de la organización. Opcionales: sin ellos, Uruguay,
+  // USD y America/Montevideo (config/organizacionNueva.ts). Mismas reglas
+  // que el PATCH de /api/organization.
+  defaultPhoneCountryCode: z
+    .string()
+    .regex(
+      CODIGO_DE_PAIS,
+      "defaultPhoneCountryCode tiene que ser el código de país: de 1 a 3 dígitos, sin + y sin 0 inicial (por ejemplo 598)",
+    )
+    .optional(),
+  preferredCurrency: currencySchema.optional(),
+  timezone: timezoneSchema.optional(),
 });
 
 const organizationIdSchema = z.string().uuid("organizationId inválido");

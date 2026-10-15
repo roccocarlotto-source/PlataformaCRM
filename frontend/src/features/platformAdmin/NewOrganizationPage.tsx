@@ -5,6 +5,8 @@ import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
+import { CURRENCY_OPTIONS } from "../../lib/currencies";
+import { ORGANIZATION_TIMEZONE_OPTIONS } from "../branch/timezones";
 import { useCreateClinicaDemo, useCreateOrganization } from "./mutations";
 import { NOMBRE_DE_EDICION } from "./ediciones";
 import { useEdicionesDisponibles, useRubrosDisponibles } from "./queries";
@@ -21,6 +23,9 @@ interface NewOrganizationFormValues {
   adminEmail: string;
   edition: OrganizationEdition | "";
   industry: OrganizationIndustry | "";
+  defaultPhoneCountryCode: string;
+  preferredCurrency: string;
+  timezone: string;
 }
 
 const EMPTY_FORM: NewOrganizationFormValues = {
@@ -29,6 +34,12 @@ const EMPTY_FORM: NewOrganizationFormValues = {
   adminEmail: "",
   edition: "",
   industry: "",
+  // Con qué nace (src/config/organizacionNueva.ts del backend): hasta el
+  // 2026-10-14 el alta no los pedía y la organización quedaba sin país (los
+  // teléfonos locales daban error), sin moneda y en UTC. Editables.
+  defaultPhoneCountryCode: "598",
+  preferredCurrency: "USD",
+  timezone: "America/Montevideo",
 };
 
 const NOMBRE_DE_RUBRO: Record<OrganizationIndustry, string> = {
@@ -206,6 +217,54 @@ export function NewOrganizationPage() {
                     </FormField>
                   </div>
                 ) : null}
+                <FormField label={<span className="ds-required">Código de país</span>}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={values.defaultPhoneCountryCode}
+                    onChange={(event) =>
+                      setValues({ ...values, defaultPhoneCountryCode: event.target.value.trim() })
+                    }
+                    required
+                    pattern="[1-9][0-9]{0,2}"
+                    maxLength={3}
+                    title="De 1 a 3 dígitos, sin + (Uruguay: 598)"
+                  />
+                </FormField>
+                <FormField label={<span className="ds-required">Moneda</span>}>
+                  <select
+                    value={values.preferredCurrency}
+                    onChange={(event) =>
+                      setValues({ ...values, preferredCurrency: event.target.value })
+                    }
+                    required
+                  >
+                    {CURRENCY_OPTIONS.map((moneda) => (
+                      <option key={moneda} value={moneda}>
+                        {moneda}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <div className="ds-field-grid--full">
+                  <FormField label={<span className="ds-required">Zona horaria</span>}>
+                    <select
+                      value={values.timezone}
+                      onChange={(event) => setValues({ ...values, timezone: event.target.value })}
+                      required
+                    >
+                      {ORGANIZATION_TIMEZONE_OPTIONS.map((zona) => (
+                        <option key={zona.value} value={zona.value}>
+                          {zona.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <p className="ds-hint">
+                    El código de país completa los teléfonos cargados sin él (099 123 456 → +598 99
+                    123 456). Los tres se pueden cambiar después en Configuración → Organización.
+                  </p>
+                </div>
                 {eligeRubro ? (
                   <div className="ds-field-grid--full">
                     <FormField label={<span className="ds-required">Rubro</span>}>

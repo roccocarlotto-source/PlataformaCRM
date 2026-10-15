@@ -1019,6 +1019,53 @@ describe("ContactFormPage — por edición", () => {
     renderForm("/contacts/new");
     expect(await screen.findByLabelText("Empresa")).toBeInTheDocument();
   });
+
+  // Puesto es el cargo EN una empresa: solo con una elegida (2026-10-14).
+  it("Puesto: no aparece sin empresa ni en ESENCIAL", async () => {
+    conEdicion("ESENCIAL");
+    server.use(usersHandler());
+    const { unmount } = renderForm("/contacts/new");
+    expect(await screen.findByLabelText("Nombre")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Puesto")).not.toBeInTheDocument();
+    unmount();
+
+    conEdicion("COMPLETA");
+    renderForm("/contacts/new");
+    expect(await screen.findByLabelText("Empresa")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Puesto")).not.toBeInTheDocument();
+  });
+
+  it("Puesto: aparece con empresa; sin empresa se oculta pero el valor se conserva al guardar", async () => {
+    conEdicion("COMPLETA");
+    let patchedBody: Record<string, unknown> | undefined;
+    const conEmpresa = makeContact({ id: "ct1", companyId: "co-1", jobTitle: "Gerente" });
+    const sinEmpresa = makeContact({ id: "ct2", companyId: null, jobTitle: "Gerente" });
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(params.id === "ct1" ? conEmpresa : sinEmpresa),
+      ),
+      http.get(`${companiesUrl}/:id`, () =>
+        HttpResponse.json(makeCompany({ id: "co-1", name: "Acme Corp" })),
+      ),
+      http.patch(`${contactsUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(sinEmpresa);
+      }),
+    );
+    const { unmount } = renderForm("/contacts/ct1/edit");
+    expect(await screen.findByLabelText("Puesto")).toHaveValue("Gerente");
+    unmount();
+
+    const user = userEvent.setup();
+    renderForm("/contacts/ct2/edit");
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue(sinEmpresa.firstName));
+    expect(screen.queryByLabelText("Puesto")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(patchedBody).toBeDefined());
+    // Oculto no es borrado: el PATCH no lo vacía.
+    expect(patchedBody?.jobTitle === undefined || patchedBody?.jobTitle === "Gerente").toBe(true);
+  });
 });
 
 // docs/servicios.md §4.6 y §13.1: la tarjeta Vehículos solo con el módulo

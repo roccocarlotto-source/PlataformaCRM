@@ -485,13 +485,32 @@ function motivosDeRevision(promotionNotes: unknown): string[] {
   return notasDe(promotionNotes).flatMap((n) => (n.tipo === "revision_manual" ? [n.motivo] : []));
 }
 
-test("F5-a: un teléfono local con 0 inicial no hace fallar la fila: el contacto entra sin teléfono y queda marcado", async () => {
+// 2026-10-14: sin país configurado se usa Uruguay, así que un local con 0 ya
+// no se descarta: entra normalizado y sin nota de revisión.
+test("un teléfono local con 0 inicial entra normalizado con Uruguay (antes se descartaba)", async () => {
+  const email = `f5a-${randomUUID()}@ejemplo.test`;
+  const { evento } = await promoverUno({
+    firstName: "Local",
+    lastName: "Uruguay",
+    email,
+    phone: "099 123 456",
+  });
+
+  assert.equal(evento.status, "PROCESSED");
+  const contacto = await prisma.contact.findUniqueOrThrow({
+    where: { id: evento.promotedContactId! },
+  });
+  assert.equal(contacto.phone, "+59899123456");
+  assert.equal(telefonoDescartadoDe(evento.promotionNotes), undefined);
+});
+
+test("F5-a: un teléfono que no se puede leer no hace fallar la fila: el contacto entra sin teléfono y queda marcado", async () => {
   const email = `f5a-${randomUUID()}@ejemplo.test`;
   const { evento } = await promoverUno({
     firstName: "Local",
     lastName: "Cero",
     email,
-    phone: "099 123 456",
+    phone: "099 123 456 int 9",
   });
 
   assert.equal(evento.status, "PROCESSED");
@@ -502,7 +521,7 @@ test("F5-a: un teléfono local con 0 inicial no hace fallar la fila: el contacto
   assert.equal(contacto.email, email);
   assert.equal(contacto.phone, null);
 
-  assert.equal(telefonoDescartadoDe(evento.promotionNotes), "099 123 456");
+  assert.equal(telefonoDescartadoDe(evento.promotionNotes), "099 123 456 int 9");
   const motivos = motivosDeRevision(evento.promotionNotes);
   assert.equal(motivos.length, 1);
   assert.match(motivos[0], /no se pudo normalizar/);
@@ -590,9 +609,9 @@ test("F5-b: con país por defecto, un teléfono local se normaliza y se fusiona 
   }
 });
 
-test("F5-a: una fila de CSV con un teléfono local se promueve sin teléfono, no queda FAILED", async () => {
+test("F5-a: una fila de CSV con un teléfono que no se puede leer se promueve sin teléfono, no queda FAILED", async () => {
   const parseado = await parsearArchivo(
-    Buffer.from("Nombre,Apellido,Mail,Telefono\nCsv,Local,,099 000 111\n", "utf8"),
+    Buffer.from("Nombre,Apellido,Mail,Telefono\nCsv,Local,,099 000 111 int 2\n", "utf8"),
     "csv",
   );
   const [fila] = filasParaStaging(parseado.filas);
@@ -616,7 +635,7 @@ test("F5-a: una fila de CSV con un teléfono local se promueve sin teléfono, no
     select: { firstName: true, phone: true },
   });
   assert.deepEqual(contacto, { firstName: "Csv", phone: null });
-  assert.equal(telefonoDescartadoDe(evento.promotionNotes), "099 000 111");
+  assert.equal(telefonoDescartadoDe(evento.promotionNotes), "099 000 111 int 2");
 });
 
 // ---------------------------------------------------------------------------

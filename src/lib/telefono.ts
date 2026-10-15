@@ -18,10 +18,10 @@
 //   - Con o sin "+" es el mismo número: `59894000111` y `+59894000111` quedan
 //     los dos `+59894000111`. Un número sin "+" se toma como internacional
 //     (ya trae el código de país), que es lo que manda Meta en el wa_id.
-//   - NO SE INVENTA UN CÓDIGO DE PAÍS. Un número cuyos dígitos empiezan con 0
-//     es local (`099 123 456`, el 0 de larga distancia): convertirlo exige
-//     saber el país. Si la organización declaró uno (F5-b, abajo) se completa
-//     con ése; si no, NO se normaliza: se rechaza. Ningún código de país E.164
+//   - Un número cuyos dígitos empiezan con 0 es local (`099 123 456`, el 0 de
+//     larga distancia): se completa con el país de la organización (F5-b,
+//     abajo) o, si no declaró ninguno, con Uruguay (ver CAMBIO DE CRITERIO;
+//     antes se rechazaba). Ningún código de país E.164
 //     empieza con 0, así que un número internacional válido nunca cae acá.
 //   - `00` adelante (sin "+") es el prefijo de salida internacional que se
 //     marca en casi todo el mundo: `00598 99 123 456` es `+59899123456`,
@@ -29,9 +29,22 @@
 //   - Entre 7 y 15 dígitos: 15 es el máximo de E.164 y 7 el número
 //     internacional más corto que existe (código de país + abonado).
 //
-// Lo que NO se puede detectar: un número local sin el 0 (`94000111`) tiene la
-// misma forma que uno internacional, y se guarda como `+94000111`. Distinguirlo
-// exigiría conocer el país del contacto, que el CRM no tiene.
+// CAMBIO DE CRITERIO (2026-10-14, decisión de Rocco tras la prueba de S4a):
+// una organización creada desde Plataforma quedaba SIN país, y entonces un
+// `099 777 777` cargado a mano daba error. Desde ahora:
+//   - SIN PAÍS CONFIGURADO SE USA URUGUAY (598), el respaldo seguro: hoy todas
+//     las organizaciones son uruguayas, y el alta nueva ya pide el país.
+//   - UN LOCAL SIN EL 0 TAMBIÉN SE COMPLETA cuando tiene exactamente el largo
+//     nacional del país (Uruguay: 8 dígitos, fijos `2…`/`4…` y celulares
+//     `9…`): `24001234` es `+59824001234`. Un número sin "+" de otro largo
+//     se sigue tomando como internacional (`59899123456` no cambia). Solo
+//     países de LARGO_NACIONAL; para el resto, lo de antes.
+//   - El alta por WhatsApp NO pasa por esto: el wa_id de Meta siempre es
+//     internacional, y se normaliza con "+" adelante.
+//
+// Lo que NO se puede detectar: en un país que no está en LARGO_NACIONAL, un
+// número local sin el 0 (`94000111`) tiene la misma forma que uno
+// internacional, y se guarda como `+94000111`.
 //
 // PAÍS POR DEFECTO — F5-b (pendientes post F1–F5). Organization.
 // defaultPhoneCountryCode ("598") completa los números locales: si los
@@ -47,8 +60,11 @@
 //   - Países que CONSERVAN el 0 en el formato internacional (Italia:
 //     `06 1234 5678` es `+39 06 1234 5678`): sacar el 0 da un número
 //     equivocado. Con país por defecto 39 no hay que confiar en este helper.
-//   - Un local escrito SIN el 0 (`99 123 456`) sigue pareciendo
-//     internacional y se guarda como `+99123456` (ver arriba).
+//   - Un local escrito SIN el 0 en un país que no está en LARGO_NACIONAL
+//     sigue pareciendo internacional (ver arriba).
+//   - En Uruguay, un número internacional de 8 dígitos escrito sin "+" se lee
+//     como local. Ningún wa_id llega por acá, y una persona que carga un
+//     número extranjero lo escribe con "+" o 00.
 //   - Prefijos de salida que no son 00 (el `011` que se marca desde EE.UU.):
 //     se leen como un local con 0.
 //   - El país del CONTACTO: se usa el de la organización para todos. Un
@@ -66,7 +82,18 @@ const FORMA_ACEPTADA = /^\+?[\d\s\-.()]+$/;
 // usa: desde F5-a guarda el contacto sin teléfono en vez de fallar la fila
 // (ver ingestContact.schema.ts).
 export const TELEFONO_NO_NORMALIZABLE =
-  "phone tiene que estar en formato internacional, con el código de país y sin el 0 inicial (por ejemplo +59899123456)";
+  "Teléfono: no lo pudimos interpretar. Escribilo como número local (099 123 456) o con el código de país (+598 99 123 456).";
+
+/** El país que se usa cuando la organización no configuró ninguno (ver
+ *  "CAMBIO DE CRITERIO" arriba). */
+export const CODIGO_DE_PAIS_POR_DEFECTO = "598";
+
+/** Largo del número nacional (sin el 0 ni el código de país), por código de
+ *  país. Un número sin "+" con exactamente este largo es local. Solo países
+ *  donde la regla es exacta. */
+const LARGO_NACIONAL: Readonly<Record<string, number>> = {
+  "598": 8,
+};
 
 // Solo dígitos. Es el criterio con el que se COMPARAN dos teléfonos (y el que
 // espera Meta en el `to` de un envío): `+598 99-123.456` y `59899123456` son
@@ -112,8 +139,41 @@ function completarPais(
   if (digitos.startsWith("00")) {
     return digitos.slice(2);
   }
-  if (digitos.startsWith("0") && codigoDePais && CODIGO_DE_PAIS.test(codigoDePais)) {
-    return codigoDePais + digitos.slice(1);
+  const codigo = codigoDePaisEfectivo(codigoDePais);
+  if (digitos.startsWith("0")) {
+    return codigo + digitos.slice(1);
+  }
+  if (LARGO_NACIONAL[codigo] === digitos.length) {
+    return codigo + digitos;
   }
   return digitos;
+}
+
+/** El país de la organización, o Uruguay si no configuró uno válido. */
+export function codigoDePaisEfectivo(codigoDePais: string | null | undefined): string {
+  return codigoDePais && CODIGO_DE_PAIS.test(codigoDePais)
+    ? codigoDePais
+    : CODIGO_DE_PAIS_POR_DEFECTO;
+}
+
+/** Para buscar un contacto por teléfono: los textos a buscar DENTRO de
+ *  Contact.phone (guardado como "+dígitos"). Vacío si el texto no parece un
+ *  teléfono. Cubre lo que escribe una persona: `099 777 777` encuentra
+ *  `+59899777777` (normalizado con el país), y un pedazo (`0997`, `777 777`)
+ *  encuentra por los dígitos, con o sin el 0 inicial. */
+export function variantesDeBusquedaDeTelefono(
+  texto: string,
+  codigoDePais: string | null | undefined,
+): string[] {
+  const recortado = texto.trim();
+  const digitos = soloDigitos(recortado);
+  if (!FORMA_ACEPTADA.test(recortado) || digitos.length < 4) return [];
+  const variantes = new Set<string>();
+  if (/[1-9]/.test(digitos)) variantes.add(digitos);
+  const sinCeros = digitos.replace(/^0+/, "");
+  // Nunca una variante vacía o muy corta: `contains ""` encontraría a todos.
+  if (sinCeros.length >= 3) variantes.add(sinCeros);
+  const normalizado = normalizarTelefono(recortado, codigoDePais);
+  if (normalizado) variantes.add(soloDigitos(normalizado));
+  return [...variantes];
 }

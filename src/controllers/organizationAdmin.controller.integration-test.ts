@@ -234,9 +234,20 @@ test("platform admin: 201 con Organization + User ADMIN creados, identidad en au
       // el rubro, y la organización nace AUTOMOTORA por el DEFAULT.
       const org = await prisma.organization.findUniqueOrThrow({
         where: { id: creado.organization.id },
-        select: { industry: true },
+        select: {
+          industry: true,
+          defaultPhoneCountryCode: true,
+          preferredCurrency: true,
+          timezone: true,
+        },
       });
       assert.equal(org.industry, "AUTOMOTORA");
+      // 2026-10-14: sin país, moneda ni zona en el body, nace con Uruguay, USD
+      // y Montevideo (config/organizacionNueva.ts). Antes quedaba sin país ni
+      // moneda y en UTC.
+      assert.equal(org.defaultPhoneCountryCode, "598");
+      assert.equal(org.preferredCurrency, "USD");
+      assert.equal(org.timezone, "America/Montevideo");
       // R3 (docs/rubros.md §1.3): el alta de una automotora no crea nada de
       // clínica.
       assert.equal(
@@ -251,6 +262,46 @@ test("platform admin: 201 con Organization + User ADMIN creados, identidad en au
       // Nació por invitación: GoTrue sella invited_at solo en ese camino (es el
       // discriminador del que depende authCleanup.service.ts).
       assert.ok(data.user?.invited_at, "la identidad tiene que tener invited_at");
+    } finally {
+      identidad = undefined;
+      if (creado) await limpiarCreado(creado);
+    }
+  });
+});
+
+test("platform admin: país, moneda y zona elegidos en el alta; uno inválido es 400", async () => {
+  await conPlatformAdmin(async (platformAdminUserId) => {
+    identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
+    let creado: Creado | undefined;
+    try {
+      const invalido = await post({
+        organizationName: `Automotora Feliz ${Date.now()}`,
+        adminFullName: "Ana Fundadora",
+        adminEmail: emailDePrueba("datos-invalidos"),
+        defaultPhoneCountryCode: "+598",
+      });
+      assert.equal(invalido.status, 400);
+
+      const res = await post({
+        organizationName: `Automotora Feliz ${Date.now()}`,
+        adminFullName: "Ana Fundadora",
+        adminEmail: emailDePrueba("datos"),
+        defaultPhoneCountryCode: "54",
+        preferredCurrency: "UYU",
+        timezone: "America/Argentina/Buenos_Aires",
+      });
+      const texto = await res.text();
+      assert.equal(res.status, 201, texto);
+      creado = JSON.parse(texto) as Creado;
+      const org = await prisma.organization.findUniqueOrThrow({
+        where: { id: creado.organization.id },
+        select: { defaultPhoneCountryCode: true, preferredCurrency: true, timezone: true },
+      });
+      assert.deepEqual(org, {
+        defaultPhoneCountryCode: "54",
+        preferredCurrency: "UYU",
+        timezone: "America/Argentina/Buenos_Aires",
+      });
     } finally {
       identidad = undefined;
       if (creado) await limpiarCreado(creado);

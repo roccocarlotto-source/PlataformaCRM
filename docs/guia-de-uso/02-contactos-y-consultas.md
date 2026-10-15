@@ -35,7 +35,8 @@ lectura.
 
 Arriba de la lista están los filtros. Cada cambio vuelve a la primera página.
 
-- **Buscar**: por nombre, apellido o email.
+- **Buscar**: por nombre, apellido, email o teléfono. El teléfono se puede
+  escribir como lo dicta la persona ("099 123 456") o con el código de país.
 - **Etapa**: en qué punto del camino comercial está el contacto. Las etapas
   son **Nuevo** (acaba de llegar), **Calificado (Marketing)**, **Calificado
   (Ventas)**, **Cliente** (ya compró) y **Perdido**.
@@ -78,10 +79,12 @@ El menú de tres puntos de cada fila ofrece:
 1. En [Contactos](/contacts), tocá **Nuevo contacto**.
 2. Completá **Nombre** y **Apellido**. Son los únicos campos obligatorios
    (los marcados con asterisco).
-3. Si los tenés, cargá **Email**, **Teléfono** y **Puesto** (el cargo de la
-   persona si representa a una empresa).
+3. Si los tenés, cargá **Email** y **Teléfono**.
 4. **Empresa**: escribí parte del nombre y elegila de la lista. Si todavía no
-   existe, primero creala en [Empresas](/companies).
+   existe, primero creala en [Empresas](/companies). Con una empresa elegida
+   aparece **Puesto** (el cargo de la persona en esa empresa). Si después
+   quitás la empresa, Puesto se oculta pero no se borra. En la edición Esencial
+   no hay empresas, así que tampoco aparece Puesto.
 5. **Fuente**: por dónde llegó el contacto, en texto libre. Por ejemplo
    "Salón", "Recomendado" o "Feria". Los contactos que crean los canales de
    chat ya traen la suya.
@@ -95,9 +98,13 @@ El menú de tres puntos de cada fila ofrece:
 > escribió por algún canal, es probable que exista. Si igual terminás con dos
 > fichas de la misma persona, se pueden [unir](#unir-contactos).
 
-El teléfono conviene cargarlo con código de país (por ejemplo,
-+54 11 2345 6789). Si lo cargás sin código, el sistema usa el país
-configurado para la organización.
+El teléfono se puede cargar como se dicta, en formato local: "099 123 456"
+(celular) o "2400 1234" (fijo). El sistema lo completa con el país de la
+organización (Uruguay si no hay otro configurado) y lo guarda como
++598 99 123 456. Un número de otro país se carga con su código, empezando con
+"+" (por ejemplo, +54 11 2345 6789): ese se guarda tal cual. Si lo que se
+escribió no se puede leer como un teléfono, el sistema lo avisa en el campo
+**Teléfono**.
 
 ## Ficha de contacto {#ficha-de-contacto}
 

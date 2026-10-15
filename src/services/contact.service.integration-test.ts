@@ -7,7 +7,14 @@ import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { AppError } from "../utils/AppError";
-import { createContact, qualifyLead, TELEFONO_DUPLICADO, updateContact } from "./contact.service";
+import { TELEFONO_NO_NORMALIZABLE } from "../lib/telefono";
+import {
+  createContact,
+  listContacts,
+  qualifyLead,
+  TELEFONO_DUPLICADO,
+  updateContact,
+} from "./contact.service";
 
 // Desde el ítem 116 qualifyLead devuelve { contacto, identidadIgnorada }: los
 // tests de este archivo solo miran el contacto, así que lo desenvuelven acá y
@@ -609,23 +616,104 @@ test("F5: updateContact normaliza, deja guardar el propio número y da 409 con e
   }
 });
 
-test("F5: un teléfono local con 0 inicial es un 400 y no crea nada — no se inventa un código de país", async () => {
+// 2026-10-14 (decisión de Rocco): una organización SIN país configurado (así
+// quedaban las creadas desde Plataforma) usa Uruguay, y en Uruguay un número
+// de 8 dígitos sin "+" es local. Antes, "099 123 456" era un 400.
+test("sin país configurado: Uruguay; fijo y celular en formato local se convierten, con + se respeta", async () => {
   const escenario = await montar();
   try {
+    const casos: [string, string][] = [
+      ["099777777", "+59899777777"],
+      ["2400 1234", "+59824001234"],
+      ["+54 9 11 4444 5555", "+5491144445555"],
+    ];
+    for (const [i, [escrito, guardado]] of casos.entries()) {
+      const c = await createContact(escenario.orgId, escenario.userId, {
+        firstName: `Local ${i}`,
+        lastName: "Uy",
+        phone: escrito,
+      });
+      assert.equal(c.phone, guardado, escrito);
+    }
+    // Lo que no es un teléfono: 400, en español, y no crea nada.
+    const antes = await prisma.contact.count({ where: { organizationId: escenario.orgId } });
     await assert.rejects(
       createContact(escenario.orgId, escenario.userId, {
-        firstName: "Local",
-        lastName: "X",
-        phone: "099 123 456",
+        firstName: "Mal",
+        lastName: "Escrito",
+        phone: "llamar a la tarde",
       }),
-      (err: unknown) => assertAppError(err, 400),
+      (err: unknown) =>
+        assertAppError(err, 400) && (err as AppError).message === TELEFONO_NO_NORMALIZABLE,
     );
-    assert.equal(await prisma.contact.count({ where: { organizationId: escenario.orgId } }), 0);
+    assert.equal(await prisma.contact.count({ where: { organizationId: escenario.orgId } }), antes);
   } finally {
     await desmontar(escenario);
   }
 });
 
+test("los teléfonos ya guardados no cambian: editar otro campo no los reescribe", async () => {
+  const escenario = await montar();
+  try {
+    // Uno normalizado y uno VIEJO (anterior a F5, con separadores): la regla
+    // nueva se aplica al escribir el teléfono, no a lo que ya está.
+    const [normal, viejo] = await Promise.all(
+      ["+59899000111", "099 000 222"].map((phone, i) =>
+        prisma.contact.create({
+          data: {
+            organizationId: escenario.orgId,
+            firstName: `Guardado ${i}`,
+            lastName: "X",
+            phone,
+          },
+        }),
+      ),
+    );
+    for (const c of [normal, viejo]) {
+      const editado = await updateContact(escenario.orgId, escenario.userId, c.id, {
+        firstName: "Editado",
+      });
+      assert.equal(editado.phone, c.phone);
+    }
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("buscar contactos por teléfono como lo escribe una persona", async () => {
+  const escenario = await montar();
+  try {
+    await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Celular",
+      lastName: "Uy",
+      phone: "+598 99 777 777",
+    });
+    await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Fijo",
+      lastName: "Uy",
+      phone: "24001234",
+    });
+    const buscar = async (search: string) =>
+      (
+        await listContacts(escenario.orgId, {
+          page: 1,
+          pageSize: 20,
+          search,
+          sortBy: "createdAt",
+          sortOrder: "desc",
+        })
+      ).data.map((c) => c.firstName);
+    assert.deepEqual(await buscar("099 777 777"), ["Celular"]);
+    assert.deepEqual(await buscar("+59899777777"), ["Celular"]);
+    assert.deepEqual(await buscar("777 777"), ["Celular"]);
+    assert.deepEqual(await buscar("2400 1234"), ["Fijo"]);
+    // Por nombre, como siempre.
+    assert.deepEqual(await buscar("fijo"), ["Fijo"]);
+    assert.deepEqual(await buscar("0000"), []);
+  } finally {
+    await desmontar(escenario);
+  }
+});
 // F5-b (pendientes post F1–F5): con país por defecto, el local se completa y
 // el 409 compara la forma ya normalizada.
 test("F5-b: con país por defecto 598, 099 123 456 se guarda +59899123456 y choca con el mismo número escrito en internacional", async () => {

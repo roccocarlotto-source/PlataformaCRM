@@ -86,6 +86,10 @@ export interface CreateOrganizationWithFoundingAdminInput {
   edition?: OrganizationEdition;
   // docs/rubros.md §1.1. Opcional por compatibilidad: sin él, AUTOMOTORA.
   industry?: OrganizationIndustry;
+  // País, moneda y zona: sin ellos, los de config/organizacionNueva.ts.
+  defaultPhoneCountryCode?: string;
+  preferredCurrency?: string;
+  timezone?: string;
 }
 
 export interface CreateOrganizationWithFoundingAdminResult {
@@ -120,6 +124,9 @@ export interface OrganizationAdminDeps {
       slug: string;
       edition: OrganizationEdition;
       industry: OrganizationIndustry;
+      defaultPhoneCountryCode?: string;
+      preferredCurrency?: string;
+      timezone?: string;
     },
     db: Db,
   ) => Promise<{
@@ -352,7 +359,17 @@ export async function createOrganizationWithFoundingAdmin(
       }
 
       const organization = await deps.createOrganization(
-        { name: organizationName, slug, edition, industry },
+        {
+          name: organizationName,
+          slug,
+          edition,
+          industry,
+          ...(input.defaultPhoneCountryCode
+            ? { defaultPhoneCountryCode: input.defaultPhoneCountryCode }
+            : {}),
+          ...(input.preferredCurrency ? { preferredCurrency: input.preferredCurrency } : {}),
+          ...(input.timezone ? { timezone: input.timezone } : {}),
+        },
         tx,
       );
       // ESENCIAL nace con su proceso de venta fijo, en la misma transacción:

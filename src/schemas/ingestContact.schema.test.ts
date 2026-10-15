@@ -331,10 +331,16 @@ test("F5-a: un phone que no se puede normalizar no invalida la fila: sale en tel
   const r = ingestContactSchema.parse({
     firstName: "Ana",
     lastName: "Pérez",
-    phone: "  099 123 456 ",
+    phone: "  099 123 456 int 3 ",
   });
   assert.equal(r.phone, undefined);
-  assert.equal(r.telefonoDescartado, "099 123 456");
+  assert.equal(r.telefonoDescartado, "099 123 456 int 3");
+  // Un local sin país configurado ya no se descarta: se completa con Uruguay
+  // (2026-10-14).
+  assert.equal(
+    ingestContactSchema.parse({ firstName: "Ana", lastName: "Pérez", phone: "099 123 456" }).phone,
+    "+59899123456",
+  );
 });
 
 test("F5-a: el teléfono descartado se recorta a 100 caracteres", () => {

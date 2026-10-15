@@ -5,7 +5,12 @@ import {
   type LifecycleStage,
 } from "@prisma/client";
 import { OPCIONES_DE_TRANSACCION_LARGA, prisma, type Db } from "../lib/prisma";
-import { normalizarTelefono, soloDigitos, TELEFONO_NO_NORMALIZABLE } from "../lib/telefono";
+import {
+  normalizarTelefono,
+  soloDigitos,
+  TELEFONO_NO_NORMALIZABLE,
+  variantesDeBusquedaDeTelefono,
+} from "../lib/telefono";
 import { cancelPendingInboundJobsOfConversation } from "../repositories/agentInboundJob.repository";
 import { countConfirmedBookingsOf } from "../repositories/booking.repository";
 import { findCompanyById } from "../repositories/company.repository";
@@ -119,9 +124,22 @@ export async function listContacts(organizationId: string, params: ListContactsP
   // "Clientes" = todos menos las consultas sin identificar. Una consulta
   // previa (dos viajes) y no un predicado en el where: Prisma no puede
   // expresar la regla, y la lista excluida es chica (findUnidentifiedContactIds).
-  const excludeIds =
-    vista === "clientes" ? await findUnidentifiedContactIds(organizationId) : undefined;
-  const filtros = { ...filters, ...(excludeIds ? { excludeIds } : {}) };
+  // Buscar por teléfono como lo escribe una persona (`099 777 777` encuentra
+  // `+59899777777`): con el país de la organización, que solo se pide si el
+  // texto parece un teléfono.
+  const pareceTelefono =
+    filters.search !== undefined && variantesDeBusquedaDeTelefono(filters.search, null).length > 0;
+  const [excludeIds, codigoDePais] = await Promise.all([
+    vista === "clientes" ? findUnidentifiedContactIds(organizationId) : undefined,
+    pareceTelefono ? findDefaultPhoneCountryCode(organizationId) : null,
+  ]);
+  const filtros = {
+    ...filters,
+    ...(excludeIds ? { excludeIds } : {}),
+    ...(pareceTelefono && filters.search
+      ? { telefonosABuscar: variantesDeBusquedaDeTelefono(filters.search, codigoDePais) }
+      : {}),
+  };
 
   const [data, total] = await Promise.all([
     findManyContacts(organizationId, filtros, { skip, take: pageSize }, { sortBy, sortOrder }),

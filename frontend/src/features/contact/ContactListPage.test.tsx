@@ -194,7 +194,7 @@ describe("ContactListPage", () => {
     renderPage();
     await waitFor(() => expect(captured.length).toBeGreaterThan(0));
 
-    await user.type(screen.getByPlaceholderText("Buscar por nombre o email"), "juana");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre, email o teléfono"), "juana");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("search")).toBe("juana"));
 
     await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Calificado (Marketing)");
