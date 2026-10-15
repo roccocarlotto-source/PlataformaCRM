@@ -1,6 +1,11 @@
 import { z } from "zod";
 import type { Modulo } from "../config/ediciones";
 import { TRIGGER_BOOKING_REMINDER_DUE as TRIGGER_DEL_RECORDATORIO } from "../clinicas/recordatorios/config";
+import {
+  OFFSET_MAXIMO,
+  OFFSET_MINIMO,
+  TRIGGER_NEXT_SERVICE_DUE as TRIGGER_DEL_PROXIMO_SERVICE,
+} from "../servicios/recordatorio/config";
 
 // ---------------------------------------------------------------------------
 // Catálogo de triggers del motor de automatizaciones
@@ -52,6 +57,11 @@ export const TRIGGER_BOOKING_REMINDER_DUE = TRIGGER_DEL_RECORDATORIO;
 // R14 (docs/rubros.md §7): "Cuando se atiende un turno", solo en clínicas.
 // Lo emite R10 al marcar Atendido (o al cerrar solo a las 3 h).
 export const TRIGGER_BOOKING_COMPLETED = "booking.completed";
+// S7 (docs/servicios.md §6.2): "Cuando se acerca o vence el próximo service",
+// solo con el módulo Servicios. Un ESTADO, como opportunity.stale: lo produce
+// el barrido diario de src/servicios/recordatorio/barrido.ts, un evento por
+// (regla, vehículo, fecha).
+export const TRIGGER_SERVICE_NEXT_SERVICE_DUE = TRIGGER_DEL_PROXIMO_SERVICE;
 
 export const TRIGGERS_CONOCIDOS = [
   TRIGGER_OPPORTUNITY_WON,
@@ -59,6 +69,7 @@ export const TRIGGERS_CONOCIDOS = [
   TRIGGER_CONTACT_INQUIRY_STALLED,
   TRIGGER_BOOKING_REMINDER_DUE,
   TRIGGER_BOOKING_COMPLETED,
+  TRIGGER_SERVICE_NEXT_SERVICE_DUE,
 ] as const;
 
 export type TriggerType = (typeof TRIGGERS_CONOCIDOS)[number];
@@ -127,6 +138,22 @@ export const configDeConsultaSinAvanceSchema = z.object({
 
 export type ConfigDeConsultaSinAvance = z.infer<typeof configDeConsultaSinAvanceSchema>;
 
+// S7: cuántos días antes (negativo) o después (positivo) de la fecha del
+// service sale el aviso. Sin default: es lo que define la regla. Puede haber
+// varias reglas (una semana antes y 15 días después de vencido).
+export const configDelProximoServiceSchema = z.object({
+  offsetDays: z
+    .number({
+      required_error: "offsetDays es requerido",
+      invalid_type_error: "offsetDays debe ser un número entero",
+    })
+    .int("offsetDays debe ser un número entero")
+    .min(OFFSET_MINIMO, `offsetDays no puede ser menor que ${String(OFFSET_MINIMO)}`)
+    .max(OFFSET_MAXIMO, `offsetDays no puede superar ${String(OFFSET_MAXIMO)}`),
+});
+
+export type ConfigDelProximoService = z.infer<typeof configDelProximoServiceSchema>;
+
 export type EsquemaDeTrigger = z.ZodType<Record<string, unknown>, z.ZodTypeDef, unknown>;
 
 // Un Record sobre TriggerType y no un Map: si alguien suma un trigger a
@@ -139,6 +166,7 @@ export const CONFIG_DE_TRIGGER: Record<TriggerType, EsquemaDeTrigger> = {
   [TRIGGER_BOOKING_REMINDER_DUE]: z.object({}),
   // R14: sin configuración propia (la demora es de cada acción).
   [TRIGGER_BOOKING_COMPLETED]: z.object({}),
+  [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: configDelProximoServiceSchema,
 };
 
 /** El módulo que necesita un trigger (R13). Sin entrada: lo tiene cualquiera
@@ -151,7 +179,21 @@ export const MODULO_DEL_TRIGGER: Readonly<Partial<Record<TriggerType, Modulo>>> 
   [TRIGGER_OPPORTUNITY_STALE]: "oportunidades",
   [TRIGGER_BOOKING_REMINDER_DUE]: "recordatorios_de_turno",
   [TRIGGER_BOOKING_COMPLETED]: "post_turno",
+  // S7: el taller (docs/servicios.md §1).
+  [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: "servicios",
 };
+
+// ---------------------------------------------------------------------------
+// Triggers DIRIGIDOS a una regla
+//
+// El evento lleva la regla que lo produjo (payload.automationId) y el
+// dispatcher corre SOLO esa. Es lo que permite varias reglas del mismo trigger
+// con condiciones distintas: el aviso de "7 días antes" no dispara la regla de
+// "15 días después". Los demás triggers corren todas sus reglas, como siempre.
+// ---------------------------------------------------------------------------
+export const TRIGGERS_DIRIGIDOS_A_UNA_REGLA: readonly TriggerType[] = [
+  TRIGGER_SERVICE_NEXT_SERVICE_DUE,
+];
 
 // ---------------------------------------------------------------------------
 // Triggers con UNA SOLA regla activa por organización

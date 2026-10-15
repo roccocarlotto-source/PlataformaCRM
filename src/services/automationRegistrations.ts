@@ -10,6 +10,7 @@ import { accionCupon } from "./automationActions/sendDiscountVoucherFollowup";
 import { accionSeguimientoQr } from "./automationActions/sendQrFollowup";
 import { accionRecordatorio } from "../clinicas/recordatorios/accion";
 import { accionControl, accionQrDeResena } from "../clinicas/postTurno/acciones";
+import { accionRecordatorioDelService } from "../servicios/recordatorio/accion";
 import { despacharAutomatizaciones } from "./automationDispatch.service";
 import { TRIGGERS_CONOCIDOS } from "./automationTriggers";
 import {
@@ -52,6 +53,8 @@ export const ACCIONES_INCORPORADAS: readonly AccionRegistrada[] = [
   // R14: solo clínicas (post_turno), con booking.completed.
   accionQrDeResena,
   accionControl,
+  // S7 (docs/servicios.md §6.3): el recordatorio del próximo service.
+  accionRecordatorioDelService,
 ];
 
 export interface RegistrosDeAutomatizacion {

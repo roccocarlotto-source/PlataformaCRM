@@ -10,6 +10,7 @@ import { env } from "../../config/env";
 import {
   ACTION_BOOKING_SEND_REMINDER,
   ACTION_SEND_DISCOUNT_VOUCHER,
+  ACTION_SEND_NEXT_SERVICE_REMINDER,
   BOTONES_DEL_RECORDATORIO,
   ESTADOS_DE_APROBACION,
   FORMATOS_DE_MENSAJE,
@@ -20,7 +21,13 @@ import {
 } from "./catalog";
 import { useRefreshWhatsappApproval } from "./mutations";
 import type { WhatsappApproval } from "./types";
-import { EJEMPLO_LINK, insertarToken, previewDePlantilla } from "./whatsappPreview";
+import {
+  EJEMPLO_LINK,
+  EJEMPLO_LUGAR_DEL_TALLER,
+  EJEMPLO_VEHICULO_DEL_TALLER,
+  insertarToken,
+  previewDePlantilla,
+} from "./whatsappPreview";
 
 // El estado de aprobación de WhatsApp de la regla: UNA línea, el de la versión
 // más nueva del mensaje. La plantilla de Meta no aparece por ningún lado: el
@@ -105,7 +112,14 @@ function VistaPrevia({ actionType, values }: { actionType: string; values: Confi
             </span>
           </div>
         ) : null}
-        {previewDePlantilla(values.messageText ?? "", link) || "…"}
+        {previewDePlantilla(
+          values.messageText ?? "",
+          link,
+          // S7: los ejemplos de un taller.
+          actionType === ACTION_SEND_NEXT_SERVICE_REMINDER
+            ? { lugar: EJEMPLO_LUGAR_DEL_TALLER, vehiculo: EJEMPLO_VEHICULO_DEL_TALLER }
+            : {},
+        ) || "…"}
       </div>
       {/* R13: los botones que agrega la plantilla del recordatorio. */}
       {actionType === ACTION_BOOKING_SEND_REMINDER ? (

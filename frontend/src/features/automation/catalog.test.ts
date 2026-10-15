@@ -21,6 +21,7 @@ import {
   TEXTO_INICIAL_DE_CONSULTA,
   TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA,
   TEXTO_INICIAL_DEL_RECORDATORIO,
+  TEXTO_INICIAL_DEL_PROXIMO_SERVICE,
   mensajeDeLaAccion,
   validarMensajeDeConsulta,
   accionConMensajeDeWhatsapp,
@@ -87,6 +88,8 @@ describe("catálogo de triggers y acciones", () => {
         "booking.schedule_control",
         ACTION_CREATE_FOLLOW_UP,
       ],
+      // S7: solo con el módulo Servicios.
+      "service.next_service_due": ["service.send_next_service_reminder", ACTION_CREATE_FOLLOW_UP],
     });
     // Un trigger que el espejo no conoce no restringe: decide el backend.
     expect(accionesParaTrigger("booking.reminder")).toEqual(ACTION_OPTIONS);
@@ -623,6 +626,79 @@ describe("después del turno (clínica)", () => {
     ).toEqual(["{nombre}", "{semanas}", "{lugar}"]);
     expect(config.validar({ messageText: "Hola {nombre}, tu {prestacion}." })).toMatch(
       /no va en este mensaje/,
+    );
+  });
+});
+
+// S7 (docs/servicios.md §6): el próximo service, solo con el módulo Servicios.
+describe("próximo service (módulo Servicios)", () => {
+  it("sin el módulo no se ve; con el módulo, al final, en las dos ediciones", () => {
+    for (const simple of [false, true]) {
+      expect(triggerOptions(simple).map((o) => o.value)).not.toContain("service.next_service_due");
+      expect(triggerOptions(simple, false, true).at(-1)?.value).toBe("service.next_service_due");
+    }
+    expect(accionesParaTrigger("service.next_service_due").map((o) => o.value)).toEqual([
+      "service.send_next_service_reminder",
+      "activity.create_follow_up",
+    ]);
+    for (const trigger of ["opportunity.won", "opportunity.stale", "contact.inquiry_stalled"]) {
+      expect(accionesParaTrigger(trigger).map((o) => o.value)).not.toContain(
+        "service.send_next_service_reminder",
+      );
+    }
+    expect(triggerLabel("service.next_service_due")).toBe("Próximo service");
+    expect(actionLabel("service.send_next_service_reminder")).toBe(
+      "Mandar el recordatorio por WhatsApp",
+    );
+  });
+
+  it("cuándo: días antes o después, a offsetDays con signo, con los topes del backend", () => {
+    const config = CONFIG_DE_TRIGGER["service.next_service_due"];
+    const draft = config.draftVacio();
+    expect(draft).toEqual({ cuando: "antes", dias: "7" });
+    expect(config.validar(draft)).toBeNull();
+    expect(config.aPayload(draft)).toEqual({ offsetDays: -7 });
+    expect(config.aPayload({ cuando: "despues", dias: "15" })).toEqual({ offsetDays: 15 });
+    expect(config.draftDesde({ offsetDays: 30 })).toEqual({ cuando: "despues", dias: "30" });
+    expect(config.draftDesde({ offsetDays: -10 })).toEqual({ cuando: "antes", dias: "10" });
+    expect(config.validar({ cuando: "antes", dias: "61" })).toMatch(/entre 0 y 60/);
+    expect(config.validar({ cuando: "despues", dias: "90" })).toBeNull();
+    expect(config.validar({ cuando: "despues", dias: "91" })).toMatch(/entre 0 y 90/);
+    expect(config.validar({ cuando: "antes", dias: "" })).not.toBeNull();
+  });
+
+  it("el mensaje: texto inicial, variables, validación, vista previa y la casilla activada", () => {
+    const config = CONFIG_DE_ACCION["service.send_next_service_reminder"];
+    const draft = config.draftVacio();
+    expect(draft.messageText).toBe(TEXTO_INICIAL_DEL_PROXIMO_SERVICE);
+    expect(config.validar(draft)).toBeNull();
+    expect(config.aPayload(draft)).toEqual({
+      messageText: TEXTO_INICIAL_DEL_PROXIMO_SERVICE,
+      tareaSiNoTieneWhatsapp: true,
+    });
+    expect(config.aPayload({ ...draft, tareaSiNoTieneWhatsapp: "false" })).toMatchObject({
+      tareaSiNoTieneWhatsapp: false,
+    });
+    expect(
+      config.draftDesde({ messageText: "x", tareaSiNoTieneWhatsapp: false }).tareaSiNoTieneWhatsapp,
+    ).toBe("false");
+    expect(
+      mensajeDeLaAccion("service.send_next_service_reminder", "LINK").variables.map((v) => v.token),
+    ).toEqual(["{nombre}", "{lugar}", "{vehiculo}", "{fecha}"]);
+    expect(config.validar({ messageText: "Hola {nombre}, tu {vehiculo} tiene service." })).toMatch(
+      /\{fecha\}/,
+    );
+    expect(
+      config.validar({ messageText: "Hola {nombre}, tu {vehiculo} el {fecha} a las {hora}." }),
+    ).toMatch(/no va en este mensaje/);
+    expect(accionConMensajeDeWhatsapp("service.send_next_service_reminder")).toBe(true);
+    expect(
+      previewDePlantilla(TEXTO_INICIAL_DEL_PROXIMO_SERVICE, undefined, {
+        lugar: "Automotores del Sur",
+        vehiculo: "Volkswagen Gol (ABC 1234)",
+      }),
+    ).toBe(
+      "Hola Ana, te escribimos de Automotores del Sur. El próximo service de tu Volkswagen Gol (ABC 1234) está previsto para el 15 de noviembre. Si querés agendarlo, respondé este mensaje y te damos un turno.",
     );
   });
 });

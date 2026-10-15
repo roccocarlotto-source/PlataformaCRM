@@ -17,6 +17,7 @@ import {
   CONFIG_DE_TRIGGER,
   MODULO_DEL_TRIGGER,
   TRIGGERS_CONOCIDOS,
+  TRIGGERS_DIRIGIDOS_A_UNA_REGLA,
   TRIGGERS_DE_REGLA_UNICA,
   TRIGGER_CONTACT_INQUIRY_STALLED,
   TRIGGER_OPPORTUNITY_STALE,
@@ -80,7 +81,7 @@ test("dos registros creados con la factory no comparten estado", () => {
 // Catálogo de triggers
 // ---------------------------------------------------------------------------
 
-test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunity.stale, contact.inquiry_stalled, booking.reminder_due (R13) y booking.completed (R14), los dos últimos solo de clínicas", () => {
+test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunity.stale, contact.inquiry_stalled, booking.reminder_due (R13), booking.completed (R14) y service.next_service_due (S7), los dos de clínicas y el del taller con su módulo", () => {
   assert.deepEqual(
     [...TRIGGERS_CONOCIDOS],
     [
@@ -89,6 +90,7 @@ test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunit
       "contact.inquiry_stalled",
       "booking.reminder_due",
       "booking.completed",
+      "service.next_service_due",
     ],
   );
   assert.deepEqual(MODULO_DEL_TRIGGER, {
@@ -96,7 +98,10 @@ test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunit
     "opportunity.stale": "oportunidades",
     "booking.reminder_due": "recordatorios_de_turno",
     "booking.completed": "post_turno",
+    "service.next_service_due": "servicios",
   });
+  // S7: el único trigger dirigido (el evento lleva la regla).
+  assert.deepEqual(TRIGGERS_DIRIGIDOS_A_UNA_REGLA, ["service.next_service_due"]);
   assert.equal(esTriggerConocido("opportunity.won"), true);
   assert.equal(esTriggerConocido("opportunity.stale"), true);
   assert.equal(esTriggerConocido("contact.inquiry_stalled"), true);

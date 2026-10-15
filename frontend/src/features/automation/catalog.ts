@@ -8,6 +8,7 @@ import type { SelectOption } from "../../design-system/Select";
 import type { WhatsappApproval, WhatsappFormat } from "./types";
 import {
   TOKEN_DIA,
+  TOKEN_FECHA,
   TOKEN_HORA,
   TOKEN_LINK,
   TOKEN_LUGAR,
@@ -63,6 +64,8 @@ export const TRIGGER_CONTACT_INQUIRY_STALLED = "contact.inquiry_stalled";
 export const TRIGGER_BOOKING_REMINDER_DUE = "booking.reminder_due";
 // R14 (docs/rubros.md §7): solo clínicas.
 export const TRIGGER_BOOKING_COMPLETED = "booking.completed";
+// S7 (docs/servicios.md §6): solo con el módulo Servicios.
+export const TRIGGER_SERVICE_NEXT_SERVICE_DUE = "service.next_service_due";
 
 export const TRIGGER_OPTIONS: SelectOption<string>[] = [
   {
@@ -104,18 +107,34 @@ export const TRIGGER_OPTIONS_DE_CLINICA: SelectOption<string>[] = [
   },
 ];
 
+// S7: los triggers del módulo Servicios (sin el módulo no se ven: el backend
+// los rechaza con 400).
+export const TRIGGER_OPTIONS_DE_SERVICIOS: SelectOption<string>[] = [
+  {
+    value: TRIGGER_SERVICE_NEXT_SERVICE_DUE,
+    label: "Próximo service",
+    subtitle: "Antes o después de la fecha de service de cada vehículo",
+  },
+];
+
 /** Las opciones del selector de trigger. `simple`: sin procesos de venta
  *  (ESENCIAL). `esClinica`: el catálogo de docs/rubros.md §7.3, en su orden:
  *  los de clínica y la consulta sin avance, sin los de oportunidad (D3; el
- *  backend los rechaza con 400). */
-export function triggerOptions(simple: boolean, esClinica = false): SelectOption<string>[] {
+ *  backend los rechaza con 400). `conServicios` (S7): suma el próximo
+ *  service al final. */
+export function triggerOptions(
+  simple: boolean,
+  esClinica = false,
+  conServicios = false,
+): SelectOption<string>[] {
   const base = simple ? TRIGGER_OPTIONS_ESENCIAL : TRIGGER_OPTIONS;
-  return esClinica
+  const delRubro = esClinica
     ? [
         ...TRIGGER_OPTIONS_DE_CLINICA,
         ...base.filter((option) => option.value === TRIGGER_CONTACT_INQUIRY_STALLED),
       ]
     : base;
+  return conServicios ? [...delRubro, ...TRIGGER_OPTIONS_DE_SERVICIOS] : delRubro;
 }
 
 // El rótulo de un trigger en el listado. Un valor fuera de la lista —un
@@ -125,7 +144,11 @@ export function triggerOptions(simple: boolean, esClinica = false): SelectOption
 export function triggerLabel(value: string, simple = false): string {
   // Todos los rótulos, también los de oportunidad: una regla vieja se sigue
   // viendo con su nombre.
-  const todas = [...triggerOptions(simple), ...TRIGGER_OPTIONS_DE_CLINICA];
+  const todas = [
+    ...triggerOptions(simple),
+    ...TRIGGER_OPTIONS_DE_CLINICA,
+    ...TRIGGER_OPTIONS_DE_SERVICIOS,
+  ];
   return todas.find((option) => option.value === value)?.label ?? value;
 }
 
@@ -146,6 +169,8 @@ export const ACTION_BOOKING_SEND_REMINDER = "booking.send_reminder";
 // R14: solo clínicas.
 export const ACTION_BOOKING_SEND_QR_REVIEW = "booking.send_qr_review";
 export const ACTION_BOOKING_SCHEDULE_CONTROL = "booking.schedule_control";
+// S7: solo con el módulo Servicios.
+export const ACTION_SEND_NEXT_SERVICE_REMINDER = "service.send_next_service_reminder";
 
 export const ACTION_OPTIONS: SelectOption<string>[] = [
   {
@@ -195,11 +220,26 @@ export const ACTION_OPTIONS_DE_CLINICA: SelectOption<string>[] = [
   },
 ];
 
+// S7: las acciones del módulo Servicios.
+export const ACTION_OPTIONS_DE_SERVICIOS: SelectOption<string>[] = [
+  {
+    value: ACTION_SEND_NEXT_SERVICE_REMINDER,
+    label: "Mandar el recordatorio por WhatsApp",
+    subtitle: "Si no tiene WhatsApp, una tarea para llamarlo",
+  },
+];
+
+// Las de Servicios primero: con el próximo service, el WhatsApp es la acción
+// por defecto (ninguna otra acción admite ese trigger, así que no reordena nada
+// más).
+const TODAS_LAS_ACCIONES = [
+  ...ACTION_OPTIONS_DE_SERVICIOS,
+  ...ACTION_OPTIONS,
+  ...ACTION_OPTIONS_DE_CLINICA,
+];
+
 export function actionLabel(value: string): string {
-  return (
-    [...ACTION_OPTIONS, ...ACTION_OPTIONS_DE_CLINICA].find((option) => option.value === value)
-      ?.label ?? value
-  );
+  return TODAS_LAS_ACCIONES.find((option) => option.value === value)?.label ?? value;
 }
 
 // Espejo de la compatibilidad que cada acción declara en el backend
@@ -226,6 +266,16 @@ export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
     ACTION_BOOKING_SCHEDULE_CONTROL,
     ACTION_CREATE_FOLLOW_UP,
   ],
+  // S7: el recordatorio por WhatsApp o la tarea para llamar (§6.3).
+  [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: [ACTION_SEND_NEXT_SERVICE_REMINDER, ACTION_CREATE_FOLLOW_UP],
+};
+
+// La acción que se elige SOLA al pasar a ese evento, aunque la que estaba
+// elegida también lo admita (se puede cambiar a mano después). S7: con el
+// próximo service, el WhatsApp; si no, "Crear actividad de seguimiento", que
+// venía elegida de "Oportunidad ganada", quedaba puesta.
+export const ACCION_AL_ELEGIR_EL_TRIGGER: Readonly<Record<string, string>> = {
+  [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: ACTION_SEND_NEXT_SERVICE_REMINDER,
 };
 
 // Las acciones que el selector ofrece para un trigger. Un trigger que este
@@ -233,9 +283,7 @@ export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
 export function accionesParaTrigger(triggerType: string): SelectOption<string>[] {
   const permitidas = ACCIONES_POR_TRIGGER[triggerType];
   if (!permitidas) return ACTION_OPTIONS;
-  return [...ACTION_OPTIONS, ...ACTION_OPTIONS_DE_CLINICA].filter((option) =>
-    permitidas.includes(option.value),
-  );
+  return TODAS_LAS_ACCIONES.filter((option) => permitidas.includes(option.value));
 }
 
 // ---------------------------------------------------------------------------
@@ -506,8 +554,14 @@ export const BOTONES_DEL_RECORDATORIO = ["Confirmo", "Necesito cancelar"] as con
 export const TEXTO_INICIAL_DEL_CONTROL =
   "Hola {nombre}, ya pasaron {semanas} semanas desde tu último turno en {lugar}. Si querés agendar el próximo, escribinos por acá.";
 
+// S7: el del próximo service, espejo de TEXTO_POR_DEFECTO_DEL_PROXIMO_SERVICE
+// (src/servicios/recordatorio/config.ts). Categoría MARKETING en Meta.
+export const TEXTO_INICIAL_DEL_PROXIMO_SERVICE =
+  "Hola {nombre}, te escribimos de {lugar}. El próximo service de tu {vehiculo} está previsto para {fecha}. Si querés agendarlo, respondé este mensaje y te damos un turno.";
+
 export function textoInicial(actionType: string, formato: string, esClinica = false): string {
   if (actionType === ACTION_BOOKING_SEND_REMINDER) return TEXTO_INICIAL_DEL_RECORDATORIO;
+  if (actionType === ACTION_SEND_NEXT_SERVICE_REMINDER) return TEXTO_INICIAL_DEL_PROXIMO_SERVICE;
   if (actionType === ACTION_BOOKING_SCHEDULE_CONTROL) return TEXTO_INICIAL_DEL_CONTROL;
   if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
     return esClinica ? TEXTO_INICIAL_DE_CONSULTA_DE_CLINICA : TEXTO_INICIAL_DE_CONSULTA;
@@ -562,6 +616,29 @@ export function mensajeDeLaAccion(
           token: TOKEN_LUGAR,
           ayuda: "la clínica, o «Clínica (sede)» si tiene más de una sede",
           obligatoria: false,
+        },
+      ],
+    };
+  }
+  if (actionType === ACTION_SEND_NEXT_SERVICE_REMINDER) {
+    return {
+      conFormato: false,
+      variables: [
+        { token: TOKEN_NOMBRE, ayuda: "el nombre del cliente", obligatoria: true },
+        {
+          token: TOKEN_LUGAR,
+          ayuda: "la empresa, o «Empresa (sucursal X)» si tiene más de una sucursal",
+          obligatoria: false,
+        },
+        {
+          token: TOKEN_VEHICULO,
+          ayuda: "el vehículo, con la matrícula si la tiene («Volkswagen Gol (ABC 1234)»)",
+          obligatoria: true,
+        },
+        {
+          token: TOKEN_FECHA,
+          ayuda: "la fecha del próximo service («el 15 de noviembre»)",
+          obligatoria: true,
         },
       ],
     };
@@ -734,6 +811,46 @@ export function validarMensajeDelControl(draft: ConfigDraft): string | null {
   }
   return null;
 }
+
+// S7: el próximo service. {nombre}, {vehiculo} y {fecha} una vez; {lugar} a
+// lo sumo una; ninguna otra. El resto de las reglas de Meta, el backend.
+const VARIABLES_DEL_PROXIMO_SERVICE = [TOKEN_NOMBRE, TOKEN_LUGAR, TOKEN_VEHICULO, TOKEN_FECHA];
+
+export function validarMensajeDelProximoService(draft: ConfigDraft): string | null {
+  const texto = (draft.messageText ?? "").trim();
+  if (texto === "") return "Escribí el texto del mensaje de WhatsApp.";
+  for (const token of [TOKEN_NOMBRE, TOKEN_VEHICULO, TOKEN_FECHA]) {
+    if (contar(texto, token) !== 1) return `El mensaje tiene que incluir ${token} una vez.`;
+  }
+  if (contar(texto, TOKEN_LUGAR) > 1) {
+    return `El mensaje no puede incluir ${TOKEN_LUGAR} más de una vez.`;
+  }
+  const ajena = (texto.match(/\{[^{}]*\}/g) ?? []).find(
+    (t) => !VARIABLES_DEL_PROXIMO_SERVICE.includes(t),
+  );
+  if (ajena) {
+    return `"${ajena}" no va en este mensaje: solo valen ${VARIABLES_DEL_PROXIMO_SERVICE.join(", ")}.`;
+  }
+  return null;
+}
+
+// La casilla "Si no tiene WhatsApp, crear una tarea para llamarlo" (D8): en el
+// borrador, "true" o "false" (todo el borrador es texto).
+const configDelProximoService: ConfigDeAccion = {
+  draftVacio: () => ({
+    messageText: TEXTO_INICIAL_DEL_PROXIMO_SERVICE,
+    tareaSiNoTieneWhatsapp: "true",
+  }),
+  draftDesde: (config) => ({
+    messageText: typeof config.messageText === "string" ? config.messageText : "",
+    tareaSiNoTieneWhatsapp: config.tareaSiNoTieneWhatsapp === false ? "false" : "true",
+  }),
+  validar: validarMensajeDelProximoService,
+  aPayload: (draft) => ({
+    messageText: (draft.messageText ?? "").trim(),
+    tareaSiNoTieneWhatsapp: draft.tareaSiNoTieneWhatsapp !== "false",
+  }),
+};
 
 const configDelControl: ConfigDeAccion = {
   draftVacio: () => ({ messageText: TEXTO_INICIAL_DEL_CONTROL }),
@@ -917,6 +1034,7 @@ export const CONFIG_DE_ACCION: Record<string, ConfigDeAccion> = {
   [ACTION_BOOKING_SEND_REMINDER]: configDelRecordatorio,
   [ACTION_BOOKING_SEND_QR_REVIEW]: configDelQrDeResena,
   [ACTION_BOOKING_SCHEDULE_CONTROL]: configDelControl,
+  [ACTION_SEND_NEXT_SERVICE_REMINDER]: configDelProximoService,
 };
 
 // Las acciones que mandan un WhatsApp con plantilla: su formulario muestra el
@@ -929,7 +1047,8 @@ export function accionConMensajeDeWhatsapp(actionType: string): boolean {
     actionType === ACTION_INQUIRY_FOLLOW_UP ||
     actionType === ACTION_BOOKING_SEND_REMINDER ||
     actionType === ACTION_BOOKING_SEND_QR_REVIEW ||
-    actionType === ACTION_BOOKING_SCHEDULE_CONTROL
+    actionType === ACTION_BOOKING_SCHEDULE_CONTROL ||
+    actionType === ACTION_SEND_NEXT_SERVICE_REMINDER
   );
 }
 
@@ -1030,6 +1149,39 @@ const configDeConsultaSinAvance: ConfigDeTrigger = {
   }),
 };
 
+// S7: cuándo avisar, en días antes o después de la fecha de service. Espejo
+// de configDelProximoServiceSchema (offsetDays entre −60 y +90; negativo =
+// antes). En el borrador, "cuando" (antes/despues) y los días sin signo.
+export const MAX_DIAS_ANTES_DEL_SERVICE = 60;
+export const MAX_DIAS_DESPUES_DEL_SERVICE = 90;
+export const DEFAULT_DIAS_DEL_SERVICE = 7;
+
+const configDelProximoServiceTrigger: ConfigDeTrigger = {
+  draftVacio: () => ({ cuando: "antes", dias: String(DEFAULT_DIAS_DEL_SERVICE) }),
+
+  draftDesde: (config) => {
+    const offset =
+      typeof config.offsetDays === "number" ? config.offsetDays : -DEFAULT_DIAS_DEL_SERVICE;
+    return { cuando: offset > 0 ? "despues" : "antes", dias: String(Math.abs(offset)) };
+  },
+
+  validar: (draft) => {
+    const texto = (draft.dias ?? "").trim();
+    const dias = Number(texto);
+    const tope =
+      draft.cuando === "despues" ? MAX_DIAS_DESPUES_DEL_SERVICE : MAX_DIAS_ANTES_DEL_SERVICE;
+    if (texto === "" || !Number.isInteger(dias) || dias < 0 || dias > tope) {
+      return `Los días ${draft.cuando === "despues" ? "después" : "antes"} del service tienen que ser un número entero entre 0 y ${tope}.`;
+    }
+    return null;
+  },
+
+  aPayload: (draft) => {
+    const dias = Number(draft.dias);
+    return { offsetDays: draft.cuando === "despues" ? dias : -dias };
+  },
+};
+
 export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
   [TRIGGER_OPPORTUNITY_WON]: configVacia,
   [TRIGGER_OPPORTUNITY_STALE]: configDeEstancada,
@@ -1038,6 +1190,7 @@ export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
   [TRIGGER_BOOKING_REMINDER_DUE]: configVacia,
   // R14: sin configuración propia (la demora es de cada acción).
   [TRIGGER_BOOKING_COMPLETED]: configVacia,
+  [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: configDelProximoServiceTrigger,
 };
 
 // El default del formulario: la PRIMERA entrada de cada catálogo, no un valor

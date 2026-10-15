@@ -1163,3 +1163,88 @@ describe("AutomationFormPage — seguimiento de consultas en una clínica", () =
     expect(screen.queryByRole("button", { name: "Insertar {prestacion}" })).not.toBeInTheDocument();
   });
 });
+
+// S7 (docs/servicios.md §6): el próximo service, solo con el módulo Servicios.
+describe("AutomationFormPage — próximo service", () => {
+  function conServicios() {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: { ...base.me!, modulos: ["procesos_de_venta", "oportunidades", "servicios"] },
+    });
+  }
+
+  it("la acción pasa sola al WhatsApp, pero se puede cambiar a mano a la tarea", async () => {
+    conServicios();
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+    expect(screen.getByLabelText("Acción")).toHaveValue("Crear actividad de seguimiento");
+    await chooseSelectOption(user, screen.getByLabelText("Evento"), "Próximo service");
+    expect(screen.getByLabelText("Acción")).toHaveValue("Mandar el recordatorio por WhatsApp");
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Acción"),
+      "Crear actividad de seguimiento",
+    );
+    expect(screen.getByLabelText("Acción")).toHaveValue("Crear actividad de seguimiento");
+    expect(screen.getByLabelText("Título de la tarea")).toHaveAttribute(
+      "placeholder",
+      "Llamar para agendar el service",
+    );
+  });
+
+  it("sin el módulo, el evento no se ofrece", async () => {
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+    expect(await listSelectOptions(user, screen.getByLabelText("Evento"))).not.toContain(
+      "Próximo service",
+    );
+  });
+
+  it("con el módulo: 7 días antes, el WhatsApp con la casilla activada, y guarda offsetDays con signo", async () => {
+    conServicios();
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAutomation(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await chooseSelectOption(user, screen.getByLabelText("Evento"), "Próximo service");
+    // Aunque la tarea de seguimiento también vale para este evento, la
+    // acción pasa sola al WhatsApp (se puede cambiar a mano).
+    expect(screen.getByLabelText("Acción")).toHaveValue("Mandar el recordatorio por WhatsApp");
+    expect(screen.getByLabelText("Días")).toHaveValue(7);
+    expect(screen.getByLabelText("Cuándo")).toHaveValue("Antes de la fecha de service");
+    expect(
+      screen.getByLabelText("Si no tiene WhatsApp, crear una tarea para llamarlo"),
+    ).toBeChecked();
+    expect(screen.getByRole("button", { name: "Insertar {fecha}" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Vista previa del mensaje")).toHaveTextContent(
+      "Volkswagen Gol (ABC 1234) está previsto para el 15 de noviembre",
+    );
+
+    await user.type(screen.getByLabelText("Nombre"), "Service en 15 días");
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Cuándo"),
+      "Después de la fecha de service",
+    );
+    const dias = screen.getByLabelText("Días");
+    await user.clear(dias);
+    await user.type(dias, "15");
+    await user.click(screen.getByLabelText("Si no tiene WhatsApp, crear una tarea para llamarlo"));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({
+      triggerType: "service.next_service_due",
+      triggerConfig: { offsetDays: 15 },
+      actionType: "service.send_next_service_reminder",
+      actionConfig: { tareaSiNoTieneWhatsapp: false },
+    });
+  });
+});

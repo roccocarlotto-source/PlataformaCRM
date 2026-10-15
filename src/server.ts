@@ -22,6 +22,8 @@ import { iniciarWorkerDeFotosImportadas } from "./workers/importPhotoWorker";
 import { registrarEventosDeTurno } from "./clinicas/services/eventosDeTurno";
 import { iniciarWorkerDeCierreAutomatico } from "./clinicas/workers/cierreAutomaticoWorker";
 import { iniciarWorkerDeRecordatorios } from "./clinicas/recordatorios/recordatorioWorker";
+import { iniciarBarridoDelProximoService } from "./servicios/recordatorio/barrido";
+import { iniciarWorkerDeMensajesDelTaller } from "./servicios/recordatorio/worker";
 import { iniciarWorkerDeSincronizaciones } from "./workers/importSyncWorker";
 
 const server = app.listen(env.PORT, () => {
@@ -168,6 +170,17 @@ const detenerWorkerDeSincronizaciones = arrancarWorkers
   ? iniciarWorkerDeSincronizaciones()
   : sinWorker;
 
+// El recordatorio del próximo service (docs/servicios.md §6, S7): el barrido
+// horario que registra los avisos (desde las 10:00 de cada organización) y el
+// envío de su cola, que manda WhatsApp a clientes reales. Detrás de la misma
+// guarda; sin una regla activa del módulo Servicios no hacen nada.
+const detenerBarridoDelProximoService = arrancarWorkers
+  ? iniciarBarridoDelProximoService()
+  : sinWorker;
+const detenerWorkerDeMensajesDelTaller = arrancarWorkers
+  ? iniciarWorkerDeMensajesDelTaller()
+  : sinWorker;
+
 // El apagado ordenado (M-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -198,6 +211,8 @@ const shutdown = crearShutdown({
       detenerWorkerDeLotesDeImportacion(),
       detenerWorkerDeFotosImportadas(),
       detenerWorkerDeCierreAutomatico(),
+      detenerBarridoDelProximoService(),
+      detenerWorkerDeMensajesDelTaller(),
       detenerWorkerDeRecordatorios(),
       detenerWorkerDeSincronizaciones(),
       detenerWorkerDeCupones(),

@@ -240,6 +240,12 @@ cargar o corregir a mano desde **Editar**.
 **No recordar** es para el cliente que pidió no recibir recordatorios del
 service: el vehículo queda, pero no se le avisa.
 
+Para avisarle al cliente cuando se acerca la fecha, se crea una regla en
+[Automatizaciones](/ayuda/automatizaciones#evento-proximo-service) con el
+evento **Próximo service**: un WhatsApp unos días antes (o después), o una
+tarea para llamarlo. No se avisa a los vehículos con una orden abierta ni a
+los marcados **No recordar**.
+
 ### Cambiar dueño {#cambiar-dueno}
 
 Cuando el auto cambia de manos, en la ficha está **Cambiar dueño**, con dos

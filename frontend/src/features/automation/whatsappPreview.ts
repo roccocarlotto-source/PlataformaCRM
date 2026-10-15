@@ -22,6 +22,8 @@ export const TOKEN_HORA = "{hora}";
 export const TOKEN_PROFESIONAL = "{profesional}";
 // R14: el control después del turno.
 export const TOKEN_SEMANAS = "{semanas}";
+// S7 (docs/servicios.md §6.4): la fecha del próximo service.
+export const TOKEN_FECHA = "{fecha}";
 
 // Los mismos ejemplos que el backend manda a Meta con el alta.
 export const EJEMPLO_NOMBRE = "Ana";
@@ -34,9 +36,19 @@ export const EJEMPLO_DIA = "lunes 1 de marzo";
 export const EJEMPLO_HORA = "10:30";
 export const EJEMPLO_PROFESIONAL = "Ana";
 export const EJEMPLO_SEMANAS = "4";
+// S7: los ejemplos del recordatorio del próximo service.
+export const EJEMPLO_FECHA = "el 15 de noviembre";
+export const EJEMPLO_LUGAR_DEL_TALLER = "Automotores del Sur";
+export const EJEMPLO_VEHICULO_DEL_TALLER = "Volkswagen Gol (ABC 1234)";
 
 // `link`: el ejemplo de lo que va en {link} (el del cupón no es el del QR).
-export function previewDePlantilla(texto: string, link: string = EJEMPLO_LINK): string {
+// `ejemplos`: otro {lugar} o {vehiculo} (S7: los de un taller, no los de una
+// clínica ni los de una consulta).
+export function previewDePlantilla(
+  texto: string,
+  link: string = EJEMPLO_LINK,
+  ejemplos: { lugar?: string; vehiculo?: string } = {},
+): string {
   return texto
     .trim()
     .split(TOKEN_NOMBRE)
@@ -46,11 +58,11 @@ export function previewDePlantilla(texto: string, link: string = EJEMPLO_LINK): 
     .split(TOKEN_SALUDO)
     .join(EJEMPLO_SALUDO)
     .split(TOKEN_VEHICULO)
-    .join(EJEMPLO_VEHICULO)
+    .join(ejemplos.vehiculo ?? EJEMPLO_VEHICULO)
     .split(TOKEN_PRESTACION)
     .join(EJEMPLO_PRESTACION)
     .split(TOKEN_LUGAR)
-    .join(EJEMPLO_LUGAR)
+    .join(ejemplos.lugar ?? EJEMPLO_LUGAR)
     .split(TOKEN_DIA)
     .join(EJEMPLO_DIA)
     .split(TOKEN_HORA)
@@ -58,7 +70,9 @@ export function previewDePlantilla(texto: string, link: string = EJEMPLO_LINK): 
     .split(TOKEN_PROFESIONAL)
     .join(EJEMPLO_PROFESIONAL)
     .split(TOKEN_SEMANAS)
-    .join(EJEMPLO_SEMANAS);
+    .join(EJEMPLO_SEMANAS)
+    .split(TOKEN_FECHA)
+    .join(EJEMPLO_FECHA);
 }
 
 // Inserta un token donde está el cursor (o reemplaza la selección). Devuelve

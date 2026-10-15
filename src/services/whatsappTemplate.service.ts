@@ -30,6 +30,7 @@ import {
   VARIABLES_DE_CONSULTA_DE_CLINICA,
   VARIABLES_DE_RECORDATORIO,
   VARIABLES_DE_CONTROL,
+  VARIABLES_DE_PROXIMO_SERVICE,
   ejemplosDelCuerpo,
   formatoLlevaImagen,
   formatoLlevaLink,
@@ -40,6 +41,7 @@ import {
   type VariableDePlantilla,
 } from "../utils/whatsappTemplateText";
 import { ACTION_INQUIRY_FOLLOW_UP } from "./automationActions/inquiryFollowUp";
+import { ACTION_SEND_NEXT_SERVICE_REMINDER } from "../servicios/recordatorio/config";
 import {
   ACTION_BOOKING_SEND_REMINDER,
   BOTONES_DEL_RECORDATORIO,
@@ -246,6 +248,10 @@ const CATEGORIA_DE_LA_ACCION: Record<string, CategoriaDePlantilla> = {
   // R13 (docs/rubros.md §6.3): el recordatorio de un turno que pidió el
   // paciente es UTILITY. La plantilla no lleva nada más que el turno.
   [ACTION_BOOKING_SEND_REMINDER]: "UTILITY",
+  // S7 (docs/servicios.md §6.4, D7): un recordatorio de mantenimiento que el
+  // cliente no pidió es una invitación a volver: MARKETING. Quien apagó el
+  // marketing en WhatsApp no lo recibe (y se le crea la tarea para llamarlo).
+  [ACTION_SEND_NEXT_SERVICE_REMINDER]: "MARKETING",
 };
 
 // R13: los botones de respuesta rápida de la plantilla de cada acción (el
@@ -268,6 +274,8 @@ export const ACCIONES_CON_PLANTILLA: readonly string[] = [
   ACTION_BOOKING_SEND_REMINDER,
   // R14: el control después del turno (solo texto).
   ACTION_BOOKING_SCHEDULE_CONTROL,
+  // S7: el recordatorio del próximo service (solo texto, sin botones).
+  ACTION_SEND_NEXT_SERVICE_REMINDER,
 ];
 
 // Las variables de la plantilla de cada acción (utils/whatsappTemplateText.ts):
@@ -283,6 +291,7 @@ export function variablesDeLaAccion(
   }
   if (actionType === ACTION_BOOKING_SEND_REMINDER) return VARIABLES_DE_RECORDATORIO;
   if (actionType === ACTION_BOOKING_SCHEDULE_CONTROL) return VARIABLES_DE_CONTROL;
+  if (actionType === ACTION_SEND_NEXT_SERVICE_REMINDER) return VARIABLES_DE_PROXIMO_SERVICE;
   return variablesDeSeguimiento(formatoLlevaLink(formato));
 }
 
@@ -297,6 +306,7 @@ const PREFIJO_DEL_NOMBRE: Record<string, string> = {
   [ACTION_BOOKING_SEND_REMINDER]: "recordatorio_turno",
   [ACTION_BOOKING_SEND_QR_REVIEW]: "resena_turno",
   [ACTION_BOOKING_SCHEDULE_CONTROL]: "control_turno",
+  [ACTION_SEND_NEXT_SERVICE_REMINDER]: "proximo_service",
 };
 
 // Minúsculas, números y guion bajo (regla de Meta), único en el WABA

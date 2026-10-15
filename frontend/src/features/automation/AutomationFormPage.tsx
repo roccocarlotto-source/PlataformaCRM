@@ -17,7 +17,12 @@ import { BranchSelect } from "../branch/BranchSelect";
 import { QrSelect } from "../qr/QrSelect";
 import { MensajeDeWhatsappCard } from "./MensajeDeWhatsappCard";
 import {
+  ACCION_AL_ELEGIR_EL_TRIGGER,
   ACTION_CREATE_FOLLOW_UP,
+  ACTION_SEND_NEXT_SERVICE_REMINDER,
+  MAX_DIAS_ANTES_DEL_SERVICE,
+  MAX_DIAS_DESPUES_DEL_SERVICE,
+  TRIGGER_SERVICE_NEXT_SERVICE_DUE,
   ACTION_DRAFT_FOLLOW_UP,
   ACTION_INQUIRY_FOLLOW_UP,
   ACTION_SEND_DISCOUNT_VOUCHER,
@@ -246,6 +251,47 @@ function CamposDelTrigger({
           </p>
         </>
       );
+    // S7 (docs/servicios.md §6.2): cuántos días antes o después de la fecha
+    // de service de cada vehículo.
+    case TRIGGER_SERVICE_NEXT_SERVICE_DUE:
+      return (
+        <>
+          <FormField label={<span className="ds-required">Días</span>}>
+            <input
+              type="number"
+              min={0}
+              max={
+                values.cuando === "despues"
+                  ? MAX_DIAS_DESPUES_DEL_SERVICE
+                  : MAX_DIAS_ANTES_DEL_SERVICE
+              }
+              step={1}
+              value={values.dias ?? ""}
+              onChange={(event) => onChange({ ...values, dias: event.target.value })}
+              disabled={disabled}
+              required
+            />
+          </FormField>
+          <Select
+            id="automation-form-next-service-when"
+            label="Cuándo"
+            value={values.cuando ?? "antes"}
+            options={[
+              { value: "antes", label: "Antes de la fecha de service" },
+              { value: "despues", label: "Después de la fecha de service" },
+            ]}
+            onChange={(cuando) => {
+              if (cuando) onChange({ ...values, cuando });
+            }}
+            disabled={disabled}
+            required
+          />
+          <p className="ds-hint ds-field-grid--full">
+            Se revisa todos los días desde las 10:00. Un aviso por vehículo y fecha de service; no
+            se avisa si el vehículo ya tiene una orden abierta o está marcado para no recordar.
+          </p>
+        </>
+      );
     default:
       return null;
   }
@@ -317,6 +363,7 @@ function CamposDeLaAccion({
   onChange,
   disabled,
   esClinica = false,
+  triggerType,
 }: {
   actionType: string;
   values: ConfigDraft;
@@ -324,7 +371,15 @@ function CamposDeLaAccion({
   disabled: boolean;
   // §7.3: en una clínica la tarea es después del turno (otro ejemplo).
   esClinica?: boolean;
+  // S7: con el próximo service, la tarea es para llamar al cliente.
+  triggerType?: string;
 }) {
+  const delProximoService = triggerType === TRIGGER_SERVICE_NEXT_SERVICE_DUE;
+  // Un solo nodo de texto con el resto de la frase: el texto de siempre no
+  // cambia para quien no tiene el módulo (textosDelRubro.test.tsx).
+  const asignadaA = delProximoService
+    ? "Asignada al encargado de la última orden del vehículo (o al responsable de la sucursal)"
+    : "Asignada al dueño de la oportunidad";
   switch (actionType) {
     case ACTION_CREATE_FOLLOW_UP:
       return (
@@ -335,7 +390,11 @@ function CamposDeLaAccion({
               value={values.subject ?? ""}
               maxLength={MAX_SUBJECT}
               placeholder={
-                esClinica ? "Llamar para ver cómo siguió" : "Llamar para coordinar la entrega"
+                delProximoService
+                  ? "Llamar para agendar el service"
+                  : esClinica
+                    ? "Llamar para ver cómo siguió"
+                    : "Llamar para coordinar la entrega"
               }
               onChange={(event) => onChange({ ...values, subject: event.target.value })}
               disabled={disabled}
@@ -372,8 +431,35 @@ function CamposDeLaAccion({
             </FormField>
           </div>
           <p className="ds-hint ds-field-grid--full">
-            Asignada al dueño de la oportunidad; vence a los días indicados ({MIN_DAYS_UNTIL_DUE} a{" "}
-            {MAX_DAYS_UNTIL_DUE}).
+            {`${asignadaA}; vence a los días indicados (`}
+            {MIN_DAYS_UNTIL_DUE} a {MAX_DAYS_UNTIL_DUE}).
+          </p>
+        </>
+      );
+    // S7 (docs/servicios.md §6.3, D8): el mensaje va en la tarjeta de abajo;
+    // acá, qué hacer si el cliente no tiene WhatsApp.
+    case ACTION_SEND_NEXT_SERVICE_REMINDER:
+      return (
+        <>
+          <div className="ds-field-grid--full">
+            <FormField label="Si no tiene WhatsApp, crear una tarea para llamarlo">
+              <input
+                type="checkbox"
+                checked={values.tareaSiNoTieneWhatsapp !== "false"}
+                onChange={(event) =>
+                  onChange({
+                    ...values,
+                    tareaSiNoTieneWhatsapp: event.target.checked ? "true" : "false",
+                  })
+                }
+                disabled={disabled}
+              />
+            </FormField>
+          </div>
+          <p className="ds-hint ds-field-grid--full">
+            Sale en el horario de la sucursal del vehículo. Sin teléfono, sin un número de WhatsApp
+            conectado, con el mensaje todavía sin aprobar o si el cliente no acepta mensajes de
+            promociones, no se manda: con la casilla, se crea la tarea.
           </p>
         </>
       );
@@ -508,6 +594,8 @@ export function AutomationFormPage() {
   // lleva {prestacion} y su propio texto inicial.
   const { me } = useAuth();
   const esClinica = me?.industry === "CLINICA";
+  // S7: el próximo service, solo con el módulo Servicios.
+  const conServicios = useModulo("servicios");
 
   const automationQuery = useAutomation(isEditMode ? id : undefined);
   const createAutomationMutation = useCreateAutomation();
@@ -652,7 +740,10 @@ export function AutomationFormPage() {
               id="automation-form-trigger"
               label="Evento"
               value={values.triggerType}
-              options={opcionesCon(triggerOptions(!conProcesos, esClinica), values.triggerType)}
+              options={opcionesCon(
+                triggerOptions(!conProcesos, esClinica, conServicios),
+                values.triggerType,
+              )}
               onChange={(triggerType) => {
                 if (!triggerType) return;
                 // Cambiar de evento cambia la forma de SU config —se arranca
@@ -662,8 +753,15 @@ export function AutomationFormPage() {
                 // vez de dejar armada una combinación que el backend rechaza.
                 const configDeTrigger = CONFIG_DE_TRIGGER[triggerType];
                 const permitidas = accionesParaTrigger(triggerType);
-                const accionSigue = permitidas.some((option) => option.value === values.actionType);
-                const actionType = accionSigue ? values.actionType : permitidas[0]?.value;
+                // Un evento con acción propia (ACCION_AL_ELEGIR_EL_TRIGGER) la
+                // elige aunque la anterior también valga.
+                const propia = ACCION_AL_ELEGIR_EL_TRIGGER[triggerType];
+                const accionSigue = propia
+                  ? values.actionType === propia
+                  : permitidas.some((option) => option.value === values.actionType);
+                const actionType = accionSigue
+                  ? values.actionType
+                  : (propia ?? permitidas[0]?.value);
                 const configDeAccion = actionType ? CONFIG_DE_ACCION[actionType] : undefined;
                 setValues({
                   ...values,
@@ -715,6 +813,7 @@ export function AutomationFormPage() {
               onChange={(actionConfig) => setValues({ ...values, actionConfig })}
               disabled={isSubmitting}
               esClinica={esClinica}
+              triggerType={values.triggerType}
             />
           </div>
         </Card>
