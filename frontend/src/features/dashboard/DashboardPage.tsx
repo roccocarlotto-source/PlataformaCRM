@@ -1,3 +1,4 @@
+import { ResumenDelTallerEnElInicio } from "../servicios/ResumenDelTallerEnElInicio";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { useState } from "react";
@@ -57,6 +58,9 @@ export function DashboardPage() {
   // Rubros (docs/rubros.md §2, R17): una clínica no tiene stock, y sus
   // tarjetas darían 403.
   const conStock = tieneModulo(me, "stock");
+  // S11 (docs/servicios.md §4.7): el bloque del taller, SOLO con el módulo
+  // Servicios. Sin él no se monta: el inicio de antes, igual.
+  const conTaller = tieneModulo(me, "servicios");
 
   // La misma clase que los listados para "título + acción a la derecha"
   // (CompanyListPage y el resto): el selector es un control de página.
@@ -75,6 +79,7 @@ export function DashboardPage() {
         {encabezado}
         <div className="ds-stack">
           {conStock ? <VehicleSummaryCards countUp /> : null}
+          {conTaller ? <ResumenDelTallerEnElInicio /> : null}
           <AtencionKpiCards granularity={granularity} />
           <ActivityFeed />
         </div>
@@ -87,6 +92,7 @@ export function DashboardPage() {
       {encabezado}
       <div className="ds-stack">
         <VehicleSummaryCards countUp />
+        {conTaller ? <ResumenDelTallerEnElInicio /> : null}
         <OpportunityKpiCards granularity={granularity} />
         <RevenueByMonthChart granularity={granularity} />
         <div className="ds-card-grid">

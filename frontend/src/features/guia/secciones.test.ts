@@ -194,6 +194,7 @@ const DEL_TALLER: ReadonlySet<ClaveDeAyuda> = new Set<ClaveDeAyuda>([
   "nuevaOrden",
   "fichaDeOrden",
   "configuracionDelTaller",
+  "resumenDelTaller",
 ]);
 const CON_SERVICIOS = (regla: (modulo: string) => boolean) => (modulo: string) =>
   modulo === "servicios" || regla(modulo);
@@ -314,7 +315,14 @@ describe("la guía real por edición", () => {
       // sin copiar ni reescribir links.
       visibles.forEach((seccion, i) => {
         const original = SECCIONES[i];
-        if (!["oportunidades-y-procesos-de-venta", "automatizaciones"].includes(seccion.slug)) {
+        if (
+          ![
+            "oportunidades-y-procesos-de-venta",
+            "automatizaciones",
+            // S11: el bloque del taller en el dashboard.
+            "primeros-pasos",
+          ].includes(seccion.slug)
+        ) {
           expect(seccion).toBe(original);
         }
       });

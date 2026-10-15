@@ -29,6 +29,7 @@ import {
   Users,
   Wrench,
   Zap,
+  Gauge,
 } from "lucide-react";
 import type { MeResponse } from "../auth/AuthContext";
 import { tieneModulo } from "../auth/useModulo";
@@ -125,6 +126,9 @@ export function MenuDeAutomotora({
           para ambos roles; Configuración, solo ADMIN. */}
       {tieneServicios ? (
         <SidebarSection label="Taller" paths={["/taller"]}>
+          <SidebarLink to="/taller" end icon={Gauge}>
+            Resumen
+          </SidebarLink>
           <SidebarLink to="/taller/ordenes" icon={Wrench}>
             Órdenes
           </SidebarLink>

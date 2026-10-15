@@ -10,6 +10,7 @@ import {
   obtenerOrden,
   obtenerVehiculo,
   ordenesDelVehiculo,
+  obtenerResumenDelTaller,
 } from "./api";
 import type { OrdenesQuery, VehiculosQuery } from "./types";
 
@@ -110,5 +111,13 @@ export function useTiposDeService(soloActivos: boolean) {
   return useQuery({
     queryKey: tallerKeys.tipos(soloActivos),
     queryFn: ({ signal }) => listarTipos(soloActivos, signal),
+  });
+}
+
+// S11: el resumen del taller (Taller → Resumen y el bloque del inicio).
+export function useResumenDelTaller(branchId?: string) {
+  return useQuery({
+    queryKey: ["servicios", "resumen", branchId ?? "todas"] as const,
+    queryFn: ({ signal }) => obtenerResumenDelTaller(branchId, signal),
   });
 }

@@ -814,3 +814,91 @@ describe("DashboardPage — clínica", () => {
     }
   });
 });
+
+// S11 (docs/servicios.md §4.7): el bloque del taller, solo con el módulo.
+describe("DashboardPage — taller (módulo Servicios)", () => {
+  function servirLoDeSiempre() {
+    server.use(
+      vehiclesSummaryHandler(),
+      summaryHandler(),
+      revenueSeriesHandler(),
+      opportunitiesHandler(),
+      activitiesHandler(),
+      http.get(companiesUrl, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+      http.get(pipelinesUrl, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+      http.get(usersUrl, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+    );
+  }
+
+  it("con el módulo: los tres totales y el link al resumen", async () => {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: {
+        ...base.me!,
+        edition: "COMPLETA",
+        modulos: ["dashboard_comercial", "stock", "servicios"],
+      },
+    });
+    servirLoDeSiempre();
+    server.use(
+      http.get(`${env.apiUrl}/api/servicios/dashboard`, () =>
+        HttpResponse.json({
+          hoy: "2026-10-15",
+          enElTaller: { total: 4, porEstado: {} },
+          listosParaRetirar: { total: 2, items: [] },
+          esperandoAprobacion: { total: 1, items: [] },
+          servicesVencidos: { total: 9, items: [] },
+          servicesEn30Dias: { total: 0, items: [] },
+          turnosCancelados: { total: 0, items: [] },
+        }),
+      ),
+    );
+    renderDashboard();
+    const bloque = (await screen.findByRole("heading", { name: "Taller" })).closest("section")!;
+    expect(await within(bloque).findByText("Autos en el taller")).toBeInTheDocument();
+    expect(within(bloque).getByText("4")).toBeInTheDocument();
+    expect(within(bloque).getByText("2")).toBeInTheDocument();
+    expect(within(bloque).getByRole("link", { name: "Ver el resumen del taller" })).toHaveAttribute(
+      "href",
+      "/taller",
+    );
+    // Las listas no van en el inicio.
+    expect(within(bloque).queryByText(/Services vencidos/)).not.toBeInTheDocument();
+  });
+
+  it("sin el módulo: no hay bloque y no se pide el resumen", async () => {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: { ...base.me!, edition: "COMPLETA", modulos: ["dashboard_comercial", "stock"] },
+    });
+    servirLoDeSiempre();
+    let pidio = false;
+    server.use(
+      http.get(`${env.apiUrl}/api/servicios/dashboard`, () => {
+        pidio = true;
+        return HttpResponse.json({});
+      }),
+    );
+    renderDashboard();
+    expect(await screen.findByRole("region", { name: "Resumen comercial" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Taller" })).not.toBeInTheDocument();
+    expect(pidio).toBe(false);
+  });
+});

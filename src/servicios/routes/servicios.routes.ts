@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { resumenDelTallerHandler } from "../controllers/dashboard.controller";
 import { authenticate } from "../../middlewares/authenticate";
 import { authorize } from "../../middlewares/authorize";
 import { businessWriteRateLimiter } from "../../middlewares/rateLimit";
@@ -108,6 +109,9 @@ serviciosRouter.get("/servicios/usuarios", authenticate, listarUsuariosHandler);
 
 // S3: vehículos de clientes (§2.2). ADMIN y USER los crean y editan (D9);
 // borrar, solo ADMIN (§10).
+// S11: el resumen del taller (§4.7), de lectura, para ADMIN y USER.
+serviciosRouter.get("/servicios/dashboard", authenticate, resumenDelTallerHandler);
+
 serviciosRouter.get("/servicios/vehiculos", authenticate, listarVehiculosHandler);
 serviciosRouter.post(
   "/servicios/vehiculos",

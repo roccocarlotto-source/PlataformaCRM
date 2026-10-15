@@ -33,6 +33,7 @@ export const AYUDA = {
   unidadForm: "stock#ficha-de-unidad",
 
   // El taller (docs/servicios.md): solo con el módulo Servicios.
+  resumenDelTaller: "servicios#resumen",
   vehiculosDeClientes: "servicios#vehiculos-de-clientes",
   vehiculoDeClienteForm: "servicios#nuevo-vehiculo",
   fichaDeVehiculoDeCliente: "servicios#ficha-del-vehiculo",

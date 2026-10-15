@@ -852,6 +852,7 @@ describe("AppLayout — el módulo Servicios suma solo la sección Taller", () =
     const antes = menu(sin);
     const con = menu([...sin, "servicios"]);
     const delTaller = [
+      "Resumen→/taller",
       "Órdenes→/taller/ordenes",
       "Vehículos de clientes→/taller/vehiculos",
       "Configuración→/taller/configuracion",

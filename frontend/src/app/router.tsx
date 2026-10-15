@@ -1,3 +1,4 @@
+import { TallerResumenPage } from "../features/servicios/TallerResumenPage";
 import { ModuloRoute } from "../auth/ModuloRoute";
 import { createBrowserRouter } from "react-router-dom";
 import { AdminRoute } from "../auth/AdminRoute";
@@ -220,6 +221,8 @@ export const router = createBrowserRouter([
           {
             element: <ModuloRoute modulo="servicios" />,
             children: [
+              // S11: el resumen del taller (§4.7).
+              { path: "/taller", element: <TallerResumenPage /> },
               { path: "/taller/vehiculos", element: <VehiculosDeClientesPage /> },
               { path: "/taller/vehiculos/nuevo", element: <VehiculoDeClienteFormPage /> },
               { path: "/taller/vehiculos/:id", element: <VehiculoDeClienteDetailPage /> },
