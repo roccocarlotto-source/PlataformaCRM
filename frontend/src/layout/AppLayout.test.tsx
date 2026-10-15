@@ -855,6 +855,7 @@ describe("AppLayout — el módulo Servicios suma solo la sección Taller", () =
       "Resumen→/taller",
       "Órdenes→/taller/ordenes",
       "Vehículos de clientes→/taller/vehiculos",
+      "Recambios→/taller/recambios",
       "Configuración→/taller/configuracion",
     ];
     for (const link of delTaller) expect(con.links).toContain(link);

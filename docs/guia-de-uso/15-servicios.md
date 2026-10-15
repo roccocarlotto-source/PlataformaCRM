@@ -8,8 +8,8 @@ Solo aparece si la organización tiene el módulo **Servicios** activado. Lo
 activa el equipo de la plataforma; si no lo ves en el menú, tu organización no
 lo tiene.
 
-Está en el menú **Taller**, con cuatro entradas: **Resumen**, **Órdenes**,
-**Vehículos de clientes** y **Configuración**.
+Está en el menú **Taller**, con cinco entradas: **Resumen**, **Órdenes**,
+**Vehículos de clientes**, **Recambios** y **Configuración**.
 
 - Todos los usuarios ven, cargan y editan los vehículos de clientes y las
   órdenes, cambian su estado, registran aprobaciones y pueden cambiar el dueño
@@ -32,6 +32,11 @@ elegir una **Sucursal** (o todas).
 - **Services en los próximos 30 días**: los que vencen pronto.
 - **Agendados con el turno cancelado**: órdenes agendadas cuyo turno de la
   agenda se canceló; revisalas.
+- **Recambios en los próximos 90 días**: cuántos clientes cumplen pronto los
+  años de su compra (ver [Recambios](#recambios)). Si hay vehículos sin fecha
+  de compra, un link los muestra: sin ella no se calcula el recambio.
+- **Recambios vencidos sin contactar**: cuántos hay en la lista de
+  [Recambios](#recambios), con un link a ella.
 
 En las listas de services solo aparecen los vehículos que siguen siendo del
 cliente, sin una orden abierta y sin **No recordar**. "Hoy" es el día de la
@@ -235,6 +240,8 @@ venta; un vehículo de cliente ya es de alguien.
 
 El listado está en **Taller → Vehículos de clientes**. Muestra la matrícula, la
 marca y el modelo, el dueño, el próximo service y si tiene una orden abierta.
+Con **Solo los que no tienen fecha de compra** se ven los que todavía no tienen
+[recambio](#recambios).
 
 ### Buscar por matrícula {#buscar-por-matricula}
 
@@ -354,6 +361,31 @@ corrige la matrícula y se vuelve a cargar el vehículo para su dueño.
 Solo un administrador, desde la ficha. No se puede eliminar un vehículo con una
 orden abierta. Para un auto que el cliente vendió no hace falta eliminarlo: se
 usa **Cambiar dueño → Ya no es de un cliente nuestro**, y queda el historial.
+
+## Recambios {#recambios}
+
+El **recambio** es cuando un cliente cumple los años de la compra de su auto y
+puede querer cambiarlo. Se calcula con la **fecha de compra** del vehículo más
+los meses de la regla [Se acerca el recambio](/ayuda/automatizaciones#evento-recambio)
+(48 si no hay regla). Esa regla le crea la tarea al vendedor unos días antes.
+
+En **Taller → Recambios** están los **recambios vencidos sin contactar**: los
+que ya pasaron sin aviso. Sobre todo, las ventas viejas que se cargaron al
+activar el módulo. Arriba se puede elegir una **Sucursal** (o todas).
+
+- Muestra el cliente, el vehículo, la fecha de compra, la del recambio, el
+  vendedor y hace cuántos días venció, del más viejo al más nuevo, de a 50.
+- No aparecen los clientes con una oportunidad abierta, los marcados **sin
+  interés**, ni los que tuvieron una oportunidad nueva después de la fecha de
+  aviso (ya hubo una conversación de venta).
+- **Crear tarea al vendedor**: una tarea "Contactar a {cliente}: se acerca el
+  recambio de su {vehículo}", para el vendedor del cliente (o el de la venta, el
+  responsable de la sucursal o el administrador más antiguo).
+- **Marcar como contactado**: si ya se habló con el cliente por otro lado.
+
+Las dos acciones sirven para una fila o para varias marcadas con la casilla.
+Después el vehículo sale de la lista y la regla no le vuelve a avisar por ese
+recambio.
 
 ## En la ficha del contacto {#en-la-ficha-del-contacto}
 

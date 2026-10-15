@@ -95,6 +95,7 @@ test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunit
       "service.next_service_due",
       "service_order.status_changed",
       "service_order.delivered",
+      "service.replacement_due",
     ],
   );
   assert.deepEqual(MODULO_DEL_TRIGGER, {
@@ -105,11 +106,15 @@ test("el catálogo de triggers hoy tiene exactamente opportunity.won, opportunit
     "service.next_service_due": "servicios",
     "service_order.status_changed": "servicios",
     "service_order.delivered": "servicios",
+    "service.replacement_due": "servicios",
   });
   // S8: el único trigger con condición por regla (los estados destino).
   assert.deepEqual(Object.keys(FILTRO_DE_LA_REGLA), ["service_order.status_changed"]);
-  // S7: el único trigger dirigido (el evento lleva la regla).
-  assert.deepEqual(TRIGGERS_DIRIGIDOS_A_UNA_REGLA, ["service.next_service_due"]);
+  // S7 y S13: los triggers dirigidos (el evento lleva la regla).
+  assert.deepEqual(TRIGGERS_DIRIGIDOS_A_UNA_REGLA, [
+    "service.next_service_due",
+    "service.replacement_due",
+  ]);
   assert.equal(esTriggerConocido("opportunity.won"), true);
   assert.equal(esTriggerConocido("opportunity.stale"), true);
   assert.equal(esTriggerConocido("contact.inquiry_stalled"), true);
@@ -156,7 +161,13 @@ test("opportunity.stale exige daysWithoutActivity entero entre 0 y 365 — sin d
 test("opportunity.stale, contact.inquiry_stalled y booking.reminder_due son de regla única por organización; opportunity.won no", () => {
   assert.deepEqual(
     [...TRIGGERS_DE_REGLA_UNICA],
-    [TRIGGER_OPPORTUNITY_STALE, TRIGGER_CONTACT_INQUIRY_STALLED, "booking.reminder_due"],
+    [
+      TRIGGER_OPPORTUNITY_STALE,
+      TRIGGER_CONTACT_INQUIRY_STALLED,
+      "booking.reminder_due",
+      // S13.
+      "service.replacement_due",
+    ],
   );
 });
 
@@ -357,11 +368,12 @@ test("sin el módulo Servicios, los triggers de cada organización son los de an
     "booking.reminder_due",
     "booking.completed",
   ]);
-  // Con el módulo: los de antes más los tres del taller.
+  // Con el módulo: los de antes más los cuatro del taller.
   assert.deepEqual(triggersParaLosModulos(modulosDe("COMPLETA", "AUTOMOTORA", ["servicios"])), [
     ...deAntes,
     "service.next_service_due",
     "service_order.status_changed",
     "service_order.delivered",
+    "service.replacement_due",
   ]);
 });

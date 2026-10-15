@@ -6,6 +6,12 @@ import { filtroDeSedes, type ActorConSedes } from "../../services/permisos";
 import { formatearNumeroDeOrden } from "../identificadores";
 import { textoDelVehiculo } from "../recordatorio/config";
 import { ESTADOS_FINALES_DE_ORDEN } from "../repositories/customerVehicle.repository";
+import { fechaDeRecambio } from "../recambio/config";
+import { configDelRecambioDe, vehiculosParaElRecambio } from "../recambio/repository";
+import { contarRecambiosVencidos } from "../recambio/lista.service";
+
+// S13 (§7): los recambios próximos son los de los próximos 90 días.
+export const DIAS_RECAMBIOS_PROXIMOS = 90;
 
 // ---------------------------------------------------------------------------
 // El resumen del taller (docs/servicios.md §4.7, S11): Taller → Resumen y el
@@ -63,6 +69,11 @@ export interface ResumenDelTaller {
   servicesVencidos: Lista<VehiculoDelResumen>;
   servicesEn30Dias: Lista<VehiculoDelResumen>;
   turnosCancelados: Lista<OrdenDelResumen>;
+  // S13: los recambios de los próximos 90 días, y cuántos vehículos no tienen
+  // fecha de compra (no tienen recambio: hay que completarla, D12).
+  recambiosProximos: { total: number; sinFechaDeCompra: number };
+  // S13 (§7.4): el total de la lista de vencidos sin contactar.
+  recambiosVencidos: { total: number };
 }
 
 const nombre = (c: { firstName: string; lastName: string }) =>
@@ -238,5 +249,42 @@ export async function resumenDelTaller(
       total: canceladosTotal,
       items: canceladosItems.map((o) => aOrden(o, o.scheduledFor)),
     },
+    ...(await recambiosDelResumen(organizationId, actor, branchId, deLaSede, hoy, ahora)),
+  };
+}
+
+async function recambiosDelResumen(
+  organizationId: string,
+  actor: ActorConSedes,
+  branchId: string | undefined,
+  deLaSede: { branchId?: string | { in: string[] } },
+  hoy: Date,
+  ahora: Date,
+): Promise<Pick<ResumenDelTaller, "recambiosProximos" | "recambiosVencidos">> {
+  const config = await configDelRecambioDe(organizationId);
+  const [conCompra, sinFechaDeCompra, vencidos] = await Promise.all([
+    prisma.customerVehicle.findMany({
+      where: vehiculosParaElRecambio(organizationId, deLaSede),
+      select: { purchasedOn: true },
+    }),
+    prisma.customerVehicle.count({
+      where: {
+        organizationId,
+        ...deLaSede,
+        deletedAt: null,
+        ownershipEndedAt: null,
+        purchasedOn: null,
+      },
+    }),
+    contarRecambiosVencidos(organizationId, actor, branchId, ahora),
+  ]);
+  const hasta = sumarDias(hoy, DIAS_RECAMBIOS_PROXIMOS).getTime();
+  const proximos = conCompra.filter(({ purchasedOn }) => {
+    const recambio = fechaDeRecambio(purchasedOn!, config).getTime();
+    return recambio >= hoy.getTime() && recambio <= hasta;
+  }).length;
+  return {
+    recambiosProximos: { total: proximos, sinFechaDeCompra },
+    recambiosVencidos: { total: vencidos },
   };
 }

@@ -2,7 +2,10 @@ import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type { Booking } from "../booking/types";
 import type {
+  AccionDelRecambio,
   AvisoDeLaOrden,
+  RecambiosResponse,
+  ResultadoDelRecambio,
   AvisosDeLaOrden,
   MedioDeAviso,
   ResumenDelTaller,
@@ -40,6 +43,7 @@ function queryString(query: VehiculosQuery): string {
   if (query.contactId) params.set("contactId", query.contactId);
   if (query.branchId) params.set("branchId", query.branchId);
   if (query.incluirNoVigentes) params.set("incluirNoVigentes", "true");
+  if (query.sinFechaDeCompra) params.set("sinFechaDeCompra", "true");
   const texto = params.toString();
   return texto ? `?${texto}` : "";
 }
@@ -215,6 +219,35 @@ export function obtenerResumenDelTaller(
 ): Promise<ResumenDelTaller> {
   const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : "";
   return request<ResumenDelTaller>(`/servicios/dashboard${query}`, { getAccessToken, signal });
+}
+
+// S13: recambios vencidos sin contactar (§7.4).
+export function listarRecambiosVencidos(
+  query: { page: number; pageSize: number; branchId?: string },
+  signal?: AbortSignal,
+): Promise<RecambiosResponse> {
+  const params = new URLSearchParams({
+    estado: "vencidos",
+    page: String(query.page),
+    pageSize: String(query.pageSize),
+  });
+  if (query.branchId) params.set("branchId", query.branchId);
+  return request<RecambiosResponse>(`/servicios/recambios?${params.toString()}`, {
+    getAccessToken,
+    signal,
+  });
+}
+
+// Una o varias filas: una por una en el backend, con el resultado de cada una.
+export function registrarAvisosDeRecambio(
+  vehiculoIds: string[],
+  accion: AccionDelRecambio,
+): Promise<{ resultados: ResultadoDelRecambio[] }> {
+  return request<{ resultados: ResultadoDelRecambio[] }>("/servicios/recambios/avisos", {
+    method: "POST",
+    body: { vehiculoIds, accion },
+    getAccessToken,
+  });
 }
 
 // S12: avisar al cliente (§8.1).

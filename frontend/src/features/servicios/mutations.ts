@@ -13,9 +13,11 @@ import {
   guardarConfiguracion,
   registrarAprobacion,
   registrarAviso,
+  registrarAvisosDeRecambio,
 } from "./api";
-import { avisosKey, ordenKeys, tallerKeys, vehiculoKeys } from "./queries";
+import { avisosKey, ordenKeys, recambiosKey, tallerKeys, vehiculoKeys } from "./queries";
 import type {
+  AccionDelRecambio,
   MedioDeAviso,
   ActualizarOrdenInput,
   AprobacionInput,
@@ -185,5 +187,19 @@ export function useRegistrarAviso(id: string) {
   return useMutation({
     mutationFn: (medio: MedioDeAviso) => registrarAviso(id, medio),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: avisosKey(id) }),
+  });
+}
+
+// S13: "Crear tarea al vendedor" o "Marcar como contactado", de una o varias
+// filas. Invalida la lista de vencidos y el resumen (sus tarjetas).
+export function useRegistrarAvisosDeRecambio() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { vehiculoIds: string[]; accion: AccionDelRecambio }) =>
+      registrarAvisosDeRecambio(input.vehiculoIds, input.accion),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: recambiosKey });
+      void queryClient.invalidateQueries({ queryKey: ["servicios", "resumen"] });
+    },
   });
 }

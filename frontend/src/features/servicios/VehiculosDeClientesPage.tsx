@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { CarFront, Plus } from "lucide-react";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -22,6 +22,11 @@ export function VehiculosDeClientesPage() {
   const [page, setPage] = useState(1);
   const [busqueda, setBusqueda] = useState("");
   const [incluirNoVigentes, setIncluirNoVigentes] = useState(false);
+  // S13: desde la tarjeta "Recambios" del resumen llega ya tildado.
+  const [searchParams] = useSearchParams();
+  const [sinFechaDeCompra, setSinFechaDeCompra] = useState(
+    searchParams.get("sinFechaDeCompra") === "1",
+  );
 
   const q = busqueda.trim();
   const vehiculosQuery = useVehiculos({
@@ -29,6 +34,7 @@ export function VehiculosDeClientesPage() {
     pageSize: PAGE_SIZE,
     q: q || undefined,
     incluirNoVigentes: incluirNoVigentes || undefined,
+    sinFechaDeCompra: sinFechaDeCompra || undefined,
   });
 
   const nuevo = q ? `/taller/vehiculos/nuevo?matricula=${encodeURIComponent(q)}` : null;
@@ -71,6 +77,17 @@ export function VehiculosDeClientesPage() {
               }}
             />{" "}
             Mostrar los que ya no son de un cliente
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={sinFechaDeCompra}
+              onChange={(event) => {
+                setSinFechaDeCompra(event.target.checked);
+                setPage(1);
+              }}
+            />{" "}
+            Solo los que no tienen fecha de compra
           </label>
         </div>
 

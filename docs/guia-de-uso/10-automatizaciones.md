@@ -130,6 +130,25 @@ servicio (por ejemplo, para pedirle una reseña al cliente al día siguiente).
 No tiene nada que configurar. Admite la acción **Crear actividad de
 seguimiento**.
 
+### Se acerca el recambio {#evento-recambio}
+
+Solo con el módulo Servicios (ver [Taller](/ayuda/servicios#recambios)). Es el
+aviso para que ventas llame a un cliente cuando se acerca la hora de cambiar el
+auto. Se dispara con los vehículos de clientes cuya fecha de compra más los
+**Meses desde la compra** (de 12 a 120) está a los **Días antes** que indiques
+(de 0 a 180). Viene en 48 meses y 60 días.
+
+- Se revisa todos los días desde las 10:00. Si un día no se pudo avisar, se
+  avisa en los 7 días siguientes.
+- Cada vehículo recibe un solo aviso por fecha de recambio. Tampoco se avisa
+  si alguien ya lo marcó desde **Taller → Recambios**.
+- No se avisa si el cliente tiene una oportunidad abierta (ya está comprando)
+  o está marcado **sin interés**, si el vehículo ya no es del cliente o si no
+  tiene fecha de compra.
+- Solo puede haber una regla con este evento.
+
+Admite la acción **Crear actividad de seguimiento**.
+
 ## Acciones {#acciones}
 
 ### Crear actividad de seguimiento
@@ -139,7 +158,9 @@ Crea una tarea para el dueño de la oportunidad, en
 es para llamar al cliente y va al encargado de la última orden del vehículo;
 si no hay, al responsable por defecto de la sucursal, y si tampoco, al
 administrador más antiguo. Con los eventos de la orden de servicio, va al
-encargado de la orden, con la misma cadena si no tiene.
+encargado de la orden, con la misma cadena si no tiene. Con **Se acerca el
+recambio**, va al vendedor del cliente; si no tiene, al de la venta del auto,
+y si no, al responsable de la sucursal o al administrador más antiguo.
 
 - **Título de la tarea**: por ejemplo, "Llamar para coordinar la entrega".
 - **Vence en (días)**: contados desde que se dispara la regla, de 0 a 365.

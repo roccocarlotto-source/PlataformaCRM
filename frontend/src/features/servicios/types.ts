@@ -82,6 +82,8 @@ export interface VehiculosQuery {
   contactId?: string;
   branchId?: string;
   incluirNoVigentes?: boolean;
+  // S13: solo los que no tienen fecha de compra.
+  sinFechaDeCompra?: boolean;
 }
 
 export interface VehiculosResponse {
@@ -328,6 +330,35 @@ export interface ResumenDelTaller {
   servicesVencidos: ListaDelResumen<VehiculoDelResumen>;
   servicesEn30Dias: ListaDelResumen<VehiculoDelResumen>;
   turnosCancelados: ListaDelResumen<OrdenDelResumen>;
+  // S13 (§7): los recambios.
+  recambiosProximos: { total: number; sinFechaDeCompra: number };
+  recambiosVencidos: { total: number };
+}
+
+// S13 (§7.4): recambios vencidos sin contactar. Espejo de RecambioVencido
+// (src/servicios/recambio/lista.service.ts). Las fechas, "AAAA-MM-DD".
+export interface RecambioVencido {
+  id: string;
+  cliente: string;
+  vehiculo: string;
+  vendedor: string | null;
+  compra: string;
+  recambio: string;
+  aviso: string;
+  vencidoHace: number;
+}
+
+export interface RecambiosResponse {
+  data: RecambioVencido[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+}
+
+export type AccionDelRecambio = "TAREA" | "CONTACTADO";
+
+export interface ResultadoDelRecambio {
+  id: string;
+  ok: boolean;
+  error?: string;
 }
 
 // S12 (docs/servicios.md §8.1): avisar al cliente. Espejo de AvisosDeLaOrden

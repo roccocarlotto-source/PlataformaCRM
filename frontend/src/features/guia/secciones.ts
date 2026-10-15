@@ -158,6 +158,8 @@ export const MODULO_DE_ANCLA: Readonly<Record<string, string>> = {
   // S8: los eventos de la orden (docs/servicios.md §9).
   "automatizaciones#evento-orden-cambia-de-estado": "servicios",
   "automatizaciones#evento-orden-entregada": "servicios",
+  // S13: el recambio (docs/servicios.md §7).
+  "automatizaciones#evento-recambio": "servicios",
 };
 
 export const SOLO_SIN_MODULO: Readonly<Record<string, string>> = {

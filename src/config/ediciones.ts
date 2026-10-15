@@ -604,6 +604,10 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "GET /api/servicios/configuracion",
     // S11: el resumen del taller.
     "GET /api/servicios/dashboard",
+    // S13: recambios vencidos y sus avisos manuales.
+    "GET /api/servicios/recambios",
+    "POST /api/servicios/recambios/avisos",
+    "POST /api/servicios/vehiculos/:id/avisos",
     "GET /api/servicios/vehiculos",
     "POST /api/servicios/vehiculos",
     "GET /api/servicios/vehiculos/:id",

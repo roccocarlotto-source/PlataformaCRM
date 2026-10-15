@@ -115,6 +115,8 @@ export const listarVehiculosQuerySchema = z.object({
   contactId: z.string().uuid("contactId inválido").optional(),
   branchId: z.string().uuid("branchId inválido").optional(),
   incluirNoVigentes: booleanoDeQuery,
+  // S13: los que no tienen fecha de compra.
+  sinFechaDeCompra: booleanoDeQuery,
 });
 
 // El dueño no se edita (§2.2): tiene su propia acción, que deja el registro.

@@ -247,6 +247,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "src/servicios/dashboard.integration-test.ts",
   ),
   patron("servicios-avisos-{etiqueta}-{ts}-{hex8}", "src/servicios/avisos.integration-test.ts"),
+  patron("servicios-recambio-{etiqueta}-{ts}-{hex8}", "src/servicios/recambio.integration-test.ts"),
   patron(
     "servicios-sin-modulo-{etiqueta}-{ts}-{hex8}",
     "src/servicios/sinElModuloSinCambios.integration-test.ts",

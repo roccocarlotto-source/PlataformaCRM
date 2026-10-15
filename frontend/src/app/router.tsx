@@ -1,3 +1,4 @@
+import { RecambiosPage } from "../features/servicios/RecambiosPage";
 import { TallerResumenPage } from "../features/servicios/TallerResumenPage";
 import { ModuloRoute } from "../auth/ModuloRoute";
 import { createBrowserRouter } from "react-router-dom";
@@ -231,6 +232,8 @@ export const router = createBrowserRouter([
               { path: "/taller/ordenes", element: <OrdenesPage /> },
               { path: "/taller/ordenes/nueva", element: <NuevaOrdenPage /> },
               { path: "/taller/ordenes/:id", element: <OrdenPage /> },
+              // S13: recambios vencidos sin contactar (§7.4).
+              { path: "/taller/recambios", element: <RecambiosPage /> },
               // La configuración, solo ADMIN (§4.8).
               {
                 element: <AdminRoute />,

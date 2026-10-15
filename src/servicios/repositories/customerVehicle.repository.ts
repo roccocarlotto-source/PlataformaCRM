@@ -58,6 +58,8 @@ export interface FiltrosDeVehiculos {
   branchId?: string;
   branchIds?: readonly string[];
   incluirNoVigentes?: boolean;
+  // S13 (§7.1): los que no tienen fecha de compra (no tienen recambio).
+  sinFechaDeCompra?: boolean;
 }
 
 function whereDeVehiculos(
@@ -66,6 +68,7 @@ function whereDeVehiculos(
 ): Prisma.CustomerVehicleWhereInput {
   const where: Prisma.CustomerVehicleWhereInput = { organizationId, deletedAt: null };
   if (!f.incluirNoVigentes) where.ownershipEndedAt = null;
+  if (f.sinFechaDeCompra) where.purchasedOn = null;
   if (f.contactId) where.contactId = f.contactId;
   if (f.branchId) where.branchId = f.branchId;
   else if (f.branchIds) where.branchId = { in: [...f.branchIds] };

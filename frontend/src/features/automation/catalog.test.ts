@@ -93,6 +93,8 @@ describe("catálogo de triggers y acciones", () => {
       // S8: los eventos de la orden, solo con el módulo Servicios.
       "service_order.status_changed": [ACTION_CREATE_FOLLOW_UP],
       "service_order.delivered": [ACTION_CREATE_FOLLOW_UP],
+      // S13: el recambio, solo con el módulo Servicios.
+      "service.replacement_due": [ACTION_CREATE_FOLLOW_UP],
     });
     // Un trigger que el espejo no conoce no restringe: decide el backend.
     expect(accionesParaTrigger("booking.reminder")).toEqual(ACTION_OPTIONS);
@@ -640,6 +642,7 @@ describe("próximo service (módulo Servicios)", () => {
       "service.next_service_due",
       "service_order.status_changed",
       "service_order.delivered",
+      "service.replacement_due",
     ];
     for (const simple of [false, true]) {
       // Sin el módulo, exactamente lo de antes (S8: §13.1).
@@ -651,7 +654,7 @@ describe("próximo service (módulo Servicios)", () => {
       expect(
         triggerOptions(simple, false, true)
           .map((o) => o.value)
-          .slice(-3),
+          .slice(-4),
       ).toEqual(delTaller);
     }
     expect(triggerOptions(false, true).map((o) => o.value)).toEqual([
@@ -745,5 +748,24 @@ describe("eventos de la orden (módulo Servicios)", () => {
     expect(config.aPayload(draft)).toEqual({ toStatuses: ["RECIBIDO", "LISTO_PARA_RETIRAR"] });
     expect(config.draftDesde({ toStatuses: ["ENTREGADO"] })).toEqual({ estados: "ENTREGADO" });
     expect(CONFIG_DE_TRIGGER["service_order.delivered"].aPayload({})).toEqual({});
+  });
+});
+
+// S13 (docs/servicios.md §7.2): el recambio, con los topes del backend.
+describe("recambio (módulo Servicios)", () => {
+  it("48 meses y 60 días por defecto; 12–120 meses y 0–180 días", () => {
+    const config = CONFIG_DE_TRIGGER["service.replacement_due"];
+    expect(triggerLabel("service.replacement_due")).toBe("Se acerca el recambio");
+    expect(config.aPayload(config.draftVacio())).toEqual({
+      monthsAfterPurchase: 48,
+      daysBefore: 60,
+    });
+    expect(config.validar({ meses: "11", diasAntes: "60" })).toMatch(/entre 12 y 120/);
+    expect(config.validar({ meses: "48", diasAntes: "181" })).toMatch(/entre 0 y 180/);
+    expect(config.validar({ meses: "36", diasAntes: "0" })).toBeNull();
+    expect(config.draftDesde({ monthsAfterPurchase: 36, daysBefore: 30 })).toEqual({
+      meses: "36",
+      diasAntes: "30",
+    });
   });
 });

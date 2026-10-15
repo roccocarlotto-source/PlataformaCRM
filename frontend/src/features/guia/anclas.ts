@@ -35,6 +35,7 @@ export const AYUDA = {
   // El taller (docs/servicios.md): solo con el módulo Servicios.
   resumenDelTaller: "servicios#resumen",
   vehiculosDeClientes: "servicios#vehiculos-de-clientes",
+  recambios: "servicios#recambios",
   vehiculoDeClienteForm: "servicios#nuevo-vehiculo",
   fichaDeVehiculoDeCliente: "servicios#ficha-del-vehiculo",
   ordenes: "servicios#ordenes",
