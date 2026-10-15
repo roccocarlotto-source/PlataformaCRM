@@ -17,6 +17,7 @@ import { BranchSelect } from "../branch/BranchSelect";
 import { QrSelect } from "../qr/QrSelect";
 import { MensajeDeWhatsappCard } from "./MensajeDeWhatsappCard";
 import {
+  ACCION_AL_ELEGIR_EL_TRIGGER,
   ACTION_CREATE_FOLLOW_UP,
   ACTION_SEND_NEXT_SERVICE_REMINDER,
   MAX_DIAS_ANTES_DEL_SERVICE,
@@ -752,8 +753,15 @@ export function AutomationFormPage() {
                 // vez de dejar armada una combinación que el backend rechaza.
                 const configDeTrigger = CONFIG_DE_TRIGGER[triggerType];
                 const permitidas = accionesParaTrigger(triggerType);
-                const accionSigue = permitidas.some((option) => option.value === values.actionType);
-                const actionType = accionSigue ? values.actionType : permitidas[0]?.value;
+                // Un evento con acción propia (ACCION_AL_ELEGIR_EL_TRIGGER) la
+                // elige aunque la anterior también valga.
+                const propia = ACCION_AL_ELEGIR_EL_TRIGGER[triggerType];
+                const accionSigue = propia
+                  ? values.actionType === propia
+                  : permitidas.some((option) => option.value === values.actionType);
+                const actionType = accionSigue
+                  ? values.actionType
+                  : (propia ?? permitidas[0]?.value);
                 const configDeAccion = actionType ? CONFIG_DE_ACCION[actionType] : undefined;
                 setValues({
                   ...values,

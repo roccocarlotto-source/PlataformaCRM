@@ -1174,6 +1174,25 @@ describe("AutomationFormPage — próximo service", () => {
     });
   }
 
+  it("la acción pasa sola al WhatsApp, pero se puede cambiar a mano a la tarea", async () => {
+    conServicios();
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+    expect(screen.getByLabelText("Acción")).toHaveValue("Crear actividad de seguimiento");
+    await chooseSelectOption(user, screen.getByLabelText("Evento"), "Próximo service");
+    expect(screen.getByLabelText("Acción")).toHaveValue("Mandar el recordatorio por WhatsApp");
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Acción"),
+      "Crear actividad de seguimiento",
+    );
+    expect(screen.getByLabelText("Acción")).toHaveValue("Crear actividad de seguimiento");
+    expect(screen.getByLabelText("Título de la tarea")).toHaveAttribute(
+      "placeholder",
+      "Llamar para agendar el service",
+    );
+  });
+
   it("sin el módulo, el evento no se ofrece", async () => {
     const user = userEvent.setup();
     renderForm("/automations/new");
@@ -1195,14 +1214,9 @@ describe("AutomationFormPage — próximo service", () => {
     renderForm("/automations/new");
 
     await chooseSelectOption(user, screen.getByLabelText("Evento"), "Próximo service");
-    // La tarea de seguimiento también vale para este evento: queda elegida
-    // (la regla de siempre al cambiar de evento). Se pasa al WhatsApp.
-    expect(screen.getByLabelText("Acción")).toHaveValue("Crear actividad de seguimiento");
-    await chooseSelectOption(
-      user,
-      screen.getByLabelText("Acción"),
-      "Mandar el recordatorio por WhatsApp",
-    );
+    // Aunque la tarea de seguimiento también vale para este evento, la
+    // acción pasa sola al WhatsApp (se puede cambiar a mano).
+    expect(screen.getByLabelText("Acción")).toHaveValue("Mandar el recordatorio por WhatsApp");
     expect(screen.getByLabelText("Días")).toHaveValue(7);
     expect(screen.getByLabelText("Cuándo")).toHaveValue("Antes de la fecha de service");
     expect(

@@ -270,6 +270,14 @@ export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
   [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: [ACTION_SEND_NEXT_SERVICE_REMINDER, ACTION_CREATE_FOLLOW_UP],
 };
 
+// La acción que se elige SOLA al pasar a ese evento, aunque la que estaba
+// elegida también lo admita (se puede cambiar a mano después). S7: con el
+// próximo service, el WhatsApp; si no, "Crear actividad de seguimiento", que
+// venía elegida de "Oportunidad ganada", quedaba puesta.
+export const ACCION_AL_ELEGIR_EL_TRIGGER: Readonly<Record<string, string>> = {
+  [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: ACTION_SEND_NEXT_SERVICE_REMINDER,
+};
+
 // Las acciones que el selector ofrece para un trigger. Un trigger que este
 // espejo todavía no conoce no restringe nada: quien decide es el backend.
 export function accionesParaTrigger(triggerType: string): SelectOption<string>[] {
