@@ -15,6 +15,7 @@ import {
   cambiarEstadoHandler,
   crearOrdenHandler,
   listarOrdenesHandler,
+  listarTurnosHandler,
   listarUsuariosHandler,
   obtenerOrdenHandler,
   registrarAprobacionHandler,
@@ -76,6 +77,7 @@ serviciosRouter.delete(
 
 // S4a: órdenes de servicio (§2.3–§2.5, §3). ADMIN y USER operan todas (D9).
 serviciosRouter.get("/servicios/ordenes", authenticate, listarOrdenesHandler);
+serviciosRouter.get("/servicios/turnos", authenticate, listarTurnosHandler);
 serviciosRouter.post(
   "/servicios/ordenes",
   authenticate,

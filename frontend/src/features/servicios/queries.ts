@@ -3,6 +3,8 @@ import {
   leerConfiguracion,
   listarOrdenes,
   listarTipos,
+  listarTurnosVinculables,
+  obtenerTurno,
   listarUsuarios,
   listarVehiculos,
   obtenerOrden,
@@ -70,6 +72,23 @@ export function useOrden(id: string) {
   return useQuery({
     queryKey: ordenKeys.detail(id),
     queryFn: ({ signal }) => obtenerOrden(id, signal),
+  });
+}
+
+export function useTurno(id: string | undefined) {
+  return useQuery({
+    queryKey: [...ordenKeys.all, "turno", id ?? ""] as const,
+    queryFn: ({ signal }) => obtenerTurno(id!, signal),
+    enabled: id !== undefined,
+  });
+}
+
+/** Los turnos que se pueden vincular a una orden del cliente (§4.4). */
+export function useTurnosVinculables(contactId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...ordenKeys.all, "turnos", contactId] as const,
+    queryFn: ({ signal }) => listarTurnosVinculables(contactId, signal),
+    enabled,
   });
 }
 

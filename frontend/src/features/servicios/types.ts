@@ -179,6 +179,27 @@ export interface CambioDeEstado {
   changedBy: UsuarioResumido;
 }
 
+export type EstadoDeTurno = "CONFIRMED" | "CANCELLED" | "COMPLETED" | "NO_SHOW";
+
+export interface TurnoDeLaOrden {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  status: EstadoDeTurno;
+  servicio: string;
+  recurso: string;
+}
+
+/** GET /api/servicios/turnos?contactId=: los que se pueden vincular. */
+export interface TurnoVinculable {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  branch: { id: string; name: string };
+  servicio: string;
+  recurso: string;
+}
+
 export interface FichaDeOrden extends OrdenDeLista {
   customerVehicleId: string;
   contactId: string;
@@ -197,6 +218,8 @@ export interface FichaDeOrden extends OrdenDeLista {
   aprobaciones: Aprobacion[];
   historial: CambioDeEstado[];
   aprobacionPendiente: boolean;
+  // El turno vinculado (§4.4), con su estado y horario actuales.
+  turno: TurnoDeLaOrden | null;
   proximoServicePropuesto: { fecha: string | null; meses: number | null } | null;
 }
 
@@ -206,6 +229,8 @@ export interface OrdenesQuery {
   estados?: EstadoDeOrden[];
   branchId?: string;
   assigneeId?: string;
+  // La orden de un turno (detalle del turno en la agenda).
+  bookingId?: string;
   q?: string;
 }
 
@@ -226,6 +251,7 @@ export interface CrearOrdenInput {
   damageNotes?: string | null;
   amount?: number | null;
   currency?: string | null;
+  bookingId?: string;
 }
 
 export interface ActualizarOrdenInput {
@@ -237,6 +263,8 @@ export interface ActualizarOrdenInput {
   amount?: number | null;
   currency?: string | null;
   jobTypeIds?: string[];
+  // Vincular (id) o desvincular (null) el turno.
+  bookingId?: string | null;
 }
 
 export interface CambiarEstadoInput {

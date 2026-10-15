@@ -148,6 +148,48 @@ before(async () => {
     data: { tradeInOpportunityId: oportunidad.id },
   });
 
+  // A: una orden de servicio vinculada a un turno (S4b). service_orders ->
+  // bookings es NoAction: la orden tiene que borrarse antes que el turno.
+  const sede = await prisma.branch.findFirstOrThrow({ where: { organizationId: a } });
+  const recurso = await prisma.resource.create({
+    data: { organizationId: a, branchId: sede.id, name: "Elevador", type: "ROOM" },
+  });
+  const servicio = await prisma.serviceType.create({
+    data: {
+      organizationId: a,
+      branchId: sede.id,
+      resourceId: recurso.id,
+      name: "Service",
+      durationMin: 60,
+    },
+  });
+  const turno = await prisma.booking.create({
+    data: {
+      organizationId: a,
+      branchId: sede.id,
+      serviceTypeId: servicio.id,
+      resourceId: recurso.id,
+      contactId: contacto.id,
+      startsAt: vence,
+      endsAt: new Date(vence.getTime() + 3_600_000),
+    },
+  });
+  const autoDelCliente = await prisma.customerVehicle.create({
+    data: { organizationId: a, contactId: contacto.id, make: "Toyota", model: "Hilux" },
+  });
+  await prisma.serviceOrder.create({
+    data: {
+      organizationId: a,
+      number: 1,
+      customerVehicleId: autoDelCliente.id,
+      contactId: contacto.id,
+      branchId: sede.id,
+      bookingId: turno.id,
+      scheduledFor: vence,
+      createdById: e.userId,
+    },
+  });
+
   fx = {
     a,
     b,
@@ -218,6 +260,9 @@ test("simulación: solo A, con sus filas e identidades, y sin escribir nada", as
   assert.equal(a.filasPorTabla.stages, 1);
   assert.equal(a.filasPorTabla.branches, 1);
   assert.equal(a.filasPorTabla.contacts, 1);
+  // S4b: la orden vinculada a un turno entra en el plan.
+  assert.equal(a.filasPorTabla.bookings, 1);
+  assert.equal(a.filasPorTabla.service_orders, 1);
 
   const destino = new Map(a.identidades.map((i) => [i.id, i]));
   assert.equal(destino.get(fx.borrable)?.seBorra, true);

@@ -31,6 +31,10 @@ interface BookingDetailDialogProps {
   onReprogramar?: () => void;
   // R10: lo propio de una clínica (atendido / no vino). Sin pasarlo, nada.
   accionesDeClinica?: ReactNode;
+  // S4b (docs/servicios.md §4.4): la orden de servicio del turno o "Crear
+  // orden de servicio". Solo la pasa una automotora con el módulo Servicios;
+  // sin él, el diálogo es el de siempre.
+  accionesDelTaller?: ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +58,7 @@ export function BookingDetailDialog({
   onClose,
   onReprogramar,
   accionesDeClinica,
+  accionesDelTaller,
 }: BookingDetailDialogProps) {
   const confirm = useConfirm();
   const cancelBookingMutation = useCancelBooking();
@@ -118,6 +123,7 @@ export function BookingDetailDialog({
       ) : null}
 
       {accionesDeClinica}
+      {accionesDelTaller}
       {onReprogramar ? (
         <Button variant="secondary" onClick={onReprogramar}>
           Reprogramar

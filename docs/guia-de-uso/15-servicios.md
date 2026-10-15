@@ -86,6 +86,12 @@ Con **Nueva orden** (en Órdenes, o en la ficha de un vehículo):
    de la organización (si la organización no configuró ninguna, USD) y se
    puede cambiar.
 
+**Desde un turno de la agenda**: en el detalle del turno (Agenda → tocar el
+turno), **Crear orden de servicio** abre Nueva orden con el turno: se elige uno
+de los vehículos del cliente del turno (o **Cargar un vehículo de este
+cliente**) y la orden nace **Agendada** para el horario del turno, en su
+sucursal y [vinculada a él](#turno-de-la-orden).
+
 **Un auto no puede estar dos veces en el taller**: si ya tiene una orden de
 Recibido a Listo para retirar, no se puede recibir otra y el aviso ofrece
 **Abrir la orden**. Sí se puede agendar el próximo turno mientras está adentro.
@@ -99,13 +105,34 @@ antes. En los diálogos de cada paso, **Cancelar** cierra sin cambiar nada (en
 el de cancelar la orden, ese botón dice **No cancelar**).
 
 - **Orden**: estado, vehículo (con link a su ficha), cliente, sucursal,
-  encargado, cuándo se espera y quién la creó.
+  encargado, cuándo se espera, el [turno](#turno-de-la-orden) y quién la creó.
 - **Ingreso**: cuándo se recibió, km y daños al ingreso.
 - **Trabajo**: tipos de service, notas y valor.
 - **Aprobaciones** y **Historial**: cada cambio de estado, con quién y cuándo.
 
 Con **Editar** se cambian el encargado, la fecha esperada o los km, los daños,
 las notas, los tipos y el valor. El estado se cambia solo con los botones.
+
+### El turno de la agenda {#turno-de-la-orden}
+
+Una orden puede estar vinculada a un turno de la agenda. En la ficha, **Turno**
+muestra su horario, el servicio y el recurso:
+
+- **Vincular turno** ofrece los turnos confirmados y futuros del cliente. Al
+  vincular uno, la orden pasa a esperar el auto en ese horario. Un turno tiene
+  una sola orden abierta a la vez.
+- **Desvincular** saca el turno de la orden. El turno sigue en la agenda y la
+  orden conserva su fecha.
+
+El turno y la orden **no se mueven juntos**:
+
+- Si el turno se cancela en la agenda (o en Google Calendar), la orden queda
+  como estaba y la ficha avisa **El turno vinculado fue cancelado**, con
+  **Vincular otro turno** y **Desvincular**. Si el cliente no vino, avisa **El
+  cliente no vino al turno**.
+- Si se cancela la orden, el turno sigue en la agenda: el diálogo lo recuerda,
+  y se cancela desde la agenda si corresponde (cancelar un turno lo libera para
+  otro cliente).
 
 ### Aprobaciones {#aprobaciones}
 

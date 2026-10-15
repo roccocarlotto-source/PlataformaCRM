@@ -95,6 +95,13 @@ export async function borrarOrgDePrueba(org: OrgDePrueba | undefined): Promise<v
   await prisma.serviceOrderApproval.deleteMany({ where });
   await prisma.serviceOrderStatusChange.deleteMany({ where });
   await prisma.serviceOrder.deleteMany({ where });
+  // La agenda (S4b: una orden puede apuntar a un turno, así que van después).
+  await prisma.bookingMessage.deleteMany({ where });
+  await prisma.booking.deleteMany({ where });
+  await prisma.serviceTypeResource.deleteMany({ where });
+  await prisma.serviceType.deleteMany({ where });
+  await prisma.resourceTimeOff.deleteMany({ where });
+  await prisma.workingHours.deleteMany({ where });
   await prisma.serviceJobType.deleteMany({ where });
   await prisma.customerVehicle.deleteMany({ where });
   await prisma.opportunity.deleteMany({ where });
@@ -105,6 +112,8 @@ export async function borrarOrgDePrueba(org: OrgDePrueba | undefined): Promise<v
   await prisma.clinicBranchSettings.deleteMany({ where });
   // Antes que los usuarios: la FK a users es RESTRICT (historial append-only).
   await prisma.clinicHealthSettingsChange.deleteMany({ where });
+  await prisma.googleCalendarChannel.deleteMany({ where });
+  await prisma.resource.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
   // Módulos activables y configuración del taller (docs/servicios.md §1.5):
   // los escribe activar un módulo, y su FK a organizations es RESTRICT.

@@ -1,0 +1,12 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`BookingCalendarPage — detalle del turno sin el módulo Servicios > automotora sin Servicios: el detalle del turno muestra lo mismo que antes y no pide nada del taller 1`] = `
+{
+  "botones": [
+    "×",
+    "Cancelar reserva",
+    "Cerrar",
+  ],
+  "texto": "Reserva×ContactoAna c1ServicioConsulta generalRecursoDra. LópezHorariolun 23/09/2030, 10:00–10:30Cancelar reservaCerrar",
+}
+`;

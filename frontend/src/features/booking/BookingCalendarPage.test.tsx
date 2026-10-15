@@ -383,6 +383,133 @@ describe("BookingCalendarPage", () => {
   });
 });
 
+// S4b de docs/servicios.md (§4.4, §13.1): el detalle del turno de una
+// automotora SIN el módulo Servicios queda idéntico. El snapshot se generó
+// sobre master, antes del cambio; y como MSW corre con onUnhandledRequest:
+// "error", cualquier pedido de más (por ejemplo a /api/servicios) lo rompe.
+describe("BookingCalendarPage — detalle del turno sin el módulo Servicios", () => {
+  it("automotora sin Servicios: el detalle del turno muestra lo mismo que antes y no pide nada del taller", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      ...catalogHandlers(),
+      bookingsHandler({
+        r1: [
+          makeBooking({
+            id: "bk1",
+            resourceId: "r1",
+            contactId: "c1",
+            startsAt: "2030-09-23T13:00:00.000Z",
+            endsAt: "2030-09-23T13:30:00.000Z",
+          }),
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await irAlLunes();
+    await user.click(await screen.findByRole("button", { name: /10:00–10:30.*Ana c1/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Reserva" });
+    await within(dialog).findByText("Ana c1");
+    const botones = within(dialog)
+      .getAllByRole("button")
+      .map((b) => b.textContent?.trim());
+    expect({ texto: dialog.textContent, botones }).toMatchSnapshot();
+  });
+});
+
+describe("BookingCalendarPage — detalle del turno con el módulo Servicios (S4b)", () => {
+  function conServicios(): AuthContextValue {
+    const base = mockAuth("ADMIN");
+    return {
+      ...base,
+      me: {
+        ...base.me!,
+        modulos: ["comun", "agenda", "contactos", "sucursales", "servicios"],
+      },
+    };
+  }
+
+  function turnoDelLunes() {
+    return bookingsHandler({
+      r1: [
+        makeBooking({
+          id: "bk1",
+          resourceId: "r1",
+          contactId: "c1",
+          startsAt: "2030-09-23T13:00:00.000Z",
+          endsAt: "2030-09-23T13:30:00.000Z",
+        }),
+      ],
+    });
+  }
+
+  async function abrirElTurno() {
+    const user = userEvent.setup();
+    renderPage();
+    await irAlLunes();
+    await user.click(await screen.findByRole("button", { name: /10:00–10:30.*Ana c1/ }));
+    return screen.findByRole("dialog", { name: "Reserva" });
+  }
+
+  it("sin orden: ofrece Crear orden de servicio con el turno", async () => {
+    useAuthMock.mockReturnValue(conServicios());
+    let pedido: string | null = null;
+    server.use(
+      ...catalogHandlers(),
+      turnoDelLunes(),
+      http.get(`${env.apiUrl}/api/servicios/ordenes`, ({ request }) => {
+        pedido = new URL(request.url).searchParams.get("bookingId");
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 10, total: 0, totalPages: 0 },
+        });
+      }),
+    );
+    const dialog = await abrirElTurno();
+    const crear = await within(dialog).findByRole("link", { name: "Crear orden de servicio" });
+    expect(crear).toHaveAttribute("href", "/taller/ordenes/nueva?turnoId=bk1");
+    expect(pedido).toBe("bk1");
+  });
+
+  it("con una orden abierta: la muestra con su link y no ofrece crear otra", async () => {
+    useAuthMock.mockReturnValue(conServicios());
+    server.use(
+      ...catalogHandlers(),
+      turnoDelLunes(),
+      http.get(`${env.apiUrl}/api/servicios/ordenes`, () =>
+        HttpResponse.json({
+          data: [
+            {
+              id: "o7",
+              numero: "OS-0007",
+              status: "AGENDADO",
+              vehiculo: {
+                id: "v1",
+                make: "Toyota",
+                model: "Hilux",
+                year: null,
+                licensePlate: null,
+              },
+              contact: { id: "c1", firstName: "Ana", lastName: "c1" },
+              branch: { id: "b1", name: "Casa Central" },
+              assignee: null,
+              workStartedAt: null,
+              enEstadoDesde: "2030-09-20T00:00:00.000Z",
+            },
+          ],
+          pagination: { page: 1, pageSize: 10, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const dialog = await abrirElTurno();
+    expect(await within(dialog).findByRole("link", { name: "OS-0007" })).toHaveAttribute(
+      "href",
+      "/taller/ordenes/o7",
+    );
+    expect(within(dialog).queryByRole("link", { name: "Crear orden de servicio" })).toBeNull();
+  });
+});
+
 // docs/rubros.md §4.3 (R5): en una clínica, una prestación puede tener varios
 // profesionales ("Elegir profesionales"). Al dar un turno desde la agenda se
 // ofrecen también las prestaciones donde el profesional no es el principal.

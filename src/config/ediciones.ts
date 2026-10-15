@@ -619,6 +619,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "POST /api/servicios/ordenes/:id/estado",
     "POST /api/servicios/ordenes/:id/aprobaciones",
     "GET /api/servicios/usuarios",
+    "GET /api/servicios/turnos",
   ],
 };
 

@@ -1,5 +1,6 @@
 import {
   Prisma,
+  type BookingStatus,
   type ServiceOrderApprovalChannel,
   type ServiceOrderApprovalDecision,
   type ServiceOrderStatus,
@@ -55,6 +56,18 @@ export const camposDeLaFicha = {
   nextServiceDueOn: true,
   updatedAt: true,
   createdBy: usuarioResumido,
+  // El turno vinculado (§4.4), con su estado y horario ACTUALES: si se canceló
+  // en la agenda, la ficha lo dice (los turnos de automotora no avisan).
+  booking: {
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      status: true,
+      serviceType: { select: { name: true } },
+      resource: { select: { name: true } },
+    },
+  },
   jobTypes: {
     select: { serviceJobType: { select: { id: true, name: true, nextServiceAfterMonths: true } } },
     orderBy: { createdAt: "asc" },
@@ -96,6 +109,8 @@ export interface FiltrosDeOrdenes {
   branchIds?: readonly string[];
   assigneeId?: string;
   customerVehicleId?: string;
+  // La orden de un turno (el detalle del turno en la agenda, §4.4).
+  bookingId?: string;
   desde?: Date;
   hasta?: Date;
   // El texto tal cual (nombre), normalizado (matrícula) y, si parece uno, el
@@ -113,6 +128,7 @@ function whereDeOrdenes(
   else if (f.branchIds) where.branchId = { in: [...f.branchIds] };
   if (f.assigneeId) where.assigneeId = f.assigneeId;
   if (f.customerVehicleId) where.customerVehicleId = f.customerVehicleId;
+  if (f.bookingId) where.bookingId = f.bookingId;
   if (f.desde || f.hasta) {
     where.createdAt = { ...(f.desde ? { gte: f.desde } : {}), ...(f.hasta ? { lt: f.hasta } : {}) };
   }
@@ -222,6 +238,11 @@ interface FichaCruda {
   assigneeName: string | null;
   createdById: string;
   createdByName: string;
+  turnoStartsAt: Date | null;
+  turnoEndsAt: Date | null;
+  turnoStatus: BookingStatus | null;
+  turnoServicio: string | null;
+  turnoRecurso: string | null;
   historial: CambioCrudo[];
   tipos: TipoCrudo[];
   aprobaciones: AprobacionCruda[];
@@ -266,6 +287,17 @@ function aFilaDeLaFicha(f: FichaCruda): FilaDeLaFicha {
     nextServiceDueOn: f.nextServiceDueOn,
     updatedAt: f.updatedAt,
     createdBy: { id: f.createdById, fullName: f.createdByName },
+    booking:
+      f.bookingId && f.turnoStartsAt && f.turnoEndsAt && f.turnoStatus
+        ? {
+            id: f.bookingId,
+            startsAt: f.turnoStartsAt,
+            endsAt: f.turnoEndsAt,
+            status: f.turnoStatus,
+            serviceType: { name: f.turnoServicio ?? "" },
+            resource: { name: f.turnoRecurso ?? "" },
+          }
+        : null,
     jobTypes: f.tipos.map((t) => ({ serviceJobType: t })),
     approvals: f.aprobaciones.map((a) => ({
       id: a.id,
@@ -311,6 +343,8 @@ export async function findOrderById(
       b.name AS "branchName",
       a.full_name AS "assigneeName",
       cb.id AS "createdById", cb.full_name AS "createdByName",
+      bk.starts_at AS "turnoStartsAt", bk.ends_at AS "turnoEndsAt",
+      bk.status::text AS "turnoStatus", bst.name AS "turnoServicio", br.name AS "turnoRecurso",
       COALESCE((
         SELECT json_agg(json_build_object(
           'id', s.id,
@@ -359,6 +393,9 @@ export async function findOrderById(
     JOIN branches b ON b.id = o.branch_id
     LEFT JOIN users a ON a.id = o.assignee_id
     JOIN users cb ON cb.id = o.created_by_id
+    LEFT JOIN bookings bk ON bk.organization_id = o.organization_id AND bk.id = o.booking_id
+    LEFT JOIN service_types bst ON bst.organization_id = bk.organization_id AND bst.id = bk.service_type_id
+    LEFT JOIN resources br ON br.organization_id = bk.organization_id AND br.id = bk.resource_id
     WHERE o.id = ${id}::uuid AND o.organization_id = ${organizationId}::uuid
   `;
   return filas[0] ? aFilaDeLaFicha(filas[0]) : null;
@@ -378,7 +415,14 @@ export async function findOrderByIdConPrisma(
 export async function findOrdenParaEscribir(organizationId: string, id: string, db: Db = prisma) {
   return db.serviceOrder.findFirst({
     where: { id, organizationId },
-    select: { id: true, status: true, customerVehicleId: true, amount: true, currency: true },
+    select: {
+      id: true,
+      status: true,
+      customerVehicleId: true,
+      contactId: true,
+      amount: true,
+      currency: true,
+    },
   });
 }
 
@@ -549,5 +593,79 @@ export async function findDatosDeLaOrganizacion(organizationId: string, db: Db =
   return db.organization.findUniqueOrThrow({
     where: { id: organizationId },
     select: { timezone: true, preferredCurrency: true },
+  });
+}
+
+// --- El turno de la agenda (§4.4, S4b) --------------------------------------
+
+/** El turno para vincularlo a una orden, con la fila BLOQUEADA hasta el fin de
+ *  la transacción: dos altas simultáneas con el mismo turno se serializan, y
+ *  la segunda ve la orden de la primera (findOrdenAbiertaDelTurno). */
+export async function lockTurnoParaOrden(
+  organizationId: string,
+  bookingId: string,
+  tx: Prisma.TransactionClient,
+) {
+  const [fila] = await tx.$queryRaw<
+    { id: string; contactId: string; branchId: string; startsAt: Date; status: BookingStatus }[]
+  >`
+    SELECT id, contact_id AS "contactId", branch_id AS "branchId", starts_at AS "startsAt",
+           status::text AS "status"
+    FROM bookings
+    WHERE organization_id = ${organizationId}::uuid AND id = ${bookingId}::uuid
+    FOR UPDATE
+  `;
+  return fila ?? null;
+}
+
+/** La orden ABIERTA vinculada a este turno, si hay (menos `exceptoId`). Una
+ *  entregada o cancelada no lo ocupa. */
+export async function findOrdenAbiertaDelTurno(
+  organizationId: string,
+  bookingId: string,
+  exceptoId: string | null,
+  tx: Prisma.TransactionClient,
+) {
+  return tx.serviceOrder.findFirst({
+    where: {
+      organizationId,
+      bookingId,
+      status: { in: [...ESTADOS_ABIERTOS] },
+      ...(exceptoId ? { id: { not: exceptoId } } : {}),
+    },
+    select: { id: true, number: true },
+  });
+}
+
+/** Los turnos que se pueden vincular: CONFIRMED y futuros, del contacto, en
+ *  las sedes que ve quien pregunta. */
+export async function findTurnosVinculables(
+  organizationId: string,
+  contactId: string,
+  sedes: { branchId?: string; branchIds?: readonly string[] },
+  desde: Date,
+) {
+  return prisma.booking.findMany({
+    where: {
+      organizationId,
+      contactId,
+      status: "CONFIRMED",
+      startsAt: { gte: desde },
+      ...(sedes.branchId
+        ? { branchId: sedes.branchId }
+        : sedes.branchIds
+          ? { branchId: { in: [...sedes.branchIds] } }
+          : {}),
+    },
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      branch: { select: { id: true, name: true } },
+      serviceType: { select: { name: true } },
+      resource: { select: { name: true } },
+    },
+    orderBy: { startsAt: "asc" },
+    take: 50,
   });
 }
