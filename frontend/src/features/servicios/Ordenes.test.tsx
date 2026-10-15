@@ -585,3 +585,98 @@ describe("Configuración del taller", () => {
     await waitFor(() => expect(tipo).toEqual({ name: "Alineación", nextServiceAfterMonths: null }));
   });
 });
+
+// S12 (docs/servicios.md §8.1): avisar al cliente desde la ficha.
+describe("Órdenes — avisar al cliente", () => {
+  const avisosUrl = `${ORDENES}/o1/avisos`;
+  const SUGERENCIA = "Hola Ana, tu Fiat Uno ya está listo. Podés pasar a retirarlo por Centro.";
+
+  it("con la ventana abierta: abre la conversación con el texto y la orden; marcar como avisado manda el medio", async () => {
+    let medio: unknown = null;
+    server.use(
+      ...comunes(),
+      http.get(`${ORDENES}/:id`, () =>
+        HttpResponse.json(makeFichaDeOrden({ status: "LISTO_PARA_RETIRAR" })),
+      ),
+      http.get(avisosUrl, () =>
+        HttpResponse.json({
+          sugerencia: SUGERENCIA,
+          conversacion: { id: "c1", ventanaAbierta: true },
+          telefono: "+59899000111",
+          avisos: [
+            {
+              id: "a1",
+              cuando: "2026-10-15T15:00:00.000Z",
+              persona: "Rocco Taller",
+              detalle: "Aviso al cliente (Teléfono): Recibido",
+            },
+          ],
+        }),
+      ),
+      http.post(avisosUrl, async ({ request }) => {
+        medio = ((await request.json()) as { medio: string }).medio;
+        return HttpResponse.json([], { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderEn("/taller/ordenes/o1");
+
+    expect(await screen.findByText("Aviso al cliente (Teléfono): Recibido")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Avisar al cliente" }));
+    const dialogo = screen.getByRole("dialog");
+    expect(within(dialogo).getByLabelText("Texto sugerido")).toHaveValue(SUGERENCIA);
+    const abrir = within(dialogo).getByRole("link", { name: "Abrir la conversación" });
+    expect(abrir).toHaveAttribute(
+      "href",
+      `/conversations/c1?borrador=${encodeURIComponent(SUGERENCIA)}&orden=o1`,
+    );
+    expect(within(dialogo).getByRole("link", { name: "Llamar" })).toHaveAttribute(
+      "href",
+      "tel:+59899000111",
+    );
+
+    await user.click(within(dialogo).getByLabelText("En persona"));
+    await user.click(within(dialogo).getByRole("button", { name: "Marcar como avisado" }));
+    await waitFor(() => expect(medio).toBe("EN_PERSONA"));
+  });
+
+  it("con la ventana vencida no ofrece abrir la conversación: lo explica, y quedan copiar y llamar", async () => {
+    server.use(
+      ...comunes(),
+      http.get(`${ORDENES}/:id`, () =>
+        HttpResponse.json(makeFichaDeOrden({ status: "LISTO_PARA_RETIRAR" })),
+      ),
+      http.get(avisosUrl, () =>
+        HttpResponse.json({
+          sugerencia: SUGERENCIA,
+          conversacion: { id: "c1", ventanaAbierta: false },
+          telefono: null,
+          avisos: [],
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderEn("/taller/ordenes/o1");
+    await user.click(await screen.findByRole("button", { name: "Avisar al cliente" }));
+    const dialogo = screen.getByRole("dialog");
+    expect(within(dialogo).queryByRole("link", { name: "Abrir la conversación" })).toBeNull();
+    expect(within(dialogo).getByText(/Pasaron más de 24 h/)).toBeInTheDocument();
+    expect(within(dialogo).getByRole("button", { name: "Copiar el texto" })).toBeInTheDocument();
+    expect(within(dialogo).queryByRole("link", { name: "Llamar" })).toBeNull();
+  });
+
+  it("en un estado sin texto sugerido no hay botón", async () => {
+    server.use(
+      ...comunes(),
+      http.get(`${ORDENES}/:id`, () =>
+        HttpResponse.json(makeFichaDeOrden({ status: "EN_TRABAJO" })),
+      ),
+      http.get(avisosUrl, () =>
+        HttpResponse.json({ sugerencia: null, conversacion: null, telefono: null, avisos: [] }),
+      ),
+    );
+    renderEn("/taller/ordenes/o1");
+    expect(await screen.findByRole("button", { name: "Editar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Avisar al cliente" })).toBeNull();
+  });
+});

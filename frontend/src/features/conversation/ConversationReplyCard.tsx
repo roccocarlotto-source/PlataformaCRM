@@ -56,18 +56,24 @@ export interface ConversationReplyCardProps {
   conversation: ConversationDetail;
   // Inyectable para los tests; en la pantalla, la hora real.
   ahora?: () => number;
+  // S12 (docs/servicios.md §8.1): al abrirla desde una orden del taller, el
+  // texto sugerido ya escrito y la orden, para que el aviso quede registrado.
+  borradorInicial?: string;
+  serviceOrderId?: string;
 }
 
 export function ConversationReplyCard({
   conversation,
   ahora = () => Date.now(),
+  borradorInicial,
+  serviceOrderId,
 }: ConversationReplyCardProps) {
-  const [texto, setTexto] = useState("");
+  const [texto, setTexto] = useState(borradorInicial ?? "");
   const [confirmandoDevolver, setConfirmandoDevolver] = useState(false);
   const { me } = useAuth();
   const vocabulario = vocabularioDe(me);
   const contacto = vocabulario.contacto.singular;
-  const responder = useReplyToConversation(conversation.id);
+  const responder = useReplyToConversation(conversation.id, serviceOrderId);
   const devolver = useReturnConversationToAgent(conversation.id);
 
   if (conversation.status === "CLOSED") {

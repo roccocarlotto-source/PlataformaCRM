@@ -246,3 +246,38 @@ describe("ConversationReplyCard", () => {
     await waitFor(() => expect(devuelta).toBe(true));
   });
 });
+
+// S12 (docs/servicios.md §8.1): llegando desde "Avisar al cliente" de una orden.
+describe("ConversationReplyCard — avisar desde una orden del taller", () => {
+  it("arranca con el texto sugerido y el envío lleva la orden; sin ella, el body de siempre", async () => {
+    let recibido: unknown = null;
+    server.use(
+      http.post(`${baseUrl}/messages`, async ({ request }) => {
+        recibido = await request.json();
+        return HttpResponse.json(makeConversationDetail(ABIERTA), { status: 201 });
+      }),
+    );
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConversationReplyCard
+          conversation={makeConversationDetail(ABIERTA)}
+          ahora={() => AHORA}
+          borradorInicial="Hola Ana, tu Fiat Uno ya está listo."
+          serviceOrderId="o1"
+        />
+      </QueryClientProvider>,
+    );
+    const cuadro = screen.getByRole("textbox", { name: "Mensaje para el cliente" });
+    expect(cuadro).toHaveValue("Hola Ana, tu Fiat Uno ya está listo.");
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() =>
+      expect(recibido).toEqual({
+        text: "Hola Ana, tu Fiat Uno ya está listo.",
+        serviceOrderId: "o1",
+      }),
+    );
+  });
+});

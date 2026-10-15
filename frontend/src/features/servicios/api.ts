@@ -2,6 +2,9 @@ import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type { Booking } from "../booking/types";
 import type {
+  AvisoDeLaOrden,
+  AvisosDeLaOrden,
+  MedioDeAviso,
   ResumenDelTaller,
   TurnoVinculable,
   ActualizarOrdenInput,
@@ -212,4 +215,17 @@ export function obtenerResumenDelTaller(
 ): Promise<ResumenDelTaller> {
   const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : "";
   return request<ResumenDelTaller>(`/servicios/dashboard${query}`, { getAccessToken, signal });
+}
+
+// S12: avisar al cliente (§8.1).
+export function obtenerAvisos(id: string, signal?: AbortSignal): Promise<AvisosDeLaOrden> {
+  return request<AvisosDeLaOrden>(`/servicios/ordenes/${id}/avisos`, { getAccessToken, signal });
+}
+
+export function registrarAviso(id: string, medio: MedioDeAviso): Promise<AvisoDeLaOrden[]> {
+  return request<AvisoDeLaOrden[]>(`/servicios/ordenes/${id}/avisos`, {
+    method: "POST",
+    body: { medio },
+    getAccessToken,
+  });
 }

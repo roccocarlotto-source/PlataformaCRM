@@ -89,10 +89,16 @@ export function closeConversation(id: string): Promise<ConversationDetail> {
 // request: el mensaje vuelve en el hilo con deliveryStatus FAILED y su motivo,
 // y se reintenta con retryConversationMessage sobre el MISMO mensaje.
 // ---------------------------------------------------------------------------
-export function replyToConversation(id: string, text: string): Promise<ConversationDetail> {
+// S12 (docs/servicios.md §8.1): serviceOrderId, la orden desde la que se
+// abrió la conversación para avisarle al cliente. Sin él, el body de siempre.
+export function replyToConversation(
+  id: string,
+  text: string,
+  serviceOrderId?: string,
+): Promise<ConversationDetail> {
   return request<ConversationDetail>(`/conversations/${id}/messages`, {
     method: "POST",
-    body: { text },
+    body: serviceOrderId ? { text, serviceOrderId } : { text },
     getAccessToken,
   });
 }

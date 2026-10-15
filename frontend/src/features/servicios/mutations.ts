@@ -12,9 +12,11 @@ import {
   crearVehiculo,
   guardarConfiguracion,
   registrarAprobacion,
+  registrarAviso,
 } from "./api";
-import { ordenKeys, tallerKeys, vehiculoKeys } from "./queries";
+import { avisosKey, ordenKeys, tallerKeys, vehiculoKeys } from "./queries";
 import type {
+  MedioDeAviso,
   ActualizarOrdenInput,
   AprobacionInput,
   CambiarDuenoInput,
@@ -174,5 +176,14 @@ export function useBorrarTipo() {
   return useMutation({
     mutationFn: (id: string) => borrarTipo(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: tallerKeys.todosLosTipos }),
+  });
+}
+
+// S12: "Marcar como avisado". La lista vuelve en la respuesta.
+export function useRegistrarAviso(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (medio: MedioDeAviso) => registrarAviso(id, medio),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: avisosKey(id) }),
   });
 }

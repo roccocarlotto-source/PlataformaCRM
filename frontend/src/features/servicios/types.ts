@@ -329,3 +329,21 @@ export interface ResumenDelTaller {
   servicesEn30Dias: ListaDelResumen<VehiculoDelResumen>;
   turnosCancelados: ListaDelResumen<OrdenDelResumen>;
 }
+
+// S12 (docs/servicios.md §8.1): avisar al cliente. Espejo de AvisosDeLaOrden
+// (src/servicios/services/avisos.service.ts).
+export type MedioDeAviso = "TELEFONO" | "WHATSAPP" | "EN_PERSONA";
+
+export interface AvisoDeLaOrden {
+  id: string;
+  cuando: string;
+  persona: string;
+  detalle: string;
+}
+
+export interface AvisosDeLaOrden {
+  sugerencia: string | null;
+  conversacion: { id: string; ventanaAbierta: boolean } | null;
+  telefono: string | null;
+  avisos: AvisoDeLaOrden[];
+}

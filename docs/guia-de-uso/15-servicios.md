@@ -183,6 +183,26 @@ o rechazó, quién respondió, por dónde y cuándo, y el monto si se habló de 
 - **Cancelar no la pide**: si el cliente nunca respondió, se cancela con el
   motivo.
 
+### Avisar al cliente {#avisar-al-cliente}
+
+Con la orden en **Recibido**, **Esperando aprobación** o **Listo para
+retirar**, la ficha tiene **Avisar al cliente**. Abre un cuadro con un texto
+sugerido para ese estado (por ejemplo, "Hola Ana, tu Fiat Uno ya está listo.
+Podés pasar a retirarlo por Centro."), que podés cambiar.
+
+- Si el cliente tiene una conversación de WhatsApp y escribió en las últimas
+  24 horas, **Abrir la conversación** la abre con el texto ya escrito en el
+  cuadro de respuesta. Lo revisás y lo mandás como cualquier respuesta, y el
+  aviso queda registrado solo en la orden.
+- Si pasaron más de 24 horas desde su último mensaje, o no tiene conversación,
+  WhatsApp no deja mandar texto libre: **Copiar el texto** y **Llamar** (si
+  tiene teléfono).
+- **Marcar como avisado** registra el aviso cuando le avisaste por otro medio:
+  elegí **Teléfono**, **WhatsApp** o **En persona**.
+
+Los avisos quedan en la tarjeta **Avisos al cliente** de la ficha, con quién
+avisó y cuándo, y también en las actividades del contacto.
+
 ### Entregar y el próximo service {#entregar}
 
 Al entregar, el diálogo propone la fecha del **próximo service**: la fecha de
