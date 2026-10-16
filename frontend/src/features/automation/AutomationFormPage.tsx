@@ -25,6 +25,10 @@ import {
   MAX_DIAS_DESPUES_DEL_SERVICE,
   TRIGGER_SERVICE_NEXT_SERVICE_DUE,
   TRIGGER_SERVICE_ORDER_DELIVERED,
+  TRIGGER_SERVICE_REPLACEMENT_DUE,
+  MAX_DIAS_ANTES_DEL_RECAMBIO,
+  MAX_MESES_DEL_RECAMBIO,
+  MIN_MESES_DEL_RECAMBIO,
   TRIGGER_SERVICE_ORDER_STATUS_CHANGED,
   ESTADOS_DE_LA_ORDEN,
   estadosDelBorrador,
@@ -297,6 +301,42 @@ function CamposDelTrigger({
           </p>
         </>
       );
+    // S13 (docs/servicios.md §7.2): cuántos meses después de la compra es el
+    // recambio, y cuántos días antes se avisa.
+    case TRIGGER_SERVICE_REPLACEMENT_DUE:
+      return (
+        <>
+          <FormField label={<span className="ds-required">Meses desde la compra</span>}>
+            <input
+              type="number"
+              min={MIN_MESES_DEL_RECAMBIO}
+              max={MAX_MESES_DEL_RECAMBIO}
+              step={1}
+              value={values.meses ?? ""}
+              onChange={(event) => onChange({ ...values, meses: event.target.value })}
+              disabled={disabled}
+              required
+            />
+          </FormField>
+          <FormField label={<span className="ds-required">Días antes</span>}>
+            <input
+              type="number"
+              min={0}
+              max={MAX_DIAS_ANTES_DEL_RECAMBIO}
+              step={1}
+              value={values.diasAntes ?? ""}
+              onChange={(event) => onChange({ ...values, diasAntes: event.target.value })}
+              disabled={disabled}
+              required
+            />
+          </FormField>
+          <p className="ds-hint ds-field-grid--full">
+            Se revisa todos los días desde las 10:00. Un aviso por vehículo; no se avisa si el
+            cliente tiene una oportunidad abierta o está marcado sin interés. Solo una regla con
+            este evento.
+          </p>
+        </>
+      );
     // S8 (docs/servicios.md §9): a qué estados pasa la orden.
     case TRIGGER_SERVICE_ORDER_STATUS_CHANGED: {
       const elegidos = estadosDelBorrador(values);
@@ -410,17 +450,21 @@ function CamposDeLaAccion({
   triggerType?: string;
 }) {
   const delProximoService = triggerType === TRIGGER_SERVICE_NEXT_SERVICE_DUE;
+  // S13: con el recambio, la tarea es para ventas.
+  const delRecambio = triggerType === TRIGGER_SERVICE_REPLACEMENT_DUE;
   // S8: con un evento de la orden, la tarea es del encargado de la orden.
   const deLaOrden =
     triggerType === TRIGGER_SERVICE_ORDER_STATUS_CHANGED ||
     triggerType === TRIGGER_SERVICE_ORDER_DELIVERED;
   // Un solo nodo de texto con el resto de la frase: el texto de siempre no
   // cambia para quien no tiene el módulo (textosDelRubro.test.tsx).
-  const asignadaA = delProximoService
-    ? "Asignada al encargado de la última orden del vehículo (o al responsable de la sucursal)"
-    : deLaOrden
-      ? "Asignada al encargado de la orden (o al responsable de la sucursal)"
-      : "Asignada al dueño de la oportunidad";
+  const asignadaA = delRecambio
+    ? "Asignada al vendedor del cliente (o al de la venta, o al responsable de la sucursal)"
+    : delProximoService
+      ? "Asignada al encargado de la última orden del vehículo (o al responsable de la sucursal)"
+      : deLaOrden
+        ? "Asignada al encargado de la orden (o al responsable de la sucursal)"
+        : "Asignada al dueño de la oportunidad";
   switch (actionType) {
     case ACTION_CREATE_FOLLOW_UP:
       return (

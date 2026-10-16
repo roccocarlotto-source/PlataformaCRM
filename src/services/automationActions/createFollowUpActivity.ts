@@ -11,11 +11,13 @@ import {
   TRIGGER_SERVICE_NEXT_SERVICE_DUE,
   TRIGGER_SERVICE_ORDER_DELIVERED,
   TRIGGER_SERVICE_ORDER_STATUS_CHANGED,
+  TRIGGER_SERVICE_REPLACEMENT_DUE,
 } from "../automationTriggers";
 import { crearTareaDespuesDelTurno } from "../../clinicas/postTurno/tarea";
 import { crearTareaDelAviso } from "../../servicios/recordatorio/tarea";
 import { payloadDeLaOrdenSchema } from "../../servicios/eventosDeLaOrden/config";
 import { crearTareaDeLaOrden } from "../../servicios/eventosDeLaOrden/tarea";
+import { crearTareaDelRecambio } from "../../servicios/recambio/tarea";
 
 // ---------------------------------------------------------------------------
 // Acción `activity.create_follow_up` — la primera del catálogo
@@ -89,6 +91,12 @@ const payloadDelTurnoSchema = z.object({
   bookingId: z.string().uuid("payload.bookingId debe ser un UUID"),
 });
 
+// S13 (docs/servicios.md §7.2): el aviso de recambio.
+const payloadDelRecambioSchema = z.object({
+  noticeId: z.string().uuid("payload.noticeId debe ser un UUID"),
+  customerVehicleId: z.string().uuid("payload.customerVehicleId debe ser un UUID"),
+});
+
 // S7 (docs/servicios.md §6.3): el aviso del próximo service.
 const payloadDelAvisoSchema = z.object({
   noticeId: z.string().uuid("payload.noticeId debe ser un UUID"),
@@ -116,6 +124,8 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
     TRIGGER_SERVICE_NEXT_SERVICE_DUE,
     TRIGGER_SERVICE_ORDER_STATUS_CHANGED,
     TRIGGER_SERVICE_ORDER_DELIVERED,
+    // S13: la tarea del recambio, para ventas (§7.3).
+    TRIGGER_SERVICE_REPLACEMENT_DUE,
   ],
   async handler({ organizationId, automationId, config, payload }) {
     // El dispatcher ya validó `config` contra el schema de arriba; se vuelve a
@@ -129,6 +139,21 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
         organizationId,
         automationId,
         bookingId,
+        subject,
+        daysUntilDue,
+        ...(notes === undefined ? {} : { notes }),
+      });
+      return;
+    }
+    // S13: el recambio. ANTES que la rama del próximo service: los dos
+    // eventos traen noticeId; el del recambio, además, replacementDueOn.
+    if (payload && typeof payload === "object" && "replacementDueOn" in payload) {
+      const { noticeId, customerVehicleId } = payloadDelRecambioSchema.parse(payload);
+      await crearTareaDelRecambio({
+        organizationId,
+        automationId,
+        noticeId,
+        customerVehicleId,
         subject,
         daysUntilDue,
         ...(notes === undefined ? {} : { notes }),

@@ -12,6 +12,7 @@ import {
   configDelCambioDeEstadoSchema,
   laReglaCorreConElCambio,
 } from "../servicios/eventosDeLaOrden/config";
+import { TRIGGER_RECAMBIO, configDelRecambioSchema } from "../servicios/recambio/config";
 
 // ---------------------------------------------------------------------------
 // Catálogo de triggers del motor de automatizaciones
@@ -74,6 +75,10 @@ export const TRIGGER_SERVICE_NEXT_SERVICE_DUE = TRIGGER_DEL_PROXIMO_SERVICE;
 // orden (src/servicios/services/ordenes.service.ts) en su transacción.
 export const TRIGGER_SERVICE_ORDER_STATUS_CHANGED = TRIGGER_ORDEN_CAMBIA_DE_ESTADO;
 export const TRIGGER_SERVICE_ORDER_DELIVERED = TRIGGER_ORDEN_ENTREGADA;
+// S13 (docs/servicios.md §7): "Cuando se acerca el recambio de un vehículo",
+// solo con el módulo Servicios. Un ESTADO: lo produce la misma pasada horaria
+// del próximo service (src/servicios/recambio/barrido.ts).
+export const TRIGGER_SERVICE_REPLACEMENT_DUE = TRIGGER_RECAMBIO;
 
 export const TRIGGERS_CONOCIDOS = [
   TRIGGER_OPPORTUNITY_WON,
@@ -84,6 +89,7 @@ export const TRIGGERS_CONOCIDOS = [
   TRIGGER_SERVICE_NEXT_SERVICE_DUE,
   TRIGGER_SERVICE_ORDER_STATUS_CHANGED,
   TRIGGER_SERVICE_ORDER_DELIVERED,
+  TRIGGER_SERVICE_REPLACEMENT_DUE,
 ] as const;
 
 export type TriggerType = (typeof TRIGGERS_CONOCIDOS)[number];
@@ -184,6 +190,8 @@ export const CONFIG_DE_TRIGGER: Record<TriggerType, EsquemaDeTrigger> = {
   // S8: a qué estados (toStatuses). La entrega no tiene nada que configurar.
   [TRIGGER_SERVICE_ORDER_STATUS_CHANGED]: configDelCambioDeEstadoSchema,
   [TRIGGER_SERVICE_ORDER_DELIVERED]: z.object({}),
+  // S13: meses desde la compra y días antes (defaults 48 y 60).
+  [TRIGGER_SERVICE_REPLACEMENT_DUE]: configDelRecambioSchema,
 };
 
 /** El módulo que necesita un trigger (R13). Sin entrada: lo tiene cualquiera
@@ -201,6 +209,8 @@ export const MODULO_DEL_TRIGGER: Readonly<Partial<Record<TriggerType, Modulo>>> 
   // S8.
   [TRIGGER_SERVICE_ORDER_STATUS_CHANGED]: "servicios",
   [TRIGGER_SERVICE_ORDER_DELIVERED]: "servicios",
+  // S13.
+  [TRIGGER_SERVICE_REPLACEMENT_DUE]: "servicios",
 };
 
 /** Los triggers que una organización puede usar con estos módulos: los que no
@@ -237,6 +247,8 @@ export const FILTRO_DE_LA_REGLA: Readonly<
 // ---------------------------------------------------------------------------
 export const TRIGGERS_DIRIGIDOS_A_UNA_REGLA: readonly TriggerType[] = [
   TRIGGER_SERVICE_NEXT_SERVICE_DUE,
+  // S13: el evento también lleva su regla.
+  TRIGGER_SERVICE_REPLACEMENT_DUE,
 ];
 
 // ---------------------------------------------------------------------------
@@ -257,4 +269,6 @@ export const TRIGGERS_DE_REGLA_UNICA: readonly TriggerType[] = [
   TRIGGER_CONTACT_INQUIRY_STALLED,
   // R13: una sola regla de recordatorio por organización.
   TRIGGER_BOOKING_REMINDER_DUE,
+  // S13 (§7.2): el recambio es una política de la organización.
+  TRIGGER_SERVICE_REPLACEMENT_DUE,
 ];

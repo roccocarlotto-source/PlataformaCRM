@@ -3,6 +3,7 @@ import {
   BookOpen,
   Bot,
   Building2,
+  CalendarClock,
   CalendarDays,
   CalendarRange,
   Car,
@@ -134,6 +135,9 @@ export function MenuDeAutomotora({
           </SidebarLink>
           <SidebarLink to="/taller/vehiculos" icon={CarFront}>
             Vehículos de clientes
+          </SidebarLink>
+          <SidebarLink to="/taller/recambios" icon={CalendarClock}>
+            Recambios
           </SidebarLink>
           {isAdmin ? (
             <SidebarLink to="/taller/configuracion" icon={Settings2}>

@@ -309,6 +309,7 @@ describe("router.tsx — gates del rubro (docs/rubros.md §2, R17)", () => {
       ["/taller/ordenes", "servicios"],
       ["/taller/ordenes/nueva", "servicios"],
       ["/taller/ordenes/:id", "servicios"],
+      ["/taller/recambios", "servicios"],
     ];
     for (const [path, modulo] of casos) {
       const parent = findParentElement(router.routes, path) as

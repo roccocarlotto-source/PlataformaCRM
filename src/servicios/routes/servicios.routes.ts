@@ -1,3 +1,8 @@
+import {
+  listarRecambiosHandler,
+  registrarAvisoDeRecambioHandler,
+  registrarAvisosDeRecambioHandler,
+} from "../controllers/recambios.controller";
 import { obtenerAvisosHandler, registrarAvisoHandler } from "../controllers/avisos.controller";
 import { Router } from "express";
 import { resumenDelTallerHandler } from "../controllers/dashboard.controller";
@@ -118,6 +123,21 @@ serviciosRouter.get("/servicios/usuarios", authenticate, listarUsuariosHandler);
 
 // S3: vehículos de clientes (§2.2). ADMIN y USER los crean y editan (D9);
 // borrar, solo ADMIN (§10).
+// S13: recambios vencidos sin contactar (§7.4) y sus avisos manuales.
+serviciosRouter.get("/servicios/recambios", authenticate, listarRecambiosHandler);
+serviciosRouter.post(
+  "/servicios/recambios/avisos",
+  authenticate,
+  businessWriteRateLimiter,
+  registrarAvisosDeRecambioHandler,
+);
+serviciosRouter.post(
+  "/servicios/vehiculos/:id/avisos",
+  authenticate,
+  businessWriteRateLimiter,
+  registrarAvisoDeRecambioHandler,
+);
+
 // S11: el resumen del taller (§4.7), de lectura, para ADMIN y USER.
 serviciosRouter.get("/servicios/dashboard", authenticate, resumenDelTallerHandler);
 

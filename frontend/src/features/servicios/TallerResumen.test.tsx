@@ -63,6 +63,8 @@ const RESUMEN: ResumenDelTaller = {
   servicesVencidos: { total: 13, items: Array.from({ length: 10 }, (_, i) => vehiculo(i + 1)) },
   servicesEn30Dias: { total: 0, items: [] },
   turnosCancelados: { total: 0, items: [] },
+  recambiosProximos: { total: 5, sinFechaDeCompra: 2 },
+  recambiosVencidos: { total: 7 },
 };
 
 function renderPage() {
@@ -111,6 +113,17 @@ describe("Taller → Resumen (S11)", () => {
       .getByText("Esperando aprobación hace más de 24 h: 0")
       .closest("section")!;
     expect(within(esperando).getByText("Ninguna.")).toBeInTheDocument();
+
+    // S13: las dos tarjetas del recambio.
+    const proximos = screen.getByText("Recambios en los próximos 90 días: 5").closest("section")!;
+    expect(
+      within(proximos).getByRole("link", { name: "2 vehículos sin fecha de compra" }),
+    ).toHaveAttribute("href", "/taller/vehiculos?sinFechaDeCompra=1");
+    const recambios = screen.getByText("Recambios vencidos sin contactar: 7").closest("section")!;
+    expect(within(recambios).getByRole("link", { name: "Ver la lista" })).toHaveAttribute(
+      "href",
+      "/taller/recambios",
+    );
   });
 
   it("el filtro de sucursal pide el resumen de esa sucursal", async () => {

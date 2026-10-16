@@ -16,7 +16,7 @@ import type { EstadoDeOrden, ListaDelResumen, OrdenDelResumen, VehiculoDelResume
 // cuántos autos hay adentro, los que esperan que los retiren o que el cliente
 // apruebe, a quién llamar por el service y los agendados con el turno
 // cancelado. Cada lista muestra hasta 10 y dice "y N más" si hay más
-// (decisión de Rocco, 2026-10-15). Las tarjetas de recambio llegan con S13.
+// (decisión de Rocco, 2026-10-15). S13: las dos tarjetas del recambio.
 // ---------------------------------------------------------------------------
 
 const EN_EL_TALLER: EstadoDeOrden[] = ["RECIBIDO", "EN_TRABAJO", "ESPERANDO_APROBACION"];
@@ -145,6 +145,41 @@ export function TallerResumenPage() {
                   o.desde ? `era para el ${new Date(o.desde).toLocaleDateString()}` : ""
                 }
               />
+            </Card>
+            <Card
+              heading={`Recambios en los próximos 90 días: ${String(resumen.data.recambiosProximos.total)}`}
+            >
+              {resumen.data.recambiosProximos.sinFechaDeCompra > 0 ? (
+                <p>
+                  <Link to="/taller/vehiculos?sinFechaDeCompra=1">
+                    {resumen.data.recambiosProximos.sinFechaDeCompra === 1
+                      ? "1 vehículo sin fecha de compra"
+                      : `${String(resumen.data.recambiosProximos.sinFechaDeCompra)} vehículos sin fecha de compra`}
+                  </Link>
+                  : sin ella no se calcula el recambio.
+                </p>
+              ) : (
+                <p className="ds-hint">Todos los vehículos tienen fecha de compra.</p>
+              )}
+            </Card>
+            <Card
+              heading={`Recambios vencidos sin contactar: ${String(resumen.data.recambiosVencidos.total)}`}
+            >
+              {resumen.data.recambiosVencidos.total > 0 ? (
+                <p>
+                  <Link
+                    to={
+                      sucursal
+                        ? `/taller/recambios?branchId=${encodeURIComponent(sucursal)}`
+                        : "/taller/recambios"
+                    }
+                  >
+                    Ver la lista
+                  </Link>
+                </p>
+              ) : (
+                <p className="ds-hint">Ninguno.</p>
+              )}
             </Card>
           </div>
         ) : null}

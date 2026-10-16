@@ -76,6 +76,7 @@ export interface ListarVehiculosParams {
   contactId?: string;
   branchId?: string;
   incluirNoVigentes?: boolean;
+  sinFechaDeCompra?: boolean;
 }
 
 // --- Fechas sin hora -------------------------------------------------------

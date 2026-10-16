@@ -4,6 +4,7 @@ import { findActiveAutomationsByTriggerForSweep } from "../../repositories/autom
 import { emitOutboxEvent } from "../../repositories/outboxEvent.repository";
 import { configDelProximoServiceSchema } from "../../services/automationTriggers";
 import { hoyEnLaZona } from "../../services/opportunityClosing";
+import { barrerRecambios } from "../recambio/barrido";
 import { TRIGGER_NEXT_SERVICE_DUE, ventanaDeFechas, yaEsHoraDelBarrido } from "./config";
 import { avisosDeLaRegla, candidatosDelBarrido, crearAviso, tieneElModulo } from "./repository";
 
@@ -147,7 +148,18 @@ export function iniciarBarridoDelProximoService(
   opciones: { pollMs?: number; barrer?: () => Promise<ResumenDelBarrido> } = {},
 ): () => Promise<void> {
   const pollMs = opciones.pollMs ?? POLL_MS;
-  const barrer = opciones.barrer ?? (() => barrerProximosServices());
+  // S13: la misma pasada horaria hace también el recambio (§7.2).
+  const barrer =
+    opciones.barrer ??
+    (async () => {
+      const proximo = await barrerProximosServices();
+      const recambio = await barrerRecambios();
+      return {
+        organizaciones: proximo.organizaciones + recambio.organizaciones,
+        avisos: proximo.avisos + recambio.avisos,
+        fallidas: proximo.fallidas + recambio.fallidas,
+      };
+    });
   let detenido = false;
   let timer: NodeJS.Timeout | undefined;
   let tickEnCurso: Promise<void> | undefined;

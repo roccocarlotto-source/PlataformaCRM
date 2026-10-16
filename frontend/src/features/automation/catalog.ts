@@ -71,6 +71,8 @@ export const TRIGGER_SERVICE_NEXT_SERVICE_DUE = "service.next_service_due";
 // S8 (docs/servicios.md §9): los eventos de la orden, solo con el módulo.
 export const TRIGGER_SERVICE_ORDER_STATUS_CHANGED = "service_order.status_changed";
 export const TRIGGER_SERVICE_ORDER_DELIVERED = "service_order.delivered";
+// S13 (docs/servicios.md §7): el aviso de recambio, solo con el módulo.
+export const TRIGGER_SERVICE_REPLACEMENT_DUE = "service.replacement_due";
 
 export const TRIGGER_OPTIONS: SelectOption<string>[] = [
   {
@@ -129,6 +131,11 @@ export const TRIGGER_OPTIONS_DE_SERVICIOS: SelectOption<string>[] = [
     value: TRIGGER_SERVICE_ORDER_DELIVERED,
     label: "Orden de servicio entregada",
     subtitle: "Cuando se le entrega el auto al cliente",
+  },
+  {
+    value: TRIGGER_SERVICE_REPLACEMENT_DUE,
+    label: "Se acerca el recambio",
+    subtitle: "Unos días antes de que un cliente cumpla los años de su compra",
   },
 ];
 
@@ -286,6 +293,8 @@ export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
   // S8: la tarea de la orden (§9).
   [TRIGGER_SERVICE_ORDER_STATUS_CHANGED]: [ACTION_CREATE_FOLLOW_UP],
   [TRIGGER_SERVICE_ORDER_DELIVERED]: [ACTION_CREATE_FOLLOW_UP],
+  // S13: la tarea para ventas (§7.3).
+  [TRIGGER_SERVICE_REPLACEMENT_DUE]: [ACTION_CREATE_FOLLOW_UP],
 };
 
 // La acción que se elige SOLA al pasar a ese evento, aunque la que estaba
@@ -1174,6 +1183,59 @@ export const MAX_DIAS_ANTES_DEL_SERVICE = 60;
 export const MAX_DIAS_DESPUES_DEL_SERVICE = 90;
 export const DEFAULT_DIAS_DEL_SERVICE = 7;
 
+// Los topes y defaults de configDelRecambioSchema
+// (src/servicios/recambio/config.ts).
+export const MIN_MESES_DEL_RECAMBIO = 12;
+export const MAX_MESES_DEL_RECAMBIO = 120;
+export const DEFAULT_MESES_DEL_RECAMBIO = 48;
+export const MAX_DIAS_ANTES_DEL_RECAMBIO = 180;
+export const DEFAULT_DIAS_ANTES_DEL_RECAMBIO = 60;
+
+const configDelRecambio: ConfigDeTrigger = {
+  draftVacio: () => ({
+    meses: String(DEFAULT_MESES_DEL_RECAMBIO),
+    diasAntes: String(DEFAULT_DIAS_ANTES_DEL_RECAMBIO),
+  }),
+
+  draftDesde: (config) => ({
+    meses: String(
+      typeof config.monthsAfterPurchase === "number"
+        ? config.monthsAfterPurchase
+        : DEFAULT_MESES_DEL_RECAMBIO,
+    ),
+    diasAntes: String(
+      typeof config.daysBefore === "number" ? config.daysBefore : DEFAULT_DIAS_ANTES_DEL_RECAMBIO,
+    ),
+  }),
+
+  validar: (draft) => {
+    const meses = (draft.meses ?? "").trim();
+    if (
+      meses === "" ||
+      !Number.isInteger(Number(meses)) ||
+      Number(meses) < MIN_MESES_DEL_RECAMBIO ||
+      Number(meses) > MAX_MESES_DEL_RECAMBIO
+    ) {
+      return `Los meses desde la compra tienen que ser un número entero entre ${MIN_MESES_DEL_RECAMBIO} y ${MAX_MESES_DEL_RECAMBIO}.`;
+    }
+    const dias = (draft.diasAntes ?? "").trim();
+    if (
+      dias === "" ||
+      !Number.isInteger(Number(dias)) ||
+      Number(dias) < 0 ||
+      Number(dias) > MAX_DIAS_ANTES_DEL_RECAMBIO
+    ) {
+      return `Los días antes del recambio tienen que ser un número entero entre 0 y ${MAX_DIAS_ANTES_DEL_RECAMBIO}.`;
+    }
+    return null;
+  },
+
+  aPayload: (draft) => ({
+    monthsAfterPurchase: Number(draft.meses),
+    daysBefore: Number(draft.diasAntes),
+  }),
+};
+
 const configDelProximoServiceTrigger: ConfigDeTrigger = {
   draftVacio: () => ({ cuando: "antes", dias: String(DEFAULT_DIAS_DEL_SERVICE) }),
 
@@ -1231,6 +1293,7 @@ export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
   [TRIGGER_SERVICE_NEXT_SERVICE_DUE]: configDelProximoServiceTrigger,
   [TRIGGER_SERVICE_ORDER_STATUS_CHANGED]: configDelCambioDeEstado,
   [TRIGGER_SERVICE_ORDER_DELIVERED]: configVacia,
+  [TRIGGER_SERVICE_REPLACEMENT_DUE]: configDelRecambio,
 };
 
 // El default del formulario: la PRIMERA entrada de cada catálogo, no un valor

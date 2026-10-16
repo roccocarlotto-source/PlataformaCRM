@@ -12,6 +12,7 @@ import {
   ordenesDelVehiculo,
   obtenerResumenDelTaller,
   obtenerAvisos,
+  listarRecambiosVencidos,
 } from "./api";
 import type { OrdenesQuery, VehiculosQuery } from "./types";
 
@@ -120,6 +121,16 @@ export function useResumenDelTaller(branchId?: string) {
   return useQuery({
     queryKey: ["servicios", "resumen", branchId ?? "todas"] as const,
     queryFn: ({ signal }) => obtenerResumenDelTaller(branchId, signal),
+  });
+}
+
+// S13: recambios vencidos sin contactar (§7.4).
+export const recambiosKey = ["servicios", "recambios"] as const;
+
+export function useRecambiosVencidos(query: { page: number; pageSize: number; branchId?: string }) {
+  return useQuery({
+    queryKey: [...recambiosKey, query] as const,
+    queryFn: ({ signal }) => listarRecambiosVencidos(query, signal),
   });
 }
 
