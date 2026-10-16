@@ -37,7 +37,11 @@ export function useContactNames(ids: readonly string[]) {
     }
   });
 
-  return { byId, isLoading: results.some((result) => result.isLoading) };
+  // Los ids que todavía se están pidiendo: el caller muestra "…" en vez del
+  // fallback de "no se pudo resolver" (ver textoDeLaRelacion).
+  const cargando = new Set(uniqueIds.filter((_, index) => results[index]?.isLoading));
+
+  return { byId, cargando, isLoading: results.some((result) => result.isLoading) };
 }
 
 // El listado de oportunidades (tabla y embudo) NO usa los hooks de arriba: cada

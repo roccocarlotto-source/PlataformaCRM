@@ -14,7 +14,7 @@ import { useCompanyNames, useContactNames } from "../opportunity/relationResolut
 import { useCompleteActivity } from "./mutations";
 import { canUserEditActivity } from "./permissions";
 import { activityKeys, useMyPendingActivities } from "./queries";
-import { useOpportunityNames } from "./relationResolution";
+import { textoDeLaRelacion, useOpportunityNames } from "./relationResolution";
 import {
   TASK_BUCKET_LABELS,
   TASK_BUCKET_ORDER,
@@ -169,9 +169,27 @@ export function MyTasksPage() {
   // muestra "—" en su lugar, nunca el UUID.
   function relatedLine(task: Activity): string {
     const parts: string[] = [];
-    if (task.companyId) parts.push(companyNames.byId.get(task.companyId)?.name ?? "—");
-    if (task.contactId) parts.push(contactNames.byId.get(task.contactId) ?? "—");
-    if (task.opportunityId) parts.push(opportunityNames.byId.get(task.opportunityId) ?? "—");
+    if (task.companyId)
+      parts.push(
+        textoDeLaRelacion(
+          companyNames.byId.get(task.companyId)?.name,
+          companyNames.cargando.has(task.companyId),
+        ),
+      );
+    if (task.contactId)
+      parts.push(
+        textoDeLaRelacion(
+          contactNames.byId.get(task.contactId),
+          contactNames.cargando.has(task.contactId),
+        ),
+      );
+    if (task.opportunityId)
+      parts.push(
+        textoDeLaRelacion(
+          opportunityNames.byId.get(task.opportunityId),
+          opportunityNames.cargando.has(task.opportunityId),
+        ),
+      );
     return parts.join(" · ");
   }
 
