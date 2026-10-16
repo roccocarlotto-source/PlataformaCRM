@@ -467,10 +467,13 @@ const envSchema = z.object({
 
   // AUTH_CONTEXT_CACHE_TTL_MS: cuántos milisegundos se recuerda el usuario,
   // la organización y el rol que resuelve el middleware de autenticación
-  // (services/authContextCache.ts). 5 segundos: alcanza para todas las
-  // requests de una pantalla y es lo máximo que tarda en verse un cambio hecho
-  // por fuera del backend. 0 la apaga; es lo que usa la suite de integración,
-  // que cambia usuarios directo en la base y espera verlo en el acto.
+  // (services/authContextCache.ts). 30 segundos: cubre las pantallas y las
+  // acciones seguidas de quien está trabajando (cada ida a la base que se
+  // ahorra son varias idas y vueltas a São Paulo). Los cambios que pasan por
+  // este backend se ven en el acto (ver authContextCache.ts); 30 s es lo
+  // máximo que tarda en verse uno hecho por fuera, directo en la base. 0 la
+  // apaga; es lo que usa la suite de integración, que cambia usuarios directo
+  // en la base y espera verlo en el acto.
   AUTH_CONTEXT_CACHE_TTL_MS: z.coerce.number().int().min(0).max(60_000).optional(),
 
   // AGENT_INBOUND_WORKER_CONCURRENCY: cuántos turnos de la cola (WhatsApp,
@@ -840,9 +843,9 @@ const parsed = parseEnv();
 export const env = {
   ...parsed,
   LOG_LEVEL: parsed.LOG_LEVEL ?? (parsed.NODE_ENV === "production" ? "info" : "debug"),
-  // Sin definir: 5 segundos, y apagada corriendo tests (ver el comentario de
+  // Sin definir: 30 segundos, y apagada corriendo tests (ver el comentario de
   // la variable).
-  AUTH_CONTEXT_CACHE_TTL_MS: parsed.AUTH_CONTEXT_CACHE_TTL_MS ?? (correBajoTests() ? 0 : 5000),
+  AUTH_CONTEXT_CACHE_TTL_MS: parsed.AUTH_CONTEXT_CACHE_TTL_MS ?? (correBajoTests() ? 0 : 30_000),
   isProduction: parsed.NODE_ENV === "production",
   isDevelopment: parsed.NODE_ENV === "development",
 };

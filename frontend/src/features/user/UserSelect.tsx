@@ -1,5 +1,5 @@
 import { Select } from "../../design-system/Select";
-import { useUsers } from "./queries";
+import { USUARIOS_PARA_ELEGIR, useUsers } from "./queries";
 import { InlineLoading } from "../../design-system/LoadingState";
 
 interface UserSelectProps {
@@ -57,12 +57,7 @@ export function UserSelect({
   emptyOptionLabel = "Asignado a quien crea (por defecto)",
   clearable = true,
 }: UserSelectProps) {
-  const usersQuery = useUsers({
-    pageSize: 100,
-    isActive: true,
-    sortBy: "fullName",
-    sortOrder: "asc",
-  });
+  const usersQuery = useUsers(USUARIOS_PARA_ELEGIR);
 
   // Con la lista cargada, Select trae su propio div > label[for] + input.
   // Mientras carga o si falló, se conserva el rótulo con el aviso debajo,

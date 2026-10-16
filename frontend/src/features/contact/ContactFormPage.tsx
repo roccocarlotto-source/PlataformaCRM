@@ -1,7 +1,8 @@
 import { tieneModulo, useModulo } from "../../auth/useModulo";
 import { esClinica, vocabularioDe } from "../../auth/vocabulario";
 import { textosDeLaUnionDeClinica } from "./merge";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarContacto } from "../../auth/permisos";
@@ -26,6 +27,10 @@ import { ContactVouchersSection } from "../voucher/ContactVouchersSection";
 import { TarjetaVehiculosDelContacto } from "../servicios/TarjetaVehiculosDelContacto";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { ContactCustomFieldsCard } from "../contactCustomField/ContactCustomFieldsCard";
+import { contactCustomFieldsQuery } from "../contactCustomField/queries";
+import { vehiculosDelContactoQuery } from "../servicios/queries";
+import { USUARIOS_PARA_ELEGIR, usersQuery } from "../user/queries";
+import { contactVouchersQuery } from "../voucher/queries";
 import type { ContactCustomFieldValue } from "../contactCustomField/types";
 import { etiquetasDeEtapa, LIFECYCLE_STAGES } from "./labels";
 import { useCreateContact, useErasePersonalData, useUpdateContact } from "./mutations";
@@ -194,6 +199,21 @@ export function ContactFormPage() {
   const conStock = tieneModulo(me, "stock");
 
   const contactQuery = useContact(isEditMode ? id : undefined);
+
+  // Lo que piden las tarjetas de más abajo depende solo del id de la URL, no
+  // del contacto. Se pide ya, en paralelo con el contacto, en vez de esperar a
+  // que la ficha termine de cargar y las monte: una ronda de requests menos.
+  // Mismas claves que las tarjetas (y mismas condiciones para montarlas):
+  // cuando montan, lo encuentran en vuelo o en caché, sin pedirlo dos veces.
+  const queryClient = useQueryClient();
+  const conSelectorDeUsuario = esAdmin(me);
+  useEffect(() => {
+    if (!id) return;
+    void queryClient.prefetchQuery(contactCustomFieldsQuery());
+    void queryClient.prefetchQuery(contactVouchersQuery(id));
+    if (conSelectorDeUsuario) void queryClient.prefetchQuery(usersQuery(USUARIOS_PARA_ELEGIR));
+    if (tieneServicios) void queryClient.prefetchQuery(vehiculosDelContactoQuery(id));
+  }, [id, conSelectorDeUsuario, tieneServicios, queryClient]);
   const createContactMutation = useCreateContact();
   const updateContactMutation = useUpdateContact(id ?? "");
 

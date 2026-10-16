@@ -80,6 +80,41 @@ export function findManyOpportunities(
   });
 }
 
+// Los nombres que muestra el listado de oportunidades (tabla y embudo) para
+// una página ya traída: contacto, empresa, proceso y etapa. Antes el frontend
+// pedía un GET por cada uno (una ronda más de requests, decenas de consultas).
+// Cuatro consultas EN PARALELO, una ronda, y no un `include` en la consulta de
+// la página: Prisma resuelve cada relación incluida en una consulta aparte y
+// en serie (cuatro rondas). Solo las vigentes: una borrada no viene, y la
+// pantalla muestra "—" como antes.
+export async function findNombresParaElListado(
+  organizationId: string,
+  ids: { contactos: string[]; empresas: string[]; procesos: string[]; etapas: string[] },
+  db: Db = prisma,
+) {
+  const vigentes = (lista: string[]) => ({ organizationId, id: { in: lista }, deletedAt: null });
+  // Sin ids no se consulta (una página vacía, o sin ninguna empresa).
+  const siHay = <T>(lista: string[], consulta: () => Promise<T[]>) =>
+    lista.length === 0 ? Promise.resolve([]) : consulta();
+  const conNombre = { id: true, name: true } as const;
+  const [contactos, empresas, procesos, etapas] = await Promise.all([
+    siHay(ids.contactos, () =>
+      db.contact.findMany({
+        where: vigentes(ids.contactos),
+        select: { id: true, firstName: true, lastName: true },
+      }),
+    ),
+    siHay(ids.empresas, () =>
+      db.company.findMany({ where: vigentes(ids.empresas), select: conNombre }),
+    ),
+    siHay(ids.procesos, () =>
+      db.pipeline.findMany({ where: vigentes(ids.procesos), select: conNombre }),
+    ),
+    siHay(ids.etapas, () => db.stage.findMany({ where: vigentes(ids.etapas), select: conNombre })),
+  ]);
+  return { contactos, empresas, procesos, etapas };
+}
+
 export function countOpportunities(
   organizationId: string,
   filters: OpportunityFilters,

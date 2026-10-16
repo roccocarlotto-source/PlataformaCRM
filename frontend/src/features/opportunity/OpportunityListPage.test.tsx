@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
-import { makeOpportunity } from "../../test/opportunityFixtures";
+import { makeOpportunityListItem } from "../../test/opportunityFixtures";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { edicionDeMe } from "../../test/edicionFixtures";
@@ -57,27 +57,11 @@ const vehiclesUrl = `${env.apiUrl}/api/vehicles`;
 
 // OpportunityListPage siempre monta PipelineSelect como filtro (sin
 // `enabled` gating — a diferencia de CompanySelect/ContactSelect, no busca
-// por texto, así que dispara GET /pipelines de entrada). Todos los tests de
-// esta página necesitan un handler para el listado, no solo para el
-// detail-by-id que usa la resolución de relaciones.
+// por texto, así que dispara GET /pipelines de entrada). Los nombres de
+// contacto, empresa, proceso y etapa vienen en cada fila del listado
+// (makeOpportunityListItem): la página ya no pide nada por id.
 function relationHandlers() {
   return [
-    http.get(`${companiesUrl}/:id`, ({ params }) =>
-      HttpResponse.json(makeCompany({ id: params.id as string, name: "Acme Corp" })),
-    ),
-    http.get(`${contactsUrl}/:id`, ({ params }) =>
-      HttpResponse.json(
-        makeContact({ id: params.id as string, firstName: "Ana", lastName: "Pérez" }),
-      ),
-    ),
-    http.get(`${pipelinesUrl}/:id`, ({ params }) =>
-      HttpResponse.json(makePipeline({ id: params.id as string, name: "Ventas" })),
-    ),
-    http.get(`${stagesUrl}/:id`, ({ params }) =>
-      HttpResponse.json(
-        makeStage({ id: params.id as string, pipelineId: "pl1", name: "Prospecto" }),
-      ),
-    ),
     http.get(pipelinesUrl, () =>
       HttpResponse.json({
         data: [makePipeline({ id: "pl1", name: "Ventas" })],
@@ -115,7 +99,7 @@ describe("OpportunityListPage", () => {
   it("loading, éxito, error y empty state", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const listResponse: OpportunityListResponse = {
-      data: [makeOpportunity()],
+      data: [makeOpportunityListItem()],
       pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
     };
     server.use(
@@ -175,7 +159,7 @@ describe("OpportunityListPage", () => {
       http.get(opportunitiesUrl, ({ request }) => {
         captured.push(new URL(request.url));
         return HttpResponse.json({
-          data: [makeOpportunity()],
+          data: [makeOpportunityListItem()],
           pagination: { page: 1, pageSize: 20, total: 100, totalPages: 5 },
         });
       }),
@@ -229,13 +213,22 @@ describe("OpportunityListPage", () => {
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("pipelineId")).toBeNull());
   });
 
-  it("resuelve Company/Contact/Pipeline/Stage a nombre humano, nunca UUID crudo", async () => {
+  it("muestra Company/Contact/Pipeline/Stage por nombre, sin pedir nada por id ni mostrar el UUID", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const porId: string[] = [];
+    const registrar = ({ request }: { request: Request }) => {
+      porId.push(new URL(request.url).pathname);
+      return HttpResponse.json({ error: { message: "no debería pedirse" } }, { status: 500 });
+    };
     server.use(
+      http.get(`${companiesUrl}/:id`, registrar),
+      http.get(`${contactsUrl}/:id`, registrar),
+      http.get(`${pipelinesUrl}/:id`, registrar),
+      http.get(`${stagesUrl}/:id`, registrar),
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
           data: [
-            makeOpportunity({
+            makeOpportunityListItem({
               companyId: "co1",
               contactId: "ct1",
               pipelineId: "pl1",
@@ -261,19 +254,19 @@ describe("OpportunityListPage", () => {
     expect(within(row).getByText("Ventas · Prospecto")).toBeInTheDocument();
     expect(within(row).queryByText("co1")).not.toBeInTheDocument();
     expect(within(row).queryByText("ct1")).not.toBeInTheDocument();
+    expect(porId).toEqual([]);
   });
 
-  it("fallback '—' cuando una relación falla al resolver (ej. Company borrada)", async () => {
+  it("fallback '—' cuando la relación está borrada (el listado la trae como null)", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
-          data: [makeOpportunity({ companyId: "co-borrada", contactId: null })],
+          data: [
+            makeOpportunityListItem({ companyId: "co-borrada", contactId: null, company: null }),
+          ],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
-      ),
-      http.get(`${companiesUrl}/co-borrada`, () =>
-        HttpResponse.json({ error: { message: "no encontrada" } }, { status: 404 }),
       ),
       usersHandler(),
       ...relationHandlers(),
@@ -282,8 +275,10 @@ describe("OpportunityListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
-    const row = screen.getByText("Renovación anual").closest("tr");
-    expect(row).toHaveTextContent("—");
+    const row = screen.getByText("Renovación anual").closest("tr") as HTMLElement;
+    const asociacion = within(row).getAllByRole("cell")[1];
+    expect(asociacion).toHaveTextContent("—");
+    expect(row).not.toHaveTextContent("Acme Corp");
     expect(row).not.toHaveTextContent("co-borrada");
   });
 
@@ -292,7 +287,7 @@ describe("OpportunityListPage", () => {
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
-          data: [makeOpportunity({ ownerId: "u1" })],
+          data: [makeOpportunityListItem({ ownerId: "u1" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -320,7 +315,7 @@ describe("OpportunityListPage", () => {
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
-          data: [makeOpportunity({ ownerId: "u1" })],
+          data: [makeOpportunityListItem({ ownerId: "u1" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -347,7 +342,7 @@ describe("OpportunityListPage", () => {
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
-          data: [makeOpportunity({ ownerId: "u1" })],
+          data: [makeOpportunityListItem({ ownerId: "u1" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -367,7 +362,12 @@ describe("OpportunityListPage", () => {
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
           data: [
-            makeOpportunity({ companyId: "co1", pipelineId: "pl1", stageId: "st1", ownerId: "u1" }),
+            makeOpportunityListItem({
+              companyId: "co1",
+              pipelineId: "pl1",
+              stageId: "st1",
+              ownerId: "u1",
+            }),
           ],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
@@ -392,8 +392,12 @@ describe("OpportunityListPage", () => {
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
           data: [
-            makeOpportunity({ id: "ajena", title: "Renovación anual", ownerId: "otro-vendedor" }),
-            makeOpportunity({ id: "propia", title: "Mi venta", ownerId: "u1" }),
+            makeOpportunityListItem({
+              id: "ajena",
+              title: "Renovación anual",
+              ownerId: "otro-vendedor",
+            }),
+            makeOpportunityListItem({ id: "propia", title: "Mi venta", ownerId: "u1" }),
           ],
           pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
         }),
@@ -430,8 +434,12 @@ describe("OpportunityListPage", () => {
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
           data: [
-            makeOpportunity({ id: "ajena", title: "Renovación anual", ownerId: "otro-vendedor" }),
-            makeOpportunity({ id: "propia", title: "Mi venta", ownerId: "u1" }),
+            makeOpportunityListItem({
+              id: "ajena",
+              title: "Renovación anual",
+              ownerId: "otro-vendedor",
+            }),
+            makeOpportunityListItem({ id: "propia", title: "Mi venta", ownerId: "u1" }),
           ],
           pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
         }),
@@ -456,7 +464,7 @@ describe("OpportunityListPage", () => {
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
-          data: [makeOpportunity({ id: "op1" })],
+          data: [makeOpportunityListItem({ id: "op1" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -489,7 +497,7 @@ describe("OpportunityListPage", () => {
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
-          data: [makeOpportunity({ pipelineId: "pl1", stageId: "st1" })],
+          data: [makeOpportunityListItem({ pipelineId: "pl1", stageId: "st1" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -550,7 +558,7 @@ describe("OpportunityListPage", () => {
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
           data: [
-            makeOpportunity({
+            makeOpportunityListItem({
               vehicleId: "v1",
               financingType: "OWN_FINANCING",
               leadSource: "SHOWROOM",
@@ -628,20 +636,23 @@ describe("OpportunityListPage — por edición", () => {
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
           data: [
-            makeOpportunity({
+            makeOpportunityListItem({
               id: "op1",
               title: "Hilux para Ana",
               companyId: "co1",
               contactId: "ct1",
+              contact: { id: "ct1", firstName: "Juana", lastName: "Gómez" },
               status: "WON",
             }),
           ],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
-      http.get(`${contactsUrl}/:id`, ({ params }) =>
-        HttpResponse.json(
-          makeContact({ id: params.id as string, firstName: "Juana", lastName: "Gómez" }),
+      // Ninguna de las dos ediciones pide relaciones por id: vienen en la fila.
+      http.get(
+        `${contactsUrl}/:id`,
+        contar("contact", () =>
+          HttpResponse.json(makeContact({ id: "ct1", firstName: "Juana", lastName: "Gómez" })),
         ),
       ),
       http.get(
@@ -702,5 +713,7 @@ describe("OpportunityListPage — por edición", () => {
     await waitFor(() => expect(screen.getByText("Ventas · Prospecto")).toBeInTheDocument());
     const fila = screen.getByText("Hilux para Ana").closest("tr")!;
     expect(within(fila).getByText("Ganada")).toBeInTheDocument();
+    expect(within(fila).getByText(/Juana Gómez/)).toBeInTheDocument();
+    expect(pedidas.filter((que) => que !== "pipelines")).toEqual([]);
   });
 });

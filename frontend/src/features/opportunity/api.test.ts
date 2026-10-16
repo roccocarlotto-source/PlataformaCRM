@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
-import { makeOpportunity } from "../../test/opportunityFixtures";
+import { makeOpportunityListItem } from "../../test/opportunityFixtures";
 import {
   createOpportunity,
   deleteOpportunity,
@@ -26,7 +26,7 @@ interface CapturedRequest {
 
 function captureRequests(): CapturedRequest[] {
   const captured: CapturedRequest[] = [];
-  const sample = makeOpportunity();
+  const sample = makeOpportunityListItem();
   const listResponse: OpportunityListResponse = {
     data: [sample],
     pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
@@ -195,7 +195,7 @@ describe("opportunity/api — contrato HTTP", () => {
   it("A.8 getOpportunity devuelve amount como string, fiel al contrato real (Decimal)", async () => {
     server.use(
       http.get(`${baseUrl}/op1`, () =>
-        HttpResponse.json(makeOpportunity({ id: "op1", amount: "1234.50" })),
+        HttpResponse.json(makeOpportunityListItem({ id: "op1", amount: "1234.50" })),
       ),
     );
 

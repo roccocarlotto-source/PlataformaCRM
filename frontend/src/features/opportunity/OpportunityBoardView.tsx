@@ -12,6 +12,7 @@ import {
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth, type MeResponse } from "../../auth/AuthContext";
+import { useModulo } from "../../auth/useModulo";
 import { puedeEditarRegistro } from "../../auth/permisos";
 import { Avatar } from "../../design-system/Avatar";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -26,8 +27,8 @@ import { formatAmount, formatAmountTotals, formatDate } from "./format";
 import { useMoveOpportunity } from "./mutations";
 import { OpportunityAssociation } from "./OpportunityAssociation";
 import { usePipelineOpportunitiesAll } from "./queries";
-import { useCompanyNames, useContactNames, useOwnerNames } from "./relationResolution";
-import type { Opportunity, UpdateOpportunityInput } from "./types";
+import { nombreDeLaEmpresa, nombreDelContacto, useOwnerNames } from "./relationResolution";
+import type { OpportunityListItem, UpdateOpportunityInput } from "./types";
 
 // ---------------------------------------------------------------------------
 // Vista de embudo de /opportunities — diseño de referencia "Pipeline CRM".
@@ -67,7 +68,10 @@ interface LocalMove {
   baseUpdatedAt: string;
 }
 
-function applyLocalMove(opportunity: Opportunity, move: LocalMove | undefined): Opportunity {
+function applyLocalMove(
+  opportunity: OpportunityListItem,
+  move: LocalMove | undefined,
+): OpportunityListItem {
   if (!move || move.baseUpdatedAt !== opportunity.updatedAt) return opportunity;
   const { patch } = move;
   return {
@@ -129,7 +133,7 @@ export function OpportunityBoardView() {
   }, [opportunities, search]);
 
   const byStage = useMemo(() => {
-    const map = new Map<string, Opportunity[]>();
+    const map = new Map<string, OpportunityListItem[]>();
     for (const opportunity of visible) {
       const bucket = map.get(opportunity.stageId);
       if (bucket) bucket.push(opportunity);
@@ -147,18 +151,9 @@ export function OpportunityBoardView() {
     [opportunities],
   );
 
-  // Solo los ids realmente presentes en el tablero — mismo criterio que la
-  // tabla (nunca "todas las Companies/Contacts").
-  const companyIds = useMemo(
-    () => opportunities.map((o) => o.companyId).filter((id): id is string => id !== null),
-    [opportunities],
-  );
-  const contactIds = useMemo(
-    () => opportunities.map((o) => o.contactId).filter((id): id is string => id !== null),
-    [opportunities],
-  );
-  const companyNames = useCompanyNames(companyIds);
-  const contactNames = useContactNames(contactIds);
+  // Contacto y empresa vienen en cada oportunidad del listado (mismo criterio
+  // que la tabla, relationResolution.ts); el asignado, de la lista de usuarios.
+  const conEmpresas = useModulo("empresas");
   const ownerNames = useOwnerNames(isAdmin);
 
   // distance: 5 — un click sin desplazamiento sigue siendo un click (el
@@ -288,8 +283,7 @@ export function OpportunityBoardView() {
                 opportunities={byStage.get(stage.id) ?? []}
                 isAdmin={isAdmin}
                 me={me ?? null}
-                companyNames={companyNames.byId}
-                contactNames={contactNames.byId}
+                conEmpresas={conEmpresas}
                 ownerNames={ownerNames.byId}
               />
             ))}
@@ -303,12 +297,11 @@ export function OpportunityBoardView() {
 interface BoardColumnProps {
   stage: Stage;
   pipelineId: string;
-  opportunities: Opportunity[];
+  opportunities: OpportunityListItem[];
   isAdmin: boolean;
   // Quién mira el tablero: decide qué tarjetas puede mover y editar (D2).
   me: Pick<MeResponse, "id" | "role"> | null;
-  companyNames: Map<string, { name: string }>;
-  contactNames: Map<string, string>;
+  conEmpresas: boolean;
   ownerNames: Map<string, string>;
 }
 
@@ -318,8 +311,7 @@ function BoardColumn({
   opportunities,
   isAdmin,
   me,
-  companyNames,
-  contactNames,
+  conEmpresas,
   ownerNames,
 }: BoardColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
@@ -354,12 +346,8 @@ function BoardColumn({
             key={opportunity.id}
             opportunity={opportunity}
             puedeEditar={puedeEditarRegistro(me, opportunity)}
-            companyName={
-              opportunity.companyId ? (companyNames.get(opportunity.companyId)?.name ?? "—") : null
-            }
-            contactName={
-              opportunity.contactId ? (contactNames.get(opportunity.contactId) ?? "—") : null
-            }
+            companyName={nombreDeLaEmpresa(opportunity, conEmpresas)}
+            contactName={nombreDelContacto(opportunity)}
             ownerName={isAdmin ? (ownerNames.get(opportunity.ownerId) ?? null) : null}
           />
         ))}
@@ -384,7 +372,7 @@ function BoardColumn({
 }
 
 interface BoardCardProps {
-  opportunity: Opportunity;
+  opportunity: OpportunityListItem;
   // Quien la tiene asignada o un ADMIN: puede abrirla para editar y moverla
   // de etapa. Los demás la ven, sin arrastre (el backend lo rechazaría).
   puedeEditar: boolean;

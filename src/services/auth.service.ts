@@ -8,12 +8,28 @@ import { isRoleName, type AuthContext, type JwtPayload } from "../types/auth";
 // el JWT solo prueba identidad, todo lo demás (organización, rol, isActive)
 // se resuelve siempre contra Postgres, nunca contra el propio token.
 // La caché del proceso. Ver authContextCache.ts.
-const cache = crearAuthContextCache(env.AUTH_CONTEXT_CACHE_TTL_MS);
+let cache = crearAuthContextCache(env.AUTH_CONTEXT_CACHE_TTL_MS);
+
+/** Solo para tests: la suite de integración corre con la caché apagada (TTL
+ *  0), y los tests de invalidación necesitan verla encendida. `null` vuelve a
+ *  la del entorno. */
+export function usarCacheDeAuthParaTests(ttlMs: number | null): void {
+  cache = crearAuthContextCache(ttlMs ?? env.AUTH_CONTEXT_CACHE_TTL_MS);
+  enVuelo.clear();
+}
+
+// Las lecturas en curso, por usuario. Una pantalla dispara varios requests a
+// la vez (la ficha del contacto, cinco): con la caché vacía, cada uno iba a la
+// base a buscar al mismo usuario, y se peleaban por las conexiones del pool.
+// Ahora el primero va y los que llegan mientras tanto esperan esa misma
+// lectura. Una invalidación la descarta: lo que llegue después lee de nuevo.
+const enVuelo = new Map<string, Promise<AuthContext>>();
 
 // Para quien cambia un usuario (lo desactiva, le cambia el rol, lo remueve):
 // el cambio vale desde el próximo request, sin esperar el TTL.
 export function olvidarContextoDeAuth(userId: string): void {
   cache.olvidar(userId);
+  enVuelo.delete(userId);
 }
 
 // Para un cambio que afecta a TODOS los usuarios de una organización (subir de
@@ -22,6 +38,7 @@ export function olvidarContextoDeAuth(userId: string): void {
 // base en el próximo request de cada usuario.
 export function vaciarContextosDeAuth(): void {
   cache.vaciar();
+  enVuelo.clear();
 }
 
 export async function resolveAuthContext(payload: JwtPayload): Promise<AuthContext> {
@@ -29,9 +46,25 @@ export async function resolveAuthContext(payload: JwtPayload): Promise<AuthConte
   if (enCache) {
     return enCache;
   }
-  const contexto = await resolverDesdeLaBase(payload);
-  cache.guardar(contexto);
-  return contexto;
+  const enCurso = enVuelo.get(payload.sub);
+  if (enCurso) {
+    return enCurso;
+  }
+  const desde = cache.marca();
+  const lectura = resolverDesdeLaBase(payload).then((contexto) => {
+    cache.guardar(contexto, desde);
+    return contexto;
+  });
+  enVuelo.set(payload.sub, lectura);
+  try {
+    return await lectura;
+  } finally {
+    // Solo si sigue siendo la suya: una invalidación pudo haberla sacado, y
+    // otra lectura posterior ocupar el lugar.
+    if (enVuelo.get(payload.sub) === lectura) {
+      enVuelo.delete(payload.sub);
+    }
+  }
 }
 
 async function resolverDesdeLaBase(payload: JwtPayload): Promise<AuthContext> {
