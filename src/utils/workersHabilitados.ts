@@ -17,6 +17,12 @@ import { esUrlDeBaseLocal, hostDeLaUrl } from "./baseLocal";
 // server.ts ni se importa). Una DATABASE_URL vacía o imparseable en
 // development cuenta como no local: si no se puede comprobar, no se arranca.
 //
+// Encima de todo eso, WORKERS_ENABLED=false los apaga en cualquier entorno,
+// production incluido. Es para cuando hay dos servidores contra la misma base
+// (la mudanza de Render a Lightsail): solo uno puede correr los workers. Va
+// primero y no se combina con DEV_ALLOW_REMOTE_DB: si alguien los apagó a
+// propósito, nada los vuelve a prender.
+//
 // Pura y sin efectos para poder probarla; server.ts es quien la aplica y
 // quien loguea el motivo.
 
@@ -24,6 +30,7 @@ export interface EntradaDeWorkersHabilitados {
   nodeEnv: "development" | "production" | "test";
   databaseUrl: string | undefined;
   permitirBaseRemota: boolean;
+  habilitados: boolean;
 }
 
 export interface DecisionDeWorkers {
@@ -35,7 +42,11 @@ export function workersHabilitados({
   nodeEnv,
   databaseUrl,
   permitirBaseRemota,
+  habilitados,
 }: EntradaDeWorkersHabilitados): DecisionDeWorkers {
+  if (!habilitados) {
+    return { arrancar: false, motivo: "WORKERS_ENABLED=false" };
+  }
   if (nodeEnv !== "development") {
     return { arrancar: true, motivo: `NODE_ENV=${nodeEnv}` };
   }

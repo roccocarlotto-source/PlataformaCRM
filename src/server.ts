@@ -49,12 +49,15 @@ const decisionDeWorkers = workersHabilitados({
   nodeEnv: env.NODE_ENV,
   databaseUrl: env.DATABASE_URL,
   permitirBaseRemota: env.DEV_ALLOW_REMOTE_DB,
+  habilitados: env.WORKERS_ENABLED,
 });
 const arrancarWorkers = decisionDeWorkers.arrancar;
 const sinWorker = async (): Promise<void> => {};
 if (!arrancarWorkers) {
   logger.warn(
-    `Workers y automatizaciones NO arrancaron: ${decisionDeWorkers.motivo}. Para forzarlos, DEV_ALLOW_REMOTE_DB=true.`,
+    env.WORKERS_ENABLED
+      ? `Workers y automatizaciones NO arrancaron: ${decisionDeWorkers.motivo}. Para forzarlos, DEV_ALLOW_REMOTE_DB=true.`
+      : `Workers y automatizaciones NO arrancaron: ${decisionDeWorkers.motivo}.`,
   );
 }
 

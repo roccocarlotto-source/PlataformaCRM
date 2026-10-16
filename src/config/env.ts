@@ -73,6 +73,16 @@ const envSchema = z.object({
     .default("false")
     .transform((valor) => valor === "true"),
 
+  // WORKERS_ENABLED: "false" apaga TODOS los workers y las automatizaciones
+  // de este proceso, en cualquier entorno (src/utils/workersHabilitados.ts).
+  // Para cuando dos servidores comparten la base y solo uno tiene que procesar
+  // las colas. Las *_WORKER_ENABLED de cada worker siguen valiendo, pero no
+  // todos tienen una. Default "true": sin cargarla, nada cambia.
+  WORKERS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+
   SUPABASE_URL: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),

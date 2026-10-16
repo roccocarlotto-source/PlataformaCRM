@@ -12,6 +12,7 @@ test("development + base remota → no arranca, y el motivo nombra el host", () 
     nodeEnv: "development",
     databaseUrl: REMOTA,
     permitirBaseRemota: false,
+    habilitados: true,
   });
   assert.equal(d.arrancar, false);
   assert.match(d.motivo, /aws-0-sa-east-1\.pooler\.supabase\.com/);
@@ -24,6 +25,7 @@ test("development + base local → arranca", () => {
     nodeEnv: "development",
     databaseUrl: LOCAL,
     permitirBaseRemota: false,
+    habilitados: true,
   });
   assert.equal(d.arrancar, true);
 });
@@ -33,6 +35,7 @@ test("development + base remota + DEV_ALLOW_REMOTE_DB → arranca", () => {
     nodeEnv: "development",
     databaseUrl: REMOTA,
     permitirBaseRemota: true,
+    habilitados: true,
   });
   assert.equal(d.arrancar, true);
   assert.match(d.motivo, /DEV_ALLOW_REMOTE_DB/);
@@ -43,13 +46,19 @@ test("production + base remota → arranca (comportamiento de siempre)", () => {
     nodeEnv: "production",
     databaseUrl: REMOTA,
     permitirBaseRemota: false,
+    habilitados: true,
   });
   assert.equal(d.arrancar, true);
 });
 
 test("test → arranca igual que antes, sea cual sea la base", () => {
   for (const databaseUrl of [REMOTA, LOCAL, undefined]) {
-    const d = workersHabilitados({ nodeEnv: "test", databaseUrl, permitirBaseRemota: false });
+    const d = workersHabilitados({
+      nodeEnv: "test",
+      databaseUrl,
+      permitirBaseRemota: false,
+      habilitados: true,
+    });
     assert.equal(d.arrancar, true);
   }
 });
@@ -60,6 +69,7 @@ test("development sin DATABASE_URL o con una imparseable → no arranca", () => 
       nodeEnv: "development",
       databaseUrl,
       permitirBaseRemota: false,
+      habilitados: true,
     });
     assert.equal(d.arrancar, false);
   }
@@ -75,4 +85,29 @@ test("esUrlDeBaseLocal: compara el hostname, no un substring de la URL", () => {
   assert.equal(esUrlDeBaseLocal("postgresql://u:localhost@db.remota.com:5432/db"), false);
   assert.equal(esUrlDeBaseLocal("postgresql://u:p@db.remota.com:5432/localhost"), false);
   assert.equal(esUrlDeBaseLocal("postgresql://u:p@localhost.remota.com:5432/db"), false);
+});
+
+test("WORKERS_ENABLED=false → no arranca en ningún entorno, con cualquier base", () => {
+  for (const nodeEnv of ["production", "development", "test"] as const) {
+    for (const databaseUrl of [REMOTA, LOCAL, undefined]) {
+      const d = workersHabilitados({
+        nodeEnv,
+        databaseUrl,
+        permitirBaseRemota: false,
+        habilitados: false,
+      });
+      assert.equal(d.arrancar, false);
+      assert.equal(d.motivo, "WORKERS_ENABLED=false");
+    }
+  }
+});
+
+test("WORKERS_ENABLED=false gana sobre DEV_ALLOW_REMOTE_DB", () => {
+  const d = workersHabilitados({
+    nodeEnv: "development",
+    databaseUrl: REMOTA,
+    permitirBaseRemota: true,
+    habilitados: false,
+  });
+  assert.equal(d.arrancar, false);
 });

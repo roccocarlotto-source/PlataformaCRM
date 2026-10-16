@@ -189,6 +189,7 @@ sepa que existen y qué tocan:
 | `PORT` | `4000` | Puerto HTTP |
 | `LOG_LEVEL` | `info` en producción | Nivel de pino |
 | `INGEST_RATE_LIMIT_WINDOW_MS`, `INGEST_RATE_LIMIT_MAX` | 60 000 / 60 | Cupo del webhook de ingesta, por API key |
+| `WORKERS_ENABLED` | `true` | `false` apaga **todos** los workers y las automatizaciones del proceso, también en producción. Para cuando dos servidores comparten la base (una mudanza): solo uno corre los workers. Las `*_WORKER_ENABLED` de abajo no cubren todos (recordatorios, taller, plantillas no tienen) |
 | `INGEST_WORKER_ENABLED`, `INGEST_WORKER_POLL_MS`, `INGEST_WORKER_BATCH_SIZE` | `true` / 5 000 / 50 | Worker de ingesta |
 | `INGEST_MAX_ATTEMPTS`, `INGEST_BACKOFF_BASE_MS`, `INGEST_BACKOFF_MAX_MS` | 5 / 30 000 / 900 000 | Reintentos de la promoción |
 | `OUTBOX_WORKER_ENABLED`, `OUTBOX_WORKER_POLL_MS`, `OUTBOX_WORKER_BATCH_SIZE` | `true` / 5 000 / 20 | Worker de eventos salientes |
