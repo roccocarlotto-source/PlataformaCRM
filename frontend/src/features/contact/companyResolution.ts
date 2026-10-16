@@ -37,8 +37,13 @@ export function useCompaniesByIds(ids: readonly string[]) {
     }
   });
 
+  // Los ids que todavía se están pidiendo: el caller muestra "…" en vez del
+  // fallback de "no se pudo resolver" (ver textoDeLaRelacion).
+  const cargando = new Set(uniqueIds.filter((_, index) => results[index]?.isLoading));
+
   return {
     byId,
+    cargando,
     isLoading: results.some((result) => result.isLoading),
   };
 }

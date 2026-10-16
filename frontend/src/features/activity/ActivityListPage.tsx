@@ -26,6 +26,7 @@ import { useActivities } from "./queries";
 import {
   autorDeLaActividad,
   resolveUserLabel as resolveUserLabelShared,
+  textoDeLaRelacion,
   useOpportunityNames,
 } from "./relationResolution";
 import { ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS, confirmationStatusOf } from "./types";
@@ -315,17 +316,28 @@ export function ActivityListPage() {
                   {conEmpresaYOportunidad ? (
                     <td>
                       {activity.companyId
-                        ? (companyNames.byId.get(activity.companyId)?.name ?? "—")
+                        ? textoDeLaRelacion(
+                            companyNames.byId.get(activity.companyId)?.name,
+                            companyNames.cargando.has(activity.companyId),
+                          )
                         : ""}
                     </td>
                   ) : null}
                   <td>
-                    {activity.contactId ? (contactNames.byId.get(activity.contactId) ?? "—") : ""}
+                    {activity.contactId
+                      ? textoDeLaRelacion(
+                          contactNames.byId.get(activity.contactId),
+                          contactNames.cargando.has(activity.contactId),
+                        )
+                      : ""}
                   </td>
                   {conEmpresaYOportunidad ? (
                     <td>
                       {activity.opportunityId
-                        ? (opportunityNames.byId.get(activity.opportunityId) ?? "—")
+                        ? textoDeLaRelacion(
+                            opportunityNames.byId.get(activity.opportunityId),
+                            opportunityNames.cargando.has(activity.opportunityId),
+                          )
                         : ""}
                     </td>
                   ) : null}
@@ -425,7 +437,10 @@ export function ActivityListPage() {
                         {
                           label: "Empresa",
                           value: detalle.companyId
-                            ? (companyNames.byId.get(detalle.companyId)?.name ?? "—")
+                            ? textoDeLaRelacion(
+                                companyNames.byId.get(detalle.companyId)?.name,
+                                companyNames.cargando.has(detalle.companyId),
+                              )
                             : null,
                         },
                       ]
@@ -433,7 +448,10 @@ export function ActivityListPage() {
                   {
                     label: "Contacto",
                     value: detalle.contactId
-                      ? (contactNames.byId.get(detalle.contactId) ?? "—")
+                      ? textoDeLaRelacion(
+                          contactNames.byId.get(detalle.contactId),
+                          contactNames.cargando.has(detalle.contactId),
+                        )
                       : null,
                   },
                   ...(conEmpresaYOportunidad
@@ -441,7 +459,10 @@ export function ActivityListPage() {
                         {
                           label: "Oportunidad",
                           value: detalle.opportunityId
-                            ? (opportunityNames.byId.get(detalle.opportunityId) ?? "—")
+                            ? textoDeLaRelacion(
+                                opportunityNames.byId.get(detalle.opportunityId),
+                                opportunityNames.cargando.has(detalle.opportunityId),
+                              )
                             : null,
                         },
                       ]

@@ -34,6 +34,14 @@ export function resolveUserLabel(
 // src/clinicas/services/reprogramar.service.ts, ESPEJO A MANO). La firma una
 // persona porque authorId no admite nulos, pero el autor que se muestra es
 // "Asistente", nunca su nombre.
+/** El texto de una relación resuelta por id (empresa, contacto, oportunidad):
+ *  el nombre; "…" mientras todavía se está pidiendo; "—" si no se pudo
+ *  resolver (borrada o sin permiso). Antes "—" salía también durante la carga,
+ *  y en producción, con varios segundos de espera, parecía un dato faltante. */
+export function textoDeLaRelacion(nombre: string | undefined, cargando: boolean): string {
+  return nombre ?? (cargando ? "…" : "—");
+}
+
 export const MARCA_DEL_ASISTENTE = "[Asistente] ";
 export const AUTOR_ASISTENTE = "Asistente";
 
@@ -65,5 +73,9 @@ export function useOpportunityNames(ids: readonly string[]) {
     }
   });
 
-  return { byId, isLoading: results.some((result) => result.isLoading) };
+  // Los ids que todavía se están pidiendo: el caller muestra "…" en vez del
+  // fallback de "no se pudo resolver" (ver textoDeLaRelacion).
+  const cargando = new Set(uniqueIds.filter((_, index) => results[index]?.isLoading));
+
+  return { byId, cargando, isLoading: results.some((result) => result.isLoading) };
 }

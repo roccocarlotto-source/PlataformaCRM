@@ -7,7 +7,11 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { useActivities } from "../activity/queries";
-import { autorDeLaActividad, useOpportunityNames } from "../activity/relationResolution";
+import {
+  autorDeLaActividad,
+  textoDeLaRelacion,
+  useOpportunityNames,
+} from "../activity/relationResolution";
 import { ACTIVITY_TYPE_LABELS } from "../activity/types";
 import { useCompaniesByIds } from "../contact/companyResolution";
 import { useContactNames, useOwnerNames } from "../opportunity/relationResolution";
@@ -69,11 +73,22 @@ export function ActivityFeed() {
             // mismo orden que las columnas de "Actividades".
             const related = [
               tieneEmpresas && activity.companyId
-                ? (companyNames.byId.get(activity.companyId)?.name ?? "—")
+                ? textoDeLaRelacion(
+                    companyNames.byId.get(activity.companyId)?.name,
+                    companyNames.cargando.has(activity.companyId),
+                  )
                 : null,
-              activity.contactId ? (contactNames.byId.get(activity.contactId) ?? "—") : null,
+              activity.contactId
+                ? textoDeLaRelacion(
+                    contactNames.byId.get(activity.contactId),
+                    contactNames.cargando.has(activity.contactId),
+                  )
+                : null,
               activity.opportunityId
-                ? (opportunityNames.byId.get(activity.opportunityId) ?? "—")
+                ? textoDeLaRelacion(
+                    opportunityNames.byId.get(activity.opportunityId),
+                    opportunityNames.cargando.has(activity.opportunityId),
+                  )
                 : null,
             ].filter((name): name is string => name !== null);
             const author = autorDeLaActividad(activity, {

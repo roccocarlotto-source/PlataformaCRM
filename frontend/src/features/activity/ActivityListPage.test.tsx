@@ -204,6 +204,39 @@ describe("ActivityListPage", () => {
     expect(screen.queryByText("op1")).not.toBeInTheDocument();
   });
 
+  it("mientras el nombre del contacto se está pidiendo muestra '…', no '—' (#22)", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    let responder: (() => void) | undefined;
+    server.use(
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: [makeActivity({ contactId: "ct-lento" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${contactsUrl}/ct-lento`, async () => {
+        await new Promise<void>((resolve) => {
+          responder = resolve;
+        });
+        return HttpResponse.json(
+          makeContact({ id: "ct-lento", firstName: "Ana", lastName: "Pérez" }),
+        );
+      }),
+      usersHandler(),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText("Llamar para renovación")).closest("tr") as HTMLElement;
+    const columnas = screen.getAllByRole("columnheader").map((th) => th.textContent);
+    const celdaContacto = () => row.querySelectorAll("td")[columnas.indexOf("Contacto")];
+    await waitFor(() => expect(responder).toBeDefined());
+    expect(celdaContacto()).toHaveTextContent("…");
+    expect(celdaContacto()).not.toHaveTextContent("—");
+    responder?.();
+    await waitFor(() => expect(celdaContacto()).toHaveTextContent("Ana Pérez"));
+  });
+
   it("fallback '—' cuando una relación falla al resolver", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
