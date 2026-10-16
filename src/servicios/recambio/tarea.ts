@@ -5,7 +5,7 @@ import { createActivity } from "../../repositories/activity.repository";
 import { findZonaDeLaOrganizacion } from "../../repositories/organization.repository";
 import { findOldestActiveAdmin } from "../../repositories/user.repository";
 import { vencimientoAlFinDelDia } from "../../utils/timezone";
-import { textoDelVehiculo } from "../recordatorio/config";
+import { asuntoConElVehiculo, textoDelVehiculo } from "../recordatorio/config";
 import { asuntoDelRecambio } from "./config";
 
 // ---------------------------------------------------------------------------
@@ -88,9 +88,9 @@ export async function crearTareaDelRecambio(
         companyId: null,
         contactId: v.contactId,
         opportunityId: null,
-        subject:
-          t.subject?.trim() ||
-          asuntoDelRecambio(cliente, textoDelVehiculo(v), v.purchasedOn ?? new Date()),
+        subject: t.subject?.trim()
+          ? asuntoConElVehiculo(t.subject.trim(), textoDelVehiculo(v))
+          : asuntoDelRecambio(cliente, textoDelVehiculo(v), v.purchasedOn ?? new Date()),
         ...(t.notes ? { body: t.notes } : {}),
         dueDate: vencimientoAlFinDelDia(t.ahora ?? new Date(), zona, t.daysUntilDue ?? 0),
         sourceNoticeId: t.noticeId,

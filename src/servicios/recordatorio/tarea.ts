@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { logger } from "../../lib/logger";
 import { createActivity } from "../../repositories/activity.repository";
 import { vencimientoAlFinDelDia } from "../../utils/timezone";
-import { asuntoDeLaTarea, textoDelVehiculo } from "./config";
+import { asuntoConElVehiculo, asuntoDeLaTarea, textoDelVehiculo } from "./config";
 import { asignadoDeLaTarea, leerAvisoParaLaTarea } from "./repository";
 
 // ---------------------------------------------------------------------------
@@ -54,7 +54,9 @@ export async function crearTareaDelAviso(t: TareaDelAviso): Promise<ResultadoDeL
       companyId: null,
       contactId: v.contactId,
       opportunityId: null,
-      subject: t.subject?.trim() || asuntoDeLaTarea(cliente, textoDelVehiculo(v)),
+      subject: t.subject?.trim()
+        ? asuntoConElVehiculo(t.subject.trim(), textoDelVehiculo(v))
+        : asuntoDeLaTarea(cliente, textoDelVehiculo(v)),
       ...(t.notes ? { body: t.notes } : {}),
       dueDate: vence,
       sourceNoticeId: t.noticeId,

@@ -157,7 +157,7 @@ export function RecambiosPage() {
                       checked={seleccion.isSelected(f.id)}
                       disabled={ocupado}
                       onChange={() => seleccion.toggle(f.id)}
-                      aria-label={`Seleccionar el recambio de ${f.cliente}`}
+                      aria-label={`Seleccionar el recambio de ${f.cliente}, ${f.vehiculo}`}
                     />
                   </td>
                   <td className="ds-cell-primary">

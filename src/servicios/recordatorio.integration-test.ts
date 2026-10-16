@@ -476,7 +476,7 @@ test("la acción Crear tarea con este trigger: una tarea por aviso, aunque el ev
   await despacharAutomatizaciones(eventoAEntregar(evento), TRIGGER_NEXT_SERVICE_DUE, { registro });
   const tareas = await prisma.activity.findMany({ where: { organizationId: taller.id } });
   assert.equal(tareas.length, 1);
-  assert.equal(tareas[0].subject, "Llamar por el service");
+  assert.match(tareas[0].subject, /^Llamar por el service — Volkswagen Gol \(ABC \d+\)$/);
   assert.equal(tareas[0].contactId, laura.id);
   assert.ok(tareas[0].sourceNoticeId);
 });

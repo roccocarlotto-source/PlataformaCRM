@@ -103,6 +103,15 @@ export function textoDelVehiculo(v: {
   return matricula ? `${base} (${matricula})` : base;
 }
 
+/** El asunto de la tarea cuando la regla trae su propio título: se le suma el
+ *  vehículo, porque el título de la regla es el mismo para todos los avisos y
+ *  en Mis tareas no se sabía de qué auto era (prueba de S13). Si el título ya
+ *  lo nombra, queda como está. Tope de 255, el de activities.subject. */
+export function asuntoConElVehiculo(titulo: string, vehiculo: string): string {
+  if (titulo.includes(vehiculo)) return titulo;
+  return `${titulo} — ${vehiculo}`.slice(0, 255);
+}
+
 /** {lugar}: la organización, o "Organización (sucursal X)" con más de una
  *  sucursal, como el {lugar} del recordatorio de turno. */
 export function textoDelLugar(
