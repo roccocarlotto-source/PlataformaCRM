@@ -1243,6 +1243,18 @@ La lista deja que el equipo decida a quién llamar y a qué ritmo.
 Va en **S13**, junto con el trigger. Lee `customer_vehicle_notices`, que entra
 con la migración de S6.
 
+**Pendiente (anotado por Rocco, 2026-10-15): pasar el cálculo a SQL.** Hoy la
+lista de vencidos y las tarjetas de recambio del resumen (§4.7) traen todos los
+vehículos vigentes con fecha de compra de la organización y calculan en Node la
+fecha de recambio y la de aviso (`src/servicios/recambio/lista.service.ts` y
+`recambiosDelResumen` en `dashboard.service.ts`). Con los volúmenes de hoy
+anda bien; con miles de vehículos, el resumen y la lista se vuelven lentos y la
+paginación de a 50 no ahorra nada, porque se filtra todo antes de cortar.
+Pasarlo a SQL: `purchased_on + make_interval(months => …)` en el WHERE, el
+anti-join contra `customer_vehicle_notices` y contra las oportunidades, y
+`LIMIT/OFFSET` y `COUNT` en la base. Cuidar que el fin de mes dé igual que
+`sumarMesesAUnaFecha` (31/01 + 1 mes = 28/02 en los dos).
+
 ---
 
 ## 8. Avisos al cliente hechos por una persona
@@ -1500,6 +1512,7 @@ integración. Cada PR que toca el núcleo le suma su caso:
 | **El barrido de ventas crea vehículos que nadie esperaba** al activar (cientos de ventas viejas). | Aviso con el conteo antes de confirmar la activación (§5). Son datos que la concesionaria ya cargó. No reciben primer service (§6.1) ni entran al barrido de recambio: van a la lista de §7.4. |
 | **Permuta falsa:** una matrícula mal cargada en el stock coincide con un vehículo de cliente y lo marca "ya no es del cliente". | La fila del registro guarda la unidad que coincidió, la nota en el contacto lo hace visible, y la ficha muestra el motivo con link. Se corrige con "Cambiar dueño". |
 | **Storage:** costo y datos sensibles en las fotos. | Tope de 20 por orden y 5 MB. Bucket privado y URLs firmadas. Borrado con el contacto. Retención automática como decisión abierta (D10). |
+| **La lista de recambios vencidos y las tarjetas de recambio calculan en Node** sobre todos los vehículos con fecha de compra (S13). | Alcanza con los volúmenes de hoy. **Pendiente:** pasarlo a SQL (§7.4). |
 | Los tests de catálogo se rompen con cada trigger nuevo. | Esperado: se actualizan en el mismo PR (S7, S8, S9, S13). |
 | **Contactos:** las FKs nuevas rompen `contactMerge` si no se suman. | En S1 y S6, con el inventario actualizado y el test que lo fija. |
 | **Turno cancelado sin que la orden se entere** (§4.4). | Se lee al abrir la ficha, más la tarjeta del dashboard. No se tocan los eventos de turnos de automotora. |
