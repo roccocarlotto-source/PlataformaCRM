@@ -1,10 +1,11 @@
-import { useOrganizationSettings } from "../organization/queries";
+import { useConfiguracionDelTaller } from "./queries";
 
-/** La moneda que usa el backend cuando no viene ninguna: la de preferencia de
- *  la organización y, si no configuró, USD (la misma que el dashboard).
+/** La moneda que usa el backend cuando no viene ninguna: la del taller
+ *  (Taller → Configuración, UYU por defecto; #12). Antes era la de preferencia
+ *  de la organización, que en una automotora es la de las ventas.
  *  `undefined` mientras carga la configuración. */
 export function useMonedaPorDefecto(): string | undefined {
-  const settings = useOrganizationSettings();
-  if (!settings.isSuccess) return undefined;
-  return settings.data.preferredCurrency ?? "USD";
+  const configuracion = useConfiguracionDelTaller();
+  if (!configuracion.isSuccess) return undefined;
+  return configuracion.data.currency;
 }

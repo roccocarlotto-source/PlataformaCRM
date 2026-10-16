@@ -590,11 +590,12 @@ export async function anonimizarOrdenesDelContacto(
   });
 }
 
-/** Para la zona y la moneda por defecto de la organización. */
+/** La zona de la organización. La moneda por defecto ya no sale de acá: es la
+ *  del taller (workshop_settings.currency, #12). */
 export async function findDatosDeLaOrganizacion(organizationId: string, db: Db = prisma) {
   return db.organization.findUniqueOrThrow({
     where: { id: organizationId },
-    select: { timezone: true, preferredCurrency: true },
+    select: { timezone: true },
   });
 }
 

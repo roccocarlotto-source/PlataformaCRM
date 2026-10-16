@@ -742,7 +742,10 @@ from (
     ('automations_template_sync_attempts_check', 'automations',
      'CHECK ((template_sync_attempts >= 0))'),
     ('automations_template_sync_kind_check', 'automations',
-     'CHECK (((template_sync_error_kind IS NULL) OR ((template_sync_error_kind)::text = ANY ((ARRAY[''TEMPORAL''::character varying, ''DEFINITIVO''::character varying])::text[]))))')
+     'CHECK (((template_sync_error_kind IS NULL) OR ((template_sync_error_kind)::text = ANY ((ARRAY[''TEMPORAL''::character varying, ''DEFINITIVO''::character varying])::text[]))))'),
+    -- #12 (migración 20261121120000): la moneda del taller.
+    ('workshop_settings_currency_check', 'workshop_settings',
+     'CHECK (((currency)::text ~ ''^[A-Z]{3}$''::text))')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def

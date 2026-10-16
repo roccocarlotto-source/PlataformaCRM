@@ -2,7 +2,7 @@ import type { Response } from "express";
 import { z } from "zod";
 import type { AuthenticatedRequest } from "../../types/auth";
 import { asyncHandler } from "../../utils/asyncHandler";
-import { parseOrThrow } from "../../utils/validation";
+import { currencySchema, parseOrThrow } from "../../utils/validation";
 import { leerConfiguracionDelTaller } from "../repositories/workshopSettings.repository";
 import {
   actualizarTipo,
@@ -24,7 +24,12 @@ const idParamSchema = z.string().uuid("id inválido");
 const mesesSchema = z.number().int("los meses tienen que ser un entero").min(1).max(60).nullable();
 
 export const configuracionSchema = z
-  .object({ defaultNextServiceMonths: mesesSchema, firstServiceAfterMonths: mesesSchema })
+  .object({
+    defaultNextServiceMonths: mesesSchema,
+    firstServiceAfterMonths: mesesSchema,
+    // #12: la moneda del taller (CHECK de 3 letras en la base).
+    currency: currencySchema,
+  })
   .partial()
   .strict()
   .refine((data) => Object.keys(data).length > 0, {

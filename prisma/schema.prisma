@@ -5411,6 +5411,10 @@ model WorkshopSettings {
   // Primer service de un auto vendido después de activar el módulo (§6.1,
   // D6). NULL = no fijarlo. CHECK 1..60.
   firstServiceAfterMonths  Int?     @default(12) @map("first_service_after_months")
+  // La moneda del Valor de las órdenes cuando no se elige otra (#12). Es
+  // propia del taller y no la de la organización: una automotora vende en USD
+  // y cobra el taller en pesos. CHECK ISO 4217 de 3 letras.
+  currency                 String   @default("UYU") @db.VarChar(3)
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 

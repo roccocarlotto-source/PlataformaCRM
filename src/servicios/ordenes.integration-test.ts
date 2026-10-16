@@ -143,25 +143,48 @@ test("alta agendada: número OS-, historial, encargado y Valor en la moneda de l
   assert.equal(alta.toStatus, "AGENDADO");
 });
 
-test("valor sin moneda: la de la organización y, si no configuró ninguna, USD (prueba de S4a)", async () => {
-  // Una organización sin moneda de preferencia devolvía 400 "Elegí la moneda
-  // del valor" aunque el formulario prometía "la de la organización".
+test("valor sin moneda: la del taller, no la de la organización (#12)", async () => {
+  // La organización vende en USD; el taller cobra en pesos. Antes el valor
+  // sin moneda tomaba la de la organización.
   try {
     await prisma.organization.update({
       where: { id: taller.id },
-      data: { preferredCurrency: null },
+      data: { preferredCurrency: "USD" },
     });
-    const sinMoneda = await recibida((await vehiculo()).id, { amount: 40 });
-    assert.equal(sinMoneda.amount, "40.00");
-    assert.equal(sinMoneda.currency, "USD", "la misma moneda por defecto que el dashboard");
+    const porDefecto = await recibida((await vehiculo()).id, { amount: 40 });
+    assert.equal(porDefecto.amount, "40.00");
+    assert.equal(porDefecto.currency, "UYU", "la del taller, UYU por defecto");
+
+    const cambio = await comoAdmin("PUT", "/api/servicios/configuracion", { currency: "usd" });
+    assert.equal(cambio.status, 200, JSON.stringify(cambio.json));
+    assert.equal(cambio.json.currency, "USD", "se guarda en mayúsculas");
+    const enDolares = await recibida((await vehiculo()).id, { amount: 40 });
+    assert.equal(enDolares.currency, "USD");
+    // Una moneda elegida a mano gana sobre la del taller.
+    const elegida = await recibida((await vehiculo()).id, { amount: 40, currency: "UYU" });
+    assert.equal(elegida.currency, "UYU");
+    // Cambiar la moneda del taller no toca las órdenes que ya tienen valor.
+    const vuelta = await comoAdmin("PUT", "/api/servicios/configuracion", { currency: "UYU" });
+    assert.equal(vuelta.status, 200);
+    const releida = await prisma.serviceOrder.findUniqueOrThrow({
+      where: { id: enDolares.id as string },
+      select: { currency: true },
+    });
+    assert.equal(releida.currency, "USD");
+    assert.equal(
+      (await comoAdmin("PUT", "/api/servicios/configuracion", { currency: "PESOS" })).status,
+      400,
+    );
   } finally {
     await prisma.organization.update({
       where: { id: taller.id },
       data: { preferredCurrency: "UYU" },
     });
+    await prisma.workshopSettings.updateMany({
+      where: { organizationId: taller.id },
+      data: { currency: "UYU" },
+    });
   }
-  const conMoneda = await recibida((await vehiculo()).id, { amount: 40 });
-  assert.equal(conMoneda.currency, "UYU");
 });
 
 test("agendada sin fecha o recibida sin km: 400", async () => {
@@ -517,7 +540,11 @@ test("configuración y tipos: un USER lee, solo un ADMIN escribe", async () => {
     firstServiceAfterMonths: null,
   });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json, { defaultNextServiceMonths: 9, firstServiceAfterMonths: null });
+  assert.deepEqual(r.json, {
+    defaultNextServiceMonths: 9,
+    firstServiceAfterMonths: null,
+    currency: "UYU",
+  });
   assert.equal(
     (await comoAdmin("PUT", "/api/servicios/configuracion", { defaultNextServiceMonths: 61 }))
       .status,

@@ -121,8 +121,8 @@ Con **Nueva orden** (en Órdenes, o en la ficha de un vehículo):
 4. Opcional: los **tipos de service**, el **encargado** (viene elegido quien
    crea la orden; se puede cambiar por cualquier usuario activo o dejar sin
    encargado), las **notas** y el **valor**. La **moneda** viene elegida con la
-   de la organización (si la organización no configuró ninguna, USD) y se
-   puede cambiar.
+   del taller ([Configuración](#configuracion), UYU si no se cambió) y se puede
+   cambiar.
 
 **Desde un turno de la agenda**: en el detalle del turno (Agenda → tocar el
 turno), **Crear orden de servicio** abre Nueva orden con el turno: se elige uno
@@ -223,6 +223,10 @@ recordatorios al cliente.
 
 En **Taller → Configuración** (solo administradores):
 
+- **Moneda del taller**: la que toma el valor de una orden nueva si no se
+  elige otra. Viene en UYU. Es propia del taller: no cambia la moneda de la
+  organización (la de las oportunidades), y las órdenes que ya tienen valor
+  quedan en su moneda.
 - **Intervalo por defecto**: los meses hasta el próximo service para una orden
   sin tipos con intervalo. Vacío: no se propone fecha.
 - **Primer service de un auto vendido**: los meses desde la venta.

@@ -292,6 +292,8 @@ export interface AprobacionInput {
 export interface ConfiguracionDelTaller {
   defaultNextServiceMonths: number | null;
   firstServiceAfterMonths: number | null;
+  /** La moneda del Valor cuando no se elige otra (#12). UYU por defecto. */
+  currency: string;
 }
 
 /** Los 409 de la orden que la pantalla trata distinto. */
