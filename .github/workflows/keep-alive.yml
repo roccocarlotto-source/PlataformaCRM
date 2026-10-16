@@ -9,6 +9,9 @@
 #
 # SE BORRA AL PASAR A UN PLAN PAGO de Render (docs/deployment.md §2.5).
 #
+# Le pega al dominio propio de la API y no a onrender.com: es la dirección que
+# usan los clientes, así que el monitor prueba también el DNS y el certificado.
+#
 # - Cada 5 min y no cada 10: el scheduler de GitHub atrasa los crons (a veces
 #   varios minutos), y con 10 podría pasar el umbral de sueño.
 # - Timeout de 30 s por request y UN reintento: un cold start puede tardar más
@@ -35,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
-      HEALTH_URL: https://plataformacrm.onrender.com/health
+      HEALTH_URL: https://api.plataformaxentech.com/health
     steps:
       - name: GET /health (un reintento)
         run: |
