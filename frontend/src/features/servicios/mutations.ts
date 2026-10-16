@@ -29,6 +29,7 @@ import type {
   CrearVehiculoInput,
   FichaDeOrden,
   OrdenesResponse,
+  RecambiosResponse,
   TipoDeService,
 } from "./types";
 
@@ -192,11 +193,34 @@ export function useRegistrarAviso(id: string) {
 
 // S13: "Crear tarea al vendedor" o "Marcar como contactado", de una o varias
 // filas. Invalida la lista de vencidos y el resumen (sus tarjetas).
+/** Las filas salen de la lista apenas se toca la acción (actualización
+ *  optimista): en producción la lista tardaba varios segundos en refrescarse y
+ *  la fila seguía ahí (prueba de S13, O-1). Si el pedido falla, vuelven. Las
+ *  que el servidor no pudo registrar vuelven con el refresco de onSuccess. */
 export function useRegistrarAvisosDeRecambio() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { vehiculoIds: string[]; accion: AccionDelRecambio }) =>
       registrarAvisosDeRecambio(input.vehiculoIds, input.accion),
+    onMutate: async ({ vehiculoIds }) => {
+      await queryClient.cancelQueries({ queryKey: recambiosKey });
+      const antes = queryClient.getQueriesData<RecambiosResponse>({ queryKey: recambiosKey });
+      const quitar = new Set(vehiculoIds);
+      queryClient.setQueriesData<RecambiosResponse>({ queryKey: recambiosKey }, (lista) => {
+        if (!lista) return lista;
+        const data = lista.data.filter((f) => !quitar.has(f.id));
+        const sacadas = lista.data.length - data.length;
+        return {
+          ...lista,
+          data,
+          pagination: { ...lista.pagination, total: lista.pagination.total - sacadas },
+        };
+      });
+      return { antes };
+    },
+    onError: (_error, _input, contexto) => {
+      for (const [clave, datos] of contexto?.antes ?? []) queryClient.setQueryData(clave, datos);
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: recambiosKey });
       void queryClient.invalidateQueries({ queryKey: ["servicios", "resumen"] });

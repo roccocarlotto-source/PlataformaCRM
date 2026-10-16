@@ -384,8 +384,9 @@ activar el módulo. Arriba se puede elegir una **Sucursal** (o todas).
 - **Marcar como contactado**: si ya se habló con el cliente por otro lado.
 
 Las dos acciones sirven para una fila o para varias marcadas con la casilla.
-Después el vehículo sale de la lista y la regla no le vuelve a avisar por ese
-recambio.
+El vehículo sale de la lista apenas tocás la acción, y la regla no le vuelve a
+avisar por ese recambio. Si alguno no se pudo registrar, vuelve a la lista con
+el motivo arriba.
 
 ## En la ficha del contacto {#en-la-ficha-del-contacto}
 

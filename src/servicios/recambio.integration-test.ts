@@ -266,7 +266,11 @@ test("la tarea: vendedor del contacto → de la venta de origen → responsable 
 
   const t1 = await asignadoDe({ ownerId: taller.authIds[1] }, {});
   assert.equal(t1.assigneeId, taller.authIds[1], "el vendedor del contacto");
-  assert.equal(t1.subject, "Llamar por el recambio");
+  assert.match(
+    t1.subject,
+    /^Llamar por el recambio — Fiat Uno \(REC \d+\)$/,
+    "el título de la regla, con el vehículo",
+  );
   assert.ok(t1.sourceNoticeId);
 
   const venta = await oportunidad((await cliente()).id, "WON");

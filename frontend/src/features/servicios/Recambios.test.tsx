@@ -132,8 +132,12 @@ describe("Taller → Recambios (S13)", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByLabelText("Seleccionar el recambio de Cliente 1"));
-    await user.click(screen.getByLabelText("Seleccionar el recambio de Cliente 3"));
+    await user.click(
+      await screen.findByLabelText("Seleccionar el recambio de Cliente 1, Fiat Uno (ABC 123)"),
+    );
+    await user.click(
+      screen.getByLabelText("Seleccionar el recambio de Cliente 3, Fiat Uno (ABC 123)"),
+    );
     expect(screen.getByText("2 seleccionados")).toBeInTheDocument();
     const barra = screen.getByText("2 seleccionados").closest("div")!;
     await user.click(within(barra).getByRole("button", { name: "Marcar como contactado" }));
@@ -144,6 +148,51 @@ describe("Taller → Recambios (S13)", () => {
     expect(
       await screen.findByText(/1 listos; 1 no se pudieron: Este recambio ya estaba registrado\./),
     ).toBeInTheDocument();
+  });
+
+  it("la fila sale apenas se toca la acción, antes de que responda el servidor", async () => {
+    let responder: (() => void) | undefined;
+    server.use(
+      sucursales,
+      http.get(`${API}/servicios/recambios`, () =>
+        HttpResponse.json(respuesta([fila(1), fila(2)])),
+      ),
+      http.post(`${API}/servicios/recambios/avisos`, async () => {
+        await new Promise<void>((resolve) => {
+          responder = resolve;
+        });
+        return HttpResponse.json({ resultados: [{ id: "v1", ok: true }] });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const primera = (await screen.findByRole("link", { name: "Cliente 1" })).closest("tr")!;
+    await user.click(within(primera).getByRole("button", { name: "Marcar como contactado" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: "Cliente 1" })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("link", { name: "Cliente 2" })).toBeInTheDocument();
+    await waitFor(() => expect(responder).toBeDefined());
+    responder?.();
+    expect(await screen.findByText("Marcado como contactado.")).toBeInTheDocument();
+  });
+
+  it("si el servidor rechaza el pedido, la fila vuelve", async () => {
+    server.use(
+      sucursales,
+      http.get(`${API}/servicios/recambios`, () => HttpResponse.json(respuesta([fila(1)]))),
+      http.post(`${API}/servicios/recambios/avisos`, () =>
+        HttpResponse.json({ error: { message: "No se pudo registrar." } }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const primera = (await screen.findByRole("link", { name: "Cliente 1" })).closest("tr")!;
+    await user.click(within(primera).getByRole("button", { name: "Crear tarea al vendedor" }));
+    expect(await screen.findByText(/No se pudo/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Cliente 1" })).toBeInTheDocument();
   });
 
   it("sin vencidos, el estado vacío", async () => {

@@ -10,6 +10,7 @@ import {
 import { configDelRecordatorioDelServiceSchema } from "./accion";
 import {
   TEXTO_POR_DEFECTO_DEL_PROXIMO_SERVICE,
+  asuntoConElVehiculo,
   asuntoDeLaTarea,
   textoDeLaFecha,
   textoDelLugar,
@@ -78,6 +79,18 @@ test("los textos de las variables: nunca vacíos (Meta no acepta un parámetro v
     asuntoDeLaTarea("Laura Gómez", "Volkswagen Gol (ABC 1234)"),
     "Llamar a Laura Gómez por el service de su Volkswagen Gol (ABC 1234)",
   );
+});
+
+test("el título de la regla lleva el vehículo, sin repetirlo ni pasar de 255", () => {
+  assert.equal(
+    asuntoConElVehiculo("Llamar por el recambio", "Fiat Palio (ABC 1234)"),
+    "Llamar por el recambio — Fiat Palio (ABC 1234)",
+  );
+  assert.equal(
+    asuntoConElVehiculo("Llamar por el Fiat Palio (ABC 1234)", "Fiat Palio (ABC 1234)"),
+    "Llamar por el Fiat Palio (ABC 1234)",
+  );
+  assert.equal(asuntoConElVehiculo("x".repeat(200), "y".repeat(100)).length, 255);
 });
 
 test("la plantilla por defecto pasa las reglas de Meta y va a aprobar con este texto y estos ejemplos", () => {

@@ -163,6 +163,9 @@ recambio**, va al vendedor del cliente; si no tiene, al de la venta del auto,
 y si no, al responsable de la sucursal o al administrador más antiguo.
 
 - **Título de la tarea**: por ejemplo, "Llamar para coordinar la entrega".
+  Con **Próximo service** y **Se acerca el recambio**, al título se le suma
+  el vehículo, para saber de qué auto es: "Llamar por el recambio — Fiat
+  Palio (ABC 1234)".
 - **Vence en (días)**: contados desde que se dispara la regla, de 0 a 365.
   Vence al final de ese día, en la hora de la organización: con 0, al final
   del mismo día.
