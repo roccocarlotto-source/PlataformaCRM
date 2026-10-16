@@ -3,6 +3,7 @@ import {
   callbackHandler,
   desconectarHandler,
   iniciarConexionHandler,
+  estadoDeLaIntegracionHandler,
   obtenerConexionHandler,
 } from "../controllers/googleCalendarConnection.controller";
 import { googleCalendarWebhookHandler } from "../controllers/googleCalendarWebhook.controller";
@@ -26,6 +27,15 @@ export const googleCalendarConnectionRouter = Router();
 // alguien lo lea como un endpoint suelto sin protección en vez de como el que
 // se apoya en el state firmado.
 // ---------------------------------------------------------------------------
+
+// Si la plataforma tiene configurado Google Calendar (el OAuth de Google en el
+// entorno). Cualquier usuario autenticado: es lo que decide si la ficha de la
+// sucursal ofrece "Conectar".
+googleCalendarConnectionRouter.get(
+  "/integrations/google-calendar/estado",
+  authenticate,
+  estadoDeLaIntegracionHandler,
+);
 
 // Estado de la conexión. Lectura para cualquier usuario autenticado de la
 // organización, mismo criterio que el resto de los GET de configuración. Nunca

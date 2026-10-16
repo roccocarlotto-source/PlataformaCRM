@@ -82,6 +82,15 @@ function googleCalendarSinConectar() {
   );
 }
 
+// Si la plataforma tiene Google Calendar configurado. El default es que sí,
+// para que las pruebas de la sección vean "Conectar"; la de sin configurar
+// pasa el suyo.
+function googleCalendarDisponible(configurado = true) {
+  return http.get(`${env.apiUrl}/api/integrations/google-calendar/estado`, () =>
+    HttpResponse.json({ configurado }),
+  );
+}
+
 // La sección "Horario de atención" también se monta en toda edición y consulta
 // GET /branches/:id/business-hours. El default es "sin horario propio"; los
 // tests de esa sección pasan el suyo a renderForm.
@@ -108,6 +117,7 @@ function renderForm(ruta: string, ...handlers: HttpHandler[]) {
     ...handlers,
     usuariosHandler(),
     googleCalendarSinConectar(),
+    googleCalendarDisponible(),
     horarioDeAtencionSinConfigurar(),
   );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -786,6 +796,17 @@ describe("BranchFormPage — Google Calendar", () => {
   it("no aparece en el alta: la conexión cuelga del id de la sucursal", () => {
     renderForm("/branches/new");
     expect(screen.queryByRole("heading", { name: "Google Calendar" })).not.toBeInTheDocument();
+  });
+
+  it("sin Google configurado en la plataforma: lo dice y no ofrece Conectar", async () => {
+    renderForm("/branches/b1/edit", sucursalB1(), googleCalendarDisponible(false));
+    expect(
+      await screen.findByText("La conexión con Google Calendar todavía no está disponible."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Conectar con Google Calendar" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Sin conectar")).not.toBeInTheDocument();
   });
 
   it("sin conectar (404): Conectar abre la URL de Google en una pestaña NUEVA y pasa a conectando", async () => {

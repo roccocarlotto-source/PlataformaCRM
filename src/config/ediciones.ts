@@ -421,6 +421,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "PATCH /api/branches/:id/business-hours",
   ],
   agenda: [
+    "GET /api/integrations/google-calendar/estado",
     "GET /api/branches/:branchId/google-calendar",
     "POST /api/branches/:branchId/google-calendar/connect",
     "DELETE /api/branches/:branchId/google-calendar",

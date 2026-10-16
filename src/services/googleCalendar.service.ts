@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import { env } from "../config/env";
+import { logger } from "../lib/logger";
 import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
@@ -1030,27 +1031,42 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
 // ---------------------------------------------------------------------------
 let cliente: ClienteGoogleCalendar | undefined;
 
+/** Las variables del OAuth de Google que faltan. Vacío = configurado. */
+function faltantesDeGoogleCalendar(): string[] {
+  return [
+    !env.GOOGLE_CLIENT_ID && "GOOGLE_CLIENT_ID",
+    !env.GOOGLE_CLIENT_SECRET && "GOOGLE_CLIENT_SECRET",
+    !env.GOOGLE_REDIRECT_URI && "GOOGLE_REDIRECT_URI",
+  ].filter((nombre): nombre is string => typeof nombre === "string");
+}
+
+/** Si el servidor puede conectar Google Calendar. Lo consulta el frontend
+ *  (GET /api/integrations/google-calendar/estado) para no ofrecer el botón de
+ *  conectar cuando no se puede. No dice qué falta: eso queda en el log. */
+export function googleCalendarConfigurado(): boolean {
+  return faltantesDeGoogleCalendar().length === 0;
+}
+
+export const MENSAJE_GOOGLE_SIN_CONFIGURAR =
+  "La conexión con Google Calendar todavía no está disponible en la plataforma. Avisale al soporte.";
+
 export function getClienteGoogleCalendar(): ClienteGoogleCalendar {
   if (cliente) {
     return cliente;
   }
 
-  const faltantes = [
-    !env.GOOGLE_CLIENT_ID && "GOOGLE_CLIENT_ID",
-    !env.GOOGLE_CLIENT_SECRET && "GOOGLE_CLIENT_SECRET",
-    !env.GOOGLE_REDIRECT_URI && "GOOGLE_REDIRECT_URI",
-  ].filter((nombre): nombre is string => typeof nombre === "string");
+  const faltantes = faltantesDeGoogleCalendar();
 
   if (faltantes.length > 0) {
-    // Las lista TODAS de una. Reportar solo la primera obligaría a configurar,
-    // reintentar y descubrir la siguiente, una por vez.
-    // isOperational: false — lista variables de entorno; es para el log, no
-    // para el cliente (M-11 b).
-    throw new AppError(
-      `La integración con Google Calendar no está configurada en el servidor. Faltan: ${faltantes.join(", ")}`,
-      500,
-      false,
+    // Las lista TODAS de una en el log. Reportar solo la primera obligaría a
+    // configurar, reintentar y descubrir la siguiente, una por vez. Al cliente
+    // va un 503 sin nombres de variables (M-11 b), el mismo criterio que la
+    // conexión con WhatsApp sin configurar; antes era un 500 genérico.
+    logger.warn(
+      { faltantes },
+      "La integración con Google Calendar no está configurada en el servidor",
     );
+    throw new AppError(MENSAJE_GOOGLE_SIN_CONFIGURAR, 503);
   }
 
   cliente = crearClienteGoogleCalendar({

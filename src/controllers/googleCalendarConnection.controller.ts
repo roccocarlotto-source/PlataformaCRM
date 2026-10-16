@@ -8,6 +8,7 @@ import {
   iniciarConexion,
   obtenerConexion,
 } from "../services/googleCalendarConnection.service";
+import { googleCalendarConfigurado } from "../services/googleCalendar.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -32,6 +33,15 @@ export const iniciarConexionHandler = asyncHandler<AuthenticatedRequest>(
       req.auth.industry,
     );
     res.status(200).json(resultado);
+  },
+);
+
+// Si el servidor tiene configurado el OAuth de Google. Lo pide la ficha de la
+// sucursal para no mostrar "Conectar" cuando conectar daría error. No dice qué
+// variable falta (eso queda en el log, M-11 b).
+export const estadoDeLaIntegracionHandler = asyncHandler<AuthenticatedRequest>(
+  async (_req, res: Response) => {
+    res.status(200).json({ configurado: googleCalendarConfigurado() });
   },
 );
 
