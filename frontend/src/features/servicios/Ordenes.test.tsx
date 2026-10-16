@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeOrganizationSettings } from "../../test/organizationFixtures";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 import { makeBooking } from "../../test/bookingFixtures";
 import { makeFichaDeOrden, makeVehiculoDeCliente } from "../../test/vehiculoDeClienteFixtures";
 import { ConfiguracionDelTallerPage } from "./ConfiguracionDelTallerPage";
@@ -57,10 +58,18 @@ beforeEach(() => {
 const API = `${env.apiUrl}/api`;
 const ORDENES = `${API}/servicios/ordenes`;
 
-function comunes(preferredCurrency: string | null = "UYU") {
+// La organización vende en USD; el taller cobra en su propia moneda (#12).
+function comunes(monedaDelTaller = "UYU") {
   return [
     http.get(`${API}/organization`, () =>
-      HttpResponse.json(makeOrganizationSettings({ preferredCurrency })),
+      HttpResponse.json(makeOrganizationSettings({ preferredCurrency: "USD" })),
+    ),
+    http.get(`${API}/servicios/configuracion`, () =>
+      HttpResponse.json({
+        defaultNextServiceMonths: 12,
+        firstServiceAfterMonths: 12,
+        currency: monedaDelTaller,
+      }),
     ),
     http.get(`${API}/servicios/usuarios`, () =>
       HttpResponse.json([{ id: "u1", fullName: "Encargado" }]),
@@ -327,14 +336,12 @@ describe("Órdenes — nueva", () => {
 });
 
 describe("Órdenes — correcciones de la prueba de S4a", () => {
-  it("nueva orden: el encargado es quien la crea y la moneda, la de la organización (editables)", async () => {
+  it("nueva orden: el encargado es quien la crea y la moneda, la del taller (editables)", async () => {
     const cuerpos: Record<string, unknown>[] = [];
-    for (const [monedaDeLaOrg, esperada] of [
-      ["UYU", "UYU"],
-      [null, "USD"],
-    ] as const) {
+    // La organización está en USD en los dos casos: manda la del taller (#12).
+    for (const esperada of ["UYU", "USD"] as const) {
       server.use(
-        ...comunes(monedaDeLaOrg),
+        ...comunes(esperada),
         http.get(`${API}/servicios/vehiculos/:id`, () =>
           HttpResponse.json({ ...makeVehiculoDeCliente({ branchId: "b1" }), cambiosDeDueno: [] }),
         ),
@@ -353,7 +360,7 @@ describe("Órdenes — correcciones de la prueba de S4a", () => {
       );
       await user.type(screen.getByLabelText("Valor"), "40");
       await user.click(screen.getByRole("button", { name: "Crear orden" }));
-      await waitFor(() => expect(cuerpos).toHaveLength(monedaDeLaOrg ? 1 : 2));
+      await waitFor(() => expect(cuerpos).toHaveLength(esperada === "UYU" ? 1 : 2));
       expect(cuerpos.at(-1)).toMatchObject({ assigneeId: "u1", amount: 40, currency: esperada });
       unmount();
     }
@@ -545,7 +552,11 @@ describe("Configuración del taller", () => {
     let tipo: unknown;
     server.use(
       http.get(`${API}/servicios/configuracion`, () =>
-        HttpResponse.json({ defaultNextServiceMonths: 12, firstServiceAfterMonths: 12 }),
+        HttpResponse.json({
+          defaultNextServiceMonths: 12,
+          firstServiceAfterMonths: 12,
+          currency: "UYU",
+        }),
       ),
       http.put(`${API}/servicios/configuracion`, async ({ request }) => {
         const cuerpo = (await request.json()) as Record<string, unknown>;
@@ -567,7 +578,8 @@ describe("Configuración del taller", () => {
     await user.clear(porDefecto);
     await user.type(porDefecto, "6");
     await user.clear(screen.getByLabelText("Primer service de un auto vendido (meses)"));
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    const intervalos = porDefecto.closest("form")!;
+    await user.click(within(intervalos).getByRole("button", { name: "Guardar" }));
     await waitFor(() =>
       expect(configuracion).toEqual({ defaultNextServiceMonths: 6, firstServiceAfterMonths: null }),
     );
@@ -583,6 +595,38 @@ describe("Configuración del taller", () => {
     expect(screen.getByLabelText("Cada cuántos meses")).toBeInTheDocument();
     await user.click(agregar);
     await waitFor(() => expect(tipo).toEqual({ name: "Alineación", nextServiceAfterMonths: null }));
+  });
+
+  it("moneda del taller: arranca en la guardada y guarda solo la moneda (#12)", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    let configuracion: unknown;
+    server.use(
+      http.get(`${API}/servicios/configuracion`, () =>
+        HttpResponse.json({
+          defaultNextServiceMonths: 12,
+          firstServiceAfterMonths: 12,
+          currency: "UYU",
+        }),
+      ),
+      http.put(`${API}/servicios/configuracion`, async ({ request }) => {
+        const cuerpo = (await request.json()) as Record<string, unknown>;
+        configuracion = cuerpo;
+        return HttpResponse.json({
+          defaultNextServiceMonths: 12,
+          firstServiceAfterMonths: 12,
+          ...cuerpo,
+        });
+      }),
+      http.get(`${API}/servicios/tipos`, () => HttpResponse.json([])),
+    );
+    const user = userEvent.setup();
+    renderEn("/taller/configuracion");
+    const moneda = await screen.findByRole("combobox", { name: "Moneda" });
+    expect(moneda).toHaveValue("UYU");
+    await chooseSelectOption(user, moneda, "USD");
+    await user.click(within(moneda.closest("form")!).getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(configuracion).toEqual({ currency: "USD" }));
+    expect(await screen.findByText("Guardado.")).toBeInTheDocument();
   });
 });
 

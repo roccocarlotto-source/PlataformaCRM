@@ -6,8 +6,10 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { PageHeader } from "../../design-system/PageHeader";
+import { Select } from "../../design-system/Select";
 import { Table } from "../../design-system/Table";
 import { useConfirm } from "../../design-system/useConfirm";
+import { CURRENCY_OPTIONS, isKnownCurrency } from "../../lib/currencies";
 import { AYUDA } from "../guia/anclas";
 import {
   useActualizarTipo,
@@ -18,8 +20,8 @@ import {
 import { useConfiguracionDelTaller, useTiposDeService } from "./queries";
 import type { ConfiguracionDelTaller, TipoDeService } from "./types";
 
-// Taller → Configuración (docs/servicios.md §4.8), solo ADMIN: los intervalos
-// por defecto y los tipos de service con su "próximo service a los N meses".
+// Taller → Configuración (docs/servicios.md §4.8), solo ADMIN: la moneda del
+// taller, los intervalos por defecto y los tipos de service con su "próximo service a los N meses".
 // Los recordatorios no se configuran acá: son reglas de Automatizaciones (S7).
 
 /** "" = sin intervalo (null); si no, los meses. */
@@ -32,10 +34,74 @@ export function ConfiguracionDelTallerPage() {
     <div>
       <PageHeader help={AYUDA.configuracionDelTaller} title="Configuración del taller" />
       <div className="ds-stack">
+        <Moneda />
         <Intervalos />
         <Tipos />
       </div>
     </div>
+  );
+}
+
+function Moneda() {
+  const configuracion = useConfiguracionDelTaller();
+  if (configuracion.isLoading) return <LoadingState variant="lines" />;
+  if (configuracion.isError || !configuracion.data) {
+    return <ErrorState>No pudimos cargar la configuración.</ErrorState>;
+  }
+  return <FormularioDeMoneda inicial={configuracion.data.currency} />;
+}
+
+/** #12: la moneda del Valor de las órdenes nuevas. Es propia del taller, no la
+ *  de la organización (una automotora vende en USD y el taller cobra en pesos).
+ *  No cambia las órdenes que ya tienen valor. */
+function FormularioDeMoneda({ inicial }: { inicial: string }) {
+  const guardar = useGuardarConfiguracion();
+  const [moneda, setMoneda] = useState(inicial);
+  const [guardado, setGuardado] = useState(false);
+
+  async function enviar(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setGuardado(false);
+    await guardar.mutateAsync({ currency: moneda });
+    setGuardado(true);
+  }
+
+  return (
+    <form onSubmit={enviar} className="ds-form">
+      <Card heading="Moneda del taller">
+        <Select
+          id="taller-moneda"
+          label="Moneda"
+          value={moneda}
+          options={[
+            ...(isKnownCurrency(moneda) ? [] : [{ value: moneda, label: moneda }]),
+            ...CURRENCY_OPTIONS.map((m) => ({ value: m, label: m })),
+          ]}
+          onChange={(valor) => {
+            setMoneda(valor);
+            setGuardado(false);
+          }}
+        />
+        <p className="ds-hint">
+          Es la que toma el valor de una orden nueva si no se elige otra. Las órdenes que ya tienen
+          valor quedan en su moneda.
+        </p>
+        {guardar.isError ? (
+          <ErrorState>
+            {guardar.error instanceof Error ? guardar.error.message : "No pudimos guardar."}
+          </ErrorState>
+        ) : null}
+        {guardado ? <p className="ds-hint">Guardado.</p> : null}
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={guardar.isPending}
+          loading={guardar.isPending}
+        >
+          Guardar
+        </Button>
+      </Card>
+    </form>
   );
 }
 

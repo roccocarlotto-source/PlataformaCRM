@@ -98,7 +98,11 @@ test("activar se ve en el request siguiente con el mismo token; desactivar tambi
   const despues = await pedir(automotora, "GET", CONFIGURACION, undefined, token);
   assert.ok(Date.now() - inicio < 5_000, "antes del TTL de la caché (5 s)");
   assert.equal(despues.status, 200, "con el mismo token, sin esperar el TTL");
-  assert.deepEqual(despues.json, { defaultNextServiceMonths: 12, firstServiceAfterMonths: 12 });
+  assert.deepEqual(despues.json, {
+    defaultNextServiceMonths: 12,
+    firstServiceAfterMonths: 12,
+    currency: "UYU",
+  });
 
   const me = await pedir(automotora, "GET", "/api/me", undefined, token);
   assert.deepEqual(
@@ -183,7 +187,11 @@ test("sin fila de configuración, la ruta devuelve los defaults", async () => {
   await prisma.workshopSettings.deleteMany({ where: { organizationId: esencial.id } });
   const r = await pedir(esencial, "GET", CONFIGURACION);
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json, { defaultNextServiceMonths: 12, firstServiceAfterMonths: 12 });
+  assert.deepEqual(r.json, {
+    defaultNextServiceMonths: 12,
+    firstServiceAfterMonths: 12,
+    currency: "UYU",
+  });
 });
 
 test("una clínica no tiene el módulo ni con una fila escrita a mano; activarlo es 400 y no escribe nada", async () => {

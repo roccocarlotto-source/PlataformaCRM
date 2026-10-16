@@ -13,12 +13,22 @@ import { prisma, type Db } from "../../lib/prisma";
 export const CONFIGURACION_DEL_TALLER_POR_DEFECTO = {
   defaultNextServiceMonths: 12,
   firstServiceAfterMonths: 12,
+  // #12 (migración 20261121120000).
+  currency: "UYU",
 } as const;
 
 export interface ConfiguracionDelTaller {
   defaultNextServiceMonths: number | null;
   firstServiceAfterMonths: number | null;
+  /** La moneda del Valor cuando no se elige otra (D17, #12). */
+  currency: string;
 }
+
+const CAMPOS_DE_LA_CONFIGURACION = {
+  defaultNextServiceMonths: true,
+  firstServiceAfterMonths: true,
+  currency: true,
+} as const;
 
 /** La configuración de la organización, o los defaults si no tiene fila. No
  *  devuelve next_order_number: es un contador interno, no configuración. */
@@ -28,7 +38,7 @@ export async function leerConfiguracionDelTaller(
 ): Promise<ConfiguracionDelTaller> {
   const fila = await db.workshopSettings.findUnique({
     where: { organizationId },
-    select: { defaultNextServiceMonths: true, firstServiceAfterMonths: true },
+    select: CAMPOS_DE_LA_CONFIGURACION,
   });
   return fila ?? { ...CONFIGURACION_DEL_TALLER_POR_DEFECTO };
 }
@@ -49,7 +59,7 @@ export async function actualizarConfiguracionDelTaller(
     where: { organizationId },
     create: { organizationId, ...data },
     update: data,
-    select: { defaultNextServiceMonths: true, firstServiceAfterMonths: true },
+    select: CAMPOS_DE_LA_CONFIGURACION,
   });
 }
 

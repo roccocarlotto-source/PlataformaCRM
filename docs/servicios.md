@@ -455,7 +455,7 @@ model ServiceOrder {
 
 - **Valor:** `amount` y `currency` van juntos (CHECK: los dos o ninguno), con
   `Decimal(14,2)` y `VarChar(3)`, como `Opportunity`. La moneda por defecto es
-  `Organization.preferredCurrency` (D17). Es un dato informativo: no hay cobro
+  la del taller, `WorkshopSettings.currency` (D17, UYU si no se cambió). Es un dato informativo: no hay cobro
   ni factura.
 - **Fechas por estado:** las columnas `*_at` guardan la **última** vez que la
   orden entró en ese estado, y son las que usan los listados y el dashboard.
@@ -537,6 +537,7 @@ model WorkshopSettings {            // 1:1 con la organización; se crea al acti
   nextOrderNumber           Int     @default(1)
   defaultNextServiceMonths  Int?    @default(12)  // si la orden no tiene tipo con intervalo; null = no proponer fecha
   firstServiceAfterMonths   Int?    @default(12)  // primer service de un auto vendido (§6.1, D6); null = no fijar; CHECK 1..60
+  currency                  String  @default("UYU") @db.VarChar(3)  // moneda del Valor por defecto (D17, #12); CHECK ISO 4217
   createdAt, updatedAt
   @@map("workshop_settings")
 }
@@ -1543,7 +1544,7 @@ recomendada.** D6 y D16 llevan además los ajustes de §14.1.
 | D14 | Borrado completo de datos personales de un contacto con órdenes | **A.** Borra fotos, anonimiza matrícula, chasis y notas, y conserva las órdenes sin datos. **B.** Borra vehículos y órdenes. | **A**: los números del taller no cambian. |
 | D15 | Desactivar el módulo | **A.** Se puede siempre; los datos quedan y los envíos se cancelan. **B.** No se puede con órdenes abiertas. | **A**, con el aviso del conteo. |
 | D16 | Matrícula y chasis | **A.** Únicos por organización entre vehículos vigentes (409 con link al existente). **B.** Sin unicidad, con aviso de posible duplicado. | **A**, con el ajuste 2 de §14.1: "Cambiar dueño" y "ya no es del cliente" (§2.2.1). |
-| D17 | Moneda del Valor | **A.** Por defecto la principal de la organización, editable por orden. **B.** Fija por organización. | **A**, como las oportunidades. |
+| D17 | Moneda del Valor | **A.** Por defecto la principal de la organización, editable por orden. **B.** Fija por organización. | **A**, como las oportunidades. **Revisado (#12, 2026-10-16):** el default pasa a ser la moneda propia del taller (`workshop_settings.currency`, UYU), editable en Configuración; una automotora vende en USD y el taller cobra en pesos. Sigue editable por orden. |
 | D18 | Número de orden | **A.** Consecutivo por organización ("OS-0042"). **B.** Por sucursal. **C.** Sin número (solo el id). | **A**. |
 | — | Aviso "listo para retirar" con la ventana cerrada (§8.2) | **A.** v1 con texto sugerido y copiar/llamar; plantilla manual de un clic después. **B.** La plantilla manual ya en la v1. | **A**. No numerada: no cambia el modelo de la v1. |
 

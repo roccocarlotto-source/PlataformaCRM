@@ -1,7 +1,6 @@
 import { emitirEventosDeLaOrden } from "../eventosDeLaOrden/emitir";
 import { Prisma, type ServiceOrderStatus } from "@prisma/client";
 import { OPCIONES_DE_TRANSACCION_LARGA, prisma } from "../../lib/prisma";
-import { DASHBOARD_DEFAULT_CURRENCY } from "../../services/opportunity.service";
 import { filtroDeSedes, type ActorConSedes } from "../../services/permisos";
 import { AppError } from "../../utils/AppError";
 import { esAbierto, puedePasar } from "../config/estados";
@@ -254,9 +253,10 @@ async function exigirTipos(
   return unicos;
 }
 
-/** El Valor (D17): monto y moneda juntos. Sin moneda, la principal de la
- *  organización; si la organización no la configuró, la misma que usa el
- *  dashboard (USD). `undefined` = no vino. */
+/** El Valor (D17): monto y moneda juntos. Sin moneda, la del taller
+ *  (workshop_settings.currency, UYU por defecto; #12). Antes era la principal
+ *  de la organización, que en una automotora es la de las ventas.
+ *  `undefined` = no vino. */
 async function valorDe(
   organizationId: string,
   amount: Monto | null | undefined,
@@ -268,8 +268,8 @@ async function valorDe(
     return { amount: null, currency: null };
   }
   if (currency) return { amount, currency };
-  const org = await findDatosDeLaOrganizacion(organizationId);
-  return { amount, currency: org.preferredCurrency ?? DASHBOARD_DEFAULT_CURRENCY };
+  const { currency: delTaller } = await leerConfiguracionDelTaller(organizationId);
+  return { amount, currency: delTaller };
 }
 
 /** Vincula el turno a la orden (§4.4), dentro de la transacción y con el
