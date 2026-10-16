@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import {
   leerConfiguracion,
   listarOrdenes,
@@ -27,12 +27,21 @@ export const vehiculoKeys = {
   ordenes: (id: string) => [...vehiculoKeys.detail(id), "ordenes"] as const,
 };
 
-export function useVehiculos(query: VehiculosQuery, options?: { enabled?: boolean }) {
-  return useQuery({
+export function vehiculosQuery(query: VehiculosQuery) {
+  return queryOptions({
     queryKey: vehiculoKeys.list(query),
     queryFn: ({ signal }) => listarVehiculos(query, signal),
-    enabled: options?.enabled,
   });
+}
+
+export function useVehiculos(query: VehiculosQuery, options?: { enabled?: boolean }) {
+  return useQuery({ ...vehiculosQuery(query), enabled: options?.enabled });
+}
+
+// La tarjeta "Vehículos" de la ficha del contacto (TarjetaVehiculosDelContacto),
+// que ContactFormPage precarga con esta misma clave.
+export function vehiculosDelContactoQuery(contactId: string) {
+  return vehiculosQuery({ contactId, pageSize: 50 });
 }
 
 export function useVehiculo(id: string | undefined) {

@@ -1121,3 +1121,82 @@ describe("ContactFormPage — tarjeta Vehículos del taller", () => {
     expect(contactIdPedido).toBe("ct1");
   });
 });
+
+// Latencia: las tarjetas de la ficha (campos personalizados, cupones,
+// vehículos del taller) y el selector de usuario dependen solo del id de la
+// URL. Se piden en paralelo con el contacto, no cuando el contacto llega.
+describe("ContactFormPage — pedidos en paralelo", () => {
+  it("pide las tarjetas y los usuarios sin esperar al contacto, y cada cosa una sola vez", async () => {
+    const pedidos: string[] = [];
+    let seguir: () => void = () => {};
+    const resto = new Promise<void>((resolve) => {
+      seguir = resolve;
+    });
+    const anotar = (que: string) => {
+      pedidos.push(que);
+      if (["campos", "cupones", "usuarios", "vehiculos"].every((q) => pedidos.includes(q))) {
+        seguir();
+      }
+    };
+    server.use(
+      http.get(usersUrl, () => {
+        anotar("usuarios");
+        return HttpResponse.json({
+          data: [makeUser({ id: "u1", fullName: "Ana Pérez" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        });
+      }),
+      http.get(`${contactsUrl}/:id/vouchers`, () => {
+        anotar("cupones");
+        return HttpResponse.json({ data: [] });
+      }),
+      http.get(`${env.apiUrl}/api/servicios/vehiculos`, () => {
+        anotar("vehiculos");
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 },
+        });
+      }),
+      // El contacto no responde hasta que llegaron los otros cuatro: con la
+      // precarga, llegan; sin ella, recién se pedirían al montarse la ficha.
+      http.get(`${contactsUrl}/:id`, async () => {
+        await Promise.race([resto, new Promise((r) => setTimeout(r, 1000))]);
+        pedidos.push("contacto");
+        return HttpResponse.json(makeContact({ id: "ct1" }));
+      }),
+    );
+    const base = mockAuth();
+    const automotora = automotoraDeMe("COMPLETA");
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: { ...base.me!, ...automotora, modulos: [...(automotora.modulos ?? []), "servicios"] },
+    });
+    server.use(
+      http.get(`${env.apiUrl}/api/contact-custom-fields`, () => {
+        anotar("campos");
+        return HttpResponse.json([]);
+      }),
+    );
+    // Con el staleTime de la app (lib/queryClient.ts): lo precargado no se
+    // vuelve a pedir cuando la tarjeta se monta.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/contacts/ct1/edit"]}>
+          <Routes>
+            <Route path="/contacts/:id/edit" element={<ContactFormPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByDisplayValue(makeContact().firstName);
+    expect(await screen.findByRole("heading", { name: "Vehículos" })).toBeInTheDocument();
+    expect(pedidos.indexOf("contacto")).toBe(4);
+    expect([...pedidos].sort()).toEqual(
+      ["campos", "contacto", "cupones", "usuarios", "vehiculos"].sort(),
+    );
+  });
+});

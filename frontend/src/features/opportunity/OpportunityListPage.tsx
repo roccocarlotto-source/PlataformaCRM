@@ -36,13 +36,7 @@ import { useDeleteOpportunity } from "./mutations";
 import { OpportunityAssociation } from "./OpportunityAssociation";
 import { OpportunityBoardView } from "./OpportunityBoardView";
 import { useOpportunities } from "./queries";
-import {
-  useCompanyNames,
-  useContactNames,
-  useOwnerNames,
-  usePipelineNames,
-  useStageNames,
-} from "./relationResolution";
+import { nombreDeLaEmpresa, nombreDelContacto, useOwnerNames } from "./relationResolution";
 import type { OpportunitySortBy, OpportunityStatus, SortOrder } from "./types";
 import { InlineLoading } from "../../design-system/LoadingState";
 
@@ -142,27 +136,9 @@ function OpportunityTableView() {
 
   const rows = useMemo(() => opportunitiesQuery.data?.data ?? [], [opportunitiesQuery.data]);
 
-  // Solo los ids/pares REALMENTE visibles en esta página — nunca "todas las
-  // Companies/Contacts/Pipelines/Stages/Users" (mismo criterio que
-  // useCompaniesByIds en ContactListPage, M3).
-  const visibleCompanyIds = useMemo(
-    () => rows.map((o) => o.companyId).filter((id): id is string => id !== null),
-    [rows],
-  );
-  const visibleContactIds = useMemo(
-    () => rows.map((o) => o.contactId).filter((id): id is string => id !== null),
-    [rows],
-  );
-  const visiblePipelineIds = useMemo(() => rows.map((o) => o.pipelineId), [rows]);
-  const visibleStageRefs = useMemo(
-    () => rows.map((o) => ({ pipelineId: o.pipelineId, stageId: o.stageId })),
-    [rows],
-  );
-
-  const companyNames = useCompanyNames(tieneEmpresas ? visibleCompanyIds : []);
-  const contactNames = useContactNames(visibleContactIds);
-  const pipelineNames = usePipelineNames(conProcesos ? visiblePipelineIds : []);
-  const stageNames = useStageNames(conProcesos ? visibleStageRefs : []);
+  // Contacto, empresa, proceso y etapa vienen en cada fila del listado
+  // (relationResolution.ts, nombreDelContacto). El asignado no: sale de la
+  // lista de usuarios, que se pide en paralelo con el listado.
   const ownerNames = useOwnerNames(isAdmin);
 
   // La fila del detalle sale del array ya cargado, sin un GET aparte: el
@@ -301,12 +277,8 @@ function OpportunityTableView() {
             </thead>
             <tbody>
               {rows.map((opportunity) => {
-                const companyName = opportunity.companyId
-                  ? (companyNames.byId.get(opportunity.companyId)?.name ?? "—")
-                  : null;
-                const contactName = opportunity.contactId
-                  ? (contactNames.byId.get(opportunity.contactId) ?? "—")
-                  : null;
+                const companyName = nombreDeLaEmpresa(opportunity, tieneEmpresas);
+                const contactName = nombreDelContacto(opportunity);
                 const ownerName = ownerNames.byId.get(opportunity.ownerId) ?? null;
                 // Abierta → fecha estimada; cerrada (WON o LOST) → fecha real.
                 // Son los dos campos que ya existen, cada uno en su caso.
@@ -331,8 +303,8 @@ function OpportunityTableView() {
                     {conProcesos ? (
                       <td>
                         <Badge variant="neutral">
-                          {`${pipelineNames.byId.get(opportunity.pipelineId) ?? "—"} · ${
-                            stageNames.byId.get(opportunity.stageId) ?? "—"
+                          {`${opportunity.pipeline?.name ?? "—"} · ${
+                            opportunity.stage?.name ?? "—"
                           }`}
                         </Badge>
                       </td>
@@ -427,17 +399,13 @@ function OpportunityTableView() {
                     ? [
                         {
                           label: "Empresa",
-                          value: detalle.companyId
-                            ? (companyNames.byId.get(detalle.companyId)?.name ?? "—")
-                            : null,
+                          value: nombreDeLaEmpresa(detalle, tieneEmpresas),
                         },
                       ]
                     : []),
                   {
                     label: "Contacto",
-                    value: detalle.contactId
-                      ? (contactNames.byId.get(detalle.contactId) ?? "—")
-                      : null,
+                    value: nombreDelContacto(detalle),
                   },
                 ],
               },
@@ -448,9 +416,9 @@ function OpportunityTableView() {
                     ? [
                         {
                           label: "Proceso de venta",
-                          value: pipelineNames.byId.get(detalle.pipelineId) ?? "—",
+                          value: detalle.pipeline?.name ?? "—",
                         },
-                        { label: "Etapa", value: stageNames.byId.get(detalle.stageId) ?? "—" },
+                        { label: "Etapa", value: detalle.stage?.name ?? "—" },
                       ]
                     : []),
                   { label: "Monto", value: formatAmount(detalle.amount, detalle.currency) },

@@ -6,7 +6,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeDashboardSummary, makeRevenueSeries } from "../../test/dashboardFixtures";
-import { makeOpportunity } from "../../test/opportunityFixtures";
+import { makeOpportunityListItem } from "../../test/opportunityFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { useDashboardSummary, useDefaultPipelineStageSummary, useRevenueSeries } from "./queries";
@@ -39,7 +39,7 @@ function opportunityListResponse(
   overrides: Partial<OpportunityListResponse> = {},
 ): OpportunityListResponse {
   return {
-    data: [makeOpportunity()],
+    data: [makeOpportunityListItem()],
     pagination: { page: 1, pageSize: 1, total: 1, totalPages: 1 },
     ...overrides,
   };
@@ -320,7 +320,7 @@ describe("useDefaultPipelineStageSummary", () => {
         const total = stageId === "st1" ? 4 : 0;
         return HttpResponse.json(
           opportunityListResponse({
-            data: [makeOpportunity(), makeOpportunity(), makeOpportunity()],
+            data: [makeOpportunityListItem(), makeOpportunityListItem(), makeOpportunityListItem()],
             pagination: { page: 1, pageSize: 1, total, totalPages: total },
           }),
         );

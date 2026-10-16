@@ -264,6 +264,8 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("agentloop-{etiqueta}-{ts}-{hex8}", `${S}agentOrchestration.integration-test.ts`),
   patron("concurrencia-{ts}-{hex8}", `${S}agentTurnConcurrencia.integration-test.ts`),
   patron("auth-rogue-{ts}-{hex8}", `${S}auth.service.integration-test.ts`),
+  patron("cache-auth-{etiqueta}-{ts}-{hex8}", `${S}authContextCache.integration-test.ts`),
+  patron("opp-lista-{etiqueta}-{ts}-{hex8}", `${S}opportunityList.integration-test.ts`),
   patron("auto-{etiqueta}-{ts}-{hex8}", `${S}automation.test-helper.ts`),
   patron("booking-{etiqueta}-{ts}-{hex8}", `${S}booking-config.integration-test.ts`),
   patron("booking3-{etiqueta}-{ts}-{hex8}", `${S}booking.integration-test.ts`),

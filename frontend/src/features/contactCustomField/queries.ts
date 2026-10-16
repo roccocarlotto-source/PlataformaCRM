@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { getContactCustomField, listContactCustomFields } from "./api";
 
 export const contactCustomFieldKeys = {
@@ -10,11 +10,17 @@ export const contactCustomFieldKeys = {
 
 // Las definiciones de la organización. Las usa la pantalla de administración
 // y la ficha del contacto (que las muestra a todos los roles).
-export function useContactCustomFields() {
-  return useQuery({
+// Como opciones y no solo como hook: la ficha del contacto la precarga
+// (ContactFormPage) con la misma clave que usa ContactCustomFieldsCard.
+export function contactCustomFieldsQuery() {
+  return queryOptions({
     queryKey: contactCustomFieldKeys.lists(),
     queryFn: ({ signal }) => listContactCustomFields(signal),
   });
+}
+
+export function useContactCustomFields() {
+  return useQuery(contactCustomFieldsQuery());
 }
 
 export function useContactCustomField(id: string | undefined) {

@@ -57,3 +57,29 @@ test("con TTL 0 no guarda nada: cada request va a la base, como antes", () => {
   cache.guardar(contexto("u1"));
   assert.equal(cache.leer("u1"), null);
 });
+
+test("no guarda lo que se leyó antes de una invalidación (la carrera con desactivar)", () => {
+  const cache = crearAuthContextCache(30_000, () => 0);
+
+  // Un request toma la marca y va a la base; en el medio desactivan al usuario.
+  const desde = cache.marca();
+  cache.olvidar("u1");
+  cache.guardar(contexto("u1", "ADMIN"), desde);
+  assert.equal(cache.leer("u1"), null, "lo leído antes de olvidar no queda guardado");
+
+  // Lo mismo con vaciar() (edición, rubro, módulos).
+  const desde2 = cache.marca();
+  cache.vaciar();
+  cache.guardar(contexto("u2"), desde2);
+  assert.equal(cache.leer("u2"), null);
+
+  // Olvidar a OTRO usuario no impide guardar a este.
+  const desde3 = cache.marca();
+  cache.olvidar("u9");
+  cache.guardar(contexto("u3"), desde3);
+  assert.equal(cache.leer("u3")?.userId, "u3");
+
+  // Y una lectura que empezó después de la invalidación sí se guarda.
+  cache.guardar(contexto("u1", "USER"), cache.marca());
+  assert.equal(cache.leer("u1")?.role, "USER");
+});

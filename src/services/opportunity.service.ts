@@ -13,6 +13,7 @@ import {
   countOpportunitiesWhere,
   createOpportunity as createOpportunityRepo,
   findManyOpportunities,
+  findNombresParaElListado,
   findOpportunityById,
   lockOpportunityForUpdate,
   softDeleteOpportunity,
@@ -106,10 +107,35 @@ export async function listOpportunities(organizationId: string, params: ListOppo
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
-  const [data, total] = await Promise.all([
+  const [filas, total] = await Promise.all([
     findManyOpportunities(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countOpportunities(organizationId, filters),
   ]);
+
+  // Cada fila trae el nombre de lo que muestra la tabla (y el embudo), así el
+  // frontend no pide un GET por cada uno. Una relación borrada viaja como
+  // null, igual que antes, cuando el GET por id daba 404 y la tabla mostraba
+  // "—".
+  const distintos = (ids: (string | null)[]) =>
+    [...new Set(ids)].filter((id): id is string => id !== null);
+  const nombres = await findNombresParaElListado(organizationId, {
+    contactos: distintos(filas.map((o) => o.contactId)),
+    empresas: distintos(filas.map((o) => o.companyId)),
+    procesos: distintos(filas.map((o) => o.pipelineId)),
+    etapas: distintos(filas.map((o) => o.stageId)),
+  });
+  const porId = <T extends { id: string }>(lista: T[]) => new Map(lista.map((x) => [x.id, x]));
+  const contactos = porId(nombres.contactos);
+  const empresas = porId(nombres.empresas);
+  const procesos = porId(nombres.procesos);
+  const etapas = porId(nombres.etapas);
+  const data = filas.map((opportunity) => ({
+    ...opportunity,
+    contact: (opportunity.contactId && contactos.get(opportunity.contactId)) || null,
+    company: (opportunity.companyId && empresas.get(opportunity.companyId)) || null,
+    pipeline: procesos.get(opportunity.pipelineId) ?? null,
+    stage: etapas.get(opportunity.stageId) ?? null,
+  }));
 
   return {
     data,

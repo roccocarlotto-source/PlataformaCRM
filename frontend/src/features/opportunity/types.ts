@@ -69,8 +69,18 @@ export interface OpportunityListPagination {
   totalPages: number;
 }
 
+// Una fila de GET /api/opportunities: la oportunidad más el nombre de lo que
+// muestran la tabla y el embudo, en la misma respuesta (antes era un GET por
+// cada uno). null si no tiene esa relación o si está borrada.
+export interface OpportunityListItem extends Opportunity {
+  contact: { id: string; firstName: string; lastName: string } | null;
+  company: { id: string; name: string } | null;
+  pipeline: { id: string; name: string } | null;
+  stage: { id: string; name: string } | null;
+}
+
 export interface OpportunityListResponse {
-  data: Opportunity[];
+  data: OpportunityListItem[];
   pagination: OpportunityListPagination;
 }
 

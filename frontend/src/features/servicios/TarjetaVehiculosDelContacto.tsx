@@ -6,7 +6,8 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { descripcionDe, ETIQUETA_DE_ESTADO, formatearFecha } from "./formato";
-import { useVehiculos } from "./queries";
+import { useQuery } from "@tanstack/react-query";
+import { vehiculosDelContactoQuery } from "./queries";
 
 // La tarjeta "Vehículos" de la ficha del contacto (docs/servicios.md §4.6).
 // SOLO se monta con el módulo Servicios (useModulo en ContactFormPage): sin el
@@ -20,7 +21,7 @@ export function TarjetaVehiculosDelContacto({
   // Un contacto con los datos borrados es de solo lectura: no se le agregan.
   puedeAgregar: boolean;
 }) {
-  const vehiculosQuery = useVehiculos({ contactId, pageSize: 50 });
+  const vehiculosQuery = useQuery(vehiculosDelContactoQuery(contactId));
 
   // Mismo envoltorio que ContactVouchersSection: el ancho de la ficha.
   return (

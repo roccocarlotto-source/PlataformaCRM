@@ -1,6 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { getOpportunity, listOpportunities } from "./api";
-import type { Opportunity, OpportunityListQuery } from "./types";
+import type { OpportunityListItem, OpportunityListQuery } from "./types";
 
 // Plana, mismo shape que companyKeys/contactKeys/pipelineKeys — NO
 // jerárquica como stageKeys: Opportunity no está scoped a un único padre
@@ -74,7 +74,7 @@ export function usePipelineOpportunitiesAll(pipelineId: string | undefined) {
   const failed = pages.find((page) => page.isError);
   const isSuccess = pages.every((page) => page.isSuccess);
 
-  const data: Opportunity[] | undefined = isSuccess
+  const data: OpportunityListItem[] | undefined = isSuccess
     ? pages.flatMap((page) => page.data?.data ?? [])
     : undefined;
 

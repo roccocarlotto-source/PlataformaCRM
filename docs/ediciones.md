@@ -563,7 +563,7 @@ sigue habiendo un solo gate.
 1. `findUserForAuth` ya hacía `JOIN organizations`: se suma `o.edition` al
    SELECT y `edition` a `AuthContext`. La edición viaja con el contexto de
    autenticación, que ya se cacheaba por usuario (`AUTH_CONTEXT_CACHE_TTL_MS`,
-   5 s): **ninguna consulta extra por pedido**. Sale siempre de la base, nunca
+   5 s entonces, 30 s desde 2026-10): **ninguna consulta extra por pedido**. Sale siempre de la base, nunca
    de un header ni del body.
 2. `authenticate`, apenas resolvió `req.auth`, llama a
    `exigirModuloDeLaEdicion(req, auth)` (`src/middlewares/moduloDeLaEdicion.ts`).

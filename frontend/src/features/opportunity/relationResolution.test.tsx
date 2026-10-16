@@ -6,16 +6,15 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeContact } from "../../test/contactFixtures";
-import { makePipeline } from "../../test/pipelineFixtures";
-import { makeStage } from "../../test/stageFixtures";
+import { makeOpportunityListItem } from "../../test/opportunityFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { useCompaniesByIds } from "../contact/companyResolution";
 import {
   useCompanyNames,
   useContactNames,
+  nombreDeLaEmpresa,
+  nombreDelContacto,
   useOwnerNames,
-  usePipelineNames,
-  useStageNames,
 } from "./relationResolution";
 
 vi.mock("../../auth/getAccessToken", () => ({
@@ -71,34 +70,24 @@ describe("opportunity/relationResolution", () => {
     expect(result.current.byId.has("ct-borrado")).toBe(false);
   });
 
-  it("usePipelineNames resuelve pipelineId → name", async () => {
-    server.use(
-      http.get(`${env.apiUrl}/api/pipelines/pl1`, () =>
-        HttpResponse.json(makePipeline({ id: "pl1", name: "Ventas" })),
-      ),
+  it("nombreDelContacto: sin contacto, null; vigente, firstName lastName; borrado, —", () => {
+    expect(nombreDelContacto(makeOpportunityListItem({ contactId: null }))).toBeNull();
+    expect(nombreDelContacto(makeOpportunityListItem({ contactId: "ct1" }))).toBe("Ana Pérez");
+    expect(nombreDelContacto(makeOpportunityListItem({ contactId: "ct1", contact: null }))).toBe(
+      "—",
     );
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    const { result } = renderHook(() => usePipelineNames(["pl1"]), {
-      wrapper: wrapperFor(queryClient),
-    });
-
-    await waitFor(() => expect(result.current.byId.get("pl1")).toBe("Ventas"));
   });
 
-  it("useStageNames resuelve pares (pipelineId, stageId) y distingue el mismo stageId bajo pipelines distintos", async () => {
-    server.use(
-      http.get(`${env.apiUrl}/api/stages/st1`, () =>
-        HttpResponse.json(makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto" })),
-      ),
-    );
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    const { result } = renderHook(() => useStageNames([{ pipelineId: "pl1", stageId: "st1" }]), {
-      wrapper: wrapperFor(queryClient),
-    });
-
-    await waitFor(() => expect(result.current.byId.get("st1")).toBe("Prospecto"));
+  it("nombreDeLaEmpresa: sin empresa, null; borrada o sin el módulo empresas, —", () => {
+    const conEmpresa = makeOpportunityListItem({ companyId: "co1" });
+    expect(
+      nombreDeLaEmpresa(makeOpportunityListItem({ companyId: null, contactId: "ct1" }), true),
+    ).toBeNull();
+    expect(nombreDeLaEmpresa(conEmpresa, true)).toBe("Acme Corp");
+    expect(nombreDeLaEmpresa(conEmpresa, false)).toBe("—");
+    expect(
+      nombreDeLaEmpresa(makeOpportunityListItem({ companyId: "co1", company: null }), true),
+    ).toBe("—");
   });
 
   it("useOwnerNames(false) no dispara ningún fetch a /api/users", async () => {

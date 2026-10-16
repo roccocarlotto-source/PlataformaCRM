@@ -1,4 +1,4 @@
-import type { Opportunity } from "../features/opportunity/types";
+import type { Opportunity, OpportunityListItem } from "../features/opportunity/types";
 
 // Fixture compartida entre los tests de features/opportunity/. amount se
 // fija como string, fiel al contrato real (Prisma.Decimal → toJSON()
@@ -30,5 +30,24 @@ export function makeOpportunity(overrides: Partial<Opportunity> = {}): Opportuni
     updatedAt: "2026-01-01T00:00:00.000Z",
     deletedAt: null,
     ...overrides,
+  };
+}
+
+// Una fila de GET /api/opportunities: la oportunidad más los nombres de sus
+// relaciones. Por defecto salen de los ids, con los nombres de siempre en estos
+// tests; un override de contact/company/pipeline/stage los pisa (null = borrada).
+export function makeOpportunityListItem(
+  overrides: Partial<OpportunityListItem> = {},
+): OpportunityListItem {
+  const opportunity = makeOpportunity(overrides);
+  return {
+    contact: opportunity.contactId
+      ? { id: opportunity.contactId, firstName: "Ana", lastName: "Pérez" }
+      : null,
+    company: opportunity.companyId ? { id: opportunity.companyId, name: "Acme Corp" } : null,
+    pipeline: { id: opportunity.pipelineId, name: "Ventas" },
+    stage: { id: opportunity.stageId, name: "Prospecto" },
+    ...overrides,
+    ...opportunity,
   };
 }

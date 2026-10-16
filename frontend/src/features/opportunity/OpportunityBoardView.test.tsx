@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
-import { makeOpportunity } from "../../test/opportunityFixtures";
+import { makeOpportunityListItem } from "../../test/opportunityFixtures";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
@@ -172,7 +172,7 @@ function boardHandlers(
           { status: options.patchStatus },
         );
       }
-      const original = opportunities.find((o) => o.id === params.id) ?? makeOpportunity();
+      const original = opportunities.find((o) => o.id === params.id) ?? makeOpportunityListItem();
       return HttpResponse.json({ ...original, ...body, updatedAt: "2026-09-04T12:00:00.000Z" });
     }),
     http.get(`${companiesUrl}/:id`, ({ params }) =>
@@ -211,7 +211,9 @@ function column(name: string): HTMLElement {
 describe("OpportunityBoardView", () => {
   it("(a) las columnas son las etapas reales del pipeline, en su orden, pedidas por `order` asc", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    const { handlers, captured } = boardHandlers([makeOpportunity({ stageId: "st-prospecto" })]);
+    const { handlers, captured } = boardHandlers([
+      makeOpportunityListItem({ stageId: "st-prospecto" }),
+    ]);
     server.use(...handlers);
 
     renderBoard();
@@ -243,7 +245,7 @@ describe("OpportunityBoardView", () => {
 
   it("(b) las etapas isWon/isLost llevan su tratamiento visual y NO tienen '+ Añadir'; las normales sí", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    const { handlers } = boardHandlers([makeOpportunity({ stageId: "st-prospecto" })]);
+    const { handlers } = boardHandlers([makeOpportunityListItem({ stageId: "st-prospecto" })]);
     server.use(...handlers);
 
     renderBoard();
@@ -265,7 +267,7 @@ describe("OpportunityBoardView", () => {
   it("(c) soltar en una columna isWon manda PATCH con status WON y actualCloseDate hoy, y mueve la tarjeta ya", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const { handlers, captured } = boardHandlers([
-      makeOpportunity({ id: "op1", stageId: "st-prospecto", status: "OPEN" }),
+      makeOpportunityListItem({ id: "op1", stageId: "st-prospecto", status: "OPEN" }),
     ]);
     server.use(...handlers);
 
@@ -292,7 +294,7 @@ describe("OpportunityBoardView", () => {
   it("(d) soltar una oportunidad cerrada en una columna normal la reabre: status OPEN y actualCloseDate null", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const { handlers, captured } = boardHandlers([
-      makeOpportunity({
+      makeOpportunityListItem({
         id: "op1",
         stageId: "st-perdida",
         status: "LOST",
@@ -320,7 +322,7 @@ describe("OpportunityBoardView", () => {
   it("mover entre dos etapas normales estando OPEN manda solo stageId; soltar en la misma columna no manda nada", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const { handlers, captured } = boardHandlers([
-      makeOpportunity({ id: "op1", stageId: "st-prospecto", status: "OPEN" }),
+      makeOpportunityListItem({ id: "op1", stageId: "st-prospecto", status: "OPEN" }),
     ]);
     server.use(...handlers);
 
@@ -339,7 +341,7 @@ describe("OpportunityBoardView", () => {
   it("si el PATCH falla, la tarjeta vuelve a su columna y el error se muestra", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const { handlers, captured } = boardHandlers(
-      [makeOpportunity({ id: "op1", stageId: "st-prospecto", status: "OPEN" })],
+      [makeOpportunityListItem({ id: "op1", stageId: "st-prospecto", status: "OPEN" })],
       { patchStatus: 422 },
     );
     server.use(...handlers);
@@ -362,9 +364,19 @@ describe("OpportunityBoardView", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const { handlers, captured } = boardHandlers(
       [
-        makeOpportunity({ id: "op1", title: "Uno", stageId: "st-prospecto", amount: "100.00" }),
-        makeOpportunity({ id: "op2", title: "Dos", stageId: "st-propuesta", amount: "250.00" }),
-        makeOpportunity({
+        makeOpportunityListItem({
+          id: "op1",
+          title: "Uno",
+          stageId: "st-prospecto",
+          amount: "100.00",
+        }),
+        makeOpportunityListItem({
+          id: "op2",
+          title: "Dos",
+          stageId: "st-propuesta",
+          amount: "250.00",
+        }),
+        makeOpportunityListItem({
           id: "op3",
           title: "Tres",
           stageId: "st-ganada",
@@ -393,8 +405,8 @@ describe("OpportunityBoardView", () => {
   it("el buscador filtra por título client-side, sin pedir nada nuevo", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const { handlers, captured } = boardHandlers([
-      makeOpportunity({ id: "op1", title: "Renovación anual", stageId: "st-prospecto" }),
-      makeOpportunity({ id: "op2", title: "Licencias nuevas", stageId: "st-prospecto" }),
+      makeOpportunityListItem({ id: "op1", title: "Renovación anual", stageId: "st-prospecto" }),
+      makeOpportunityListItem({ id: "op2", title: "Licencias nuevas", stageId: "st-prospecto" }),
     ]);
     server.use(...handlers);
     const user = userEvent.setup();
@@ -415,7 +427,7 @@ describe("OpportunityBoardView", () => {
   it("USER: no ve el avatar del asignado ni dispara GET /api/users, pero sí puede añadir", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     let usersRequests = 0;
-    const { handlers } = boardHandlers([makeOpportunity({ stageId: "st-prospecto" })]);
+    const { handlers } = boardHandlers([makeOpportunityListItem({ stageId: "st-prospecto" })]);
     server.use(
       ...handlers,
       http.get(usersUrl, () => {
@@ -439,13 +451,18 @@ describe("OpportunityBoardView", () => {
   it("USER: la tarjeta de otro vendedor no es un link a editar; la suya sí", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     const { handlers } = boardHandlers([
-      makeOpportunity({
+      makeOpportunityListItem({
         id: "ajena",
         title: "Renovación anual",
         stageId: "st-prospecto",
         ownerId: "otro",
       }),
-      makeOpportunity({ id: "propia", title: "Mi venta", stageId: "st-prospecto", ownerId: "u1" }),
+      makeOpportunityListItem({
+        id: "propia",
+        title: "Mi venta",
+        stageId: "st-prospecto",
+        ownerId: "u1",
+      }),
     ]);
     server.use(...handlers);
 
@@ -462,7 +479,7 @@ describe("OpportunityBoardView", () => {
   it("ADMIN ve el avatar del asignado en la tarjeta", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const { handlers } = boardHandlers([
-      makeOpportunity({ stageId: "st-prospecto", ownerId: "u1" }),
+      makeOpportunityListItem({ stageId: "st-prospecto", ownerId: "u1" }),
     ]);
     server.use(...handlers);
 
