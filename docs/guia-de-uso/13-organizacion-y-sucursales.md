@@ -203,6 +203,10 @@ conectado:
 Los botones de esta tarjeta actúan al momento, sin pasar por el **Guardar**
 del formulario.
 
+Si la plataforma todavía no tiene habilitada la conexión con Google, la
+tarjeta dice **"La conexión con Google Calendar todavía no está
+disponible"** y no muestra el botón para conectar.
+
 **Conectar.**
 
 1. Tocá **Conectar con Google Calendar**. Se abre una pestaña nueva con la

@@ -90,6 +90,17 @@ export async function getGoogleCalendarConnection(
   }
 }
 
+// Si la plataforma tiene configurado Google Calendar. Sin configurar, la sección
+// no ofrece "Conectar" (conectar respondería 503).
+export function getGoogleCalendarDisponible(
+  signal?: AbortSignal,
+): Promise<{ configurado: boolean }> {
+  return request<{ configurado: boolean }>("/integrations/google-calendar/estado", {
+    getAccessToken,
+    signal,
+  });
+}
+
 // Firma el state y devuelve la URL de autorización de Google. POST y bajo
 // /connect: es una escritura aunque parezca una lectura (el state firmado
 // habilita a escribir en el callback), ver googleCalendarConnection.routes.ts.

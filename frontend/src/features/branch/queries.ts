@@ -3,6 +3,7 @@ import {
   getBranch,
   getBranchBusinessHours,
   getGoogleCalendarConnection,
+  getGoogleCalendarDisponible,
   listBranches,
 } from "./api";
 import type { BranchListQuery } from "./types";
@@ -19,6 +20,8 @@ export const branchKeys = {
   // Cuelga del detalle: invalidar detail(id) la alcanza también.
   googleCalendar: (id: string) => [...branchKeys.detail(id), "google-calendar"] as const,
   businessHours: (id: string) => [...branchKeys.detail(id), "business-hours"] as const,
+  // No depende de la sucursal: es de la plataforma.
+  googleCalendarDisponible: () => [...branchKeys.all, "google-calendar-disponible"] as const,
 };
 
 // La query que comparten BranchSelect y la resolución de nombres de
@@ -57,6 +60,16 @@ export function useGoogleCalendarConnection(branchId: string) {
   return useQuery({
     queryKey: branchKeys.googleCalendar(branchId),
     queryFn: ({ signal }) => getGoogleCalendarConnection(branchId, signal),
+  });
+}
+
+// Si la plataforma tiene configurado Google Calendar. No cambia mientras corre
+// el servidor: no se vuelve a pedir en la sesión.
+export function useGoogleCalendarDisponible() {
+  return useQuery({
+    queryKey: branchKeys.googleCalendarDisponible(),
+    queryFn: ({ signal }) => getGoogleCalendarDisponible(signal),
+    staleTime: Infinity,
   });
 }
 

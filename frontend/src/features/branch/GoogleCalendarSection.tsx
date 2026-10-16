@@ -11,7 +11,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { useDisconnectGoogleCalendar, useStartGoogleCalendarConnection } from "./mutations";
-import { useGoogleCalendarConnection } from "./queries";
+import { useGoogleCalendarConnection, useGoogleCalendarDisponible } from "./queries";
 
 interface GoogleCalendarSectionProps {
   branchId: string;
@@ -58,6 +58,7 @@ export function GoogleCalendarSection({
   sucursal = VOCABULARIO_AUTOMOTORA_POR_DEFECTO.sucursal,
 }: GoogleCalendarSectionProps) {
   const confirm = useConfirm();
+  const disponible = useGoogleCalendarDisponible();
   const connectionQuery = useGoogleCalendarConnection(branchId);
   const startMutation = useStartGoogleCalendarConnection(branchId);
   const disconnectMutation = useDisconnectGoogleCalendar(branchId);
@@ -89,6 +90,16 @@ export function GoogleCalendarSection({
     }
     setUrlAbierta(null);
     disconnectMutation.mutate();
+  }
+
+  // Sin Google configurado en la plataforma, conectar respondía un error: la
+  // sección lo dice y no ofrece el botón. Mientras se consulta, nada.
+  if (disponible.isSuccess && !disponible.data.configurado) {
+    return (
+      <Card heading="Google Calendar">
+        <p className="ds-hint">La conexión con Google Calendar todavía no está disponible.</p>
+      </Card>
+    );
   }
 
   const conexion = connectionQuery.data ?? null;

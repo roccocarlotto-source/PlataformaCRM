@@ -126,6 +126,7 @@ function respuesta(path: string): Response {
   if (/^\/branches\/[^/]+\/business-hours$/.test(p)) {
     return HttpResponse.json({ configured: true, businessHours: [], defaultBusinessHours: [] });
   }
+  if (p === "/integrations/google-calendar/estado") return HttpResponse.json({ configurado: true });
   if (/^\/branches\/[^/]+\/google-calendar$/.test(p)) {
     return HttpResponse.json({ error: "No conectado" }, { status: 404 });
   }
