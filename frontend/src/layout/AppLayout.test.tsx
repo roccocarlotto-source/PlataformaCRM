@@ -868,3 +868,18 @@ describe("AppLayout — el módulo Servicios suma solo la sección Taller", () =
     }).toEqual(antes);
   });
 });
+
+describe("AppLayout — aviso de modo demo", () => {
+  it("una organización en modo demo ve el aviso fijo arriba del contenido", () => {
+    const auth = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...auth, me: { ...auth.me!, isDemo: true } });
+    renderLayout();
+    expect(screen.getByText(/Modo demo: los mensajes se simulan/)).toBeInTheDocument();
+  });
+
+  it("una organización común no ve nada", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+    expect(screen.queryByText(/Modo demo/)).not.toBeInTheDocument();
+  });
+});

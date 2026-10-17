@@ -118,6 +118,7 @@ const CLAVES_DE_ME_DE_HOY = [
   "fullName",
   "id",
   "internalAgentConfigured",
+  "isDemo",
   "isPlatformAdmin",
   "modulos",
   "organizationId",

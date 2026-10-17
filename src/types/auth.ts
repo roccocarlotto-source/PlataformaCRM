@@ -39,6 +39,10 @@ export interface AuthContext {
   // El rubro de la organización (docs/rubros.md §1.1), por el mismo JOIN y con
   // las mismas garantías que la edición. El gate decide con los dos.
   industry: OrganizationIndustry;
+  // Modo demo de la organización (src/services/modoDemo.service.ts), por el
+  // mismo JOIN. Opcional para no obligar a cada fixture de test a declararlo:
+  // ausente vale false.
+  isDemo?: boolean;
   // Las sedes de una Recepción de clínica (docs/rubros.md §11.5, R20), sin las
   // borradas. SOLO existe para Recepción en una CLINICA: para cualquier otro
   // usuario la clave no está, y el contexto de una automotora es el mismo de

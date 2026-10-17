@@ -403,6 +403,8 @@ test("listado: 403 para un ADMIN común; el platform admin ve las vigentes con i
         slug: vigente.slug,
         edition: "COMPLETA",
         industry: "AUTOMOTORA",
+        // Modo demo (modoDemo.service.ts): una organización común no lo es.
+        isDemo: false,
         // Los módulos activables vigentes (docs/servicios.md §1.5): ninguno.
         modulosActivados: [],
       });

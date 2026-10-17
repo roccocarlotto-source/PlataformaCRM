@@ -1,4 +1,5 @@
 import { ConversationChannel, type Conversation, type Message } from "@prisma/client";
+import { salidasPara } from "../services/modoDemo.service";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { aplicarEstadosRetenidos } from "../services/estadosDeEntregaRetenidos.service";
@@ -245,6 +246,8 @@ export async function enviarPorElCanal(
   pageAccessToken: string | null,
   deps: Pick<DepsDeEnvio, "accessToken" | "sendText" | "sendMetaText">,
 ): Promise<string | null> {
+  // Modo demo: las salidas simuladas si la organización es una demo.
+  const salidas = await salidasPara(job.organizationId, deps);
   if (esCanalDeMeta(job.channel)) {
     if (!pageAccessToken) {
       // resolverTokenDePagina corre antes y no devuelve null para estos
@@ -252,7 +255,7 @@ export async function enviarPorElCanal(
       throw new Error(`Falta el token de página para mandar por ${job.channel}`);
     }
     await enviarEnPartes(mensaje, job.channel, (texto) =>
-      deps.sendMetaText({ pageAccessToken, recipientId: job.externalUserId, text: texto }),
+      salidas.sendMetaText({ pageAccessToken, recipientId: job.externalUserId, text: texto }),
     );
     return null;
   }
@@ -261,7 +264,7 @@ export async function enviarPorElCanal(
     throw new Error("Falta WHATSAPP_ACCESS_TOKEN en el entorno");
   }
   const { wamid } = await enviarEnPartes(mensaje, job.channel, (texto) =>
-    deps.sendText({
+    salidas.sendText({
       phoneNumberId: job.channelAccountId,
       to: job.externalUserId,
       body: texto,

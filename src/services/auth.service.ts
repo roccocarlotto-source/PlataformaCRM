@@ -113,6 +113,7 @@ async function resolverDesdeLaBase(payload: JwtPayload): Promise<AuthContext> {
     fullName: user.fullName,
     edition: user.organization.edition,
     industry: user.organization.industry,
+    isDemo: user.organization.isDemo,
     ...(user.sedes !== null ? { sedes: user.sedes } : {}),
     ...(user.modulosActivados.length > 0 ? { modulosActivados: user.modulosActivados } : {}),
   };

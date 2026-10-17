@@ -1,4 +1,5 @@
 import { WhatsappTemplateHeaderFormat } from "@prisma/client";
+import { salidasPara } from "../../services/modoDemo.service";
 import { env } from "../../config/env";
 import { findQrCodeById } from "../../repositories/qrCode.repository";
 import { proximaAperturaDeLaSucursal } from "../../services/branchBusinessHours.service";
@@ -259,7 +260,8 @@ export async function procesarRecordatorio(
       valoresDelRecordatorio(fila, await deps.sedesDeLaClinica(fila.organizationId)),
     );
   }
-  const { wamid } = await deps.sendTemplate({
+  const salidas = await salidasPara(fila.organizationId, deps);
+  const { wamid } = await salidas.sendTemplate({
     phoneNumberId,
     to: destino,
     templateName: plantilla.name,

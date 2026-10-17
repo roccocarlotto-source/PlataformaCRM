@@ -1,4 +1,5 @@
 import type { Conversation, ConversationChannel, Message } from "@prisma/client";
+import { salidasPara } from "./modoDemo.service";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { avisoDeRecepcion } from "../clinicas/services/sedesDeUsuarios.service";
@@ -281,6 +282,8 @@ async function enviarPorElCanal(
   deps: DepsDeRespuestaHumana,
 ): Promise<void> {
   const { organizationId } = mensaje;
+  // Modo demo: las salidas simuladas si la organización es una demo.
+  const salidas = await salidasPara(organizationId, deps);
   try {
     if (destino.canal === "WEB") {
       // Nada que mandar: el widget lo trae del hilo.
@@ -291,7 +294,7 @@ async function enviarPorElCanal(
       const pageAccessToken = await deps.pageAccessToken(organizationId, destino.pageId);
       // OPUS-B-02 (docs-privados, local): en las partes que pida el canal.
       await enviarEnPartes(mensaje, destino.channel, (texto) =>
-        deps.sendMetaText({ pageAccessToken, recipientId: destino.recipientId, text: texto }),
+        salidas.sendMetaText({ pageAccessToken, recipientId: destino.recipientId, text: texto }),
       );
       await markMessageDelivery(mensaje.id, organizationId, { status: "SENT" });
       return;
@@ -301,7 +304,7 @@ async function enviarPorElCanal(
       throw new Error("Falta configurar el token de WhatsApp del servidor");
     }
     const { wamid } = await enviarEnPartes(mensaje, "WHATSAPP", (texto) =>
-      deps.sendText({
+      salidas.sendText({
         phoneNumberId: destino.phoneNumberId,
         to: destino.to,
         body: texto,

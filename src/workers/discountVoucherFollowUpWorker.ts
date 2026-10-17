@@ -1,4 +1,5 @@
 import { OpportunityStatus } from "@prisma/client";
+import { salidasPara } from "../services/modoDemo.service";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
@@ -260,7 +261,8 @@ export async function procesarCupon(
     { tipo: "v", id: discountVoucherId },
     { baseDeLaApi: (deps.baseDeLaApi ?? baseDeLaApiPublica)() },
   );
-  const { wamid } = await deps.sendTemplate({
+  const salidas = await salidasPara(fila.organizationId, deps);
+  const { wamid } = await salidas.sendTemplate({
     phoneNumberId,
     to: destino,
     templateName: plantilla.name,

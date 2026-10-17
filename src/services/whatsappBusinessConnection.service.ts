@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { exigirQueNoSeaDemo } from "./modoDemo.service";
 import { logger } from "../lib/logger";
 import {
   findConexionDeWhatsapp,
@@ -78,6 +79,7 @@ export async function conectarWabaDeLaClinica(
   deps: DepsDeAlta = depsDeAltaReales,
 ): Promise<ResultadoDelAlta> {
   await organizacionClinica(input.organizationId);
+  await exigirQueNoSeaDemo(input.organizationId, "dar de alta un WABA propio");
   const otra = await findOrganizacionDelWaba(input.wabaId);
   if (otra && otra.organizationId !== input.organizationId) {
     throw new AppError(WABA_DE_OTRA_ORGANIZACION, 409);

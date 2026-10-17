@@ -18,7 +18,7 @@ import { ConversationBriefCard } from "./ConversationBriefCard";
 import { ConversationReplyCard } from "./ConversationReplyCard";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import {
-  DELIVERY_STATUS_LABEL,
+  etiquetaDeEntrega,
   MARCA_SIN_RESPUESTA,
   STATUS_BADGE_VARIANT,
   STATUS_LABEL,
@@ -338,7 +338,7 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
                           {message.deliveryStatus ? (
                             <span title={message.deliveryError ?? undefined}>
                               {" "}
-                              · {DELIVERY_STATUS_LABEL[message.deliveryStatus]}
+                              · {etiquetaDeEntrega(message, me?.isDemo === true)}
                             </span>
                           ) : null}
                         </span>

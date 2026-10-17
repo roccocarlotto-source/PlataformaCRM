@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { salidasPara } from "../services/modoDemo.service";
 import { logger } from "../lib/logger";
 import { soloDigitos } from "../lib/telefono";
 import {
@@ -284,7 +285,8 @@ export async function procesarSeguimientoDeConsulta(
     (await deps.agenteRespondeSolo(fila.organizationId, fila.conversationId))
   ) {
     const texto = await deps.generarTexto(fila, ahora);
-    const { wamid } = await deps.sendText({
+    const salidas = await salidasPara(fila.organizationId, deps);
+    const { wamid } = await salidas.sendText({
       phoneNumberId,
       to: destino,
       body: texto,
@@ -313,7 +315,8 @@ export async function procesarSeguimientoDeConsulta(
     // R15: solo lo lleva la plantilla de una clínica.
     [TOKEN_PRESTACION]: prestacionParaElMensaje(fila.contact),
   });
-  const { wamid } = await deps.sendTemplate({
+  const salidas = await salidasPara(fila.organizationId, deps);
+  const { wamid } = await salidas.sendTemplate({
     phoneNumberId,
     to: destino,
     templateName: plantilla.name,

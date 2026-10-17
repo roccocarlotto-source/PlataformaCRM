@@ -46,6 +46,22 @@ export const STATUS_BADGE_VARIANT: Record<ConversationStatus, BadgeVariant> = {
 // Estado de entrega de un saliente (WA-1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)),
 // como texto chico al lado de la hora de la burbuja. PENDING es "enviando":
 // el turno produjo la respuesta y el envío todavía no se confirmó.
+// Modo demo: un saliente que no salió de verdad. El backend lo marca con un
+// id externo `demo:…`; la pantalla lo dice en vez de "Enviado".
+export const PREFIJO_DEL_ID_SIMULADO = "demo:";
+export const MARCA_SIMULADO = "Simulado";
+
+export function etiquetaDeEntrega(
+  message: { deliveryStatus: MessageDeliveryStatus | null; externalMessageId: string | null },
+  modoDemo: boolean,
+): string | null {
+  if (!message.deliveryStatus) return null;
+  if (modoDemo && message.externalMessageId?.startsWith(PREFIJO_DEL_ID_SIMULADO)) {
+    return MARCA_SIMULADO;
+  }
+  return DELIVERY_STATUS_LABEL[message.deliveryStatus];
+}
+
 export const DELIVERY_STATUS_LABEL: Record<MessageDeliveryStatus, string> = {
   PENDING: "Enviando",
   SENT: "Enviado",

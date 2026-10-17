@@ -20,6 +20,7 @@ import { Button } from "../design-system/Button";
 import { ErrorState } from "../design-system/ErrorState";
 import { ThemeToggle } from "../design-system/ThemeToggle";
 import { AvisoSinSedes } from "../features/clinica/AvisoSinSedes";
+import { AvisoDeModoDemo } from "./AvisoDeModoDemo";
 import { roleLabel } from "../features/user/roles";
 import { MenuDeAutomotora } from "./MenuDeAutomotora";
 import { MenuDeClinica } from "./MenuDeClinica";
@@ -229,6 +230,7 @@ export function AppLayout() {
           {/* R20: el aviso de una Recepción de clínica sin sedes; para el
               resto no renderiza nada. */}
           <AvisoSinSedes />
+          <AvisoDeModoDemo />
           <Outlet />
         </main>
       </div>

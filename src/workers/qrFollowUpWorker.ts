@@ -1,4 +1,5 @@
 import { OpportunityStatus, WhatsappTemplateHeaderFormat } from "@prisma/client";
+import { salidasPara } from "../services/modoDemo.service";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { findBranchWhatsappPhoneNumberId } from "../repositories/agent.repository";
@@ -300,7 +301,8 @@ export async function procesarSeguimiento(
     { tipo: "r", id: fila.qrCodeId },
     { baseDeLaApi: (deps.baseDeLaApi ?? baseDeLaApiPublica)() },
   );
-  const { wamid } = await deps.sendTemplate({
+  const salidas = await salidasPara(fila.organizationId, deps);
+  const { wamid } = await salidas.sendTemplate({
     phoneNumberId,
     to: destino,
     templateName: plantilla.name,

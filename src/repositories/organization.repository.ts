@@ -138,6 +138,7 @@ export function listActiveOrganizations(db: Db = prisma) {
       slug: true,
       edition: true,
       industry: true,
+      isDemo: true,
       // Los módulos activables vigentes (docs/servicios.md §1.5).
       organizationModules: {
         where: { disabledAt: null },

@@ -160,7 +160,7 @@ async function createOrphanAuthUser(label: string) {
   return { accessToken: signInData.session.access_token, authUserId: data.user.id };
 }
 
-test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role/isPlatformAdmin/canUseInternalAgent/edition/industry/modulos/vocabulario", async () => {
+test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role/isPlatformAdmin/canUseInternalAgent/edition/industry/isDemo/modulos/vocabulario", async () => {
   const fx = await createFixtureUser("happy", "ADMIN");
   const { url, close } = await startTestApp();
   try {
@@ -184,6 +184,7 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
         // Si la organización tiene un agente interno (OPUS-F-04 / FABLE-F-07,
         // docs-privados, local).
         "internalAgentConfigured",
+        "isDemo",
         "isPlatformAdmin",
         "modulos",
         "organizationId",

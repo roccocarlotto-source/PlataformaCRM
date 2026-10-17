@@ -72,8 +72,12 @@ const HILO: ConversationMessage[] = [
   }),
 ];
 
-function renderDetail(role: "ADMIN" | "USER" = "ADMIN") {
-  useAuthMock.mockReturnValue(mockAuth(role));
+function renderDetail(role: "ADMIN" | "USER" = "ADMIN", opciones: { isDemo?: boolean } = {}) {
+  const auth = mockAuth(role);
+  // Modo demo: el mismo usuario con la bandera de la organización.
+  useAuthMock.mockReturnValue(
+    opciones.isDemo ? { ...auth, me: { ...auth.me!, isDemo: true } } : auth,
+  );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={queryClient}>
@@ -306,6 +310,62 @@ describe("ConversationDetail", () => {
     expect(fallido).toHaveAttribute("title", "(131047) Re-engagement message");
     // El entrante no tiene estado de entrega.
     expect(screen.queryByText(/· Enviado/)).not.toBeInTheDocument();
+  });
+
+  it("en una organización en modo demo, un saliente con id demo: dice Simulado en vez de Enviado", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(
+          makeConversationDetail({}, [
+            makeMessage({
+              id: "m1",
+              direction: "OUTBOUND",
+              senderType: "AGENT",
+              content: "Hola, tenemos el Onix.",
+              deliveryStatus: "SENT",
+              externalMessageId: "demo:abc-123",
+            }),
+            makeMessage({
+              id: "m2",
+              direction: "OUTBOUND",
+              senderType: "AGENT",
+              content: "Este sí salió (antes del modo demo).",
+              deliveryStatus: "SENT",
+              externalMessageId: "wamid.HBgL",
+            }),
+          ]),
+        ),
+      ),
+    );
+
+    renderDetail("ADMIN", { isDemo: true });
+
+    expect(await screen.findByText(/· Simulado/)).toBeInTheDocument();
+    expect(screen.getByText(/· Enviado/)).toBeInTheDocument();
+  });
+
+  it("sin modo demo, un id demo: se muestra como siempre (la marca depende de la organización)", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(
+          makeConversationDetail({}, [
+            makeMessage({
+              id: "m1",
+              direction: "OUTBOUND",
+              senderType: "AGENT",
+              content: "Hola",
+              deliveryStatus: "SENT",
+              externalMessageId: "demo:abc-123",
+            }),
+          ]),
+        ),
+      ),
+    );
+
+    renderDetail();
+
+    expect(await screen.findByText(/· Enviado/)).toBeInTheDocument();
+    expect(screen.queryByText(/· Simulado/)).not.toBeInTheDocument();
   });
 
   // Lo que se vio en producción: el resultado de search_vehicles, con códigos
