@@ -107,15 +107,29 @@ export interface ReenvioDeInvitacion {
 export interface ReinicioDeLaDemo {
   organizationId: string;
   borrados: Record<string, number>;
-  cargados: {
-    bloqueos: number;
-    pacientes: number;
-    turnosProximos: number;
-    sobreturnos: number;
-    turnosConfirmados: number;
-    turnosAtendidos: number;
-    turnosOmitidos: number;
-  };
+  // Los de la Clínica Demo; el Taller Demo devuelve los suyos (contactos,
+  // unidades, ordenes…), por eso los dos juegos son opcionales.
+  cargados: Partial<CargadosDelTallerDemo> &
+    Partial<{
+      bloqueos: number;
+      pacientes: number;
+      turnosProximos: number;
+      sobreturnos: number;
+      turnosConfirmados: number;
+      turnosAtendidos: number;
+      turnosOmitidos: number;
+    }>;
+}
+
+// Lo que vuelve a cargar el reinicio del Taller Demo (docs/taller-demo.md §4).
+export interface CargadosDelTallerDemo {
+  contactos: number;
+  unidades: number;
+  oportunidades: number;
+  vehiculosDeClientes: number;
+  ordenes: number;
+  tareas: number;
+  conversaciones: number;
 }
 
 // Contrato de PUT /api/admin/agents/:agentId/whatsapp-phone-number

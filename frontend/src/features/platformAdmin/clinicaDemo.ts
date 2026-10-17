@@ -17,7 +17,23 @@ export function esClinicaDemo(org: Pick<PlatformOrganization, "slug" | "industry
   );
 }
 
-/** Qué borra y qué deja el reinicio: el texto de la confirmación. */
+/** Qué filas muestran "Reiniciar datos de demo": las organizaciones en modo
+ *  demo (isDemo, docs/taller-demo.md). Una Clínica Demo por su slug también,
+ *  para un backend anterior que todavía no manda isDemo. El backend decide:
+ *  si no es una demo, 400. */
+export function esDemo(org: Pick<PlatformOrganization, "slug" | "industry" | "isDemo">): boolean {
+  return org.isDemo === true || esClinicaDemo(org);
+}
+
+/** Qué borra y qué deja el reinicio del Taller Demo: el texto de la
+ *  confirmación. */
+export const CONFIRMACION_DEL_REINICIO_DEL_TALLER =
+  "Se borran para siempre los contactos, las conversaciones con sus mensajes, las oportunidades, el stock con sus fotos, los vehículos de clientes, las órdenes de taller, las tareas y los turnos. " +
+  "Queda la configuración: sucursales y horarios, proceso de venta, tipos de service, campos personalizados, base de conocimiento, agentes, automatizaciones, QR, usuarios e invitaciones. " +
+  "Después se vuelven a cargar los datos de ejemplo con fechas de hoy. Tarda alrededor de un minuto.";
+
+/** Qué borra y qué deja el reinicio de la Clínica Demo: el texto de la
+ *  confirmación. */
 export const CONFIRMACION_DEL_REINICIO =
   "Se borran para siempre los pacientes, los turnos, las conversaciones con sus mensajes, las tareas, los recordatorios y mensajes programados de los turnos y los bloqueos de los profesionales. " +
   "Queda la configuración: sedes y horarios, profesionales, prestaciones, base de conocimiento, agentes, automatizaciones, QR, usuarios e invitaciones. " +

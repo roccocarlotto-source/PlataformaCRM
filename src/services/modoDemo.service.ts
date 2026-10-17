@@ -184,6 +184,11 @@ export async function exigirQueNoSeaDemo(
   }
 }
 
+/** El reinicio de los datos de una demo (Clínica Demo o Taller Demo) sobre
+ *  una organización que no lo es: 400 sin tocar nada. */
+export const NO_ES_UNA_DEMO =
+  "Solo se pueden reiniciar los datos de una demo: una Clínica Demo o un Taller Demo en modo demo.";
+
 export const MENSAJE_INVITACION_EN_DEMO =
   "Esta organización está en modo demo: solo un administrador de la plataforma puede invitar usuarios.";
 

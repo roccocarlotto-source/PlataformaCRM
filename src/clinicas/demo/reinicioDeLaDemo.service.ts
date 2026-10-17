@@ -1,5 +1,6 @@
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
+import { NO_ES_UNA_DEMO } from "../../services/modoDemo.service";
 import { AppError } from "../../utils/AppError";
 import { reglaDelRecordatorio } from "../recordatorios/programacion.service";
 import {
@@ -31,8 +32,9 @@ import {
 // los QR, los usuarios y las invitaciones. Tampoco el registro de uso del
 // modelo (llm_turn_usages): no referencia a nada que se borre.
 //
-// SOLO UNA DEMO: rubro CLINICA y slug de la demo (esSlugDeClinicaDemo). Es
-// un borrado definitivo; con cualquier otra organización, 400 sin tocar nada.
+// SOLO UNA DEMO: is_demo (lo exige el despacho, src/services/reinicioDeDemo.service.ts),
+// rubro CLINICA y slug de la demo (esSlugDeClinicaDemo). Es un borrado
+// definitivo; con cualquier otra organización, 400 sin tocar nada.
 //
 // NADA SALE DE LA PLATAFORMA. Los turnos nuevos se crean por los services,
 // como en el alta, y emiten booking.created. Sin regla del recordatorio activa
@@ -48,8 +50,7 @@ import {
 // platform admin, la misma carrera aceptada que el alta de la demo.
 // ---------------------------------------------------------------------------
 
-export const NO_ES_UNA_DEMO =
-  "Solo se pueden reiniciar los datos de una Clínica Demo (rubro clínica y slug clinica-demo o clinica-demo-…).";
+export { NO_ES_UNA_DEMO };
 export const DEMO_CON_RECORDATORIO_ACTIVO =
   "La regla del recordatorio de la demo está activa: desactivala antes de reiniciar, así los turnos nuevos no programan mensajes.";
 export const DEMO_CON_GOOGLE =
