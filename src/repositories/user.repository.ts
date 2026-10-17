@@ -259,6 +259,23 @@ export async function adminsVigentesDeLaOrganizacion(organizationId: string, db:
   });
 }
 
+// Todos los usuarios vigentes (cualquier rol), del más viejo al más nuevo: en
+// una DEMO el reenvío de la invitación cubre a los tres usuarios que el alta
+// creó con el mecanismo del fundador (docs/taller-demo.md). null si la
+// organización no existe o está dada de baja.
+export async function usuariosVigentesDeLaOrganizacion(organizationId: string, db: Db = prisma) {
+  const organizacion = await db.organization.findFirst({
+    where: { id: organizationId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!organizacion) return null;
+  return db.user.findMany({
+    where: { organizationId, isActive: true, deletedAt: null },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, email: true, fullName: true },
+  });
+}
+
 export interface UpdateUserData {
   isActive?: boolean;
   roleId?: string;

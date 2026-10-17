@@ -122,6 +122,25 @@ test("la Clínica Demo (clinica-demo y clinica-demo-*) no coincide con ningún p
   );
 });
 
+// Lo mismo con el Taller Demo (docs/taller-demo.md).
+test("el Taller Demo (taller-demo y taller-demo-*) no coincide con ningún patrón", () => {
+  for (const nombre of [
+    "Taller Demo",
+    "Taller Demo Este",
+    "Taller Demo 2",
+    "Taller Demo Test 1790000000000 a1b2c3d4",
+    "Taller Demo Completa Automotora 1790000000000 a1b2c3d4",
+  ]) {
+    assert.deepEqual(patronesQueCoinciden(slugify(nombre)), [], nombre);
+  }
+  assert.deepEqual(
+    PATRONES_DE_SLUG_DE_PRUEBA.filter((p) => p.plantilla.startsWith("taller-demo")).map(
+      (p) => p.plantilla,
+    ),
+    [],
+  );
+});
+
 test("los ejemplos del incidente coinciden", () => {
   assert.ok(patronesQueCoinciden("auto-won-1790000000000-a1b2c3d4").length > 0);
   assert.ok(patronesQueCoinciden("auto-stale-x-1790000000000-a1b2c3d4").length > 0);

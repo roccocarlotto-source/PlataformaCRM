@@ -112,6 +112,31 @@ describe("OrganizationsPage", () => {
     expect(reenvios).toBe(1);
   });
 
+  // En una demo (docs/taller-demo.md) el reenvío cubre a varios usuarios y
+  // puede dejar alguno sin mail por el cupo del correo.
+  it("reenviar la invitación en una demo: dice a quiénes salió y a quiénes no", async () => {
+    server.use(
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+      http.post(reenviarUrl("org-1"), () =>
+        HttpResponse.json({
+          email: "valentina@example.com",
+          reenviadas: ["valentina@example.com", "martin@example.com"],
+          sinEnviar: ["diego@example.com"],
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const fila = (await screen.findByText("Automotora Centro")).closest("tr") as HTMLElement;
+    await user.click(within(fila).getByRole("button", { name: "Reenviar invitación" }));
+    await user.click(screen.getByRole("button", { name: "Reenviar" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Reenviamos la invitación de «Automotora Centro» a valentina@example.com, martin@example.com. No salió el mail de diego@example.com (el correo tiene un cupo por hora): probá de nuevo más tarde.",
+    );
+  });
+
   it("reenviar la invitación: si el administrador ya la aceptó, muestra el error del backend", async () => {
     server.use(
       http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),

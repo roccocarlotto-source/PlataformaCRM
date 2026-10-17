@@ -220,6 +220,12 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   // catálogo: la purga nunca la toca. El test la borra renombrándola a este
   // patrón.
   patron("demo-r19-{etiqueta}-{ts}-{hex8}", "src/clinicas/clinicaDemo.integration-test.ts"),
+  // Lo mismo con el Taller Demo (`taller-demo` o `taller-demo-…`,
+  // docs/taller-demo.md): fuera del catálogo; su test la renombra a este patrón.
+  patron(
+    "demo-taller-{etiqueta}-{ts}-{hex8}",
+    "src/automotora/demo/tallerDemo.integration-test.ts",
+  ),
   patron("ediciones-{etiqueta}-{ts}-{hex8}", "src/routes/ediciones.integration-test.ts"),
   patron(
     "servicios-activacion-{etiqueta}-{ts}-{hex8}",

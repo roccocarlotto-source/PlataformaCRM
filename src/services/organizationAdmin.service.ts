@@ -1,5 +1,6 @@
 import { Prisma, type OrganizationEdition, type OrganizationIndustry } from "@prisma/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { esSlugDeTallerDemo } from "../automotora/demo/config";
 import { esSlugDeClinicaDemo } from "../clinicas/demo/config";
 import { crearConfiguracionDeClinica } from "../clinicas/repositories/clinicSettings.repository";
 import {
@@ -15,6 +16,7 @@ import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { esOrganizacionDemo } from "./modoDemo.service";
 import { findPendingInvitationByEmail } from "../repositories/invitation.repository";
 import {
   createOrganization,
@@ -33,6 +35,7 @@ import { activeModulesOfOrganization } from "../repositories/organizationModule.
 import { findRoleByName } from "../repositories/role.repository";
 import {
   adminsVigentesDeLaOrganizacion,
+  usuariosVigentesDeLaOrganizacion,
   createUser,
   findUserByEmail,
 } from "../repositories/user.repository";
@@ -127,6 +130,7 @@ export interface OrganizationAdminDeps {
       defaultPhoneCountryCode?: string;
       preferredCurrency?: string;
       timezone?: string;
+      isDemo?: boolean;
     },
     db: Db,
   ) => Promise<{
@@ -161,48 +165,85 @@ export interface OrganizationAdminDeps {
 // identidad de Supabase no confirmó el email —no abrió el mail— y se le
 // reenvía por la Admin API: GoTrue reenvía el invite a una identidad sin
 // confirmar (B-22), con el mismo redirectTo del alta.
+//
+// MODO DEMO (docs/taller-demo.md): el Taller Demo crea sus tres usuarios con
+// este mismo mecanismo (identidad + fila en users, sin Invitation), y el
+// correo integrado de Supabase tiene un cupo por hora bajo, así que alguno
+// puede quedarse sin mail en el alta. En una demo el reenvío cubre a TODOS
+// los usuarios vigentes que no abrieron el mail (no solo a los ADMIN), a
+// mejor esfuerzo: los que salieron van en `reenviadas` y los que el cupo
+// frenó, en `sinEnviar`, para volver a intentar pasada la hora. En una
+// organización común no cambia nada: el primer ADMIN sin confirmar.
 export interface ReenvioDeInvitacionDeAdminDeps {
   supabaseAdmin: () => SupabaseClient;
   frontendOrigin: string;
   adminsDeLaOrganizacion: (
     organizationId: string,
   ) => Promise<{ id: string; email: string; fullName: string }[] | null>;
+  usuariosDeLaOrganizacion: (
+    organizationId: string,
+  ) => Promise<{ id: string; email: string; fullName: string }[] | null>;
+  esOrganizacionDemo: (organizationId: string) => Promise<boolean>;
 }
+
+export interface ReenvioDeInvitacion {
+  /** A quién salió (el primero, por compatibilidad con la pantalla). */
+  email: string;
+  reenviadas: string[];
+  /** Modo demo: a quiénes no se les pudo mandar (el cupo del correo). */
+  sinEnviar: string[];
+}
+
+export const NADA_QUE_REENVIAR =
+  "El administrador de esta organización ya aceptó la invitación: no hay nada que reenviar.";
+export const NADA_QUE_REENVIAR_EN_LA_DEMO =
+  "Todos los usuarios de esta demo ya aceptaron la invitación: no hay nada que reenviar.";
 
 export async function reenviarInvitacionDelAdministrador(
   organizationId: string,
   deps: ReenvioDeInvitacionDeAdminDeps = defaultReenvioDeInvitacionDeAdminDeps,
-): Promise<{ email: string }> {
-  const admins = await deps.adminsDeLaOrganizacion(organizationId);
-  if (admins === null) {
+): Promise<ReenvioDeInvitacion> {
+  const demo = await deps.esOrganizacionDemo(organizationId);
+  const usuarios = demo
+    ? await deps.usuariosDeLaOrganizacion(organizationId)
+    : await deps.adminsDeLaOrganizacion(organizationId);
+  if (usuarios === null) {
     throw new AppError("Organización no encontrada", 404);
   }
   const supabaseAdmin = deps.supabaseAdmin();
-  for (const admin of admins) {
-    const { data, error } = await supabaseAdmin.auth.admin.getUserById(admin.id);
+  const reenviadas: string[] = [];
+  const sinEnviar: string[] = [];
+  for (const usuario of usuarios) {
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(usuario.id);
     if (error || !data.user) {
-      logger.error(
-        { err: error, userId: admin.id },
-        "No se pudo leer la identidad del administrador",
-      );
+      logger.error({ err: error, userId: usuario.id }, "No se pudo leer la identidad del usuario");
       throw new AppError("No se pudo reenviar la invitación", 502);
     }
     if (data.user.email_confirmed_at) continue;
 
-    const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(admin.email, {
-      data: { full_name: admin.fullName },
+    const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(usuario.email, {
+      data: { full_name: usuario.fullName },
       redirectTo: `${deps.frontendOrigin}/reset-password`,
     });
     if (inviteError) {
-      logger.error({ err: inviteError }, "Error reenviando la invitación del administrador");
-      throw new AppError("No se pudo reenviar la invitación", 502);
+      logger.error({ err: inviteError, demo }, "Error reenviando la invitación");
+      if (!demo) throw new AppError("No se pudo reenviar la invitación", 502);
+      sinEnviar.push(usuario.email);
+      continue;
     }
-    return { email: admin.email };
+    reenviadas.push(usuario.email);
+    if (!demo) break;
   }
-  throw new AppError(
-    "El administrador de esta organización ya aceptó la invitación: no hay nada que reenviar.",
-    409,
-  );
+  if (reenviadas.length === 0 && sinEnviar.length === 0) {
+    throw new AppError(demo ? NADA_QUE_REENVIAR_EN_LA_DEMO : NADA_QUE_REENVIAR, 409);
+  }
+  if (reenviadas.length === 0) {
+    throw new AppError(
+      `No se pudo reenviar ninguna invitación (${sinEnviar.join(", ")}). Probá de nuevo pasada una hora: el correo tiene un cupo.`,
+      502,
+    );
+  }
+  return { email: reenviadas[0], reenviadas, sinEnviar };
 }
 
 export function primaryCorsOrigin(corsOrigin: string = env.CORS_ORIGIN): string {
@@ -215,6 +256,8 @@ export const defaultReenvioDeInvitacionDeAdminDeps: ReenvioDeInvitacionDeAdminDe
     return primaryCorsOrigin();
   },
   adminsDeLaOrganizacion: adminsVigentesDeLaOrganizacion,
+  usuariosDeLaOrganizacion: usuariosVigentesDeLaOrganizacion,
+  esOrganizacionDemo,
 };
 
 export const defaultOrganizationAdminDeps: OrganizationAdminDeps = {
@@ -245,8 +288,17 @@ export const defaultOrganizationAdminDeps: OrganizationAdminDeps = {
 // `clinica-demo-…`). Es un parámetro aparte del input a propósito: ningún
 // controller lo arma desde el body; lo pasa solo crearClinicaDemo
 // (src/clinicas/demo/clinicaDemo.service.ts).
+//
+// Lo mismo para el Taller Demo (docs/taller-demo.md): una AUTOMOTORA con el
+// slug `taller-demo` o `taller-demo-…`, que pasa solo crearTallerDemo
+// (src/automotora/demo/tallerDemo.service.ts).
+//
+// Las dos demos nacen en MODO DEMO (organizations.is_demo,
+// src/services/modoDemo.service.ts): es el único camino que pone la
+// bandera, y va en la misma transacción del alta, antes de cualquier dato.
 export interface OpcionesDelAlta {
   clinicaDemo?: boolean;
+  tallerDemo?: boolean;
 }
 
 export async function createOrganizationWithFoundingAdmin(
@@ -281,6 +333,11 @@ export async function createOrganizationWithFoundingAdmin(
   // Clínica Demo (R19) la saltea, y solo para eso: una clínica con el slug
   // de la demo.
   const industry = input.industry ?? "AUTOMOTORA";
+  if (opciones.tallerDemo === true) {
+    if (industry !== "AUTOMOTORA" || !esSlugDeTallerDemo(slug)) {
+      throw new AppError("El Taller Demo es una automotora con el nombre de la demo.", 400);
+    }
+  }
   if (opciones.clinicaDemo === true) {
     if (industry !== "CLINICA" || !esSlugDeClinicaDemo(slug)) {
       throw new AppError("La Clínica Demo es una clínica con el nombre de la demo.", 400);
@@ -369,6 +426,10 @@ export async function createOrganizationWithFoundingAdmin(
             : {}),
           ...(input.preferredCurrency ? { preferredCurrency: input.preferredCurrency } : {}),
           ...(input.timezone ? { timezone: input.timezone } : {}),
+          // Las demos nacen en modo demo (ver OpcionesDelAlta).
+          ...(opciones.clinicaDemo === true || opciones.tallerDemo === true
+            ? { isDemo: true }
+            : {}),
         },
         tx,
       );

@@ -13,6 +13,7 @@ import {
   reiniciarDatosDeLaDemo,
   completeOrganizationMetaConnection,
   createClinicaDemo,
+  createTallerDemo,
   createOrganization,
   disconnectOrganizationMetaConnection,
   startOrganizationMetaConnection,
@@ -26,6 +27,7 @@ import type {
   AssignInternalAgentModelInput,
   AssignWhatsappNumberInput,
   CreateClinicaDemoInput,
+  CreateTallerDemoInput,
   CreateOrganizationInput,
   MetaConnectionPendiente,
 } from "./types";
@@ -47,6 +49,17 @@ export function useCreateClinicaDemo() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateClinicaDemoInput) => createClinicaDemo(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
+    },
+  });
+}
+
+// El Taller Demo (docs/taller-demo.md). Invalida el listado igual que el alta común.
+export function useCreateTallerDemo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateTallerDemoInput) => createTallerDemo(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
     },

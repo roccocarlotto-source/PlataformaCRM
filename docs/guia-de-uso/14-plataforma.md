@@ -82,6 +82,40 @@ Antes de mostrársela a otra clínica, podés dejarla como nueva con
 
 > La demo no se borra sola. Cuando ya no la necesites, pedí que la borren.
 
+### Taller Demo {#taller-demo}
+
+Una automotora de demostración con el módulo **Servicios** y datos inventados,
+para mostrarle el sistema a un taller o a una concesionaria antes de que
+contrate. Nace en **modo demo**: los mensajes se simulan y nada sale de la
+plataforma, así que puede tener el agente y las automatizaciones activos.
+
+1. Entrá a **Plataforma → Nueva organización**.
+2. Marcá **Taller Demo con datos de ejemplo**. El nombre, la edición y el
+   rubro desaparecen: la demo se llama **Taller Demo**, es una automotora de
+   edición **Completa** con Servicios activado.
+3. Si querés tener más de una, escribí un **Sufijo del nombre** (por ejemplo,
+   *Este* crea *Taller Demo Este*).
+4. Completá los tres usuarios: en **Primer administrador**, quien administra
+   la demo; en **Vendedor y encargado del taller**, el nombre y el email de
+   los otros dos. A los tres les llega el mail para elegir su contraseña.
+5. Tocá **Crear Taller Demo**.
+
+La demo trae **Casa Central** (ventas y taller) y **Sucursal Este** (solo
+ventas) con sus horarios, el proceso de venta, los tipos de service, dos
+campos personalizados, la base de conocimiento, un QR, el agente **Asistente
+de ventas** activo (WhatsApp y web, sin número ni página), tres
+automatizaciones activas y una inactiva, y los datos de uso: contactos,
+conversaciones, oportunidades, stock, vehículos de clientes, órdenes de
+taller, tareas y turnos, todos inventados y con fechas relativas al día en
+que se crea.
+
+> El correo tiene un cupo por hora. Si la pantalla avisa que el mail de
+> alguno de los tres no salió, esperá una hora y reenvialo desde
+> [Organizaciones](#organizaciones) con **Reenviar invitación**: en una demo
+> les llega a todos los que todavía no abrieron el suyo.
+
+> La demo no se borra sola. Cuando ya no la necesites, pedí que la borren.
+
 ### Las ediciones {#las-ediciones}
 
 | Edición | Qué tiene |
@@ -153,6 +187,11 @@ invitación (o lo perdió):
 Arriba de la lista aparece a qué email se reenvió. Le llega de nuevo el email
 para elegir su contraseña. Si esa persona ya había aceptado la invitación, el
 sistema te avisa que no hay nada que reenviar.
+
+En una demo ([Clínica Demo](#clinica-demo) o [Taller Demo](#taller-demo)) el
+reenvío cubre a **todos** los usuarios que todavía no abrieron el mail, no
+solo al administrador. Si el correo tiene el cupo de la hora agotado, la
+pantalla dice a quiénes salió y a quiénes no: probá de nuevo más tarde.
 
 ### Reiniciar los datos de una Clínica Demo {#reiniciar-demo}
 

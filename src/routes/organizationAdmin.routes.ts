@@ -12,6 +12,7 @@ import {
   previaDeActivacionHandler,
   reenviarInvitacionDelAdministradorHandler,
 } from "../controllers/organizationAdmin.controller";
+import { crearTallerDemoHandler } from "../automotora/demo/tallerDemo.controller";
 import {
   crearClinicaDemoHandler,
   reiniciarDatosDeLaDemoHandler,
@@ -49,6 +50,16 @@ organizationAdminRouter.post(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   crearClinicaDemoHandler,
+);
+
+// El Taller Demo con datos de ejemplo (docs/taller-demo.md): una automotora
+// en modo demo con el módulo Servicios y tres usuarios. Misma cadena.
+organizationAdminRouter.post(
+  "/admin/organizations/taller-demo",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  crearTallerDemoHandler,
 );
 
 // Reiniciar los datos de una Clínica Demo (§12.3): borra los datos de uso y
