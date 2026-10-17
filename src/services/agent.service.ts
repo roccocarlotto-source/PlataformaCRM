@@ -1,4 +1,5 @@
 import type { AgentParticipation } from "@prisma/client";
+import { exigirQueNoSeaDemo } from "./modoDemo.service";
 import { findBusinessHoursByBranch } from "../repositories/branchBusinessHours.repository";
 import {
   findActiveOrganizationEdition,
@@ -470,6 +471,8 @@ export async function asignarNumeroDeWhatsapp(
     throw new AppError("Agente no encontrado", 404);
   }
   if (input.whatsappPhoneNumberId !== null) {
+    // Modo demo: una demo no atiende un número real (quitarlo sí se puede).
+    await exigirQueNoSeaDemo(agente.organizationId, "asignarle un número de WhatsApp a un agente");
     await assertNumeroDelWabaPropio(agente.organizationId, input.whatsappPhoneNumberId, deps);
   }
 
@@ -590,6 +593,10 @@ export async function asignarPaginaDeFacebook(input: {
     throw new AppError("Agente no encontrado", 404);
   }
 
+  if (input.facebookPageId !== null) {
+    // Modo demo: una demo no atiende una página real (quitarla sí se puede).
+    await exigirQueNoSeaDemo(agente.organizationId, "asignarle una página de Facebook a un agente");
+  }
   if (input.facebookPageId !== null) {
     const conexion = await findActiveMetaConnectionByPageId(input.facebookPageId);
     // El mismo 409 si no está conectada en ningún lado o si está conectada en

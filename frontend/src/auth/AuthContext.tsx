@@ -44,6 +44,10 @@ export interface MeResponse {
   // deciden qué se muestra; lo que decide es el gate de cada request.
   edition?: "COMPLETA" | "ESENCIAL";
   modulos?: string[];
+  // Modo demo de la organización: el aviso fijo y la marca "Simulado" de los
+  // mensajes. Opcional: un backend anterior no lo manda. Lo que decide es la
+  // guardia del backend (src/services/modoDemo.service.ts).
+  isDemo?: boolean;
   // R12: los roles que el ADMIN puede asignar en esta organización (los de
   // su rubro), en orden. Opcional: un backend anterior no lo manda, y
   // entonces son los de una automotora (ver features/user/roles.ts).

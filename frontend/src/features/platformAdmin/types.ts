@@ -123,6 +123,9 @@ export interface PlatformOrganization {
   industry: OrganizationIndustry;
   // Los módulos activables vigentes (docs/servicios.md §1.5), en orden.
   modulosActivados: string[];
+  // Modo demo (docs-privados/taller-demo-diseno.md §2, local). Opcional: un
+  // backend anterior no lo manda.
+  isDemo?: boolean;
 }
 
 // Contrato de GET /api/admin/organizations/editions.

@@ -72,7 +72,7 @@ export const listInvitationsHandler = asyncHandler<AuthenticatedRequest>(
 export const resendInvitationHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    const invitation = await resendInvitation(req.auth.organizationId, id);
+    const invitation = await resendInvitation(req.auth.organizationId, id, req.auth.userId);
     res.status(200).json(invitation);
   },
 );

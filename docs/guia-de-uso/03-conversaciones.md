@@ -95,7 +95,8 @@ atribuye a quien tiene asignada la conversación.
 
 En los mensajes que salen por WhatsApp, Messenger o Instagram, al lado de la
 hora se ve el estado de entrega: **Enviando**, **Enviado**, **Entregado**,
-**Leído** o **No entregado**. Si no se entregó, pasando el mouse se ve el
+**Leído** o **No entregado** (en una organización en modo demo, **Simulado**:
+el mensaje no salió de la plataforma). Si no se entregó, pasando el mouse se ve el
 motivo. Cuando lo que no salió es una respuesta de una persona, debajo del
 mensaje aparece "No pudimos enviar" y el botón **Reintentar**, que vuelve a
 mandar ese mismo mensaje (lo ve solo quien atiende la conversación, y

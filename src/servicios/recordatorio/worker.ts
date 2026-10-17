@@ -1,4 +1,5 @@
 import { env } from "../../config/env";
+import { salidasPara } from "../../services/modoDemo.service";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
 import { soloDigitos } from "../../lib/telefono";
@@ -199,7 +200,8 @@ export async function procesarMensaje(
     valoresDelMensaje(fila, await deps.sucursales(fila.organizationId)),
   );
   try {
-    const { wamid } = await deps.sendTemplate({
+    const salidas = await salidasPara(fila.organizationId, deps);
+    const { wamid } = await salidas.sendTemplate({
       phoneNumberId,
       to: destino,
       templateName: plantilla.name,

@@ -4,6 +4,7 @@ import {
   WhatsappTemplateStatus,
   type OrganizationIndustry,
 } from "@prisma/client";
+import { depsDePlantillasPara } from "./modoDemo.service";
 import { findEdicionYRubro } from "../repositories/organization.repository";
 import {
   findEstadoDeSincronizacion,
@@ -643,6 +644,8 @@ export async function sincronizarPlantillaDeLaRegla(
   deps: DepsDePlantillas = depsDePlantillasReales,
   opciones: OpcionesDeSincronizacion = {},
 ): Promise<ResultadoDeSincronizacion> {
+  // Modo demo: el alta queda APPROVED sin pasar por Meta.
+  deps = await depsDePlantillasPara(organizationId, deps);
   let error: string | null = null;
   let tipo: TipoDeErrorDeSincronizacion | null = null;
   try {
@@ -763,6 +766,7 @@ export async function refreshAprobacionDeLaRegla(
   automationId: string,
   deps: DepsDePlantillas = depsDePlantillasReales,
 ): Promise<ResumenDeAprobacion> {
+  deps = await depsDePlantillasPara(organizationId, deps);
   const { accessToken } = await conexionDeWhatsapp(organizationId, deps);
   const { aprobada, candidata } = await findPlantillasDeLaRegla(organizationId, automationId);
   // La candidata primero: si Meta la aprobó, la promoción da de baja a la

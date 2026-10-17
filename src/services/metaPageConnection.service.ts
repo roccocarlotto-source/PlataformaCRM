@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { exigirQueNoSeaDemo } from "./modoDemo.service";
 import { logger } from "../lib/logger";
 import { findOrganizationById } from "../repositories/organization.repository";
 import {
@@ -77,6 +78,7 @@ export async function iniciarConexion(
   cliente?: ClienteInyectado,
 ): Promise<InicioDeConexionMeta> {
   await asegurarOrganizacion(auth.organizationId);
+  await exigirQueNoSeaDemo(auth.organizationId, "conectar una página de Facebook");
 
   const state = await firmarMetaState({ organizationId: auth.organizationId, userId: auth.userId });
 

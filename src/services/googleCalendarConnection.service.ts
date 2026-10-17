@@ -2,6 +2,7 @@ import {
   findCanalesAbiertosDeProfesionales,
   registrarErrorDelCalendario,
 } from "../clinicas/repositories/googlePorProfesional.repository";
+import { exigirQueNoSeaDemo } from "./modoDemo.service";
 import { randomUUID } from "node:crypto";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
@@ -88,6 +89,7 @@ export async function iniciarConexion(
   // sentido firmar un state para una sucursal que no se puede tocar, y esto es
   // lo único que ata el flujo a la organización del JWT.
   await getBranchById(organizationId, branchId);
+  await exigirQueNoSeaDemo(organizationId, "conectar Google Calendar");
 
   const state = await firmarState({ organizationId, branchId });
 

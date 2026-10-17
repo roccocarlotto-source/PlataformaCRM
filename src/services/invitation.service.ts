@@ -1,4 +1,5 @@
 import { Prisma, type OrganizationIndustry } from "@prisma/client";
+import { exigirInvitacionPermitidaEnDemo } from "./modoDemo.service";
 import {
   copiarSedesDeLaInvitacion,
   guardarSedesDeLaInvitacion,
@@ -130,6 +131,8 @@ export async function createInvitation(
   industry?: OrganizationIndustry,
 ) {
   const email = normalizeEmail(input.email);
+  // Modo demo: solo un platform admin invita (es como se crean sus usuarios).
+  await exigirInvitacionPermitidaEnDemo(organizationId, actorUserId);
 
   await expireDueInvitations({ organizationId, email });
 
@@ -328,7 +331,8 @@ export const MENSAJE_YA_ABRIO_EL_ENLACE =
 // GoTrue no manda nada (email_exists): 409 con qué hacer — con la red de
 // seguridad de ProtectedRoute, entrar con la contraseña recuperada la lleva a
 // aceptar la invitación.
-export async function resendInvitation(organizationId: string, id: string) {
+export async function resendInvitation(organizationId: string, id: string, actorUserId?: string) {
+  await exigirInvitacionPermitidaEnDemo(organizationId, actorUserId);
   await expireDueInvitations({ organizationId, id });
 
   const invitation = await findInvitationById(id, organizationId);
