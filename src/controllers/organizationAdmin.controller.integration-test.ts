@@ -655,7 +655,7 @@ test("reenviar la invitación del administrador: sale con el mismo enlace del al
       const { resultado, llamadas } = await espiarInvitaciones(() => reenviar(organizationId));
       const texto = await resultado.text();
       assert.equal(resultado.status, 200, texto);
-      assert.deepEqual(JSON.parse(texto), { email });
+      assert.deepEqual(JSON.parse(texto), { email, reenviadas: [email], sinEnviar: [] });
       assert.equal(llamadas.length, 1);
       assert.equal(llamadas[0].email, email);
       assert.match(llamadas[0].opciones?.redirectTo ?? "", /\/reset-password$/);

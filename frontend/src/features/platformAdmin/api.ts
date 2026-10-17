@@ -12,6 +12,8 @@ import type {
   AssignWhatsappNumberInput,
   CreateClinicaDemoInput,
   CreateClinicaDemoResponse,
+  CreateTallerDemoInput,
+  CreateTallerDemoResponse,
   CreateOrganizationInput,
   CreateOrganizationResponse,
   EdicionesDisponibles,
@@ -20,6 +22,7 @@ import type {
   MetaAuthorization,
   MetaConnectionPendiente,
   OrganizationEdition,
+  ReenvioDeInvitacion,
   ReinicioDeLaDemo,
   PlatformAgentDeOrganizacion,
   PlatformOrganization,
@@ -44,6 +47,16 @@ export function createClinicaDemo(
   input: CreateClinicaDemoInput,
 ): Promise<CreateClinicaDemoResponse> {
   return request<CreateClinicaDemoResponse>("/admin/organizations/clinica-demo", {
+    method: "POST",
+    body: input,
+    getAccessToken,
+  });
+}
+
+// El Taller Demo con datos de ejemplo (docs/taller-demo.md): una automotora
+// en modo demo con el módulo Servicios y tres usuarios.
+export function createTallerDemo(input: CreateTallerDemoInput): Promise<CreateTallerDemoResponse> {
+  return request<CreateTallerDemoResponse>("/admin/organizations/taller-demo", {
     method: "POST",
     body: input,
     getAccessToken,
@@ -98,11 +111,12 @@ export function desactivarModulo(
 }
 
 // Reenviar el mail de invitación al administrador de una organización que
-// todavía no la aceptó. Responde a qué email salió; 409 si ya la aceptó.
+// todavía no la aceptó. Responde a qué email salió; 409 si ya la aceptó. En
+// una demo cubre a todos sus usuarios (ver ReenvioDeInvitacion).
 export function reenviarInvitacionDelAdministrador(
   organizationId: string,
-): Promise<{ email: string }> {
-  return request<{ email: string }>(
+): Promise<ReenvioDeInvitacion> {
+  return request<ReenvioDeInvitacion>(
     `/admin/organizations/${encodeURIComponent(organizationId)}/admin-invitation/resend`,
     { method: "POST", getAccessToken },
   );

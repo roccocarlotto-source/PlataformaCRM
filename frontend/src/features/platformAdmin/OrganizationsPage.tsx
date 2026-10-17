@@ -135,8 +135,15 @@ function ListaDeOrganizaciones() {
     );
     if (!ok) return;
     try {
-      const { email } = await reenviar.mutateAsync(org.id);
-      setReenviada(`Reenviamos la invitación de «${org.name}» a ${email}.`);
+      const { email, reenviadas, sinEnviar } = await reenviar.mutateAsync(org.id);
+      // En una demo (docs/taller-demo.md) el reenvío cubre a todos los
+      // usuarios que no abrieron el mail; el correo tiene un cupo por hora.
+      const destinos = reenviadas && reenviadas.length > 1 ? reenviadas.join(", ") : email;
+      const pendientes =
+        sinEnviar && sinEnviar.length > 0
+          ? ` No salió el mail de ${sinEnviar.join(", ")} (el correo tiene un cupo por hora): probá de nuevo más tarde.`
+          : "";
+      setReenviada(`Reenviamos la invitación de «${org.name}» a ${destinos}.${pendientes}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pudimos reenviar la invitación");
     }

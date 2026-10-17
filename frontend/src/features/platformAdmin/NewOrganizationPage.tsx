@@ -7,12 +7,13 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { CURRENCY_OPTIONS } from "../../lib/currencies";
 import { ORGANIZATION_TIMEZONE_OPTIONS } from "../branch/timezones";
-import { useCreateClinicaDemo, useCreateOrganization } from "./mutations";
+import { useCreateClinicaDemo, useCreateOrganization, useCreateTallerDemo } from "./mutations";
 import { NOMBRE_DE_EDICION } from "./ediciones";
 import { useEdicionesDisponibles, useRubrosDisponibles } from "./queries";
 import type {
   CreateOrganizationInput,
   CreateOrganizationResponse,
+  CreateTallerDemoResponse,
   OrganizationEdition,
   OrganizationIndustry,
 } from "./types";
@@ -41,6 +42,24 @@ const EMPTY_FORM: NewOrganizationFormValues = {
   preferredCurrency: "USD",
   timezone: "America/Montevideo",
 };
+
+// Los dos usuarios extra del Taller Demo (el admin es el "Primer administrador").
+interface UsuariosDelTallerDemo {
+  vendedorFullName: string;
+  vendedorEmail: string;
+  tallerFullName: string;
+  tallerEmail: string;
+}
+
+const EMPTY_USUARIOS_DEL_TALLER: UsuariosDelTallerDemo = {
+  vendedorFullName: "",
+  vendedorEmail: "",
+  tallerFullName: "",
+  tallerEmail: "",
+};
+
+// Qué demo se está creando, si alguna. Las dos casillas son excluyentes.
+type Demo = "" | "clinica" | "taller";
 
 const NOMBRE_DE_RUBRO: Record<OrganizationIndustry, string> = {
   AUTOMOTORA: "Automotora",
@@ -78,26 +97,63 @@ export function NewOrganizationPage() {
   // (el selector de rubro sigue con su criterio). La página ya es solo de
   // platform admin (PlatformAdminRoute). Marcada, el formulario pide solo el
   // primer administrador y un sufijo opcional del nombre.
+  //
+  // El Taller Demo (docs/taller-demo.md), igual: su endpoint crea una
+  // automotora en modo demo con el módulo Servicios y TRES usuarios (el
+  // primer administrador más un vendedor y un encargado del taller).
   const createClinicaDemoMutation = useCreateClinicaDemo();
-  const [esDemo, setEsDemo] = useState(false);
+  const createTallerDemoMutation = useCreateTallerDemo();
+  const [demo, setDemo] = useState<Demo>("");
   const [sufijo, setSufijo] = useState("");
-  const creando = createOrganizationMutation.isPending || createClinicaDemoMutation.isPending;
+  const [usuariosDelTaller, setUsuariosDelTaller] =
+    useState<UsuariosDelTallerDemo>(EMPTY_USUARIOS_DEL_TALLER);
+  const creando =
+    createOrganizationMutation.isPending ||
+    createClinicaDemoMutation.isPending ||
+    createTallerDemoMutation.isPending;
 
   const [values, setValues] = useState<NewOrganizationFormValues>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreateOrganizationResponse | null>(null);
+  // Solo del Taller Demo: los tres usuarios y si salió el mail de cada uno.
+  const [usuariosCreados, setUsuariosCreados] = useState<
+    CreateTallerDemoResponse["usuarios"] | null
+  >(null);
+
+  function elegirDemo(cual: Exclude<Demo, "">, marcada: boolean) {
+    setDemo(marcada ? cual : "");
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     try {
-      if (esDemo) {
+      if (demo === "clinica") {
         const result = await createClinicaDemoMutation.mutateAsync({
           adminFullName: values.adminFullName,
           adminEmail: values.adminEmail,
           ...(sufijo.trim() !== "" ? { sufijo: sufijo.trim() } : {}),
         });
         setCreated(result);
+        return;
+      }
+      if (demo === "taller") {
+        const result = await createTallerDemoMutation.mutateAsync({
+          ...(sufijo.trim() !== "" ? { sufijo: sufijo.trim() } : {}),
+          usuarios: {
+            admin: { fullName: values.adminFullName, email: values.adminEmail },
+            vendedor: {
+              fullName: usuariosDelTaller.vendedorFullName,
+              email: usuariosDelTaller.vendedorEmail,
+            },
+            taller: {
+              fullName: usuariosDelTaller.tallerFullName,
+              email: usuariosDelTaller.tallerEmail,
+            },
+          },
+        });
+        setCreated(result);
+        setUsuariosCreados(result.usuarios);
         return;
       }
       const { edition, industry, ...resto } = values;
@@ -115,13 +171,18 @@ export function NewOrganizationPage() {
 
   function handleReset() {
     setCreated(null);
+    setUsuariosCreados(null);
     setError(null);
     setValues(EMPTY_FORM);
-    setEsDemo(false);
+    setDemo("");
     setSufijo("");
+    setUsuariosDelTaller(EMPTY_USUARIOS_DEL_TALLER);
   }
 
   if (created) {
+    const sinMail = usuariosCreados
+      ? Object.values(usuariosCreados).filter((u) => !u.invitacionEnviada)
+      : [];
     return (
       <div className="ds-form">
         <PageHeader help={AYUDA.nuevaOrganizacion} title="Organización creada" />
@@ -130,10 +191,28 @@ export function NewOrganizationPage() {
             <p>
               Identificador: <code>{created.organization.slug}</code>
             </p>
-            <p>
-              Se envió una invitación a <strong>{created.admin.email}</strong> para que configure su
-              contraseña. Cuando la complete, entra como administrador de la organización.
-            </p>
+            {usuariosCreados ? (
+              <>
+                <p>
+                  Se crearon tres usuarios: <strong>{usuariosCreados.admin.email}</strong>{" "}
+                  (administración), <strong>{usuariosCreados.vendedor.email}</strong> (ventas) y{" "}
+                  <strong>{usuariosCreados.taller.email}</strong> (taller). A cada uno le llega una
+                  invitación para configurar su contraseña.
+                </p>
+                {sinMail.length > 0 ? (
+                  <p role="alert">
+                    No salió el mail de {sinMail.map((u) => u.email).join(", ")}: el correo tiene un
+                    cupo por hora. Pasada una hora, en Organizaciones tocá{" "}
+                    <strong>Reenviar invitación</strong> en la fila de la demo.
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p>
+                Se envió una invitación a <strong>{created.admin.email}</strong> para que configure
+                su contraseña. Cuando la complete, entra como administrador de la organización.
+              </p>
+            )}
           </Card>
           <div>
             <Button type="button" onClick={handleReset}>
@@ -145,6 +224,13 @@ export function NewOrganizationPage() {
     );
   }
 
+  const textoDelBoton =
+    demo === "clinica"
+      ? "Crear Clínica Demo"
+      : demo === "taller"
+        ? "Crear Taller Demo"
+        : "Crear organización";
+
   return (
     <form onSubmit={handleSubmit} className="ds-form">
       <PageHeader help={AYUDA.nuevaOrganizacion} title="Nueva organización" />
@@ -155,17 +241,31 @@ export function NewOrganizationPage() {
               <FormField label="Clínica Demo con datos de ejemplo">
                 <input
                   type="checkbox"
-                  checked={esDemo}
-                  onChange={(event) => setEsDemo(event.target.checked)}
+                  checked={demo === "clinica"}
+                  onChange={(event) => elegirDemo("clinica", event.target.checked)}
                 />
               </FormField>
             </div>
-            {esDemo ? (
+            <div className="ds-field-grid--full">
+              <FormField label="Taller Demo con datos de ejemplo">
+                <input
+                  type="checkbox"
+                  checked={demo === "taller"}
+                  onChange={(event) => elegirDemo("taller", event.target.checked)}
+                />
+              </FormField>
+            </div>
+            {demo !== "" ? (
               <>
                 <p className="ds-hint ds-field-grid--full">
-                  Crea «Clínica Demo», del rubro clínica y en edición Esencial, con una sede,
-                  profesionales, prestaciones, pacientes y turnos inventados. El agente y las
-                  automatizaciones quedan desactivados.
+                  {demo === "clinica"
+                    ? "Crea «Clínica Demo», del rubro clínica y en edición Esencial, con una sede, " +
+                      "profesionales, prestaciones, pacientes y turnos inventados. El agente y las " +
+                      "automatizaciones quedan desactivados."
+                    : "Crea «Taller Demo», una automotora completa con el módulo Servicios, en modo " +
+                      "demo: los mensajes se simulan y nada sale de la plataforma. Trae dos " +
+                      "sucursales, stock, contactos, oportunidades, conversaciones, órdenes de " +
+                      "taller, tareas, un agente activo y automatizaciones, todo inventado."}
                 </p>
                 <div className="ds-field-grid--full">
                   <FormField label="Sufijo del nombre (opcional)">
@@ -174,7 +274,7 @@ export function NewOrganizationPage() {
                       value={sufijo}
                       onChange={(event) => setSufijo(event.target.value)}
                       maxLength={60}
-                      placeholder="Norte"
+                      placeholder={demo === "clinica" ? "Norte" : "Este"}
                     />
                   </FormField>
                 </div>
@@ -313,10 +413,77 @@ export function NewOrganizationPage() {
             </FormField>
           </div>
         </Card>
+        {demo === "taller" ? (
+          <Card heading="Vendedor y encargado del taller">
+            <div className="ds-field-grid">
+              <FormField label={<span className="ds-required">Nombre completo del vendedor</span>}>
+                <input
+                  type="text"
+                  value={usuariosDelTaller.vendedorFullName}
+                  onChange={(event) =>
+                    setUsuariosDelTaller({
+                      ...usuariosDelTaller,
+                      vendedorFullName: event.target.value,
+                    })
+                  }
+                  required
+                  maxLength={255}
+                />
+              </FormField>
+              <FormField label={<span className="ds-required">Email del vendedor</span>}>
+                <input
+                  type="email"
+                  value={usuariosDelTaller.vendedorEmail}
+                  onChange={(event) =>
+                    setUsuariosDelTaller({
+                      ...usuariosDelTaller,
+                      vendedorEmail: event.target.value,
+                    })
+                  }
+                  required
+                />
+              </FormField>
+              <FormField
+                label={
+                  <span className="ds-required">Nombre completo del encargado del taller</span>
+                }
+              >
+                <input
+                  type="text"
+                  value={usuariosDelTaller.tallerFullName}
+                  onChange={(event) =>
+                    setUsuariosDelTaller({
+                      ...usuariosDelTaller,
+                      tallerFullName: event.target.value,
+                    })
+                  }
+                  required
+                  maxLength={255}
+                />
+              </FormField>
+              <FormField
+                label={<span className="ds-required">Email del encargado del taller</span>}
+              >
+                <input
+                  type="email"
+                  value={usuariosDelTaller.tallerEmail}
+                  onChange={(event) =>
+                    setUsuariosDelTaller({ ...usuariosDelTaller, tallerEmail: event.target.value })
+                  }
+                  required
+                />
+              </FormField>
+              <p className="ds-hint ds-field-grid--full">
+                Los tres reciben el mail para elegir su contraseña. El correo tiene un cupo por
+                hora: si alguno no llega, se reenvía desde Organizaciones.
+              </p>
+            </div>
+          </Card>
+        ) : null}
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
           <Button type="submit" variant="primary" disabled={creando} loading={creando}>
-            {creando ? "Creando…" : esDemo ? "Crear Clínica Demo" : "Crear organización"}
+            {creando ? "Creando…" : textoDelBoton}
           </Button>
         </div>
       </div>

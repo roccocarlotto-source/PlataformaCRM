@@ -19,6 +19,8 @@ export function createOrganization(
     defaultPhoneCountryCode?: string;
     preferredCurrency?: string;
     timezone?: string;
+    // Solo el alta de una demo (OpcionesDelAlta de organizationAdmin.service.ts).
+    isDemo?: boolean;
   },
   db: Db = prisma,
 ) {

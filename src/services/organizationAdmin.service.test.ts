@@ -29,7 +29,13 @@ const AUTH_USER_ID = "11111111-1111-4111-8111-111111111111";
 interface Registro {
   invites: { email: string; options: unknown }[];
   deletedAuthUsers: string[];
-  organizationsCreated: { name: string; slug: string; edition: string; industry: string }[];
+  organizationsCreated: {
+    name: string;
+    slug: string;
+    edition: string;
+    industry: string;
+    isDemo?: boolean;
+  }[];
   usersCreated: Record<string, unknown>[];
   procesosFijos: string[];
   configuracionesDeClinica: string[];
@@ -495,6 +501,52 @@ test("clinicaDemo no es un bypass: otro nombre u otro rubro dan 400 sin invitar 
   ]) {
     await esperarAppError(
       () => createOrganizationWithFoundingAdmin(input, deps, { clinicaDemo: true }),
+      400,
+    );
+  }
+  assert.deepEqual(registro.invites, []);
+  assert.deepEqual(registro.organizationsCreated, []);
+});
+
+// Las dos demos nacen en modo demo (docs/taller-demo.md): la bandera la pone
+// solo el alta con su opción, y ningún alta común.
+test("clinicaDemo y tallerDemo ponen is_demo; el alta común nunca", async () => {
+  const demoClinica = armar({ clinicaHabilitada: false, esencialHabilitada: true });
+  await createOrganizationWithFoundingAdmin(
+    { ...INPUT, organizationName: "Clínica Demo", edition: "ESENCIAL", industry: "CLINICA" },
+    demoClinica.deps,
+    { clinicaDemo: true },
+  );
+  assert.equal(demoClinica.registro.organizationsCreated[0].isDemo, true);
+
+  const demoTaller = armar({});
+  const result = await createOrganizationWithFoundingAdmin(
+    { ...INPUT, organizationName: "Taller Demo Este", industry: "AUTOMOTORA" },
+    demoTaller.deps,
+    { tallerDemo: true },
+  );
+  assert.equal(result.organization.industry, "AUTOMOTORA");
+  assert.equal(demoTaller.registro.organizationsCreated[0].slug, "taller-demo-este");
+  assert.equal(demoTaller.registro.organizationsCreated[0].isDemo, true);
+  assert.deepEqual(demoTaller.registro.configuracionesDeClinica, []);
+
+  const comun = armar({});
+  await createOrganizationWithFoundingAdmin(
+    { ...INPUT, organizationName: "Taller Demo" },
+    comun.deps,
+  );
+  assert.equal(comun.registro.organizationsCreated[0].isDemo, undefined);
+});
+
+test("tallerDemo no es un bypass: otro nombre u otro rubro dan 400 sin invitar a nadie", async () => {
+  const { deps, registro } = armar({ clinicaHabilitada: true });
+  for (const input of [
+    { ...INPUT, organizationName: "Automotora Real" },
+    { ...INPUT, organizationName: "Taller Demo", industry: "CLINICA" as const },
+    { ...INPUT, organizationName: "Taller Demolición" },
+  ]) {
+    await esperarAppError(
+      () => createOrganizationWithFoundingAdmin(input, deps, { tallerDemo: true }),
       400,
     );
   }

@@ -52,6 +52,55 @@ export interface CreateClinicaDemoResponse extends CreateOrganizationResponse {
   datosDeEjemplo: Record<string, number>;
 }
 
+// Contrato de POST /api/admin/organizations/taller-demo
+// (src/automotora/demo/tallerDemo.controller.ts) — docs/taller-demo.md. La
+// organización es siempre "Taller Demo" (con un sufijo opcional), AUTOMOTORA y
+// COMPLETA con el módulo Servicios, en modo demo. Pide los tres usuarios: el
+// admin (el "Primer administrador"), un vendedor y el encargado del taller.
+export interface UsuarioDeLaDemoInput {
+  fullName: string;
+  email: string;
+}
+
+export interface CreateTallerDemoInput {
+  sufijo?: string;
+  usuarios: {
+    admin: UsuarioDeLaDemoInput;
+    vendedor: UsuarioDeLaDemoInput;
+    taller: UsuarioDeLaDemoInput;
+  };
+}
+
+export interface UsuarioDeLaDemoCreado {
+  id: string;
+  email: string;
+  fullName: string;
+  role: "ADMIN" | "USER";
+  // Si salió el mail para elegir la contraseña (el correo tiene un cupo por
+  // hora). Si no, se reenvía desde Organizaciones.
+  invitacionEnviada: boolean;
+}
+
+export interface CreateTallerDemoResponse extends CreateOrganizationResponse {
+  usuarios: {
+    admin: UsuarioDeLaDemoCreado;
+    vendedor: UsuarioDeLaDemoCreado;
+    taller: UsuarioDeLaDemoCreado;
+  };
+  datosDeEjemplo: Record<string, number>;
+}
+
+// Contrato de POST /api/admin/organizations/:organizationId/admin-invitation/resend
+// (src/services/organizationAdmin.service.ts). En una organización común sale
+// un solo mail (`email`). En una demo cubre a todos los usuarios que no
+// abrieron el mail: `reenviadas` y, si el cupo del correo frenó a alguno,
+// `sinEnviar`. Un backend anterior manda solo `email`.
+export interface ReenvioDeInvitacion {
+  email: string;
+  reenviadas?: string[];
+  sinEnviar?: string[];
+}
+
 // Contrato de POST /api/admin/organizations/:organizationId/demo/reiniciar
 // (src/clinicas/demo/reinicioDeLaDemo.service.ts) — docs/rubros.md §12.3. Las
 // filas borradas por tabla y lo que se volvió a cargar.

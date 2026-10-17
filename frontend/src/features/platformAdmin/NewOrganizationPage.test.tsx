@@ -17,6 +17,7 @@ const url = `${env.apiUrl}/api/admin/organizations`;
 const editionsUrl = `${env.apiUrl}/api/admin/organizations/editions`;
 const industriesUrl = `${env.apiUrl}/api/admin/organizations/industries`;
 const demoUrl = `${env.apiUrl}/api/admin/organizations/clinica-demo`;
+const tallerDemoUrl = `${env.apiUrl}/api/admin/organizations/taller-demo`;
 
 // Lo de hoy: el backend ofrece solo COMPLETA (ESENCIAL_HABILITADA en false).
 // Cada test que necesite otra cosa lo pisa con server.use.
@@ -365,6 +366,93 @@ describe("NewOrganizationPage", () => {
     expect(screen.getByText("Clínica Demo Norte")).toBeInTheDocument();
     expect(screen.getByText("clinica-demo-norte")).toBeInTheDocument();
     expect(screen.getByText("ana@demo.test")).toBeInTheDocument();
+  });
+
+  // El Taller Demo (docs/taller-demo.md): por su propio endpoint, con los
+  // tres usuarios; las dos casillas de demo son excluyentes.
+  it("Taller Demo: marcado, pide el administrador, el vendedor y el encargado del taller, y llama a su endpoint", async () => {
+    let demoBody: unknown;
+    server.use(
+      http.post(tallerDemoUrl, async ({ request }) => {
+        demoBody = await request.json();
+        return HttpResponse.json(
+          {
+            organization: {
+              id: "org-taller",
+              name: "Taller Demo Este",
+              slug: "taller-demo-este",
+              edition: "COMPLETA",
+              industry: "AUTOMOTORA",
+            },
+            admin: {
+              id: "u-admin",
+              email: "valentina@demo.test",
+              fullName: "Valentina",
+              role: "ADMIN",
+            },
+            usuarios: {
+              admin: {
+                id: "u-admin",
+                email: "valentina@demo.test",
+                fullName: "Valentina",
+                role: "ADMIN",
+                invitacionEnviada: true,
+              },
+              vendedor: {
+                id: "u-vendedor",
+                email: "martin@demo.test",
+                fullName: "Martín",
+                role: "USER",
+                invitacionEnviada: true,
+              },
+              taller: {
+                id: "u-taller",
+                email: "diego@demo.test",
+                fullName: "Diego",
+                role: "USER",
+                invitacionEnviada: false,
+              },
+            },
+            datosDeEjemplo: { contactos: 16 },
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    // Marcar la clínica y después el taller deja marcada solo la del taller.
+    await user.click(screen.getByLabelText("Clínica Demo con datos de ejemplo"));
+    await user.click(screen.getByLabelText("Taller Demo con datos de ejemplo"));
+    expect(screen.getByLabelText("Clínica Demo con datos de ejemplo")).not.toBeChecked();
+    expect(screen.getByLabelText("Taller Demo con datos de ejemplo")).toBeChecked();
+    expect(screen.queryByLabelText("Nombre de la organización")).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Sufijo del nombre (opcional)"), " Este ");
+    await user.type(screen.getByLabelText("Nombre completo"), "Valentina");
+    await user.type(screen.getByLabelText("Email"), "valentina@demo.test");
+    await user.type(screen.getByLabelText("Nombre completo del vendedor"), "Martín");
+    await user.type(screen.getByLabelText("Email del vendedor"), "martin@demo.test");
+    await user.type(screen.getByLabelText("Nombre completo del encargado del taller"), "Diego");
+    await user.type(screen.getByLabelText("Email del encargado del taller"), "diego@demo.test");
+    await user.click(screen.getByRole("button", { name: "Crear Taller Demo" }));
+
+    await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
+    expect(demoBody).toEqual({
+      sufijo: "Este",
+      usuarios: {
+        admin: { fullName: "Valentina", email: "valentina@demo.test" },
+        vendedor: { fullName: "Martín", email: "martin@demo.test" },
+        taller: { fullName: "Diego", email: "diego@demo.test" },
+      },
+    });
+    expect(screen.getByText("Taller Demo Este")).toBeInTheDocument();
+    expect(screen.getByText("taller-demo-este")).toBeInTheDocument();
+    expect(screen.getByText("martin@demo.test")).toBeInTheDocument();
+    // El mail del encargado no salió: se avisa cómo reenviarlo.
+    expect(screen.getByRole("alert")).toHaveTextContent(/No salió el mail de diego@demo.test/);
   });
 
   it("Clínica Demo sin sufijo no lo manda, y un error del backend se muestra con el formulario intacto", async () => {
