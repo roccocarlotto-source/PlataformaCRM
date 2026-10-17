@@ -3,8 +3,8 @@
 Una automotora de demostración, con el módulo Servicios y datos inventados,
 para mostrar el producto a un taller o a una concesionaria antes de que
 contrate. Es la hermana de la Clínica Demo (`docs/rubros.md` §12) y copia su
-forma: alta por un platform admin con datos de ejemplo detrás, y (en un PR
-posterior) el botón "Reiniciar datos de demo".
+forma: alta por un platform admin con datos de ejemplo detrás, y el botón
+"Reiniciar datos de demo" en Plataforma → Organizaciones.
 
 **Nada de lo que hay acá es real.** Nombres comunes inventados, teléfonos
 uruguayos de forma válida (pueden existir: por eso la demo nace en modo demo),
@@ -72,7 +72,8 @@ Lo que hace, en orden (`crearTallerDemo`):
 4. `activarModulo(…, "servicios")`, el mismo camino que el botón de
    Plataforma.
 5. Los datos de ejemplo (§3). Si fallan a mitad, 500 y la organización queda
-   creada: se borra a mano (hasta que exista el reinicio).
+   creada; **Reiniciar datos de demo** la deja bien (borra todo lo de uso y
+   recarga), o se borra a mano.
 
 **Limpieza:** el slug no coincide con ningún patrón de
 `PATRONES_DE_SLUG_DE_PRUEBA`; ninguna purga de organizaciones de test la toca
@@ -124,15 +125,52 @@ Las unidades se publican sin fotos (el agente las conoce igual por la base de
 conocimiento); editar una desde la pantalla pide la foto que exige la
 publicación.
 
-## 4. Lo que pasa con el tiempo
+## 4. Reiniciar los datos
+
+`POST /api/admin/organizations/:organizationId/demo/reiniciar` (platform
+admin; botón "Reiniciar datos de demo" en Plataforma → Organizaciones, en toda
+fila con `isDemo`). Es el mismo endpoint que la Clínica Demo, despachado por
+rubro (`src/services/reinicioDeDemo.service.ts`): **400 si la organización no
+tiene `is_demo`**, sin tocar nada; CLINICA → el reinicio de la clínica de
+siempre; AUTOMOTORA → `reiniciarDatosDelTallerDemo`
+(`src/automotora/demo/reinicioDelTallerDemo.service.ts`):
+
+1. 400 si no es AUTOMOTORA con el slug del Taller Demo; 409 si el módulo
+   Servicios está apagado, si no hay un ADMIN activo o si falta alguna pieza
+   de la configuración de ejemplo, buscada por su nombre de `config.ts`
+   (sucursales, agenda del taller, proceso y etapas, tipos de service, campos,
+   agente). Todo antes de borrar.
+2. Los usuarios de los datos salen de la configuración: el ADMIN más viejo y
+   el responsable por defecto de cada sucursal (Casa Central → el encargado
+   del taller, Sucursal Este → el vendedor).
+3. **Borrado y recarga masiva en una sola transacción**
+   (`pg_advisory_xact_lock` por organización al empezar): si algo falla, la
+   demo queda como estaba. El orden sale de las FKs, hijas antes que madres,
+   con tres ciclos cortados antes (próximo service fijado por una orden, unidad
+   de interés de un contacto, unidad recibida en permuta). Se borran también
+   los datos agregados a mano durante una reunión (cotizaciones, pagos,
+   entregas, fotos). Los contadores vuelven a 1 (OS-0001, STK-000001).
+4. Las órdenes por los services y la sincronización del stock, como en el
+   alta. Si fallan a mitad, 500; volver a reiniciar lo arregla.
+5. Un segundo reinicio mientras corre el primero: 409 (candado en memoria; el
+   backend corre en una sola instancia).
+
+**Se conserva** (mismos ids): la organización y su modo demo, sucursales,
+horarios, agenda del taller, proceso de venta, tipos de service y
+`workshop_settings` (salvo el contador), campos personalizados, base de
+conocimiento cargada a mano, agente y tokens del widget, automatizaciones y sus
+plantillas, QR, usuarios, invitaciones y `llm_turn_usages`. Los archivos de las
+fotos borradas quedan en el bucket, sin nada que los referencie.
+
+## 5. Lo que pasa con el tiempo
 
 Los barridos del módulo (recordatorio de service a las 10, recambios, ventas
 → vehículos) corren sobre la demo como sobre cualquier organización: crean
 avisos, encolan recordatorios (que se "mandan" simulados) y tareas. Es
 deseable: en la ficha de un vehículo se ve el recordatorio enviado hoy. El
-reinicio (PR posterior) vuelve todo al punto de partida.
+reinicio (§4) vuelve todo al punto de partida.
 
-## 5. Tests
+## 6. Tests
 
 - `src/automotora/demo/datosDeEjemplo.test.ts`: las fechas con un "hoy" por
   cada día de la semana y en los bordes de mes, y la coherencia de la
@@ -143,6 +181,10 @@ reinicio (PR posterior) vuelve todo al punto de partida.
   en modo demo, el módulo, los tres usuarios, los datos tal como los cuentan
   el Dashboard y el Resumen del taller, nada enviado; la purga no la toca; el
   reenvío cubre a los tres usuarios; sin modo demo no se cargan datos; el
-  alta común con el nombre de la demo no pone la bandera.
+  alta común con el nombre de la demo no pone la bandera. Y el reinicio:
+  borra lo de uso (también lo agregado a mano), conserva la configuración con
+  sus ids, vuelve a cargar lo de §3 (OS-0001, STK-000001); dos a la vez dan
+  200 y 409; configuración faltante 409 sin borrar; sin modo demo 400 sin
+  borrar.
 - `organizationAdmin.service.test.ts`: las dos opciones de demo ponen
   `is_demo`; `tallerDemo` no es un bypass.

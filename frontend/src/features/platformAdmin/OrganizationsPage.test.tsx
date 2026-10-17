@@ -257,6 +257,24 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
       industry: "AUTOMOTORA",
       modulosActivados: [],
     },
+    {
+      id: "org-taller-demo",
+      name: "Taller Demo",
+      slug: "taller-demo",
+      edition: "COMPLETA",
+      industry: "AUTOMOTORA",
+      modulosActivados: ["servicios"],
+      isDemo: true,
+    },
+    {
+      id: "org-taller-falso",
+      name: "Taller Demo sin bandera",
+      slug: "taller-demo-sin-bandera",
+      edition: "COMPLETA",
+      industry: "AUTOMOTORA",
+      modulosActivados: [],
+      isDemo: false,
+    },
   ];
   const RESPUESTA = {
     organizationId: "org-demo",
@@ -283,7 +301,39 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
     return (await screen.findByText(nombre)).closest("tr") as HTMLElement;
   }
 
-  it("el botón está solo en las filas de una Clínica Demo", async () => {
+  it("en el Taller Demo: confirmación del taller y resumen de lo cargado", async () => {
+    server.use(
+      http.post(reiniciarUrl("org-taller-demo"), () =>
+        HttpResponse.json({
+          organizationId: "org-taller-demo",
+          borrados: { contactos: 20 },
+          cargados: {
+            contactos: 16,
+            unidades: 10,
+            oportunidades: 13,
+            vehiculosDeClientes: 15,
+            ordenes: 11,
+            tareas: 11,
+            conversaciones: 3,
+          },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(
+      within(await filaDe("Taller Demo")).getByRole("button", {
+        name: "Reiniciar datos de demo",
+      }),
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent(/órdenes de taller/);
+    await user.click(screen.getByRole("button", { name: "Reiniciar datos" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Reiniciamos «Taller Demo»: 16 contactos, 10 unidades, 13 oportunidades, 15 vehículos de clientes y 11 órdenes de taller de ejemplo.",
+    );
+  });
+
+  it("el botón está solo en las filas de una demo", async () => {
     renderPage();
     expect(
       within(await filaDe("Clínica Demo Norte")).getByRole("button", {
@@ -295,6 +345,7 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
       "Automotora Norte",
       "Clínica Centro",
       "Automotora con slug raro",
+      "Taller Demo sin bandera",
     ]) {
       expect(
         within(await filaDe(nombre)).queryByRole("button", { name: "Reiniciar datos de demo" }),

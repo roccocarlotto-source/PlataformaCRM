@@ -109,6 +109,9 @@ conversaciones, oportunidades, stock, vehículos de clientes, órdenes de
 taller, tareas y turnos, todos inventados y con fechas relativas al día en
 que se crea.
 
+Antes de cada reunión, dejala como nueva con
+[Reiniciar datos de demo](#reiniciar-demo).
+
 > El correo tiene un cupo por hora. Si la pantalla avisa que el mail de
 > alguno de los tres no salió, esperá una hora y reenvialo desde
 > [Organizaciones](#organizaciones) con **Reenviar invitación**: en una demo
@@ -193,14 +196,17 @@ reenvío cubre a **todos** los usuarios que todavía no abrieron el mail, no
 solo al administrador. Si el correo tiene el cupo de la hora agotado, la
 pantalla dice a quiénes salió y a quiénes no: probá de nuevo más tarde.
 
-### Reiniciar los datos de una Clínica Demo {#reiniciar-demo}
+### Reiniciar los datos de una demo {#reiniciar-demo}
 
-Después de mostrar una [Clínica Demo](#clinica-demo) quedan los pacientes, los
-turnos y las conversaciones de la prueba. Para dejarla como recién creada:
+Después de mostrar una [Clínica Demo](#clinica-demo) o un
+[Taller Demo](#taller-demo) quedan los datos de la prueba. Para dejar la demo
+como recién creada:
 
 1. En la fila de la demo, tocá **Reiniciar datos de demo**. El botón aparece
-   solo en las Clínicas Demo, nunca en la organización de un cliente.
+   solo en las demos, nunca en la organización de un cliente.
 2. Leé qué se borra y qué queda, y confirmá con **Reiniciar datos**.
+
+#### En una Clínica Demo
 
 **Se borran para siempre** los pacientes, los turnos, las conversaciones con
 sus mensajes, las tareas, los recordatorios y mensajes programados de los
@@ -220,6 +226,29 @@ pacientes y turnos se cargaron.
 > la demo tiene Google Calendar conectado, el sistema no reinicia y te avisa:
 > desactivá la regla o desconectá Google y volvé a intentar. Así los turnos
 > nuevos no programan mensajes ni se escriben en un calendario real.
+
+#### En un Taller Demo
+
+**Se borran para siempre** los contactos (también los que se agregaron durante
+la reunión), las conversaciones con sus mensajes, las oportunidades, el stock
+con sus fotos, los vehículos de clientes, las órdenes de taller, las tareas,
+los turnos y los recordatorios y avisos que mandó el sistema.
+
+**Queda la configuración**: las sucursales con su horario y su responsable, el
+proceso de venta, los tipos de service y la moneda del taller, los campos
+personalizados, la base de conocimiento que se cargó a mano, los agentes, las
+automatizaciones, el QR, los usuarios y las invitaciones.
+
+Después se vuelven a cargar los datos de ejemplo con fechas de hoy: las
+órdenes vuelven a empezar en **OS-0001** y el stock en **STK-000001**. Tarda
+alrededor de un minuto; el botón queda en espera hasta que termina y arriba de
+la lista aparece qué se cargó. Si alguien tocó el botón al mismo tiempo, el
+segundo recibe un aviso de que ya se está reiniciando.
+
+> Si a la demo le falta algo de su configuración de ejemplo (por ejemplo, se
+> renombró **Sucursal Este** o se borró un tipo de service), el sistema no
+> reinicia y te dice qué falta: restauralo con el mismo nombre y volvé a
+> intentar.
 
 ## Importar datos {#importar-datos}
 

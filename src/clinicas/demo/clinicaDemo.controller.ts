@@ -4,7 +4,6 @@ import type { AuthenticatedRequest } from "../../types/auth";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { parseOrThrow } from "../../utils/validation";
 import { crearClinicaDemo } from "./clinicaDemo.service";
-import { reiniciarDatosDeLaDemo } from "./reinicioDeLaDemo.service";
 
 // ---------------------------------------------------------------------------
 // POST /api/admin/organizations/clinica-demo (docs/rubros.md §12.1, R19).
@@ -38,17 +37,5 @@ export const crearClinicaDemoHandler = asyncHandler<AuthenticatedRequest>(
     res
       .status(201)
       .json(await crearClinicaDemo(input, undefined, { platformAdminUserId: req.auth.userId }));
-  },
-);
-
-// POST /api/admin/organizations/:organizationId/demo/reiniciar (docs/rubros.md
-// §12.3). Misma cadena. Sin body: borra los datos de uso de la demo y vuelve a
-// cargar los de ejemplo. 400 si la organización no es una Clínica Demo.
-const organizationIdSchema = z.string().uuid("organizationId inválido");
-
-export const reiniciarDatosDeLaDemoHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
-    res.status(200).json(await reiniciarDatosDeLaDemo(organizationId));
   },
 );

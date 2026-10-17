@@ -10,7 +10,11 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Table } from "../../design-system/Table";
 import { useConfirm } from "../../design-system/useConfirm";
-import { CONFIRMACION_DEL_REINICIO, esClinicaDemo } from "./clinicaDemo";
+import {
+  CONFIRMACION_DEL_REINICIO,
+  CONFIRMACION_DEL_REINICIO_DEL_TALLER,
+  esDemo,
+} from "./clinicaDemo";
 import { previaDeActivacion } from "./api";
 import { NOMBRE_DE_EDICION } from "./ediciones";
 import {
@@ -45,10 +49,10 @@ import type { PlatformOrganization } from "./types";
 // previa (S10): cuántas ventas ganadas se van a convertir en vehículos de
 // clientes. Si la previa falla, se confirma igual, sin el número.
 //
-// "Reiniciar datos de demo" (docs/rubros.md §12.3): solo en las filas de una
-// Clínica Demo (esClinicaDemo). Borra pacientes, turnos, conversaciones y
-// tareas, y vuelve a cargar los de ejemplo; la confirmación dice qué se borra
-// y qué queda.
+// "Reiniciar datos de demo" (docs/rubros.md §12.3, docs/taller-demo.md §4):
+// solo en las filas de una demo (esDemo: Clínica Demo o Taller Demo). Borra
+// los datos de uso y vuelve a cargar los de ejemplo; la confirmación dice qué
+// se borra y qué queda, según el rubro.
 // ---------------------------------------------------------------------------
 
 export function OrganizationsPage() {
@@ -113,14 +117,20 @@ function ListaDeOrganizaciones() {
   async function reiniciarDemo(org: PlatformOrganization) {
     limpiarMensajes();
     const ok = await confirm(
-      `¿Reiniciar los datos de «${org.name}»? ${CONFIRMACION_DEL_REINICIO}`,
+      `¿Reiniciar los datos de «${org.name}»? ${
+        org.industry === "CLINICA"
+          ? CONFIRMACION_DEL_REINICIO
+          : CONFIRMACION_DEL_REINICIO_DEL_TALLER
+      }`,
       { confirmLabel: "Reiniciar datos", danger: true },
     );
     if (!ok) return;
     try {
       const { cargados } = await reiniciar.mutateAsync(org.id);
       setReiniciada(
-        `Reiniciamos «${org.name}»: ${cargados.pacientes} pacientes y ${cargados.turnosProximos} turnos próximos de ejemplo, más ${cargados.turnosAtendidos} atendidos la semana pasada.`,
+        org.industry === "CLINICA"
+          ? `Reiniciamos «${org.name}»: ${cargados.pacientes ?? 0} pacientes y ${cargados.turnosProximos ?? 0} turnos próximos de ejemplo, más ${cargados.turnosAtendidos ?? 0} atendidos la semana pasada.`
+          : `Reiniciamos «${org.name}»: ${cargados.contactos ?? 0} contactos, ${cargados.unidades ?? 0} unidades, ${cargados.oportunidades ?? 0} oportunidades, ${cargados.vehiculosDeClientes ?? 0} vehículos de clientes y ${cargados.ordenes ?? 0} órdenes de taller de ejemplo.`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pudimos reiniciar los datos de la demo");
@@ -246,7 +256,7 @@ function ListaDeOrganizaciones() {
                               : "Activar Servicios"}
                           </Button>
                         ) : null}
-                        {esClinicaDemo(org) ? (
+                        {esDemo(org) ? (
                           <Button
                             type="button"
                             variant="danger"

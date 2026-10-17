@@ -505,9 +505,18 @@ export async function cargarDatosDeUso(
   configuracion: ConfiguracionDeLaDemo,
   usuarios: UsuariosDeLaDemo,
   ahora: Date = new Date(),
+  opciones: {
+    /** Lo que va en la MISMA transacción, antes de lo masivo: el borrado del
+     *  reinicio (reinicioDelTallerDemo.service.ts). Si algo falla, la demo
+     *  queda como estaba. */
+    antesDelMasivo?: (tx: Db) => Promise<void>;
+  } = {},
 ): Promise<ResumenDeDatosDeUso> {
   const masivo = await prisma.$transaction(
-    (tx) => cargarMasivo(tx, organizationId, configuracion, usuarios, ahora),
+    async (tx) => {
+      if (opciones.antesDelMasivo) await opciones.antesDelMasivo(tx);
+      return cargarMasivo(tx, organizationId, configuracion, usuarios, ahora);
+    },
     { ...OPCIONES_DE_TRANSACCION_LARGA, timeout: 60_000 },
   );
   const ordenes = await cargarOrdenes(organizationId, configuracion, usuarios, masivo, ahora);

@@ -2327,6 +2327,11 @@ datos inventados. **No se usa AutoMax** ni ningún dato real.
 
 ### 12.3 Reiniciar los datos de una demo
 
+> **Desde el Taller Demo** (docs/taller-demo.md §4) el endpoint es común a las
+> dos demos y despacha por rubro (src/services/reinicioDeDemo.service.ts): exige
+> antes que nada organizations.is_demo (400 sin tocar nada). Para la clínica, lo
+> de abajo sigue igual.
+
 Para mostrarle la misma demo a otra clínica sin los pacientes, turnos y
 conversaciones de la prueba anterior.
 

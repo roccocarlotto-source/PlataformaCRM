@@ -122,7 +122,7 @@ export function reenviarInvitacionDelAdministrador(
   );
 }
 
-// Reiniciar los datos de una Clínica Demo (docs/rubros.md §12.3): borra los
+// Reiniciar los datos de una demo (docs/rubros.md §12.3, docs/taller-demo.md §4): borra los
 // datos de uso y vuelve a cargar los de ejemplo. 400 si no es una demo.
 export function reiniciarDatosDeLaDemo(organizationId: string): Promise<ReinicioDeLaDemo> {
   return request<ReinicioDeLaDemo>(

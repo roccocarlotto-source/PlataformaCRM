@@ -12,7 +12,7 @@ import {
 } from "../../routes/gateDeModulos.test-helper";
 import { registroDeAcciones } from "../../services/automationActions";
 import { ACCIONES_INCORPORADAS } from "../../services/automationRegistrations";
-import { esIdSimulado, esOrganizacionDemo } from "../../services/modoDemo.service";
+import { esIdSimulado, esOrganizacionDemo, NO_ES_UNA_DEMO } from "../../services/modoDemo.service";
 import { getDashboardSummary } from "../../services/opportunity.service";
 import { reenviarInvitacionDelAdministrador } from "../../services/organizationAdmin.service";
 import { activarModulo } from "../../services/organizationModules.service";
@@ -38,6 +38,7 @@ import {
   ZONA_DE_LA_DEMO,
 } from "./config";
 import { cargarDatosDeEjemplo, DEMO_CON_DATOS, DEMO_SOLO_EN_MODO_DEMO } from "./datosDeEjemplo";
+import { YA_SE_ESTA_REINICIANDO } from "./reinicioDelTallerDemo.service";
 import { EMAILS_REPETIDOS } from "./tallerDemo.service";
 
 // ---------------------------------------------------------------------------
@@ -139,6 +140,145 @@ async function conteos(organizationId: string) {
   };
 }
 
+/**
+ * Los datos de uso del Taller Demo recién cargados (en el alta o en el
+ * reinicio), tal como los cuentan las pantallas: Conversaciones, Stock,
+ * Contactos, Dashboard, tareas, órdenes y el Resumen del taller
+ * (docs/taller-demo.md §3).
+ */
+async function verificarDatosDeUso(id: string, tallerId: string) {
+  // Conversaciones: los salientes SENT con id demo:, los entrantes sin estado.
+  const mensajes = await prisma.message.findMany({ where: { organizationId: id } });
+  assert.equal(mensajes.length, 18);
+  for (const m of mensajes) {
+    assert.ok(esIdSimulado(m.externalMessageId));
+    if (m.direction === "OUTBOUND") assert.equal(m.deliveryStatus, "SENT");
+  }
+  const transferida = await prisma.conversation.findFirstOrThrow({
+    where: { organizationId: id, status: "TRANSFERRED_TO_HUMAN" },
+  });
+  assert.equal(transferida.assignedUserId, tallerId);
+
+  // Stock: una reservada, dos vendidas con su entrega, el resto publicado y
+  // conocido por el agente (fichas sincronizadas en la base de conocimiento).
+  const unidades = await prisma.vehicle.findMany({ where: { organizationId: id } });
+  assert.equal(unidades.filter((u) => u.status === "RESERVED").length, 1);
+  assert.equal(unidades.filter((u) => u.status === "SOLD").length, 2);
+  assert.equal(unidades.filter((u) => u.status === "AVAILABLE").length, 7);
+  assert.equal(new Set(unidades.map((u) => u.internalCode)).size, unidades.length);
+  assert.equal(await prisma.delivery.count({ where: { organizationId: id } }), 2);
+  assert.equal(
+    await prisma.knowledgeBaseEntry.count({
+      where: { organizationId: id, sourceVehicleId: { not: null } },
+    }),
+    7,
+  );
+
+  // Contactos: los compradores son clientes; dos sin interés; el visitante del probador.
+  const contactos = await prisma.contact.findMany({ where: { organizationId: id } });
+  assert.equal(contactos.length, CONTACTOS.length + 1);
+  assert.equal(contactos.filter((c) => c.lifecycleStage === "CUSTOMER").length, 4);
+  assert.equal(contactos.filter((c) => c.noInterestAt !== null).length, 2);
+  assert.ok(contactos.some((c) => c.firstName === "Visitante" && c.phone === null));
+  assert.ok(contactos.every((c) => c.email === null || c.email.endsWith("@example.com")));
+
+  // Dashboard (mes): 6 abiertas por 98.200; creadas 7 / 5; ganadas 2 (41.500) / 2 (36.000); perdidas 1 / 2.
+  const dashboard = await getDashboardSummary(id, { granularity: "month" });
+  assert.equal(dashboard.openCount, 6);
+  assert.equal(dashboard.openValue, "98200.00");
+  assert.equal(dashboard.createdThisPeriod.count, 7);
+  assert.equal(dashboard.createdLastPeriod.count, 5);
+  assert.equal(dashboard.wonThisPeriod.count, 2);
+  assert.equal(dashboard.wonThisPeriod.value, "41500.00");
+  assert.equal(dashboard.wonLastPeriod.count, 2);
+  assert.equal(dashboard.wonLastPeriod.value, "36000.00");
+  assert.equal(dashboard.lostCountThisPeriod, 1);
+  assert.equal(dashboard.lostCountLastPeriod, 2);
+
+  // Tareas: 3 vencidas, 2 completadas.
+  const ahora = new Date();
+  const tareas = await prisma.activity.findMany({
+    where: { organizationId: id, type: { in: ["TASK", "CALL", "MEETING"] } },
+  });
+  assert.equal(tareas.length, TAREAS.length);
+  assert.equal(
+    tareas.filter(
+      (t) =>
+        t.completedAt === null &&
+        t.dueDate &&
+        t.dueDate < ahora &&
+        DateTime.fromJSDate(t.dueDate, { zone: ZONA_DE_LA_DEMO }) <
+          DateTime.fromJSDate(ahora, { zone: ZONA_DE_LA_DEMO }).startOf("day"),
+    ).length,
+    3,
+  );
+  assert.equal(tareas.filter((t) => t.completedAt !== null).length, 2);
+
+  // Taller: OS-0001 a OS-0011 con el historial corrido, y el Resumen.
+  const ordenes = await prisma.serviceOrder.findMany({
+    where: { organizationId: id },
+    orderBy: { number: "asc" },
+  });
+  assert.deepEqual(
+    ordenes.map((o) => o.number),
+    ORDENES.map((_, i) => i + 1),
+  );
+  assert.deepEqual(
+    ordenes.map((o) => o.status),
+    ORDENES.map((o) => o.pasos[o.pasos.length - 1].estado),
+  );
+  const entregada = ordenes[0];
+  assert.ok(
+    entregada.deliveredAt &&
+      entregada.deliveredAt < new Date(ahora.getTime() - 100 * 24 * 3_600_000),
+  );
+  assert.ok(entregada.nextServiceDueOn, "la entrega fijó el próximo service");
+  const clio = await prisma.customerVehicle.findFirstOrThrow({
+    where: { organizationId: id, model: "Clio Mío" },
+  });
+  assert.equal(clio.nextServiceSetFromOrderId, entregada.id);
+  const con2008 = await prisma.serviceOrder.findFirstOrThrow({
+    where: { id: ordenes[5].id },
+    include: {
+      statusChanges: { include: { changedBy: { select: { id: true, fullName: true } } } },
+      approvals: { include: { recordedBy: { select: { id: true, fullName: true } } } },
+    },
+  });
+  assert.equal(con2008.approvals.length, 1);
+  assert.equal(Number(con2008.amount), 10600 + 14200, "la aprobación se sumó al valor");
+  assert.equal(aprobacionPendienteDe(con2008), false);
+  const esperando = await prisma.serviceOrder.findFirstOrThrow({
+    where: { id: ordenes[6].id },
+    include: {
+      statusChanges: { include: { changedBy: { select: { id: true, fullName: true } } } },
+      approvals: { include: { recordedBy: { select: { id: true, fullName: true } } } },
+    },
+  });
+  assert.equal(aprobacionPendienteDe(esperando), true);
+
+  const resumen = await resumenDelTaller(id, { role: "ADMIN", industry: "AUTOMOTORA" });
+  assert.deepEqual(resumen.enElTaller, {
+    total: 6,
+    porEstado: { RECIBIDO: 2, EN_TRABAJO: 2, ESPERANDO_APROBACION: 2 },
+  });
+  assert.equal(resumen.listosParaRetirar.total, 1);
+  assert.equal(resumen.esperandoAprobacion.total, 1, "esperando aprobación hace más de 24 h");
+  assert.equal(resumen.servicesVencidos.total, 2);
+  assert.equal(resumen.servicesEn30Dias.total, 3);
+  assert.equal(resumen.turnosCancelados.total, 1);
+  assert.deepEqual(resumen.recambiosProximos, { total: 2, sinFechaDeCompra: 2 });
+  assert.equal(resumen.recambiosVencidos.total, 3);
+
+  // "Avisar al cliente" quedó registrado en la orden lista.
+  assert.equal(
+    await prisma.activity.count({
+      where: { organizationId: id, sourceServiceOrderId: ordenes[8].id },
+    }),
+    1,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Quién puede, y qué no deja nada a medias
 // ---------------------------------------------------------------------------
@@ -323,135 +463,7 @@ test("el platform admin crea el Taller Demo: 201, modo demo, módulo Servicios, 
     ].sort(),
   );
 
-  // Conversaciones: los salientes SENT con id demo:, los entrantes sin estado.
-  const mensajes = await prisma.message.findMany({ where: { organizationId: id } });
-  assert.equal(mensajes.length, 18);
-  for (const m of mensajes) {
-    assert.ok(esIdSimulado(m.externalMessageId));
-    if (m.direction === "OUTBOUND") assert.equal(m.deliveryStatus, "SENT");
-  }
-  const transferida = await prisma.conversation.findFirstOrThrow({
-    where: { organizationId: id, status: "TRANSFERRED_TO_HUMAN" },
-  });
-  assert.equal(transferida.assignedUserId, demo!.usuarios.taller.id);
-
-  // Stock: una reservada, dos vendidas con su entrega, el resto publicado y
-  // conocido por el agente (fichas sincronizadas en la base de conocimiento).
-  const unidades = await prisma.vehicle.findMany({ where: { organizationId: id } });
-  assert.equal(unidades.filter((u) => u.status === "RESERVED").length, 1);
-  assert.equal(unidades.filter((u) => u.status === "SOLD").length, 2);
-  assert.equal(unidades.filter((u) => u.status === "AVAILABLE").length, 7);
-  assert.equal(new Set(unidades.map((u) => u.internalCode)).size, unidades.length);
-  assert.equal(await prisma.delivery.count({ where: { organizationId: id } }), 2);
-  assert.equal(
-    await prisma.knowledgeBaseEntry.count({
-      where: { organizationId: id, sourceVehicleId: { not: null } },
-    }),
-    7,
-  );
-
-  // Contactos: los compradores son clientes; dos sin interés; el visitante del probador.
-  const contactos = await prisma.contact.findMany({ where: { organizationId: id } });
-  assert.equal(contactos.length, CONTACTOS.length + 1);
-  assert.equal(contactos.filter((c) => c.lifecycleStage === "CUSTOMER").length, 4);
-  assert.equal(contactos.filter((c) => c.noInterestAt !== null).length, 2);
-  assert.ok(contactos.some((c) => c.firstName === "Visitante" && c.phone === null));
-  assert.ok(contactos.every((c) => c.email === null || c.email.endsWith("@example.com")));
-
-  // Dashboard (mes): 6 abiertas por 98.200; creadas 7 / 5; ganadas 2 (41.500) / 2 (36.000); perdidas 1 / 2.
-  const dashboard = await getDashboardSummary(id, { granularity: "month" });
-  assert.equal(dashboard.openCount, 6);
-  assert.equal(dashboard.openValue, "98200.00");
-  assert.equal(dashboard.createdThisPeriod.count, 7);
-  assert.equal(dashboard.createdLastPeriod.count, 5);
-  assert.equal(dashboard.wonThisPeriod.count, 2);
-  assert.equal(dashboard.wonThisPeriod.value, "41500.00");
-  assert.equal(dashboard.wonLastPeriod.count, 2);
-  assert.equal(dashboard.wonLastPeriod.value, "36000.00");
-  assert.equal(dashboard.lostCountThisPeriod, 1);
-  assert.equal(dashboard.lostCountLastPeriod, 2);
-
-  // Tareas: 3 vencidas, 2 completadas.
-  const ahora = new Date();
-  const tareas = await prisma.activity.findMany({
-    where: { organizationId: id, type: { in: ["TASK", "CALL", "MEETING"] } },
-  });
-  assert.equal(tareas.length, TAREAS.length);
-  assert.equal(
-    tareas.filter(
-      (t) =>
-        t.completedAt === null &&
-        t.dueDate &&
-        t.dueDate < ahora &&
-        DateTime.fromJSDate(t.dueDate, { zone: ZONA_DE_LA_DEMO }) <
-          DateTime.fromJSDate(ahora, { zone: ZONA_DE_LA_DEMO }).startOf("day"),
-    ).length,
-    3,
-  );
-  assert.equal(tareas.filter((t) => t.completedAt !== null).length, 2);
-
-  // Taller: OS-0001 a OS-0011 con el historial corrido, y el Resumen.
-  const ordenes = await prisma.serviceOrder.findMany({
-    where: { organizationId: id },
-    orderBy: { number: "asc" },
-  });
-  assert.deepEqual(
-    ordenes.map((o) => o.number),
-    ORDENES.map((_, i) => i + 1),
-  );
-  assert.deepEqual(
-    ordenes.map((o) => o.status),
-    ORDENES.map((o) => o.pasos[o.pasos.length - 1].estado),
-  );
-  const entregada = ordenes[0];
-  assert.ok(
-    entregada.deliveredAt &&
-      entregada.deliveredAt < new Date(ahora.getTime() - 100 * 24 * 3_600_000),
-  );
-  assert.ok(entregada.nextServiceDueOn, "la entrega fijó el próximo service");
-  const clio = await prisma.customerVehicle.findFirstOrThrow({
-    where: { organizationId: id, model: "Clio Mío" },
-  });
-  assert.equal(clio.nextServiceSetFromOrderId, entregada.id);
-  const con2008 = await prisma.serviceOrder.findFirstOrThrow({
-    where: { id: ordenes[5].id },
-    include: {
-      statusChanges: { include: { changedBy: { select: { id: true, fullName: true } } } },
-      approvals: { include: { recordedBy: { select: { id: true, fullName: true } } } },
-    },
-  });
-  assert.equal(con2008.approvals.length, 1);
-  assert.equal(Number(con2008.amount), 10600 + 14200, "la aprobación se sumó al valor");
-  assert.equal(aprobacionPendienteDe(con2008), false);
-  const esperando = await prisma.serviceOrder.findFirstOrThrow({
-    where: { id: ordenes[6].id },
-    include: {
-      statusChanges: { include: { changedBy: { select: { id: true, fullName: true } } } },
-      approvals: { include: { recordedBy: { select: { id: true, fullName: true } } } },
-    },
-  });
-  assert.equal(aprobacionPendienteDe(esperando), true);
-
-  const resumen = await resumenDelTaller(id, { role: "ADMIN", industry: "AUTOMOTORA" });
-  assert.deepEqual(resumen.enElTaller, {
-    total: 6,
-    porEstado: { RECIBIDO: 2, EN_TRABAJO: 2, ESPERANDO_APROBACION: 2 },
-  });
-  assert.equal(resumen.listosParaRetirar.total, 1);
-  assert.equal(resumen.esperandoAprobacion.total, 1, "esperando aprobación hace más de 24 h");
-  assert.equal(resumen.servicesVencidos.total, 2);
-  assert.equal(resumen.servicesEn30Dias.total, 3);
-  assert.equal(resumen.turnosCancelados.total, 1);
-  assert.deepEqual(resumen.recambiosProximos, { total: 2, sinFechaDeCompra: 2 });
-  assert.equal(resumen.recambiosVencidos.total, 3);
-
-  // "Avisar al cliente" quedó registrado en la orden lista.
-  assert.equal(
-    await prisma.activity.count({
-      where: { organizationId: id, sourceServiceOrderId: ordenes[8].id },
-    }),
-    1,
-  );
+  await verificarDatosDeUso(id, demo!.usuarios.taller.id);
 
   // Aislamiento: ni la organización del platform admin ni la común cambiaron.
   assert.deepEqual(await conteos(plataforma.id), antesPlataforma);
@@ -548,4 +560,160 @@ test("el alta común con el nombre de la demo no pone el modo demo", async () =>
     data: { slug: `demo-taller-alta-comun-${Date.now()}-${randomUUID().slice(0, 8)}` },
   });
   orgsDeTest.push(creada.id);
+});
+
+// ---------------------------------------------------------------------------
+// Reiniciar los datos (docs/taller-demo.md §4)
+// ---------------------------------------------------------------------------
+
+const rutaDeReinicio = (id: string) => `/api/admin/organizations/${id}/demo/reiniciar`;
+
+test("reiniciar el Taller Demo: borra lo de uso (también lo agregado a mano), conserva la configuración y vuelve a cargar los datos de ejemplo", async () => {
+  assert.ok(demo, "depende del test de alta");
+  const id = demo.organization.id;
+  const where = { organizationId: id };
+  const configuracionAntes = {
+    sucursales: (await prisma.branch.findMany({ where, orderBy: { id: "asc" } })).map((s) => s.id),
+    agentes: (await prisma.agent.findMany({ where })).map((a) => a.id),
+    reglas: (await prisma.automation.findMany({ where, orderBy: { id: "asc" } })).map((r) => r.id),
+    plantillas: (await prisma.whatsappTemplate.findMany({ where, orderBy: { id: "asc" } })).map(
+      (p) => p.id,
+    ),
+    tipos: (await prisma.serviceJobType.findMany({ where, orderBy: { id: "asc" } })).map(
+      (t) => t.id,
+    ),
+    usuarios: (await prisma.user.findMany({ where, orderBy: { id: "asc" } })).map((u) => u.id),
+    tokens: await prisma.agentEmbedToken.count({ where: { agent: { organizationId: id } } }),
+    conocimientoManual: await prisma.knowledgeBaseEntry.count({
+      where: { ...where, sourceVehicleId: null },
+    }),
+  };
+  // Lo que un usuario cargó durante una reunión: un contacto con una tarea y
+  // la unidad de interés (corta el ciclo contacts → vehicles al borrar).
+  const extra = await prisma.contact.create({
+    data: { organizationId: id, firstName: "Agregado", lastName: "En la reunión" },
+  });
+  await prisma.activity.create({
+    data: {
+      organizationId: id,
+      type: "TASK",
+      authorId: demo.usuarios.admin.id,
+      subject: "Tarea agregada",
+      contactId: extra.id,
+    },
+  });
+  const unaOportunidad = await prisma.opportunity.findFirstOrThrow({
+    where: { ...where, status: "OPEN" },
+  });
+  const unaUnidad = await prisma.vehicle.findFirstOrThrow({
+    where: { ...where, status: "AVAILABLE" },
+  });
+  await prisma.contact.update({
+    where: { id: extra.id },
+    data: { vehicleOfInterestId: unaUnidad.id, vehicleOfInterestSetBy: "HUMAN" },
+  });
+
+  const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  const borrados = res.json.borrados as Record<string, number>;
+  assert.equal(
+    borrados.contactos,
+    CONTACTOS.length + 2,
+    "los de ejemplo, el visitante y el agregado",
+  );
+  assert.equal(borrados.ordenes, ORDENES.length);
+  assert.equal(await prisma.contact.count({ where: { id: extra.id } }), 0);
+  assert.equal(await prisma.opportunity.count({ where: { id: unaOportunidad.id } }), 0);
+
+  // La configuración, con los mismos ids.
+  assert.deepEqual(
+    {
+      sucursales: (await prisma.branch.findMany({ where, orderBy: { id: "asc" } })).map(
+        (s) => s.id,
+      ),
+      agentes: (await prisma.agent.findMany({ where })).map((a) => a.id),
+      reglas: (await prisma.automation.findMany({ where, orderBy: { id: "asc" } })).map(
+        (r) => r.id,
+      ),
+      plantillas: (await prisma.whatsappTemplate.findMany({ where, orderBy: { id: "asc" } })).map(
+        (p) => p.id,
+      ),
+      tipos: (await prisma.serviceJobType.findMany({ where, orderBy: { id: "asc" } })).map(
+        (t) => t.id,
+      ),
+      usuarios: (await prisma.user.findMany({ where, orderBy: { id: "asc" } })).map((u) => u.id),
+      tokens: await prisma.agentEmbedToken.count({ where: { agent: { organizationId: id } } }),
+      conocimientoManual: await prisma.knowledgeBaseEntry.count({
+        where: { ...where, sourceVehicleId: null },
+      }),
+    },
+    configuracionAntes,
+  );
+  const org = await prisma.organization.findUniqueOrThrow({ where: { id } });
+  assert.equal(org.isDemo, true);
+
+  // Los datos de uso, como recién creados: OS-0001… y STK-000001… otra vez.
+  await verificarDatosDeUso(id, demo.usuarios.taller.id);
+  const codigos = (await prisma.vehicle.findMany({ where, orderBy: { internalCode: "asc" } })).map(
+    (v) => v.internalCode,
+  );
+  assert.deepEqual(
+    codigos,
+    Object.keys(STOCK).map((_, i) => `STK-${String(i + 1).padStart(6, "0")}`),
+  );
+});
+
+test("reiniciar dos veces a la vez: el segundo recibe 409; después, otro reinicio deja lo mismo", async () => {
+  assert.ok(demo, "depende del test de alta");
+  const id = demo.organization.id;
+  const [a, b] = await Promise.all([
+    pedir(plataforma, "POST", rutaDeReinicio(id)),
+    pedir(plataforma, "POST", rutaDeReinicio(id)),
+  ]);
+  assert.deepEqual([a.status, b.status].sort(), [200, 409]);
+  const rechazado = a.status === 409 ? a : b;
+  assert.equal(rechazado.json.error?.message, YA_SE_ESTA_REINICIANDO);
+  await verificarDatosDeUso(id, demo.usuarios.taller.id);
+});
+
+test("reiniciar con configuración de ejemplo faltante: 409 antes de borrar nada", async () => {
+  assert.ok(demo, "depende del test de alta");
+  const id = demo.organization.id;
+  const este = await prisma.branch.findFirstOrThrow({
+    where: { organizationId: id, name: "Sucursal Este" },
+  });
+  await prisma.branch.update({
+    where: { id: este.id },
+    data: { name: "Sucursal Este (renombrada)" },
+  });
+  try {
+    const antes = await conteos(id);
+    const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
+    assert.equal(res.status, 409);
+    assert.match(String(res.json.error?.message), /sucursal Sucursal Este/);
+    assert.deepEqual(await conteos(id), antes);
+  } finally {
+    await prisma.branch.update({ where: { id: este.id }, data: { name: "Sucursal Este" } });
+  }
+});
+
+test("reiniciar una automotora sin modo demo (aunque tenga el slug del Taller Demo): 400 sin borrar nada", async () => {
+  const sinDemo = await crearOrgDePrueba("demo-taller", "COMPLETA", "AUTOMOTORA", 1);
+  orgsDeTest.push(sinDemo.id);
+  await prisma.contact.create({
+    data: { organizationId: sinDemo.id, firstName: "Cliente", lastName: "Real" },
+  });
+  const { slug } = await prisma.organization.findUniqueOrThrow({ where: { id: sinDemo.id } });
+  // El slug de demo NO es una plantilla de PATRONES_DE_SLUG_DE_PRUEBA a propósito.
+  const slugDeDemo = `taller-demo-reinicio-${randomUUID().slice(0, 8)}`;
+  await prisma.organization.update({ where: { id: sinDemo.id }, data: { slug: slugDeDemo } });
+  try {
+    const antes = await conteos(sinDemo.id);
+    const res = await pedir(plataforma, "POST", rutaDeReinicio(sinDemo.id));
+    assert.equal(res.status, 400);
+    assert.equal(res.json.error?.message, NO_ES_UNA_DEMO);
+    assert.deepEqual(await conteos(sinDemo.id), antes);
+  } finally {
+    await prisma.organization.update({ where: { id: sinDemo.id }, data: { slug } });
+  }
 });
