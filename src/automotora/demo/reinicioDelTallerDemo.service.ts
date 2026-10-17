@@ -65,7 +65,7 @@ import {
 export const DEMO_SIN_ADMIN =
   "El Taller Demo no tiene ningún administrador activo: no hay con quién cargar los datos de ejemplo.";
 export const YA_SE_ESTA_REINICIANDO =
-  "Esta demo ya se está reiniciando. Esperá a que termine (tarda alrededor de un minuto).";
+  "Esta demo ya se está reiniciando. Esperá a que termine (tarda unos tres minutos).";
 
 export function demoSinConfiguracion(faltan: string[]): string {
   return `Al Taller Demo le falta configuración de ejemplo (${faltan.join(", ")}): no se pueden volver a cargar los datos. Restaurala (con el mismo nombre) antes de reiniciar.`;

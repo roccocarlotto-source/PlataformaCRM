@@ -241,7 +241,7 @@ automatizaciones, el QR, los usuarios y las invitaciones.
 
 Después se vuelven a cargar los datos de ejemplo con fechas de hoy: las
 órdenes vuelven a empezar en **OS-0001** y el stock en **STK-000001**. Tarda
-alrededor de un minuto; el botón queda en espera hasta que termina y arriba de
+unos tres minutos; el botón queda en espera hasta que termina y arriba de
 la lista aparece qué se cargó. Si alguien tocó el botón al mismo tiempo, el
 segundo recibe un aviso de que ya se está reiniciando.
 
