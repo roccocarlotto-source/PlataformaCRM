@@ -162,6 +162,13 @@ conocimiento cargada a mano, agente y tokens del widget, automatizaciones y sus
 plantillas, QR, usuarios, invitaciones y `llm_turn_usages`. Los archivos de las
 fotos borradas quedan en el bucket, sin nada que los referencie.
 
+**Cuánto tarda en producción** (medido el 2026-10-17): el alta, unos 4
+minutos; el reinicio, unos 3. El diseño fijaba 60 s como umbral para pasar el
+reinicio a un trabajo en segundo plano; por ahora la request no se corta (ni
+Render ni el frontend) y el botón queda en espera hasta que termina.
+
+Cómo mostrar la demo en una reunión: [`docs/demo-guion.md`](demo-guion.md).
+
 ## 5. Lo que pasa con el tiempo
 
 Los barridos del módulo (recordatorio de service a las 10, recambios, ventas

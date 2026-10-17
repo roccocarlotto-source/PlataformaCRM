@@ -30,7 +30,7 @@ export function esDemo(org: Pick<PlatformOrganization, "slug" | "industry" | "is
 export const CONFIRMACION_DEL_REINICIO_DEL_TALLER =
   "Se borran para siempre los contactos, las conversaciones con sus mensajes, las oportunidades, el stock con sus fotos, los vehículos de clientes, las órdenes de taller, las tareas y los turnos. " +
   "Queda la configuración: sucursales y horarios, proceso de venta, tipos de service, campos personalizados, base de conocimiento, agentes, automatizaciones, QR, usuarios e invitaciones. " +
-  "Después se vuelven a cargar los datos de ejemplo con fechas de hoy. Tarda alrededor de un minuto.";
+  "Después se vuelven a cargar los datos de ejemplo con fechas de hoy. Tarda unos tres minutos.";
 
 /** Qué borra y qué deja el reinicio de la Clínica Demo: el texto de la
  *  confirmación. */
