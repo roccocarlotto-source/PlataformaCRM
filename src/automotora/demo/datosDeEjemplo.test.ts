@@ -22,10 +22,12 @@ import {
   ZONA_DE_LA_DEMO,
 } from "./config";
 import {
+  dentroDelHorario,
   fechasDeLasOportunidades,
   fechasDeLosTurnos,
   fechasDeLosVehiculosDeClientes,
   hoyEnLaDemo,
+  inicioDeLaConversacion,
 } from "./datosDeEjemplo";
 
 // ---------------------------------------------------------------------------
@@ -447,4 +449,101 @@ test("las tareas: 3 vencidas, 3 para hoy, 3 para la semana y 2 completadas", () 
   assert.equal(pendientes.filter((t) => t.vence === 0).length, 3);
   assert.equal(pendientes.filter((t) => t.vence > 0).length, 3);
   assert.equal(TAREAS.length - pendientes.length, 2);
+});
+
+// ---------------------------------------------------------------------------
+// Ensayo del 2026-10-17: lo que mandó la concesionaria, en horario
+// ---------------------------------------------------------------------------
+// El recordatorio de Jorge figuraba enviado a las 20 h y el aviso de la
+// OS-0009 con la hora del reinicio. Las conversaciones `enHorario` se corren
+// hasta que sus mensajes salientes caigan en el horario de Casa Central, y la
+// OS-0009 se corre con la de Nicolás.
+
+const EN_MONTEVIDEO = (texto: string) =>
+  DateTime.fromISO(texto, { zone: ZONA_DE_LA_DEMO }).toJSDate();
+const HORA_LOCAL = (fecha: Date) => enLaZona(fecha).toFormat("ccc HH:mm");
+
+test("dentroDelHorario: en horario no se mueve; fuera, media hora antes del último cierre que entra", () => {
+  const horario = SUCURSALES.central.horario;
+  const casos: [string, number, string][] = [
+    // [instante local, duración en minutos, resultado local]
+    ["2026-10-14T11:20", 0, "Wed 11:20"], // miércoles en horario
+    ["2026-10-16T20:23", 0, "Fri 17:30"], // viernes a la noche
+    ["2026-10-17T12:45", 0, "Sat 12:30"], // sábado, pasada la media hora previa al cierre
+    ["2026-10-18T15:00", 0, "Sat 12:30"], // domingo: cerrado
+    ["2026-10-19T07:00", 0, "Sat 12:30"], // lunes antes de abrir
+    ["2026-10-16T17:10", 60, "Fri 16:30"], // entra el instante pero no la hora siguiente
+    ["2026-10-17T10:00", 220, "Fri 13:50"], // el sábado no alcanza para 220 minutos
+  ];
+  for (const [local, duracion, esperado] of casos) {
+    const r = dentroDelHorario(EN_MONTEVIDEO(local), horario, ZONA_DE_LA_DEMO, duracion);
+    assert.equal(HORA_LOCAL(r), esperado, `${local} (${duracion} min)`);
+  }
+});
+
+function enElHorarioDeCasaCentral(fecha: Date): boolean {
+  const local = enLaZona(fecha);
+  const minuto = local.hour * 60 + local.minute;
+  const dia = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"][
+    local.weekday - 1
+  ];
+  return SUCURSALES.central.horario.some(
+    (f) => f.weekday === dia && minuto >= f.startMinute && minuto < f.endMinute,
+  );
+}
+
+// Un "ahora" cada 47 minutos durante dos semanas: todas las horas de todos
+// los días, incluido el reinicio de media mañana que pide el guion.
+const AHORAS_DE_REINICIO = Array.from({ length: Math.ceil((14 * 24 * 60) / 47) }, (_, i) =>
+  DateTime.fromObject({ year: 2026, month: 10, day: 12 }, { zone: ZONA_DE_LA_DEMO })
+    .plus({ minutes: i * 47 })
+    .toJSDate(),
+);
+
+test("las conversaciones enHorario: lo que manda la concesionaria cae en el horario de Casa Central", () => {
+  const enHorario = CONVERSACIONES.filter((c) => c.enHorario);
+  // La del recordatorio (Jorge, contacto 1) y la del aviso (Nicolás, contacto 2).
+  assert.deepEqual(enHorario.map((c) => c.contacto).sort(), [1, 2]);
+  for (const ahora of AHORAS_DE_REINICIO) {
+    for (const c of enHorario) {
+      const inicio = inicioDeLaConversacion(c, ahora);
+      const segunHace = ahora.getTime() - c.hace * 3_600_000;
+      assert.ok(inicio.getTime() <= segunHace, "solo se corre hacia atrás");
+      assert.ok(segunHace - inicio.getTime() <= 3 * 24 * 3_600_000, "a lo sumo tres días");
+      for (const m of c.mensajes) {
+        const enviado = new Date(inicio.getTime() + m.minuto * 60_000);
+        assert.ok(enviado.getTime() < ahora.getTime(), "en el pasado");
+        if (m.de === "CONTACTO") continue;
+        assert.ok(
+          enElHorarioDeCasaCentral(enviado),
+          `contacto ${c.contacto}, reinicio ${HORA_LOCAL(ahora)}: "${m.texto.slice(0, 30)}…" a las ${HORA_LOCAL(enviado)}`,
+        );
+      }
+    }
+  }
+});
+
+test("la OS-0009 se corre con la conversación de Nicolás: el aviso es el mensaje 'ya está listo', no antes de estar lista", () => {
+  const orden = ORDENES.find((o) => o.conLaConversacionDe !== undefined);
+  assert.ok(orden && orden.avisado === "WHATSAPP" && orden.avisadoHorasAtras !== undefined);
+  const conversacion = CONVERSACIONES.find((c) => c.contacto === orden.conLaConversacionDe);
+  assert.ok(conversacion?.enHorario);
+  const listo = conversacion.mensajes.find(
+    (m) => m.de === "PERSONA" && /ya está listo/.test(m.texto),
+  );
+  assert.ok(listo);
+  const pasoListo = orden.pasos.find((p) => p.estado === "LISTO_PARA_RETIRAR");
+  assert.ok(pasoListo);
+
+  for (const ahora of AHORAS_DE_REINICIO) {
+    const inicio = inicioDeLaConversacion(conversacion, ahora);
+    // El "ahora" corrido de la orden, como en cargarOrdenes.
+    const corrimiento: number = ahora.getTime() - conversacion.hace * 3_600_000 - inicio.getTime();
+    const ahoraDeLaOrden: number = ahora.getTime() - corrimiento;
+    const aviso: number = ahoraDeLaOrden - orden.avisadoHorasAtras * 3_600_000;
+    const mensaje: number = inicio.getTime() + listo.minuto * 60_000;
+    assert.equal(aviso, mensaje, `reinicio ${HORA_LOCAL(ahora)}`);
+    assert.ok(ahoraDeLaOrden - pasoListo.horasAtras * 3_600_000 <= aviso, "lista antes del aviso");
+    assert.ok(enElHorarioDeCasaCentral(new Date(aviso)));
+  }
 });

@@ -69,7 +69,7 @@ export const ROL_DEL_USUARIO: Record<ClaveDeUsuario, "ADMIN" | "USER"> = {
 // Sucursales y horarios
 // ---------------------------------------------------------------------------
 
-interface Franja {
+export interface Franja {
   weekday: Weekday;
   startMinute: number;
   endMinute: number;
@@ -1031,6 +1031,10 @@ export interface OrdenDeLaDemo {
   avisado?: "WHATSAPP" | "TELEFONO";
   /** Cuándo se avisó (horas antes de ahora); sin él, al cargar. */
   avisadoHorasAtras?: number;
+  /** El contacto cuya conversación cuenta este aviso. La orden se corre en
+   *  el tiempo lo mismo que esa conversación (`enHorario`), así el aviso cae
+   *  en el mensaje "ya está listo" y nunca antes de que la orden esté lista. */
+  conLaConversacionDe?: number;
 }
 
 export const ORDENES: OrdenDeLaDemo[] = [
@@ -1149,7 +1153,10 @@ export const ORDENES: OrdenDeLaDemo[] = [
       { estado: "LISTO_PARA_RETIRAR", horasAtras: 29 },
     ],
     avisado: "WHATSAPP",
+    // El mensaje "ya está listo" de la conversación de Nicolás (contacto 2):
+    // 30 h + 60 minutos.
     avisadoHorasAtras: 29,
+    conLaConversacionDe: 2,
   },
   // OS-0010 Agendada con turno la semana que viene.
   {
@@ -1309,6 +1316,12 @@ export interface ConversacionDeLaDemo {
   contacto: number;
   /** Horas antes de ahora del primer mensaje. */
   hace: number;
+  /** Lo que mandó la concesionaria (la regla, el agente o una persona) cae
+   *  dentro del horario de Casa Central: si con `hace` no cae, la
+   *  conversación entera se corre hacia atrás hasta que caiga
+   *  (dentroDelHorario en datosDeEjemplo.ts). Ensayo del 2026-10-17: un
+   *  recordatorio "enviado" a las 20 h, con la sucursal cerrada. */
+  enHorario?: boolean;
   estado: "ACTIVE" | "TRANSFERRED_TO_HUMAN" | "CLOSED";
   /** A quién se transfirió. */
   transferidaA?: ClaveDeUsuario;
@@ -1322,6 +1335,7 @@ export const CONVERSACIONES: ConversacionDeLaDemo[] = [
     canal: "WHATSAPP",
     contacto: 1,
     hace: 50,
+    enHorario: true,
     estado: "ACTIVE",
     mensajes: [
       {
@@ -1343,6 +1357,7 @@ export const CONVERSACIONES: ConversacionDeLaDemo[] = [
     canal: "WHATSAPP",
     contacto: 2,
     hace: 30,
+    enHorario: true,
     estado: "TRANSFERRED_TO_HUMAN",
     transferidaA: "taller",
     mensajes: [
