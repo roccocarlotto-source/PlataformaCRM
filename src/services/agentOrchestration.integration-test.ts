@@ -2973,7 +2973,16 @@ test("dentro del horario cargado, y sin horario cargado, la derivación queda co
       const resultado = await turno(e, "Quiero hablar con una persona", doble.proveedor);
 
       assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
-      assert.doesNotMatch(doble.requests[0].systemPrompt, /Horario de atención/);
+      // Sin el aviso de cerrada. El horario semanal sí puede ir (con horario
+      // cargado), junto al calendario: ver bloqueDeLosProximosDias.
+      assert.doesNotMatch(
+        doble.requests[0].systemPrompt,
+        /la sucursal está cerrada en este momento/,
+      );
+      assert.equal(
+        /Horario de atención de la sucursal/.test(doble.requests[0].systemPrompt),
+        franjas.length > 0,
+      );
     } finally {
       await desmontar(e);
     }
