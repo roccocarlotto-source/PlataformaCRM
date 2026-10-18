@@ -29,8 +29,16 @@ import { createStage } from "../src/services/stage.service";
 import { createResource } from "../src/services/resource.service";
 import { createServiceType } from "../src/services/serviceType.service";
 import { replaceWorkingHoursForResource } from "../src/services/workingHours.service";
+import { replaceBusinessHoursForBranch } from "../src/services/branchBusinessHours.service";
+import { createKnowledgeBaseEntry } from "../src/services/knowledgeBaseEntry.service";
 import { findRoleByName } from "../src/repositories/role.repository";
 import { getSupabaseAdmin } from "../src/lib/supabaseAdmin";
+import {
+  AGENTE as AGENTE_DEL_TALLER_DEMO,
+  BASE_DE_CONOCIMIENTO as BASE_DEL_TALLER_DEMO,
+  PRUEBA_DE_MANEJO,
+  SUCURSALES as SUCURSALES_DEL_TALLER_DEMO,
+} from "../src/automotora/demo/config";
 
 const TZ = "America/Montevideo";
 
@@ -140,6 +148,14 @@ interface Escenario {
   // turno 1 era correcto entonces, y mirarlo todo junto da un falso negativo.
   noDebeContenerAlFinal?: (string | RegExp)[];
   debeContener?: string[];
+  // Como debeContener, para cuando el dato se puede escribir de varias formas
+  // ("10:00", "a las 10", "10 h").
+  debeCoincidir?: RegExp[];
+  // A qué agente le escribe el cliente. Sin esto, el de AutoMax. "taller" es
+  // una copia del Taller Demo: sucursal CON horario de atención cargado (lun-vie
+  // 9-18, sáb 9-13), la agenda de pruebas de manejo y la base de conocimiento
+  // de la demo. Es donde el agente negó horarios libres (2026-10-18).
+  agente?: "taller";
   // Filtros permitidos por tool: cualquier otro argumento es un filtro
   // inventado (ítem 87).
   argsPermitidos?: Record<string, string[]>;
@@ -151,7 +167,51 @@ interface Escenario {
   chequeoDeDatos?: (contactId: string) => Promise<string | null>;
 }
 
+// Lo que el agente contestó en producción el 2026-10-18 (Taller Demo, un
+// domingo), con get_availability devolviendo el lunes de 9 a 18 libre: "para el
+// lunes a las 10:00 ya no tengo disponibilidad", "los lunes no tenemos
+// actividad", "el lunes es feriado". Cada patrón mira una sola oración.
+const NIEGA_UN_HORARIO = [
+  /\bno (tengo|tenemos|hay|contamos con|queda|quedan) (disponibilidad|lugar|turnos?|horarios?)\b[^.?!\n]{0,40}\b10\b/i,
+  /\b10(:00)?\b[^.?!\n]{0,40}\b(ya no|no (tengo|tenemos|hay)|ocupad[oa]|no est[aá] disponible)/i,
+  /\blunes\b[^.?!\n]{0,60}\bno (tengo|tenemos|hay|contamos con) (disponibilidad|lugar|turnos?|horarios?)\b/i,
+];
+const INVENTA_UN_CIERRE = [
+  /feriado/i,
+  /\blos lunes no\b/i,
+  /\blunes\b[^.?!\n]{0,50}\b(cerrad[oa]s?|no (abrimos|atendemos|trabajamos)|no (hay|tenemos) (actividad|atenci[oó]n))/i,
+  /\b(cerrad[oa]s?|no abrimos|no atendemos)\b[^.?!\n]{0,30}\blunes\b/i,
+];
+// Nombres ficticios para los contactos de los escenarios del taller.
+const NOMBRES_DEL_TALLER = [
+  ["Sofía", "Ramos"],
+  ["Jorge", "Méndez"],
+  ["Rodrigo", "Silveira"],
+  ["Raúl", "Gutiérrez"],
+  ["Natalia", "Píriz"],
+] as const;
+// "10:00", "10 h", "10 hs", "a las 10", "las 10 de la mañana".
+const OFRECE_LAS_10 = /\b10:00\b|\b10 ?h(s|oras)?\b|\blas 10\b/i;
+
 const ESCENARIOS: Escenario[] = [
+  // ---- Horario de atención (Taller Demo, 2026-10-18) ----
+  {
+    id: "T1",
+    agente: "taller",
+    criterio: "'¿puedo ir el lunes a las 10?' con las 10 libre: no lo niega y lo ofrece",
+    msgs: ["Hola, me interesa el Kwid. ¿Puedo ir a probarlo el lunes a las 10?"],
+    toolsEsperadas: ["get_availability"],
+    noDebeContener: [...NIEGA_UN_HORARIO, ...INVENTA_UN_CIERRE],
+    debeCoincidir: [OFRECE_LAS_10],
+  },
+  {
+    id: "T2",
+    agente: "taller",
+    criterio: "No inventa cierres ni feriados que contradigan el horario cargado",
+    msgs: ["Hola, ¿abren el lunes? Quiero pasar a la mañana a ver el Kwid."],
+    noDebeContener: [...INVENTA_UN_CIERRE, NIEGA_UN_HORARIO[2]!],
+  },
+
   // ---- Ítem 92: autoridad comercial ----
   {
     id: "H4",
@@ -843,7 +903,76 @@ async function montarOrganizacion() {
     },
   });
 
-  return { orgId: org.id, branchId: branch.id, userId: user.id, agentId: agent.id };
+  // La copia del Taller Demo (escenarios con agente "taller"): su propia
+  // sucursal, porque el horario de atención es de la sucursal y cambia el
+  // prompt de todos los escenarios que la usan.
+  const central = SUCURSALES_DEL_TALLER_DEMO.central;
+  const taller = await createBranch(org.id, { name: central.nombre, timezone: TZ });
+  await prisma.branch.update({ where: { id: taller.id }, data: { defaultOwnerId: user.id } });
+  await replaceBusinessHoursForBranch(org.id, taller.id, central.horario);
+  const recursoDePrueba = await createResource(org.id, {
+    branchId: taller.id,
+    name: PRUEBA_DE_MANEJO.recurso,
+    type: "PERSON",
+  });
+  await replaceWorkingHoursForResource(org.id, recursoDePrueba.id, central.horario);
+  await createServiceType(org.id, {
+    branchId: taller.id,
+    resourceId: recursoDePrueba.id,
+    name: PRUEBA_DE_MANEJO.turno,
+    durationMin: PRUEBA_DE_MANEJO.duracionMin,
+    capacity: 1,
+  });
+  for (const entrada of BASE_DEL_TALLER_DEMO) {
+    await createKnowledgeBaseEntry(org.id, {
+      branchId: taller.id,
+      title: entrada.titulo,
+      content: entrada.contenido,
+    });
+  }
+  // Sin stock propio: search_vehicles busca en toda la organización, así que
+  // el agente ve el Kwid de arriba. Con un segundo Kwid igual, los modelos se
+  // trababan preguntando cuál de los dos, cosa que en el Taller Demo no pasa.
+  const agenteDelTaller = await prisma.agent.create({
+    data: {
+      organizationId: org.id,
+      branchId: taller.id,
+      name: AGENTE_DEL_TALLER_DEMO.name,
+      goal: AGENTE_DEL_TALLER_DEMO.goal,
+      instructions: AGENTE_DEL_TALLER_DEMO.instructions,
+      tone: AGENTE_DEL_TALLER_DEMO.tone,
+      modelProvider: "openrouter",
+      modelName: env.OPENROUTER_MODEL,
+      enabledTools: [...AGENTE_DEL_TALLER_DEMO.enabledTools],
+      channels: ["WEB"],
+      guardrails: {},
+      isActive: true,
+    },
+  });
+
+  return {
+    orgId: org.id,
+    branchId: branch.id,
+    userId: user.id,
+    agentId: agent.id,
+    agenteDelTallerId: agenteDelTaller.id,
+  };
+}
+
+// Lo que costó y tardó un escenario: el costo es el que informó OpenRouter en
+// cada llamada (llm_turn_usages), no una estimación por tokens.
+interface Medicion {
+  ms: number;
+  costUsd: number;
+  llamadasSinCosto: number;
+}
+
+async function costoDeLaConversacion(conversationId: string) {
+  const usos = await prisma.llmTurnUsage.findMany({ where: { conversationId } });
+  return {
+    costUsd: usos.reduce((total, u) => total + Number(u.costUsd ?? 0), 0),
+    llamadasSinCosto: usos.filter((u) => u.costUsd === null).length,
+  };
 }
 
 function evaluar(esc: Escenario, turnos: Turno[]) {
@@ -882,6 +1011,9 @@ function evaluar(esc: Escenario, turnos: Turno[]) {
   for (const frag of esc.debeContener ?? []) {
     if (!texto.toLowerCase().includes(frag.toLowerCase())) motivos.push(`no menciona "${frag}"`);
   }
+  for (const re of esc.debeCoincidir ?? []) {
+    if (!re.test(texto)) motivos.push(`no menciona ${re}`);
+  }
   for (const frag of esc.noDebeContener ?? []) {
     const hit =
       typeof frag === "string"
@@ -919,17 +1051,40 @@ async function main() {
   console.log(
     `Modelo: ${env.OPENROUTER_MODEL}\nEscenarios: ${elegidos.length}${repes > 1 ? ` x ${repes} repeticiones` : ""}\n`,
   );
+  // Tope de gasto de la corrida: la key de OpenRouter es la de producción y
+  // tiene un límite compartido con los agentes reales.
+  const topeUsd = Number(process.env.TOPE_USD ?? 1.5);
+  let gastoUsd = 0;
   const e = await montarOrganizacion();
-  const resumen: { id: string; motivos: string[] }[] = [];
+  const resumen: { id: string; motivos: string[]; medicion: Medicion }[] = [];
 
   try {
     for (const esc of sel) {
+      if (gastoUsd >= topeUsd) {
+        console.log(`Tope de gasto alcanzado (USD ${gastoUsd.toFixed(4)}): se corta la corrida.`);
+        break;
+      }
+      // La agenda del taller arranca vacía en cada escenario: si una
+      // repetición ya reservó las 10, la siguiente que dice "a las 10 no hay"
+      // tiene razón, y el chequeo de T1 la contaría como falla.
+      if (esc.agente === "taller") {
+        await prisma.booking.deleteMany({ where: { organizationId: e.orgId } });
+      }
+      const medicion: Medicion = { ms: 0, costUsd: 0, llamadasSinCosto: 0 };
+      let conversationId: string | null = null;
       console.log(`${"=".repeat(72)}\n${esc.id}: ${esc.criterio}\n${"=".repeat(72)}`);
+      // En el taller, nombre y apellido de verdad, como Sofía Ramos en el
+      // probador: con "Eval T1#1" de apellido el modelo lo pedía y no seguía el
+      // camino de producción (registrar la oportunidad y agendar).
+      const nombre =
+        esc.agente === "taller"
+          ? NOMBRES_DEL_TALLER[resumen.length % NOMBRES_DEL_TALLER.length]!
+          : (["Martín", `Eval ${esc.id}`] as const);
       const contacto = await prisma.contact.create({
         data: {
           organizationId: e.orgId,
-          firstName: "Martín",
-          lastName: `Eval ${esc.id}`,
+          firstName: nombre[0],
+          lastName: nombre[1],
           ownerId: e.userId,
           phone: `+549${Math.floor(Math.random() * 1e9)}`,
         },
@@ -939,13 +1094,16 @@ async function main() {
       for (const msg of esc.msgs) {
         console.log(`  👤 ${msg}`);
         try {
+          const inicio = Date.now();
           const r = await runAgentTurn({
             organizationId: e.orgId,
-            agentId: e.agentId,
+            agentId: esc.agente === "taller" ? e.agenteDelTallerId : e.agentId,
             contactId: contacto.id,
             channel: "WEB",
             texto: msg,
           });
+          medicion.ms += Date.now() - inicio;
+          conversationId = r.conversationId;
           turnos.push({ respuesta: r.respuesta, toolCalls: r.toolCalls });
           for (const tc of r.toolCalls) {
             console.log(
@@ -972,10 +1130,20 @@ async function main() {
           motivos.push(falla);
         }
       }
+      if (conversationId !== null) {
+        Object.assign(medicion, await costoDeLaConversacion(conversationId));
+        gastoUsd += medicion.costUsd;
+      }
       console.log(motivos.length === 0 ? "  ✅ OK" : "  ❌ FALLA:");
       motivos.forEach((m) => console.log(`      - ${m}`));
+      console.log(
+        `  ⏱ ${(medicion.ms / 1000).toFixed(1)} s · USD ${medicion.costUsd.toFixed(6)}` +
+          (medicion.llamadasSinCosto > 0
+            ? ` (${medicion.llamadasSinCosto} turnos sin costo informado)`
+            : ""),
+      );
       console.log();
-      resumen.push({ id: esc.id, motivos });
+      resumen.push({ id: esc.id, motivos, medicion });
     }
   } finally {
     // Limpieza: la organización entera, en orden de FK.
@@ -983,13 +1151,23 @@ async function main() {
     await prisma.message.deleteMany({ where: { organizationId } });
     await prisma.conversation.deleteMany({ where: { organizationId } });
     await prisma.activity.deleteMany({ where: { organizationId } });
-    await prisma.opportunity.deleteMany({ where: { organizationId } });
-    await prisma.vehicle.deleteMany({ where: { organizationId } });
-    // Las reservas ANTES que los contactos: una Booking referencia al Contact,
-    // y cuando algún escenario llega a agendar de verdad, borrar el contacto
-    // primero revienta con la FK y se lleva puesta toda la limpieza.
+    // Las reservas ANTES que los contactos y las oportunidades: una Booking
+    // referencia a las dos (create_booking la vincula a la oportunidad), y
+    // cuando algún escenario llega a agendar de verdad, borrar cualquiera de
+    // las dos primero revienta con la FK y se lleva puesta toda la limpieza.
     await prisma.booking.deleteMany({ where: { organizationId } });
+    await prisma.opportunity.deleteMany({ where: { organizationId } });
+    // update_lead anota la unidad de interés en el contacto: sin soltarla, el
+    // borrado del stock revienta con la FK y la organización queda colgada.
+    await prisma.contact.updateMany({
+      where: { organizationId },
+      // Los dos juntos: un CHECK exige la unidad y quién la cargó, o ninguno.
+      data: { vehicleOfInterestId: null, vehicleOfInterestSetBy: null },
+    });
+    await prisma.vehicle.deleteMany({ where: { organizationId } });
     await prisma.contact.deleteMany({ where: { organizationId } });
+    await prisma.knowledgeBaseEntry.deleteMany({ where: { organizationId } });
+    await prisma.branchBusinessHours.deleteMany({ where: { organizationId } });
     await prisma.agent.deleteMany({ where: { organizationId } });
     await prisma.stage.deleteMany({ where: { organizationId } });
     await prisma.pipeline.deleteMany({ where: { organizationId } });
@@ -1013,6 +1191,23 @@ async function main() {
       `${r.motivos.length === 0 ? "✅" : "❌"} ${r.id.padEnd(5)} ${r.motivos.join("; ")}`,
     );
   }
+  // Una línea por corrida, para comparar modelos sin releer la transcripción.
+  const totalMs = resumen.reduce((t, r) => t + r.medicion.ms, 0);
+  console.log(
+    `RESULTADO ${JSON.stringify({
+      modelo: env.OPENROUTER_MODEL,
+      ok: resumen.length - fallan.length,
+      total: resumen.length,
+      msPromedio: resumen.length > 0 ? Math.round(totalMs / resumen.length) : 0,
+      costoUsd: Number(gastoUsd.toFixed(6)),
+      porEscenario: resumen.map((r) => ({
+        id: r.id,
+        ok: r.motivos.length === 0,
+        ms: r.medicion.ms,
+        costoUsd: Number(r.medicion.costUsd.toFixed(6)),
+      })),
+    })}`,
+  );
   process.exit(fallan.length > 0 ? 1 : 0);
 }
 
