@@ -1064,6 +1064,12 @@ async function main() {
         console.log(`Tope de gasto alcanzado (USD ${gastoUsd.toFixed(4)}): se corta la corrida.`);
         break;
       }
+      // La agenda del taller arranca vacía en cada escenario: si una
+      // repetición ya reservó las 10, la siguiente que dice "a las 10 no hay"
+      // tiene razón, y el chequeo de T1 la contaría como falla.
+      if (esc.agente === "taller") {
+        await prisma.booking.deleteMany({ where: { organizationId: e.orgId } });
+      }
       const medicion: Medicion = { ms: 0, costUsd: 0, llamadasSinCosto: 0 };
       let conversationId: string | null = null;
       console.log(`${"=".repeat(72)}\n${esc.id}: ${esc.criterio}\n${"=".repeat(72)}`);
