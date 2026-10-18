@@ -123,6 +123,8 @@ export const TEXTOS_DE_RESOLVER_PRESTACION: TextosDeResolverServicio = {
     `Hay que indicar la prestación: mandá servicio con el nombre o serviceTypeId con el id exacto que devolvió la lista de prestaciones. Las de esta sede son: ${nombres}. Elegí la que corresponda a lo que pidió el paciente y volvé a llamar en este mismo turno; si de verdad ninguna encaja o hay dos que podrían, preguntale al paciente NOMBRÁNDOLE esas, nunca "¿qué prestación querés?" a secas.`,
   noExiste: (pedido, nombres) =>
     `No existe ninguna prestación llamada "${pedido}". Las que existen son: ${nombres}. Usá una de esas, tal cual está escrita.`,
+  idNoExiste: (nombres) =>
+    `Ese serviceTypeId no es ninguna de las prestaciones de esta sede: no lo escribas de memoria. Las que existen son: ${nombres}. Mandá servicio con uno de esos nombres, tal cual está escrito.`,
   ambiguo: (pedido, nombres) =>
     `Hay más de una prestación que se llama "${pedido}". Preguntale al paciente cuál quiere entre: ${nombres}.`,
 };

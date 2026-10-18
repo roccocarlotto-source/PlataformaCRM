@@ -1294,6 +1294,71 @@ test("sin nombre ni id, el error dice las dos formas de indicarlo", async () => 
 });
 
 // ---------------------------------------------------------------------------
+// Ensayo de la demo del 2026-10-17: solo tipos de servicio que existen
+// ---------------------------------------------------------------------------
+// El nombre y el id se comparan con la lista de get_service_types de la
+// sucursal de la conversación. Un tipo inventado, o de otra sucursal, se
+// rechaza ANTES de mirar la agenda, con los nombres reales y qué hacer si
+// ninguno encaja.
+
+test("un tipo de servicio inexistente o de otra sucursal se rechaza con la lista real y qué hacer", async () => {
+  const propia = await sucursalConServicios(["Prueba de manejo", "Turno de taller"]);
+  const otra = await sucursalConServicios(["Test drive"]);
+  const deLaOtra = await prisma.serviceType.findFirstOrThrow({ where: { branchId: otra.id } });
+  const propio = await prisma.serviceType.findFirstOrThrow({
+    where: { branchId: propia.id, name: "Prueba de manejo" },
+  });
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, propia.id);
+  const desde = "2026-09-28T09:00:00-03:00";
+
+  const conLaLista = (r: Awaited<ReturnType<typeof ejecutar>>, caso: string) => {
+    assert.equal(r.ok, false, `${caso}: ${JSON.stringify(r)}`);
+    const error = r.ok === false ? r.error : "";
+    assert.ok(!error.startsWith("Argumentos inválidos"), `${caso}: no es un error de args`);
+    assert.match(error, /"Prueba de manejo", "Turno de taller"/, `${caso}: lista los reales`);
+    assert.doesNotMatch(
+      error,
+      /existen son:[^.]*Test drive/,
+      `${caso}: no sugiere el de otra sucursal`,
+    );
+    assert.match(
+      error,
+      /no le ofrezcas ni le confirmes un turno/,
+      `${caso}: qué hacer si no encaja`,
+    );
+    return error;
+  };
+
+  // Por nombre: el caso del ensayo, un "Test drive" que esta sucursal no tiene.
+  const porNombre = await ejecutar("get_availability", { servicio: "Test drive", desde }, ctx);
+  assert.match(conLaLista(porNombre, "nombre"), /No existe ningún servicio llamado "Test drive"/);
+
+  // Por id inventado y por id de otra sucursal: antes el id pasaba sin
+  // compararse con la lista.
+  for (const [caso, serviceTypeId] of [
+    ["id inventado", "11111111-1111-4111-8111-111111111111"],
+    ["id de otra sucursal", deLaOtra.id],
+  ] as const) {
+    const r = await ejecutar("get_availability", { serviceTypeId, desde }, ctx);
+    assert.match(conLaLista(r, caso), /Ese serviceTypeId no es ninguno de los servicios/);
+  }
+
+  // Reservar con el de otra sucursal tampoco: no queda ningún turno.
+  const reserva = await ejecutar(
+    "create_booking",
+    { serviceTypeId: deLaOtra.id, startsAt: "2026-09-28T10:00:00-03:00" },
+    ctx,
+  );
+  conLaLista(reserva, "reserva con id de otra sucursal");
+  assert.equal(await prisma.booking.count({ where: { contactId: contacto.id } }), 0);
+
+  // Y el id real de la sucursal sigue andando.
+  const valido = await ejecutar("get_availability", { serviceTypeId: propio.id, desde }, ctx);
+  assert.equal(valido.ok, true, JSON.stringify(valido));
+});
+
+// ---------------------------------------------------------------------------
 // Ítem 107: la oportunidad se vincula al vehículo y toma su precio
 // ---------------------------------------------------------------------------
 

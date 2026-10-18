@@ -34,6 +34,7 @@ import {
   MENSAJE_TOPE_DE_RESERVAS,
   MENSAJE_CONTACTO_SIN_VENDEDOR,
   MENSAJE_RECURSO_DE_OTRA_SUCURSAL,
+  SIN_SERVICIOS_CONFIGURADOS,
   MENSAJE_SIN_PIPELINE_POR_DEFECTO,
 } from "./agentTools.service";
 import { relojDeReservas } from "./booking.service";
@@ -1035,9 +1036,17 @@ test("el agente no reserva en un recurso de otra sucursal de la misma organizaci
       name: "Pedro",
       type: "PERSON",
     });
+    // El servicio es de la sucursal de la conversación (desde el ensayo del
+    // 2026-10-17 uno de otra se rechaza antes, en resolverServicio): lo que
+    // este test cuida es el resourceId explícito de otra sucursal.
+    const propio = await createResource(e.organizationId, {
+      branchId: e.branchId,
+      name: "Ana",
+      type: "PERSON",
+    });
     const serviceType = await createServiceType(e.organizationId, {
-      branchId: norte.id,
-      resourceId: resource.id,
+      branchId: e.branchId,
+      resourceId: propio.id,
       name: "Corte",
       durationMin: 60,
     });
@@ -2733,8 +2742,9 @@ test("ítem 102: deducir el recurso NO permite agendar en otra sucursal", async 
     });
 
     const doble = doblarProveedor([
-      // Sin resourceId: el recurso sale del servicio, y ese recurso es de otra
-      // sucursal. Tiene que rechazarse igual que si lo hubiera mandado.
+      // Sin resourceId: el recurso saldría del servicio, que es de otra
+      // sucursal. Desde el ensayo del 2026-10-17 se corta antes: el id no está
+      // en la lista de servicios de la sucursal de la conversación.
       pideTool("c1", "create_booking", {
         serviceTypeId: serviceType.id,
         startsAt: LUNES_9_LOCAL,
@@ -2743,10 +2753,9 @@ test("ítem 102: deducir el recurso NO permite agendar en otra sucursal", async 
     ]);
     const resultado = await turno(e, "turno", doble.proveedor);
 
-    assert.deepEqual(resultado.toolCalls[0].result, {
-      ok: false,
-      error: MENSAJE_RECURSO_DE_OTRA_SUCURSAL,
-    });
+    const result = resultado.toolCalls[0].result;
+    assert.equal(result?.ok, false);
+    assert.equal(result?.ok === false ? result.error : "", SIN_SERVICIOS_CONFIGURADOS);
     assert.equal(await prisma.booking.count({ where: { organizationId: e.organizationId } }), 0);
   } finally {
     await desmontar(e);
@@ -2756,6 +2765,17 @@ test("ítem 102: deducir el recurso NO permite agendar en otra sucursal", async 
 test("ítem 102: un serviceTypeId inventado falla claro, sin tocar la base", async () => {
   const e = await montar("agenda-servicio-inventado", { enabledTools: ["create_booking"] });
   try {
+    const resource = await createResource(e.organizationId, {
+      branchId: e.branchId,
+      name: "Vendedor",
+      type: "PERSON",
+    });
+    await createServiceType(e.organizationId, {
+      branchId: e.branchId,
+      resourceId: resource.id,
+      name: "Prueba de manejo",
+      durationMin: 30,
+    });
     const doble = doblarProveedor([
       pideTool("c1", "create_booking", {
         serviceTypeId: randomUUID(),
@@ -2766,7 +2786,11 @@ test("ítem 102: un serviceTypeId inventado falla claro, sin tocar la base", asy
     const resultado = await turno(e, "turno", doble.proveedor);
     const result = resultado.toolCalls[0].result;
     assert.equal(result?.ok, false);
-    assert.match(result?.ok === false ? result.error : "", /no existe.*no los inventes/s);
+    // Con la lista real, para que el modelo se corrija en el mismo turno.
+    assert.match(
+      result?.ok === false ? result.error : "",
+      /no es ninguno de los servicios de esta sucursal: no lo escribas de memoria.*"Prueba de manejo"/s,
+    );
     assert.equal(await prisma.booking.count({ where: { organizationId: e.organizationId } }), 0);
   } finally {
     await desmontar(e);

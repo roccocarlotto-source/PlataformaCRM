@@ -986,7 +986,11 @@ test("hallazgos de la demo: los textos de las tools de una automotora son los de
   );
   assert.equal(
     TEXTOS_DE_RESOLVER_SERVICIO.noExiste("Lavado", '"Test drive"'),
-    'No existe ningún servicio llamado "Lavado". Los que existen son: "Test drive". Usá uno de esos, tal cual está escrito.',
+    'No existe ningún servicio llamado "Lavado". Los que existen son: "Test drive". Usá uno de esos, tal cual está escrito. Si ninguno corresponde a lo que pidió el cliente, no le ofrezcas ni le confirmes un turno para eso: decile qué servicios se pueden agendar o que lo coordina alguien del equipo.',
+  );
+  assert.equal(
+    TEXTOS_DE_RESOLVER_SERVICIO.idNoExiste('"Test drive"'),
+    'Ese serviceTypeId no es ninguno de los servicios de esta sucursal: no lo escribas de memoria. Los que existen son: "Test drive". Mandá servicio con uno de esos nombres, tal cual está escrito. Si ninguno corresponde a lo que pidió el cliente, no le ofrezcas ni le confirmes un turno para eso: decile qué servicios se pueden agendar o que lo coordina alguien del equipo.',
   );
   assert.equal(
     TEXTOS_DE_RESOLVER_SERVICIO.ambiguo("Visita", '"Visita", "Visita"'),

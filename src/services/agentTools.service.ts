@@ -1443,8 +1443,12 @@ export async function zonaDeLaSucursal(contexto: ContextoDeEjecucionDeTool): Pro
 // el modelo elige —o pregunta nombrando los que de verdad existen— en el mismo
 // turno, sin adivinar. Mismo criterio que la rama de "no existe ese servicio",
 // que ya devolvía la lista.
+//
+// Ensayo de la demo del 2026-10-17: sin ejemplo de nombre. El de antes
+// ("Test drive") era un nombre que la sucursal podía no tener, y el agente lo
+// copiaba tal cual en vez de consultar la lista.
 export const MENSAJE_SERVICIO_SIN_IDENTIFICAR =
-  'Hay que indicar el servicio: mandá `servicio` con el nombre (por ejemplo "Test drive") o `serviceTypeId` con el id exacto que devolvió la lista de servicios.';
+  "Hay que indicar el servicio: mandá `servicio` con el nombre tal cual figura en la lista de servicios de esta sucursal, o `serviceTypeId` con el id exacto que devolvió esa lista.";
 
 export const SIN_SERVICIOS_CONFIGURADOS =
   "Esta sucursal no tiene ningún servicio configurado, así que no hay nada que agendar.";
@@ -1457,15 +1461,25 @@ export interface TextosDeResolverServicio {
   sinConfigurar: string;
   sinIdentificar(nombres: string): string;
   noExiste(pedido: string, nombres: string): string;
+  // Un serviceTypeId que no está en la lista de la sucursal: inventado,
+  // escrito de memoria o de otra sucursal.
+  idNoExiste(nombres: string): string;
   ambiguo(pedido: string, nombres: string): string;
 }
+
+// Lo que el modelo tiene que hacer cuando lo que pidió el cliente no es
+// ninguno de los servicios cargados: no ofrecer un turno inventado.
+const SI_NINGUNO_ENCAJA =
+  "Si ninguno corresponde a lo que pidió el cliente, no le ofrezcas ni le confirmes un turno para eso: decile qué servicios se pueden agendar o que lo coordina alguien del equipo.";
 
 export const TEXTOS_DE_RESOLVER_SERVICIO: TextosDeResolverServicio = {
   sinConfigurar: SIN_SERVICIOS_CONFIGURADOS,
   sinIdentificar: (nombres) =>
     `${MENSAJE_SERVICIO_SIN_IDENTIFICAR} Los de esta sucursal son: ${nombres}. Elegí el que corresponda a lo que pidió el cliente y volvé a llamar en este mismo turno; si de verdad ninguno encaja o hay dos que podrían, preguntale al cliente NOMBRÁNDOLE esos, nunca "¿qué servicio querés?" a secas.`,
   noExiste: (pedido, nombres) =>
-    `No existe ningún servicio llamado "${pedido}". Los que existen son: ${nombres}. Usá uno de esos, tal cual está escrito.`,
+    `No existe ningún servicio llamado "${pedido}". Los que existen son: ${nombres}. Usá uno de esos, tal cual está escrito. ${SI_NINGUNO_ENCAJA}`,
+  idNoExiste: (nombres) =>
+    `Ese serviceTypeId no es ninguno de los servicios de esta sucursal: no lo escribas de memoria. Los que existen son: ${nombres}. Mandá servicio con uno de esos nombres, tal cual está escrito. ${SI_NINGUNO_ENCAJA}`,
   ambiguo: (pedido, nombres) =>
     `Hay más de un servicio que se llama "${pedido}". Preguntale al cliente cuál quiere entre: ${nombres}.`,
 };
@@ -1485,21 +1499,35 @@ export function normalizarNombre(texto: string): string {
 
 // Devuelve el serviceTypeId, o un fallo con la lista de nombres reales para
 // que el modelo pueda corregirse sin adivinar.
+//
+// SOLO TIPOS QUE EXISTEN (ensayo de la demo del 2026-10-17): el nombre y el
+// id se comparan con la MISMA lista que devuelve get_service_types —los tipos
+// de la sucursal de la conversación—. Antes el id pasaba sin mirarse: uno
+// inventado fallaba más adelante con un mensaje sin la lista, y uno de otra
+// sucursal llegaba hasta el chequeo del recurso.
 export async function resolverServicio(
   args: { serviceTypeId?: string; servicio?: string },
   contexto: ContextoDeEjecucionDeTool,
   textos: TextosDeResolverServicio = TEXTOS_DE_RESOLVER_SERVICIO,
 ): Promise<{ ok: true; serviceTypeId: string } | { ok: false; resultado: ResultadoDeTool }> {
-  if (args.serviceTypeId !== undefined) {
-    return { ok: true, serviceTypeId: args.serviceTypeId };
-  }
-
   const tipos = await findManyServiceTypes(
     contexto.organizationId,
     { branchId: contexto.conversation.branchId },
     { skip: 0, take: MAX_TIPOS_DE_SERVICIO },
     { sortBy: "name", sortOrder: "asc" },
   );
+
+  if (args.serviceTypeId !== undefined) {
+    if (tipos.some((t) => t.id === args.serviceTypeId)) {
+      return { ok: true, serviceTypeId: args.serviceTypeId };
+    }
+    return {
+      ok: false,
+      resultado: fallo(
+        tipos.length === 0 ? textos.sinConfigurar : textos.idNoExiste(nombresDe(tipos)),
+      ),
+    };
+  }
 
   // Ítem 122: sin servicio indicado. Con uno solo configurado no hay nada que
   // elegir; con varios, la lista va en la falla para que el modelo no tenga
@@ -1622,7 +1650,7 @@ const getAvailabilityTool: ToolDelAgente = {
         servicio: {
           type: "string",
           description:
-            'Nombre del servicio, tal cual aparece en la lista de servicios (por ejemplo "Test drive"). Es la forma preferida: mandá esto y no te preocupes por ids.',
+            "Nombre del servicio: uno de los que devuelve la lista de servicios de esta sucursal, escrito tal cual. Es la forma preferida: mandá esto y no te preocupes por ids. Si todavía no consultaste esa lista en esta conversación, consultala antes: un nombre que no esté ahí se rechaza.",
         },
         serviceTypeId: {
           type: "string",
@@ -1705,7 +1733,7 @@ const createBookingTool: ToolDelAgente = {
         servicio: {
           type: "string",
           description:
-            'Nombre del servicio, tal cual aparece en la lista de servicios (por ejemplo "Test drive"). Es la forma preferida: mandá esto y no te preocupes por ids.',
+            "Nombre del servicio: uno de los que devuelve la lista de servicios de esta sucursal, escrito tal cual. Es la forma preferida: mandá esto y no te preocupes por ids. Si todavía no consultaste esa lista en esta conversación, consultala antes: un nombre que no esté ahí se rechaza.",
         },
         serviceTypeId: {
           type: "string",
