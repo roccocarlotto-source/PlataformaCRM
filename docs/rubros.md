@@ -2604,9 +2604,9 @@ R17 acompaña: cada PR de pantallas suma lo suyo, y R17 cierra el menú y la mar
   ida y vuelta a la base). Con esa latencia, una transacción interactiva con
   muchas consultas puede pasar los 5 s por defecto de Prisma: las largas llevan
   `OPCIONES_DE_TRANSACCION_LARGA` (`src/lib/prisma.ts`);
-- en Render: `DATABASE_URL` termina exactamente en
-  `/postgres?pgbouncer=true&connection_limit=10` y `AGENT_TURN_MAX_CONCURRENT`
-  es 8 (docs/deployment.md §2.3).
+- en Render: `DATABASE_URL` va al pooler en modo sesión (puerto 5432, sin
+  `pgbouncer=true`) y termina en `/postgres?connection_limit=6&pool_timeout=20`;
+  `AGENT_TURN_MAX_CONCURRENT` es 4 (desde el 2026-10-18, docs/deployment.md §2.3).
 
 Hasta R3 nadie puede crear una organización CLINICA: todo lo anterior es inerte.
 

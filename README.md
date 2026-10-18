@@ -299,7 +299,7 @@ contenedor:
 | Variable | ¿Requerida? | Notas |
 |---|---|---|
 | `CORS_ORIGIN` | **Sí** | La única que `src/config/env.ts` valida como obligatoria: sin ella el proceso no arranca. |
-| `DATABASE_URL` | En la práctica sí | Conexión pooled (PgBouncer, puerto 6543). Opcional en el schema de entorno, pero sin ella `/health` reporta la base como no disponible y toda ruta de negocio falla. |
+| `DATABASE_URL` | En la práctica sí | Conexión pooled (Supavisor en modo sesión, puerto 5432, sin `pgbouncer=true`; ver `docs/deployment.md` §2.3). Opcional en el schema de entorno, pero sin ella `/health` reporta la base como no disponible y toda ruta de negocio falla. |
 | `DIRECT_URL` | No, para este contenedor | Solo la usan las migraciones, que **no** corren desde acá. |
 | `SUPABASE_URL` | En la práctica sí | De ella sale el JWKS con el que se verifica cada JWT. |
 | `SUPABASE_SERVICE_ROLE_KEY` | En la práctica sí | La usa la Admin API (onboarding, invitaciones). |

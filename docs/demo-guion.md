@@ -5,10 +5,9 @@ Cómo mostrarle el producto a una concesionaria o a un taller en una reunión de
 cinco momentos de unos dos minutos, pensados para vender: primero el dolor,
 después cómo se resuelve. Lo que no entra va en [Si preguntan…](#si-preguntan).
 
-Por qué 12 y no 10 (medido en dos ensayos, el 2026-10-17): el agente tarda
-**10 a 22 segundos** por respuesta (unos 50 s en el momento 3) y algunas
-pantallas tardan unos segundos en cargar. Las esperas suman cerca de 2
-minutos: usalas para hablar.
+Por qué 12 y no 10: el agente tarda **unos 18 segundos** por respuesta
+(medido el 2026-10-18) y algunas pantallas tardan unos segundos en cargar.
+Las esperas suman cerca de 2 minutos: usalas para hablar.
 
 Todo lo que se ve es inventado y la demo está en **modo demo**: los mensajes
 se simulan y nada sale de la plataforma, así que se puede tocar todo sin miedo.
@@ -25,10 +24,12 @@ se simulan y nada sale de la plataforma, así que se puede tocar todo sin miedo.
    instante. Si se quiere mostrar el menú de un vendedor, el vendedor (Martín
    Pereira) en una ventana privada aparte.
 3. **Probar el agente una vez** (Agentes de IA → Asistente de ventas → **Probar
-   agente**, con la contacta **Sofía Ramos**). Si no contesta, en el momento 3
-   se usa el plan B. La prueba deja una conversación y una oportunidad: no
-   molesta, pero si querés llegar limpio, reiniciá después.
-4. Tener a mano qué decir del **aviso fijo de arriba** ("Modo demo: los
+   agente**) con el contacto **Raúl Gutiérrez**, no con Sofía Ramos: Sofía
+   queda para la reunión. Si no contesta, en el momento 3 se usa el plan B.
+4. **Si ya se usó el probador con Sofía Ramos en un ensayo, reiniciar la demo**
+   (paso 1) para que arranque sin conversación. Así el agente no arrastra lo
+   que se habló antes y la saluda como a alguien nuevo.
+5. Tener a mano qué decir del **aviso fijo de arriba** ("Modo demo: los
    mensajes se simulan…"): "esto es una demo; en tu cuenta los mensajes salen
    por tu WhatsApp".
 
@@ -69,7 +70,7 @@ se simulan y nada sale de la plataforma, así que se puede tocar todo sin miedo.
 ### 3. El agente atendiendo, en vivo
 
 - **Pantalla:** Agentes de IA → Asistente de ventas → **Probar agente**, con la
-  contacta **Sofía Ramos**. Mandar, en orden (cada respuesta tarda 10 a 22
+  contacta **Sofía Ramos**. Mandar, en orden (cada respuesta tarda unos 18
   segundos: aprovechá para contar qué está haciendo):
   1. *"Hola, busco un auto chico para la ciudad, hasta 15 mil dólares"* →
      saluda a Sofía y ofrece los hatchbacks del stock con precio y km (el

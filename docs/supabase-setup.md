@@ -34,7 +34,7 @@ botón **Connect → ORMs → Prisma** (las dos cadenas de conexión ya armadas)
 ### `.env` (raíz — backend)
 
 ```
-DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-0-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?connection_limit=6&pool_timeout=20"
 DIRECT_URL="postgresql://postgres.<ref>:<password>@aws-0-sa-east-1.pooler.supabase.com:5432/postgres"
 
 SUPABASE_URL=https://<ref>.supabase.co
@@ -65,10 +65,13 @@ coincidir.
 - La **service role key va únicamente en el `.env` de la raíz**, nunca con
   prefijo `VITE_`. Vite expone al bundle del navegador toda variable con ese
   prefijo.
-- Las dos cadenas apuntan al **mismo host** (`...pooler.supabase.com`) y se
-  diferencian **solo por el puerto**: 6543 para `DATABASE_URL` (pooler en modo
-  transacción, la que usa la app en runtime), 5432 para `DIRECT_URL` (la que
-  usan las migraciones). No usar la cadena de "conexión directa"
+- Las dos cadenas apuntan al **mismo host** (`...pooler.supabase.com`) y al
+  **mismo puerto, 5432** (pooler en modo sesión, desde el 2026-10-18):
+  `DATABASE_URL` es la que usa la app en runtime, con `connection_limit` y
+  `pool_timeout`; `DIRECT_URL` es la que usan las migraciones. Sin
+  `pgbouncer=true`: solo hace falta en el puerto 6543 (modo transacción), que
+  ya no se usa. La cuenta del `connection_limit` está en
+  `docs/deployment.md` §2.3. No usar la cadena de "conexión directa"
   (`db.<ref>.supabase.co`): suele ser solo IPv6 y muchas redes no la alcanzan.
 
 ### Cuatro errores que ya nos costaron tiempo
