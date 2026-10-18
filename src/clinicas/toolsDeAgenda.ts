@@ -202,7 +202,7 @@ const createBookingDeClinica: ToolDelAgente = {
   definition: {
     name: "create_booking",
     description:
-      "Reserva de verdad un turno para el paciente de esta conversación: hasta que esta tool no devuelva un resultado exitoso, el turno NO existe y no se lo podés confirmar. Reservá en el mismo turno en que el paciente acepta un horario, sin volver a pedirle que confirme. Si el paciente eligió un profesional, mandá su id como resourceId; si le da lo mismo, no lo mandes y se asigna el primero libre en ese horario. El horario tiene que ser uno de los que devolvió la consulta de disponibilidad.",
+      "Reserva de verdad un turno para el paciente de esta conversación: hasta que esta tool no devuelva un resultado exitoso, el turno NO existe y no se lo podés confirmar. Si el paciente solo preguntó por un día o un horario, todavía no aceptó: ofrecéselo y preguntale si se lo reservás, sin reservarlo en ese turno. Reservá en el mismo turno en que el paciente acepta un horario que le ofreciste o te pide que se lo reserves, sin volver a pedirle que confirme. Si el paciente eligió un profesional, mandá su id como resourceId; si le da lo mismo, no lo mandes y se asigna el primero libre en ese horario. El horario tiene que ser uno de los que devolvió la consulta de disponibilidad.",
     parameters: {
       type: "object",
       properties: {

@@ -190,6 +190,10 @@ const NOMBRES_DEL_TALLER = [
   ["Raúl", "Gutiérrez"],
   ["Natalia", "Píriz"],
 ] as const;
+// "¿Te lo reservo?", "¿querés que te lo reserve?", "¿lo agendo?"… y con el
+// detalle adentro: "¿Te reservo el turno … el lunes 19 a las 10 (30 minutos)?".
+const PREGUNTA_SI_RESERVA =
+  /¿[^?]{0,40}\b(reservo|reserve|reservamos|agendo|agende|agendamos|anoto|confirmo)\b[^?]{0,160}\?/i;
 // "10:00", "10 h", "10 hs", "a las 10", "las 10 de la mañana".
 const OFRECE_LAS_10 = /\b10:00\b|\b10 ?h(s|oras)?\b|\blas 10\b/i;
 
@@ -210,6 +214,46 @@ const ESCENARIOS: Escenario[] = [
     criterio: "No inventa cierres ni feriados que contradigan el horario cargado",
     msgs: ["Hola, ¿abren el lunes? Quiero pasar a la mañana a ver el Kwid."],
     noDebeContener: [...INVENTA_UN_CIERRE, NIEGA_UN_HORARIO[2]!],
+  },
+
+  // ---- Preguntar no es aceptar (Taller Demo, 2026-10-18) ----
+  // A "¿puedo ir a probarlo el lunes a las 10?" el agente reservó directo. Una
+  // pregunta se contesta ofreciendo y preguntando; aceptar lo ofrecido o pedir
+  // la reserva sigue reservando en el mismo turno (ítem 119).
+  {
+    id: "T3",
+    agente: "taller",
+    criterio: "Pregunta por un horario: lo ofrece y pregunta si lo reserva, sin reservar",
+    msgs: ["Hola, me interesa el Kwid. ¿Puedo ir a probarlo el lunes a las 10?"],
+    toolsProhibidas: ["create_booking"],
+    debeCoincidir: [PREGUNTA_SI_RESERVA],
+    chequeoDeDatos: async (contactId) => {
+      const n = await prisma.booking.count({ where: { contactId } });
+      return n === 0 ? null : `quedaron ${String(n)} reservas sin que el cliente las pidiera`;
+    },
+  },
+  {
+    id: "T4",
+    agente: "taller",
+    criterio: "Acepta el horario ofrecido: reserva en ese turno, sin volver a preguntar",
+    msgs: ["Hola, me interesa el Kwid. ¿Puedo ir a probarlo el lunes a las 10?", "Sí, dale"],
+    noDebeContenerAlFinal: [PREGUNTA_SI_RESERVA],
+    chequeoDeDatos: async (contactId) => {
+      const n = await prisma.booking.count({ where: { contactId } });
+      return n === 1 ? null : `al aceptar quedaron ${String(n)} reservas (esperaba 1)`;
+    },
+  },
+  {
+    id: "T5",
+    agente: "taller",
+    criterio: "Pide la reserva explícitamente: reserva en el primer turno",
+    msgs: ["Hola, reservame una prueba de manejo del Kwid para el lunes a las 10, por favor."],
+    toolsEsperadas: ["create_booking"],
+    noDebeContener: [PREGUNTA_SI_RESERVA],
+    chequeoDeDatos: async (contactId) => {
+      const n = await prisma.booking.count({ where: { contactId } });
+      return n === 1 ? null : `pidió la reserva y quedaron ${String(n)} (esperaba 1)`;
+    },
   },
 
   // ---- Ítem 92: autoridad comercial ----

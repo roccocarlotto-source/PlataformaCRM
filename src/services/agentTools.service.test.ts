@@ -674,6 +674,21 @@ test("ítem 119: create_booking dice que se reserva en el turno en que el client
   assert.match(reservar, /el turno NO existe/);
 });
 
+test("create_booking: una pregunta por un horario no es un sí — se ofrece y se pregunta «¿Te lo reservo?»", () => {
+  // Taller Demo, 2026-10-18: a "¿puedo ir a probarlo el lunes a las 10?" el
+  // agente reservó sin preguntar.
+  const reservar = CATALOGO_DE_TOOLS.get("create_booking")!.definition.description;
+  assert.match(reservar, /«¿puedo ir el lunes a las 10\?»/);
+  assert.match(reservar, /preguntale «¿Te lo reservo\?»; NO lo reserves en ese turno/);
+  // Pedirla explícitamente sigue reservando en el acto.
+  assert.match(reservar, /«reservame»/);
+  // Va ANTES de la regla del ítem 119: primero se distingue si ya dijo que sí.
+  assert.ok(
+    reservar.indexOf("ANTES DE RESERVAR") <
+      reservar.indexOf("RESERVÁ EN EL MISMO TURNO EN QUE EL CLIENTE ACEPTA"),
+  );
+});
+
 test("search_vehicles: la regla de no inventar filtros va al principio de la descripción", () => {
   const descripcion = CATALOGO_DE_TOOLS.get("search_vehicles")!.definition.description;
   assert.ok(

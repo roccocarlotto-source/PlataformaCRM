@@ -1723,11 +1723,17 @@ export const createBookingArgs = z.object({
   startsAt: instanteIso,
 });
 
+// Preguntar no es aceptar (Taller Demo, 2026-10-18): a "¿puedo ir a probarlo
+// el lunes a las 10?" el agente reservó directo. El ítem 119 sigue en pie —una
+// vez que el cliente acepta un horario ofrecido o pide la reserva, se reserva
+// en ese turno sin volver a preguntar—; lo que cambia es el paso anterior: una
+// pregunta por un horario se contesta ofreciéndolo y preguntando «¿Te lo
+// reservo?».
 const createBookingTool: ToolDelAgente = {
   definition: {
     name: "create_booking",
     description:
-      "Reserva de verdad un turno para el contacto de esta conversación: hasta que esta tool no devuelva un resultado exitoso, el turno NO existe y no se lo podés confirmar al cliente. RESERVÁ EN EL MISMO TURNO EN QUE EL CLIENTE ACEPTA, sin volver a pedirle que confirme: «dale», «me viene bien», «sí, reservame ese», «el primero que tengas me sirve» ya son un sí. Volver a preguntarle «¿te lo reservo?» a alguien que acaba de aceptar lo hace esperar por nada, y muchos no contestan: el turno no se agenda nunca y la visita se pierde. Y si te delegó la elección del horario, elegilo vos —el primero libre de los que devolvió la disponibilidad— y reservalo; no le devuelvas la decisión que te acaba de dar. Alcanza con el serviceTypeId, el recurso se deduce solo. El horario tiene que ser uno de los que ya devolvió la consulta de disponibilidad. El fin lo determina la duración del servicio.",
+      "Reserva de verdad un turno para el contacto de esta conversación: hasta que esta tool no devuelva un resultado exitoso, el turno NO existe y no se lo podés confirmar al cliente. ANTES DE RESERVAR, fijate si el cliente ya dijo que sí. Si solo PREGUNTÓ por un día o un horario («¿puedo ir el lunes a las 10?», «¿tenés lugar el martes?»), todavía no aceptó nada: consultá la disponibilidad, ofrecele el horario y preguntale «¿Te lo reservo?»; NO lo reserves en ese turno, porque le agendarías una visita que no pidió. RESERVÁ EN EL MISMO TURNO EN QUE EL CLIENTE ACEPTA o te lo pide, sin volver a pedirle que confirme: «reservame», «agendame», «anotame» y, después de que le ofreciste un horario, «dale», «me viene bien», «sí», «el primero que tengas me sirve» ya son un sí. Volver a preguntarle «¿te lo reservo?» a alguien que acaba de aceptar lo hace esperar por nada, y muchos no contestan: el turno no se agenda nunca y la visita se pierde. Y si te delegó la elección del horario, elegilo vos —el primero libre de los que devolvió la disponibilidad— y reservalo; no le devuelvas la decisión que te acaba de dar. Alcanza con el serviceTypeId, el recurso se deduce solo. El horario tiene que ser uno de los que ya devolvió la consulta de disponibilidad. El fin lo determina la duración del servicio.",
     parameters: {
       type: "object",
       properties: {
