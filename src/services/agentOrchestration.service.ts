@@ -56,6 +56,7 @@ import {
   type AtencionFueraDeHorario,
 } from "../utils/fueraDeHorario";
 import { crearLimitadorDeTurnos, cupoDeTurnosPorDefecto } from "../utils/limitadorDeTurnos";
+import { medirHerramienta, medirModelo, medirTurno } from "../utils/medicionDelTurno";
 import { conLeaseDelTurno, conLeaseVigente } from "./leaseDelTurno";
 import {
   CONSULTAS_QUE_NO_SON_INICIATIVA,
@@ -2430,6 +2431,10 @@ export interface RespuestaEnLaConversacion {
 //
 // `texto` es el del entrante que motivó el turno: lo usa la guarda del eco
 // (ítem 109).
+//
+// Medido (utils/medicionDelTurno.ts): al terminar deja una línea de log con
+// cuánto fue el modelo, cuánto las tools y cuántas operaciones de Prisma
+// hizo el turno. Si el turno lanza, no hay línea: el error ya se loguea.
 export async function responderEnLaConversacion(
   entrada: {
     agent: AgenteDelTurno;
@@ -2438,6 +2443,36 @@ export async function responderEnLaConversacion(
     texto: string;
   },
   options: OpcionesDeRespuesta = {},
+): Promise<RespuestaEnLaConversacion> {
+  const inicio = performance.now();
+  const { resultado, medicion } = await medirTurno(() => responderSinMedir(entrada, options));
+  const totalMs = Math.round(performance.now() - inicio);
+  logger.info(
+    {
+      organizationId: entrada.conversation.organizationId,
+      agentId: entrada.agent.id,
+      conversationId: entrada.conversation.id,
+      model: entrada.agent.modelName,
+      totalMs,
+      ...medicion,
+      restoMs: Math.max(0, totalMs - medicion.modeloMs - medicion.herramientasMs),
+    },
+    MENSAJE_DE_TIEMPOS_DEL_TURNO,
+  );
+  return resultado;
+}
+
+export const MENSAJE_DE_TIEMPOS_DEL_TURNO =
+  "Turno del agente: modelo, herramientas y consultas a la base";
+
+async function responderSinMedir(
+  entrada: {
+    agent: AgenteDelTurno;
+    contact: Contact;
+    conversation: Conversation;
+    texto: string;
+  },
+  options: OpcionesDeRespuesta,
 ): Promise<RespuestaEnLaConversacion> {
   const { agent, contact, conversation, texto } = entrada;
   const organizationId = conversation.organizationId;
@@ -2788,13 +2823,15 @@ export async function responderEnLaConversacion(
         // arranca otra llamada.
         throw new LlmProviderError("Se agotó el presupuesto de tiempo del turno");
       }
-      resultado = await llm.complete({
-        systemPrompt,
-        messages: historial,
-        tools: definiciones,
-        model: agent.modelName,
-        signal: presupuesto,
-      });
+      resultado = await medirModelo(() =>
+        llm.complete({
+          systemPrompt,
+          messages: historial,
+          tools: definiciones,
+          model: agent.modelName,
+          signal: presupuesto,
+        }),
+      );
       sumarUso(uso, resultado.usage);
     } catch (err) {
       if (!(err instanceof LlmProviderError)) {
@@ -2863,13 +2900,15 @@ export async function responderEnLaConversacion(
       // formato exige un resultado por cada tool call del asistente.
       const entrada: ToolCallDelTurno =
         indice < MAX_TOOL_CALLS_PER_ROUND
-          ? await resolverToolCall(llamada, {
-              agent: { ...agent, organizacion, nivel: nivelDelTurno },
-              toolsPorNombre,
-              datosDisponibles,
-              contextoDeTools,
-              toolsDelSistema: toolsDelSistemaPorNombre,
-            })
+          ? await medirHerramienta(() =>
+              resolverToolCall(llamada, {
+                agent: { ...agent, organizacion, nivel: nivelDelTurno },
+                toolsPorNombre,
+                datosDisponibles,
+                contextoDeTools,
+                toolsDelSistema: toolsDelSistemaPorNombre,
+              }),
+            )
           : {
               id: llamada.id,
               name: llamada.name,
@@ -2964,14 +3003,16 @@ export async function responderEnLaConversacion(
     // tampoco dice "no pude" cuando algo quedó hecho). Ver cierreFijoDelTurno.
     if (toolsExitosasDelTurno(auditoria).length > 0 && !presupuesto.aborted) {
       try {
-        const cierre = await llm.complete({
-          systemPrompt: `${systemPrompt}\n\n${textos.cierrePorTope}`,
-          messages: historial,
-          tools: definiciones,
-          toolChoice: "none",
-          model: agent.modelName,
-          signal: presupuesto,
-        });
+        const cierre = await medirModelo(() =>
+          llm.complete({
+            systemPrompt: `${systemPrompt}\n\n${textos.cierrePorTope}`,
+            messages: historial,
+            tools: definiciones,
+            toolChoice: "none",
+            model: agent.modelName,
+            signal: presupuesto,
+          }),
+        );
         sumarUso(uso, cierre.usage);
         // Si aun así pidió una tool, el texto que la acompaña es una frase de
         // tránsito ("dame un momento…"), no un cierre: va el fijo.

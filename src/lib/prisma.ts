@@ -1,6 +1,7 @@
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { env } from "../config/env";
 import { assertBaseLocalEnTest } from "../utils/baseLocal";
+import { contarConsulta } from "../utils/medicionDelTurno";
 
 // El freno DEFINITIVO de la suite de integración contra una base real
 // (incidente del 27/09/2026, ver utils/baseLocal.ts). Va acá y no solo en
@@ -15,11 +16,20 @@ assertBaseLocalEnTest(process.env);
 // durante desarrollo.
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+function crearCliente(): PrismaClient {
+  const cliente = new PrismaClient({
     log: env.isDevelopment ? ["error", "warn"] : ["error"],
   });
+  // Cuenta las operaciones de un turno del agente (utils/medicionDelTurno.ts);
+  // fuera de un turno no hace nada.
+  cliente.$use(async (params, next) => {
+    contarConsulta();
+    return next(params);
+  });
+  return cliente;
+}
+
+export const prisma = globalForPrisma.prisma ?? crearCliente();
 
 if (!env.isProduction) {
   globalForPrisma.prisma = prisma;
