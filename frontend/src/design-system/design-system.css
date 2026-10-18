@@ -4976,6 +4976,21 @@ input.ds-task-check:hover {
   font-family: var(--font-mono);
 }
 
+/* Los detalles técnicos de la tool (nombre, argumentos, resultado), cerrados
+   por defecto: el probador también se le muestra a un cliente. */
+.ds-chat-tool-details {
+  margin-top: var(--space-1);
+}
+
+.ds-chat-tool-details summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.ds-chat-tool-details[open] summary {
+  margin-bottom: var(--space-1);
+}
+
 .ds-chat-form {
   display: flex;
   align-items: flex-end;

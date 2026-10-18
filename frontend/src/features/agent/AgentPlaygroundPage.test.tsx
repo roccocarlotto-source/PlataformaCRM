@@ -323,9 +323,15 @@ describe("AgentPlaygroundPage — las tool calls en la transcripción", () => {
 
     const lista = transcripcion();
     expect(await lista.findByText("Crear oportunidad")).toBeInTheDocument();
-    expect(lista.getByText("create_opportunity")).toBeInTheDocument();
-    expect(lista.getByText('{"title":"Consulta web"}')).toBeInTheDocument();
-    expect(lista.getByText('{"opportunityId":"op-1"}')).toBeInTheDocument();
+    // Los detalles técnicos, cerrados por defecto: a la vista solo qué hizo.
+    const detalles = lista.getByText("Ver detalles técnicos").closest("details")!;
+    expect(detalles).not.toHaveAttribute("open");
+    expect(lista.queryByText(/· (No se permitió|Falló)/)).not.toBeInTheDocument();
+    await user.click(lista.getByText("Ver detalles técnicos"));
+    expect(detalles).toHaveAttribute("open");
+    expect(lista.getByText("create_opportunity")).toBeVisible();
+    expect(lista.getByText('{"title":"Consulta web"}')).toBeVisible();
+    expect(lista.getByText('{"opportunityId":"op-1"}')).toBeVisible();
   });
 
   it("una tool bloqueada dice que se bloqueó y por qué", async () => {
@@ -352,11 +358,41 @@ describe("AgentPlaygroundPage — las tool calls en la transcripción", () => {
     await waitFor(() => expect(cajaDeMensaje()).toBeEnabled());
     await mandar(user, "bajame el precio");
 
-    expect(
-      await transcripcion().findByText(
-        "Bloqueada por las reglas del agente: El agente no puede cambiar el monto",
-      ),
-    ).toBeInTheDocument();
+    // A la vista, que no se pudo; el motivo, en los detalles técnicos.
+    expect(await transcripcion().findByText("· No se permitió")).toBeInTheDocument();
+    const motivo = transcripcion().getByText(
+      "Bloqueada por las reglas del agente: El agente no puede cambiar el monto",
+    );
+    expect(motivo.closest("details")).not.toHaveAttribute("open");
+  });
+
+  it("una tool que falla dice que falló; el error queda en los detalles técnicos", async () => {
+    server.use(
+      mockAgent(),
+      ...mockContacts(),
+      mockTurno({
+        toolCalls: [
+          {
+            id: "call-3",
+            name: "get_availability",
+            arguments: { servicio: "Test drive" },
+            allowed: true,
+            result: { ok: false, error: "No existe ningún servicio llamado «Test drive»." },
+          },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText(ADVERTENCIA);
+    await elegirContacto(user);
+    await waitFor(() => expect(cajaDeMensaje()).toBeEnabled());
+    await mandar(user, "¿puedo verlo el sábado?");
+
+    expect(await transcripcion().findByText("· Falló")).toBeInTheDocument();
+    const error = transcripcion().getByText(/No existe ningún servicio/);
+    expect(error.closest("details")).not.toHaveAttribute("open");
   });
 });
 
