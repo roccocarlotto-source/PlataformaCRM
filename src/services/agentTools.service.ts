@@ -1634,6 +1634,9 @@ export const getAvailabilityArgs = z
     message: `El rango no puede superar los ${MAX_DIAS_DE_RANGO} días`,
   });
 
+export const NOTA_DE_DISPONIBILIDAD =
+  "Todos los horarios de `turnos` están LIBRES. Si el que pidió el cliente está en la lista, está libre: ofrecéselo tal cual, sin decir que no hay lugar ni que ese día no se atiende.";
+
 const getAvailabilityTool: ToolDelAgente = {
   definition: {
     name: "get_availability",
@@ -1698,6 +1701,9 @@ const getAvailabilityTool: ToolDelAgente = {
       // Ítem 104: en la zona de la sucursal, no en UTC.
       const zona = await zonaDeLaSucursal(contexto);
       return exito({
+        // Taller Demo, 2026-10-18: con las 10 en esta lista, el modelo le dijo
+        // al cliente "a las 10 ya no tengo disponibilidad" en 5 de 6 charlas.
+        nota: NOTA_DE_DISPONIBILIDAD,
         zonaHoraria: zona,
         turnos: turnos.map((t) => ({
           inicio: isoEnZona(t.inicio, zona),
