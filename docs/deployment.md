@@ -26,7 +26,7 @@ Lo que sí está decidido y en el repo:
 navegador ──► frontend (estático, Vercel)
    │               │  VITE_API_URL
    │               ▼
-   │          backend (contenedor Node 22, Express)  ──► Postgres  (Supabase, pooler 6543)
+   │          backend (contenedor Node 22, Express)  ──► Postgres  (Supabase, pooler 5432)
    │               │                                 ──► Auth      (Supabase GoTrue, Admin API)
    │               │                                 ──► Storage   (Supabase, bucket vehicle-photos)
    │               ▼
@@ -155,7 +155,7 @@ de negocio funciona):
 | Variable | Qué pasa si falta | Notas |
 |---|---|---|
 | `CORS_ORIGIN` | **El proceso no arranca** — la única que Zod exige | Lista separada por comas con los orígenes del frontend. **El primero** es el que la invitación de platform admin usa como `redirectTo` (`<primero>/reset-password`, Fase 4a): el dominio real del frontend va primero |
-| `DATABASE_URL` | `/health` reporta la base caída; toda ruta de negocio falla | Conexión **pooled** (Supavisor, puerto 6543, modo transacción). En producción **tiene que terminar exactamente en `/postgres?pgbouncer=true&connection_limit=10`** (ver abajo). `connection_limit` es el pool de Prisma; el cupo de turnos del agente se fija aparte con `AGENT_TURN_MAX_CONCURRENT` (en producción, 8). Al arrancar, el backend registra un error si la URL usa el 6543 sin `pgbouncer=true` o tiene un `?` de más (`src/utils/urlDeLaBase.ts`) |
+| `DATABASE_URL` | `/health` reporta la base caída; toda ruta de negocio falla | Conexión **pooled** (Supavisor, **puerto 5432, modo sesión**, desde el 2026-10-18). En producción termina en `/postgres?connection_limit=6&pool_timeout=20`, **sin `pgbouncer=true`** (ver abajo). `connection_limit` es el pool de Prisma y tiene que cumplir **`2·connection_limit + 3 ≤ Pool Size`** del pooler. El cupo de turnos del agente se fija aparte con `AGENT_TURN_MAX_CONCURRENT` (en producción, **4**: `connection_limit − 2`). Al arrancar, el backend registra un error si la URL usa el 6543 sin `pgbouncer=true` o tiene un `?` de más (`src/utils/urlDeLaBase.ts`) |
 | `SUPABASE_URL` | Ningún JWT se puede verificar (el JWKS sale de acá) | Sin barra final |
 | `SUPABASE_SERVICE_ROLE_KEY` | Invitaciones, alta de organización por platform admin, purgas y el bucket de fotos fallan con 500 | Exclusiva del backend. Nunca con prefijo `VITE_` |
 | `NODE_ENV` | — | La imagen ya lo fija en `production` |
@@ -201,13 +201,35 @@ sepa que existen y qué tocan:
 Los booleanos son el string `"true"` o `"false"` literal: cualquier otro valor
 es rechazado al arrancar (no se usa `z.coerce.boolean()` a propósito).
 
-**`DATABASE_URL` contra el pooler: el final exacto.** Sin `pgbouncer=true`,
-Prisma 5 prepara cada consulta con nombre en una conexión de Postgres y el pooler
-puede ejecutarla en otra: con consultas en paralelo falla con `prepared statement
-"sN" does not exist`. Con pocas consultas en serie no se nota, así que puede
-pasar desapercibido hasta un reinicio. Se edita copiando y pegando el final, no
-tipeándolo: un `?` de más (`/postgres??connection_limit=10`) hace que Prisma
-rechace la URL (P1013).
+**`DATABASE_URL` contra el pooler: modo sesión (desde el 2026-10-18).** Va al
+puerto **5432**, el pooler en modo sesión: cada conexión de Prisma es una
+conexión de Postgres mientras está abierta, así que las consultas preparadas
+funcionan y no hace falta `pgbouncer=true`. Con `pgbouncer=true` Prisma 5
+envuelve cada consulta en varias idas y vueltas (`BEGIN`, `DEALLOCATE ALL`,
+la consulta, `COMMIT`); sin él es una. Medido al cambiar: el Dashboard bajó
+de 4,8–6,4 s a 2,6–2,8 s y un turno del agente de ~27 s a ~18,5 s.
+
+El costo es que cada conexión del pool de Prisma ocupa una del pooler todo el
+tiempo, por eso la cuenta:
+
+- **`2·connection_limit + 3 ≤ Pool Size`** (el Pool Size está en Supabase →
+  Database → Settings → Connection pooling). El `2·` es porque en cada deploy
+  Render levanta la instancia nueva antes de bajar la vieja; el `+3` es
+  `DIRECT_URL` (migraciones, `verify:schema`, scripts), que usa el mismo
+  pooler. Con Pool Size 15: `connection_limit=6`.
+- **`AGENT_TURN_MAX_CONCURRENT` = `connection_limit − 2`** (4 con 6), cargada
+  explícita: sin valor, el código toma la mitad de `connection_limit`.
+- **`pool_timeout=20`**: con el pool justo, una consulta espera hasta 20 s una
+  conexión libre en vez de fallar con P2024 a los 10 s del default.
+
+Si algún día se vuelve al puerto **6543** (modo transacción), ahí
+`pgbouncer=true` es **obligatorio**: sin él, Prisma prepara cada consulta en una
+conexión de Postgres y el pooler puede ejecutarla en otra, y con consultas en
+paralelo falla con `prepared statement "sN" does not exist`. El aviso de
+arranque (`src/utils/urlDeLaBase.ts`) controla justamente ese caso.
+
+Se edita copiando y pegando el final, no tipeándolo: un `?` de más
+(`/postgres??connection_limit=6`) hace que Prisma rechace la URL (P1013).
 
 *Incidente del 2026-10-12:* la URL de Render terminaba en `/postgres?`; al
 agregarle `?connection_limit=10` quedó con dos `?` y la base dejó de responder
@@ -317,7 +339,7 @@ desarrollo). Lo que cambia o se vuelve obligatorio en producción:
 | Email Templates → Magic Link con `{{ .Token }}` | solo si se usa el registro público `/api/onboarding` | Sin uso desde la Fase 4a; con la plantilla por defecto ese flujo no completa |
 | **SMTP propio** | **obligatorio** | El servidor por defecto de Supabase limita a ~2 mails/hora: alcanza para probar, no para invitar clientes |
 | JWT | firma asimétrica (ES256) | El backend verifica contra el JWKS público (`src/lib/jwt.ts`); no hay `SUPABASE_JWT_SECRET` |
-| Conexiones | `DATABASE_URL` = pooler (6543, `?pgbouncer=true`); `DIRECT_URL` = directa (5432) | Ver 2.2 y 2.3 |
+| Conexiones | `DATABASE_URL` = pooler en modo sesión (5432, sin `pgbouncer=true`); `DIRECT_URL` = 5432 | Ver 2.2 y 2.3. **Pool Size** del pooler: cumple `2·connection_limit + 3 ≤ Pool Size` |
 
 Dos filas de tabla que se cargan a mano, por SQL, y no tienen UI a propósito:
 
