@@ -24,6 +24,7 @@ import {
   INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
   INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
   lineaDeFechaActual,
+  bloqueDeLosProximosDias,
   INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
   INSTRUCCION_USAR_HERRAMIENTAS,
   LARGO_MINIMO_DE_FUGA,
@@ -631,6 +632,66 @@ test("lineaDeFechaActual le da el offset numérico explícito, no solo el nombre
     assert.ok(linea.includes(`offset ${conOffset.slice(-6)} respecto a UTC`), zona);
     assert.ok(linea.includes(`ahora mismo en ISO 8601: ${conOffset}`), zona);
   }
+});
+
+// Taller Demo, domingo 2026-10-18: el agente dijo "el lunes 19 no tenemos
+// atención" con el lunes entero libre en la agenda.
+const DOMINGO_EN_MONTEVIDEO = new Date("2026-10-18T17:13:00Z");
+const HORARIO_DEL_TALLER = "de lunes a viernes de 9 a 18 h y los sábados de 9 a 13 h";
+
+test("bloqueDeLosProximosDias: los 7 días que vienen con su fecha, en la zona de la sucursal", () => {
+  const bloque = bloqueDeLosProximosDias(DOMINGO_EN_MONTEVIDEO, "America/Montevideo", null);
+  assert.ok(
+    bloque.includes(
+      "hoy es domingo 18 de octubre; mañana, lunes 19 de octubre; martes 20 de octubre",
+    ),
+  );
+  assert.ok(bloque.includes("sábado 24 de octubre."));
+  assert.ok(!bloque.includes("domingo 25"), "son 7 días contando hoy");
+  // Sin horario cargado no se dice nada del horario: inventarlo sería peor.
+  assert.ok(!bloque.includes("Horario de atención"));
+});
+
+test("bloqueDeLosProximosDias: la fecha es la de la sucursal aunque en UTC ya sea otro día", () => {
+  // 01:00 UTC del lunes 19 = 22:00 del domingo 18 en Montevideo.
+  const bloque = bloqueDeLosProximosDias(
+    new Date("2026-10-19T01:00:00Z"),
+    "America/Montevideo",
+    null,
+  );
+  assert.ok(bloque.includes("hoy es domingo 18 de octubre"));
+});
+
+test("bloqueDeLosProximosDias: con horario cargado, lo da y prohíbe inventar cierres", () => {
+  const bloque = bloqueDeLosProximosDias(
+    DOMINGO_EN_MONTEVIDEO,
+    "America/Montevideo",
+    HORARIO_DEL_TALLER,
+  );
+  assert.ok(bloque.includes(`Horario de atención de la sucursal: ${HORARIO_DEL_TALLER}.`));
+  assert.match(bloque, /no digas que uno de esos días está cerrado, que es feriado/);
+});
+
+test("armarSystemPrompt: el calendario y el horario van pegados a la referencia temporal", () => {
+  const prompt = armarSystemPrompt({ ...BASE, guardrails: {} }, [], {
+    ahora: DOMINGO_EN_MONTEVIDEO,
+    zona: "America/Montevideo",
+    horario: HORARIO_DEL_TALLER,
+  });
+  const fecha = prompt.indexOf("Referencia temporal");
+  const calendario = prompt.indexOf("Los próximos días");
+  assert.ok(fecha >= 0 && calendario > fecha);
+  assert.ok(prompt.includes(`Horario de atención de la sucursal: ${HORARIO_DEL_TALLER}.`));
+});
+
+test("armarSystemPrompt: fuera de horario aclara que el cierre es de AHORA, no de otros días", () => {
+  const prompt = armarSystemPrompt({ ...BASE, guardrails: {} }, [], undefined, undefined, {
+    horario: HORARIO_DEL_TALLER,
+    cuando: "mañana a partir de las 9",
+    proximaApertura: new Date("2026-10-19T12:00:00.000Z"),
+  });
+  assert.match(prompt, /Esto vale solo para AHORA/);
+  assert.match(prompt, /no cambia qué días atiende la sucursal ni qué turnos hay libres/);
 });
 
 test("el prompt lleva la fecha cuando hay contexto temporal, y no la lleva cuando no", () => {

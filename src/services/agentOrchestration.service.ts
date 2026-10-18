@@ -48,8 +48,10 @@ import { AppError } from "../utils/AppError";
 import { describirValor, type DefinicionDeCampo } from "../utils/camposPersonalizados";
 import { formatearParaElCanal } from "../utils/formatoPorCanal";
 import { definicionesParaValidar } from "./contactCustomFieldDefinition.service";
+import { DateTime } from "luxon";
 import {
   atencionFueraDeHorario,
+  describirHorario,
   fraseFueraDeHorario,
   type AtencionFueraDeHorario,
 } from "../utils/fueraDeHorario";
@@ -762,6 +764,35 @@ export function lineaDeFechaActual(ahora: Date, zona: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// LOS PRÓXIMOS DÍAS Y EL HORARIO DE LA SUCURSAL
+// ---------------------------------------------------------------------------
+// Caso real (Taller Demo, domingo 2026-10-18, gemini-3.1-flash-lite): con la
+// agenda del lunes entera libre, el agente contestó "el lunes 19 no tenemos
+// atención", "los lunes no hay actividad" y "el lunes es feriado". Sabía qué
+// día era hoy, pero no qué días atiende la sucursal: el horario solo aparecía
+// fuera de horario y como "la sucursal está cerrada en este momento", y el
+// modelo lo leía como un cierre del día que pedía el cliente.
+//
+// Son dos datos que el backend ya tiene y el modelo tenía que deducir: qué
+// fecha cae cada día de la semana que viene, y el horario semanal (solo si la
+// sucursal lo cargó, mismo criterio que fueraDeHorario.ts). En la zona de la
+// sucursal, como la referencia temporal.
+export function bloqueDeLosProximosDias(ahora: Date, zona: string, horario: string | null): string {
+  const hoy = DateTime.fromJSDate(ahora, { zone: zona }).setLocale("es");
+  const dias = Array.from({ length: 7 }, (_, i) => {
+    const fecha = hoy.plus({ days: i }).toFormat("cccc d 'de' LLLL");
+    if (i === 0) return `hoy es ${fecha}`;
+    if (i === 1) return `mañana, ${fecha}`;
+    return fecha;
+  });
+  const calendario = `Los próximos días, en la zona de la sucursal: ${dias.join("; ")}. Cuando el contacto nombre un día de la semana, es el de esta lista.`;
+  if (horario === null) {
+    return calendario;
+  }
+  return `${calendario}\nHorario de atención de la sucursal: ${horario}. Los días de ese horario la sucursal atiende: no digas que uno de esos días está cerrado, que es feriado ni que no hay actividad. Si el contacto pregunta por un día u horario puntual, lo que hay libre lo dice la agenda, no esta línea.`;
+}
+
+// ---------------------------------------------------------------------------
 // EL AGENTE YA SABE CON QUIÉN ESTÁ HABLANDO (ítem 105)
 // ---------------------------------------------------------------------------
 // `runAgentTurn` carga el Contact al principio del turno, siempre. Hacer que
@@ -1149,7 +1180,9 @@ export function armarSystemPrompt(
   // Ítem 99. Opcional para no romper los tests que arman el prompt sin
   // contexto temporal: sin zona, el bloque simplemente no aparece, igual que
   // la base de conocimiento vacía.
-  contextoTemporal?: { ahora: Date; zona: string },
+  // `horario`: el semanal de la sucursal en una frase (describirHorario), o
+  // null/ausente si no lo cargó. Ver bloqueDeLosProximosDias.
+  contextoTemporal?: { ahora: Date; zona: string; horario?: string | null },
   // Ítem 105. Opcional por el mismo motivo que contextoTemporal: los tests que
   // arman el prompt sin conversación no tienen contacto que pasar.
   // Ítem 118: además del nombre, la calificación que el CRM ya tiene. Los
@@ -1197,6 +1230,13 @@ export function armarSystemPrompt(
   // necesita antes de leer nada sobre herramientas.
   if (contextoTemporal) {
     partes.push(lineaDeFechaActual(contextoTemporal.ahora, contextoTemporal.zona));
+    partes.push(
+      bloqueDeLosProximosDias(
+        contextoTemporal.ahora,
+        contextoTemporal.zona,
+        contextoTemporal.horario ?? null,
+      ),
+    );
   }
 
   // Ítem 105: con la fecha, porque es de la misma clase — contexto del turno
@@ -1322,7 +1362,7 @@ export function armarSystemPrompt(
   // Solo fuera de horario; dentro, el mensaje de siempre está bien.
   if (fueraDeHorario) {
     partes.push(
-      `Horario de atención: la sucursal está cerrada en este momento. El equipo atiende ${fueraDeHorario.horario}, y lo antes que una persona le puede escribir al contacto es ${fueraDeHorario.cuando}. Si derivás con ${REQUEST_HUMAN_HANDOFF_TOOL_NAME}, decíselo así en mensajeAlCliente (por ejemplo: "te vamos a escribir ${fueraDeHorario.cuando}"). No le digas que lo van a contactar a la brevedad, enseguida ni en un rato.`,
+      `Horario de atención: la sucursal está cerrada en este momento. El equipo atiende ${fueraDeHorario.horario}, y lo antes que una persona le puede escribir al contacto es ${fueraDeHorario.cuando}. Esto vale solo para AHORA y solo dice cuándo lo puede contactar una persona: no cambia qué días atiende la sucursal ni qué turnos hay libres. Si derivás con ${REQUEST_HUMAN_HANDOFF_TOOL_NAME}, decíselo así en mensajeAlCliente (por ejemplo: "te vamos a escribir ${fueraDeHorario.cuando}"). No le digas que lo van a contactar a la brevedad, enseguida ni en un rato.`,
     );
   }
 
@@ -2643,7 +2683,13 @@ export async function responderEnLaConversacion(
   const systemPrompt = armarSystemPrompt(
     agent,
     knowledgeBaseEntries,
-    sucursal ? { ahora, zona: sucursal.timezone } : undefined,
+    sucursal
+      ? {
+          ahora,
+          zona: sucursal.timezone,
+          horario: franjasDeLaSucursal.length > 0 ? describirHorario(franjasDeLaSucursal) : null,
+        }
+      : undefined,
     contact,
     fueraDeHorario,
     cuponesDelContacto,
