@@ -21,7 +21,7 @@ se simulan y nada sale de la plataforma, así que se puede tocar todo sin miedo.
    creado, con fechas de hoy.
 2. **Entrar al menos 2 minutos antes** como la administradora (Valentina
    Rodríguez) y dejar que cargue el **Dashboard**: la primera carga tarda unos
-   10 segundos. Después de eso, el Resumen del taller del momento 1 aparece al
+   5 segundos. Después de eso, el Resumen del taller del momento 1 aparece al
    instante. Si se quiere mostrar el menú de un vendedor, el vendedor (Martín
    Pereira) en una ventana privada aparte.
 3. **Probar el agente una vez** (Agentes de IA → Asistente de ventas → **Probar
@@ -75,12 +75,14 @@ se simulan y nada sale de la plataforma, así que se puede tocar todo sin miedo.
      saluda a Sofía y ofrece los hatchbacks del stock con precio y km (el
      **Renault Kwid** a USD 9.800 y el **Volkswagen Gol** a 11.500); guarda el
      presupuesto en la ficha.
-  2. *"Me interesa el Kwid, ¿puedo verlo el sábado?"* → **registra la
-     oportunidad** del Kwid. Fuera de horario dice que un vendedor coordina la
-     visita (así contestó en el ensayo, un sábado a la noche). Dentro del
-     horario puede ofrecer un turno de **Prueba de manejo**: todavía no se
-     probó en horario, así que no lo prometas.
-  3. *"¿Y tienen taller para hacerle el service después?"* → contesta con la
+  2. *"Me interesa el Kwid. ¿Puedo ir a probarlo el lunes a las 10?"* →
+     **registra la oportunidad** del Kwid, consulta la agenda y ofrece un
+     turno de **Prueba de manejo** con día y hora concretos. Pedí día **y**
+     hora: en un ensayo, con solo el día ("¿puedo verlo el sábado?"), dejó la
+     visita para un vendedor.
+  3. *"Sí, perfecto, reservame ese horario."* → **reserva el turno** y lo
+     confirma. Queda en **Reservas**, vinculado a la oportunidad.
+  4. *"¿Y tienen taller para hacerle el service después?"* → contesta con la
      base de conocimiento: dirección, horarios y precios de referencia del
      taller.
 
@@ -101,7 +103,8 @@ se simulan y nada sale de la plataforma, así que se puede tocar todo sin miedo.
 
 - **Pantallas:**
   - **Oportunidades** → **Vista de embudo**: la que creó el agente en el
-    momento 3 ("Visita para ver Renault Kwid…") está en **Nuevo**, asignada a
+    momento 3 (la del Kwid; el título lo elige el agente, por ejemplo "Test
+    drive Kwid Zen 1.0 — Renault Kwid…") está en **Nuevo**, asignada a
     **Martín Pereira**, el vendedor. Arrastrarla a **Contactado**, la columna
     de al lado (con una pantalla angosta, las columnas lejanas piden
     deslizar el tablero). Si no se usó el agente, la del Onix ya está en
