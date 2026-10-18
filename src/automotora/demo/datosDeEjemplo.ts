@@ -23,6 +23,7 @@ import { idSimulado } from "../../services/modoDemo.service";
 import { createPipeline } from "../../services/pipeline.service";
 import { createDigitalQrCode } from "../../services/qr.service";
 import { createResource } from "../../services/resource.service";
+import { replaceWorkingHoursForResource } from "../../services/workingHours.service";
 import { createServiceType } from "../../services/serviceType.service";
 import { createStage } from "../../services/stage.service";
 import { formatInternalCode } from "../../services/vehicle.service";
@@ -68,7 +69,9 @@ import {
   TIPOS_DE_SERVICE,
   TURNOS,
   VEHICULOS_DE_CLIENTES,
-  VISITANTE_WEB,
+  CONTACTO_DEL_PROBADOR,
+  HORARIO_DE_LOS_RECURSOS,
+  PRUEBA_DE_MANEJO,
   ZONA_DE_LA_DEMO,
   type ClaveDeCampo,
   type ClaveDeEtapa,
@@ -140,6 +143,9 @@ export interface ConfiguracionDeLaDemo {
   /** La clave (key) de cada campo personalizado. */
   campos: Record<ClaveDeCampo, string>;
   agenteId: string;
+  /** La regla del recordatorio de próximo service: el recordatorio enviado
+   *  que se siembra es suyo. */
+  reglaDelRecordatorioId: string;
 }
 
 export interface ResumenDeDatosDeUso {
@@ -335,6 +341,10 @@ export async function cargarDatosDeEjemplo(
     name: AGENDA_DEL_TALLER.turno,
     durationMin: AGENDA_DEL_TALLER.duracionMin,
   });
+  // Sin horario del recurso no hay disponibilidad (availability.service.ts):
+  // el de la sucursal.
+  await replaceWorkingHoursForResource(organizationId, recurso.id, HORARIO_DE_LOS_RECURSOS);
+  await crearAgendaDeLaPruebaDeManejo(organizationId, sucursales.central);
 
   // --- Proceso de venta ------------------------------------------------------
   const pipeline = await createPipeline(organizationId, { name: PROCESO_DE_VENTA.nombre });
@@ -422,7 +432,7 @@ export async function cargarDatosDeEjemplo(
   // La regla del recordatorio manda WhatsApp con plantilla: se crea como desde
   // la pantalla (crearReglaConMensaje), y en modo demo la plantilla queda
   // APPROVED sin pasar por Meta (depsDePlantillasPara).
-  await crearReglaConMensaje(organizationId, {
+  const reglaDelRecordatorio = await crearReglaConMensaje(organizationId, {
     name: NOMBRE_DE_LAS_REGLAS.recordatorio,
     triggerType: TRIGGER_NEXT_SERVICE_DUE,
     triggerConfig: { offsetDays: REGLA_DEL_RECORDATORIO.offsetDays },
@@ -460,6 +470,7 @@ export async function cargarDatosDeEjemplo(
     {
       sucursales,
       agenda: { recursoId: recurso.id, turnoId: turno.id },
+      reglaDelRecordatorioId: reglaDelRecordatorio.id,
       proceso: { pipelineId: pipeline.id, etapas },
       tiposDeService,
       campos,
@@ -480,6 +491,43 @@ export async function cargarDatosDeEjemplo(
     automatizaciones: 4,
     ...uso,
   };
+}
+
+/** El recurso y el tipo de turno "Prueba de manejo" de Casa Central, con el
+ *  horario de la sucursal. Idempotente: si ya están (por nombre), no crea
+ *  nada; si el recurso no tiene horario, se lo pone. La usan el alta y el
+ *  reinicio (para una demo creada antes del ensayo del 2026-10-17). */
+export async function crearAgendaDeLaPruebaDeManejo(
+  organizationId: string,
+  sucursalId: string,
+): Promise<{ recursoId: string; turnoId: string }> {
+  const vigente = { organizationId, deletedAt: null };
+  const recurso =
+    (await prisma.resource.findFirst({
+      where: { ...vigente, branchId: sucursalId, name: PRUEBA_DE_MANEJO.recurso },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+    })) ??
+    (await createResource(organizationId, {
+      branchId: sucursalId,
+      name: PRUEBA_DE_MANEJO.recurso,
+      type: "ROOM",
+    }));
+  if ((await prisma.workingHours.count({ where: { resourceId: recurso.id } })) === 0) {
+    await replaceWorkingHoursForResource(organizationId, recurso.id, HORARIO_DE_LOS_RECURSOS);
+  }
+  const turno =
+    (await prisma.serviceType.findFirst({
+      where: { ...vigente, resourceId: recurso.id, name: PRUEBA_DE_MANEJO.turno },
+      select: { id: true },
+    })) ??
+    (await createServiceType(organizationId, {
+      branchId: sucursalId,
+      resourceId: recurso.id,
+      name: PRUEBA_DE_MANEJO.turno,
+      durationMin: PRUEBA_DE_MANEJO.duracionMin,
+    }));
+  return { recursoId: recurso.id, turnoId: turno.id };
 }
 
 async function exigirUsuariosDeLaDemo(organizationId: string, usuarios: UsuariosDeLaDemo) {
@@ -575,13 +623,15 @@ async function cargarMasivo(
     });
     contactos.push(creado.id);
   }
-  // El contacto del probador: sin teléfono ni email.
+  // El contacto del probador: sin teléfono ni email, y con el vendedor de
+  // dueño (una derivación del agente le llega al dueño del contacto).
   await tx.contact.create({
     data: {
       organizationId,
-      firstName: VISITANTE_WEB.nombre,
-      lastName: VISITANTE_WEB.apellido,
+      firstName: CONTACTO_DEL_PROBADOR.nombre,
+      lastName: CONTACTO_DEL_PROBADOR.apellido,
       source: "Web",
+      ownerId: usuarios.vendedor,
     },
   });
 
@@ -751,6 +801,9 @@ async function cargarMasivo(
   }
 
   // --- Conversaciones y mensajes (salientes simulados: SENT, id demo:…) ----------
+  const nombreDeLaOrganizacion =
+    (await tx.organization.findUnique({ where: { id: organizationId }, select: { name: true } }))
+      ?.name ?? "Taller Demo";
   let mensajes = 0;
   for (const c of CONVERSACIONES) {
     const inicio = horasAtras(ahora, c.hace);
@@ -782,18 +835,44 @@ async function cargarMasivo(
     });
     for (const m of c.mensajes) {
       const saliente = m.de !== "CONTACTO";
+      const enviado = new Date(inicio.getTime() + m.minuto * 60_000);
+      const externalMessageId = idSimulado();
+      let contenido = m.texto;
+      if (m.recordatorio) {
+        contenido = await sembrarRecordatorioEnviado(tx, {
+          organizationId,
+          reglaId: configuracion.reglaDelRecordatorioId,
+          vehiculo: vehiculosDeClientes[m.recordatorio],
+          datos: VEHICULOS_DE_CLIENTES.find((v) => v.clave === m.recordatorio)!,
+          proximoService:
+            fechasDeVehiculos[VEHICULOS_DE_CLIENTES.findIndex((v) => v.clave === m.recordatorio)]
+              .proximoService,
+          nombre: contacto.nombre,
+          lugar: `${nombreDeLaOrganizacion} (${SUCURSALES.central.nombre})`,
+          texto: m.texto,
+          enviado,
+          externalMessageId,
+        });
+      }
       await tx.message.create({
         data: {
           organizationId,
           conversationId: conversacion.id,
           direction: saliente ? "OUTBOUND" : "INBOUND",
-          senderType: m.de === "CONTACTO" ? "CONTACT" : m.de === "AGENTE" ? "AGENT" : "HUMAN",
+          senderType:
+            m.de === "CONTACTO"
+              ? "CONTACT"
+              : m.de === "AGENTE"
+                ? "AGENT"
+                : m.de === "AUTOMATIZACION"
+                  ? "AUTOMATION"
+                  : "HUMAN",
           senderUserId: m.de === "PERSONA" ? persona : null,
-          content: m.texto,
-          externalMessageId: idSimulado(),
+          content: contenido,
+          externalMessageId,
           ...(saliente ? { deliveryStatus: "SENT" } : {}),
           ...(m.tools ? { toolCalls: m.tools as unknown as Prisma.InputJsonValue } : {}),
-          createdAt: new Date(inicio.getTime() + m.minuto * 60_000),
+          createdAt: enviado,
         },
       });
       mensajes++;
@@ -866,6 +945,72 @@ async function cargarMasivo(
   };
 }
 
+/**
+ * El recordatorio de próximo service que la regla "mandó" (Simulado): lo que
+ * dejan el barrido y el worker del taller (src/servicios/recordatorio/) cuando
+ * sale un WhatsApp. El aviso del vehículo (así el barrido no lo vuelve a
+ * avisar), la fila de la cola ENVIADA con un id demo:, y el texto de la regla
+ * con sus variables, que va en la conversación del cliente. En la demo el
+ * worker no lo puede mandar en vivo: sin número de WhatsApp conectado no sale
+ * nada, ni siquiera simulado (por eso se siembra).
+ */
+async function sembrarRecordatorioEnviado(
+  tx: Db,
+  d: {
+    organizationId: string;
+    reglaId: string;
+    vehiculo: { id: string; contactId: string; branchId: string };
+    datos: { marca: string; modelo: string; patente: string };
+    proximoService: Date | null;
+    nombre: string;
+    lugar: string;
+    texto: string;
+    enviado: Date;
+    externalMessageId: string;
+  },
+): Promise<string> {
+  if (!d.proximoService) throw new Error("El recordatorio sembrado necesita un próximo service");
+  const aviso = await tx.customerVehicleNotice.create({
+    data: {
+      organizationId: d.organizationId,
+      customerVehicleId: d.vehiculo.id,
+      kind: "NEXT_SERVICE",
+      dueOn: d.proximoService,
+      source: "AUTOMATICO",
+      automationId: d.reglaId,
+      createdAt: d.enviado,
+    },
+    select: { id: true },
+  });
+  await tx.serviceMessage.create({
+    data: {
+      organizationId: d.organizationId,
+      kind: "NEXT_SERVICE",
+      automationId: d.reglaId,
+      noticeId: aviso.id,
+      customerVehicleId: d.vehiculo.id,
+      contactId: d.vehiculo.contactId,
+      branchId: d.vehiculo.branchId,
+      dueKey: d.proximoService,
+      scheduledFor: d.enviado,
+      nextAttemptAt: d.enviado,
+      status: "SENT",
+      attempts: 1,
+      sentAt: d.enviado,
+      externalMessageId: d.externalMessageId,
+      createdAt: d.enviado,
+    },
+  });
+  const fecha = DateTime.fromJSDate(d.proximoService, { zone: "utc" })
+    .setLocale("es")
+    .toFormat("d 'de' LLLL");
+  return d.texto
+    .replace("{nombre}", d.nombre)
+    .replace("{lugar}", d.lugar)
+    .replace("{vehiculo}", `${d.datos.marca} ${d.datos.modelo} (${d.datos.patente})`)
+    .replace("{fecha}", `el ${fecha}`);
+}
+
 // ---------------------------------------------------------------------------
 // Las órdenes, por los services, y después el corrimiento de sus fechas
 // ---------------------------------------------------------------------------
@@ -936,7 +1081,13 @@ async function cargarOrdenes(
       desde = paso.estado;
     }
     if (o.avisado) {
-      await registrarAviso(organizationId, encargado, id, o.avisado, ahora);
+      await registrarAviso(
+        organizationId,
+        encargado,
+        id,
+        o.avisado,
+        o.avisadoHorasAtras === undefined ? ahora : horasAtras(ahora, o.avisadoHorasAtras),
+      );
       avisos++;
     }
 

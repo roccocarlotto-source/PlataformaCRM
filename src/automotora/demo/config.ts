@@ -89,10 +89,15 @@ export const SUCURSALES: Record<
   { nombre: string; horario: Franja[]; responsable: ClaveDeUsuario }
 > = {
   // Ventas y taller. Lunes a viernes de 9 a 18, sábados de 9 a 13.
+  // El responsable por defecto es el VENDEDOR (ensayo del 2026-10-17): una
+  // derivación del agente le llega al dueño del contacto o, si no tiene, al
+  // responsable de la sucursal, y una consulta de venta tiene que llegarle a
+  // él. Lo del taller le llega al encargado por otro lado: es el encargado de
+  // cada orden.
   central: {
     nombre: "Casa Central",
     horario: [...franjas(LUNES_A_VIERNES, h(9), h(18)), ...franjas(["SATURDAY"], h(9), h(13))],
-    responsable: "taller",
+    responsable: "vendedor",
   },
   // Solo ventas.
   este: {
@@ -109,6 +114,20 @@ export const AGENDA_DEL_TALLER = {
   turno: "Turno de taller",
   duracionMin: 60,
 } as const;
+
+/** La agenda de las pruebas de manejo en Casa Central: el agente la usa para
+ *  ofrecer horarios (get_availability) y reservar (create_booking). Sin ella
+ *  el agente inventaba un servicio "Test drive" que no existe (ensayo del
+ *  2026-10-17). */
+export const PRUEBA_DE_MANEJO = {
+  recurso: "Prueba de manejo",
+  turno: "Prueba de manejo",
+  duracionMin: 30,
+} as const;
+
+/** El horario de los recursos de Casa Central (taller y pruebas de manejo):
+ *  el de la sucursal. La disponibilidad sale SOLO del horario del recurso. */
+export const HORARIO_DE_LOS_RECURSOS = SUCURSALES.central.horario;
 
 // ---------------------------------------------------------------------------
 // Proceso de venta
@@ -346,8 +365,10 @@ export const CONTACTOS: ContactoDeLaDemo[] = [
 
 /** El contacto del probador del agente (§5 del diseño): sin teléfono ni
  *  email, para que las pruebas en vivo no ensucien una conversación de
- *  ejemplo. */
-export const VISITANTE_WEB = { nombre: "Visitante", apellido: "Web" };
+ *  ejemplo. Con un nombre de pila: el agente saluda por el nombre, y con
+ *  "Visitante Web" decía "¡Hola, Visitante Web!" (ensayo del 2026-10-17). Su
+ *  dueño es el vendedor: una derivación le llega a él. */
+export const CONTACTO_DEL_PROBADOR = { nombre: "Sofía", apellido: "Ramos" };
 
 /** Identidades de canal inventadas (el PSID/IGSID que mandaría Meta). */
 export const IDENTIDADES_DE_CANAL: { contacto: number; canal: ConversationChannel; id: string }[] =
@@ -639,7 +660,9 @@ export const OPORTUNIDADES: OportunidadDeLaDemo[] = [
     montoUsd: 26500,
     unidad: "corollaCross",
     creada: { mes: 0, dia: 1 },
-    cerrada: { mes: 0, dia: 9 },
+    // Hoy (el día 31 se recorta a hoy): una venta ganada en la semana en
+    // curso, para que la vista Semanal del Dashboard no muestre 0 y -100 %.
+    cerrada: { mes: 0, dia: 31 },
     origen: "WHATSAPP",
   },
   {
@@ -785,6 +808,20 @@ export const VEHICULOS_DE_CLIENTES: VehiculoDeClienteDeLaDemo[] = [
     sucursal: "central",
     venta: 9,
     compradoHaceMeses: 0,
+    proximoServiceEnDias: null,
+  },
+  // Un cliente del taller que además está buscando cambiar el auto: su
+  // Fiesta es la orden lista para retirar (OS-0009), avisada por WhatsApp.
+  {
+    clave: "fiesta",
+    contacto: 2,
+    marca: "Ford",
+    modelo: "Fiesta Kinetic",
+    anio: 2016,
+    patente: "SDM 1216",
+    km: 78400,
+    sucursal: "central",
+    compradoHaceMeses: 40,
     proximoServiceEnDias: null,
   },
   // Recambios vencidos (compras de hace más de 4 años, sin aviso).
@@ -992,20 +1029,23 @@ export interface OrdenDeLaDemo {
   pasos: PasoDeOrden[];
   /** Después de llegar a Listo para retirar: "Avisar al cliente". */
   avisado?: "WHATSAPP" | "TELEFONO";
+  /** Cuándo se avisó (horas antes de ahora); sin él, al cargar. */
+  avisadoHorasAtras?: number;
 }
 
 export const ORDENES: OrdenDeLaDemo[] = [
-  // OS-0001 Entregado hace meses: dejó fijado el próximo service del Clio.
+  // OS-0001 Entregado hace casi un año (el service de 20.000 fija el próximo
+  // a los 12 meses): el próximo service del Clio cae en 5 días.
   {
     vehiculo: "clio",
     tipos: ["service20"],
     valor: 9800,
     notas: "Service de 20.000 km completo. Se cambió el filtro de aire.",
     pasos: [
-      { estado: "RECIBIDO", horasAtras: 150 * 24, km: 110500 },
-      { estado: "EN_TRABAJO", horasAtras: 150 * 24 - 2 },
-      { estado: "LISTO_PARA_RETIRAR", horasAtras: 149 * 24 },
-      { estado: "ENTREGADO", horasAtras: 148 * 24, proximoServiceEnDias: 5 },
+      { estado: "RECIBIDO", horasAtras: 362 * 24, km: 101500 },
+      { estado: "EN_TRABAJO", horasAtras: 362 * 24 - 2 },
+      { estado: "LISTO_PARA_RETIRAR", horasAtras: 361 * 24 },
+      { estado: "ENTREGADO", horasAtras: 360 * 24, proximoServiceEnDias: 5 },
     ],
   },
   // OS-0002 Cancelada: el cliente no vino.
@@ -1035,12 +1075,13 @@ export const ORDENES: OrdenDeLaDemo[] = [
     notas: "Cambio de aceite y filtro.",
     pasos: [{ estado: "RECIBIDO", horasAtras: 3, km: 64300 }],
   },
-  // OS-0005 En trabajo.
+  // OS-0005 En trabajo. El Sandero se vendió el mes pasado: viene por la
+  // garantía de la venta, no por un service.
   {
     vehiculo: "sandero",
-    tipos: ["service20", "alineacion"],
-    valor: 12400,
-    notas: "Service de 20.000 km y alineación.",
+    tipos: ["alineacion"],
+    valor: 4200,
+    notas: "Alineación y balanceo, y revisión del tren delantero (garantía de la venta).",
     pasos: [
       { estado: "RECIBIDO", horasAtras: 50, km: 47100 },
       { estado: "EN_TRABAJO", horasAtras: 28 },
@@ -1094,18 +1135,21 @@ export const ORDENES: OrdenDeLaDemo[] = [
       { estado: "ESPERANDO_APROBACION", horasAtras: 2, nota: "Compresor de aire: $ 32.000" },
     ],
   },
-  // OS-0009 Listo para retirar, cliente avisado (simulado).
+  // OS-0009 Listo para retirar desde ayer, cliente avisado por WhatsApp (el
+  // mensaje está en su conversación, Simulado). Antes era el Corolla Cross,
+  // vendido hacía una semana y ya en su service de 10.000 km.
   {
-    vehiculo: "corollaCross",
-    tipos: ["service10"],
-    valor: 7900,
-    notas: "Primer service de 10.000 km.",
+    vehiculo: "fiesta",
+    tipos: ["service20"],
+    valor: 9800,
+    notas: "Service de 20.000 km.",
     pasos: [
-      { estado: "RECIBIDO", horasAtras: 49, km: 18400 },
-      { estado: "EN_TRABAJO", horasAtras: 25 },
-      { estado: "LISTO_PARA_RETIRAR", horasAtras: 3 },
+      { estado: "RECIBIDO", horasAtras: 54, km: 78400 },
+      { estado: "EN_TRABAJO", horasAtras: 40 },
+      { estado: "LISTO_PARA_RETIRAR", horasAtras: 29 },
     ],
     avisado: "WHATSAPP",
+    avisadoHorasAtras: 29,
   },
   // OS-0010 Agendada con turno la semana que viene.
   {
@@ -1181,7 +1225,7 @@ export const TAREAS: TareaDeLaDemo[] = [
     hora: 16,
   },
   {
-    asunto: "Confirmar seña del Corolla Cross con Martín Acosta",
+    asunto: "Coordinar la entrega del Corolla Cross con Martín Acosta",
     tipo: "TASK",
     para: "admin",
     contacto: 7,
@@ -1248,8 +1292,13 @@ export const TAREAS: TareaDeLaDemo[] = [
 // ---------------------------------------------------------------------------
 
 export interface MensajeDeLaDemo {
-  de: "CONTACTO" | "AGENTE" | "PERSONA";
+  de: "CONTACTO" | "AGENTE" | "PERSONA" | "AUTOMATIZACION";
+  /** Con {nombre}, {lugar}, {vehiculo} y {fecha} en un recordatorio. */
   texto: string;
+  /** El recordatorio del próximo service de este vehículo de cliente: el
+   *  mensaje es el de la regla, y además se siembran su aviso y su fila en la
+   *  cola del taller, enviada (Simulado). */
+  recordatorio?: string;
   /** Minutos después del primer mensaje. */
   minuto: number;
   tools?: { name: string; arguments: Record<string, unknown>; result: string }[];
@@ -1267,6 +1316,51 @@ export interface ConversacionDeLaDemo {
 }
 
 export const CONVERSACIONES: ConversacionDeLaDemo[] = [
+  // El recordatorio de próximo service que mandó la regla hace dos días
+  // (Simulado), y la respuesta del cliente.
+  {
+    canal: "WHATSAPP",
+    contacto: 1,
+    hace: 50,
+    estado: "ACTIVE",
+    mensajes: [
+      {
+        de: "AUTOMATIZACION",
+        texto: TEXTO_POR_DEFECTO_DEL_PROXIMO_SERVICE,
+        recordatorio: "clio",
+        minuto: 0,
+      },
+      {
+        de: "CONTACTO",
+        texto: "¡Gracias! Lo llevo la semana que viene, les escribo para el turno.",
+        minuto: 95,
+      },
+    ],
+  },
+  // La orden lista para retirar: el cliente preguntó, el encargado le avisó
+  // por WhatsApp (Simulado). La ventana de 24 h ya cerró.
+  {
+    canal: "WHATSAPP",
+    contacto: 2,
+    hace: 30,
+    estado: "TRANSFERRED_TO_HUMAN",
+    transferidaA: "taller",
+    mensajes: [
+      {
+        de: "CONTACTO",
+        texto: "Hola, ¿cómo viene el Fiesta? Lo necesito para el finde.",
+        minuto: 0,
+      },
+      { de: "PERSONA", texto: "Hola Nicolás, ya casi. En un rato te aviso.", minuto: 20 },
+      {
+        de: "PERSONA",
+        texto:
+          "Hola Nicolás, tu Ford Fiesta Kinetic (SDM 1216) ya está listo. Podés pasar a retirarlo por Casa Central.",
+        minuto: 60,
+      },
+      { de: "CONTACTO", texto: "Genial, paso mañana a la tarde. ¡Gracias!", minuto: 110 },
+    ],
+  },
   {
     canal: "WHATSAPP",
     contacto: 0,
@@ -1393,20 +1487,42 @@ export const CONVERSACIONES: ConversacionDeLaDemo[] = [
 // Agente, base de conocimiento, QR y automatizaciones
 // ---------------------------------------------------------------------------
 
+/** Las instrucciones del alta hasta el ensayo del 2026-10-17. El reinicio las
+ *  reemplaza por las de hoy solo si siguen así (si alguien las editó, las
+ *  respeta). */
+export const INSTRUCCIONES_ANTERIORES_DEL_AGENTE =
+  "Instrucciones de ejemplo. Sos el asistente de ventas de una concesionaria de usados y 0 km. " +
+  "Saludá por el nombre, respondé con el stock publicado (precios, km, año) y la base de " +
+  "conocimiento (horarios, financiación, permuta, garantía). Ofrecé siempre una prueba de manejo " +
+  "y registrá la oportunidad. Si preguntan por el taller o por un service, dales los horarios y " +
+  "derivá al encargado del taller. No inventes precios: si una unidad es a consultar, decilo.";
+
+/** Ante un interés concreto, PRIMERO la oportunidad y después el horario: en
+ *  el ensayo del 2026-10-17 el agente fue directo a agendar, falló y derivó sin
+ *  registrar nada. La prueba de manejo se agenda con el servicio "Prueba de
+ *  manejo" (get_service_types da la lista). */
+export const INSTRUCCIONES_DEL_AGENTE =
+  "Instrucciones de ejemplo. Sos el asistente de ventas de una concesionaria de usados y 0 km. " +
+  "Saludá por el nombre, respondé con el stock publicado (precios, km, año) y la base de " +
+  "conocimiento (horarios, financiación, permuta, garantía). Cuando el cliente muestra interés " +
+  "en una unidad concreta, PRIMERO registrá la oportunidad con esa unidad (create_opportunity) " +
+  "y recién después proponé la prueba de manejo: consultá los horarios del servicio «Prueba de " +
+  "manejo» (get_service_types te da la lista de servicios) y, si acepta uno, reservalo. Si el " +
+  "cliente busca un tipo de auto (chico, para la ciudad, familiar), ofrecé solo las unidades que " +
+  "le sirven. Si preguntan por el taller o por un service, dales los horarios y la información " +
+  "de la base de conocimiento. No inventes precios: si una unidad es a consultar, decilo.";
+
 export const AGENTE = {
   name: "Asistente de ventas",
   goal: "Atender consultas por el stock y agendar pruebas de manejo del Taller Demo.",
-  instructions:
-    "Instrucciones de ejemplo. Sos el asistente de ventas de una concesionaria de usados y 0 km. " +
-    "Saludá por el nombre, respondé con el stock publicado (precios, km, año) y la base de " +
-    "conocimiento (horarios, financiación, permuta, garantía). Ofrecé siempre una prueba de manejo " +
-    "y registrá la oportunidad. Si preguntan por el taller o por un service, dales los horarios y " +
-    "derivá al encargado del taller. No inventes precios: si una unidad es a consultar, decilo.",
+  instructions: INSTRUCCIONES_DEL_AGENTE,
   tone: "Cercano y directo, en español rioplatense",
   enabledTools: [
     "search_vehicles",
     "create_opportunity",
+    "update_lead",
     "reserve_vehicle",
+    "get_service_types",
     "get_availability",
     "create_booking",
   ],
@@ -1473,8 +1589,11 @@ export const NOMBRE_DE_LAS_REGLAS = {
   resena: "Reseña por QR tras la venta",
 };
 
+/** offsetDays NEGATIVO es antes de la fecha de service (src/servicios/
+ *  recordatorio/config.ts, ventanaDeFechas). Hasta el ensayo del 2026-10-17
+ *  estaba en 7: siete días DESPUÉS, y en la demo nunca se veía un recordatorio. */
 export const REGLA_DEL_RECORDATORIO = {
-  offsetDays: 7,
+  offsetDays: -7,
   messageText: TEXTO_POR_DEFECTO_DEL_PROXIMO_SERVICE,
 };
 
