@@ -19,7 +19,8 @@ import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { BranchSelect } from "../branch/BranchSelect";
 import { useOwnerNames } from "../opportunity/relationResolution";
-import { priceCell, unitTitle } from "./format";
+import { useOrganizationSettings } from "../organization/queries";
+import { monedaLocalDe, priceCell, unitTitle } from "./format";
 import { CONDITION_LABELS, STATUS_BADGE_VARIANT, STATUS_LABELS } from "./labels";
 import { useDeleteVehicle } from "./mutations";
 import { useVehicles } from "./queries";
@@ -75,6 +76,10 @@ export function VehicleListPage() {
   // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
   const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
+  // La moneda del precio local, para las unidades publicadas solo en esa
+  // moneda. Si la organización no cargó, el precio sale con la etiqueta
+  // genérica: no bloquea el listado.
+  const monedaLocal = monedaLocalDe(useOrganizationSettings().data);
   const vehiclesQuery = useVehicles({
     page,
     pageSize: PAGE_SIZE,
@@ -318,7 +323,7 @@ export function VehicleListPage() {
                         <span className="ds-cell-caption">{vehicle.internalCode}</span>
                       </span>
                     </td>
-                    <td>{priceCell(vehicle)}</td>
+                    <td>{priceCell(vehicle, monedaLocal)}</td>
                     <td>
                       <Badge variant={STATUS_BADGE_VARIANT[vehicle.status]}>
                         {STATUS_LABELS[vehicle.status]}

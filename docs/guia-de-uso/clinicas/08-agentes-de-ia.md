@@ -555,9 +555,9 @@ En la transcripción ves tus mensajes (como **Paciente (vos)**), las
 respuestas del agente y, entre medio, lo que hizo en cada paso:
 
 - Cada acción que intentó, con su nombre (por ejemplo, **Consultar
-  disponibilidad**), los datos que usó y el resultado. Si una regla la
-  bloqueó, dice **Bloqueada por las reglas del agente** y por qué. Si falló,
-  el motivo.
+  disponibilidad**). Si no se pudo, al lado dice **No se permitió** (una regla
+  la bloqueó) o **Falló**. Los datos que usó, el resultado y el motivo quedan
+  cerrados en **Ver detalles técnicos**: tocalo para abrirlos.
 - **Se derivó esta conversación a un humano**, con un link a la tarea de la
   derivación si se creó una.
 - **El agente no respondió** cuando una persona del equipo ya está atendiendo

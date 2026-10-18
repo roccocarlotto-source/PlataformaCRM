@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import { cellByHeader } from "../../test/cellByHeader";
 import { makeBranch } from "../../test/branchFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { makeVehicleListItem } from "../../test/vehicleFixtures";
+import { makeOrganizationSettings } from "../../test/organizationFixtures";
 import { openActionsMenu } from "../../test/openActionsMenu";
 import { VehicleListPage } from "./VehicleListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
@@ -46,6 +47,13 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 const baseUrl = `${env.apiUrl}/api/vehicles`;
 const usersUrl = `${env.apiUrl}/api/users`;
 const branchesUrl = `${env.apiUrl}/api/branches`;
+const organizationUrl = `${env.apiUrl}/api/organization`;
+
+// La moneda local del precio (unidades publicadas solo en pesos): la página
+// lee la organización. Por defecto, sin moneda distinta de USD.
+beforeEach(() => {
+  server.use(http.get(organizationUrl, () => HttpResponse.json(makeOrganizationSettings())));
+});
 
 // BranchSelect se monta siempre (filtro Sucursal), así que todo test necesita
 // este handler — con onUnhandledRequest:"error" su ausencia deja al selector
@@ -230,6 +238,46 @@ describe("VehicleListPage", () => {
     expect(
       cellByHeader(screen.getByText("Fiat Corolla 2020").closest("tr"), "Precio"),
     ).toHaveTextContent("—");
+  });
+
+  it("Precio: una unidad publicada solo en pesos muestra su precio en pesos, no '—'", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      branchesHandler(),
+      http.get(organizationUrl, () =>
+        HttpResponse.json(
+          makeOrganizationSettings({
+            preferredCurrency: "USD",
+            alternateCurrency: null,
+            exchangeRates: [
+              {
+                targetCurrency: "UYU",
+                rate: "41.000000",
+                rateDate: "2026-10-17",
+              },
+            ],
+          }),
+        ),
+      ),
+      vehiclesHandler([
+        makeVehicleListItem({
+          id: "v4",
+          make: "Suzuki",
+          priceListUsd: null,
+          priceListLocal: "520000.00",
+          publicationCurrency: "LOCAL_ONLY",
+        }),
+      ]),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Suzuki Corolla 2020")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        cellByHeader(screen.getByText("Suzuki Corolla 2020").closest("tr"), "Precio"),
+      ).toHaveTextContent("520000.00 UYU"),
+    );
   });
 
   it("Foto: miniatura con la portada firmada que trae el listado; placeholder 'Sin foto' (sin <img>) cuando coverPhotoUrl es null", async () => {

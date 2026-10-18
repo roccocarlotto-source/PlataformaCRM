@@ -38,7 +38,7 @@ Columnas:
 |---|---|
 | Foto | La foto de portada, o un ícono si no tiene fotos. |
 | Unidad | Marca, modelo, año y versión, y debajo el **código interno** (por ejemplo STK-000012), que el sistema asigna solo y es correlativo. |
-| Precio | El precio de lista en USD. Si la unidad está marcada **Precio a consultar**, dice "Consultar precio". |
+| Precio | El precio de lista en USD. Si la unidad no tiene precio en USD pero sí en moneda local (por ejemplo, publicada solo en pesos), muestra ese, con su moneda. Si la unidad está marcada **Precio a consultar**, dice "Consultar precio". |
 | Estado | Disponible, Reservado, etc. |
 | Vendedor | El vendedor asignado a la unidad (solo administradores). |
 

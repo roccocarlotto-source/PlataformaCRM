@@ -400,8 +400,10 @@ En la transcripción ves tus mensajes, las respuestas del agente y, entre
 medio, lo que hizo en cada turno:
 
 - Cada acción que intentó, con el nombre (por ejemplo, **Buscar vehículos en
-  stock**), los datos que usó y el resultado. Si una regla la bloqueó, dice
-  **Bloqueada por las reglas del agente** y por qué. Si falló, el motivo.
+  stock**). Si no se pudo, al lado dice **No se permitió** (una regla la
+  bloqueó) o **Falló**. Los datos que usó, el resultado y el motivo quedan
+  cerrados en **Ver detalles técnicos**: tocalo para abrirlos. Así la
+  pantalla se puede mostrar sin que se vean los detalles internos.
 - **Se derivó esta conversación a un humano**, con un link a la tarea de la
   derivación si se creó una.
 - **El agente no respondió** cuando una persona del equipo ya está atendiendo
