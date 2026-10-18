@@ -115,6 +115,21 @@ export async function findNombresParaElListado(
   return { contactos, empresas, procesos, etapas };
 }
 
+// Cuántas oportunidades hay en cada etapa de un proceso, en una consulta: el
+// mismo filtro que el listado con pipelineId y stageId (buildWhere), que es
+// lo que el Dashboard pedía una vez por etapa (ensayo del 2026-10-17).
+export function countOpportunitiesByStage(
+  organizationId: string,
+  pipelineId: string,
+  db: Db = prisma,
+) {
+  return db.opportunity.groupBy({
+    by: ["stageId"],
+    where: buildWhere(organizationId, { pipelineId }),
+    _count: { _all: true },
+  });
+}
+
 export function countOpportunities(
   organizationId: string,
   filters: OpportunityFilters,

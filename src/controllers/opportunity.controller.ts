@@ -6,6 +6,7 @@ import {
   createOpportunity,
   deleteOpportunity,
   getDashboardSummary,
+  getStageCounts,
   getOpportunityById,
   getRevenueSeries,
   listOpportunities,
@@ -243,6 +244,14 @@ export const getDashboardSummaryHandler = asyncHandler<AuthenticatedRequest>(
     const granularity = parseOrThrow(revenueGranularitySchema, req.query.granularity);
     const summary = await getDashboardSummary(req.auth.organizationId, { granularity });
     res.status(200).json(summary);
+  },
+);
+
+// "Proceso de venta" del Dashboard: las etapas del proceso por defecto con
+// su conteo, en un pedido (ver getStageCounts).
+export const getStageCountsHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    res.status(200).json(await getStageCounts(req.auth.organizationId));
   },
 );
 

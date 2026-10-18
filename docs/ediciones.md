@@ -613,7 +613,7 @@ puntos, con la misma tabla:
 
 ### 5.3 Rutas bloqueadas en ESENCIAL
 
-29 rutas, todas con 403 `MODULO_NO_INCLUIDO`:
+30 rutas, todas con 403 `MODULO_NO_INCLUIDO`:
 
 | Módulo | Rutas |
 |---|---|
@@ -622,7 +622,7 @@ puntos, con la misma tabla:
 | pagos (5) | `GET, POST /api/payments` · `GET, PATCH, DELETE /api/payments/:id` |
 | entregas (3) | `GET /api/deliveries` · `GET, PATCH /api/deliveries/:id` |
 | empresas (5) | `GET, POST /api/companies` · `GET, PATCH, DELETE /api/companies/:id` |
-| dashboard_comercial (2) | `GET /api/opportunities/dashboard-summary` · `GET /api/opportunities/revenue-series` |
+| dashboard_comercial (3) | `GET /api/opportunities/dashboard-summary` · `GET /api/opportunities/revenue-series` · `GET /api/opportunities/stage-counts` |
 
 **Bloqueos por campo:** 400 `{ code: "CAMPO_NO_INCLUIDO", campo, modulo }`.
 Salen de `CAMPOS_POR_RUTA` y los aplica el mismo gate. No hay un middleware

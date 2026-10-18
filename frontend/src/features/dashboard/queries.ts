@@ -1,23 +1,17 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   getOpportunityDashboardSummary,
+  getOpportunityStageCounts,
   getRevenueSeries,
-  listOpportunities,
 } from "../opportunity/api";
 import { opportunityKeys } from "../opportunity/queries";
 import type { OpportunityRevenueGranularity } from "../opportunity/types";
-import { usePipelines } from "../pipeline/queries";
-import type { Pipeline } from "../pipeline/types";
-import { useStages } from "../stage/queries";
-import type { Stage } from "../stage/types";
 
-// Dashboard no es dueño de ningún recurso propio: los hooks de acá componen
-// listOpportunities/listPipelines(usePipelines)/listStages(useStages) ya
-// existentes, con sus propias key factories (opportunityKeys/pipelineKeys/
-// stageKeys) — no se crea dashboardKeys ni ninguna cache paralela. Las únicas
-// keys propias son las de los dos agregados del Dashboard (el resumen
-// comercial y la serie de ingresos), que no tienen más filtro que la
-// granularidad del selector de período.
+// Dashboard no es dueño de ningún recurso propio: no se crea dashboardKeys ni
+// ninguna cache paralela. Las únicas keys propias son las de los dos
+// agregados del Dashboard (el resumen comercial y la serie de ingresos), que
+// no tienen más filtro que la granularidad del selector de período; los
+// conteos por etapa cuelgan de opportunityKeys.lists().
 
 // Resumen comercial (§30 de docs/frontend-cambios-pendientes.md, con la
 // granularidad del §35): el primer agregado real del backend
@@ -59,8 +53,6 @@ export function useRevenueSeries(granularity: OpportunityRevenueGranularity) {
   });
 }
 
-const PIPELINE_LOOKUP_QUERY = { pageSize: 100 } as const;
-
 export interface StageOpportunityCount {
   stageId: string;
   name: string;
@@ -81,69 +73,38 @@ export interface DefaultPipelineStageSummary {
   stages: StageOpportunityCount[];
 }
 
-// Encadenado en 3 pasos, cada uno dependiente del anterior por ID real (no
-// se dispara ningún paso sin el ID que necesita):
-//   1. pipelines (pageSize=100) → identificar isDefault===true client-side
-//      (el backend no expone un filtro isDefault, ver informe de diseño).
-//   2. stages del default, ordenadas por order asc (useStages ya soporta
-//      `enabled`) — nunca se pide sin un pipelineId real.
-//   3. por cada stage: conteo exacto de Opportunities vía
-//      pipelineId+stageId+pageSize=1 → pagination.total, en paralelo entre
-//      sí. Si no hay stages (sin default, o default sin etapas), este
-//      arreglo queda vacío y no se dispara ningún GET /opportunities.
 // Sin amount por stage: el único SUM que expone el backend es el del resumen
 // comercial (useDashboardSummary), que no desglosa por etapa.
+//
+// AHORA: un solo GET /opportunities/stage-counts (el proceso por defecto, sus
+// etapas en orden y el conteo de cada una). Eran 8 pedidos y ~42 consultas en
+// el Dashboard del Taller Demo; ahora 1 y ~5. La forma que devuelve el hook
+// es la misma: un solo estado de carga y de error para todo (los de
+// "etapas" y de cada conteo quedan siempre en false). La key cuelga de
+// opportunityKeys.lists(): mover o crear una oportunidad la refresca, como
+// antes los conteos por etapa; renombrar una etapa se ve al vencer el
+// staleTime o al volver al Dashboard.
 export function useDefaultPipelineStageSummary(): DefaultPipelineStageSummary {
-  const pipelinesQuery = usePipelines(PIPELINE_LOOKUP_QUERY);
-
-  const defaultPipeline: Pipeline | undefined = pipelinesQuery.data?.data.find(
-    (pipeline) => pipeline.isDefault,
-  );
-  const hasDefaultPipeline = pipelinesQuery.isSuccess && defaultPipeline !== undefined;
-
-  const stagesQuery = useStages(
-    defaultPipeline?.id ?? "",
-    {
-      pipelineId: defaultPipeline?.id,
-      pageSize: 100,
-      sortBy: "order",
-      sortOrder: "asc",
-    },
-    { enabled: defaultPipeline !== undefined },
-  );
-
-  const stages: Stage[] = stagesQuery.data?.data ?? [];
-
-  const countResults = useQueries({
-    queries: stages.map((stage) => {
-      const query = { pipelineId: stage.pipelineId, stageId: stage.id, pageSize: 1 } as const;
-      return {
-        queryKey: opportunityKeys.list(query),
-        queryFn: ({ signal }: { signal: AbortSignal }) => listOpportunities(query, signal),
-      };
-    }),
-  });
-
-  const stageCounts: StageOpportunityCount[] = stages.map((stage, index) => {
-    const result = countResults[index];
-    return {
-      stageId: stage.id,
-      name: stage.name,
-      order: stage.order,
-      total: result?.data?.pagination.total ?? null,
-      isLoading: result?.isLoading ?? false,
-      isError: result?.isError ?? false,
-    };
+  const query = useQuery({
+    queryKey: [...opportunityKeys.lists(), "stage-counts"] as const,
+    queryFn: ({ signal }) => getOpportunityStageCounts(signal),
   });
 
   return {
-    isLoadingPipelines: pipelinesQuery.isLoading,
-    isErrorPipelines: pipelinesQuery.isError,
-    errorPipelines: pipelinesQuery.error instanceof Error ? pipelinesQuery.error : null,
-    hasDefaultPipeline,
-    isLoadingStages: stagesQuery.isLoading,
-    isErrorStages: stagesQuery.isError,
-    errorStages: stagesQuery.error instanceof Error ? stagesQuery.error : null,
-    stages: stageCounts,
+    isLoadingPipelines: query.isLoading,
+    isErrorPipelines: query.isError,
+    errorPipelines: query.error instanceof Error ? query.error : null,
+    hasDefaultPipeline: query.isSuccess && query.data.pipeline !== null,
+    isLoadingStages: false,
+    isErrorStages: false,
+    errorStages: null,
+    stages: (query.data?.stages ?? []).map((stage) => ({
+      stageId: stage.id,
+      name: stage.name,
+      order: stage.order,
+      total: stage.total,
+      isLoading: false,
+      isError: false,
+    })),
   };
 }

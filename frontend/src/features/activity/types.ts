@@ -66,8 +66,16 @@ export interface ActivityListPagination {
   totalPages: number;
 }
 
+// Una fila del listado (GET /api/activities): la actividad con el nombre de
+// su contacto y de su oportunidad, para no pedir un GET por cada uno. null
+// si no tiene la relación o si está borrada (la pantalla muestra "—").
+export interface ActivityListItem extends Activity {
+  contact: { id: string; firstName: string; lastName: string } | null;
+  opportunity: { id: string; title: string } | null;
+}
+
 export interface ActivityListResponse {
-  data: Activity[];
+  data: ActivityListItem[];
   pagination: ActivityListPagination;
 }
 

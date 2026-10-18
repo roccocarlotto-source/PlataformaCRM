@@ -24,6 +24,7 @@ import {
   assignNextVehicleStockNumber,
   countVehicleChangeLog,
   countVehicles,
+  countVehiclesByStatus,
   createVehicle as createVehicleRepo,
   createVehicleChangeLogs,
   findManyVehicles,
@@ -99,6 +100,20 @@ export async function listVehicles(organizationId: string, params: ListVehiclesP
       total,
       totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
     },
+  };
+}
+
+// Las dos tarjetas del resumen de stock (Dashboard y Stock): "Unidades en
+// stock" son todas las del listado sin filtros y "Disponibles" las de estado
+// AVAILABLE, los mismos totales que daban dos GET /vehicles con pageSize=1.
+// Una consulta en vez de cuatro (ensayo del 2026-10-17).
+export async function getVehicleSummary(
+  organizationId: string,
+): Promise<{ inStock: number; available: number }> {
+  const porEstado = await countVehiclesByStatus(organizationId);
+  return {
+    inStock: porEstado.reduce((n, fila) => n + fila._count._all, 0),
+    available: porEstado.find((fila) => fila.status === "AVAILABLE")?._count._all ?? 0,
   };
 }
 

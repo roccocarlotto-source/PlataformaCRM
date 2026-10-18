@@ -13,18 +13,10 @@ vi.mock("../../auth/getAccessToken", () => ({
 
 const vehiclesUrl = `${env.apiUrl}/api/vehicles`;
 
-// Los dos GET /vehicles?pageSize=1 (sin y con status=AVAILABLE), igual que en
-// DashboardPage.test.tsx: el handler distingue por la query.
+// Las dos tarjetas salen de un solo GET /vehicles/summary (ensayo del
+// 2026-10-17; antes, dos GET /vehicles con pageSize=1).
 function vehiclesSummaryHandler(totals = { inStock: 42, available: 17 }) {
-  return http.get(vehiclesUrl, ({ request }) => {
-    const total = new URL(request.url).searchParams.has("status")
-      ? totals.available
-      : totals.inStock;
-    return HttpResponse.json({
-      data: [],
-      pagination: { page: 1, pageSize: 1, total, totalPages: total },
-    });
-  });
+  return http.get(`${vehiclesUrl}/summary`, () => HttpResponse.json(totals));
 }
 
 function renderCards(props: { countUp?: boolean } = {}) {
@@ -68,7 +60,7 @@ describe("VehicleSummaryCards", () => {
 
   it("error: alert con el mensaje real y sin número", async () => {
     server.use(
-      http.get(vehiclesUrl, () =>
+      http.get(`${vehiclesUrl}/summary`, () =>
         HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
       ),
     );

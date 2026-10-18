@@ -6,6 +6,7 @@ import {
   createActivity as createActivityRepo,
   findActivityById,
   findManyActivities,
+  findNombresDeLasActividades,
   softDeleteActivity,
   updateActivity as updateActivityRepo,
   type ActivitySortBy,
@@ -132,10 +133,27 @@ export async function listActivities(
   const filters = scopeActivityFiltersToActor(actor, requested);
   const skip = (page - 1) * pageSize;
 
-  const [data, total] = await Promise.all([
+  const [filas, total] = await Promise.all([
     findManyActivities(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countActivities(organizationId, filters),
   ]);
+
+  // Cada fila trae el nombre de su contacto y de su oportunidad (ensayo del
+  // 2026-10-17): el frontend ya no pide un GET por cada uno. Una relación
+  // borrada viaja como null, como cuando ese GET daba 404.
+  const distintos = (ids: (string | null)[]) =>
+    [...new Set(ids)].filter((id): id is string => id !== null);
+  const nombres = await findNombresDeLasActividades(organizationId, {
+    contactos: distintos(filas.map((a) => a.contactId)),
+    oportunidades: distintos(filas.map((a) => a.opportunityId)),
+  });
+  const contactos = new Map(nombres.contactos.map((c) => [c.id, c]));
+  const oportunidades = new Map(nombres.oportunidades.map((o) => [o.id, o]));
+  const data = filas.map((activity) => ({
+    ...activity,
+    contact: (activity.contactId && contactos.get(activity.contactId)) || null,
+    opportunity: (activity.opportunityId && oportunidades.get(activity.opportunityId)) || null,
+  }));
 
   return {
     data,

@@ -57,6 +57,21 @@ export interface RecambioVencido {
 const DIA_MS = 24 * 60 * 60 * 1000;
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
+/** Las condiciones 1 y 3 de un vencido (la fecha de aviso y la oportunidad),
+ *  antes de mirar los avisos: su fecha de aviso, o null si no cuenta. La
+ *  comparten la lista y la tarjeta del resumen (dashboard.service.ts). */
+export function avisoSiEstaVencido(
+  purchasedOn: Date,
+  ultimaOportunidad: Date | null,
+  config: ConfigDelRecambio,
+  hoy: Date,
+): Date | null {
+  const aviso = fechaDeAviso(purchasedOn, config);
+  if (aviso.getTime() >= sumarDias(hoy, -MARGEN_DEL_RECAMBIO).getTime()) return null;
+  if (ultimaOportunidad && ultimaOportunidad.getTime() > aviso.getTime()) return null;
+  return aviso;
+}
+
 /** Todos los vencidos de la organización, del más viejo al más nuevo. */
 async function vencidos(
   organizationId: string,
@@ -64,7 +79,6 @@ async function vencidos(
   config: ConfigDelRecambio,
   hoy: Date,
 ): Promise<RecambioVencido[]> {
-  const limite = sumarDias(hoy, -MARGEN_DEL_RECAMBIO);
   const filas = await prisma.customerVehicle.findMany({
     where: vehiculosParaElRecambio(organizationId, sedes),
     select: {
@@ -90,13 +104,15 @@ async function vencidos(
       },
     },
   });
-  const posibles = filas
-    .map((v) => ({ v, aviso: fechaDeAviso(v.purchasedOn!, config) }))
-    .filter(({ aviso }) => aviso.getTime() < limite.getTime())
-    .filter(({ v, aviso }) => {
-      const ultima = v.contact.opportunities[0]?.createdAt;
-      return !ultima || ultima.getTime() <= aviso.getTime();
-    });
+  const posibles = filas.flatMap((v) => {
+    const aviso = avisoSiEstaVencido(
+      v.purchasedOn!,
+      v.contact.opportunities[0]?.createdAt ?? null,
+      config,
+      hoy,
+    );
+    return aviso ? [{ v, aviso }] : [];
+  });
   if (posibles.length === 0) return [];
   const yaAvisados = new Set(
     (

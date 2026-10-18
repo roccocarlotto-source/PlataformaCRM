@@ -9,6 +9,7 @@ import {
   updateActivity,
   type ActivityActor,
 } from "../services/activity.service";
+import { modulosDe } from "../config/ediciones";
 import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClinica";
 import { CAMPOS_DE_SERVICIOS, sinCamposDeServicios } from "../servicios/camposDeServicios";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -176,9 +177,19 @@ export const listActivitiesHandler = asyncHandler<AuthenticatedRequest>(
     // El actor decide qué se ve (activity.service.ts): un USER recibe solo
     // lo suyo aunque la query traiga otro assigneeId o ninguno.
     const result = await listActivities(req.auth.organizationId, query, actorFromRequest(req));
+    // El título de la oportunidad viaja en la fila (ensayo del 2026-10-17)
+    // solo con el módulo oportunidades: sin él, GET /opportunities/:id da
+    // 403 y la pantalla mostraba "—". Igual que antes.
+    const conOportunidades = modulosDe(
+      req.auth.edition,
+      req.auth.industry,
+      req.auth.modulosActivados,
+    ).has("oportunidades");
     res.status(200).json({
       ...result,
-      data: result.data.map((a) => paraElRubro(a, req.auth)),
+      data: result.data.map((a) =>
+        paraElRubro(conOportunidades ? a : { ...a, opportunity: null }, req.auth),
+      ),
     });
   },
 );

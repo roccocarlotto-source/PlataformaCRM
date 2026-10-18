@@ -56,6 +56,17 @@ export function listVehicles(
   });
 }
 
+// Las dos tarjetas del resumen de stock en un pedido (ensayo del
+// 2026-10-17): antes eran dos GET /vehicles con pageSize=1.
+export function getVehicleSummary(
+  signal?: AbortSignal,
+): Promise<{ inStock: number; available: number }> {
+  return request<{ inStock: number; available: number }>("/vehicles/summary", {
+    getAccessToken,
+    signal,
+  });
+}
+
 export function getVehicle(id: string, signal?: AbortSignal): Promise<VehicleDetail> {
   return request<VehicleDetail>(`/vehicles/${id}`, { getAccessToken, signal });
 }

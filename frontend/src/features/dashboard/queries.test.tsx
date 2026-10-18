@@ -7,12 +7,8 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeDashboardSummary, makeRevenueSeries } from "../../test/dashboardFixtures";
 import { makeOpportunityListItem } from "../../test/opportunityFixtures";
-import { makePipeline } from "../../test/pipelineFixtures";
-import { makeStage } from "../../test/stageFixtures";
 import { useDashboardSummary, useDefaultPipelineStageSummary, useRevenueSeries } from "./queries";
 import type { OpportunityListResponse } from "../opportunity/types";
-import type { PipelineListResponse } from "../pipeline/types";
-import type { StageListResponse } from "../stage/types";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -24,6 +20,7 @@ const stagesUrl = `${env.apiUrl}/api/stages`;
 const usersUrl = `${env.apiUrl}/api/users`;
 const summaryUrl = `${env.apiUrl}/api/opportunities/dashboard-summary`;
 const revenueSeriesUrl = `${env.apiUrl}/api/opportunities/revenue-series`;
+const stageCountsUrl = `${env.apiUrl}/api/opportunities/stage-counts`;
 
 function wrapperFor(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -213,36 +210,41 @@ describe("useDashboardSummary", () => {
 });
 
 describe("useDefaultPipelineStageSummary", () => {
-  function pipelinesResponse(
-    pipelines = [makePipeline({ id: "pl1", isDefault: true })],
-  ): PipelineListResponse {
-    return {
-      data: pipelines,
-      pagination: { page: 1, pageSize: 100, total: pipelines.length, totalPages: 1 },
-    };
-  }
-
-  function stagesResponse(stages: ReturnType<typeof makeStage>[]): StageListResponse {
-    return {
-      data: stages,
-      pagination: { page: 1, pageSize: 100, total: stages.length, totalPages: 1 },
-    };
-  }
-
-  it("encuentra el Pipeline con isDefault=true aunque no sea el primero de la lista", async () => {
+  // Desde el ensayo del 2026-10-17 es UN pedido: GET /opportunities/stage-counts
+  // (el proceso por defecto, sus etapas en orden y el conteo de cada una). Los
+  // de antes —procesos, etapas y un listado por etapa— no se piden más.
+  function contarPedidosViejos() {
+    const pedidos = { procesos: 0, etapas: 0, listados: 0 };
     server.use(
-      http.get(pipelinesUrl, () =>
-        HttpResponse.json(
-          pipelinesResponse([
-            makePipeline({ id: "pl-a", isDefault: false }),
-            makePipeline({ id: "pl-b", isDefault: true }),
-          ]),
-        ),
-      ),
-      http.get(stagesUrl, ({ request }) => {
-        const url = new URL(request.url);
-        expect(url.searchParams.get("pipelineId")).toBe("pl-b");
-        return HttpResponse.json(stagesResponse([]));
+      http.get(pipelinesUrl, () => {
+        pedidos.procesos += 1;
+        return HttpResponse.json({});
+      }),
+      http.get(stagesUrl, () => {
+        pedidos.etapas += 1;
+        return HttpResponse.json({});
+      }),
+      http.get(opportunitiesUrl, () => {
+        pedidos.listados += 1;
+        return HttpResponse.json(opportunityListResponse());
+      }),
+    );
+    return pedidos;
+  }
+
+  it("un solo GET /opportunities/stage-counts: las etapas en el orden que vienen, con su total", async () => {
+    const pedidos = contarPedidosViejos();
+    let pedidosDeConteos = 0;
+    server.use(
+      http.get(stageCountsUrl, () => {
+        pedidosDeConteos += 1;
+        return HttpResponse.json({
+          pipeline: { id: "pl1", name: "Ventas" },
+          stages: [
+            { id: "st1", name: "Prospecto", order: 1, total: 3 },
+            { id: "st2", name: "Propuesta", order: 2, total: 0 },
+          ],
+        });
       }),
     );
 
@@ -251,24 +253,18 @@ describe("useDefaultPipelineStageSummary", () => {
     });
 
     await waitFor(() => expect(result.current.hasDefaultPipeline).toBe(true));
+    expect(result.current.stages).toEqual([
+      { stageId: "st1", name: "Prospecto", order: 1, total: 3, isLoading: false, isError: false },
+      { stageId: "st2", name: "Propuesta", order: 2, total: 0, isLoading: false, isError: false },
+    ]);
+    expect(result.current.isLoadingStages).toBe(false);
+    expect(result.current.isErrorStages).toBe(false);
+    expect(pedidosDeConteos).toBe(1);
+    expect(pedidos).toEqual({ procesos: 0, etapas: 0, listados: 0 });
   });
 
-  it("sin Pipeline default: hasDefaultPipeline=false, no dispara GET /stages ni conteos de Opportunities", async () => {
-    let stagesRequests = 0;
-    let opportunityRequests = 0;
-    server.use(
-      http.get(pipelinesUrl, () =>
-        HttpResponse.json(pipelinesResponse([makePipeline({ id: "pl1", isDefault: false })])),
-      ),
-      http.get(stagesUrl, () => {
-        stagesRequests += 1;
-        return HttpResponse.json(stagesResponse([]));
-      }),
-      http.get(opportunitiesUrl, () => {
-        opportunityRequests += 1;
-        return HttpResponse.json(opportunityListResponse());
-      }),
-    );
+  it("sin proceso por defecto: hasDefaultPipeline=false, sin etapas y sin error", async () => {
+    server.use(http.get(stageCountsUrl, () => HttpResponse.json({ pipeline: null, stages: [] })));
 
     const { result } = renderHook(() => useDefaultPipelineStageSummary(), {
       wrapper: wrapperFor(newClient()),
@@ -276,101 +272,15 @@ describe("useDefaultPipelineStageSummary", () => {
 
     await waitFor(() => expect(result.current.isLoadingPipelines).toBe(false));
     expect(result.current.hasDefaultPipeline).toBe(false);
-    expect(stagesRequests).toBe(0);
-    expect(opportunityRequests).toBe(0);
-  });
-
-  it("obtiene Stages únicamente del Pipeline default, ordenadas por order ASC", async () => {
-    const stagesParams: URLSearchParams[] = [];
-    server.use(
-      http.get(pipelinesUrl, () => HttpResponse.json(pipelinesResponse())),
-      http.get(stagesUrl, ({ request }) => {
-        stagesParams.push(new URL(request.url).searchParams);
-        return HttpResponse.json(stagesResponse([makeStage({ id: "st1", pipelineId: "pl1" })]));
-      }),
-      http.get(opportunitiesUrl, () => HttpResponse.json(opportunityListResponse())),
-    );
-
-    const { result } = renderHook(() => useDefaultPipelineStageSummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => expect(result.current.stages.length).toBe(1));
-    expect(stagesParams[0]?.get("pipelineId")).toBe("pl1");
-    expect(stagesParams[0]?.get("sortBy")).toBe("order");
-    expect(stagesParams[0]?.get("sortOrder")).toBe("asc");
-  });
-
-  it("los conteos por Stage usan pipelineId+stageId y pagination.total (nunca items.length)", async () => {
-    const capturedParams: URLSearchParams[] = [];
-    server.use(
-      http.get(pipelinesUrl, () => HttpResponse.json(pipelinesResponse())),
-      http.get(stagesUrl, () =>
-        HttpResponse.json(
-          stagesResponse([
-            makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto", order: 1 }),
-            makeStage({ id: "st2", pipelineId: "pl1", name: "Negociación", order: 2 }),
-          ]),
-        ),
-      ),
-      http.get(opportunitiesUrl, ({ request }) => {
-        const url = new URL(request.url);
-        capturedParams.push(url.searchParams);
-        const stageId = url.searchParams.get("stageId");
-        const total = stageId === "st1" ? 4 : 0;
-        return HttpResponse.json(
-          opportunityListResponse({
-            data: [makeOpportunityListItem(), makeOpportunityListItem(), makeOpportunityListItem()],
-            pagination: { page: 1, pageSize: 1, total, totalPages: total },
-          }),
-        );
-      }),
-    );
-
-    const { result } = renderHook(() => useDefaultPipelineStageSummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => {
-      expect(result.current.stages.length).toBe(2);
-      expect(result.current.stages.every((s) => !s.isLoading)).toBe(true);
-    });
-
-    const byId = new Map(result.current.stages.map((s) => [s.stageId, s]));
-    expect(byId.get("st1")?.total).toBe(4);
-    expect(byId.get("st1")?.total).not.toBe(3); // no items.length
-    expect(byId.get("st2")?.total).toBe(0);
-    for (const params of capturedParams) {
-      expect(params.get("pipelineId")).toBe("pl1");
-      expect(["st1", "st2"]).toContain(params.get("stageId"));
-    }
-  });
-
-  it("Pipeline default sin Stages: stages queda vacío, sin error", async () => {
-    server.use(
-      http.get(pipelinesUrl, () => HttpResponse.json(pipelinesResponse())),
-      http.get(stagesUrl, () => HttpResponse.json(stagesResponse([]))),
-    );
-
-    const { result } = renderHook(() => useDefaultPipelineStageSummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => expect(result.current.isLoadingStages).toBe(false));
-    expect(result.current.isErrorStages).toBe(false);
+    expect(result.current.isErrorPipelines).toBe(false);
     expect(result.current.stages).toEqual([]);
   });
 
-  it("error de pipelines: isErrorPipelines=true, sin default, sin request de stages", async () => {
-    let stagesRequests = 0;
+  it("si el pedido falla: isErrorPipelines con el mensaje y sin conteos inventados", async () => {
     server.use(
-      http.get(pipelinesUrl, () =>
+      http.get(stageCountsUrl, () =>
         HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
       ),
-      http.get(stagesUrl, () => {
-        stagesRequests += 1;
-        return HttpResponse.json(stagesResponse([]));
-      }),
     );
 
     const { result } = renderHook(() => useDefaultPipelineStageSummary(), {
@@ -378,60 +288,8 @@ describe("useDefaultPipelineStageSummary", () => {
     });
 
     await waitFor(() => expect(result.current.isErrorPipelines).toBe(true));
+    expect(result.current.errorPipelines?.message).toBe("caída");
     expect(result.current.hasDefaultPipeline).toBe(false);
-    expect(stagesRequests).toBe(0);
-  });
-
-  it("error de stages: isErrorStages=true, stages queda vacío (sin conteos inventados)", async () => {
-    server.use(
-      http.get(pipelinesUrl, () => HttpResponse.json(pipelinesResponse())),
-      http.get(stagesUrl, () =>
-        HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
-      ),
-    );
-
-    const { result } = renderHook(() => useDefaultPipelineStageSummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => expect(result.current.isErrorStages).toBe(true));
     expect(result.current.stages).toEqual([]);
-  });
-
-  it("error parcial de un conteo: solo ese Stage queda en error, el resto conserva su total", async () => {
-    server.use(
-      http.get(pipelinesUrl, () => HttpResponse.json(pipelinesResponse())),
-      http.get(stagesUrl, () =>
-        HttpResponse.json(
-          stagesResponse([
-            makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto", order: 1 }),
-            makeStage({ id: "st2", pipelineId: "pl1", name: "Negociación", order: 2 }),
-          ]),
-        ),
-      ),
-      http.get(opportunitiesUrl, ({ request }) => {
-        const url = new URL(request.url);
-        if (url.searchParams.get("stageId") === "st1") {
-          return HttpResponse.json({ error: { message: "caída" } }, { status: 500 });
-        }
-        return HttpResponse.json(
-          opportunityListResponse({
-            pagination: { page: 1, pageSize: 1, total: 9, totalPages: 9 },
-          }),
-        );
-      }),
-    );
-
-    const { result } = renderHook(() => useDefaultPipelineStageSummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() =>
-      expect(result.current.stages.find((s) => s.stageId === "st1")?.isError).toBe(true),
-    );
-    const byId = new Map(result.current.stages.map((s) => [s.stageId, s]));
-    expect(byId.get("st1")?.total).toBeNull();
-    expect(byId.get("st2")?.isError).toBe(false);
-    expect(byId.get("st2")?.total).toBe(9);
   });
 });

@@ -261,6 +261,17 @@ export function countVehicles(organizationId: string, filters: VehicleFilters, d
   return db.vehicle.count({ where: buildWhere(organizationId, filters) });
 }
 
+// Las unidades de la organización por estado, en una consulta: el mismo
+// filtro que el listado sin filtros (buildWhere). De acá salen las dos
+// tarjetas del resumen de stock (getVehicleSummary).
+export function countVehiclesByStatus(organizationId: string, db: Db = prisma) {
+  return db.vehicle.groupBy({
+    by: ["status"],
+    where: buildWhere(organizationId, {}),
+    _count: { _all: true },
+  });
+}
+
 // Vehículos EN STOCK de una sucursal — el conteo del RESTRICT de deleteBranch
 // (ítem 167, C-03 de la auditoría). SOLD y DELIVERED no cuentan: esa unidad ya
 // no está físicamente en la sucursal, es historia, y no tiene por qué frenar la

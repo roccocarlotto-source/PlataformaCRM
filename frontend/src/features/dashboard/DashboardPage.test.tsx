@@ -12,8 +12,6 @@ import { clinicaDeMe } from "../../test/rubroFixtures";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeDashboardSummary, makeRevenueSeries } from "../../test/dashboardFixtures";
 import { makeOpportunity } from "../../test/opportunityFixtures";
-import { makePipeline } from "../../test/pipelineFixtures";
-import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { stubResizeObserver } from "../../test/resizeObserverStub";
 import { COUNT_UP_DURATION_MS } from "../../lib/useCountUp";
@@ -60,21 +58,15 @@ const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 const stagesUrl = `${env.apiUrl}/api/stages`;
 const usersUrl = `${env.apiUrl}/api/users`;
 const vehiclesUrl = `${env.apiUrl}/api/vehicles`;
+const stageCountsUrl = `${env.apiUrl}/api/opportunities/stage-counts`;
 
 // VehicleSummaryCards (Fase 3b del módulo de vehículos) se monta siempre y
-// dispara dos GET /vehicles?pageSize=1 (sin y con status=AVAILABLE) — igual
-// que en VehicleListPage.test.tsx, el handler distingue por la query. Va en
-// un beforeEach porque ningún test de este archivo trata sobre el stock:
-// sin él, onUnhandledRequest:"error" dejaría a las dos cards en error.
+// dispara GET /vehicles/summary (desde el ensayo del 2026-10-17; antes, dos
+// GET /vehicles con pageSize=1). Va en un beforeEach porque ningún test de
+// este archivo trata sobre el stock: sin él, onUnhandledRequest:"error"
+// dejaría a las dos cards en error.
 function vehiclesSummaryHandler(totals = { inStock: 12, available: 5 }) {
-  return http.get(vehiclesUrl, ({ request }) => {
-    const url = new URL(request.url);
-    const total = url.searchParams.has("status") ? totals.available : totals.inStock;
-    return HttpResponse.json({
-      data: [],
-      pagination: { page: 1, pageSize: 1, total, totalPages: total },
-    });
-  });
+  return http.get(`${vehiclesUrl}/summary`, () => HttpResponse.json(totals));
 }
 
 function summaryHandler() {
@@ -87,19 +79,14 @@ function revenueSeriesHandler() {
   return http.get(revenueSeriesUrl, () => HttpResponse.json(makeRevenueSeries()));
 }
 
-// Un único handler para /opportunities: distingue los tres consumidores por
+// Un único handler para /opportunities: distingue los dos consumidores por
 // sus propios query params, igual que el backend real los diferenciaría —
-// la tabla de recientes (sortBy=createdAt, sin status), las mayores abiertas
-// (status=OPEN + currency) y los conteos por etapa (stageId + pageSize=1).
-function opportunitiesHandler(stageTotal = 4) {
+// la tabla de recientes (sortBy=createdAt, sin status) y las mayores abiertas
+// (status=OPEN + currency). Los conteos por etapa tienen su propio pedido
+// (GET /opportunities/stage-counts, ver defaultPipelineHandlers).
+function opportunitiesHandler() {
   return http.get(opportunitiesUrl, ({ request }) => {
     const url = new URL(request.url);
-    if (url.searchParams.has("stageId")) {
-      return HttpResponse.json({
-        data: [],
-        pagination: { page: 1, pageSize: 1, total: stageTotal, totalPages: stageTotal },
-      });
-    }
     if (url.searchParams.get("status") === "OPEN") {
       return HttpResponse.json({
         data: [makeOpportunity({ id: "op-top", title: "Flota nueva", amount: "8000.00" })],
@@ -139,29 +126,21 @@ function usersHandler(onRequest?: () => void) {
   });
 }
 
+// "Proceso de venta": un solo GET /opportunities/stage-counts con el proceso
+// por defecto y sus etapas con su conteo (antes, procesos + etapas + un
+// conteo por etapa).
+const SIN_PROCESO_POR_DEFECTO = { pipeline: null, stages: [] };
+
 function noDefaultPipelineHandlers() {
-  return [
-    http.get(pipelinesUrl, () =>
-      HttpResponse.json({
-        data: [makePipeline({ id: "pl1", isDefault: false })],
-        pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
-      }),
-    ),
-  ];
+  return [http.get(stageCountsUrl, () => HttpResponse.json(SIN_PROCESO_POR_DEFECTO))];
 }
 
 function defaultPipelineHandlers() {
   return [
-    http.get(pipelinesUrl, () =>
+    http.get(stageCountsUrl, () =>
       HttpResponse.json({
-        data: [makePipeline({ id: "pl1", isDefault: true, name: "Ventas" })],
-        pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
-      }),
-    ),
-    http.get(stagesUrl, () =>
-      HttpResponse.json({
-        data: [makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto", order: 1 })],
-        pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        pipeline: { id: "pl1", name: "Ventas" },
+        stages: [{ id: "st1", name: "Prospecto", order: 1, total: 4 }],
       }),
     ),
   ];
@@ -294,6 +273,13 @@ describe("DashboardPage — render general y estados", () => {
       usersHandler(),
       companyHandler(),
       ...noDefaultPipelineHandlers(),
+      http.get(pipelinesUrl, () => {
+        stagesRequests += 1;
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        });
+      }),
       http.get(stagesUrl, () => {
         stagesRequests += 1;
         return HttpResponse.json({
@@ -449,12 +435,9 @@ describe("DashboardPage — render general y estados", () => {
       activitiesHandler(),
       usersHandler(),
       companyHandler(),
-      http.get(pipelinesUrl, async () => {
+      http.get(stageCountsUrl, async () => {
         await delay(200);
-        return HttpResponse.json({
-          data: [makePipeline({ id: "pl1", isDefault: false })],
-          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
-        });
+        return HttpResponse.json(SIN_PROCESO_POR_DEFECTO);
       }),
     );
 
@@ -507,12 +490,9 @@ describe("DashboardPage — render general y estados", () => {
           pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
         });
       }),
-      http.get(pipelinesUrl, ({ request }) => {
+      http.get(stageCountsUrl, ({ request }) => {
         capture(request);
-        return HttpResponse.json({
-          data: [makePipeline({ id: "pl1", isDefault: false })],
-          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
-        });
+        return HttpResponse.json(SIN_PROCESO_POR_DEFECTO);
       }),
     );
 
@@ -653,6 +633,7 @@ describe("DashboardPage — dashboard de atención (ESENCIAL)", () => {
       prohibido(opportunitiesUrl),
       prohibido(pipelinesUrl),
       prohibido(stagesUrl),
+      prohibido(stageCountsUrl),
       prohibido(companiesUrl),
     );
 
@@ -747,12 +728,7 @@ describe("DashboardPage — dashboard de atención (ESENCIAL)", () => {
           pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
         }),
       ),
-      http.get(pipelinesUrl, () =>
-        HttpResponse.json({
-          data: [],
-          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
-        }),
-      ),
+      http.get(stageCountsUrl, () => HttpResponse.json(SIN_PROCESO_POR_DEFECTO)),
       http.get(usersUrl, () =>
         HttpResponse.json({
           data: [],
@@ -830,12 +806,7 @@ describe("DashboardPage — taller (módulo Servicios)", () => {
           pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
         }),
       ),
-      http.get(pipelinesUrl, () =>
-        HttpResponse.json({
-          data: [],
-          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
-        }),
-      ),
+      http.get(stageCountsUrl, () => HttpResponse.json(SIN_PROCESO_POR_DEFECTO)),
       http.get(usersUrl, () =>
         HttpResponse.json({
           data: [],

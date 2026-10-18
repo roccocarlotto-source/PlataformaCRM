@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
-import { makeActivity } from "../../test/activityFixtures";
+import { makeActivityListItem } from "../../test/activityFixtures";
 import { createActivity, deleteActivity, getActivity, listActivities, updateActivity } from "./api";
 import type { ActivityListResponse } from "./types";
 
@@ -20,7 +20,7 @@ interface CapturedRequest {
 
 function captureRequests(): CapturedRequest[] {
   const captured: CapturedRequest[] = [];
-  const sample = makeActivity();
+  const sample = makeActivityListItem();
   const listResponse: ActivityListResponse = {
     data: [sample],
     pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
@@ -220,7 +220,9 @@ describe("activity/api — contrato HTTP", () => {
   it("10. getActivity devuelve dueDate/completedAt como ISO con hora, fiel al contrato real", async () => {
     server.use(
       http.get(`${baseUrl}/act1`, () =>
-        HttpResponse.json(makeActivity({ id: "act1", dueDate: "2026-03-01T14:30:00.000Z" })),
+        HttpResponse.json(
+          makeActivityListItem({ id: "act1", dueDate: "2026-03-01T14:30:00.000Z" }),
+        ),
       ),
     );
 

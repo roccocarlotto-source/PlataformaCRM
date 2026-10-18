@@ -38,3 +38,13 @@ test("GET /opportunities/revenue-series está montada y va antes que GET /opport
   assert.notEqual(detalle, -1, "la ruta de detalle no está montada");
   assert.ok(serie < detalle, `la serie (${serie}) tiene que ir antes que :id (${detalle})`);
 });
+
+// Los conteos por etapa del Dashboard (ensayo del 2026-10-17): lo mismo.
+test("GET /opportunities/stage-counts está montada y va antes que GET /opportunities/:id", () => {
+  const rutas = rutasGet();
+  const conteos = rutas.indexOf("/opportunities/stage-counts");
+  const detalle = rutas.indexOf("/opportunities/:id");
+  assert.notEqual(conteos, -1, "la ruta de los conteos no está montada");
+  assert.notEqual(detalle, -1, "la ruta de detalle no está montada");
+  assert.ok(conteos < detalle, `los conteos (${conteos}) tienen que ir antes que :id (${detalle})`);
+});
