@@ -2342,9 +2342,13 @@ conversaciones de la prueba anterior.
   pacientes y turnos cargó.
 - **Endpoint:** `POST /api/admin/organizations/:organizationId/demo/reiniciar`
   (`authenticate`, `businessWriteRateLimiter`, `requirePlatformAdmin`), sin
-  body (`src/clinicas/demo/reinicioDeLaDemo.service.ts`). Responde 200 con
-  `{ organizationId, borrados, cargados }`: las filas borradas por tabla y el
-  resumen de `cargarDatosDeUso`.
+  body (`src/clinicas/demo/reinicioDeLaDemo.service.ts`). Desde el
+  2026-10-18 corre **en segundo plano** (`src/services/reinicioDeDemo.service.ts`):
+  valida (los 400/409 de abajo, enseguida) y responde 202 con
+  `{ estado: "REINICIANDO" }`. `GET .../demo/reinicio` devuelve el estado; al
+  terminar, `LISTO` con `resultado: { organizationId, borrados, cargados }`
+  (las filas borradas por tabla y el resumen de `cargarDatosDeUso`) o `FALLO`
+  con el motivo.
 - **Solo una demo:** rubro CLINICA **y** slug de la demo
   (`esSlugDeClinicaDemo`). Cualquier otra organización (una clínica de un
   cliente, una automotora aunque tenga ese slug) da **400** y no se toca nada.
@@ -2381,9 +2385,9 @@ conversaciones de la prueba anterior.
   inactiva (si no, 409) y en el outbox quedan solo los `booking.created` de
   los turnos nuevos, que responden `SIN_REGLA`.
 - **No es atómico de punta a punta:** el borrado sí; la recarga va por los
-  services, cada uno con su transacción. Si falla a mitad, 500 y se vuelve a
-  reiniciar. Sin lock entre dos reinicios simultáneos (operación manual del
-  platform admin, la misma carrera aceptada que el alta).
+  services, cada uno con su transacción. Si falla a mitad, el estado queda en
+  `FALLO` y se vuelve a reiniciar. Un segundo reinicio mientras corre el
+  primero da 409 (estado en memoria, compartido con el Taller Demo).
 - **Tests:** `src/clinicas/clinicaDemo.integration-test.ts` (quién puede, una
   clínica común y una automotora con slug de demo dan 400 sin borrar, los 409,
   y el reinicio que conserva la configuración y los usuarios —ADMIN y

@@ -61,10 +61,10 @@ import {
 // por los services: si fallan a mitad, 500 y la demo queda con todo lo masivo
 // y parte de las órdenes; volver a reiniciar lo arregla (el borrado es total).
 //
-// DOS REINICIOS A LA VEZ: el segundo recibe 409 mientras corre el primero (un
-// candado en memoria: el backend corre en una sola instancia), y el borrado
-// toma además pg_advisory_xact_lock por organización, por si algún día hay
-// más de una.
+// DOS REINICIOS A LA VEZ: el segundo recibe 409 mientras corre el primero (el
+// estado en memoria de src/services/reinicioDeDemo.service.ts: el backend
+// corre en una sola instancia), y el borrado toma además
+// pg_advisory_xact_lock por organización, por si algún día hay más de una.
 //
 // Las fotos subidas a mano (unidades, órdenes) se borran de la base; sus
 // archivos quedan en el bucket, sin nada que los referencie.
@@ -72,8 +72,6 @@ import {
 
 export const DEMO_SIN_ADMIN =
   "El Taller Demo no tiene ningún administrador activo: no hay con quién cargar los datos de ejemplo.";
-export const YA_SE_ESTA_REINICIANDO =
-  "Esta demo ya se está reiniciando. Esperá a que termine (tarda unos tres minutos).";
 
 export function demoSinConfiguracion(faltan: string[]): string {
   return `Al Taller Demo le falta configuración de ejemplo (${faltan.join(", ")}): no se pueden volver a cargar los datos. Restaurala (con el mismo nombre) antes de reiniciar.`;
@@ -125,25 +123,14 @@ export interface ResultadoDelReinicioDelTaller {
   cargados: ResumenDeDatosDeUso;
 }
 
-const reiniciando = new Set<string>();
-
-export async function reiniciarDatosDelTallerDemo(
+/** El reinicio en dos tiempos (reinicio en segundo plano,
+ *  src/services/reinicioDeDemo.service.ts): primero TODO lo que puede impedir
+ *  la recarga, sin escribir nada (400/409 enseguida, en el POST); devuelve la
+ *  parte que escribe, que es la que tarda unos tres minutos. */
+export async function prepararReinicioDelTallerDemo(
   organizationId: string,
   opciones: { ahora?: Date } = {},
-): Promise<ResultadoDelReinicioDelTaller> {
-  if (reiniciando.has(organizationId)) throw new AppError(YA_SE_ESTA_REINICIANDO, 409);
-  reiniciando.add(organizationId);
-  try {
-    return await reiniciar(organizationId, opciones);
-  } finally {
-    reiniciando.delete(organizationId);
-  }
-}
-
-async function reiniciar(
-  organizationId: string,
-  opciones: { ahora?: Date },
-): Promise<ResultadoDelReinicioDelTaller> {
+): Promise<() => Promise<ResultadoDelReinicioDelTaller>> {
   const org = await prisma.organization.findFirst({
     where: { id: organizationId, deletedAt: null },
     select: { slug: true, industry: true, isDemo: true },
@@ -159,16 +146,24 @@ async function reiniciar(
   // Primero la validación (409 si falta algo, sin escribir nada); después
   // alinear lo que cambió desde el alta (no cambia ningún id de la config).
   const configuracion = await configuracionDelTaller(organizationId);
-  await alinearConfiguracion(organizationId, usuarios);
 
-  let borrados: DatosDeUsoDelTallerBorrados | undefined;
-  const cargados = await cargarDatosDeUso(organizationId, configuracion, usuarios, opciones.ahora, {
-    antesDelMasivo: async (tx) => {
-      borrados = await borrarDatosDeUso(tx, organizationId);
-    },
-  });
-  logger.info({ organizationId, borrados, cargados }, "Taller Demo reiniciado");
-  return { organizationId, borrados: borrados!, cargados };
+  return async () => {
+    await alinearConfiguracion(organizationId, usuarios);
+    let borrados: DatosDeUsoDelTallerBorrados | undefined;
+    const cargados = await cargarDatosDeUso(
+      organizationId,
+      configuracion,
+      usuarios,
+      opciones.ahora,
+      {
+        antesDelMasivo: async (tx) => {
+          borrados = await borrarDatosDeUso(tx, organizationId);
+        },
+      },
+    );
+    logger.info({ organizationId, borrados, cargados }, "Taller Demo reiniciado");
+    return { organizationId, borrados: borrados!, cargados };
+  };
 }
 
 /** La configuración de la demo, por los nombres de config.ts. Si alguien

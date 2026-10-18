@@ -106,10 +106,18 @@ export function useReenviarInvitacionDelAdministrador() {
   });
 }
 
-// Sin invalidación: el listado no muestra nada de los datos de la demo.
+// El POST responde enseguida con REINICIANDO (corre en segundo plano): se guarda
+// como estado de esa demo y se vuelve a pedir en el acto, así el sondeo de
+// useEstadoDelReinicioDeLaDemo arranca sin esperar al primer intervalo.
 export function useReiniciarDatosDeLaDemo() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (organizationId: string) => reiniciarDatosDeLaDemo(organizationId),
+    onSuccess: (estado, organizationId) => {
+      const key = platformAdminKeys.reinicioDeLaDemo(organizationId);
+      queryClient.setQueryData(key, estado);
+      void queryClient.invalidateQueries({ queryKey: key });
+    },
   });
 }
 

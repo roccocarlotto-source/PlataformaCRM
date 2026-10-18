@@ -101,9 +101,18 @@ export interface ReenvioDeInvitacion {
   sinEnviar?: string[];
 }
 
-// Contrato de POST /api/admin/organizations/:organizationId/demo/reiniciar
-// (src/clinicas/demo/reinicioDeLaDemo.service.ts) — docs/rubros.md §12.3. Las
-// filas borradas por tabla y lo que se volvió a cargar.
+// El reinicio de una demo corre en segundo plano
+// (src/services/reinicioDeDemo.service.ts): POST .../demo/reiniciar responde 202
+// con REINICIANDO, y GET .../demo/reinicio dice en qué quedó. NINGUNO: no hubo
+// reinicio desde que arrancó el servidor (o se reinició en medio de uno).
+export type EstadoDelReinicioDeLaDemo =
+  | { estado: "NINGUNO" }
+  | { estado: "REINICIANDO"; iniciadoEn: string }
+  | { estado: "LISTO"; iniciadoEn: string; terminadoEn: string; resultado: ReinicioDeLaDemo }
+  | { estado: "FALLO"; iniciadoEn: string; terminadoEn: string; mensaje: string };
+
+// El resultado de un reinicio terminado (src/clinicas/demo/reinicioDeLaDemo.service.ts)
+// — docs/rubros.md §12.3. Las filas borradas por tabla y lo que se volvió a cargar.
 export interface ReinicioDeLaDemo {
   organizationId: string;
   borrados: Record<string, number>;

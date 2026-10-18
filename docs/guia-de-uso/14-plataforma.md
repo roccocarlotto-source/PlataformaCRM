@@ -205,6 +205,15 @@ como recién creada:
 1. En la fila de la demo, tocá **Reiniciar datos de demo**. El botón aparece
    solo en las demos, nunca en la organización de un cliente.
 2. Leé qué se borra y qué queda, y confirmá con **Reiniciar datos**.
+3. Arriba de la lista aparece **Reiniciando…** mientras trabaja. Podés seguir
+   usando la plataforma, ir a otra pantalla o recargar la página: el reinicio
+   sigue solo. Al terminar aparece qué se cargó o, si algo falló, el motivo.
+   Mientras corre, el botón de esa demo queda deshabilitado, y si alguien lo
+   toca desde otra sesión recibe un aviso de que ya se está reiniciando.
+
+> Si aparece que **no sabemos cómo terminó** el reinicio, el servidor se
+> reinició mientras trabajaba. Revisá los datos de la demo o reiniciala de
+> nuevo: el borrado es total, así que un segundo reinicio la deja bien.
 
 #### En una Clínica Demo
 
@@ -241,9 +250,7 @@ automatizaciones, el QR, los usuarios y las invitaciones.
 
 Después se vuelven a cargar los datos de ejemplo con fechas de hoy: las
 órdenes vuelven a empezar en **OS-0001** y el stock en **STK-000001**. Tarda
-unos tres minutos; el botón queda en espera hasta que termina y arriba de
-la lista aparece qué se cargó. Si alguien tocó el botón al mismo tiempo, el
-segundo recibe un aviso de que ya se está reiniciando.
+unos tres minutos; al terminar, arriba de la lista aparece qué se cargó.
 
 > Si a la demo le falta algo de su configuración de ejemplo (por ejemplo, se
 > renombró **Sucursal Este** o se borró un tipo de service), el sistema no
