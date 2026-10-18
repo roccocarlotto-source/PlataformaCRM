@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, Weekday } from "@prisma/client";
 import { DateTime } from "luxon";
 import { z } from "zod";
 import { logger } from "../../lib/logger";
@@ -79,7 +79,9 @@ import {
   type ClaveDeTipoDeService,
   type ClaveDeUnidad,
   type ClaveDeUsuario,
+  type ConversacionDeLaDemo,
   type FechaRelativaAlMes,
+  type Franja,
 } from "./config";
 
 // ---------------------------------------------------------------------------
@@ -281,6 +283,63 @@ export function fechasDeLosVehiculosDeClientes(ahora: Date): FechasDeVehiculoDeC
 
 function horasAtras(ahora: Date, horas: number): Date {
   return new Date(ahora.getTime() - horas * 3_600_000);
+}
+
+const DIAS_DE_LUXON: Weekday[] = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+];
+
+// Media hora antes del cierre: un mensaje "a las 17:59" se ve forzado.
+const MARGEN_ANTES_DEL_CIERRE_MIN = 30;
+
+/** Cuándo empieza una conversación de la demo: `hace` horas antes de ahora
+ *  o, si es `enHorario`, lo que haga falta antes para que todo lo que mandó
+ *  la concesionaria caiga en el horario de Casa Central. */
+export function inicioDeLaConversacion(c: ConversacionDeLaDemo, ahora: Date): Date {
+  const segunHace = horasAtras(ahora, c.hace);
+  if (!c.enHorario) return segunHace;
+  const ultimoSaliente = Math.max(
+    0,
+    ...c.mensajes.filter((m) => m.de !== "CONTACTO").map((m) => m.minuto),
+  );
+  return dentroDelHorario(segunHace, SUCURSALES.central.horario, ZONA_DE_LA_DEMO, ultimoSaliente);
+}
+
+/**
+ * El momento más cercano a `instante`, sin pasarlo, en que la sucursal está
+ * abierta durante `duracionMin` minutos seguidos: el mismo instante si ya
+ * cae en horario y entra; si no, media hora antes del cierre de la última
+ * franja que lo permite. Ensayo del 2026-10-17: con "hace N horas" los
+ * mensajes de la concesionaria caían de noche, según la hora del reinicio.
+ */
+export function dentroDelHorario(
+  instante: Date,
+  horario: readonly Franja[],
+  zona: string,
+  duracionMin = 0,
+): Date {
+  const local = DateTime.fromJSDate(instante, { zone: zona });
+  for (let diasAtras = 0; diasAtras <= 7; diasAtras++) {
+    const dia = local.minus({ days: diasAtras }).startOf("day");
+    const delDia = horario
+      .filter((f) => f.weekday === DIAS_DE_LUXON[dia.weekday - 1])
+      .sort((x, y) => y.startMinute - x.startMinute);
+    for (const f of delDia) {
+      const abre = dia.plus({ minutes: f.startMinute });
+      const ultimoInicio = dia.plus({
+        minutes: f.endMinute - MARGEN_ANTES_DEL_CIERRE_MIN - duracionMin,
+      });
+      if (ultimoInicio < abre || abre > local) continue;
+      return (local <= ultimoInicio ? local : ultimoInicio).toJSDate();
+    }
+  }
+  return instante;
 }
 
 /** Un createdAt nunca va después de ahora (el día de hoy a las 18 puede ser
@@ -580,6 +639,8 @@ interface ResultadoDelMasivo {
   contactos: string[];
   vehiculosDeClientes: Record<string, { id: string; contactId: string; branchId: string }>;
   turnos: Record<string, string>;
+  /** Milisegundos que se corrió hacia atrás la conversación de cada contacto. */
+  corrimientos: Record<number, number>;
   resumen: Omit<ResumenDeDatosDeUso, "ordenes" | "aprobaciones" | "avisos" | "fichasDeStock">;
 }
 
@@ -805,8 +866,13 @@ async function cargarMasivo(
     (await tx.organization.findUnique({ where: { id: organizationId }, select: { name: true } }))
       ?.name ?? "Taller Demo";
   let mensajes = 0;
+  // Cuánto se corrió hacia atrás cada conversación `enHorario`, por contacto:
+  // la orden que la acompaña (conLaConversacionDe) se corre lo mismo.
+  const corrimientos: Record<number, number> = {};
   for (const c of CONVERSACIONES) {
-    const inicio = horasAtras(ahora, c.hace);
+    const segunHace = horasAtras(ahora, c.hace);
+    const inicio = inicioDeLaConversacion(c, ahora);
+    corrimientos[c.contacto] = segunHace.getTime() - inicio.getTime();
     const ultimo = new Date(inicio.getTime() + c.mensajes[c.mensajes.length - 1].minuto * 60_000);
     const contacto = CONTACTOS[c.contacto];
     const identidad = IDENTIDADES_DE_CANAL.find(
@@ -930,6 +996,7 @@ async function cargarMasivo(
     contactos,
     vehiculosDeClientes,
     turnos,
+    corrimientos,
     resumen: {
       contactos: CONTACTOS.length + 1,
       identidadesDeCanal: IDENTIDADES_DE_CANAL.length,
@@ -1020,14 +1087,20 @@ async function cargarOrdenes(
   configuracion: ConfiguracionDeLaDemo,
   usuarios: UsuariosDeLaDemo,
   masivo: ResultadoDelMasivo,
-  ahora: Date,
+  ahoraDeLaCarga: Date,
 ): Promise<Pick<ResumenDeDatosDeUso, "ordenes" | "aprobaciones" | "avisos">> {
-  const hoy = hoyEnLaDemo(ahora);
+  const hoy = hoyEnLaDemo(ahoraDeLaCarga);
   const encargado = usuarios.taller;
   let aprobaciones = 0;
   let avisos = 0;
 
   for (const o of ORDENES) {
+    // Las fechas de una orden que acompaña a una conversación `enHorario` se
+    // cuentan desde un "ahora" corrido lo mismo que ella.
+    const ahora =
+      o.conLaConversacionDe === undefined
+        ? ahoraDeLaCarga
+        : new Date(ahoraDeLaCarga.getTime() - (masivo.corrimientos[o.conLaConversacionDe] ?? 0));
     const vehiculo = masivo.vehiculosDeClientes[o.vehiculo];
     const [primero, ...siguientes] = o.pasos;
     const creada = await crearOrden(organizationId, encargado, {
@@ -1081,13 +1154,14 @@ async function cargarOrdenes(
       desde = paso.estado;
     }
     if (o.avisado) {
-      await registrarAviso(
-        organizationId,
-        encargado,
-        id,
-        o.avisado,
-        o.avisadoHorasAtras === undefined ? ahora : horasAtras(ahora, o.avisadoHorasAtras),
-      );
+      const cuando =
+        o.avisadoHorasAtras === undefined ? ahora : horasAtras(ahora, o.avisadoHorasAtras);
+      const [aviso] = await registrarAviso(organizationId, encargado, id, o.avisado, cuando);
+      // La pantalla muestra el createdAt de la nota, y registrarAviso solo
+      // fecha el completedAt: sin esto el aviso salía con la hora del
+      // reinicio (ensayo del 2026-10-17). Escritura directa, como las fechas
+      // del historial.
+      await prisma.activity.update({ where: { id: aviso.id }, data: { createdAt: cuando } });
       avisos++;
     }
 

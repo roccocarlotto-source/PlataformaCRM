@@ -189,6 +189,19 @@ async function verificarDatosDeUso(
   });
   assert.equal(transferida.assignedUserId, tallerId);
 
+  // El aviso de la orden lista para retirar (ensayo del 2026-10-17): fechado
+  // en el mensaje "ya está listo" de la conversación, no con la hora de la
+  // carga, y después de que la orden quedó lista.
+  const listo = mensajes.find((m) => /ya está listo/.test(m.content));
+  assert.ok(listo);
+  const aviso = await prisma.activity.findFirstOrThrow({
+    where: { organizationId: id, subject: { startsWith: "Aviso al cliente" } },
+    include: { sourceServiceOrder: { select: { readyAt: true } } },
+  });
+  assert.equal(aviso.createdAt.getTime(), listo.createdAt.getTime());
+  assert.ok(aviso.sourceServiceOrder?.readyAt);
+  assert.ok(aviso.sourceServiceOrder.readyAt.getTime() <= aviso.createdAt.getTime());
+
   // Stock: una reservada, dos vendidas con su entrega, el resto publicado y
   // conocido por el agente (fichas sincronizadas en la base de conocimiento).
   const unidades = await prisma.vehicle.findMany({ where: { organizationId: id } });
