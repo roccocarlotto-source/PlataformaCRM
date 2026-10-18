@@ -182,6 +182,14 @@ const INVENTA_UN_CIERRE = [
   /\blunes\b[^.?!\n]{0,50}\b(cerrad[oa]s?|no (abrimos|atendemos|trabajamos)|no (hay|tenemos) (actividad|atenci[oó]n))/i,
   /\b(cerrad[oa]s?|no abrimos|no atendemos)\b[^.?!\n]{0,30}\blunes\b/i,
 ];
+// Nombres ficticios para los contactos de los escenarios del taller.
+const NOMBRES_DEL_TALLER = [
+  ["Sofía", "Ramos"],
+  ["Jorge", "Méndez"],
+  ["Rodrigo", "Silveira"],
+  ["Raúl", "Gutiérrez"],
+  ["Natalia", "Píriz"],
+] as const;
 // "10:00", "10 h", "10 hs", "a las 10", "las 10 de la mañana".
 const OFRECE_LAS_10 = /\b10:00\b|\b10 ?h(s|oras)?\b|\blas 10\b/i;
 
@@ -922,26 +930,9 @@ async function montarOrganizacion() {
       content: entrada.contenido,
     });
   }
-  const kwid = STOCK.find((v) => v.model === "Kwid")!;
-  await prisma.vehicle.create({
-    data: {
-      organizationId: org.id,
-      branchId: taller.id,
-      internalCode: "EVAL-T01",
-      condition: "USED",
-      status: "AVAILABLE",
-      publishOnWebsite: true,
-      visibleInListing: true,
-      origin: "DIRECT_PURCHASE",
-      priceListLocal: kwid.priceListUsd * 1136,
-      vin: `EVALT${sufijo.slice(-6)}0001`,
-      licensePlate: `EVT${sufijo.slice(-3)}`,
-      titleHolder: "Taller Demo SRL",
-      acceptsTradeIn: true,
-      financingAvailable: true,
-      ...kwid,
-    },
-  });
+  // Sin stock propio: search_vehicles busca en toda la organización, así que
+  // el agente ve el Kwid de arriba. Con un segundo Kwid igual, los modelos se
+  // trababan preguntando cuál de los dos, cosa que en el Taller Demo no pasa.
   const agenteDelTaller = await prisma.agent.create({
     data: {
       organizationId: org.id,
@@ -1076,11 +1067,18 @@ async function main() {
       const medicion: Medicion = { ms: 0, costUsd: 0, llamadasSinCosto: 0 };
       let conversationId: string | null = null;
       console.log(`${"=".repeat(72)}\n${esc.id}: ${esc.criterio}\n${"=".repeat(72)}`);
+      // En el taller, nombre y apellido de verdad, como Sofía Ramos en el
+      // probador: con "Eval T1#1" de apellido el modelo lo pedía y no seguía el
+      // camino de producción (registrar la oportunidad y agendar).
+      const nombre =
+        esc.agente === "taller"
+          ? NOMBRES_DEL_TALLER[resumen.length % NOMBRES_DEL_TALLER.length]!
+          : (["Martín", `Eval ${esc.id}`] as const);
       const contacto = await prisma.contact.create({
         data: {
           organizationId: e.orgId,
-          firstName: "Martín",
-          lastName: `Eval ${esc.id}`,
+          firstName: nombre[0],
+          lastName: nombre[1],
           ownerId: e.userId,
           phone: `+549${Math.floor(Math.random() * 1e9)}`,
         },
@@ -1147,12 +1145,20 @@ async function main() {
     await prisma.message.deleteMany({ where: { organizationId } });
     await prisma.conversation.deleteMany({ where: { organizationId } });
     await prisma.activity.deleteMany({ where: { organizationId } });
-    await prisma.opportunity.deleteMany({ where: { organizationId } });
-    await prisma.vehicle.deleteMany({ where: { organizationId } });
-    // Las reservas ANTES que los contactos: una Booking referencia al Contact,
-    // y cuando algún escenario llega a agendar de verdad, borrar el contacto
-    // primero revienta con la FK y se lleva puesta toda la limpieza.
+    // Las reservas ANTES que los contactos y las oportunidades: una Booking
+    // referencia a las dos (create_booking la vincula a la oportunidad), y
+    // cuando algún escenario llega a agendar de verdad, borrar cualquiera de
+    // las dos primero revienta con la FK y se lleva puesta toda la limpieza.
     await prisma.booking.deleteMany({ where: { organizationId } });
+    await prisma.opportunity.deleteMany({ where: { organizationId } });
+    // update_lead anota la unidad de interés en el contacto: sin soltarla, el
+    // borrado del stock revienta con la FK y la organización queda colgada.
+    await prisma.contact.updateMany({
+      where: { organizationId },
+      // Los dos juntos: un CHECK exige la unidad y quién la cargó, o ninguno.
+      data: { vehicleOfInterestId: null, vehicleOfInterestSetBy: null },
+    });
+    await prisma.vehicle.deleteMany({ where: { organizationId } });
     await prisma.contact.deleteMany({ where: { organizationId } });
     await prisma.knowledgeBaseEntry.deleteMany({ where: { organizationId } });
     await prisma.branchBusinessHours.deleteMany({ where: { organizationId } });
