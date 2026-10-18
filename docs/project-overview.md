@@ -59,7 +59,7 @@ actividades.
 | **Prisma ORM 5.20** (`@prisma/client`, `prisma`) | Acceso a datos type-safe + migraciones | Es la única capa de aplicación que existe hoy: `prisma/schema.prisma` define 13 modelos. Scripts en `package.json`: `prisma:generate`, `prisma:validate`, `prisma:studio`. |
 | **PostgreSQL** | Motor de base de datos | `datasource db { provider = "postgresql" }` en el schema. |
 | **Supabase** (Auth + Postgres hosting) | Autenticación gestionada + hosting de la DB | Proyecto real provisionado y conectado (`.env` completo). El modelo `User` está diseñado para compartir `id` con `auth.users` (tabla gestionada por Supabase). |
-| **Supavisor** (pooler compartido de Supabase — no PgBouncer clásico; confirmado en LOW-2 contra la documentación oficial vigente de Supabase, sección 8) | Pooling de conexiones para runtime | `.env.example` distingue `DATABASE_URL` (mismo host `*.pooler.supabase.com`, puerto 6543, Supavisor en **modo transacción**, `?pgbouncer=true` — bandera correcta y soportada para ese modo, ver sección 8) de `DIRECT_URL` (mismo host, puerto 5432, Supavisor en **modo sesión** — no una conexión directa a Postgres, pese al nombre de la variable — solo para `prisma migrate`) — patrón estándar de Supabase + Prisma: Prisma Migrate no funciona bien a través del modo transacción. |
+| **Supavisor** (pooler compartido de Supabase — no PgBouncer clásico; confirmado en LOW-2 contra la documentación oficial vigente de Supabase, sección 8) | Pooling de conexiones para runtime | `.env.example` distingue `DATABASE_URL` (mismo host `*.pooler.supabase.com`, puerto 6543, Supavisor en **modo transacción**, `?pgbouncer=true` — bandera correcta y soportada para ese modo, ver sección 8) de `DIRECT_URL` (mismo host, puerto 5432, Supavisor en **modo sesión** — no una conexión directa a Postgres, pese al nombre de la variable — solo para `prisma migrate`) — patrón estándar de Supabase + Prisma: Prisma Migrate no funciona bien a través del modo transacción. Nota (2026-10-18): desde esa fecha `DATABASE_URL` usa el pooler en modo sesión (puerto 5432, sin `pgbouncer=true`), ver `docs/deployment.md` §2.3. |
 | **dotenv** | Carga de variables de entorno | Dependencia declarada en `package.json`. |
 | **SQL manual** (`prisma/sql/manual_constraints.sql`) | Constraints/triggers que Prisma no soporta nativamente | Prisma no expresa índices únicos parciales (`WHERE`), `CHECK` constraints ni triggers en el DSL de `schema.prisma` — se completan a mano. |
 | **Express 4** | Framework HTTP del backend | `src/app.ts` — middlewares estándar (helmet, cors, compression), manejo de errores centralizado, health check. Ver `README.md` para el detalle de cada carpeta de `src/`. |
@@ -962,6 +962,8 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   las que Postgres podría atender sin poolear — un beneficio de la
   arquitectura de pooling en sí, distinto del costo por-operación que esa
   misma configuración introduce (documentado en sección 8).
+
+  > **Nota (2026-10-18):** Desde el 2026-10-18 `DATABASE_URL` usa el pooler en **modo sesión** (puerto 5432, sin `pgbouncer=true`); el detalle está en `docs/deployment.md` §2.3.
 
 ---
 
@@ -2659,6 +2661,9 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    Supabase y de Prisma: el modo transacción de Supavisor no soporta
    prepared statements, y `pgbouncer=true` es exactamente la bandera
    correcta para eso, no una configuración pendiente de corregir).
+
+   > **Nota (2026-10-18):** Desde el 2026-10-18 `DATABASE_URL` usa el pooler en **modo sesión** (puerto 5432, sin `pgbouncer=true`); el detalle está en `docs/deployment.md` §2.3. En modo sesión cada consulta es una ida
+   > y vuelta en vez de las cuatro de abajo.
 
    Bajo esa configuración soportada, las llamadas de repository trazadas
    durante la investigación (`Role`, `Organization`, `User`, `Invitation` —
