@@ -36,6 +36,13 @@ import {
   TIPOS_DE_SERVICE,
   VEHICULOS_DE_CLIENTES,
   ZONA_DE_LA_DEMO,
+  AGENDA_DEL_TALLER,
+  AGENTE,
+  CONTACTO_DEL_PROBADOR,
+  CONVERSACIONES,
+  INSTRUCCIONES_ANTERIORES_DEL_AGENTE,
+  PRUEBA_DE_MANEJO,
+  REGLA_DEL_RECORDATORIO,
 } from "./config";
 import { cargarDatosDeEjemplo, DEMO_CON_DATOS, DEMO_SOLO_EN_MODO_DEMO } from "./datosDeEjemplo";
 import { YA_SE_ESTA_REINICIANDO } from "./reinicioDelTallerDemo.service";
@@ -146,10 +153,33 @@ async function conteos(organizationId: string) {
  * Contactos, Dashboard, tareas, órdenes y el Resumen del taller
  * (docs/taller-demo.md §3).
  */
-async function verificarDatosDeUso(id: string, tallerId: string) {
+async function verificarDatosDeUso(
+  id: string,
+  usuarios: { taller: { id: string }; vendedor: { id: string } },
+) {
+  const tallerId = usuarios.taller.id;
   // Conversaciones: los salientes SENT con id demo:, los entrantes sin estado.
   const mensajes = await prisma.message.findMany({ where: { organizationId: id } });
-  assert.equal(mensajes.length, 18);
+  assert.equal(
+    mensajes.length,
+    CONVERSACIONES.reduce((n, c) => n + c.mensajes.length, 0),
+  );
+  // El recordatorio de próximo service que mandó la regla (ensayo del
+  // 2026-10-17): su fila en la cola del taller ENVIADA con el mismo id demo:
+  // que el mensaje AUTOMATION de la conversación, que se ve "Simulado".
+  const automaticos = mensajes.filter((m) => m.senderType === "AUTOMATION");
+  assert.equal(automaticos.length, 1);
+  assert.match(automaticos[0].content, /próximo service de tu Renault Clio Mío \(SDM 1205\)/);
+  assert.doesNotMatch(automaticos[0].content, /\{(nombre|lugar|vehiculo|fecha)\}/);
+  const enviado = await prisma.serviceMessage.findFirstOrThrow({ where: { organizationId: id } });
+  assert.equal(enviado.status, "SENT");
+  assert.equal(enviado.externalMessageId, automaticos[0].externalMessageId);
+  assert.equal(
+    await prisma.customerVehicleNotice.count({
+      where: { organizationId: id, kind: "NEXT_SERVICE", id: enviado.noticeId ?? "" },
+    }),
+    1,
+  );
   for (const m of mensajes) {
     assert.ok(esIdSimulado(m.externalMessageId));
     if (m.direction === "OUTBOUND") assert.equal(m.deliveryStatus, "SENT");
@@ -179,7 +209,12 @@ async function verificarDatosDeUso(id: string, tallerId: string) {
   assert.equal(contactos.length, CONTACTOS.length + 1);
   assert.equal(contactos.filter((c) => c.lifecycleStage === "CUSTOMER").length, 4);
   assert.equal(contactos.filter((c) => c.noInterestAt !== null).length, 2);
-  assert.ok(contactos.some((c) => c.firstName === "Visitante" && c.phone === null));
+  const probador = contactos.find(
+    (c) =>
+      c.firstName === CONTACTO_DEL_PROBADOR.nombre && c.lastName === CONTACTO_DEL_PROBADOR.apellido,
+  );
+  assert.ok(probador && probador.phone === null && probador.email === null);
+  assert.equal(probador.ownerId, usuarios.vendedor.id, "una derivación le llega al vendedor");
   assert.ok(contactos.every((c) => c.email === null || c.email.endsWith("@example.com")));
 
   // Dashboard (mes): 6 abiertas por 98.200; creadas 7 / 5; ganadas 2 (41.500) / 2 (36.000); perdidas 1 / 2.
@@ -194,6 +229,8 @@ async function verificarDatosDeUso(id: string, tallerId: string) {
   assert.equal(dashboard.wonLastPeriod.value, "36000.00");
   assert.equal(dashboard.lostCountThisPeriod, 1);
   assert.equal(dashboard.lostCountLastPeriod, 2);
+  const semana = await getDashboardSummary(id, { granularity: "week" });
+  assert.ok(semana.wonThisPeriod.count >= 1, "la vista Semanal tiene una venta ganada");
 
   // Tareas: 3 vencidas, 2 completadas.
   const ahora = new Date();
@@ -279,6 +316,33 @@ async function verificarDatosDeUso(id: string, tallerId: string) {
 }
 
 // ---------------------------------------------------------------------------
+/** Lo que corrigió el ensayo del 2026-10-17 en la configuración: el agente ve
+ *  los servicios y guarda el presupuesto; hay agenda de prueba de manejo y
+ *  los recursos de Casa Central tienen horario; la regla avisa ANTES. */
+async function verificarConfiguracionDelEnsayo(id: string) {
+  const agente = await prisma.agent.findFirstOrThrow({ where: { organizationId: id } });
+  for (const tool of AGENTE.enabledTools) assert.ok(agente.enabledTools.includes(tool), tool);
+  assert.notEqual(agente.instructions, INSTRUCCIONES_ANTERIORES_DEL_AGENTE);
+  const recursos = await prisma.resource.findMany({
+    where: { organizationId: id, deletedAt: null },
+    include: { workingHours: true },
+  });
+  for (const nombre of [AGENDA_DEL_TALLER.recurso, PRUEBA_DE_MANEJO.recurso]) {
+    const recurso = recursos.find((x) => x.name === nombre);
+    assert.ok(recurso && recurso.workingHours.length > 0, `${nombre} con horario`);
+  }
+  assert.equal(
+    await prisma.serviceType.count({
+      where: { organizationId: id, deletedAt: null, name: PRUEBA_DE_MANEJO.turno },
+    }),
+    1,
+  );
+  const regla = await prisma.automation.findFirstOrThrow({
+    where: { organizationId: id, name: "Recordatorio de próximo service" },
+  });
+  assert.deepEqual(regla.triggerConfig, { offsetDays: REGLA_DEL_RECORDATORIO.offsetDays });
+}
+
 // ---------------------------------------------------------------------------
 // Quién puede, y qué no deja nada a medias
 // ---------------------------------------------------------------------------
@@ -392,8 +456,8 @@ test("el platform admin crea el Taller Demo: 201, modo demo, módulo Servicios, 
     unidades: Object.keys(STOCK).length,
     oportunidades: OPORTUNIDADES.length,
     vehiculosDeClientes: VEHICULOS_DE_CLIENTES.length,
-    conversaciones: 3,
-    mensajes: 18,
+    conversaciones: CONVERSACIONES.length,
+    mensajes: CONVERSACIONES.reduce((n, c) => n + c.mensajes.length, 0),
     tareas: TAREAS.length,
     turnos: 3,
     ordenes: ORDENES.length,
@@ -402,7 +466,8 @@ test("el platform admin crea el Taller Demo: 201, modo demo, módulo Servicios, 
     fichasDeStock: 7,
   });
 
-  // Sucursales con su responsable: Casa Central → taller, Sucursal Este → vendedor.
+  // Sucursales con su responsable: las dos el vendedor (las derivaciones de
+  // venta le llegan a él; lo del taller, por las órdenes, al encargado).
   const sucursales = await prisma.branch.findMany({
     where: { organizationId: id },
     orderBy: { name: "asc" },
@@ -410,10 +475,12 @@ test("el platform admin crea el Taller Demo: 201, modo demo, módulo Servicios, 
   assert.deepEqual(
     sucursales.map((s) => [s.name, s.defaultOwnerId]),
     [
-      ["Casa Central", demo!.usuarios.taller.id],
+      ["Casa Central", demo!.usuarios.vendedor.id],
       ["Sucursal Este", demo!.usuarios.vendedor.id],
     ],
   );
+
+  await verificarConfiguracionDelEnsayo(id);
 
   // El agente: activo, WhatsApp + web, con el modelo de la demo, sin número ni página.
   const agente = await prisma.agent.findFirstOrThrow({ where: { organizationId: id } });
@@ -463,7 +530,7 @@ test("el platform admin crea el Taller Demo: 201, modo demo, módulo Servicios, 
     ].sort(),
   );
 
-  await verificarDatosDeUso(id, demo!.usuarios.taller.id);
+  await verificarDatosDeUso(id, demo!.usuarios);
 
   // Aislamiento: ni la organización del platform admin ni la común cambiaron.
   assert.deepEqual(await conteos(plataforma.id), antesPlataforma);
@@ -653,7 +720,7 @@ test("reiniciar el Taller Demo: borra lo de uso (también lo agregado a mano), c
   assert.equal(org.isDemo, true);
 
   // Los datos de uso, como recién creados: OS-0001… y STK-000001… otra vez.
-  await verificarDatosDeUso(id, demo.usuarios.taller.id);
+  await verificarDatosDeUso(id, demo.usuarios);
   const codigos = (await prisma.vehicle.findMany({ where, orderBy: { internalCode: "asc" } })).map(
     (v) => v.internalCode,
   );
@@ -673,7 +740,7 @@ test("reiniciar dos veces a la vez: el segundo recibe 409; después, otro reinic
   assert.deepEqual([a.status, b.status].sort(), [200, 409]);
   const rechazado = a.status === 409 ? a : b;
   assert.equal(rechazado.json.error?.message, YA_SE_ESTA_REINICIANDO);
-  await verificarDatosDeUso(id, demo.usuarios.taller.id);
+  await verificarDatosDeUso(id, demo.usuarios);
 });
 
 test("reiniciar con configuración de ejemplo faltante: 409 antes de borrar nada", async () => {
@@ -686,15 +753,83 @@ test("reiniciar con configuración de ejemplo faltante: 409 antes de borrar nada
     where: { id: este.id },
     data: { name: "Sucursal Este (renombrada)" },
   });
+  const central = await prisma.branch.findFirstOrThrow({
+    where: { organizationId: id, name: "Casa Central" },
+  });
   try {
     const antes = await conteos(id);
     const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
     assert.equal(res.status, 409);
     assert.match(String(res.json.error?.message), /sucursal Sucursal Este/);
     assert.deepEqual(await conteos(id), antes);
+    // Tampoco tocó la configuración: el 409 va antes de alinear.
+    const centralDespues = await prisma.branch.findUniqueOrThrow({ where: { id: central.id } });
+    assert.equal(centralDespues.defaultOwnerId, central.defaultOwnerId);
   } finally {
     await prisma.branch.update({ where: { id: este.id }, data: { name: "Sucursal Este" } });
   }
+});
+
+test("reiniciar una demo creada con la configuración anterior al ensayo la alinea, sin pisar lo editado a mano", async () => {
+  assert.ok(demo, "depende del test de alta");
+  const id = demo.organization.id;
+  const central = await prisma.branch.findFirstOrThrow({
+    where: { organizationId: id, name: "Casa Central" },
+  });
+  const taller = await prisma.resource.findFirstOrThrow({
+    where: { organizationId: id, name: AGENDA_DEL_TALLER.recurso },
+  });
+  const prueba = await prisma.resource.findFirstOrThrow({
+    where: { organizationId: id, name: PRUEBA_DE_MANEJO.recurso },
+  });
+  // Como quedó una demo creada antes del ensayo.
+  await prisma.branch.update({
+    where: { id: central.id },
+    data: { defaultOwnerId: demo.usuarios.taller.id },
+  });
+  await prisma.workingHours.deleteMany({ where: { resourceId: { in: [taller.id, prueba.id] } } });
+  await prisma.serviceType.deleteMany({ where: { organizationId: id, resourceId: prueba.id } });
+  await prisma.resource.delete({ where: { id: prueba.id } });
+  const agente = await prisma.agent.findFirstOrThrow({ where: { organizationId: id } });
+  await prisma.agent.update({
+    where: { id: agente.id },
+    data: {
+      enabledTools: [
+        "search_vehicles",
+        "create_opportunity",
+        "reserve_vehicle",
+        "get_availability",
+        "create_booking",
+      ],
+      instructions: INSTRUCCIONES_ANTERIORES_DEL_AGENTE,
+    },
+  });
+  const regla = await prisma.automation.findFirstOrThrow({
+    where: { organizationId: id, name: "Recordatorio de próximo service" },
+  });
+  await prisma.automation.update({
+    where: { id: regla.id },
+    data: { triggerConfig: { offsetDays: 7 } },
+  });
+
+  const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  await verificarConfiguracionDelEnsayo(id);
+  const centralDespues = await prisma.branch.findUniqueOrThrow({ where: { id: central.id } });
+  assert.equal(centralDespues.defaultOwnerId, demo.usuarios.vendedor.id);
+  await verificarDatosDeUso(id, demo.usuarios);
+
+  // Lo editado a mano se respeta: otras instrucciones no se pisan.
+  await prisma.agent.update({
+    where: { id: agente.id },
+    data: { instructions: "Instrucciones propias." },
+  });
+  const otra = await pedir(plataforma, "POST", rutaDeReinicio(id));
+  assert.equal(otra.status, 200);
+  assert.equal(
+    (await prisma.agent.findUniqueOrThrow({ where: { id: agente.id } })).instructions,
+    "Instrucciones propias.",
+  );
 });
 
 test("reiniciar una automotora sin modo demo (aunque tenga el slug del Taller Demo): 400 sin borrar nada", async () => {

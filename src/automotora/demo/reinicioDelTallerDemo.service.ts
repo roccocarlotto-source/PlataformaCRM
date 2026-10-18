@@ -2,6 +2,8 @@ import { logger } from "../../lib/logger";
 import { prisma, type Db } from "../../lib/prisma";
 import { NO_ES_UNA_DEMO } from "../../services/modoDemo.service";
 import { tieneElModulo } from "../../servicios/recordatorio/repository";
+import { TRIGGER_NEXT_SERVICE_DUE } from "../../servicios/recordatorio/config";
+import { replaceWorkingHoursForResource } from "../../services/workingHours.service";
 import { AppError } from "../../utils/AppError";
 import {
   AGENDA_DEL_TALLER,
@@ -9,6 +11,11 @@ import {
   CAMPOS_PERSONALIZADOS,
   esSlugDeTallerDemo,
   FUENTE_LANDING,
+  HORARIO_DE_LOS_RECURSOS,
+  INSTRUCCIONES_ANTERIORES_DEL_AGENTE,
+  INSTRUCCIONES_DEL_AGENTE,
+  NOMBRE_DE_LAS_REGLAS,
+  REGLA_DEL_RECORDATORIO,
   PROCESO_DE_VENTA,
   SUCURSALES,
   TIPOS_DE_SERVICE,
@@ -19,6 +26,7 @@ import {
 } from "./config";
 import {
   cargarDatosDeUso,
+  crearAgendaDeLaPruebaDeManejo,
   DEMO_SIN_MODULO,
   type ConfiguracionDeLaDemo,
   type ResumenDeDatosDeUso,
@@ -147,8 +155,11 @@ async function reiniciar(
 
   // Todo lo que puede impedir la recarga se mira ANTES de borrar.
   if (!(await tieneElModulo(organizationId))) throw new AppError(DEMO_SIN_MODULO, 409);
+  const usuarios = await usuariosDelTaller(organizationId);
+  // Primero la validación (409 si falta algo, sin escribir nada); después
+  // alinear lo que cambió desde el alta (no cambia ningún id de la config).
   const configuracion = await configuracionDelTaller(organizationId);
-  const usuarios = await usuariosDelTaller(organizationId, configuracion);
+  await alinearConfiguracion(organizationId, usuarios);
 
   let borrados: DatosDeUsoDelTallerBorrados | undefined;
   const cargados = await cargarDatosDeUso(organizationId, configuracion, usuarios, opciones.ahora, {
@@ -248,6 +259,17 @@ async function configuracionDelTaller(organizationId: string): Promise<Configura
   });
   if (!agente) faltan.push(`agente ${AGENTE.name}`);
 
+  const reglaDelRecordatorio = await prisma.automation.findFirst({
+    where: {
+      ...vigente,
+      triggerType: TRIGGER_NEXT_SERVICE_DUE,
+      name: NOMBRE_DE_LAS_REGLAS.recordatorio,
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true },
+  });
+  if (!reglaDelRecordatorio) faltan.push(`regla ${NOMBRE_DE_LAS_REGLAS.recordatorio}`);
+
   if (faltan.length > 0) throw new AppError(demoSinConfiguracion(faltan), 409);
   return {
     sucursales,
@@ -256,17 +278,16 @@ async function configuracionDelTaller(organizationId: string): Promise<Configura
     tiposDeService,
     campos,
     agenteId: agente!.id,
+    reglaDelRecordatorioId: reglaDelRecordatorio!.id,
   };
 }
 
-/** Los tres usuarios de la demo: el ADMIN más viejo, y el responsable por
- *  defecto de cada sucursal (Casa Central → el encargado del taller, Sucursal
- *  Este → el vendedor), como los dejó el alta. Un responsable que ya no está
- *  activo se reemplaza por el admin. */
-async function usuariosDelTaller(
-  organizationId: string,
-  configuracion: ConfiguracionDeLaDemo,
-): Promise<UsuariosDeLaDemo> {
+/** Los tres usuarios de la demo: el ADMIN más viejo; el vendedor, que es el
+ *  responsable por defecto de Sucursal Este (como lo deja el alta); y el
+ *  encargado del taller, el otro USER activo. Desde el ensayo del 2026-10-17
+ *  Casa Central también tiene al vendedor de responsable, así que el encargado
+ *  ya no sale de ahí. Un usuario que falta se reemplaza por el admin. */
+async function usuariosDelTaller(organizationId: string): Promise<UsuariosDeLaDemo> {
   const activos = { organizationId, deletedAt: null, isActive: true };
   const admin = await prisma.user.findFirst({
     where: { ...activos, role: { name: "ADMIN" } },
@@ -274,24 +295,105 @@ async function usuariosDelTaller(
     select: { id: true },
   });
   if (!admin) throw new AppError(DEMO_SIN_ADMIN, 409);
-  const sucursales = await prisma.branch.findMany({
-    where: { organizationId, id: { in: Object.values(configuracion.sucursales) } },
-    select: { id: true, defaultOwnerId: true },
+  const este = await prisma.branch.findFirst({
+    where: { organizationId, deletedAt: null, name: SUCURSALES.este.nombre },
+    select: { defaultOwnerId: true },
   });
-  const responsable = async (clave: ClaveDeSucursal) => {
-    const id = sucursales.find((s) => s.id === configuracion.sucursales[clave])?.defaultOwnerId;
-    if (!id) return admin.id;
-    const usuario = await prisma.user.findFirst({
-      where: { ...activos, id },
-      select: { id: true },
-    });
-    return usuario?.id ?? admin.id;
-  };
+  const vendedor = este?.defaultOwnerId
+    ? await prisma.user.findFirst({
+        where: { ...activos, id: este.defaultOwnerId },
+        select: { id: true },
+      })
+    : null;
+  const taller = await prisma.user.findFirst({
+    where: {
+      ...activos,
+      role: { name: "USER" },
+      ...(vendedor ? { id: { not: vendedor.id } } : {}),
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true },
+  });
   return {
     admin: admin.id,
-    vendedor: await responsable("este"),
-    taller: await responsable("central"),
+    vendedor: vendedor?.id ?? admin.id,
+    taller: taller?.id ?? admin.id,
   };
+}
+
+/**
+ * Alinea la configuración de una demo creada antes con la de hoy (config.ts),
+ * sin tocar lo que alguien haya cambiado a propósito. Idempotente: en una demo
+ * al día no escribe nada. Viene del ensayo del 2026-10-17:
+ *
+ *   - Casa Central con el vendedor de responsable (las derivaciones de venta);
+ *   - el recurso del taller con el horario de la sucursal (sin horario no hay
+ *     disponibilidad), y la agenda de la prueba de manejo;
+ *   - el agente con las herramientas de hoy (se agregan las que faltan) y,
+ *     si sus instrucciones siguen siendo las del alta anterior, las de hoy;
+ *   - la regla del recordatorio a 7 días ANTES, si sigue en los 7 días
+ *     después del alta anterior.
+ */
+async function alinearConfiguracion(
+  organizationId: string,
+  usuarios: UsuariosDeLaDemo,
+): Promise<void> {
+  const vigente = { organizationId, deletedAt: null };
+  const central = await prisma.branch.findFirst({
+    where: { ...vigente, name: SUCURSALES.central.nombre },
+    select: { id: true, defaultOwnerId: true },
+  });
+  if (central) {
+    if (central.defaultOwnerId !== usuarios.vendedor) {
+      await prisma.branch.updateMany({
+        where: { id: central.id, organizationId },
+        data: { defaultOwnerId: usuarios.vendedor },
+      });
+    }
+    const taller = await prisma.resource.findFirst({
+      where: { ...vigente, branchId: central.id, name: AGENDA_DEL_TALLER.recurso },
+      select: { id: true },
+    });
+    if (taller && (await prisma.workingHours.count({ where: { resourceId: taller.id } })) === 0) {
+      await replaceWorkingHoursForResource(organizationId, taller.id, HORARIO_DE_LOS_RECURSOS);
+    }
+    await crearAgendaDeLaPruebaDeManejo(organizationId, central.id);
+  }
+
+  const agente = await prisma.agent.findFirst({
+    where: { ...vigente, name: AGENTE.name },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, enabledTools: true, instructions: true },
+  });
+  if (agente) {
+    const faltan = AGENTE.enabledTools.filter((tool) => !agente.enabledTools.includes(tool));
+    const instruccionesViejas = agente.instructions === INSTRUCCIONES_ANTERIORES_DEL_AGENTE;
+    if (faltan.length > 0 || instruccionesViejas) {
+      await prisma.agent.updateMany({
+        where: { id: agente.id, organizationId },
+        data: {
+          enabledTools: [...agente.enabledTools, ...faltan],
+          ...(instruccionesViejas ? { instructions: INSTRUCCIONES_DEL_AGENTE } : {}),
+        },
+      });
+    }
+  }
+
+  const regla = await prisma.automation.findFirst({
+    where: {
+      ...vigente,
+      triggerType: TRIGGER_NEXT_SERVICE_DUE,
+      name: NOMBRE_DE_LAS_REGLAS.recordatorio,
+    },
+    select: { id: true, triggerConfig: true },
+  });
+  const offset = (regla?.triggerConfig as { offsetDays?: unknown } | null)?.offsetDays;
+  if (regla && offset === -REGLA_DEL_RECORDATORIO.offsetDays) {
+    await prisma.automation.updateMany({
+      where: { id: regla.id, organizationId },
+      data: { triggerConfig: { offsetDays: REGLA_DEL_RECORDATORIO.offsetDays } },
+    });
+  }
 }
 
 /**

@@ -86,11 +86,17 @@ Lo que hace, en orden (`crearTallerDemo`):
 Dos partes, como en la clínica:
 
 - la **configuración**, solo en el alta y por los services (las mismas
-  validaciones que un cliente): dos sucursales con horario y responsable por
-  defecto, la agenda del taller, el proceso de venta, la moneda y los tipos de
-  service, dos campos personalizados, la base de conocimiento, el agente
-  (activo, WhatsApp + web, con el modelo de la demo, un token de widget, sin
-  número ni página), un QR y cuatro automatizaciones;
+  validaciones que un cliente): dos sucursales con horario y el vendedor de
+  responsable por defecto (una derivación de venta le llega a él; lo del
+  taller le llega al encargado como responsable de cada orden), la agenda del
+  taller y la de la **prueba de manejo** en Casa Central (recursos con el
+  horario de la sucursal: sin horario no hay disponibilidad), el proceso de
+  venta, la moneda y los tipos de service, dos campos personalizados, la base
+  de conocimiento, el agente (activo, WhatsApp + web, con el modelo de la
+  demo, un token de widget, sin número ni página; con `get_service_types` y
+  `update_lead`, y la instrucción de registrar la oportunidad antes de
+  proponer horario), un QR y cuatro automatizaciones (el recordatorio de
+  próximo service, **7 días antes**);
 - los **datos de uso** (`cargarDatosDeUso`), que un reinicio borra y vuelve a
   cargar: lo masivo (contactos, fuente y eventos de ingesta, stock, vehículos
   de clientes, oportunidades, conversaciones y mensajes, tareas, turnos) se
@@ -110,13 +116,13 @@ día de la semana y en los bordes de mes.
 
 | Pantalla | Qué se ve |
 |---|---|
-| Dashboard | 6 oportunidades abiertas por USD 98.200. Creadas este mes 7 (mes pasado 5). Ganadas este mes 2 por 41.500 (mes pasado 2 por 36.000). Perdidas 1 (2). Tres tareas vencidas |
-| Contactos | 15 contactos (6 de WhatsApp, 3 de Instagram, 2 de Messenger, 2 de la web, 2 referidos), dos sin interés, campos "Auto actual" y "Forma de pago"; más "Visitante Web", el contacto del probador del agente |
-| Conversaciones | Tres: WhatsApp (consulta por el Onix, el agente busca stock y crea la oportunidad), Instagram (precio de la Ranger, a consultar), Messenger (turno de taller, transferida al encargado). Salientes "Simulados" |
+| Dashboard | 6 oportunidades abiertas por USD 98.200. Creadas este mes 7 (mes pasado 5). Ganadas este mes 2 por 41.500 (mes pasado 2 por 36.000); una de ellas, la del Corolla Cross, es de **hoy**, así la vista Semanal tiene una venta. Perdidas 1 (2). Tres tareas vencidas |
+| Contactos | 15 contactos (6 de WhatsApp, 3 de Instagram, 2 de Messenger, 2 de la web, 2 referidos), dos sin interés, campos "Auto actual" y "Forma de pago"; más **Sofía Ramos**, el contacto del probador del agente (sin teléfono ni email, del vendedor) |
+| Conversaciones | Cinco: WhatsApp (consulta por el Onix, el agente busca stock y crea la oportunidad), Instagram (precio de la Ranger, a consultar), Messenger (turno de taller, transferida al encargado), WhatsApp de Jorge Méndez (el **recordatorio de próximo service** que mandó la regla hace dos días y su respuesta) y WhatsApp de Nicolás Pereyra (el encargado le **avisa que su Fiesta está listo**). Salientes "Simulados" |
 | Oportunidades | Proceso "Venta de autos" (Nuevo → Contactado → Prueba de manejo → Negociación → Ganada / Perdida), 13 oportunidades |
 | Stock | 10 unidades: una reservada, dos vendidas (con su entrega), siete disponibles y publicadas; una en pesos, una a consultar |
-| Taller → Vehículos de clientes | 15: cuatro de ventas ganadas (con la oportunidad de origen), el resto cargados a mano |
-| Taller → Órdenes | OS-0001 a OS-0011: 2 Agendadas (una con el turno cancelado), 2 Recibidas, 2 En trabajo (una con un extra aprobado), 2 Esperando aprobación (una hace más de 24 h), 1 Lista para retirar (cliente avisado), 1 Entregada (fijó el próximo service), 1 Cancelada |
+| Taller → Vehículos de clientes | 16: cuatro de ventas ganadas ("Origen: Vendido por nosotros"), el resto cargados a mano. El Clio tiene su recordatorio de service ya enviado (aviso, fila de la cola ENVIADA y el mensaje en la conversación) |
+| Taller → Órdenes | OS-0001 a OS-0011: 2 Agendadas (una con el turno cancelado), 2 Recibidas, 2 En trabajo (una con un extra aprobado), 2 Esperando aprobación (una hace más de 24 h), 1 Lista para retirar (el Fiesta de Nicolás Pereyra, avisado por WhatsApp; la ventana de 24 h ya cerró), 1 Entregada (fijó el próximo service), 1 Cancelada |
 | Taller → Resumen | En el taller 6 (2/2/2). Listos 1. Esperando aprobación hace más de 24 h: 1. Services vencidos 2, en 30 días 3. Turnos cancelados 1. Recambios próximos 2 (2 sin fecha de compra), vencidos 3 |
 | Agenda | Tres turnos de taller la semana que viene, uno cancelado |
 | Automatizaciones | Activas: "Recordatorio de próximo service" (plantilla aprobada, simulada), "Se acerca el recambio → tarea al vendedor", "Venta ganada → tarea de agradecimiento". Inactiva: "Reseña por QR tras la venta" |
@@ -140,9 +146,15 @@ siempre; AUTOMOTORA → `reiniciarDatosDelTallerDemo`
    de la configuración de ejemplo, buscada por su nombre de `config.ts`
    (sucursales, agenda del taller, proceso y etapas, tipos de service, campos,
    agente). Todo antes de borrar.
-2. Los usuarios de los datos salen de la configuración: el ADMIN más viejo y
-   el responsable por defecto de cada sucursal (Casa Central → el encargado
-   del taller, Sucursal Este → el vendedor).
+2. Los usuarios de los datos salen de la configuración: el ADMIN más viejo,
+   el vendedor (responsable por defecto de Sucursal Este) y el encargado del
+   taller (el otro USER activo).
+   Después de validar, el reinicio **alinea** una demo creada antes con la
+   configuración de hoy, sin pisar lo editado a mano: Casa Central con el
+   vendedor de responsable, horario en los recursos, la agenda de la prueba de
+   manejo, las herramientas que le falten al agente (y sus instrucciones, solo
+   si siguen siendo las del alta anterior) y la regla del recordatorio a 7
+   días antes (solo si sigue en los 7 días después de antes).
 3. **Borrado y recarga masiva en una sola transacción**
    (`pg_advisory_xact_lock` por organización al empezar): si algo falla, la
    demo queda como estaba. El orden sale de las FKs, hijas antes que madres,

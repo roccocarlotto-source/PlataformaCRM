@@ -4,7 +4,9 @@ import { DateTime } from "luxon";
 import { TRANSICIONES } from "../../servicios/config/estados";
 import { fechaDeRecambio, CONFIG_DEL_RECAMBIO_POR_DEFECTO } from "../../servicios/recambio/config";
 import {
+  AGENTE,
   CONTACTOS,
+  REGLA_DEL_RECORDATORIO,
   CONVERSACIONES,
   esSlugDeTallerDemo,
   IDENTIDADES_DE_CANAL,
@@ -222,6 +224,88 @@ for (const ahora of AHORAS) {
     assert.equal(servicesEn30, 3);
   });
 }
+
+// Ensayo del 2026-10-17: lo que la reunión necesita ver, sea cual sea el día.
+for (const ahora of AHORAS) {
+  const hoy = hoyEnLaDemo(ahora);
+  const etiqueta = enLaZona(ahora).toFormat("cccc dd/LL HH:mm");
+
+  test(`semana con hoy ${etiqueta}: al menos una venta ganada en la semana en curso (la vista Semanal no queda en 0)`, () => {
+    const lunes = hoy.startOf("week");
+    const fechas = fechasDeLasOportunidades(ahora);
+    const ganadasEstaSemana = OPORTUNIDADES.filter((o, i) => {
+      const etapa = PROCESO_DE_VENTA.etapas.find((e) => e.clave === o.etapa)!;
+      const cerrada = fechas[i].cerrada;
+      return (
+        etapa.ganada && cerrada && diaCalendario(cerrada) >= lunes && diaCalendario(cerrada) <= hoy
+      );
+    });
+    assert.ok(ganadasEstaSemana.length >= 1);
+  });
+
+  test(`recordatorio sembrado con hoy ${etiqueta}: su vehículo tiene el service en los próximos 7 días (la ventana de «7 días antes»)`, () => {
+    const fechas = fechasDeLosVehiculosDeClientes(ahora);
+    let recordatorios = 0;
+    for (const c of CONVERSACIONES) {
+      for (const m of c.mensajes.filter((x) => x.recordatorio)) {
+        recordatorios++;
+        const i = VEHICULOS_DE_CLIENTES.findIndex((v) => v.clave === m.recordatorio);
+        assert.ok(i >= 0, `${String(m.recordatorio)} existe`);
+        assert.equal(VEHICULOS_DE_CLIENTES[i].contacto, c.contacto, "es del dueño del vehículo");
+        const proximo = fechas[i].proximoService;
+        assert.ok(proximo, "tiene próximo service");
+        const dia = diaCalendario(proximo);
+        assert.ok(
+          dia >= hoy && dia <= hoy.plus({ days: -REGLA_DEL_RECORDATORIO.offsetDays }),
+          dia.toISODate() ?? "",
+        );
+      }
+    }
+    assert.ok(recordatorios >= 1, "hay al menos un recordatorio enviado");
+  });
+}
+
+test("la regla del recordatorio avisa ANTES de la fecha de service", () => {
+  assert.ok(REGLA_DEL_RECORDATORIO.offsetDays < 0);
+});
+
+test("el agente puede ver los servicios, guardar el presupuesto y crear la oportunidad", () => {
+  for (const tool of [
+    "get_service_types",
+    "update_lead",
+    "create_opportunity",
+    "get_availability",
+    "create_booking",
+  ]) {
+    assert.ok(AGENTE.enabledTools.includes(tool), tool);
+  }
+});
+
+test("la orden lista para retirar es de un cliente con WhatsApp, avisado, con la ventana de 24 h cerrada", () => {
+  const lista = ORDENES.find((o) => o.pasos[o.pasos.length - 1].estado === "LISTO_PARA_RETIRAR")!;
+  assert.equal(lista.avisado, "WHATSAPP");
+  const vehiculo = VEHICULOS_DE_CLIENTES.find((v) => v.clave === lista.vehiculo)!;
+  const conversacion = CONVERSACIONES.find(
+    (c) => c.contacto === vehiculo.contacto && c.canal === "WHATSAPP",
+  );
+  assert.ok(conversacion, "tiene conversación de WhatsApp");
+  const ultimaEntrante = Math.max(
+    ...conversacion.mensajes.filter((m) => m.de === "CONTACTO").map((m) => m.minuto),
+  );
+  // Cerrada: el diálogo "Avisar al cliente" no ofrece un envío que en la demo
+  // (sin número de WhatsApp) no podría salir.
+  assert.ok(conversacion.hace - ultimaEntrante / 60 > 24);
+});
+
+test("ningún auto vendido hace menos de 3 meses está en el taller por un service de kilometraje", () => {
+  const deKilometraje = new Set(["service10", "service20", "aceite"]);
+  for (const o of ORDENES) {
+    const v = VEHICULOS_DE_CLIENTES.find((x) => x.clave === o.vehiculo)!;
+    const reciente =
+      v.venta !== undefined || (v.compradoHaceMeses !== null && v.compradoHaceMeses < 3);
+    if (reciente) assert.ok(!o.tipos.some((tipo) => deKilometraje.has(tipo)), o.vehiculo);
+  }
+});
 
 test("el slug de la demo: taller-demo y taller-demo-<sufijo>, y nada parecido", () => {
   assert.equal(nombreDeLaDemo(), "Taller Demo");
