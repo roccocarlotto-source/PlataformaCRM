@@ -122,6 +122,10 @@ function respuesta(path: string): Response {
   if (p === "/contact-custom-fields") return HttpResponse.json([]);
   if (p === "/opportunities/dashboard-summary") return HttpResponse.json(makeDashboardSummary());
   if (p === "/opportunities/revenue-series") return HttpResponse.json(makeRevenueSeries());
+  // Lo que antes salía de listas vacías (ensayo del 2026-10-17): sin unidades y
+  // sin proceso de venta por defecto.
+  if (p === "/vehicles/summary") return HttpResponse.json({ inStock: 0, available: 0 });
+  if (p === "/opportunities/stage-counts") return HttpResponse.json({ pipeline: null, stages: [] });
   if (/^\/contacts\/[^/]+\/vouchers$/.test(p)) return HttpResponse.json({ data: [] });
   if (/^\/branches\/[^/]+\/business-hours$/.test(p)) {
     return HttpResponse.json({ configured: true, businessHours: [], defaultBusinessHours: [] });

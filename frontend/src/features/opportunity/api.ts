@@ -87,6 +87,22 @@ export function getOpportunityDashboardSummary(
   );
 }
 
+// "Proceso de venta" del Dashboard: las etapas del proceso por defecto con
+// su conteo, en un pedido (ensayo del 2026-10-17; antes, procesos + etapas +
+// un GET /opportunities con pageSize=1 por etapa). Sin proceso por defecto,
+// pipeline null.
+export interface OpportunityStageCounts {
+  pipeline: { id: string; name: string } | null;
+  stages: { id: string; name: string; order: number; total: number }[];
+}
+
+export function getOpportunityStageCounts(signal?: AbortSignal): Promise<OpportunityStageCounts> {
+  return request<OpportunityStageCounts>("/opportunities/stage-counts", {
+    getAccessToken,
+    signal,
+  });
+}
+
 // Serie de ingresos del gráfico del Dashboard (§33), con la misma granularidad
 // que el resumen. Las ventanas las sigue fijando el backend con su propio
 // reloj.

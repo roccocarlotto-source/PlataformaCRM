@@ -215,6 +215,12 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "automotora-sin-cambios-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/automotoraSinCambios.integration-test.ts",
   ),
+  // El Dashboard pedido por pedido sobre los datos del Taller Demo (con
+  // is_demo, como la demo): cuenta las consultas de cada pedido.
+  patron(
+    "dashboard-consultas-{etiqueta}-{ts}-{hex8}",
+    "src/routes/dashboard.consultas.integration-test.ts",
+  ),
   // R19: las organizaciones de test de la Clínica Demo. La demo en sí
   // (`clinica-demo` o `clinica-demo-…`, docs/rubros.md §12.1) NO entra en este
   // catálogo: la purga nunca la toca. El test la borra renombrándola a este

@@ -5,6 +5,7 @@ import {
   deleteVehicle,
   getVehicleById,
   getVehicleChangeLog,
+  getVehicleSummary,
   listVehicles,
   updateVehicle,
 } from "../services/vehicle.service";
@@ -337,6 +338,13 @@ export const createVehicleHandler = asyncHandler<AuthenticatedRequest>(
 // acá, como `photos` en getVehicleHandler, y en lote para toda la página
 // (getVehicleCoverPhotos): vehicle.service sigue devolviendo filas de Vehicle
 // a secas y sin importar al módulo de fotos, que ya lo importa a él.
+// El resumen de stock: unidades en stock y disponibles (getVehicleSummary).
+export const getVehicleSummaryHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    res.status(200).json(await getVehicleSummary(req.auth.organizationId));
+  },
+);
+
 export const listVehiclesHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listVehiclesQuerySchema, req.query);

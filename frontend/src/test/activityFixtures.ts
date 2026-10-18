@@ -1,4 +1,4 @@
-import type { Activity } from "../features/activity/types";
+import type { Activity, ActivityListItem } from "../features/activity/types";
 
 // Fixture compartida entre los tests de features/activity/. dueDate/
 // completedAt son ISO 8601 completos (con hora) — a diferencia de
@@ -25,4 +25,10 @@ export function makeActivity(overrides: Partial<Activity> = {}): Activity {
     deletedAt: null,
     ...overrides,
   };
+}
+
+// Una fila del listado: la actividad con el nombre de su contacto y de su
+// oportunidad (null por defecto, como una sin esas relaciones).
+export function makeActivityListItem(overrides: Partial<ActivityListItem> = {}): ActivityListItem {
+  return { ...makeActivity(overrides), contact: null, opportunity: null, ...overrides };
 }

@@ -7,14 +7,10 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { useActivities } from "../activity/queries";
-import {
-  autorDeLaActividad,
-  textoDeLaRelacion,
-  useOpportunityNames,
-} from "../activity/relationResolution";
+import { autorDeLaActividad, textoDeLaRelacion } from "../activity/relationResolution";
 import { ACTIVITY_TYPE_LABELS } from "../activity/types";
 import { useCompaniesByIds } from "../contact/companyResolution";
-import { useContactNames, useOwnerNames } from "../opportunity/relationResolution";
+import { useOwnerNames } from "../opportunity/relationResolution";
 
 const FEED_LIMIT = 8;
 
@@ -43,12 +39,7 @@ export function ActivityFeed() {
       ? rows.map((activity) => activity.companyId).filter((id): id is string => id !== null)
       : [],
   );
-  const contactNames = useContactNames(
-    rows.map((activity) => activity.contactId).filter((id): id is string => id !== null),
-  );
-  const opportunityNames = useOpportunityNames(
-    rows.map((activity) => activity.opportunityId).filter((id): id is string => id !== null),
-  );
+
   const userNames = useOwnerNames(isAdmin);
 
   return (
@@ -78,18 +69,17 @@ export function ActivityFeed() {
                     companyNames.cargando.has(activity.companyId),
                   )
                 : null,
+              // El contacto y la oportunidad ya vienen en la fila (ensayo del
+              // 2026-10-17): sin un GET por cada uno. Borrados, "—".
               activity.contactId
                 ? textoDeLaRelacion(
-                    contactNames.byId.get(activity.contactId),
-                    contactNames.cargando.has(activity.contactId),
+                    activity.contact
+                      ? `${activity.contact.firstName} ${activity.contact.lastName}`
+                      : undefined,
+                    false,
                   )
                 : null,
-              activity.opportunityId
-                ? textoDeLaRelacion(
-                    opportunityNames.byId.get(activity.opportunityId),
-                    opportunityNames.cargando.has(activity.opportunityId),
-                  )
-                : null,
+              activity.opportunityId ? textoDeLaRelacion(activity.opportunity?.title, false) : null,
             ].filter((name): name is string => name !== null);
             const author = autorDeLaActividad(activity, {
               meId: me?.id,

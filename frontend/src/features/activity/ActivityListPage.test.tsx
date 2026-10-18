@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
-import { makeActivity } from "../../test/activityFixtures";
+import { makeActivityListItem } from "../../test/activityFixtures";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeOpportunity } from "../../test/opportunityFixtures";
@@ -95,7 +95,7 @@ describe("ActivityListPage", () => {
   it("loading, éxito, error y empty state", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const listResponse: ActivityListResponse = {
-      data: [makeActivity()],
+      data: [makeActivityListItem()],
       pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
     };
     server.use(
@@ -150,7 +150,7 @@ describe("ActivityListPage", () => {
       http.get(activitiesUrl, ({ request }) => {
         captured.push(new URL(request.url));
         return HttpResponse.json({
-          data: [makeActivity()],
+          data: [makeActivityListItem()],
           pagination: { page: 1, pageSize: 20, total: 40, totalPages: 2 },
         });
       }),
@@ -181,7 +181,7 @@ describe("ActivityListPage", () => {
       http.get(activitiesUrl, () =>
         HttpResponse.json({
           data: [
-            makeActivity({
+            makeActivityListItem({
               companyId: "co1",
               contactId: "ct1",
               opportunityId: "op1",
@@ -210,7 +210,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity({ contactId: "ct-lento" })],
+          data: [makeActivityListItem({ contactId: "ct-lento" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -242,7 +242,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity({ companyId: "co-borrada" })],
+          data: [makeActivityListItem({ companyId: "co-borrada" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -266,7 +266,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity({ authorId: "u1", assigneeId: "u2" })],
+          data: [makeActivityListItem({ authorId: "u1", assigneeId: "u2" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -288,7 +288,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity({ authorId: "u1", assigneeId: "u2" })],
+          data: [makeActivityListItem({ authorId: "u1", assigneeId: "u2" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -314,7 +314,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity({ authorId: "u1", assigneeId: "u1" })],
+          data: [makeActivityListItem({ authorId: "u1", assigneeId: "u1" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -334,7 +334,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity({ authorId: "u-ajeno", assigneeId: null })],
+          data: [makeActivityListItem({ authorId: "u-ajeno", assigneeId: null })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -355,7 +355,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity()],
+          data: [makeActivityListItem()],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -375,7 +375,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity()],
+          data: [makeActivityListItem()],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -399,7 +399,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity({ id: "act-del" })],
+          data: [makeActivityListItem({ id: "act-del" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -432,25 +432,25 @@ describe("ActivityListPage", () => {
       http.get(activitiesUrl, () =>
         HttpResponse.json({
           data: [
-            makeActivity({
+            makeActivityListItem({
               id: "act-vencida",
               subject: "Vencida sin completar",
               dueDate: "2020-01-01T10:00:00.000Z",
               completedAt: null,
             }),
-            makeActivity({
+            makeActivityListItem({
               id: "act-futura",
               subject: "Todavía no vence",
               dueDate: "2999-01-01T10:00:00.000Z",
               completedAt: null,
             }),
-            makeActivity({
+            makeActivityListItem({
               id: "act-hecha",
               subject: "Vencida pero completada",
               dueDate: "2020-01-01T10:00:00.000Z",
               completedAt: "2020-01-02T10:00:00.000Z",
             }),
-            makeActivity({
+            makeActivityListItem({
               id: "act-sin-fecha",
               subject: "Sin vencimiento",
               dueDate: null,
@@ -482,7 +482,7 @@ describe("ActivityListPage", () => {
     server.use(
       http.get(activitiesUrl, () =>
         HttpResponse.json({
-          data: [makeActivity({ type: "MEETING" })],
+          data: [makeActivityListItem({ type: "MEETING" })],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -509,7 +509,7 @@ describe("ActivityListPage", () => {
       http.get(activitiesUrl, () =>
         HttpResponse.json({
           data: [
-            makeActivity({
+            makeActivityListItem({
               type: "CALL",
               body: "Confirmar la renovación",
               assigneeId: "u2",
@@ -561,13 +561,13 @@ describe("ActivityListPage", () => {
 
   function threeStates() {
     return [
-      makeActivity({ id: "act-pendiente", subject: "Sin completar" }),
-      makeActivity({
+      makeActivityListItem({ id: "act-pendiente", subject: "Sin completar" }),
+      makeActivityListItem({
         id: "act-espera",
         subject: "Espera confirmación",
         completedAt: COMPLETED_AT,
       }),
-      makeActivity({
+      makeActivityListItem({
         id: "act-ok",
         subject: "Ya confirmada",
         completedAt: COMPLETED_AT,
@@ -623,7 +623,7 @@ describe("ActivityListPage", () => {
       http.patch(`${activitiesUrl}/:id`, async ({ params, request }) => {
         const body = await request.json();
         patches.push({ id: params.id as string, body });
-        return HttpResponse.json(makeActivity({ id: params.id as string }));
+        return HttpResponse.json(makeActivityListItem({ id: params.id as string }));
       }),
       ...relationHandlers(),
       usersHandler(),
@@ -700,7 +700,7 @@ describe("ActivityListPage", () => {
       http.get(activitiesUrl, ({ request }) => {
         captured.push(new URL(request.url));
         return HttpResponse.json({
-          data: [makeActivity()],
+          data: [makeActivityListItem()],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         });
       }),
@@ -786,7 +786,7 @@ describe("ActivityListPage", () => {
 // docs/rubros.md §2.1 (D3): una clínica no tiene empresas ni oportunidades.
 describe("ActivityListPage por rubro", () => {
   const unaTarea: ActivityListResponse = {
-    data: [makeActivity({ companyId: null, contactId: "ct1" })],
+    data: [makeActivityListItem({ companyId: null, contactId: "ct1" })],
     pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
   };
 

@@ -11,7 +11,22 @@ import {
 } from "../routes/gateDeModulos.test-helper";
 import { createBranch } from "../services/branch.service";
 import { activarModulo } from "../services/organizationModules.service";
-import { LIMITE_POR_TARJETA, resumenDelTaller } from "./services/dashboard.service";
+import {
+  LIMITE_POR_TARJETA,
+  resumenDelTaller as resumenNuevo,
+  resumenDelTallerConPrisma,
+} from "./services/dashboard.service";
+
+// La lectura nueva del resumen (SQL directo, pocas consultas) tiene que dar
+// lo mismo que la de antes con Prisma, campo por campo, en cada escenario.
+async function resumenDelTaller(...args: Parameters<typeof resumenNuevo>) {
+  const [nuevo, conPrisma] = await Promise.all([
+    resumenNuevo(...args),
+    resumenDelTallerConPrisma(...args),
+  ]);
+  assert.deepStrictEqual(nuevo, conPrisma, "resumenDelTaller distinto de la lectura con Prisma");
+  return nuevo;
+}
 
 // ---------------------------------------------------------------------------
 // S11 de docs/servicios.md (§4.7): el resumen del taller contra la base real.

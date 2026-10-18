@@ -233,6 +233,11 @@ const CLAVES_DE_TAREA_DE_HOY = [
   "updatedAt",
 ];
 
+// Las filas del LISTADO suman el nombre del contacto y el título de la
+// oportunidad (ensayo del 2026-10-17: la actividad reciente del Dashboard sin un
+// GET por cada uno). La ficha (GET /activities/:id) sigue con las de antes.
+const CLAVES_DE_FILA_DE_TAREA = [...CLAVES_DE_TAREA_DE_HOY, "contact", "opportunity"].sort();
+
 async function sucursalConDatos(org: OrgDePrueba, nombre: string) {
   const branch = await createBranch(org.id, { name: nombre, timezone: "America/Montevideo" });
   const contacto = await prisma.contact.create({
@@ -352,7 +357,7 @@ test("R20: una automotora con dos sucursales ve lo de antes, con las claves de a
   const delAdmin = await pedir(conSucursales, "GET", "/api/activities", undefined, comoAdmin);
   assert.equal((delAdmin.json.data as unknown[]).length, 4);
   for (const tarea of [...(delUser.json.data as object[]), ...(delAdmin.json.data as object[])]) {
-    assert.deepEqual(Object.keys(tarea).sort(), CLAVES_DE_TAREA_DE_HOY);
+    assert.deepEqual(Object.keys(tarea).sort(), CLAVES_DE_FILA_DE_TAREA);
   }
   const una = await pedir(
     conSucursales,

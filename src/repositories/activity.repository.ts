@@ -134,6 +134,34 @@ export function findManyActivities(
   });
 }
 
+// Los nombres que muestran la actividad reciente del Dashboard y el listado
+// para una página ya traída: contacto y oportunidad. Antes el frontend pedía
+// un GET por cada uno (12 pedidos en el Dashboard del Taller Demo). Dos
+// consultas en paralelo, como findNombresParaElListado de las oportunidades.
+// Solo las vigentes: una borrada no viene, y la pantalla muestra "—".
+export async function findNombresDeLasActividades(
+  organizationId: string,
+  ids: { contactos: string[]; oportunidades: string[] },
+  db: Db = prisma,
+) {
+  const vigentes = (lista: string[]) => ({ organizationId, id: { in: lista }, deletedAt: null });
+  const [contactos, oportunidades] = await Promise.all([
+    ids.contactos.length === 0
+      ? []
+      : db.contact.findMany({
+          where: vigentes(ids.contactos),
+          select: { id: true, firstName: true, lastName: true },
+        }),
+    ids.oportunidades.length === 0
+      ? []
+      : db.opportunity.findMany({
+          where: vigentes(ids.oportunidades),
+          select: { id: true, title: true },
+        }),
+  ]);
+  return { contactos, oportunidades };
+}
+
 export function countActivities(organizationId: string, filters: ActivityFilters, db: Db = prisma) {
   return db.activity.count({ where: buildWhere(organizationId, filters) });
 }

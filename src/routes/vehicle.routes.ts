@@ -4,6 +4,7 @@ import {
   deleteVehicleHandler,
   getVehicleChangeLogHandler,
   getVehicleHandler,
+  getVehicleSummaryHandler,
   listVehiclesHandler,
   updateVehicleHandler,
 } from "../controllers/vehicle.controller";
@@ -31,6 +32,8 @@ export const vehicleRouter = Router();
 // req.auth.userId— y antes de authorize. Mismo orden que qr.routes.ts.
 // ---------------------------------------------------------------------------
 vehicleRouter.get("/vehicles", authenticate, listVehiclesHandler);
+// Antes de /vehicles/:id: declarada después, "summary" caería en el :id.
+vehicleRouter.get("/vehicles/summary", authenticate, getVehicleSummaryHandler);
 vehicleRouter.get("/vehicles/:id", authenticate, getVehicleHandler);
 vehicleRouter.get("/vehicles/:id/change-log", authenticate, getVehicleChangeLogHandler);
 

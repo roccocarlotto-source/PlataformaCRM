@@ -10,6 +10,7 @@ import { findCompanyById } from "../repositories/company.repository";
 import { findContactById, markContactAsCustomer } from "../repositories/contact.repository";
 import {
   countOpportunities,
+  countOpportunitiesByStage,
   countOpportunitiesWhere,
   createOpportunity as createOpportunityRepo,
   findManyOpportunities,
@@ -999,6 +1000,34 @@ async function resolveReportingContext(
   return {
     currency: organization?.preferredCurrency ?? DASHBOARD_DEFAULT_CURRENCY,
     timezone: organization?.timezone ?? "UTC",
+  };
+}
+
+// "Proceso de venta" del Dashboard: las etapas del proceso por defecto, en
+// orden, con cuántas oportunidades tiene cada una. Antes eran ocho pedidos
+// (procesos, etapas y un listado con pageSize=1 por etapa) y ~42 consultas;
+// ahora uno y tres. Sin proceso por defecto, pipeline null y sin etapas.
+export interface StageCounts {
+  pipeline: { id: string; name: string } | null;
+  stages: { id: string; name: string; order: number; total: number }[];
+}
+
+export async function getStageCounts(organizationId: string): Promise<StageCounts> {
+  const pipeline = await findDefaultPipeline(organizationId);
+  if (!pipeline) return { pipeline: null, stages: [] };
+  const [stages, conteos] = await Promise.all([
+    findStagesByPipeline(pipeline.id),
+    countOpportunitiesByStage(organizationId, pipeline.id),
+  ]);
+  const porEtapa = new Map(conteos.map((c) => [c.stageId, c._count._all]));
+  return {
+    pipeline: { id: pipeline.id, name: pipeline.name },
+    stages: stages.map((s) => ({
+      id: s.id,
+      name: s.name,
+      order: s.order,
+      total: porEtapa.get(s.id) ?? 0,
+    })),
   };
 }
 

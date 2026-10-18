@@ -452,6 +452,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     // nada para una automotora.
     "POST /api/knowledge-base/sync-vehicles",
     "GET /api/vehicles",
+    "GET /api/vehicles/summary",
     "POST /api/vehicles",
     "GET /api/vehicles/:id",
     "PATCH /api/vehicles/:id",
@@ -564,6 +565,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   dashboard_comercial: [
     "GET /api/opportunities/dashboard-summary",
     "GET /api/opportunities/revenue-series",
+    // "Proceso de venta" del Dashboard: solo se monta con este módulo.
+    "GET /api/opportunities/stage-counts",
   ],
   financiacion: [],
   permutas: [],

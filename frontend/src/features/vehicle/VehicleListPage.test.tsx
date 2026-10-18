@@ -79,25 +79,31 @@ function usersHandler() {
   );
 }
 
-// Un solo handler de GET /vehicles atiende el listado (pageSize=20) y los dos
-// KPI (pageSize=1, con y sin status). Distingue por la query, como haría el
-// backend real.
+// El listado (GET /vehicles) y los dos KPI (GET /vehicles/summary, desde el
+// ensayo del 2026-10-17). Devuelve los dos handlers: el del resumen cuenta
+// desde las mismas unidades, como haría el backend real.
 function vehiclesHandler(
   vehicles: VehicleListItem[],
   options: { totalPages?: number; inStock?: number; available?: number; capture?: URL[] } = {},
 ) {
+  return [
+    http.get(`${baseUrl}/summary`, () =>
+      HttpResponse.json({
+        inStock: options.inStock ?? vehicles.length,
+        available: options.available ?? vehicles.filter((v) => v.status === "AVAILABLE").length,
+      }),
+    ),
+    listadoHandler(vehicles, options),
+  ];
+}
+
+function listadoHandler(
+  vehicles: VehicleListItem[],
+  options: { totalPages?: number; capture?: URL[] },
+) {
   return http.get(baseUrl, ({ request }) => {
     const url = new URL(request.url);
     options.capture?.push(url);
-    if (url.searchParams.get("pageSize") === "1") {
-      const total = url.searchParams.has("status")
-        ? (options.available ?? vehicles.filter((v) => v.status === "AVAILABLE").length)
-        : (options.inStock ?? vehicles.length);
-      return HttpResponse.json({
-        data: vehicles.slice(0, 1),
-        pagination: { page: 1, pageSize: 1, total, totalPages: total },
-      });
-    }
     return HttpResponse.json({
       data: vehicles,
       pagination: {
@@ -127,7 +133,7 @@ describe("VehicleListPage", () => {
     let usersRequestCount = 0;
     server.use(
       branchesHandler(),
-      vehiclesHandler([makeVehicleListItem({ assignedSalespersonId: "u1" })]),
+      ...vehiclesHandler([makeVehicleListItem({ assignedSalespersonId: "u1" })]),
       http.get(usersUrl, () => {
         usersRequestCount += 1;
         return HttpResponse.json({
@@ -154,7 +160,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicleListItem({ assignedSalespersonId: "u1", trim: "XEi" })]),
+      ...vehiclesHandler([makeVehicleListItem({ assignedSalespersonId: "u1", trim: "XEi" })]),
     );
 
     renderPage();
@@ -179,7 +185,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicleListItem({ assignedSalespersonId: null })]),
+      ...vehiclesHandler([makeVehicleListItem({ assignedSalespersonId: null })]),
     );
 
     renderPage();
@@ -190,12 +196,12 @@ describe("VehicleListPage", () => {
     expect(fila).not.toHaveTextContent("Ana Pérez");
   });
 
-  it("KPIs: 'Unidades en stock' y 'Disponibles' salen de pagination.total con pageSize=1", async () => {
+  it("KPIs: 'Unidades en stock' y 'Disponibles' salen de GET /vehicles/summary", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicleListItem()], { inStock: 42, available: 17 }),
+      ...vehiclesHandler([makeVehicleListItem()], { inStock: 42, available: 17 }),
     );
 
     renderPage();
@@ -214,7 +220,7 @@ describe("VehicleListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       branchesHandler(),
-      vehiclesHandler([
+      ...vehiclesHandler([
         makeVehicleListItem({ id: "v1", make: "Toyota", priceListUsd: "25000.00" }),
         makeVehicleListItem({
           id: "v2",
@@ -259,7 +265,7 @@ describe("VehicleListPage", () => {
           }),
         ),
       ),
-      vehiclesHandler([
+      ...vehiclesHandler([
         makeVehicleListItem({
           id: "v4",
           make: "Suzuki",
@@ -284,7 +290,7 @@ describe("VehicleListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       branchesHandler(),
-      vehiclesHandler([
+      ...vehiclesHandler([
         makeVehicleListItem({
           id: "v1",
           make: "Toyota",
@@ -315,7 +321,7 @@ describe("VehicleListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       branchesHandler(),
-      vehiclesHandler([
+      ...vehiclesHandler([
         makeVehicleListItem({ id: "v1", make: "Toyota", status: "AVAILABLE" }),
         makeVehicleListItem({ id: "v2", make: "Ford", status: "RESERVED" }),
         makeVehicleListItem({ id: "v3", make: "Fiat", status: "SOLD" }),
@@ -355,7 +361,7 @@ describe("VehicleListPage", () => {
 
   it("empty state cuando data está vacía", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
-    server.use(branchesHandler(), vehiclesHandler([]));
+    server.use(branchesHandler(), ...vehiclesHandler([]));
 
     renderPage();
 
@@ -369,7 +375,7 @@ describe("VehicleListPage", () => {
     const captured: URL[] = [];
     server.use(
       branchesHandler(),
-      vehiclesHandler([makeVehicleListItem()], { totalPages: 5, capture: captured }),
+      ...vehiclesHandler([makeVehicleListItem()], { totalPages: 5, capture: captured }),
     );
     const user = userEvent.setup();
 
@@ -438,7 +444,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicleListItem()]),
+      ...vehiclesHandler([makeVehicleListItem()]),
       http.delete(`${baseUrl}/:id`, () => {
         deleteCalled = true;
         return new HttpResponse(null, { status: 204 });
@@ -462,7 +468,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicleListItem({ id: "v-target" })]),
+      ...vehiclesHandler([makeVehicleListItem({ id: "v-target" })]),
       http.delete(`${baseUrl}/:id`, ({ params }) => {
         deletedId = params.id as string;
         return HttpResponse.json({ error: { message: "no se pudo dar de baja" } }, { status: 500 });
@@ -496,7 +502,7 @@ describe("VehicleListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       branchesHandler(),
-      vehiclesHandler([
+      ...vehiclesHandler([
         makeVehicleListItem({
           priceListUsd: "25000.00",
           minAcceptablePriceUsd: "23500.00",
@@ -527,7 +533,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([
+      ...vehiclesHandler([
         makeVehicleListItem({
           assignedSalespersonId: "u1",
           priceListUsd: "25000.00",
@@ -600,7 +606,7 @@ describe("VehicleListPage", () => {
 
   it("§28 sin origen Consignación el detalle no muestra esa sección", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    server.use(branchesHandler(), usersHandler(), vehiclesHandler([makeVehicleListItem()]));
+    server.use(branchesHandler(), usersHandler(), ...vehiclesHandler([makeVehicleListItem()]));
     const user = userEvent.setup();
     renderPage();
 
