@@ -23,7 +23,7 @@ import type {
   MetaConnectionPendiente,
   OrganizationEdition,
   ReenvioDeInvitacion,
-  ReinicioDeLaDemo,
+  EstadoDelReinicioDeLaDemo,
   PlatformAgentDeOrganizacion,
   PlatformOrganization,
 } from "./types";
@@ -123,11 +123,23 @@ export function reenviarInvitacionDelAdministrador(
 }
 
 // Reiniciar los datos de una demo (docs/rubros.md §12.3, docs/taller-demo.md §4): borra los
-// datos de uso y vuelve a cargar los de ejemplo. 400 si no es una demo.
-export function reiniciarDatosDeLaDemo(organizationId: string): Promise<ReinicioDeLaDemo> {
-  return request<ReinicioDeLaDemo>(
+// datos de uso y vuelve a cargar los de ejemplo, en segundo plano. Responde enseguida con
+// REINICIANDO; 400 si no es una demo, 409 si ya se está reiniciando o algo lo impide.
+export function reiniciarDatosDeLaDemo(organizationId: string): Promise<EstadoDelReinicioDeLaDemo> {
+  return request<EstadoDelReinicioDeLaDemo>(
     `/admin/organizations/${encodeURIComponent(organizationId)}/demo/reiniciar`,
     { method: "POST", getAccessToken },
+  );
+}
+
+// En qué quedó el último reinicio de esa demo.
+export function getEstadoDelReinicioDeLaDemo(
+  organizationId: string,
+  signal?: AbortSignal,
+): Promise<EstadoDelReinicioDeLaDemo> {
+  return request<EstadoDelReinicioDeLaDemo>(
+    `/admin/organizations/${encodeURIComponent(organizationId)}/demo/reinicio`,
+    { getAccessToken, signal },
   );
 }
 

@@ -1,5 +1,5 @@
 import { AYUDA } from "../guia/anclas";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -10,18 +10,14 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Table } from "../../design-system/Table";
 import { useConfirm } from "../../design-system/useConfirm";
-import {
-  CONFIRMACION_DEL_REINICIO,
-  CONFIRMACION_DEL_REINICIO_DEL_TALLER,
-  esDemo,
-} from "./clinicaDemo";
+import { BotonDeReinicioDeLaDemo, type AvisoDelReinicio } from "./BotonDeReinicioDeLaDemo";
+import { esDemo } from "./clinicaDemo";
 import { previaDeActivacion } from "./api";
 import { NOMBRE_DE_EDICION } from "./ediciones";
 import {
   useCambiarModulo,
   useChangeOrganizationEdition,
   useReenviarInvitacionDelAdministrador,
-  useReiniciarDatosDeLaDemo,
 } from "./mutations";
 import { useEsencialOfrecida, usePlatformOrganizations } from "./queries";
 import type { PlatformOrganization } from "./types";
@@ -52,7 +48,9 @@ import type { PlatformOrganization } from "./types";
 // "Reiniciar datos de demo" (docs/rubros.md §12.3, docs/taller-demo.md §4):
 // solo en las filas de una demo (esDemo: Clínica Demo o Taller Demo). Borra
 // los datos de uso y vuelve a cargar los de ejemplo; la confirmación dice qué
-// se borra y qué queda, según el rubro.
+// se borra y qué queda, según el rubro. Corre en segundo plano: el progreso
+// (Reiniciando… / el resumen / el error) sale arriba, en los mensajes de la
+// tarjeta (BotonDeReinicioDeLaDemo).
 // ---------------------------------------------------------------------------
 
 export function OrganizationsPage() {
@@ -70,7 +68,6 @@ function ListaDeOrganizaciones() {
   const [subida, setSubida] = useState<string | null>(null);
   const reenviar = useReenviarInvitacionDelAdministrador();
   const [reenviada, setReenviada] = useState<string | null>(null);
-  const reiniciar = useReiniciarDatosDeLaDemo();
   const [reiniciada, setReiniciada] = useState<string | null>(null);
   const cambiarModulo = useCambiarModulo();
   const [moduloCambiado, setModuloCambiado] = useState<string | null>(null);
@@ -114,28 +111,16 @@ function ListaDeOrganizaciones() {
     }
   }
 
-  async function reiniciarDemo(org: PlatformOrganization) {
-    limpiarMensajes();
-    const ok = await confirm(
-      `¿Reiniciar los datos de «${org.name}»? ${
-        org.industry === "CLINICA"
-          ? CONFIRMACION_DEL_REINICIO
-          : CONFIRMACION_DEL_REINICIO_DEL_TALLER
-      }`,
-      { confirmLabel: "Reiniciar datos", danger: true },
-    );
-    if (!ok) return;
-    try {
-      const { cargados } = await reiniciar.mutateAsync(org.id);
-      setReiniciada(
-        org.industry === "CLINICA"
-          ? `Reiniciamos «${org.name}»: ${cargados.pacientes ?? 0} pacientes y ${cargados.turnosProximos ?? 0} turnos próximos de ejemplo, más ${cargados.turnosAtendidos ?? 0} atendidos la semana pasada.`
-          : `Reiniciamos «${org.name}»: ${cargados.contactos ?? 0} contactos, ${cargados.unidades ?? 0} unidades, ${cargados.oportunidades ?? 0} oportunidades, ${cargados.vehiculosDeClientes ?? 0} vehículos de clientes y ${cargados.ordenes ?? 0} órdenes de taller de ejemplo.`,
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No pudimos reiniciar los datos de la demo");
+  // Lo que avisa el botón de reinicio de una demo, en los mensajes de arriba.
+  const avisarDelReinicio = useCallback((aviso: AvisoDelReinicio) => {
+    if (aviso.tipo === "error") {
+      setReiniciada(null);
+      setError(aviso.texto);
+    } else {
+      setError(null);
+      setReiniciada(aviso.texto);
     }
-  }
+  }, []);
 
   async function reenviarInvitacion(org: PlatformOrganization) {
     limpiarMensajes();
@@ -257,14 +242,11 @@ function ListaDeOrganizaciones() {
                           </Button>
                         ) : null}
                         {esDemo(org) ? (
-                          <Button
-                            type="button"
-                            variant="danger"
-                            onClick={() => void reiniciarDemo(org)}
-                            disabled={reiniciar.isPending}
-                          >
-                            Reiniciar datos de demo
-                          </Button>
+                          <BotonDeReinicioDeLaDemo
+                            org={org}
+                            avisar={avisarDelReinicio}
+                            alEmpezar={limpiarMensajes}
+                          />
                         ) : null}
                       </div>
                     </td>

@@ -14,7 +14,10 @@ import {
 } from "../controllers/organizationAdmin.controller";
 import { crearTallerDemoHandler } from "../automotora/demo/tallerDemo.controller";
 import { crearClinicaDemoHandler } from "../clinicas/demo/clinicaDemo.controller";
-import { reiniciarDemoHandler } from "../controllers/reinicioDeDemo.controller";
+import {
+  estadoDelReinicioDeDemoHandler,
+  reiniciarDemoHandler,
+} from "../controllers/reinicioDeDemo.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 import { requirePlatformAdmin } from "../middlewares/requirePlatformAdmin";
@@ -62,13 +65,21 @@ organizationAdminRouter.post(
 
 // Reiniciar los datos de una demo (Clínica Demo, docs/rubros.md §12.3; Taller
 // Demo, docs/taller-demo.md §4): borra los datos de uso y vuelve a cargar los
-// de ejemplo, según el rubro. Misma cadena; 400 si no es una demo.
+// de ejemplo, según el rubro. Misma cadena; 400 si no es una demo. Corre en
+// segundo plano (202): el estado se consulta con el GET de abajo.
 organizationAdminRouter.post(
   "/admin/organizations/:organizationId/demo/reiniciar",
   authenticate,
   businessWriteRateLimiter,
   requirePlatformAdmin,
   reiniciarDemoHandler,
+);
+organizationAdminRouter.get(
+  "/admin/organizations/:organizationId/demo/reinicio",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  estadoDelReinicioDeDemoHandler,
 );
 
 // El listado, con la misma cadena: el nombre de cada cliente de la plataforma

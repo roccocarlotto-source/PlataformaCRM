@@ -46,8 +46,9 @@ import {
 // sentencia, hijas antes que madres (ver borrarDatosDeUso). La recarga va
 // después, por los services, cada uno con su transacción: si falla a mitad,
 // 500 y la demo queda con parte de los datos; se vuelve a reiniciar.
-// Sin lock entre dos reinicios simultáneos: es una operación manual del
-// platform admin, la misma carrera aceptada que el alta de la demo.
+// Dos reinicios simultáneos desde el botón: el segundo recibe 409 mientras
+// corre el primero (src/services/reinicioDeDemo.service.ts). Llamando a esta
+// función directo no hay candado: la misma carrera aceptada que el alta.
 // ---------------------------------------------------------------------------
 
 export { NO_ES_UNA_DEMO };
@@ -90,10 +91,14 @@ export interface ResultadoDelReinicio {
   cargados: ResumenDeDatosDeUso;
 }
 
-export async function reiniciarDatosDeLaDemo(
+/** El reinicio en dos tiempos (reinicio en segundo plano,
+ *  src/services/reinicioDeDemo.service.ts): primero TODO lo que puede impedir
+ *  la recarga, sin escribir nada (400/409 enseguida, en el POST); devuelve el
+ *  borrado y la recarga. */
+export async function prepararReinicioDeLaDemo(
   organizationId: string,
   opciones: { ahora?: Date } = {},
-): Promise<ResultadoDelReinicio> {
+): Promise<() => Promise<ResultadoDelReinicio>> {
   const org = await prisma.organization.findFirst({
     where: { id: organizationId, deletedAt: null },
     select: { id: true, slug: true, industry: true },
@@ -120,10 +125,12 @@ export async function reiniciarDatosDeLaDemo(
   const configuracion = await configuracionDeLaDemo(organizationId);
   const actor: ActorDeLaDemo = { userId: admin.id, role: "ADMIN", industry: "CLINICA" };
 
-  const borrados = await borrarDatosDeUso(organizationId);
-  const cargados = await cargarDatosDeUso(organizationId, configuracion, actor, opciones.ahora);
-  logger.info({ organizationId, borrados, cargados }, "Clínica Demo reiniciada");
-  return { organizationId, borrados, cargados };
+  return async () => {
+    const borrados = await borrarDatosDeUso(organizationId);
+    const cargados = await cargarDatosDeUso(organizationId, configuracion, actor, opciones.ahora);
+    logger.info({ organizationId, borrados, cargados }, "Clínica Demo reiniciada");
+    return { organizationId, borrados, cargados };
+  };
 }
 
 /** Los profesionales y las prestaciones de la demo, por su nombre de

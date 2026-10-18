@@ -189,6 +189,10 @@ export async function exigirQueNoSeaDemo(
 export const NO_ES_UNA_DEMO =
   "Solo se pueden reiniciar los datos de una demo: una Clínica Demo o un Taller Demo en modo demo.";
 
+/** Un segundo reinicio de la misma demo mientras corre el primero: 409. */
+export const YA_SE_ESTA_REINICIANDO =
+  "Esta demo ya se está reiniciando. Esperá a que termine (tarda unos tres minutos).";
+
 export const MENSAJE_INVITACION_EN_DEMO =
   "Esta organización está en modo demo: solo un administrador de la plataforma puede invitar usuarios.";
 

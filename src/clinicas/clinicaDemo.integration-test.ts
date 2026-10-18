@@ -12,6 +12,7 @@ import {
   type OrgDePrueba,
 } from "../routes/gateDeModulos.test-helper";
 import { registroDeAcciones } from "../services/automationActions";
+import { reiniciarYEsperar, rutaDeReinicio } from "../services/reinicioDeDemo.test-helper";
 import { ACCIONES_INCORPORADAS } from "../services/automationRegistrations";
 import { ejecutarPurga, simularPurga } from "../services/testOrganizationsPurge.service";
 import { AppError } from "../utils/AppError";
@@ -470,9 +471,6 @@ test("un agente común (fuera de la demo) sigue naciendo con el modelo de la pla
 // POST /api/admin/organizations/:organizationId/demo/reiniciar
 // ---------------------------------------------------------------------------
 
-const rutaDeReinicio = (organizationId: string) =>
-  `/api/admin/organizations/${organizationId}/demo/reiniciar`;
-
 /** La configuración de una organización, con sus ids: el reinicio no la toca. */
 async function configuracion(organizationId: string) {
   const where = { organizationId };
@@ -672,7 +670,7 @@ test("reiniciar la demo: borra los datos de uso, conserva la configuración y vu
   });
   const configuracionDeAntes = await configuracion(id);
 
-  const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
+  const res = await reiniciarYEsperar(pedir, plataforma, id);
   assert.equal(res.status, 200, JSON.stringify(res.json));
   assert.equal(res.json.organizationId, id);
   assert.deepEqual(res.json.cargados, {

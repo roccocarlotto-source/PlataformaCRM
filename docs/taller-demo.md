@@ -138,8 +138,17 @@ admin; botón "Reiniciar datos de demo" en Plataforma → Organizaciones, en tod
 fila con `isDemo`). Es el mismo endpoint que la Clínica Demo, despachado por
 rubro (`src/services/reinicioDeDemo.service.ts`): **400 si la organización no
 tiene `is_demo`**, sin tocar nada; CLINICA → el reinicio de la clínica de
-siempre; AUTOMOTORA → `reiniciarDatosDelTallerDemo`
-(`src/automotora/demo/reinicioDelTallerDemo.service.ts`):
+siempre; AUTOMOTORA → `prepararReinicioDelTallerDemo`
+(`src/automotora/demo/reinicioDelTallerDemo.service.ts`).
+
+**En segundo plano** (desde el 2026-10-18): el POST hace las validaciones del
+paso 1 (400/409 enseguida, sin escribir nada) y responde **202** con
+`{ estado: "REINICIANDO" }`; los pasos 2 a 4 siguen solos.
+`GET /api/admin/organizations/:organizationId/demo/reinicio` dice en qué quedó:
+`REINICIANDO`, `LISTO` (con `resultado`: lo borrado y lo cargado), `FALLO`
+(con `mensaje`) o `NINGUNO`. El estado vive en memoria: si el backend se
+reinicia en medio, vuelve a `NINGUNO` y la pantalla avisa que no se sabe cómo
+terminó. Pasos:
 
 1. 400 si no es AUTOMOTORA con el slug del Taller Demo; 409 si el módulo
    Servicios está apagado, si no hay un ADMIN activo o si falta alguna pieza
@@ -163,9 +172,11 @@ siempre; AUTOMOTORA → `reiniciarDatosDelTallerDemo`
    los datos agregados a mano durante una reunión (cotizaciones, pagos,
    entregas, fotos). Los contadores vuelven a 1 (OS-0001, STK-000001).
 4. Las órdenes por los services y la sincronización del stock, como en el
-   alta. Si fallan a mitad, 500; volver a reiniciar lo arregla.
-5. Un segundo reinicio mientras corre el primero: 409 (candado en memoria; el
-   backend corre en una sola instancia).
+   alta. Si fallan a mitad, el estado queda en `FALLO`; volver a reiniciar lo
+   arregla.
+5. Un segundo reinicio mientras corre el primero: 409, en las dos demos (el
+   estado en memoria de `reinicioDeDemo.service.ts`; el backend corre en una
+   sola instancia).
 
 **Se conserva** (mismos ids): la organización y su modo demo, sucursales,
 horarios, agenda del taller, proceso de venta, tipos de service y

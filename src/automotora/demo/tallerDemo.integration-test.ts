@@ -45,7 +45,12 @@ import {
   REGLA_DEL_RECORDATORIO,
 } from "./config";
 import { cargarDatosDeEjemplo, DEMO_CON_DATOS, DEMO_SOLO_EN_MODO_DEMO } from "./datosDeEjemplo";
-import { YA_SE_ESTA_REINICIANDO } from "./reinicioDelTallerDemo.service";
+import { YA_SE_ESTA_REINICIANDO } from "../../services/modoDemo.service";
+import {
+  esperarReinicio,
+  reiniciarYEsperar,
+  rutaDeReinicio,
+} from "../../services/reinicioDeDemo.test-helper";
 import { EMAILS_REPETIDOS } from "./tallerDemo.service";
 
 // ---------------------------------------------------------------------------
@@ -646,8 +651,6 @@ test("el alta común con el nombre de la demo no pone el modo demo", async () =>
 // Reiniciar los datos (docs/taller-demo.md §4)
 // ---------------------------------------------------------------------------
 
-const rutaDeReinicio = (id: string) => `/api/admin/organizations/${id}/demo/reiniciar`;
-
 test("reiniciar el Taller Demo: borra lo de uso (también lo agregado a mano), conserva la configuración y vuelve a cargar los datos de ejemplo", async () => {
   assert.ok(demo, "depende del test de alta");
   const id = demo.organization.id;
@@ -693,7 +696,7 @@ test("reiniciar el Taller Demo: borra lo de uso (también lo agregado a mano), c
     data: { vehicleOfInterestId: unaUnidad.id, vehicleOfInterestSetBy: "HUMAN" },
   });
 
-  const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
+  const res = await reiniciarYEsperar(pedir, plataforma, id);
   assert.equal(res.status, 200, JSON.stringify(res.json));
   const borrados = res.json.borrados as Record<string, number>;
   assert.equal(
@@ -750,9 +753,10 @@ test("reiniciar dos veces a la vez: el segundo recibe 409; después, otro reinic
     pedir(plataforma, "POST", rutaDeReinicio(id)),
     pedir(plataforma, "POST", rutaDeReinicio(id)),
   ]);
-  assert.deepEqual([a.status, b.status].sort(), [200, 409]);
+  assert.deepEqual([a.status, b.status].sort(), [202, 409]);
   const rechazado = a.status === 409 ? a : b;
   assert.equal(rechazado.json.error?.message, YA_SE_ESTA_REINICIANDO);
+  assert.equal((await esperarReinicio(pedir, plataforma, id)).estado, "LISTO");
   await verificarDatosDeUso(id, demo.usuarios);
 });
 
@@ -825,7 +829,7 @@ test("reiniciar una demo creada con la configuración anterior al ensayo la alin
     data: { triggerConfig: { offsetDays: 7 } },
   });
 
-  const res = await pedir(plataforma, "POST", rutaDeReinicio(id));
+  const res = await reiniciarYEsperar(pedir, plataforma, id);
   assert.equal(res.status, 200, JSON.stringify(res.json));
   await verificarConfiguracionDelEnsayo(id);
   const centralDespues = await prisma.branch.findUniqueOrThrow({ where: { id: central.id } });
@@ -837,7 +841,7 @@ test("reiniciar una demo creada con la configuración anterior al ensayo la alin
     where: { id: agente.id },
     data: { instructions: "Instrucciones propias." },
   });
-  const otra = await pedir(plataforma, "POST", rutaDeReinicio(id));
+  const otra = await reiniciarYEsperar(pedir, plataforma, id);
   assert.equal(otra.status, 200);
   assert.equal(
     (await prisma.agent.findUniqueOrThrow({ where: { id: agente.id } })).instructions,

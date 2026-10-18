@@ -231,6 +231,30 @@ describe("OrganizationsPage", () => {
 // Reiniciar los datos de una Clínica Demo (docs/rubros.md §12.3).
 describe("OrganizationsPage: reiniciar datos de demo", () => {
   const reiniciarUrl = (id: string) => `${env.apiUrl}/api/admin/organizations/${id}/demo/reiniciar`;
+  const estadoUrl = (id: string) => `${env.apiUrl}/api/admin/organizations/${id}/demo/reinicio`;
+  const REINICIANDO = { estado: "REINICIANDO", iniciadoEn: "2026-10-18T17:39:17.000Z" };
+
+  // El reinicio corre en segundo plano: el POST responde REINICIANDO y el GET
+  // del estado, desde ese momento, el final que se le pase.
+  function reinicioQueTermina(id: string, final: Record<string, unknown>) {
+    let pedido = false;
+    const posts = { cantidad: 0 };
+    server.use(
+      http.post(reiniciarUrl(id), () => {
+        pedido = true;
+        posts.cantidad += 1;
+        return HttpResponse.json(REINICIANDO, { status: 202 });
+      }),
+      http.get(estadoUrl(id), () => HttpResponse.json(pedido ? final : { estado: "NINGUNO" })),
+    );
+    return posts;
+  }
+  const listo = (resultado: unknown) => ({
+    ...REINICIANDO,
+    estado: "LISTO",
+    terminadoEn: "2026-10-18T17:41:09.000Z",
+    resultado,
+  });
   const CON_DEMOS: PlatformOrganization[] = [
     ...ORGS,
     {
@@ -294,6 +318,9 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
     server.use(
       http.get(listUrl, () => HttpResponse.json(CON_DEMOS)),
       http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+      http.get(`${env.apiUrl}/api/admin/organizations/:id/demo/reinicio`, () =>
+        HttpResponse.json({ estado: "NINGUNO" }),
+      ),
     );
   });
 
@@ -302,22 +329,21 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
   }
 
   it("en el Taller Demo: confirmación del taller y resumen de lo cargado", async () => {
-    server.use(
-      http.post(reiniciarUrl("org-taller-demo"), () =>
-        HttpResponse.json({
-          organizationId: "org-taller-demo",
-          borrados: { contactos: 20 },
-          cargados: {
-            contactos: 16,
-            unidades: 10,
-            oportunidades: 13,
-            vehiculosDeClientes: 15,
-            ordenes: 11,
-            tareas: 11,
-            conversaciones: 3,
-          },
-        }),
-      ),
+    reinicioQueTermina(
+      "org-taller-demo",
+      listo({
+        organizationId: "org-taller-demo",
+        borrados: { contactos: 20 },
+        cargados: {
+          contactos: 16,
+          unidades: 10,
+          oportunidades: 13,
+          vehiculosDeClientes: 15,
+          ordenes: 11,
+          tareas: 11,
+          conversaciones: 3,
+        },
+      }),
     );
     const user = userEvent.setup();
     renderPage();
@@ -354,13 +380,7 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
   });
 
   it("pide confirmación con qué se borra y qué queda; cancelar no manda nada", async () => {
-    let pedidos = 0;
-    server.use(
-      http.post(reiniciarUrl("org-demo"), () => {
-        pedidos += 1;
-        return HttpResponse.json(RESPUESTA);
-      }),
-    );
+    const posts = reinicioQueTermina("org-demo", listo(RESPUESTA));
     const user = userEvent.setup();
     renderPage();
 
@@ -375,18 +395,12 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
     expect(dialogo).toHaveTextContent(/Queda la configuración/);
     await user.click(within(dialogo).getByRole("button", { name: "Cancelar" }));
 
-    expect(pedidos).toBe(0);
+    expect(posts.cantidad).toBe(0);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("confirmado, manda el POST y dice cuántos pacientes y turnos cargó", async () => {
-    let pedidos = 0;
-    server.use(
-      http.post(reiniciarUrl("org-demo"), () => {
-        pedidos += 1;
-        return HttpResponse.json(RESPUESTA);
-      }),
-    );
+    const posts = reinicioQueTermina("org-demo", listo(RESPUESTA));
     const user = userEvent.setup();
     renderPage();
 
@@ -400,7 +414,7 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Reiniciamos «Clínica Demo Norte»: 8 pacientes y 24 turnos próximos de ejemplo, más 3 atendidos la semana pasada.",
     );
-    expect(pedidos).toBe(1);
+    expect(posts.cantidad).toBe(1);
   });
 
   it("si el backend rechaza, muestra su error", async () => {
@@ -430,6 +444,49 @@ describe("OrganizationsPage: reiniciar datos de demo", () => {
       await screen.findByText(/La regla del recordatorio de la demo está activa/),
     ).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+  it("mientras se reinicia (aunque se haya recargado la página) dice Reiniciando… y el botón queda deshabilitado", async () => {
+    server.use(http.get(estadoUrl("org-taller-demo"), () => HttpResponse.json(REINICIANDO)));
+    renderPage();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Reiniciando «Taller Demo»… Tarda unos tres minutos",
+    );
+    expect(
+      within(await filaDe("Taller Demo")).getByRole("button", { name: "Reiniciar datos de demo" }),
+    ).toBeDisabled();
+  });
+
+  it("si falla a mitad, muestra el motivo", async () => {
+    reinicioQueTermina("org-taller-demo", {
+      ...REINICIANDO,
+      estado: "FALLO",
+      terminadoEn: "2026-10-18T17:41:09.000Z",
+      mensaje: "No se pudo terminar el reinicio. Volvé a reiniciar.",
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(
+      within(await filaDe("Taller Demo")).getByRole("button", { name: "Reiniciar datos de demo" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Reiniciar datos" }));
+    expect(
+      await screen.findByText(
+        "No se pudo reiniciar «Taller Demo»: No se pudo terminar el reinicio. Volvé a reiniciar.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("si el servidor perdió el estado en medio, dice que no sabemos cómo terminó", async () => {
+    reinicioQueTermina("org-taller-demo", { estado: "NINGUNO" });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(
+      within(await filaDe("Taller Demo")).getByRole("button", { name: "Reiniciar datos de demo" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Reiniciar datos" }));
+    expect(
+      await screen.findByText(/No sabemos cómo terminó el reinicio de «Taller Demo»/),
+    ).toBeInTheDocument();
   });
 });
 

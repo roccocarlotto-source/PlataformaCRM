@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  getEstadoDelReinicioDeLaDemo,
   getLlmUsage,
   getOrganizationMetaConnection,
   listAgentesDeOrganizacion,
@@ -24,7 +25,24 @@ export const platformAdminKeys = {
   industries: () => [...platformAdminKeys.all, "industries"] as const,
   wabaDeLaClinica: (organizationId: string) =>
     [...platformAdminKeys.all, "waba", organizationId] as const,
+  reinicioDeLaDemo: (organizationId: string) =>
+    [...platformAdminKeys.all, "reinicio-de-demo", organizationId] as const,
 };
+
+// Cada cuánto se vuelve a preguntar mientras una demo se está reiniciando. El
+// GET pasa por el rate limiter de escrituras (100 por minuto por usuario).
+export const INTERVALO_DEL_REINICIO_MS = 3000;
+
+// En qué quedó el reinicio de una demo (corre en segundo plano). Mientras está
+// REINICIANDO, se vuelve a pedir cada INTERVALO_DEL_REINICIO_MS.
+export function useEstadoDelReinicioDeLaDemo(organizationId: string) {
+  return useQuery({
+    queryKey: platformAdminKeys.reinicioDeLaDemo(organizationId),
+    queryFn: ({ signal }) => getEstadoDelReinicioDeLaDemo(organizationId, signal),
+    refetchInterval: (query) =>
+      query.state.data?.estado === "REINICIANDO" ? INTERVALO_DEL_REINICIO_MS : false,
+  });
+}
 
 // Los rubros que se pueden elegir al dar de alta una organización.
 export function useRubrosDisponibles() {
