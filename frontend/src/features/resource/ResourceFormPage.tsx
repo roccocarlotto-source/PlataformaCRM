@@ -222,6 +222,13 @@ export function ResourceFormPage() {
               required={!isEditMode}
               disabled={isEditMode}
             />
+            {isEditMode ? (
+              <p className="ds-hint ds-field-grid--full">
+                {`No se cambia de ${sucursal.singular}: creá ${
+                  recurso.genero === "femenino" ? "una nueva" : "uno nuevo"
+                } en ${cs.el} ${sucursal.genero === "femenino" ? "correcta" : "correcto"}.`}
+              </p>
+            ) : null}
           </div>
         </Card>
 

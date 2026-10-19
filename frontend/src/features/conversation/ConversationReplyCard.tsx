@@ -149,11 +149,16 @@ export function ConversationReplyCard({
           <p className="ds-hint" role="note">
             {motivo}
           </p>
-        ) : tieneVentana ? (
-          <p className="ds-hint">
-            {`Podés escribir texto libre hasta el ${formatDateTime(conversation.replyWindowEndsAt)}.`}
-          </p>
-        ) : null}
+        ) : (
+          <>
+            <p className="ds-hint">Mientras atiendas vos, el agente no responde.</p>
+            {tieneVentana ? (
+              <p className="ds-hint">
+                {`Podés escribir texto libre hasta el ${formatDateTime(conversation.replyWindowEndsAt)}.`}
+              </p>
+            ) : null}
+          </>
+        )}
 
         {atiende ? (
           <div className="ds-card-actions">
