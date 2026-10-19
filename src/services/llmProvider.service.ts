@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { logger } from "../lib/logger";
 import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
@@ -131,6 +132,11 @@ export interface LlmCompletionResult {
   toolCalls: LlmToolCall[];
   // Ausente si el proveedor no informó el consumo (o es un doble de test).
   usage?: LlmUsage;
+  // true si el modelo llegó al tope de salida (LLM_MAX_OUTPUT_TOKENS) antes de
+  // terminar: `finish_reason: "length"`. El texto, si vino, está cortado, y
+  // las tools no vienen (ver RESPUESTA CORTADA POR LARGO abajo). Ausente =
+  // terminó normalmente.
+  cortadaPorLargo?: boolean;
 }
 
 export interface LlmProvider {
@@ -585,7 +591,7 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
         throw new LlmProviderError("OpenRouter respondió sin choices");
       }
 
-      const primera = datos.choices[0] as { message?: unknown };
+      const primera = datos.choices[0] as { message?: unknown; finish_reason?: unknown };
       const mensaje = primera?.message;
       if (!mensaje || typeof mensaje !== "object") {
         throw new LlmProviderError("OpenRouter respondió sin message en el primer choice");
@@ -595,6 +601,44 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
         content?: unknown;
         tool_calls?: unknown;
       };
+
+      // RESPUESTA CORTADA POR LARGO (Taller Demo, 2026-10-18). El tope de
+      // salida cuenta también el razonamiento interno del modelo, que no se ve:
+      // Haiku 5.5 razonó hasta 862 tokens antes de contestar dos líneas, y con
+      // el tope en 1000 la respuesta se cortó. Antes esto no se miraba, y el
+      // corte terminaba de tres formas, ninguna buena: el texto cortado le
+      // llegaba al cliente como respuesta; una tool con los argumentos vacíos
+      // se ejecutaba como {} (search_vehicles sin filtros); o unos argumentos
+      // cortados a mitad del JSON tiraban LlmProviderError y el turno se
+      // derivaba como "el proveedor no respondió".
+      //
+      // Una tool call de una respuesta cortada NO se devuelve: sus argumentos
+      // pueden estar truncados sin que se note (un JSON que cierra antes de
+      // tiempo es válido), y ejecutarla sería actuar con datos que el modelo
+      // no terminó de escribir. El texto sí, marcado: qué hacer con él lo
+      // decide quien llama (el loop del agente reintenta una vez; ver
+      // INSTRUCCION_DE_RESPUESTA_CORTA en agentOrchestration.service.ts). El
+      // aviso va acá para que también quede registrado en los resúmenes y los
+      // borradores, que usan este mismo proveedor.
+      const usage = leerUsage(datos.usage);
+      if (primera.finish_reason === "length") {
+        logger.warn(
+          {
+            modelo: cuerpo.model,
+            maxOutputTokens: config.maxOutputTokens,
+            completionTokens: usage?.completionTokens ?? null,
+            conTexto: typeof content === "string" && content.length > 0,
+            toolsDescartadas: Array.isArray(toolCallsCrudos) ? toolCallsCrudos.length : 0,
+          },
+          "La respuesta del modelo se cortó por el tope de tokens de salida (LLM_MAX_OUTPUT_TOKENS)",
+        );
+        return {
+          text: typeof content === "string" && content.length > 0 ? content : null,
+          toolCalls: [],
+          ...(usage ? { usage } : {}),
+          cortadaPorLargo: true,
+        };
+      }
 
       const toolCalls: LlmToolCall[] = [];
       if (Array.isArray(toolCallsCrudos)) {
@@ -624,7 +668,6 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
       // que el loop tenga UNA sola forma de "no dijo nada".
       const text = typeof content === "string" && content.length > 0 ? content : null;
 
-      const usage = leerUsage(datos.usage);
       return { text, toolCalls, ...(usage ? { usage } : {}) };
     },
   };

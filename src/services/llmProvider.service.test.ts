@@ -148,6 +148,72 @@ test("leerUsage: sin costo es null; sin tokens legibles no hay usage, y nunca la
   assert.equal(leerUsage({ prompt_tokens: 10, completion_tokens: -1 }), null);
 });
 
+// RESPUESTA CORTADA POR LARGO (Taller Demo, 2026-10-18): finish_reason "length".
+test("una respuesta cortada en el texto vuelve marcada, con el texto y el consumo", async () => {
+  const { fetch } = mockearFetch({
+    json: {
+      ...respuestaConMensaje({ content: "Sí, tenemos taller en Casa Central. Además, tengo que" }),
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: "Sí, tenemos taller en Casa Central. Además, tengo que",
+          },
+          finish_reason: "length",
+        },
+      ],
+      usage: { prompt_tokens: 14000, completion_tokens: 1000 },
+    },
+  });
+  const resultado = await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete(PEDIDO_BASICO);
+  assert.equal(resultado.cortadaPorLargo, true);
+  assert.equal(resultado.text, "Sí, tenemos taller en Casa Central. Además, tengo que");
+  assert.deepEqual(resultado.toolCalls, []);
+  assert.equal(resultado.usage?.completionTokens, 1000);
+});
+
+test("una respuesta cortada en una tool no devuelve la tool ni lanza, aunque el JSON esté a medias", async () => {
+  // Los dos casos reales: argumentos vacíos (se ejecutaba search_vehicles({}))
+  // y argumentos cortados a mitad del JSON (LlmProviderError → "proveedor caído").
+  for (const argumentos of ["", '{"title":"Prueba de manejo Ren']) {
+    const { fetch } = mockearFetch({
+      json: {
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "create_opportunity", arguments: argumentos },
+                },
+              ],
+            },
+            finish_reason: "length",
+          },
+        ],
+      },
+    });
+    const resultado = await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete({
+      ...PEDIDO_BASICO,
+      tools: [TOOL_CREAR_OPORTUNIDAD],
+    });
+    assert.equal(resultado.cortadaPorLargo, true, argumentos);
+    assert.deepEqual(resultado.toolCalls, [], argumentos);
+    assert.equal(resultado.text, null, argumentos);
+  }
+});
+
+test("una respuesta que terminó normalmente no trae la marca de cortada", async () => {
+  const { fetch } = mockearFetch({ json: respuestaConMensaje({ content: "Hola" }) });
+  const resultado = await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete(PEDIDO_BASICO);
+  assert.equal("cortadaPorLargo" in resultado, false);
+});
+
 test("una respuesta sin usage sigue siendo válida: el resultado no trae la clave", async () => {
   const { fetch } = mockearFetch({ json: respuestaConMensaje({ content: "Hola" }) });
   const resultado = await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete(PEDIDO_BASICO);

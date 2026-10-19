@@ -306,6 +306,12 @@ cuando no puede resolver algo. Al derivar:
 3. Cuando una persona responde en la conversación, el agente se calla: esa
    conversación la atiende la persona hasta que toque **Devolver al agente**.
 
+El agente también deriva solo, con un mensaje fijo, cuando algo técnico le
+impide contestar: el servicio del modelo no responde, el turno tarda demasiado,
+o la respuesta le sale tan larga que se corta dos veces seguidas (la primera
+vez lo vuelve a intentar pidiéndose una respuesta más corta). La tarea dice
+cuál de esas fue.
+
 Dos campos del agente definen qué pasa si nadie responde:
 
 - **Avisar al cliente si nadie responde en (minutos)**: si pasan esos minutos
