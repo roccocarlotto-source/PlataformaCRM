@@ -244,6 +244,21 @@ export const MOTIVO_RESPUESTA_INUTILIZABLE =
 export const MOTIVO_PROVEEDOR_CAIDO =
   "El proveedor del modelo no respondió: el contacto quedó esperando y hay que contestarle";
 
+// La respuesta del modelo se cortó por el tope de salida (LLM_MAX_OUTPUT_TOKENS)
+// dos veces en el mismo turno: la llamada normal y el reintento con
+// INSTRUCCION_DE_RESPUESTA_CORTA. El proveedor respondió; lo que faltó fue tope
+// (o el modelo razona de más para este caso). Si se repite en los logs, se sube
+// LLM_MAX_OUTPUT_TOKENS.
+export const MOTIVO_RESPUESTA_CORTADA =
+  "La respuesta del agente se cortó por largo dos veces: el contacto quedó esperando y hay que contestarle";
+
+// Lo que se agrega al system prompt para el único reintento después de un
+// corte por largo. Pide menos texto, y menos vueltas antes de escribirlo: el
+// tope cuenta también el razonamiento interno del modelo, que en el caso real
+// fue la mayor parte (773 de 1000 tokens).
+export const INSTRUCCION_DE_RESPUESTA_CORTA =
+  "Tu respuesta anterior a este mismo mensaje se cortó por largo y no llegó a la persona. Respondé de nuevo, más corto: decidí rápido qué hacer, sin darle tantas vueltas, y escribí como mucho 4 oraciones, sin listas largas. Si necesitás una herramienta, pedila directamente.";
+
 // ---------------------------------------------------------------------------
 // PRESUPUESTO DE TIEMPO POR TURNO (B-08 de
 // docs-privados/auditoria-2026-09-24-punta-a-punta.md, local).
@@ -2870,6 +2885,10 @@ async function responderSinMedir(
   // (desenlaceDeLasTools): un texto fijo que no escribió el modelo, así que no
   // pasa por las guardas de salida del modelo.
   let respuestaFija = false;
+  // El prompt de cada llamada: el del turno, y desde que una respuesta se
+  // cortó por largo, con INSTRUCCION_DE_RESPUESTA_CORTA al final (ver abajo).
+  let promptDeLaLlamada = systemPrompt;
+  let yaSeCortoPorLargo = false;
 
   // Pasos 3 a 6 de §4: el loop de tool-calling.
   for (let ronda = 0; ronda < MAX_TOOL_ROUNDS_PER_TURN; ronda++) {
@@ -2906,7 +2925,7 @@ async function responderSinMedir(
       }
       resultado = await medirModelo(() =>
         llm.complete({
-          systemPrompt,
+          systemPrompt: promptDeLaLlamada,
           messages: historial,
           tools: definiciones,
           model: agent.modelName,
@@ -2926,6 +2945,39 @@ async function responderSinMedir(
           : "El proveedor del modelo falló tras los reintentos: se deriva en vez de dejar al contacto sin respuesta",
       );
       motivoDeHandoff ??= sinTiempo ? MOTIVO_TIEMPO_AGOTADO : MOTIVO_PROVEEDOR_CAIDO;
+      respuestaFinal = cierreFijo();
+      break;
+    }
+
+    // La respuesta llegó al tope de salida antes de terminar (ver RESPUESTA
+    // CORTADA POR LARGO en llmProvider.service.ts): no se usa ni su texto,
+    // que está cortado, ni sus tools, que el proveedor ya descartó. La primera
+    // vez se repite la llamada pidiendo una respuesta corta; no se agrega nada
+    // al historial, así que el modelo ve exactamente lo mismo más esa
+    // instrucción. La segunda vez se deriva, con su motivo propio: no es que
+    // el proveedor no respondió, es que no le alcanzó el tope.
+    if (resultado.cortadaPorLargo) {
+      const contexto = {
+        organizationId,
+        agentId,
+        conversationId: conversation.id,
+        ronda,
+        completionTokens: resultado.usage?.completionTokens ?? null,
+      };
+      if (!yaSeCortoPorLargo) {
+        yaSeCortoPorLargo = true;
+        promptDeLaLlamada = `${systemPrompt}\n\n${INSTRUCCION_DE_RESPUESTA_CORTA}`;
+        logger.warn(
+          contexto,
+          "La respuesta del agente se cortó por el tope de tokens: se reintenta una vez pidiendo una respuesta más corta",
+        );
+        continue;
+      }
+      logger.warn(
+        contexto,
+        "La respuesta del agente se volvió a cortar por el tope de tokens: conversación derivada a humano",
+      );
+      motivoDeHandoff ??= MOTIVO_RESPUESTA_CORTADA;
       respuestaFinal = cierreFijo();
       break;
     }
@@ -3096,8 +3148,10 @@ async function responderSinMedir(
         );
         sumarUso(uso, cierre.usage);
         // Si aun así pidió una tool, el texto que la acompaña es una frase de
-        // tránsito ("dame un momento…"), no un cierre: va el fijo.
-        respuestaFinal = cierre.toolCalls.length === 0 ? cierre.text : null;
+        // tránsito ("dame un momento…"), no un cierre: va el fijo. Un cierre
+        // cortado por largo tampoco: es una frase a medias.
+        respuestaFinal =
+          cierre.toolCalls.length === 0 && !cierre.cortadaPorLargo ? cierre.text : null;
       } catch (err) {
         if (!(err instanceof LlmProviderError)) {
           throw err;
@@ -3157,6 +3211,7 @@ async function responderSinMedir(
       INSTRUCCION_USAR_HERRAMIENTAS,
       textos.sinAutoridadComercial,
       INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
+      INSTRUCCION_DE_RESPUESTA_CORTA,
       textos.soloLoQueTeConsta,
       textos.gestionDeTurnos ?? "",
       INSTRUCCION_IDENTIDAD_INMUTABLE,

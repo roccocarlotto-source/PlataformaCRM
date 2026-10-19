@@ -11,6 +11,8 @@ import { atencionFueraDeHorario } from "../utils/fueraDeHorario";
 import type { FranjaSemanal } from "../utils/workingHours";
 import {
   MOTIVO_PROVEEDOR_CAIDO,
+  MOTIVO_RESPUESTA_CORTADA,
+  INSTRUCCION_DE_RESPUESTA_CORTA,
   envolverMensajeDelCliente,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
   INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
@@ -2532,6 +2534,87 @@ test("B-08: con el proveedor caído se deriva SIN generar el brief (no se lo vue
     assert.equal(conversation.brief, null, "se puede pedir a mano después");
   } finally {
     resetLlmProviderParaTests();
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Respuesta cortada por largo (Taller Demo, 2026-10-18): finish_reason "length"
+// ---------------------------------------------------------------------------
+
+function cortada(parcial: Partial<LlmCompletionResult> = {}): LlmCompletionResult {
+  return { text: null, toolCalls: [], ...parcial, cortadaPorLargo: true };
+}
+
+test("corte en el texto: se reintenta una vez pidiendo una respuesta corta y sale la del reintento, sin derivar", async () => {
+  const e = await montar("cortada-texto", { enabledTools: [] });
+  try {
+    const doble = doblarProveedor([
+      cortada({ text: "Sí, tenemos taller en Casa Central. Además, tengo que" }),
+      texto("Sí, tenemos taller en Casa Central, de lunes a viernes de 9 a 18."),
+    ]);
+    const resultado = await turno(e, "¿Tienen taller?", doble.proveedor);
+
+    assert.equal(
+      resultado.respuesta,
+      "Sí, tenemos taller en Casa Central, de lunes a viernes de 9 a 18.",
+    );
+    assert.equal(resultado.handoff, false);
+    assert.equal(doble.requests.length, 2);
+    assert.ok(!doble.requests[0].systemPrompt.includes(INSTRUCCION_DE_RESPUESTA_CORTA));
+    assert.ok(doble.requests[1].systemPrompt.endsWith(`\n\n${INSTRUCCION_DE_RESPUESTA_CORTA}`));
+    // El texto cortado no entra al historial: el reintento ve lo mismo.
+    assert.deepEqual(doble.requests[1].messages, doble.requests[0].messages);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("corte en una tool: no se ejecuta, y el reintento sigue el turno normalmente", async () => {
+  const e = await montar("cortada-tool", { enabledTools: ["get_contact_activities"] });
+  try {
+    const doble = doblarProveedor([
+      // El proveedor ya descarta las tools de una respuesta cortada; si una
+      // llegara igual, el loop tampoco la ejecuta.
+      { ...pideTool("c1", "get_contact_activities", {}), cortadaPorLargo: true },
+      pideTool("c2", "get_contact_activities", {}),
+      texto("No tenés actividades pendientes."),
+    ]);
+    const resultado = await turno(e, "¿Tengo algo pendiente?", doble.proveedor);
+
+    assert.equal(resultado.respuesta, "No tenés actividades pendientes.");
+    assert.equal(resultado.handoff, false);
+    assert.deepEqual(
+      resultado.toolCalls.map((t) => t.id),
+      ["c2"],
+      "solo corrió la tool del reintento",
+    );
+    // La instrucción corta sigue en las llamadas que vienen después del corte.
+    assert.ok(doble.requests[2].systemPrompt.endsWith(INSTRUCCION_DE_RESPUESTA_CORTA));
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("dos cortes seguidos: deriva con su motivo propio y el cierre fijo, sin mandar el texto cortado", async () => {
+  const e = await montar("cortada-dos-veces", { enabledTools: [] });
+  try {
+    const doble = doblarProveedor([
+      cortada({ text: "Sí, tenemos taller. Además, tengo que" }),
+      cortada({ text: "Sí, tenemos" }),
+    ]);
+    const resultado = await turno(e, "¿Tienen taller?", doble.proveedor);
+
+    assert.equal(doble.requests.length, 2, "un solo reintento");
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+    const activities = await prisma.activity.findMany({
+      where: { organizationId: e.organizationId },
+    });
+    assert.equal(activities.length, 1);
+    assert.equal(activities[0].body, MOTIVO_RESPUESTA_CORTADA);
+  } finally {
     await desmontar(e);
   }
 });
