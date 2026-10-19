@@ -1,8 +1,3 @@
-import {
-  concordancia,
-  VOCABULARIO_DE_CLINICA_POR_DEFECTO,
-  type Termino,
-} from "../../auth/vocabulario";
 import type { BadgeVariant } from "../../design-system/Badge";
 import type { SelectOption } from "../../design-system/Select";
 import type { WhatsappApproval, WhatsappFormat } from "./types";
@@ -599,17 +594,16 @@ export function textoInicial(actionType: string, formato: string, esClinica = fa
 }
 
 // ---------------------------------------------------------------------------
-// Qué variables lleva el mensaje de cada acción, para la tarjeta del mensaje
-// (MensajeDeWhatsappCard): el QR y el cupón, {nombre} y {link} según el
-// formato; el seguimiento de una consulta, {saludo} y {vehiculo}, sin formato
-// (es solo texto). Espejo de variablesDeLaAccion en
-// src/services/whatsappTemplate.service.ts.
+// Qué variables lleva el mensaje de cada acción, para los botones "Insertar"
+// de la tarjeta del mensaje (MensajeDeWhatsappCard): el QR y el cupón,
+// {nombre} y {link} según el formato; el seguimiento de una consulta,
+// {saludo} y {vehiculo}, sin formato (es solo texto). Espejo de
+// variablesDeLaAccion en src/services/whatsappTemplate.service.ts. Qué va en
+// cada una y cuáles son obligatorias lo explica la guía de uso
+// (10-automatizaciones.md#variables).
 // ---------------------------------------------------------------------------
 export interface VariableDelMensaje {
   token: string;
-  // Lo que se le dice al negocio que va ahí.
-  ayuda: string;
-  obligatoria: boolean;
 }
 
 export interface MensajeDeLaAccion {
@@ -618,112 +612,42 @@ export interface MensajeDeLaAccion {
   variables: VariableDelMensaje[];
 }
 
+function variables(...tokens: string[]): VariableDelMensaje[] {
+  return tokens.map((token) => ({ token }));
+}
+
 export function mensajeDeLaAccion(
   actionType: string,
   formato: string,
   esClinica = false,
-  // El término del contacto de una clínica ("paciente" o "cliente").
-  contacto: Termino = VOCABULARIO_DE_CLINICA_POR_DEFECTO.contacto,
 ): MensajeDeLaAccion {
   if (actionType === ACTION_BOOKING_SCHEDULE_CONTROL) {
-    return {
-      conFormato: false,
-      variables: [
-        {
-          token: TOKEN_NOMBRE,
-          ayuda: `el nombre ${concordancia(contacto).del} ${contacto.singular}`,
-          obligatoria: true,
-        },
-        {
-          token: TOKEN_SEMANAS,
-          ayuda: "las semanas de control de la prestación",
-          obligatoria: false,
-        },
-        {
-          token: TOKEN_LUGAR,
-          ayuda: "la clínica, o «Clínica (sede)» si tiene más de una sede",
-          obligatoria: false,
-        },
-      ],
-    };
+    return { conFormato: false, variables: variables(TOKEN_NOMBRE, TOKEN_SEMANAS, TOKEN_LUGAR) };
   }
   if (actionType === ACTION_SEND_NEXT_SERVICE_REMINDER) {
     return {
       conFormato: false,
-      variables: [
-        { token: TOKEN_NOMBRE, ayuda: "el nombre del cliente", obligatoria: true },
-        {
-          token: TOKEN_LUGAR,
-          ayuda: "la empresa, o «Empresa (sucursal X)» si tiene más de una sucursal",
-          obligatoria: false,
-        },
-        {
-          token: TOKEN_VEHICULO,
-          ayuda: "el vehículo, con la matrícula si la tiene («Volkswagen Gol (ABC 1234)»)",
-          obligatoria: true,
-        },
-        {
-          token: TOKEN_FECHA,
-          ayuda: "la fecha del próximo service («el 15 de noviembre»)",
-          obligatoria: true,
-        },
-      ],
+      variables: variables(TOKEN_NOMBRE, TOKEN_LUGAR, TOKEN_VEHICULO, TOKEN_FECHA),
     };
   }
   if (actionType === ACTION_BOOKING_SEND_REMINDER) {
     return {
       conFormato: false,
-      variables: [
-        {
-          token: TOKEN_NOMBRE,
-          ayuda: `el nombre ${concordancia(contacto).del} ${contacto.singular}`,
-          obligatoria: true,
-        },
-        {
-          token: TOKEN_LUGAR,
-          ayuda: "la clínica, o «Clínica (sede)» si tiene más de una sede",
-          obligatoria: false,
-        },
-        { token: TOKEN_DIA, ayuda: "el día del turno («lunes 1 de marzo»)", obligatoria: true },
-        { token: TOKEN_HORA, ayuda: "la hora del turno («10:30»)", obligatoria: true },
-        { token: TOKEN_PROFESIONAL, ayuda: "el profesional", obligatoria: false },
-      ],
+      variables: variables(TOKEN_NOMBRE, TOKEN_LUGAR, TOKEN_DIA, TOKEN_HORA, TOKEN_PROFESIONAL),
     };
   }
   if (actionType === ACTION_INQUIRY_FOLLOW_UP) {
+    // R15: en una clínica, la prestación en lugar del vehículo.
     return {
       conFormato: false,
-      variables: [
-        {
-          token: TOKEN_SALUDO,
-          ayuda: esClinica
-            ? `el saludo con el nombre ${concordancia(contacto).del} ${contacto.singular} («Hola Ana»), o «Hola» a secas si no lo dio`
-            : "el saludo con el nombre del cliente («Hola Ana»), o «Hola» a secas si no lo dio",
-          obligatoria: true,
-        },
-        // R15: en una clínica, la prestación en lugar del vehículo.
-        esClinica
-          ? {
-              token: TOKEN_PRESTACION,
-              ayuda: "la prestación que consultó, o «lo que consultaste» si no se sabe",
-              obligatoria: false,
-            }
-          : {
-              token: TOKEN_VEHICULO,
-              ayuda: "el vehículo que consultó, o «el vehículo que consultaste» si no se sabe",
-              obligatoria: false,
-            },
-      ],
+      variables: variables(TOKEN_SALUDO, esClinica ? TOKEN_PRESTACION : TOKEN_VEHICULO),
     };
   }
   return {
     conFormato: true,
-    variables: [
-      { token: TOKEN_NOMBRE, ayuda: "el nombre del cliente", obligatoria: true },
-      ...(formatoLlevaLink(formato)
-        ? [{ token: TOKEN_LINK, ayuda: "el link, después del nombre", obligatoria: true }]
-        : []),
-    ],
+    variables: formatoLlevaLink(formato)
+      ? variables(TOKEN_NOMBRE, TOKEN_LINK)
+      : variables(TOKEN_NOMBRE),
   };
 }
 

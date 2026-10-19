@@ -470,10 +470,10 @@ describe("AgentEmbedPage — revocar un token", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "Revocar" }));
 
-    // El texto nombra la consecuencia que no se ve en la pantalla: el sitio
-    // del cliente deja de funcionar hasta que se pegue el código de nuevo.
+    // El texto nombra la consecuencia que no se ve en la pantalla: el chat
+    // del sitio deja de funcionar.
     expect(confirmSpy).toHaveBeenCalledWith(
-      "¿Revocar este token? El widget que lo esté usando deja de responder de inmediato y hay que pegar el código de nuevo con un token nuevo.",
+      "¿Revocar este token? El chat que lo use deja de responder de inmediato.",
     );
     expect(borrados).toBe(0);
   });
@@ -559,7 +559,6 @@ describe("AgentEmbedPage — código para instalar", () => {
     expect(codigo).toContain('data-embed-token="PEGÁ_ACÁ_TU_TOKEN"');
     // El prefijo NO sirve para autenticar: ponerlo acá sugeriría que sí.
     expect(codigo).not.toContain("embed_abc123");
-    expect(screen.getByText(/por tu token, o generá uno nuevo/)).toBeInTheDocument();
   });
 
   it("el token recién generado entra solo en el snippet", async () => {

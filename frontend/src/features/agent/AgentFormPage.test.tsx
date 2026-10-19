@@ -420,15 +420,12 @@ describe("AgentFormPage — creación", () => {
     expect(screen.getByText(/Lo que el agente lee antes de cada conversación/)).toBeInTheDocument();
   });
 
-  it("Reglas del agente habla solo de los tres candados de código, y dice que son código", async () => {
+  it("Reglas del agente: el ejemplo habla solo de los tres candados de código", async () => {
     server.use(mockBranches());
     renderForm("/agents/new");
 
-    // Los tres candados se explican en la guía de uso; la pantalla dice solo
-    // que el sistema los hace cumplir.
-    expect(
-      screen.getByText(/El sistema las hace cumplir antes de cada acción/),
-    ).toBeInTheDocument();
+    // Los tres candados se explican en la guía de uso; la pantalla solo los
+    // ejemplifica en el placeholder.
 
     const placeholder =
       screen.getByLabelText("Reglas del agente").getAttribute("placeholder") ?? "";
@@ -692,9 +689,6 @@ describe("AgentFormPage — edición", () => {
     const sucursal = await screen.findByLabelText("Sucursal");
     expect(sucursal).toHaveValue("Sucursal Chuy");
     expect(sucursal).toBeDisabled();
-    expect(
-      screen.getByText(/No se puede cambiar\. Para otra sucursal, creá un agente nuevo/),
-    ).toBeInTheDocument();
   });
 
   it("el PATCH manda todos los campos, sin branchId ni allowedOrigins", async () => {
@@ -858,7 +852,6 @@ describe("AgentFormPage — edición", () => {
     const campo = await screen.findByLabelText("ID del número de WhatsApp");
     expect(campo).toHaveValue("106540352242922");
     expect(campo).toBeDisabled();
-    expect(screen.getByText(/Lo asigna el equipo de la plataforma/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
@@ -924,14 +917,13 @@ describe("AgentFormPage — edición", () => {
     expect(bodies[0].enabledTools).toEqual(["create_opportunity", "reserve_vehicle"]);
   });
 
-  it("B-05: para un ADMIN común el Modelo es de solo lectura, con el porqué", async () => {
+  it("B-05: para un ADMIN común el Modelo es de solo lectura", async () => {
     server.use(mockBranches(), mockAgentDetalle());
     renderForm("/agents/ag1/edit");
 
     const modelo = await screen.findByLabelText("Modelo");
     expect(modelo).toBeDisabled();
     expect(modelo).toHaveValue("openai/gpt-4o-mini");
-    expect(screen.getByText(/Lo elige el equipo de la plataforma/)).toBeInTheDocument();
   });
 
   it("B-05: un platform admin cambia el Modelo y se guarda por el endpoint de admin, no por el PATCH", async () => {
@@ -1120,7 +1112,6 @@ describe("AgentFormPage — cuánto hace la IA", () => {
     for (const radio of within(grupo).getAllByRole("radio")) expect(radio).not.toBeChecked();
     expect(screen.getByLabelText("Activo")).toBeDisabled();
     expect(screen.getByLabelText("Activo")).not.toBeChecked();
-    expect(screen.getByText("Elegí cuánto hace la IA para poder activarlo.")).toBeInTheDocument();
     expect(
       screen.queryByLabelText("Solo fuera del horario de la sucursal"),
     ).not.toBeInTheDocument();

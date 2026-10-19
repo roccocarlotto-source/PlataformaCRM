@@ -177,13 +177,9 @@ export function InternalAgentChatPage() {
               Configurar agente interno
             </Link>
           }
-        >
-          Configuralo para que tu equipo pueda hablarle desde acá.
-        </EmptyState>
+        />
       ) : (
-        <EmptyState title="Todavía no hay un agente interno configurado" icon={Bot}>
-          Pedíselo a un administrador.
-        </EmptyState>
+        <EmptyState title="Todavía no hay un agente interno configurado" icon={Bot} />
       );
     } else if (status === 403) {
       // El texto del backend (MENSAJE_SIN_ACCESO_AL_AGENTE_INTERNO): pasa si

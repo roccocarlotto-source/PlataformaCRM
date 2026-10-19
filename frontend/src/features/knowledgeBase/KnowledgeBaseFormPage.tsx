@@ -72,8 +72,7 @@ const CONFIRMAR_PISAR_CONTENIDO =
 // arriba: quitar no es un gesto visual, borra el Contenido que el archivo
 // dejó, y eso puede ser un documento entero.
 const CONFIRMAR_QUITAR_ARCHIVO =
-  "Se quita el archivo y se borra el contenido que trajo, dejando el campo vacío. " +
-  "No se recupera lo que hubiera antes de elegirlo. ¿Seguimos?";
+  "¿Quitar el archivo? Se borra el texto que trajo y no vuelve lo que había antes.";
 
 function toFormValues(entry: KnowledgeBaseEntry): KnowledgeBaseFormValues {
   return {
@@ -319,8 +318,8 @@ export function KnowledgeBaseFormPage() {
 
             {/* Ítem 70 — esta entrada la escribió "Sincronizar stock", no una
                 persona, y la próxima corrida de esa sucursal la va a volver a
-                escribir. El aviso va ANTES que el resto de los hints porque
-                cambia lo que significa todo lo de abajo.
+                escribir. El aviso va arriba porque cambia lo que significa
+                todo lo de abajo.
 
                 NO SE BLOQUEA LA EDICIÓN, y es una decisión: bloquearla
                 obligaría a inventar qué pasa con los cuatro campos (¿se puede
@@ -334,15 +333,6 @@ export function KnowledgeBaseFormPage() {
               </p>
             ) : null}
 
-            {/* Hijo DIRECTO de .ds-field-grid, con ds-field-grid--full en el
-                propio <p>: es el patrón que el ítem 58 dejó documentado — el
-                margen negativo de .ds-hint está calculado contra el gap de la
-                grilla, y metido adentro de otro <div> se come el aire del
-                campo de arriba. */}
-            <p className="ds-hint ds-field-grid--full">
-              Una entrada por tema: horarios, formas de pago, cancelaciones.
-            </p>
-
             <div className="ds-field-grid--full">
               <FormField label="Activa">
                 <input
@@ -352,10 +342,6 @@ export function KnowledgeBaseFormPage() {
                 />
               </FormField>
             </div>
-
-            <p className="ds-hint ds-field-grid--full">
-              Desactivada, el agente deja de leerla sin borrarse.
-            </p>
 
             {esClinica ? (
               <div className="ds-field-grid--full">
@@ -369,9 +355,7 @@ export function KnowledgeBaseFormPage() {
                   }}
                 />
                 <p className="ds-hint">
-                  Lo que cargues acá lo puede repetir el agente textualmente. Las indicaciones las
-                  transcribe tal cual, sin explicarlas ni adaptarlas a cada {contacto.singular}. No
-                  cargues datos de {contacto.plural}.
+                  {`El agente lo puede repetir tal cual: no cargues datos de ${contacto.plural}.`}
                 </p>
               </div>
             ) : null}
@@ -394,8 +378,7 @@ export function KnowledgeBaseFormPage() {
               </FormField>
             </div>
             <p className="ds-hint ds-field-grid--full">
-              {`Lo leen tal cual los agentes de ${sucursal.genero === "femenino" ? "esa" : "ese"} ${sucursal.singular}. Hasta`}{" "}
-              {MAX_CONTENT.toLocaleString("es-UY")} caracteres.
+              {`Lo leen tal cual los agentes de ${sucursal.genero === "femenino" ? "esa" : "ese"} ${sucursal.singular}.`}
             </p>
 
             {/* Suelto adentro de la misma Card que el textarea, y no en una
@@ -415,13 +398,11 @@ export function KnowledgeBaseFormPage() {
                 onClear={handleQuitarArchivo}
               />
             </div>
-            <p className="ds-hint ds-field-grid--full">
-              {extrayendo ? (
+            {extrayendo ? (
+              <p className="ds-hint ds-field-grid--full">
                 <InlineLoading>Extrayendo texto…</InlineLoading>
-              ) : (
-                "Se pega el texto acá arriba; el archivo no se guarda."
-              )}
-            </p>
+              </p>
+            ) : null}
             {truncado ? (
               <div className="ds-field-grid--full">
                 <Notice tone="warning" alert={false}>

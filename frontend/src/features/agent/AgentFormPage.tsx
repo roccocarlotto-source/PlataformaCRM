@@ -216,8 +216,7 @@ function validar(
     return "Elegí la sucursal a la que pertenece este agente.";
   }
   // Vacío al CREAR es válido: el POST sale sin modelName y el backend asigna
-  // el default de OPENROUTER_MODEL, que es exactamente lo que el hint del
-  // campo promete. Vacío al EDITAR no: el agente ya tiene un modelo, el PATCH
+  // el default de OPENROUTER_MODEL (lo que dice la guía de uso). Vacío al EDITAR no: el agente ya tiene un modelo, el PATCH
   // parcial simplemente no lo tocaría, y la pantalla habría dicho "guardado"
   // sobre un campo que se dejó en blanco a propósito. Mismo razonamiento que
   // el N° del QR en §54, y por eso el asterisco también depende del modo.
@@ -274,8 +273,8 @@ function validar(
 // desde el agente, así que mover el agente dejaría sus conversaciones
 // históricas apuntando a una sucursal que no las atendió — ver la nota de
 // UpdateAgentInput en src/services/agent.service.ts. En edición se muestra
-// deshabilitada con la razón escrita, en vez de esconderla: mismo criterio
-// que el `type` de SourceFormPage.
+// deshabilitada en vez de esconderla (la razón está en la guía de uso): mismo
+// criterio que el `type` de SourceFormPage.
 //
 // LO QUE ESTA PANTALLA NO CONFIGURA, a propósito: `allowedOrigins` (ver el
 // comentario de CreateAgentInput en types.ts), los tokens de embed y su
@@ -533,11 +532,6 @@ export function AgentFormPage() {
               required={!isEditMode}
               disabled={isEditMode}
             />
-            {isEditMode ? (
-              <p className="ds-hint ds-field-grid--full">
-                {`No se puede cambiar. Para otra ${vocabulario.sucursal.singular}, creá un agente nuevo.`}
-              </p>
-            ) : null}
 
             <FormField label="Objetivo">
               <input
@@ -558,10 +552,6 @@ export function AgentFormPage() {
               />
             </FormField>
 
-            <p className="ds-hint ds-field-grid--full">
-              Resumen para esta pantalla; el agente lee las instrucciones.
-            </p>
-
             <FormField label={`Avisar al ${contacto} si nadie responde en (minutos)`}>
               <input
                 type="number"
@@ -576,8 +566,6 @@ export function AgentFormPage() {
                 }
               />
             </FormField>
-
-            <p className="ds-hint ds-field-grid--full">Vacío o 0: no se avisa.</p>
 
             <div className="ds-field-grid--full">
               <FormField label="Mensaje cuando no hay nadie disponible">
@@ -606,9 +594,6 @@ export function AgentFormPage() {
                   onChange={(event) => setValues({ ...values, isActive: event.target.checked })}
                 />
               </FormField>
-              {sinNivel ? (
-                <p className="ds-hint">Elegí cuánto hace la IA para poder activarlo.</p>
-              ) : null}
             </div>
           </div>
         </Card>
@@ -711,14 +696,6 @@ export function AgentFormPage() {
                 onChange={(event) => setValues({ ...values, modelName: event.target.value })}
               />
             </FormField>
-
-            <p className="ds-hint ds-field-grid--full">
-              {!puedeElegirModelo
-                ? "Lo elige el equipo de la plataforma."
-                : isEditMode
-                  ? "El nombre del modelo tal cual lo publica el proveedor."
-                  : "Si lo dejás vacío, se usa el modelo por defecto."}
-            </p>
           </div>
         </Card>
 
@@ -748,10 +725,6 @@ export function AgentFormPage() {
               onChange={(channels) => setValues({ ...values, channels })}
             />
 
-            <p className="ds-hint ds-field-grid--full">
-              Sin canales, el agente no atiende por ningún lado.
-            </p>
-
             {avisoDeAccionesSinGuardarElNombre(
               values.enabledTools,
               me?.industry === "CLINICA",
@@ -768,8 +741,8 @@ export function AgentFormPage() {
 
             {/* Solo lectura desde el ítem 127 (A-01): el número lo asigna el
                 platform admin y el formulario ya no lo manda. Mismo patrón
-                que la Sucursal en edición: el campo deshabilitado y el
-                porqué debajo. */}
+                que la Sucursal en edición: el campo deshabilitado; el porqué
+                está en la guía de uso. */}
             <FormField label="ID del número de WhatsApp">
               <input
                 type="text"
@@ -779,8 +752,6 @@ export function AgentFormPage() {
                 readOnly
               />
             </FormField>
-
-            <p className="ds-hint ds-field-grid--full">Lo asigna el equipo de la plataforma.</p>
           </div>
         </Card>
 
@@ -797,9 +768,6 @@ export function AgentFormPage() {
                 />
               </FormField>
             </div>
-            <p className="ds-hint ds-field-grid--full">
-              El sistema las hace cumplir antes de cada acción.
-            </p>
           </div>
         </Card>
 

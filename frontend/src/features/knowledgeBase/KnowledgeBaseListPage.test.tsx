@@ -739,7 +739,7 @@ describe("KnowledgeBaseListPage · sincronizar stock", () => {
     return screen.getByRole("button", { name: "Sincronizar stock" });
   }
 
-  it("sin sucursal elegida el botón está deshabilitado y la pantalla dice qué falta", async () => {
+  it("sin sucursal elegida el botón está deshabilitado", async () => {
     server.use(
       mockBranches(),
       http.get(baseUrl, () => HttpResponse.json(listResponse())),
@@ -749,10 +749,9 @@ describe("KnowledgeBaseListPage · sincronizar stock", () => {
     await screen.findByText("Horarios de atención");
 
     expect(boton()).toBeDisabled();
-    expect(screen.getByText("Elegí una sucursal para sincronizar su stock.")).toBeInTheDocument();
   });
 
-  it("elegir una sucursal lo habilita y el hint se va", async () => {
+  it("elegir una sucursal lo habilita", async () => {
     server.use(
       mockBranches(),
       http.get(baseUrl, () => HttpResponse.json(listResponse())),
@@ -765,9 +764,6 @@ describe("KnowledgeBaseListPage · sincronizar stock", () => {
     await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Sucursal Chuy");
 
     await waitFor(() => expect(boton()).toBeEnabled());
-    expect(
-      screen.queryByText("Elegí una sucursal para sincronizar su stock."),
-    ).not.toBeInTheDocument();
   });
 
   it("cancelar la confirmación no llama al endpoint", async () => {
