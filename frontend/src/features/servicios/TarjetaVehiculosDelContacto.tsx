@@ -23,52 +23,57 @@ export function TarjetaVehiculosDelContacto({
 }) {
   const vehiculosQuery = useQuery(vehiculosDelContactoQuery(contactId));
 
-  // Mismo envoltorio que ContactVouchersSection: el ancho de la ficha.
+  // Mismo envoltorio que ContactVouchersSection: el ancho de la ficha, y
+  // .ds-payment-section para separarla de la sección de arriba.
   return (
-    <div className="ds-form ds-stack">
+    <div className="ds-form ds-stack ds-payment-section">
       <Card heading="Vehículos">
-        {vehiculosQuery.isLoading ? <LoadingState variant="rows" /> : null}
-        {vehiculosQuery.isError ? <ErrorState>No pudimos cargar sus vehículos.</ErrorState> : null}
-        {vehiculosQuery.isSuccess && vehiculosQuery.data.data.length === 0 ? (
-          <EmptyState>No tiene vehículos cargados en el taller.</EmptyState>
-        ) : null}
-        {vehiculosQuery.isSuccess && vehiculosQuery.data.data.length > 0 ? (
-          <ul className="ds-stack">
-            {vehiculosQuery.data.data.map((v) => (
-              <li key={v.id}>
-                <Link to={`/taller/vehiculos/${v.id}`}>
-                  {[descripcionDe(v), v.licensePlate].filter(Boolean).join(" · ")}
-                </Link>
-                <div className="ds-cell-muted">
-                  {v.remindersOptOut
-                    ? "No recordar"
-                    : v.nextServiceDueOn
-                      ? `Próximo service: ${formatearFecha(v.nextServiceDueOn)}`
-                      : "Sin próximo service"}
-                  {v.ordenAbierta ? (
-                    <>
-                      {" "}
-                      <Badge variant="info">
-                        {`${v.ordenAbierta.numero} · ${ETIQUETA_DE_ESTADO[v.ordenAbierta.status]}`}
-                      </Badge>
-                    </>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {puedeAgregar ? (
-          <p>
-            <Link
-              to={`/taller/vehiculos/nuevo?contactId=${encodeURIComponent(contactId)}`}
-              className="ds-link-button"
-            >
-              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-              Agregar vehículo
-            </Link>
-          </p>
-        ) : null}
+        <div className="ds-stack">
+          {vehiculosQuery.isLoading ? <LoadingState variant="rows" /> : null}
+          {vehiculosQuery.isError ? (
+            <ErrorState>No pudimos cargar sus vehículos.</ErrorState>
+          ) : null}
+          {vehiculosQuery.isSuccess && vehiculosQuery.data.data.length === 0 ? (
+            <EmptyState>No tiene vehículos cargados en el taller.</EmptyState>
+          ) : null}
+          {vehiculosQuery.isSuccess && vehiculosQuery.data.data.length > 0 ? (
+            <ul className="ds-stack">
+              {vehiculosQuery.data.data.map((v) => (
+                <li key={v.id}>
+                  <Link to={`/taller/vehiculos/${v.id}`}>
+                    {[descripcionDe(v), v.licensePlate].filter(Boolean).join(" · ")}
+                  </Link>
+                  <div className="ds-cell-muted">
+                    {v.remindersOptOut
+                      ? "No recordar"
+                      : v.nextServiceDueOn
+                        ? `Próximo service: ${formatearFecha(v.nextServiceDueOn)}`
+                        : "Sin próximo service"}
+                    {v.ordenAbierta ? (
+                      <>
+                        {" "}
+                        <Badge variant="info">
+                          {`${v.ordenAbierta.numero} · ${ETIQUETA_DE_ESTADO[v.ordenAbierta.status]}`}
+                        </Badge>
+                      </>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {puedeAgregar ? (
+            <p>
+              <Link
+                to={`/taller/vehiculos/nuevo?contactId=${encodeURIComponent(contactId)}`}
+                className="ds-link-button"
+              >
+                <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+                Agregar vehículo
+              </Link>
+            </p>
+          ) : null}
+        </div>
       </Card>
     </div>
   );

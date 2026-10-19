@@ -105,12 +105,7 @@ export function CambiarDuenoDialog({
             onChange={(event) => setNota(event.target.value)}
           />
         </FormField>
-        <p className="ds-hint">
-          {opcion === "OTRO_CONTACTO"
-            ? "Se borra la fecha de compra y el próximo service se conserva para el dueño nuevo."
-            : "Se borra la fecha de compra y el vehículo deja de recibir avisos."}{" "}
-          El cambio queda registrado y no se puede deshacer: un error se corrige con otro cambio.
-        </p>
+        <p className="ds-hint">Se borra la fecha de compra y no se puede deshacer.</p>
         {error ? <ErrorState>{error}</ErrorState> : null}
       </form>
     </Modal>

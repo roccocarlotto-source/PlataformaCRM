@@ -151,9 +151,6 @@ export function RegistrarAprobacionDialog({
             Sumar al valor de la orden
           </label>
         ) : null}
-        {decision === "APROBADO" && !monto.trim() ? (
-          <p className="ds-hint">Para sumarlo al valor de la orden, cargá el monto.</p>
-        ) : null}
         {error ? <ErrorState>{error}</ErrorState> : null}
       </form>
     </Modal>

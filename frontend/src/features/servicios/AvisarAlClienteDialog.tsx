@@ -4,7 +4,6 @@ import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { Modal } from "../../design-system/Modal";
-import { Notice } from "../../design-system/Notice";
 import { useRegistrarAviso } from "./mutations";
 import type { AvisosDeLaOrden, MedioDeAviso } from "./types";
 
@@ -81,14 +80,11 @@ export function AvisarAlClienteDialog({
             </Link>
           </p>
         ) : (
-          <Notice tone="info" alert={false} title="No se puede mandar por WhatsApp desde acá">
-            <p>
-              {conversacion
-                ? "Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp no deja mandar texto libre."
-                : "El cliente no tiene una conversación de WhatsApp."}{" "}
-              Copiá el texto o llamalo.
-            </p>
-          </Notice>
+          <p className="ds-hint">
+            {conversacion
+              ? "Pasaron más de 24 h desde su último mensaje: no se puede mandar por WhatsApp."
+              : "El cliente no tiene una conversación de WhatsApp."}
+          </p>
         )}
 
         <p>

@@ -29,9 +29,12 @@ function aMeses(valor: string): number | null {
   return valor.trim() === "" ? null : Number(valor);
 }
 
+// Mismo esqueleto que las demás pantallas de configuración (un .ds-form con
+// PageHeader + .ds-stack de tarjetas), pero cada tarjeta guarda por separado:
+// el <form> va adentro de cada una y no envuelve la página.
 export function ConfiguracionDelTallerPage() {
   return (
-    <div>
+    <div className="ds-form">
       <PageHeader help={AYUDA.configuracionDelTaller} title="Configuración del taller" />
       <div className="ds-stack">
         <Moneda />
@@ -67,39 +70,37 @@ function FormularioDeMoneda({ inicial }: { inicial: string }) {
   }
 
   return (
-    <form onSubmit={enviar} className="ds-form">
+    <form onSubmit={enviar}>
       <Card heading="Moneda del taller">
-        <Select
-          id="taller-moneda"
-          label="Moneda"
-          value={moneda}
-          options={[
-            ...(isKnownCurrency(moneda) ? [] : [{ value: moneda, label: moneda }]),
-            ...CURRENCY_OPTIONS.map((m) => ({ value: m, label: m })),
-          ]}
-          onChange={(valor) => {
-            setMoneda(valor);
-            setGuardado(false);
-          }}
-        />
-        <p className="ds-hint">
-          Es la que toma el valor de una orden nueva si no se elige otra. Las órdenes que ya tienen
-          valor quedan en su moneda.
-        </p>
-        {guardar.isError ? (
-          <ErrorState>
-            {guardar.error instanceof Error ? guardar.error.message : "No pudimos guardar."}
-          </ErrorState>
-        ) : null}
-        {guardado ? <p className="ds-hint">Guardado.</p> : null}
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={guardar.isPending}
-          loading={guardar.isPending}
-        >
-          Guardar
-        </Button>
+        <div className="ds-stack">
+          <Select
+            id="taller-moneda"
+            label="Moneda"
+            value={moneda}
+            options={[
+              ...(isKnownCurrency(moneda) ? [] : [{ value: moneda, label: moneda }]),
+              ...CURRENCY_OPTIONS.map((m) => ({ value: m, label: m })),
+            ]}
+            onChange={(valor) => {
+              setMoneda(valor);
+              setGuardado(false);
+            }}
+          />
+          {guardar.isError ? (
+            <ErrorState>
+              {guardar.error instanceof Error ? guardar.error.message : "No pudimos guardar."}
+            </ErrorState>
+          ) : null}
+          {guardado ? <p className="ds-hint">Guardado.</p> : null}
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={guardar.isPending}
+            loading={guardar.isPending}
+          >
+            Guardar
+          </Button>
+        </div>
       </Card>
     </form>
   );
@@ -131,47 +132,44 @@ function FormularioDeIntervalos({ inicial }: { inicial: ConfiguracionDelTaller }
   }
 
   return (
-    <form onSubmit={enviar} className="ds-form">
+    <form onSubmit={enviar}>
       <Card heading="Próximo service">
-        <div className="ds-field-grid">
-          <FormField label="Intervalo por defecto (meses)">
-            <input
-              type="number"
-              min={1}
-              max={60}
-              value={porDefecto}
-              onChange={(event) => setPorDefecto(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Primer service de un auto vendido (meses)">
-            <input
-              type="number"
-              min={1}
-              max={60}
-              value={primero}
-              onChange={(event) => setPrimero(event.target.value)}
-            />
-          </FormField>
+        <div className="ds-stack">
+          <div className="ds-field-grid">
+            <FormField label="Intervalo por defecto (meses)">
+              <input
+                type="number"
+                min={1}
+                max={60}
+                value={porDefecto}
+                onChange={(event) => setPorDefecto(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Primer service de un auto vendido (meses)">
+              <input
+                type="number"
+                min={1}
+                max={60}
+                value={primero}
+                onChange={(event) => setPrimero(event.target.value)}
+              />
+            </FormField>
+          </div>
+          {guardar.isError ? (
+            <ErrorState>
+              {guardar.error instanceof Error ? guardar.error.message : "No pudimos guardar."}
+            </ErrorState>
+          ) : null}
+          {guardado ? <p className="ds-hint">Guardado.</p> : null}
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={guardar.isPending}
+            loading={guardar.isPending}
+          >
+            Guardar
+          </Button>
         </div>
-        <p className="ds-hint">
-          El intervalo por defecto se usa al entregar una orden sin tipos con intervalo. Vacío: no
-          se propone fecha. El primer service de un auto vendido se aplica cuando las ventas pasan
-          al taller.
-        </p>
-        {guardar.isError ? (
-          <ErrorState>
-            {guardar.error instanceof Error ? guardar.error.message : "No pudimos guardar."}
-          </ErrorState>
-        ) : null}
-        {guardado ? <p className="ds-hint">Guardado.</p> : null}
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={guardar.isPending}
-          loading={guardar.isPending}
-        >
-          Guardar
-        </Button>
       </Card>
     </form>
   );
@@ -197,69 +195,67 @@ function Tipos() {
 
   return (
     <Card heading="Tipos de service">
-      {tipos.isLoading ? <LoadingState variant="rows" /> : null}
-      {tipos.isError ? <ErrorState>No pudimos cargar los tipos.</ErrorState> : null}
-      {tipos.isSuccess && tipos.data.length === 0 ? (
-        <EmptyState>Todavía no hay tipos de service.</EmptyState>
-      ) : null}
-      {tipos.isSuccess && tipos.data.length > 0 ? (
-        <Table>
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>Próximo service</th>
-              <th>Activo</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tipos.data.map((t) => (
-              <FilaDeTipo key={t.id} tipo={t} />
-            ))}
-          </tbody>
-        </Table>
-      ) : null}
-      <form onSubmit={agregar} className="ds-stack" noValidate>
-        <p className="ds-hint">
-          Cada tipo dice cada cuántos meses vuelve el auto. Al entregar una orden se propone el
-          próximo service con el intervalo más corto de sus tipos; sin meses, el tipo no fija fecha.
-        </p>
-        <div className="ds-field-grid">
-          <FormField label="Nombre del service">
-            <input
-              type="text"
-              maxLength={120}
-              placeholder="Service 10.000 km"
-              value={nombre}
-              onChange={(event) => {
-                setNombre(event.target.value);
-                setFalta(null);
-              }}
-            />
-          </FormField>
-          <FormField label="Cada cuántos meses">
-            <input
-              type="number"
-              min={1}
-              max={60}
-              placeholder="Vacío: no fija fecha"
-              value={meses}
-              onChange={(event) => setMeses(event.target.value)}
-            />
-          </FormField>
-        </div>
-        {falta ? <ErrorState>{falta}</ErrorState> : null}
-        <div>
-          <Button type="submit" disabled={crear.isPending} loading={crear.isPending}>
-            Agregar tipo
-          </Button>
-        </div>
-      </form>
-      {crear.isError ? (
-        <ErrorState>
-          {crear.error instanceof Error ? crear.error.message : "No pudimos agregar el tipo."}
-        </ErrorState>
-      ) : null}
+      <div className="ds-stack">
+        {tipos.isLoading ? <LoadingState variant="rows" /> : null}
+        {tipos.isError ? <ErrorState>No pudimos cargar los tipos.</ErrorState> : null}
+        {tipos.isSuccess && tipos.data.length === 0 ? (
+          <EmptyState>Todavía no hay tipos de service.</EmptyState>
+        ) : null}
+        {tipos.isSuccess && tipos.data.length > 0 ? (
+          <Table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Próximo service</th>
+                <th>Activo</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tipos.data.map((t) => (
+                <FilaDeTipo key={t.id} tipo={t} />
+              ))}
+            </tbody>
+          </Table>
+        ) : null}
+        <form onSubmit={agregar} className="ds-stack" noValidate>
+          <div className="ds-field-grid">
+            <FormField label="Nombre del service">
+              <input
+                type="text"
+                maxLength={120}
+                placeholder="Service 10.000 km"
+                value={nombre}
+                onChange={(event) => {
+                  setNombre(event.target.value);
+                  setFalta(null);
+                }}
+              />
+            </FormField>
+            <FormField label="Cada cuántos meses">
+              <input
+                type="number"
+                min={1}
+                max={60}
+                placeholder="Vacío: no fija fecha"
+                value={meses}
+                onChange={(event) => setMeses(event.target.value)}
+              />
+            </FormField>
+          </div>
+          {falta ? <ErrorState>{falta}</ErrorState> : null}
+          <div>
+            <Button type="submit" disabled={crear.isPending} loading={crear.isPending}>
+              Agregar tipo
+            </Button>
+          </div>
+        </form>
+        {crear.isError ? (
+          <ErrorState>
+            {crear.error instanceof Error ? crear.error.message : "No pudimos agregar el tipo."}
+          </ErrorState>
+        ) : null}
+      </div>
     </Card>
   );
 }

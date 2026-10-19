@@ -87,9 +87,7 @@ export function TiposDeLaOrden({
       <legend>Tipos de service</legend>
       {tipos.isLoading ? <InlineLoading /> : null}
       {tipos.isSuccess && opciones.length === 0 ? (
-        <p className="ds-hint">
-          Todavía no hay tipos de service. Un administrador los carga en Taller → Configuración.
-        </p>
+        <p className="ds-hint">Todavía no hay tipos de service.</p>
       ) : null}
       {opciones.map((t) => (
         <label key={t.id}>
