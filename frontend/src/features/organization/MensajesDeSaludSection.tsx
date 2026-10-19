@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
-import { formatDateTime } from "../../design-system/detailFormat";
+import { conPuntoFinal, formatDateTime } from "../../design-system/detailFormat";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -160,7 +160,9 @@ function FormularioDeMensajes({ datos }: { datos: MensajesDeSalud }) {
 
       <p className="ds-hint">
         {datos.ultimoCambio
-          ? `Último cambio: ${datos.ultimoCambio.changedBy.fullName}, ${formatDateTime(datos.ultimoCambio.createdAt)}.`
+          ? conPuntoFinal(
+              `Último cambio: ${datos.ultimoCambio.changedBy.fullName}, ${formatDateTime(datos.ultimoCambio.createdAt)}`,
+            )
           : "Todavía no se cambiaron: son los mensajes y las palabras por defecto."}
       </p>
 

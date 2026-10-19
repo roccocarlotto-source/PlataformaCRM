@@ -27,6 +27,15 @@ export function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
+// Una frase que termina en un formatDateTime lleva un solo punto final. En
+// español la hora puede terminar en "a. m." o "p. m." según el navegador, y un
+// "." pegado a eso se leía "11:05:23 a. m.." (prueba de la Taller Demo,
+// 2026-10-19); en un navegador en 24 h o en inglés no termina en punto y hay
+// que ponerlo.
+export function conPuntoFinal(frase: string): string {
+  return frase.endsWith(".") ? frase : `${frase}.`;
+}
+
 // Fecha sola, sin hora, en el formato local del navegador: el mismo
 // `toLocaleDateString()` que usaban Fuentes y Claves. Junto a formatDateTime
 // para que las fechas de toda la app salgan de un solo lugar.

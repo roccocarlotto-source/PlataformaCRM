@@ -5,7 +5,7 @@ import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { DetailList } from "../../design-system/DetailList";
-import { formatDateTime, yesNo } from "../../design-system/detailFormat";
+import { conPuntoFinal, formatDateTime, yesNo } from "../../design-system/detailFormat";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -101,7 +101,7 @@ function Ficha({ vehiculo }: { vehiculo: FichaDeVehiculo }) {
           <Notice tone="warning" alert={false} title="Ya no es del cliente">
             {vehiculo.ownershipEndReason ? ETIQUETA_DE_MOTIVO[vehiculo.ownershipEndReason] : null}
             {vehiculo.ownershipEndedAt
-              ? `, desde el ${formatDateTime(vehiculo.ownershipEndedAt)}.`
+              ? conPuntoFinal(`, desde el ${formatDateTime(vehiculo.ownershipEndedAt)}`)
               : "."}{" "}
             No recibe avisos del taller.
           </Notice>
