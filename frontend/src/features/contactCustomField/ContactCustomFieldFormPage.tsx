@@ -311,6 +311,7 @@ export function ContactCustomFieldFormPage() {
               />
             </FormField>
           </div>
+          {isEditMode ? null : <p className="ds-hint">La clave no cambia después.</p>}
         </Card>
 
         {error ? <ErrorState>{error}</ErrorState> : null}

@@ -323,6 +323,7 @@ exports[`automotora sin cambios: los textos de antes de R17b > campo nuevo 1`] =
   "[placeholder] Patente del auto",
   "Tipo",
   "Editable por el agente de IA",
+  "La clave no cambia después.",
   "Los campos con asterisco (*) son obligatorios.",
   "Guardar",
 ]
