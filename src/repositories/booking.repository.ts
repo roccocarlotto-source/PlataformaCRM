@@ -184,6 +184,25 @@ export function countFutureConfirmedBookingsOfContact(
   });
 }
 
+// Las mismas reservas, con lo que el agente necesita para nombrarlas: el bloque
+// del contacto en el prompt (bloqueDeContacto en agentOrchestration.service.ts)
+// las lista para que el modelo no niegue ni repita una reserva que hizo en un
+// mensaje anterior. Las más próximas primero y con tope.
+export function findFutureConfirmedBookingsOfContact(
+  contactId: string,
+  organizationId: string,
+  ahora: Date,
+  limite: number,
+  db: Db = prisma,
+) {
+  return db.booking.findMany({
+    where: { contactId, organizationId, status: "CONFIRMED", startsAt: { gt: ahora } },
+    orderBy: { startsAt: "asc" },
+    take: limite,
+    select: { startsAt: true, endsAt: true, serviceType: { select: { name: true } } },
+  });
+}
+
 export interface CreateBookingData {
   organizationId: string;
   branchId: string;

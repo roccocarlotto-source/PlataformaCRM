@@ -1038,6 +1038,45 @@ test("bloqueDeContacto lista lo que hay y prohíbe volver a pedirlo", () => {
   assert.match(bloque, /teléfono: \+59899123456/);
   assert.match(bloque, /No se los vuelvas a pedir/);
   assert.match(bloque, /Llamala por su nombre/);
+  // Con nombre Y apellido, tampoco se piden para reservar (Taller Demo,
+  // 2026-10-18: pidió el apellido de una contacta que ya lo tenía).
+  assert.match(bloque, /Ya tenés su nombre y apellido: no se los pidas/);
+});
+
+test("bloqueDeContacto con lo registrado lista las reservas en la zona de la sucursal y las oportunidades, como dato", () => {
+  const bloque = bloqueDeContacto(
+    { firstName: "Sofía", lastName: "Ramos", email: null, phone: null },
+    "WEB",
+    {
+      // 13:00Z = 10:00 en Montevideo.
+      reservas: [
+        {
+          servicio: "Prueba de manejo",
+          startsAt: new Date("2026-10-19T13:00:00.000Z"),
+          endsAt: new Date("2026-10-19T13:30:00.000Z"),
+        },
+      ],
+      oportunidades: [{ titulo: "Prueba de manejo Renault Kwid", etapa: "Nuevo" }],
+    },
+    "America/Montevideo",
+  );
+  assert.match(bloque, /- Prueba de manejo: lunes 19 de octubre, 10:00 a 10:30/);
+  assert.match(bloque, /- Prueba de manejo Renault Kwid \(etapa: Nuevo\)/);
+  assert.match(bloque, /confirmalo con estos datos, sin volver a crearlo/);
+  // Los títulos los escribió el modelo con lo que dijo el cliente: van adentro
+  // de la etiqueta de desconfianza, igual que el nombre.
+  const adentro = bloque.split("<datos_del_crm>").at(-1)!.split("</datos_del_crm>")[0]!;
+  assert.match(adentro, /Renault Kwid/);
+  assert.match(adentro, /Reservas vigentes:/);
+});
+
+test("bloqueDeContacto sin nada registrado lo dice explícito, y sin el parámetro no dice nada", () => {
+  const contacto = { firstName: "Sofía", lastName: "Ramos", email: null, phone: null };
+  assert.match(
+    bloqueDeContacto(contacto, "WEB", { reservas: [], oportunidades: [] }),
+    /El CRM no tiene ninguna reserva vigente ni ninguna oportunidad abierta de esta persona\./,
+  );
+  assert.doesNotMatch(bloqueDeContacto(contacto, "WEB"), /reserva vigente|Reservas vigentes/);
 });
 
 test("bloqueDeContacto omite los campos vacíos en vez de decir 'null'", () => {

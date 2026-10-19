@@ -244,6 +244,13 @@ habilitada.
 > el nombre pero no va a poder guardarlo, y el turno nunca se va a agendar. La
 > pantalla te lo avisa.
 
+**Lo que el agente ya sabe del paciente.** En cada mensaje, el agente ve los
+datos que el sistema tiene del paciente (nombre, apellido y, salvo en el chat
+del sitio web, email y teléfono) y sus turnos que todavía no pasaron. Por eso
+no vuelve a pedir el nombre y el apellido si ya están cargados, y si el
+paciente pregunta por un turno que agendó en un mensaje anterior, se lo
+confirma en vez de agendarlo de nuevo.
+
 ## Reglas del agente {#reglas}
 
 La tarjeta **Reglas del agente** es para las prohibiciones que el sistema
