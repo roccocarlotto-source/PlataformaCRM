@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { formatDateOnly, formatShortDateTime, formatRelativeTime } from "./detailFormat";
+import {
+  conPuntoFinal,
+  formatDateOnly,
+  formatShortDateTime,
+  formatRelativeTime,
+} from "./detailFormat";
+
+describe("conPuntoFinal", () => {
+  it("no suma un punto a una hora que ya termina en «a. m.» o «p. m.»", () => {
+    expect(conPuntoFinal("Hasta el 20/10/2026, 11:05:23 a. m.")).toBe(
+      "Hasta el 20/10/2026, 11:05:23 a. m.",
+    );
+    expect(conPuntoFinal("Hasta el 20/10/2026, 4:05:23 p. m.")).toBe(
+      "Hasta el 20/10/2026, 4:05:23 p. m.",
+    );
+  });
+
+  it("lo pone cuando la hora no termina en punto (24 h, o en inglés)", () => {
+    expect(conPuntoFinal("Hasta el 20/10/2026, 16:05:23")).toBe("Hasta el 20/10/2026, 16:05:23.");
+    expect(conPuntoFinal("Hasta el 10/20/2026, 4:05:23 PM")).toBe(
+      "Hasta el 10/20/2026, 4:05:23 PM.",
+    );
+  });
+});
 
 // Fechas armadas con el constructor local (año, mes, día, hora, minuto) y no
 // con ISO en UTC: formatShortDateTime trabaja en la hora local del navegador,

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
-import { formatDateTime } from "../../design-system/detailFormat";
+import { conPuntoFinal, formatDateTime } from "../../design-system/detailFormat";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
@@ -92,7 +92,9 @@ export function AvisoDelTurno({ orden }: { orden: FichaDeOrden }) {
     new Date(orden.scheduledFor).getTime() !== new Date(turno.startsAt).getTime()
   ) {
     titulo = "El turno cambió de horario";
-    texto = `El turno es el ${formatDateTime(turno.startsAt)}; la orden esperaba el auto el ${formatDateTime(orden.scheduledFor)}.`;
+    texto = conPuntoFinal(
+      `El turno es el ${formatDateTime(turno.startsAt)}; la orden esperaba el auto el ${formatDateTime(orden.scheduledFor)}`,
+    );
   }
   if (!titulo) return null;
 

@@ -10,7 +10,7 @@ import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Select } from "../../design-system/Select";
 import { Table } from "../../design-system/Table";
-import { formatDateTime } from "../../design-system/detailFormat";
+import { conPuntoFinal, formatDateTime } from "../../design-system/detailFormat";
 import { ContactSelect } from "../opportunity/ContactSelect";
 import { useCrearSobreturno, useHorariosConSobreturnos } from "./agendaQueries";
 import { usePrestaciones } from "./queries";
@@ -153,7 +153,9 @@ export function SobreturnosPage() {
       </div>
       {/* Fuera de la tarjeta: adentro el aviso quedaba pegado a sus bordes. */}
       {cargado ? (
-        <Notice tone="info">Sobreturno cargado para el {formatDateTime(cargado)}.</Notice>
+        <Notice tone="info">
+          {conPuntoFinal(`Sobreturno cargado para el ${formatDateTime(cargado)}`)}
+        </Notice>
       ) : null}
     </div>
   );

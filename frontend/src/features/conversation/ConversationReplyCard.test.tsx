@@ -95,6 +95,21 @@ describe("ConversationReplyCard", () => {
     expect(screen.queryByText(/Sale por WhatsApp desde el número del negocio/)).toBeNull();
   });
 
+  it("con la hora en español («a. m.») la frase termina en un solo punto", () => {
+    // El formato lo pone el navegador: se simula uno en español de 12 h.
+    const toLocaleString = vi
+      .spyOn(Date.prototype, "toLocaleString")
+      .mockReturnValue("20/10/2026, 11:05:23 a. m.");
+    try {
+      renderCard(makeConversationDetail(ABIERTA));
+      expect(
+        screen.getByText("Podés escribir texto libre hasta el 20/10/2026, 11:05:23 a. m."),
+      ).toBeInTheDocument();
+    } finally {
+      toLocaleString.mockRestore();
+    }
+  });
+
   it("pasadas las 24 h, el cuadro queda deshabilitado con la explicación", () => {
     renderCard(makeConversationDetail({ replyWindowEndsAt: "2026-09-30T11:00:00.000Z" }));
     expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeDisabled();

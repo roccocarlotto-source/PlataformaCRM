@@ -5,7 +5,7 @@ import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { Modal } from "../../design-system/Modal";
-import { formatDateTime } from "../../design-system/detailFormat";
+import { conPuntoFinal, formatDateTime } from "../../design-system/detailFormat";
 import { useReplyToConversation, useReturnConversationToAgent } from "./mutations";
 import { puedeAtender } from "./permissions";
 import type { ConversationDetail } from "./types";
@@ -154,7 +154,9 @@ export function ConversationReplyCard({
             <p className="ds-hint">Mientras atiendas vos, el agente no responde.</p>
             {tieneVentana ? (
               <p className="ds-hint">
-                {`Podés escribir texto libre hasta el ${formatDateTime(conversation.replyWindowEndsAt)}.`}
+                {conPuntoFinal(
+                  `Podés escribir texto libre hasta el ${formatDateTime(conversation.replyWindowEndsAt)}`,
+                )}
               </p>
             ) : null}
           </>
