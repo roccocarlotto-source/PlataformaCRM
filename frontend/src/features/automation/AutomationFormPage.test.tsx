@@ -537,7 +537,7 @@ describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159
     const unidad = screen.getByLabelText("Unidad");
     expect(unidad).toHaveValue("Horas");
     expect(await listSelectOptions(user, unidad)).toEqual(["Minutos", "Horas", "Días"]);
-    expect(screen.getByText(/hasta 30 días de espera/)).toBeInTheDocument();
+    expect(screen.getByText("Le llega al cliente por WhatsApp.")).toBeInTheDocument();
   });
 
   it("sin ningún QR, avisa dónde crearlo en vez de un desplegable vacío", async () => {
@@ -954,28 +954,27 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
     renderForm("/automations/a1/edit");
 
     expect(await screen.findByText(/Aprobación de WhatsApp:/)).toHaveTextContent("Pendiente");
-    expect(screen.getByText(/se sigue mandando el anterior/)).toBeInTheDocument();
+    expect(screen.getByText(/se sigue mandando el mensaje anterior/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Consultar estado" }));
     await waitFor(() => expect(consultas).toBe(1));
   });
 
-  it("rechazada: el motivo de Meta entre paréntesis y qué hacer", async () => {
+  it("rechazada: el motivo de Meta entre paréntesis", async () => {
     servirRegla(aprobacion({ estado: "RECHAZADA", motivo: "INVALID_FORMAT" }));
     renderForm("/automations/a1/edit");
 
     expect(await screen.findByText(/Aprobación de WhatsApp:/)).toHaveTextContent(
       "Aprobación de WhatsApp: Rechazada (INVALID_FORMAT)",
     );
-    expect(screen.getByText(/Cambiá el texto y guardá/)).toBeInTheDocument();
   });
 
-  it("regla nueva: explica que se manda a aprobar al guardar; 'solo imagen' cambia el texto inicial y la vista previa", async () => {
+  it("regla nueva: avisa que no sale hasta que WhatsApp lo apruebe; 'solo imagen' cambia el texto inicial y la vista previa", async () => {
     const user = userEvent.setup();
     renderForm("/automations/new");
     await chooseSelectOption(user, screen.getByLabelText("Acción"), "Enviar QR por WhatsApp");
 
-    expect(screen.getByText(/se manda a aprobar a WhatsApp/)).toBeInTheDocument();
+    expect(screen.getByText("No se manda hasta que WhatsApp lo apruebe.")).toBeInTheDocument();
     expect(screen.getByLabelText("Texto del mensaje")).toHaveValue(
       textoInicial("opportunity.send_qr_followup", "LINK"),
     );
@@ -1124,9 +1123,6 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
     renderForm("/automations/a1/edit");
 
     expect(await screen.findByText(/Se reintenta solo \(próximo intento:/)).toBeInTheDocument();
-    expect(
-      screen.queryByText("Se manda a aprobar cuando guardes la regla."),
-    ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Reintentar" }));
     await waitFor(() => expect(reintentos).toBe(1));
   });

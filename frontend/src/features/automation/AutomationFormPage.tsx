@@ -1,6 +1,5 @@
 import { ETIQUETA_DE_ESTADO } from "../servicios/formato";
 import { useAuth } from "../../auth/AuthContext";
-import { vocabularioDe } from "../../auth/vocabulario";
 import { useModulo } from "../../auth/useModulo";
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -221,9 +220,6 @@ function CamposDelTrigger({
               required
             />
           </FormField>
-          <p className="ds-hint ds-field-grid--full">
-            Se revisa una vez por día. Solo una regla activa con este evento.
-          </p>
         </>
       );
     case TRIGGER_CONTACT_INQUIRY_STALLED:
@@ -255,9 +251,6 @@ function CamposDelTrigger({
               required
             />
           </FormField>
-          <p className="ds-hint ds-field-grid--full">
-            Se revisa una vez por día. Solo una regla activa con este evento.
-          </p>
         </>
       );
     // S7 (docs/servicios.md §6.2): cuántos días antes o después de la fecha
@@ -295,10 +288,6 @@ function CamposDelTrigger({
             disabled={disabled}
             required
           />
-          <p className="ds-hint ds-field-grid--full">
-            Se revisa todos los días desde las 10:00. Un aviso por vehículo y fecha de service; no
-            se avisa si el vehículo ya tiene una orden abierta o está marcado para no recordar.
-          </p>
         </>
       );
     // S13 (docs/servicios.md §7.2): cuántos meses después de la compra es el
@@ -330,11 +319,6 @@ function CamposDelTrigger({
               required
             />
           </FormField>
-          <p className="ds-hint ds-field-grid--full">
-            Se revisa todos los días desde las 10:00. Un aviso por vehículo; no se avisa si el
-            cliente tiene una oportunidad abierta o está marcado sin interés. Solo una regla con
-            este evento.
-          </p>
         </>
       );
     // S8 (docs/servicios.md §9): a qué estados pasa la orden.
@@ -360,10 +344,6 @@ function CamposDelTrigger({
               />
             </FormField>
           ))}
-          <p className="ds-hint ds-field-grid--full">
-            También cuenta una orden que se crea directamente en ese estado (por ejemplo, Recibido).
-            Una tarea por orden y regla, aunque la orden vuelva a ese estado.
-          </p>
         </>
       );
     }
@@ -450,21 +430,10 @@ function CamposDeLaAccion({
   triggerType?: string;
 }) {
   const delProximoService = triggerType === TRIGGER_SERVICE_NEXT_SERVICE_DUE;
-  // S13: con el recambio, la tarea es para ventas.
-  const delRecambio = triggerType === TRIGGER_SERVICE_REPLACEMENT_DUE;
   // S8: con un evento de la orden, la tarea es del encargado de la orden.
   const deLaOrden =
     triggerType === TRIGGER_SERVICE_ORDER_STATUS_CHANGED ||
     triggerType === TRIGGER_SERVICE_ORDER_DELIVERED;
-  // Un solo nodo de texto con el resto de la frase: el texto de siempre no
-  // cambia para quien no tiene el módulo (textosDelRubro.test.tsx).
-  const asignadaA = delRecambio
-    ? "Asignada al vendedor del cliente (o al de la venta, o al responsable de la sucursal)"
-    : delProximoService
-      ? "Asignada al encargado de la última orden del vehículo (o al responsable de la sucursal)"
-      : deLaOrden
-        ? "Asignada al encargado de la orden (o al responsable de la sucursal)"
-        : "Asignada al dueño de la oportunidad";
   switch (actionType) {
     case ACTION_CREATE_FOLLOW_UP:
       return (
@@ -517,10 +486,6 @@ function CamposDeLaAccion({
               />
             </FormField>
           </div>
-          <p className="ds-hint ds-field-grid--full">
-            {`${asignadaA}; vence a los días indicados (`}
-            {MIN_DAYS_UNTIL_DUE} a {MAX_DAYS_UNTIL_DUE}).
-          </p>
         </>
       );
     // S7 (docs/servicios.md §6.3, D8): el mensaje va en la tarjeta de abajo;
@@ -543,11 +508,6 @@ function CamposDeLaAccion({
               />
             </FormField>
           </div>
-          <p className="ds-hint ds-field-grid--full">
-            Sale en el horario de la sucursal del vehículo. Sin teléfono, sin un número de WhatsApp
-            conectado, con el mensaje todavía sin aprobar o si el cliente no acepta mensajes de
-            promociones, no se manda: con la casilla, se crea la tarea.
-          </p>
         </>
       );
     case ACTION_DRAFT_FOLLOW_UP:
@@ -559,11 +519,7 @@ function CamposDeLaAccion({
       );
     case ACTION_INQUIRY_FOLLOW_UP:
       // Sin campos propios además del mensaje (la tarjeta de abajo).
-      return (
-        <p className="ds-hint ds-field-grid--full">
-          Por WhatsApp le llega al cliente; por otros canales, tarea para el vendedor.
-        </p>
-      );
+      return <p className="ds-hint ds-field-grid--full">Por WhatsApp le llega al cliente.</p>;
     case ACTION_SEND_QR_FOLLOWUP:
     case ACTION_BOOKING_SEND_QR_REVIEW:
       return (
@@ -587,8 +543,8 @@ function CamposDeLaAccion({
           />
           <p className="ds-hint ds-field-grid--full">
             {actionType === ACTION_BOOKING_SEND_QR_REVIEW
-              ? "Llega por WhatsApp después del turno atendido (al menos 3 horas después; si el turno se cerró solo, 24 horas después)."
-              : "Le llega al cliente por WhatsApp cuando la oportunidad se gana (hasta 30 días de espera)."}
+              ? "Llega por WhatsApp después del turno atendido."
+              : "Le llega al cliente por WhatsApp."}
           </p>
         </>
       );
@@ -635,9 +591,7 @@ function CamposDeLaAccion({
               required
             />
           </FormField>
-          <p className="ds-hint ds-field-grid--full">
-            Le llega al cliente por WhatsApp; cupón de un solo uso.
-          </p>
+          <p className="ds-hint ds-field-grid--full">Le llega al cliente por WhatsApp.</p>
         </>
       );
     default:
@@ -823,10 +777,6 @@ export function AutomationFormPage() {
                 />
               </FormField>
             </div>
-
-            <p className="ds-hint ds-field-grid--full">
-              Desactivada, deja de ejecutarse sin borrarse.
-            </p>
           </div>
         </Card>
 
@@ -926,7 +876,6 @@ export function AutomationFormPage() {
             sync={automationQuery.data?.whatsappSync}
             automationId={isEditMode ? id : undefined}
             esClinica={esClinica}
-            contacto={vocabularioDe(me).contacto}
           />
         ) : null}
 

@@ -38,8 +38,7 @@ const SIN_RESOLVER = "—";
 // generadas y da de baja las de las unidades que ya no califican, y eso no se
 // deshace desde ningún lado.
 const CONFIRMAR_SINCRONIZAR =
-  "Se van a crear, actualizar y dar de baja entradas de esta sucursal según el stock " +
-  "publicado. Las entradas escritas a mano no se tocan. ¿Seguimos?";
+  "¿Sincronizar el stock de esta sucursal? Las entradas escritas a mano no se tocan.";
 
 // El resumen de una corrida, en una frase. Los tres números son de ENTRADAS,
 // no de vehículos, y por eso no se suman en un total: una unidad puede no
@@ -160,8 +159,8 @@ export function KnowledgeBaseListPage() {
   //
   // EXIGE UNA SUCURSAL porque la operación es por sucursal: la base de
   // conocimiento cuelga de una, el stock también, y el agente que la lee
-  // también. Sin sucursal elegida el botón está deshabilitado y el hint dice
-  // qué falta, en vez de sincronizar "todas" —que sería otra operación, con
+  // también. Sin sucursal elegida el botón está deshabilitado (la guía de uso
+  // dice por qué), en vez de sincronizar "todas" —que sería otra operación, con
   // otro costo y otra confirmación.
   //
   // El listado se refetchea solo: la mutation invalida las listas del módulo.
@@ -292,13 +291,6 @@ export function KnowledgeBaseListPage() {
             }}
           />
         </div>
-
-        {/* El porqué del botón deshabilitado, al lado del filtro que lo
-            habilita y no arriba junto al botón: lo que falta elegir es
-            justamente esta Sucursal. */}
-        {conStock && !branchId ? (
-          <p className="ds-hint">Elegí una sucursal para sincronizar su stock.</p>
-        ) : null}
 
         {/* role="status" para que un lector de pantalla anuncie el resultado:
             la corrida no navega a ningún lado y el cambio en la tabla puede

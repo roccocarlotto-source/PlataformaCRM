@@ -121,10 +121,7 @@ export function InternalAgentSettingsPage() {
     <form onSubmit={handleSubmit} className="ds-form">
       <PageHeader help={AYUDA.agenteInternoConfig} title="Agente interno" />
       <div className="ds-stack">
-        <p className="ds-hint">
-          {`El asistente del equipo, no el que habla con los ${vocabularioDe(me).contacto.plural}.`}
-          {agente ? null : " Todavía no está configurado: completá el formulario para crearlo."}
-        </p>
+        {agente ? null : <p className="ds-hint">Todavía no está configurado.</p>}
 
         <Card heading="Datos del agente">
           <div className="ds-field-grid">
@@ -176,11 +173,6 @@ export function InternalAgentSettingsPage() {
                 onChange={(event) => setValues({ ...values, modelName: event.target.value })}
               />
             </FormField>
-            <p className="ds-hint ds-field-grid--full">
-              {puedeElegirModelo
-                ? "Vacío: el modelo por defecto."
-                : "Lo elige el equipo de la plataforma."}
-            </p>
           </div>
         </Card>
 
@@ -199,7 +191,6 @@ export function InternalAgentSettingsPage() {
               emptyLabel="Ninguna"
               onChange={(enabledTools) => setValues({ ...values, enabledTools })}
             />
-            <p className="ds-hint ds-field-grid--full">Sin acciones, el agente solo conversa.</p>
           </div>
         </Card>
 

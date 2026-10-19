@@ -154,10 +154,10 @@ export function AgentEmbedPage() {
 
   async function handleRevocar(tokenId: string) {
     if (
-      !(await confirm(
-        "¿Revocar este token? El widget que lo esté usando deja de responder de inmediato y hay que pegar el código de nuevo con un token nuevo.",
-        { confirmLabel: "Revocar", danger: true },
-      ))
+      !(await confirm("¿Revocar este token? El chat que lo use deja de responder de inmediato.", {
+        confirmLabel: "Revocar",
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -216,8 +216,6 @@ export function AgentEmbedPage() {
       <div className="ds-stack">
         <Card heading="1. Dominios permitidos">
           <div className="ds-stack">
-            <p className="ds-hint">El chat solo funciona desde estos dominios.</p>
-
             {origenes.length > 0 ? (
               <ul className="ds-chip-list" aria-label="Dominios permitidos">
                 {origenes.map((origen) => (
@@ -270,10 +268,6 @@ export function AgentEmbedPage() {
 
             {addError !== null ? <ErrorState>{addError}</ErrorState> : null}
 
-            <p className="ds-hint">
-              Solo el dominio, con <code>https://</code> y sin ruta.
-            </p>
-
             <Button
               variant="primary"
               onClick={handleGuardarDominios}
@@ -298,8 +292,6 @@ export function AgentEmbedPage() {
 
         <Card heading="2. Tokens de embed">
           <div className="ds-stack">
-            <p className="ds-hint">Se muestra una sola vez, al generarlo.</p>
-
             <Button
               variant="primary"
               onClick={() => void handleGenerarToken()}
@@ -320,10 +312,7 @@ export function AgentEmbedPage() {
 
             {tokenEnClaro !== null ? (
               <div>
-                <Notice tone="warning">
-                  Esta es la única vez que vas a ver este token: si lo perdés, hay que revocarlo y
-                  generar otro.
-                </Notice>
+                <Notice tone="warning">Es la única vez que vas a ver este token.</Notice>
                 <label className="ds-field">
                   <span className="ds-field-label">Token</span>
                   {/* readOnly y no disabled: un input deshabilitado no se puede
@@ -447,19 +436,9 @@ export function AgentEmbedPage() {
               </Notice>
             ) : null}
 
-            {tokenEnClaro === null ? (
-              <p className="ds-hint">
-                Reemplazá <code>{PLACEHOLDER_TOKEN}</code> por tu token, o generá uno nuevo.
-              </p>
-            ) : null}
-
             <pre className="ds-code-field ds-json-preview">{snippet}</pre>
 
             <CopyButton text={snippet} label="Copiar código" />
-
-            <p className="ds-hint">
-              Pegalo antes de <code>&lt;/body&gt;</code> en cada página del sitio.
-            </p>
           </div>
         </Card>
       </div>

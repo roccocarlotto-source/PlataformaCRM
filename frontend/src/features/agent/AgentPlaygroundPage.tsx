@@ -307,11 +307,6 @@ export function AgentPlaygroundPage() {
 
           <Card heading="Conversación">
             <div className="ds-stack">
-              <p className="ds-hint">
-                Escribís <strong>{`como el ${contacto}`}</strong>, no como vos. El hilo completo
-                está en <Link to="/conversations">Conversaciones</Link>.
-              </p>
-
               {entradas.length === 0 ? (
                 <EmptyState>
                   {contactId === undefined

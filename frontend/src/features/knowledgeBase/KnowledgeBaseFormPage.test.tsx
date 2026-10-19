@@ -941,7 +941,7 @@ describe("KnowledgeBaseFormPage — indicaciones (clínica)", () => {
     const user = userEvent.setup();
     renderForm("/knowledge-base/new");
     await cargar(user, "Sede");
-    expect(screen.getByText(/lo puede repetir el agente textualmente/)).toBeInTheDocument();
+    expect(screen.getByText(/El agente lo puede repetir tal cual/)).toBeInTheDocument();
     await chooseSelectOption(
       user,
       screen.getByLabelText("Tipo"),

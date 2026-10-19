@@ -67,6 +67,20 @@ uno existente. La configuración está repartida en tarjetas; estas son las de
   nadie contesta. Ver [Derivar a una persona](#derivar).
 - **Activo**: si está desmarcado, el agente no responde.
 
+### Cuánto hace la IA
+
+Si tu organización tiene la tarjeta **Cuánto hace la IA**, ahí elegís el
+**Nivel** del agente. Es obligatorio: hasta que no elijas uno, no se puede
+marcar **Activo**.
+
+| Nivel | Qué hace |
+|---|---|
+| **Responde sola** | Conversa con el cliente y usa las [acciones habilitadas](#acciones). |
+| **Primer contacto** | Responde hasta 2 veces, toma los datos y le pasa la conversación a una persona. Podés marcar que atienda así solo fuera del horario de la sucursal. |
+| **Solo seguimiento** | No conversa con el cliente: todo lo atiende una persona. |
+
+### Modelo y guardado
+
 La tarjeta **Modelo** es de solo lectura: el proveedor y el modelo de
 inteligencia artificial los elige el equipo de la plataforma. Si este agente
 necesita otro, pedíselo.

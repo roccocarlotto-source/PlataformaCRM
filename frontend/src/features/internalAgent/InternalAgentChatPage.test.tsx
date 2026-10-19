@@ -241,7 +241,7 @@ describe("InternalAgentChatPage", () => {
     );
   });
 
-  it("sin agente configurado (404), a un USER le dice que se lo pida a un administrador", async () => {
+  it("sin agente configurado (404), a un USER no le ofrece configurarlo", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     apiMock.listInternalAgentMessages.mockRejectedValue(new ApiError(404, "no configurado"));
     renderPage();
@@ -249,7 +249,6 @@ describe("InternalAgentChatPage", () => {
     expect(
       await screen.findByText("Todavía no hay un agente interno configurado"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Pedíselo a un administrador.")).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "Configurar agente interno" }),
     ).not.toBeInTheDocument();

@@ -167,7 +167,6 @@ describe("InternalAgentSettingsPage", () => {
 
     const modelo = await screen.findByLabelText("Modelo");
     expect(modelo).toBeDisabled();
-    expect(screen.getByText(/Lo elige el equipo de la plataforma/)).toBeInTheDocument();
   });
 
   it("B-05: un platform admin cambia el Modelo y se guarda por el endpoint de admin", async () => {

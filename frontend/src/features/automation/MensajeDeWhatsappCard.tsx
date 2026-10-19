@@ -1,5 +1,4 @@
 import { useRef } from "react";
-import type { Termino } from "../../auth/vocabulario";
 import { QrCode } from "lucide-react";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -90,13 +89,9 @@ function AprobacionDeWhatsapp({
   const refresh = useRefreshWhatsappApproval(automationId ?? "");
 
   // Regla nueva (o una respuesta vieja sin el dato): todavía no hay nada que
-  // mostrar más que lo que va a pasar al guardar.
+  // mostrar más que el aviso de que no sale hasta que WhatsApp lo apruebe.
   if (!approval || !automationId) {
-    return (
-      <p className="ds-hint">
-        Al guardar se manda a aprobar a WhatsApp; puede tardar hasta un día.
-      </p>
-    );
+    return <p className="ds-hint">No se manda hasta que WhatsApp lo apruebe.</p>;
   }
 
   const estado = ESTADOS_DE_APROBACION[approval.estado];
@@ -107,16 +102,7 @@ function AprobacionDeWhatsapp({
         {approval.estado === "RECHAZADA" && approval.motivo ? ` (${approval.motivo})` : null}
       </p>
       {approval.mandaLaAnterior ? (
-        <p className="ds-hint">
-          Mientras WhatsApp revisa el mensaje nuevo, se sigue mandando el anterior, que ya estaba
-          aprobado.
-        </p>
-      ) : null}
-      {approval.estado === "RECHAZADA" ? (
-        <p className="ds-hint">Cambiá el texto y guardá la regla para mandarlo de nuevo.</p>
-      ) : null}
-      {approval.estado === "SIN_PLANTILLA" && !sync ? (
-        <p className="ds-hint">Se manda a aprobar cuando guardes la regla.</p>
+        <p className="ds-hint">Mientras tanto se sigue mandando el mensaje anterior.</p>
       ) : null}
       {sync ? <SincronizacionDeWhatsapp sync={sync} automationId={automationId} /> : null}
       {approval.estado === "PENDIENTE" ? (
@@ -196,7 +182,6 @@ export function MensajeDeWhatsappCard({
   sync,
   automationId,
   esClinica = false,
-  contacto,
 }: {
   actionType: string;
   values: ConfigDraft;
@@ -208,14 +193,12 @@ export function MensajeDeWhatsappCard({
   automationId: string | undefined;
   // R15: en una clínica, {prestacion} en lugar de {vehiculo}.
   esClinica?: boolean;
-  // El término del contacto de una clínica, para la ayuda de las variables.
-  contacto?: Termino;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formato = values.whatsappFormat ?? "LINK";
   // Qué variables lleva este mensaje y si elige formato (ítem 185: el
   // seguimiento de una consulta es solo texto, con {saludo} y {vehiculo}).
-  const mensaje = mensajeDeLaAccion(actionType, formato, esClinica, contacto);
+  const mensaje = mensajeDeLaAccion(actionType, formato, esClinica);
 
   function insertar(token: string) {
     const textarea = textareaRef.current;
@@ -282,23 +265,19 @@ export function MensajeDeWhatsappCard({
             />
           </FormField>
         </div>
-        <div className="ds-field-grid--full">
+        <div className="ds-field-grid--full ds-card-actions">
           {mensaje.variables.map((variable) => (
-            <span key={variable.token}>
-              <Button onClick={() => insertar(variable.token)} disabled={disabled}>
-                Insertar {variable.token}
-              </Button>{" "}
-            </span>
+            <Button
+              key={variable.token}
+              onClick={() => insertar(variable.token)}
+              disabled={disabled}
+            >
+              Insertar {variable.token}
+            </Button>
           ))}
         </div>
         <p className="ds-hint ds-field-grid--full">
-          {mensaje.variables
-            .map(
-              (variable) =>
-                `Escribí ${variable.token} donde va ${variable.ayuda}${variable.obligatoria ? "" : " (opcional)"}`,
-            )
-            .join("; ")}
-          . Ninguna variable puede ir al principio ni al final del texto (regla de WhatsApp).
+          Ninguna variable puede ir al principio ni al final del texto.
         </p>
 
         <div className="ds-field-grid--full">
