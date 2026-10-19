@@ -147,11 +147,6 @@ export function StageFormPage() {
                 onChange={(event) => setValues({ ...values, order: event.target.value })}
               />
             </FormField>
-            {!isEditMode ? (
-              <p className="ds-hint ds-field-grid--full">
-                Si se omite, la etapa se agrega al final.
-              </p>
-            ) : null}
             {/* Oculta detrás de "+ Agregar probabilidad" (ProbabilityField, §13);
                 visible desde el arranque solo al editar una etapa que ya
                 tiene una probabilidad distinta de 0. En edición el form se

@@ -106,11 +106,9 @@ export function QrSendDialog({ qr, onClose }: QrSendDialogProps) {
         onClick: handleSend,
       }}
     >
-      {/* Radios en tarjeta (.ds-radio-card). La línea de ayuda va como
-          HERMANA del <label>, nunca
-          adentro: si no, entraría en el nombre accesible del radio y
-          getByRole("radio", { name: "Email" }) dejaría de encontrarlo. Cada
-          ayuda describe lo que handleSend hace de verdad con ese canal. */}
+      {/* Radios en tarjeta (.ds-radio-card). Sin línea de ayuda: qué hace
+          cada canal (abre WhatsApp o el correo con el mensaje armado) está
+          en la guía, docs/guia-de-uso/07-cupones-y-qr.md#enviar-qr. */}
       <div className="ds-field">
         <span className="ds-field-label">Canal</span>
         <div className="ds-radio-cards" role="radiogroup" aria-label="Canal de envío">
@@ -124,7 +122,6 @@ export function QrSendDialog({ qr, onClose }: QrSendDialogProps) {
               />{" "}
               WhatsApp
             </label>
-            <p className="ds-radio-card-hint">Se abre WhatsApp con el mensaje ya armado.</p>
           </div>
           <div className="ds-radio-card">
             <label>
@@ -136,9 +133,6 @@ export function QrSendDialog({ qr, onClose }: QrSendDialogProps) {
               />{" "}
               Email
             </label>
-            <p className="ds-radio-card-hint">
-              Se abre tu cliente de correo con el mensaje ya armado.
-            </p>
           </div>
         </div>
       </div>

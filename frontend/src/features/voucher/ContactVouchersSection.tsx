@@ -19,9 +19,10 @@ export function ContactVouchersSection({ contactId }: { contactId: string }) {
   const vouchers = query.data?.data ?? [];
 
   // Mismo envoltorio que las tarjetas de la oportunidad (PaymentSection): el
-  // ancho y el centrado de .ds-form.
+  // ancho y el centrado de .ds-form, y su margin-top (.ds-payment-section)
+  // para no quedar pegada al botón Guardar de la ficha.
   return (
-    <div className="ds-form ds-stack">
+    <div className="ds-form ds-stack ds-payment-section">
       <Card heading="Cupones">
         {query.isLoading ? <LoadingState variant="lines" /> : null}
         {query.isError ? <ErrorState>No pudimos cargar los cupones.</ErrorState> : null}

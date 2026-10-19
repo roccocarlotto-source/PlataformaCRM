@@ -89,7 +89,7 @@ export function ConsultasSinIdentificarTab() {
 
   async function handleDescartar(consulta: ContactConConsulta) {
     const ok = await confirm(
-      "¿Descartar esta consulta? Se cierran sus conversaciones y el contacto se da de baja. Si la persona vuelve a escribir, entra como una consulta nueva.",
+      "¿Descartar esta consulta? Se cierran sus conversaciones y el contacto se da de baja.",
       { confirmLabel: "Descartar", danger: true },
     );
     if (!ok) return;

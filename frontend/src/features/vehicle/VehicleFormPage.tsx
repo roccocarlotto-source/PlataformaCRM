@@ -772,15 +772,14 @@ export function VehicleFormPage() {
                 onChange={(value) => handlePriceListChange("priceListLocal", value)}
               />
             </FormField>
-            {/* Explica que el otro precio "se llena solo" y que se puede
-                corregir, para que no parezca un error (mismo criterio que la
-                nota de Oportunidad al vincular una unidad). Solo con
-                cotización: sin ella no pasa nada que explicar. */}
+            {/* Avisa que el otro precio "se llena solo", para que no parezca
+                un error (mismo criterio que la nota de Oportunidad al vincular
+                una unidad); que se puede corregir lo dice la guía. Solo con
+                cotización: sin ella no pasa nada que avisar. */}
             {exchangeRate ? (
               <p className="ds-hint ds-field-grid--full">
                 El otro precio se calcula con la cotización vigente (
-                {formatExchangeRate(exchangeRate)}, del {formatDate(exchangeRate.rateDate)}) y se
-                puede corregir.
+                {formatExchangeRate(exchangeRate)}, del {formatDate(exchangeRate.rateDate)}).
               </p>
             ) : null}
             <FormField label={fieldLabel("minAcceptablePriceUsd")}>
@@ -1150,9 +1149,7 @@ export function VehicleFormPage() {
             </div>
             {isEditMode && vehicle ? (
               <VehiclePhotoGallery vehicleId={vehicle.id} photos={vehicle.photos} />
-            ) : (
-              <p className="ds-hint">Las fotos se suben después de guardar la unidad.</p>
-            )}
+            ) : null}
           </div>
         </Card>
 
@@ -1190,9 +1187,6 @@ export function VehicleFormPage() {
                 </FormField>
               </div>
             </div>
-            {!isEditMode ? (
-              <p className="ds-hint">Vas a poder publicarla después de guardar y subirle fotos.</p>
-            ) : null}
             {/* Completitud local: guía visual, se recalcula al tipear. */}
             <div className="ds-meter" aria-label="Completitud para publicar">
               <div className="ds-meter-row">

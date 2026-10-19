@@ -341,24 +341,19 @@ export function ActivityFormPage() {
               ) : null}
             </div>
             {conEmpresaYOportunidad ? (
-              <>
-                <div className="ds-field ds-field-grid--full">
-                  <OpportunitySelect
-                    id="activity-form-opportunity"
-                    label="Oportunidad"
-                    value={values.opportunityId ?? undefined}
-                    onChange={(opportunityId) => setValues({ ...values, opportunityId })}
-                  />
-                  {values.opportunityId ? (
-                    <Button onClick={() => setValues({ ...values, opportunityId: null })}>
-                      Quitar oportunidad
-                    </Button>
-                  ) : null}
-                </div>
-                <p className="ds-hint ds-field-grid--full">
-                  Indicá una empresa, un contacto o una oportunidad (o más de uno).
-                </p>
-              </>
+              <div className="ds-field ds-field-grid--full">
+                <OpportunitySelect
+                  id="activity-form-opportunity"
+                  label="Oportunidad"
+                  value={values.opportunityId ?? undefined}
+                  onChange={(opportunityId) => setValues({ ...values, opportunityId })}
+                />
+                {values.opportunityId ? (
+                  <Button onClick={() => setValues({ ...values, opportunityId: null })}>
+                    Quitar oportunidad
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
             {/* assigneeId nunca se autoasigna al omitirse (a diferencia de
                 ownerId en Opportunity) — emptyOptionLabel refleja eso. Un

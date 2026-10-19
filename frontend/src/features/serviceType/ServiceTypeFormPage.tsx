@@ -211,15 +211,6 @@ export function ServiceTypeFormPage() {
               required
               disabled={!values.branchId}
             />
-            <p className="ds-hint ds-field-grid--full">
-              {values.branchId
-                ? `Solo ${recurso.plural} de ${cs.el} ${sucursal.singular} ${
-                    sucursal.genero === "femenino" ? "elegida" : "elegido"
-                  }.`
-                : `Elegí primero ${cs.el} ${sucursal.singular}: ${cr.el} ${recurso.singular} tiene que ser de ${
-                    sucursal.genero === "femenino" ? "la misma" : "el mismo"
-                  }.`}
-            </p>
 
             <FormField label={<span className="ds-required">Duración (minutos)</span>}>
               <input
@@ -244,9 +235,6 @@ export function ServiceTypeFormPage() {
                 onChange={(event) => setValues({ ...values, capacity: event.target.value })}
               />
             </FormField>
-            <p className="ds-hint ds-field-grid--full">
-              1 es un turno exclusivo; más de 1, una clase con cupo.
-            </p>
           </div>
         </Card>
 

@@ -196,13 +196,11 @@ Para elegirlo:
 
 Para quitarlo, tocá **Quitar** al lado de la unidad y guardá.
 
-Debajo del campo hay una nota que dice quién lo cargó:
-
-- "La anotó el agente por lo que habló el cliente": lo anotó el agente de IA
-  a partir de la conversación. Mientras sea así, el agente lo va actualizando
-  si el cliente cambia de idea. **Si lo cambiás o lo elegís vos, el agente ya
-  no lo toca.**
-- "La unidad del stock que le interesa": lo eligió una persona.
+Si lo anotó el agente de IA a partir de la conversación, debajo del campo
+dice "La anotó el agente; si la cambiás, ya no la toca." Mientras sea así, el
+agente lo va actualizando si el cliente cambia de idea. **Si lo cambiás o lo
+elegís vos, el agente ya no lo toca.** Si lo eligió una persona, no hay
+ninguna nota.
 
 Si la unidad se vendió o se dio de baja del stock, la ficha la sigue
 mostrando, con su estado y la aclaración "dada de baja del stock", para que

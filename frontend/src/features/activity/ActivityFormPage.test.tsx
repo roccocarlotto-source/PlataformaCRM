@@ -831,9 +831,6 @@ describe("ActivityFormPage por rubro", () => {
 
       expect(await screen.findByLabelText("Empresa")).toBeInTheDocument();
       expect(screen.getByLabelText("Oportunidad")).toBeInTheDocument();
-      expect(
-        screen.getByText("Indicá una empresa, un contacto o una oportunidad (o más de uno)."),
-      ).toBeInTheDocument();
       unmount();
     }
   });

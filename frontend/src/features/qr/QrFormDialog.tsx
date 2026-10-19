@@ -267,11 +267,6 @@ export function QrFormDialog({
             required={isEditMode}
           />
         </FormField>
-        <p className="ds-hint">
-          {isEditMode
-            ? `Tiene que ser único entre los QR activos de ${concordancia(sucursal).el} ${sucursal.singular}.`
-            : `Sugerido: el siguiente libre en ${concordancia(sucursal).este} ${sucursal.singular}. Podés cambiarlo.`}
-        </p>
         <FormField label={<span className="ds-required">Nombre</span>}>
           <input
             type="text"

@@ -162,12 +162,9 @@ export function VoucherScanPage() {
       <PageHeader help={AYUDA.canjearCupon} title="Canjear cupón" />
       <div className="ds-voucher-scan-body">
         {sinCamara === null ? (
-          <>
-            <QrCameraReader onDecode={handleDecode} onUnavailable={setSinCamara} />
-            <p className="ds-hint">Apuntá la cámara al QR del cupón.</p>
-          </>
+          <QrCameraReader onDecode={handleDecode} onUnavailable={setSinCamara} />
         ) : (
-          <p className="ds-hint">{sinCamara} Pegá o tipeá el link del cupón abajo.</p>
+          <p className="ds-hint">{sinCamara}</p>
         )}
 
         <form className="ds-voucher-scan-form" onSubmit={handleSubmit}>

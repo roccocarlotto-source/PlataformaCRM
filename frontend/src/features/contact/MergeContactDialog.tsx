@@ -175,9 +175,6 @@ export function MergeContactDialog({
                 </div>
               ))}
             </div>
-            <p className="ds-hint">
-              Las notas y los datos extra que juntó el agente no se eligen: se suman.
-            </p>
             {aMover.length > 0 ? (
               <div>
                 <p>Pasan a este {contacto}:</p>

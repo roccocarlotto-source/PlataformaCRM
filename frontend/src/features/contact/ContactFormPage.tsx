@@ -262,10 +262,10 @@ export function ContactFormPage() {
 
   async function handleBorrarDatosPersonales() {
     if (
-      !(await confirm(
-        "¿Borrar los datos personales de este contacto? Se borran su nombre, email y teléfono, lo que escribió en las conversaciones, sus notas y tareas, y sus datos de calificación. Los turnos quedan, sin su nombre. No se puede deshacer.",
-        { confirmLabel: "Borrar datos personales", danger: true },
-      ))
+      !(await confirm("¿Borrar los datos personales de este contacto? No se puede deshacer.", {
+        confirmLabel: "Borrar datos personales",
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -381,7 +381,6 @@ export function ContactFormPage() {
             <Badge variant="danger">Sin interés</Badge> desde el{" "}
             {formatDateOnly(contactQuery.data.noInterestAt)}
             {contactQuery.data.noInterestNote ? ` · «${contactQuery.data.noInterestNote}»` : ""}.
-            Ningún seguimiento automático le vuelve a escribir mientras tenga la marca.
           </p>
         ) : null}
         {marcandoSinInteres.isError ? (
@@ -416,7 +415,7 @@ export function ContactFormPage() {
             {[...new Set(contactQuery.data.personalDataErasePending.map((p) => p.motivo))].join(
               " · ",
             )}
-            . Volvé a tocar el borrado más tarde o corregilo a mano en el calendario.
+            .
           </Notice>
         ) : null}
         {borrandoDatos.isError ? (
@@ -491,8 +490,7 @@ export function ContactFormPage() {
               {contactQuery.data?.customerSince ? (
                 <p className="ds-hint">
                   {vocabulario.contacto.singularTitulo} desde el{" "}
-                  {formatearDia(contactQuery.data.customerSince)} (dato importado del sistema
-                  anterior).
+                  {formatearDia(contactQuery.data.customerSince)}.
                 </p>
               ) : null}
               <Select
@@ -530,12 +528,10 @@ export function ContactFormPage() {
                     selectedFallback={vehiculoDeInteresGuardado(contactQuery.data)}
                     clearLabel="Quitar"
                   />
-                  <p className="ds-hint">
-                    {contactQuery.data?.vehicleOfInterestSetBy === "AGENT" &&
-                    values.vehicleOfInterestId === contactQuery.data.vehicleOfInterestId
-                      ? "La anotó el agente; si la cambiás, ya no la toca."
-                      : "No la reserva: sigue disponible para otros."}
-                  </p>
+                  {contactQuery.data?.vehicleOfInterestSetBy === "AGENT" &&
+                  values.vehicleOfInterestId === contactQuery.data.vehicleOfInterestId ? (
+                    <p className="ds-hint">La anotó el agente; si la cambiás, ya no la toca.</p>
+                  ) : null}
                 </div>
               ) : null}
             </div>

@@ -222,18 +222,12 @@ describe("VehicleFormPage — crear y editar", () => {
     expect(screen.queryByText("listado de stock")).not.toBeInTheDocument();
   });
 
-  it("create: 'Publicar en el sitio web' está deshabilitado y hay una nota; la galería no existe", async () => {
+  it("create: 'Publicar en el sitio web' está deshabilitado; la galería no existe", async () => {
     server.use(...baseHandlers());
 
     renderForm("/vehicles/new");
 
     expect(screen.getByLabelText("Publicar en el sitio web")).toBeDisabled();
-    expect(
-      screen.getByText("Vas a poder publicarla después de guardar y subirle fotos."),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Las fotos se suben después de guardar la unidad."),
-    ).toBeInTheDocument();
     expect(screen.queryByLabelText("Subir foto")).not.toBeInTheDocument();
     expect(screen.queryByText("Ver historial de cambios")).not.toBeInTheDocument();
   });

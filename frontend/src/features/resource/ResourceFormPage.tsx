@@ -228,9 +228,7 @@ export function ResourceFormPage() {
                   recurso.genero === "femenino" ? "una nueva" : "uno nuevo"
                 } en ${cs.el} ${sucursal.genero === "femenino" ? "correcta" : "correcto"}.`}
               </p>
-            ) : (
-              <p className="ds-hint ds-field-grid--full">El horario se carga después de crearlo.</p>
-            )}
+            ) : null}
           </div>
         </Card>
 

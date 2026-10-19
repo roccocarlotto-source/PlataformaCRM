@@ -183,7 +183,7 @@ el botón **Reintentar**.
 
 ### Por dónde sale
 
-La tarjeta lo dice debajo del cuadro, según el canal:
+La respuesta sale por el mismo canal por el que escribió el cliente:
 
 - **WhatsApp**: sale desde el número de WhatsApp del negocio (el que atiende
   el agente). No se puede responder desde la app de WhatsApp del celular:
