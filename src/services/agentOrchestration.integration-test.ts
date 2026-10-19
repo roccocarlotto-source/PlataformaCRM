@@ -3309,51 +3309,64 @@ test("D3: por el widget, create_opportunity de un visitante anónimo no crea nad
 // Taller Demo, 2026-10-18: al modelo no le llegan las tools de los mensajes
 // anteriores, así que negaba una reserva que había hecho. Ahora el prompt de
 // cada turno trae las reservas vigentes y las oportunidades abiertas del
-// contacto, leídas del CRM; las canceladas, las pasadas y las cerradas no.
+// contacto, leídas del CRM, con los mismos límites que get_contact_bookings:
+// solo la sede de la conversación y solo con la identidad completa.
+
+// Una reserva vigente, una cancelada y una pasada en `branchId`, y una
+// oportunidad abierta y una ganada. Devuelve el inicio de la vigente.
+async function sembrarLoRegistrado(e: Escenario, branchId = e.branchId) {
+  const serviceType = await agendaDeLunes({ organizationId: e.organizationId, branchId });
+  // El reloj de las reservas, que es el que usa la lectura.
+  const ahora = DateTime.fromJSDate(relojDeReservas.ahora());
+  const vigente = ahora.plus({ days: 2 }).startOf("hour");
+  const fila = (inicio: DateTime, status: "CONFIRMED" | "CANCELLED") => ({
+    organizationId: e.organizationId,
+    branchId,
+    serviceTypeId: serviceType.id,
+    resourceId: serviceType.resourceId,
+    contactId: e.contactId,
+    startsAt: inicio.toJSDate(),
+    endsAt: inicio.plus({ minutes: 60 }).toJSDate(),
+    status,
+  });
+  await prisma.booking.createMany({
+    data: [
+      fila(vigente, "CONFIRMED"),
+      fila(vigente.plus({ hours: 2 }), "CANCELLED"),
+      fila(ahora.minus({ days: 3 }), "CONFIRMED"),
+    ],
+  });
+  const oportunidad = (title: string, status: "OPEN" | "WON") => ({
+    organizationId: e.organizationId,
+    contactId: e.contactId,
+    ownerId: e.ownerId,
+    pipelineId: e.pipelineId!,
+    stageId: e.stageId!,
+    title,
+    status,
+  });
+  await prisma.opportunity.createMany({
+    data: [
+      oportunidad("Test drive del Civic", "OPEN"),
+      oportunidad("Compra cerrada del Onix", "WON"),
+    ],
+  });
+  return vigente;
+}
+
+async function promptDelTurno(e: Escenario): Promise<string> {
+  const doble = doblarProveedor([texto("Sí, tu test drive sigue en pie.")]);
+  await turno(e, "¿Me confirmás el test drive?", doble.proveedor);
+  return doble.requests[0].systemPrompt;
+}
+
 test("el prompt trae lo que el CRM ya tiene registrado del contacto: reservas vigentes y oportunidades abiertas", async () => {
   const e = await montar("lo-registrado");
   try {
-    const serviceType = await agendaDeLunes(e);
-    // El reloj real, no el de las reservas: la lectura usa new Date().
-    const enDosDias = DateTime.now().plus({ days: 2 }).startOf("hour");
-    const fila = (inicio: DateTime, status: "CONFIRMED" | "CANCELLED") => ({
-      organizationId: e.organizationId,
-      branchId: e.branchId,
-      serviceTypeId: serviceType.id,
-      resourceId: serviceType.resourceId,
-      contactId: e.contactId,
-      startsAt: inicio.toJSDate(),
-      endsAt: inicio.plus({ minutes: 60 }).toJSDate(),
-      status,
-    });
-    await prisma.booking.createMany({
-      data: [
-        fila(enDosDias, "CONFIRMED"),
-        fila(enDosDias.plus({ hours: 2 }), "CANCELLED"),
-        fila(DateTime.now().minus({ days: 3 }), "CONFIRMED"),
-      ],
-    });
-    const oportunidad = (title: string, status: "OPEN" | "WON") => ({
-      organizationId: e.organizationId,
-      contactId: e.contactId,
-      ownerId: e.ownerId,
-      pipelineId: e.pipelineId!,
-      stageId: e.stageId!,
-      title,
-      status,
-    });
-    await prisma.opportunity.createMany({
-      data: [
-        oportunidad("Test drive del Civic", "OPEN"),
-        oportunidad("Compra cerrada del Onix", "WON"),
-      ],
-    });
+    const vigente = await sembrarLoRegistrado(e);
+    const prompt = await promptDelTurno(e);
 
-    const doble = doblarProveedor([texto("Sí, tu test drive sigue en pie.")]);
-    await turno(e, "¿Me confirmás el test drive?", doble.proveedor);
-
-    const prompt = doble.requests[0].systemPrompt;
-    const inicio = enDosDias.setZone(TZ).setLocale("es");
+    const inicio = vigente.setZone(TZ).setLocale("es");
     assert.ok(
       prompt.includes(
         `- Test drive: ${inicio.toFormat("cccc d 'de' LLLL, HH:mm")} a ${inicio.plus({ minutes: 60 }).toFormat("HH:mm")}`,
@@ -3363,6 +3376,64 @@ test("el prompt trae lo que el CRM ya tiene registrado del contacto: reservas vi
     assert.ok(prompt.includes("- Test drive del Civic (etapa: Nuevo)"));
     assert.equal(prompt.match(/^- Test drive: /gm)?.length, 1, "ni la cancelada ni la pasada");
     assert.ok(!prompt.includes("Compra cerrada del Onix"), "ni la oportunidad cerrada");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("lo registrado: una reserva de otra sede de la organización no aparece", async () => {
+  const e = await montar("lo-registrado-otra-sede");
+  try {
+    const otra = await createBranch(e.organizationId, { name: "Otra sede", timezone: TZ });
+    await sembrarLoRegistrado(e, otra.id);
+    const prompt = await promptDelTurno(e);
+
+    assert.equal(prompt.match(/^- Test drive: /gm), null, "la reserva es de otra sede");
+    assert.ok(!prompt.includes("Reservas vigentes"));
+    // Las oportunidades no son de una sede: la abierta sí figura.
+    assert.ok(prompt.includes("- Test drive del Civic (etapa: Nuevo)"));
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("lo registrado: con la identidad incompleta (sin apellido) no se lista nada ni se dice cuántas hay", async () => {
+  const e = await montar("lo-registrado-sin-apellido");
+  try {
+    await sembrarLoRegistrado(e);
+    await prisma.contact.update({ where: { id: e.contactId }, data: { lastName: "" } });
+    const prompt = await promptDelTurno(e);
+
+    assert.ok(!prompt.includes("Test drive del Civic"), prompt);
+    assert.equal(prompt.match(/^- Test drive: /gm), null);
+    assert.ok(!prompt.includes("Reservas vigentes"));
+    assert.ok(!/ninguna reserva vigente/.test(prompt), "tampoco dice que no tiene");
+    assert.ok(
+      prompt.includes(
+        "Las reservas y las oportunidades de esta persona no se muestran hasta que tengas el apellido.",
+      ),
+      prompt,
+    );
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("lo registrado, chat web: con nombre y apellido pero sin teléfono ni email no se lista nada", async () => {
+  // Por WEB el visitante es anónimo: la identidad completa pide además un
+  // teléfono o un email (datosQueFaltanParaActuar, D3).
+  const e = await montar("lo-registrado-web");
+  try {
+    await sembrarLoRegistrado(e);
+    await prisma.contact.update({
+      where: { id: e.contactId },
+      data: { email: null, phone: null },
+    });
+    const prompt = await promptDelTurno(e);
+
+    assert.ok(!prompt.includes("Test drive del Civic"), prompt);
+    assert.equal(prompt.match(/^- Test drive: /gm), null);
+    assert.ok(prompt.includes("no se muestran hasta que tengas un teléfono o un email."), prompt);
   } finally {
     await desmontar(e);
   }

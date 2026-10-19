@@ -236,10 +236,14 @@ normalmente. Ningún agente la trae habilitada.
 
 **Lo que el agente ya sabe del contacto.** En cada mensaje, el agente ve los
 datos que el sistema tiene del contacto (nombre, apellido y, salvo en el chat
-del sitio web, email y teléfono), sus turnos reservados que todavía no
-pasaron y sus oportunidades abiertas. Por eso no vuelve a pedir el nombre y
-el apellido si ya están cargados, y si el cliente pregunta por un turno que
-reservó en un mensaje anterior, se lo confirma en vez de reservarlo de nuevo.
+del sitio web, email y teléfono), sus turnos reservados en la sucursal de la
+conversación que todavía no pasaron y sus oportunidades abiertas. Por eso no
+vuelve a pedir el nombre y el apellido si ya están cargados, y si el cliente
+pregunta por un turno que reservó en un mensaje anterior, se lo confirma en
+vez de reservarlo de nuevo. Los turnos y las oportunidades los ve solo cuando
+el cliente está identificado: con nombre y apellido y, por el chat del sitio
+web, también un teléfono o un email. Hasta entonces, si el cliente pregunta
+por ellos, primero le pide esos datos.
 
 ## Reglas del agente {#reglas}
 
