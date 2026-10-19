@@ -1067,16 +1067,29 @@ test("bloqueDeContacto con lo registrado lista las reservas en la zona de la suc
   // de la etiqueta de desconfianza, igual que el nombre.
   const adentro = bloque.split("<datos_del_crm>").at(-1)!.split("</datos_del_crm>")[0]!;
   assert.match(adentro, /Renault Kwid/);
-  assert.match(adentro, /Reservas vigentes:/);
+  assert.match(adentro, /Reservas vigentes en esta sucursal:/);
 });
 
 test("bloqueDeContacto sin nada registrado lo dice explícito, y sin el parámetro no dice nada", () => {
   const contacto = { firstName: "Sofía", lastName: "Ramos", email: null, phone: null };
   assert.match(
     bloqueDeContacto(contacto, "WEB", { reservas: [], oportunidades: [] }),
-    /El CRM no tiene ninguna reserva vigente ni ninguna oportunidad abierta de esta persona\./,
+    /El CRM no tiene ninguna reserva vigente en esta sucursal ni ninguna oportunidad abierta de esta persona\./,
   );
   assert.doesNotMatch(bloqueDeContacto(contacto, "WEB"), /reserva vigente|Reservas vigentes/);
+});
+
+test("bloqueDeContacto con la identidad incompleta: una sola línea que manda a pedir los datos, sin listar ni contar", () => {
+  const bloque = bloqueDeContacto(
+    { firstName: "Sofía", lastName: "Ramos", email: null, phone: null },
+    "WEB",
+    { faltanDatos: ["un teléfono o un email"] },
+  );
+  assert.match(
+    bloque,
+    /Las reservas y las oportunidades de esta persona no se muestran hasta que tengas un teléfono o un email\. Si te pregunta por una reserva o una oportunidad, primero pedile esos datos/,
+  );
+  assert.doesNotMatch(bloque, /Reservas vigentes|ninguna reserva vigente/);
 });
 
 test("bloqueDeContacto omite los campos vacíos en vez de decir 'null'", () => {

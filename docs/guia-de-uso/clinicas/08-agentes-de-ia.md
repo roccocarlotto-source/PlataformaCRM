@@ -246,10 +246,13 @@ habilitada.
 
 **Lo que el agente ya sabe del paciente.** En cada mensaje, el agente ve los
 datos que el sistema tiene del paciente (nombre, apellido y, salvo en el chat
-del sitio web, email y teléfono) y sus turnos que todavía no pasaron. Por eso
-no vuelve a pedir el nombre y el apellido si ya están cargados, y si el
-paciente pregunta por un turno que agendó en un mensaje anterior, se lo
-confirma en vez de agendarlo de nuevo.
+del sitio web, email y teléfono) y sus turnos en la sede de la conversación
+que todavía no pasaron. Por eso no vuelve a pedir el nombre y el apellido si
+ya están cargados, y si el paciente pregunta por un turno que agendó en un
+mensaje anterior, se lo confirma en vez de agendarlo de nuevo. Los turnos los
+ve solo cuando el paciente está identificado: con nombre y apellido y, por el
+chat del sitio web, también un teléfono o un email. Hasta entonces, si el
+paciente pregunta por ellos, primero le pide esos datos.
 
 ## Reglas del agente {#reglas}
 
