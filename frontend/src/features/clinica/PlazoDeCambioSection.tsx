@@ -12,10 +12,9 @@ import { useConfiguracionDeSede, useGuardarConfiguracionDeSede } from "./queries
 // sede, solo en edición y solo en una clínica (la pantalla entera es de ADMIN).
 // Sin valor por defecto: vacío = sin plazo. Se guarda con su propio botón, como
 // el horario de atención.
+// La explicación del plazo está en la guía (clinicas/13-organizacion-y-
+// sucursales.md#turnos-por-chat), no en la tarjeta.
 // ---------------------------------------------------------------------------
-
-const AYUDA_DEL_PLAZO =
-  "Horas mínimas de anticipación para que el asistente reprograme o cancele un turno. Con menos tiempo, deriva a Recepción.";
 
 export function PlazoDeCambioSection({ branchId }: { branchId: string }) {
   const configuracion = useConfiguracionDeSede(branchId);
@@ -87,8 +86,6 @@ export function PlazoDeCambioSection({ branchId }: { branchId: string }) {
             disabled={guardar.isPending}
           />
         </FormField>
-        <p className="ds-hint">{AYUDA_DEL_PLAZO}</p>
-        <p className="ds-hint">Vacío: sin plazo, el asistente puede cambiarlo hasta que empieza.</p>
 
         {error ? <ErrorState>{error}</ErrorState> : null}
         {guardado ? (

@@ -1213,11 +1213,6 @@ describe("BranchFormPage — Turnos por chat (clínica)", () => {
 
     const campo = await screen.findByLabelText("Anticipación mínima para cambiar un turno (horas)");
     expect(campo).toHaveValue(24);
-    expect(
-      screen.getByText(
-        "Horas mínimas de anticipación para que el asistente reprograme o cancele un turno. Con menos tiempo, deriva a Recepción.",
-      ),
-    ).toBeInTheDocument();
 
     await user.clear(campo);
     await user.type(campo, "48");

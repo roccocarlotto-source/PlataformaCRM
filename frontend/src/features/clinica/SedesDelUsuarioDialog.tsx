@@ -40,9 +40,6 @@ export function SedesDelUsuarioDialog({
         loading: updateUser.isPending,
       }}
     >
-      <p className="ds-hint">
-        Recepción ve la agenda, las conversaciones y las tareas de estas sedes.
-      </p>
       <SedesSelect id={`sedes-de-${user.id}`} value={branchIds} onChange={setBranchIds} />
       {updateUser.isError ? (
         <ErrorState>

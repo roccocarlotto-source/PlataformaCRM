@@ -96,14 +96,13 @@ export function SobreturnosPage() {
               onChange={(e) => setFecha(e.target.value)}
             />
           </div>
+          <ContactSelect
+            id="sobreturno-paciente"
+            label={vocabulario.contacto.singularTitulo}
+            value={contactId}
+            onChange={(id) => setContactId(id || undefined)}
+          />
         </div>
-
-        <ContactSelect
-          id="sobreturno-paciente"
-          label={vocabulario.contacto.singularTitulo}
-          value={contactId}
-          onChange={(id) => setContactId(id || undefined)}
-        />
 
         {prestacionesQuery.isLoading || horariosQuery.isLoading ? (
           <LoadingState variant="rows" />
@@ -115,14 +114,8 @@ export function SobreturnosPage() {
               : "No pudimos cargar los horarios."}
           </ErrorState>
         ) : null}
-        {cargado ? (
-          <Notice tone="info">Sobreturno cargado para el {formatDateTime(cargado)}.</Notice>
-        ) : null}
         {consulta && horariosQuery.isSuccess && sobreturnos.length === 0 ? (
-          <EmptyState title="No hay sobreturnos para ese día" icon={CalendarPlus}>
-            El {vocabulario.recurso.singular} no admite sobreturnos, ya llegó a su tope del día o
-            todavía hay horarios libres para un turno normal.
-          </EmptyState>
+          <EmptyState title="No hay sobreturnos para ese día" icon={CalendarPlus} />
         ) : null}
         {sobreturnos.length > 0 ? (
           <Table>
@@ -158,6 +151,10 @@ export function SobreturnosPage() {
           </ErrorState>
         ) : null}
       </div>
+      {/* Fuera de la tarjeta: adentro el aviso quedaba pegado a sus bordes. */}
+      {cargado ? (
+        <Notice tone="info">Sobreturno cargado para el {formatDateTime(cargado)}.</Notice>
+      ) : null}
     </div>
   );
 }
