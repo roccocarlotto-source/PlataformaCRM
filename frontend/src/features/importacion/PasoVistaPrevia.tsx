@@ -326,9 +326,6 @@ export function PasoVistaPrevia({
                   onChange={(e) => setMarcarFaltantes(e.target.checked)}
                 />
               </FormField>
-              <p className="ds-hint">
-                En cada sincronización se actualizan los campos mapeados; nada se borra.
-              </p>
             </>
           ) : null}
         </Card>

@@ -90,7 +90,6 @@ describe("OrganizationSettingsPage — carga", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Moneda de preferencia")).toHaveValue("USD"));
     expect(screen.getByLabelText("Moneda alternativa")).toHaveValue("UYU");
-    expect(screen.getByText(/Configuración de Automotora Demo/)).toBeInTheDocument();
     // Ambos selects: "Sin configurar" + las dos monedas de la operación, sin "Otra".
     expect(await optionsOf(user, "Moneda de preferencia")).toEqual([
       "Sin configurar",
@@ -211,9 +210,6 @@ describe("OrganizationSettingsPage — guardado", () => {
 
     const campo = await screen.findByLabelText("Código de país por defecto");
     await waitFor(() => expect(campo).toHaveValue("54"));
-    expect(
-      screen.getByText("Se usa para completar los teléfonos cargados sin código de país."),
-    ).toBeInTheDocument();
 
     await user.clear(campo);
     await user.type(campo, "598");
@@ -323,7 +319,7 @@ describe("OrganizationSettingsPage — Facebook e Instagram", () => {
 
 // Seguimiento de T-01: la zona horaria de la organización.
 describe("OrganizationSettingsPage — zona horaria", () => {
-  it("una organización en UTC muestra UTC como opción extra, las ciudades de la región y el texto de ayuda", async () => {
+  it("una organización en UTC muestra UTC como opción extra y las ciudades de la región", async () => {
     mockSettings(makeOrganizationSettings({ timezone: "UTC" }));
     const user = userEvent.setup();
     renderPage();
@@ -339,9 +335,6 @@ describe("OrganizationSettingsPage — zona horaria", () => {
         "São Paulo (America/Sao_Paulo)",
       ]),
     );
-    expect(
-      screen.getByText("Define hoy, esta semana y este mes en el dashboard."),
-    ).toBeInTheDocument();
   });
 
   it("una zona de la lista no agrega opción extra, y elegir otra viaja en el PATCH", async () => {

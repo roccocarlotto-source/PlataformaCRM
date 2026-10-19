@@ -290,10 +290,7 @@ export function PasoMapeo({
   return (
     <form className="ds-stack" onSubmit={enviar}>
       <Card heading="Columnas">
-        <p className="ds-hint">
-          Columnas de «{lote.config.archivo.nombre ?? "el archivo"}». Las que quedan en «Ignorar{" "}
-          columna» no se importan.
-        </p>
+        <p className="ds-hint">Columnas de «{lote.config.archivo.nombre ?? "el archivo"}».</p>
         <ol className="ds-mapping-rows">
           {encabezados.map((encabezado) => (
             <li key={encabezado} className="ds-mapping-row">
@@ -316,186 +313,188 @@ export function PasoMapeo({
 
       {tipo === "ACTIVITY" ? (
         <Card heading="Historial">
-          <div className="ds-field-grid">
-            <Select
-              label="Autor de las actividades"
-              value={autorId}
-              options={opcionesDeUsuario}
-              emptyOption={{ label: "Elegir…" }}
-              onChange={setAutorId}
-            />
-            <Select
-              label="Tipo para las filas sin tipo"
-              value={tipoPorDefecto}
-              options={TIPOS_DE_HISTORIAL}
-              emptyOption={{ label: "Ninguno (la fila falla)" }}
-              onChange={setTipoPorDefecto}
+          <div className="ds-stack">
+            <div className="ds-field-grid">
+              <Select
+                label="Autor de las actividades"
+                value={autorId}
+                options={opcionesDeUsuario}
+                emptyOption={{ label: "Elegir…" }}
+                onChange={setAutorId}
+              />
+              <Select
+                label="Tipo para las filas sin tipo"
+                value={tipoPorDefecto}
+                options={TIPOS_DE_HISTORIAL}
+                emptyOption={{ label: "Ninguno (la fila falla)" }}
+                onChange={setTipoPorDefecto}
+              />
+            </div>
+            <MapeoDeValores
+              titulo="Qué tipo es cada valor de"
+              columna={deTipo.columna}
+              valores={deTipo.valores}
+              opciones={TIPOS_DE_HISTORIAL}
+              mapa={tipos}
+              sinAsignar="Sin asignar"
+              onChange={setTipos}
             />
           </div>
-          <p className="ds-hint">
-            Las tareas hechas quedan completadas; las vencidas, abiertas y asignadas al autor.
-          </p>
-          <MapeoDeValores
-            titulo="Qué tipo es cada valor de"
-            columna={deTipo.columna}
-            valores={deTipo.valores}
-            opciones={TIPOS_DE_HISTORIAL}
-            mapa={tipos}
-            sinAsignar="Sin asignar"
-            onChange={setTipos}
-          />
         </Card>
       ) : null}
 
       {tipo === "VEHICLE" ? (
         <Card heading="Stock">
-          <div className="ds-field-grid">
-            <Select
-              label="Sucursal de las unidades nuevas"
-              value={stock.branchId}
-              options={sucursales.map((s) => ({ value: s.id, label: s.name }))}
-              emptyOption={{ label: "Elegir…" }}
-              onChange={(branchId) => cambiarStock({ branchId })}
-            />
-            <Select
-              label="Responsable de los cambios en las fichas"
-              value={stock.responsableId}
-              options={opcionesDeUsuario}
-              emptyOption={{ label: "Elegir…" }}
-              onChange={(responsableId) => cambiarStock({ responsableId })}
-            />
-            <Select
-              label="Condición si la fila no la trae"
-              value={stock.condicionPorDefecto}
-              options={CONDICIONES}
-              onChange={(v) => v && cambiarStock({ condicionPorDefecto: v })}
-            />
-            <Select
-              label="Moneda de los montos sin moneda"
-              value={stock.monedaPorDefecto}
-              options={[
-                { value: "USD", label: "Dólares" },
-                { value: "LOCAL", label: "Moneda local" },
-              ]}
-              onChange={(v) => v && cambiarStock({ monedaPorDefecto: v })}
-            />
-            <FormField label="Importar también las vendidas (historial)">
-              <input
-                type="checkbox"
-                checked={stock.importarVendidas}
-                onChange={(e) => cambiarStock({ importarVendidas: e.target.checked })}
+          <div className="ds-stack">
+            <div className="ds-field-grid">
+              <Select
+                label="Sucursal de las unidades nuevas"
+                value={stock.branchId}
+                options={sucursales.map((s) => ({ value: s.id, label: s.name }))}
+                emptyOption={{ label: "Elegir…" }}
+                onChange={(branchId) => cambiarStock({ branchId })}
               />
-            </FormField>
+              <Select
+                label="Responsable de los cambios en las fichas"
+                value={stock.responsableId}
+                options={opcionesDeUsuario}
+                emptyOption={{ label: "Elegir…" }}
+                onChange={(responsableId) => cambiarStock({ responsableId })}
+              />
+              <Select
+                label="Condición si la fila no la trae"
+                value={stock.condicionPorDefecto}
+                options={CONDICIONES}
+                onChange={(v) => v && cambiarStock({ condicionPorDefecto: v })}
+              />
+              <Select
+                label="Moneda de los montos sin moneda"
+                value={stock.monedaPorDefecto}
+                options={[
+                  { value: "USD", label: "Dólares" },
+                  { value: "LOCAL", label: "Moneda local" },
+                ]}
+                onChange={(v) => v && cambiarStock({ monedaPorDefecto: v })}
+              />
+              <FormField label="Importar también las vendidas (historial)">
+                <input
+                  type="checkbox"
+                  checked={stock.importarVendidas}
+                  onChange={(e) => cambiarStock({ importarVendidas: e.target.checked })}
+                />
+              </FormField>
+            </div>
+            <MapeoDeValores
+              titulo="Qué estado es cada valor de"
+              columna={deEstado.columna}
+              valores={deEstado.valores}
+              opciones={ESTADOS_DE_STOCK}
+              mapa={stock.estados}
+              sinAsignar="Sin asignar (la fila falla)"
+              onChange={(estados) => cambiarStock({ estados })}
+            />
+            <MapeoDeValores
+              titulo="Qué condición es cada valor de"
+              columna={deCondicion.columna}
+              valores={deCondicion.valores}
+              opciones={CONDICIONES}
+              mapa={stock.condiciones}
+              sinAsignar="Sin asignar (la fila falla)"
+              onChange={(condiciones) => cambiarStock({ condiciones })}
+            />
+            <MapeoDeValores
+              titulo="Qué combustible es cada valor de"
+              columna={deCombustible.columna}
+              valores={deCombustible.valores}
+              opciones={COMBUSTIBLES}
+              mapa={stock.combustibles}
+              sinAsignar="Sin asignar (la fila falla)"
+              onChange={(combustibles) => cambiarStock({ combustibles })}
+            />
+            <MapeoDeValores
+              titulo="Qué caja es cada valor de"
+              columna={deCaja.columna}
+              valores={deCaja.valores}
+              opciones={TRANSMISIONES}
+              mapa={stock.transmisiones}
+              sinAsignar="Sin asignar (la fila falla)"
+              onChange={(transmisiones) => cambiarStock({ transmisiones })}
+            />
           </div>
-          <p className="ds-hint">
-            Las reservadas entran como «No disponible»; los importes locales se pasan a dólares.
-          </p>
-          <MapeoDeValores
-            titulo="Qué estado es cada valor de"
-            columna={deEstado.columna}
-            valores={deEstado.valores}
-            opciones={ESTADOS_DE_STOCK}
-            mapa={stock.estados}
-            sinAsignar="Sin asignar (la fila falla)"
-            onChange={(estados) => cambiarStock({ estados })}
-          />
-          <MapeoDeValores
-            titulo="Qué condición es cada valor de"
-            columna={deCondicion.columna}
-            valores={deCondicion.valores}
-            opciones={CONDICIONES}
-            mapa={stock.condiciones}
-            sinAsignar="Sin asignar (la fila falla)"
-            onChange={(condiciones) => cambiarStock({ condiciones })}
-          />
-          <MapeoDeValores
-            titulo="Qué combustible es cada valor de"
-            columna={deCombustible.columna}
-            valores={deCombustible.valores}
-            opciones={COMBUSTIBLES}
-            mapa={stock.combustibles}
-            sinAsignar="Sin asignar (la fila falla)"
-            onChange={(combustibles) => cambiarStock({ combustibles })}
-          />
-          <MapeoDeValores
-            titulo="Qué caja es cada valor de"
-            columna={deCaja.columna}
-            valores={deCaja.valores}
-            opciones={TRANSMISIONES}
-            mapa={stock.transmisiones}
-            sinAsignar="Sin asignar (la fila falla)"
-            onChange={(transmisiones) => cambiarStock({ transmisiones })}
-          />
         </Card>
       ) : null}
 
       <Card heading="Formato de los datos">
-        <div className="ds-field-grid">
-          <Select
-            label="Formato de fecha"
-            value={fecha}
-            options={[
-              { value: "DD/MM/AAAA", label: "DD/MM/AAAA" },
-              { value: "MM/DD/AAAA", label: "MM/DD/AAAA" },
-              { value: "AAAA-MM-DD", label: "AAAA-MM-DD" },
-            ]}
-            onChange={(v) => v && setFecha(v)}
-          />
-          <Select
-            label="Separador decimal"
-            value={decimal}
-            options={[
-              { value: ",", label: "Coma (1.234,56)" },
-              { value: ".", label: "Punto (1,234.56)" },
-            ]}
-            onChange={(v) => v && setDecimal(v)}
-          />
-          {tipo === "CONTACT" ? (
+        <div className="ds-stack">
+          <div className="ds-field-grid">
             <Select
-              label="Separador de listas de opciones"
-              value={opcionesSep}
+              label="Formato de fecha"
+              value={fecha}
               options={[
-                { value: ";", label: "Punto y coma (Contado; Permuta)" },
-                { value: ",", label: "Coma (Contado, Permuta)" },
+                { value: "DD/MM/AAAA", label: "DD/MM/AAAA" },
+                { value: "MM/DD/AAAA", label: "MM/DD/AAAA" },
+                { value: "AAAA-MM-DD", label: "AAAA-MM-DD" },
               ]}
-              onChange={(v) => v && setOpcionesSep(v)}
+              onChange={(v) => v && setFecha(v)}
             />
-          ) : null}
-          <FormField label="Valores que cuentan como «sí»">
-            <input type="text" value={si} onChange={(e) => setSi(e.target.value)} />
-          </FormField>
-          <FormField label="Valores que cuentan como «no»">
-            <input type="text" value={no} onChange={(e) => setNo(e.target.value)} />
-          </FormField>
+            <Select
+              label="Separador decimal"
+              value={decimal}
+              options={[
+                { value: ",", label: "Coma (1.234,56)" },
+                { value: ".", label: "Punto (1,234.56)" },
+              ]}
+              onChange={(v) => v && setDecimal(v)}
+            />
+            {tipo === "CONTACT" ? (
+              <Select
+                label="Separador de listas de opciones"
+                value={opcionesSep}
+                options={[
+                  { value: ";", label: "Punto y coma (Contado; Permuta)" },
+                  { value: ",", label: "Coma (Contado, Permuta)" },
+                ]}
+                onChange={(v) => v && setOpcionesSep(v)}
+              />
+            ) : null}
+            <FormField label="Valores que cuentan como «sí»">
+              <input type="text" value={si} onChange={(e) => setSi(e.target.value)} />
+            </FormField>
+            <FormField label="Valores que cuentan como «no»">
+              <input type="text" value={no} onChange={(e) => setNo(e.target.value)} />
+            </FormField>
+          </div>
+          <MapeoDeValores
+            titulo="Qué etapa del CRM es cada valor de"
+            columna={deEtapa.columna}
+            valores={deEtapa.valores}
+            opciones={ETAPAS}
+            mapa={etapas}
+            sinAsignar="Sin asignar (la fila falla)"
+            onChange={setEtapas}
+          />
         </div>
-        <MapeoDeValores
-          titulo="Qué etapa del CRM es cada valor de"
-          columna={deEtapa.columna}
-          valores={deEtapa.valores}
-          opciones={ETAPAS}
-          mapa={etapas}
-          sinAsignar="Sin asignar (la fila falla)"
-          onChange={setEtapas}
-        />
       </Card>
 
       <Card heading="Duplicados">
-        <Select
-          label="Si un registro ya existe"
-          value={duplicados}
-          options={POLITICAS}
-          onChange={(v) => v && setDuplicados(v)}
-        />
-        <p className="ds-hint">En la vista previa se puede cambiar fila por fila.</p>
-        {tipo === "CONTACT" && !sinEmpresas ? (
-          <FormField label="Crear las empresas que no existen">
-            <input
-              type="checkbox"
-              checked={crearEmpresas}
-              onChange={(e) => setCrearEmpresas(e.target.checked)}
-            />
-          </FormField>
-        ) : null}
+        <div className="ds-stack">
+          <Select
+            label="Si un registro ya existe"
+            value={duplicados}
+            options={POLITICAS}
+            onChange={(v) => v && setDuplicados(v)}
+          />
+
+          {tipo === "CONTACT" && !sinEmpresas ? (
+            <FormField label="Crear las empresas que no existen">
+              <input
+                type="checkbox"
+                checked={crearEmpresas}
+                onChange={(e) => setCrearEmpresas(e.target.checked)}
+              />
+            </FormField>
+          ) : null}
+        </div>
       </Card>
 
       {guardar.isError ? (

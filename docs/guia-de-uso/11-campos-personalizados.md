@@ -107,8 +107,8 @@ Los valores que los contactos ya tienen cargados son del tipo del campo, y
 por eso el tipo casi nunca se puede cambiar. Al editar un campo:
 
 - Si es **Texto**, **Número**, **Fecha** o **Sí / No**, el tipo aparece
-  bloqueado: "El tipo no se puede cambiar: los contactos ya tienen valores
-  de ese tipo. Para cambiarlo, eliminá el campo y creá otro."
+  bloqueado, porque los contactos ya tienen valores de ese tipo. Para
+  cambiarlo, eliminá el campo y creá otro.
 - Si es **Lista de opciones** o **Selección múltiple**, se puede pasar de
   uno al otro:
   - **De lista a selección múltiple**: siempre se puede. Cada contacto

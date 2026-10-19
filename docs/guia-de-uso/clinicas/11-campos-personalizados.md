@@ -21,10 +21,9 @@ número de socio, cómo nos conoció, el horario en que prefiere que lo llamen.
 
 ## Campos de paciente {#campos}
 
-La pantalla [Campos de paciente](/contact-custom-fields) (arriba dice **Campos
-de contacto**) lista los campos definidos por la clínica. Puede haber **hasta
-30 campos**; la pantalla dice cuántos hay en uso y, al llegar al tope, el
-botón **Nuevo campo** desaparece.
+La pantalla [Campos de paciente](/contact-custom-fields) lista los campos
+definidos por la clínica. Puede haber **hasta 30 campos**; la pantalla dice
+cuántos hay en uso y, al llegar al tope, el botón **Nuevo campo** desaparece.
 
 Cada fila muestra:
 
@@ -117,8 +116,8 @@ Los valores que los pacientes ya tienen cargados son del tipo del campo, y
 por eso el tipo casi nunca se puede cambiar. Al editar un campo:
 
 - Si es **Texto**, **Número**, **Fecha** o **Sí / No**, el tipo aparece
-  bloqueado, con el aviso de que ya hay valores cargados de ese tipo. Para
-  cambiarlo, eliminá el campo y creá otro.
+  bloqueado, porque ya hay valores cargados de ese tipo. Para cambiarlo,
+  eliminá el campo y creá otro.
 - Si es **Lista de opciones** o **Selección múltiple**, se puede pasar de
   uno al otro:
   - **De lista a selección múltiple**: siempre se puede. Cada paciente

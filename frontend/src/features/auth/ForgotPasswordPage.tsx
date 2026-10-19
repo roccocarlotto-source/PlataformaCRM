@@ -64,9 +64,6 @@ export function ForgotPasswordPage() {
     <AuthShell>
       <form onSubmit={handleSubmit}>
         <h1>Recuperar contraseña</h1>
-        <p className="ds-auth-text">
-          Ingresá tu email y te enviamos un enlace para elegir una nueva contraseña.
-        </p>
         <FormField label="Email">
           <input
             type="email"

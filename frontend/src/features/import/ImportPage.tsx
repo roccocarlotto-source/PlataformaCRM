@@ -192,8 +192,6 @@ export function ImportPage() {
                 ]}
               />
 
-              <Notice>Se procesan en segundo plano: actualizá el estado para ver cómo va.</Notice>
-
               {/* Las dos vistas se complementan en vez de competir: acá viven los
                   contadores agregados del lote (un GROUP BY barato), allá la cola
                   fila por fila, con el motivo de cada falla y el botón de

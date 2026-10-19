@@ -511,7 +511,6 @@ describe("ContactCustomFieldFormPage: opciones que ya usan contactos", () => {
       "Selección múltiple",
     ]);
     await user.click(screen.getByRole("option", { name: "Selección múltiple" }));
-    expect(screen.getByText(/Solo se puede cambiar entre/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(captura.patches).toBe(1));

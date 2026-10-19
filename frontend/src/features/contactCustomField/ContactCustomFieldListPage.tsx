@@ -62,19 +62,17 @@ export function ContactCustomFieldListPage() {
       />
 
       <div className="ds-list-card">
-        {/* docs/rubros.md §8.2: no se puede impedir, así que se avisa. El texto
-            es el de docs/guia-de-uso/clinicas/11-campos-personalizados.md. */}
+        {/* docs/rubros.md §8.2: no se puede impedir, así que se avisa. El
+            detalle (qué no cargar y por qué) está en
+            docs/guia-de-uso/clinicas/11-campos-personalizados.md. */}
         {esClinica ? (
-          <Notice tone="warning" alert={false} title="No cargues datos de salud en estos campos.">
-            Nada de diagnósticos, síntomas, tratamientos, medicación, alergias ni motivos de
-            consulta. Estos campos los lee el agente de IA y los ve todo el equipo: son para datos
-            administrativos, no para la historia clínica.
+          <Notice tone="warning" alert={false}>
+            No cargues datos de salud en estos campos.
           </Notice>
         ) : null}
 
         <p className="ds-hint">
-          El agente los lee todos y escribe solo los marcados «editable por el agente». Hasta{" "}
-          {MAX_CAMPOS_POR_ORGANIZACION} campos
+          Los lee el agente de IA. Hasta {MAX_CAMPOS_POR_ORGANIZACION} campos
           {fieldsQuery.isSuccess ? ` (${String(campos.length)} en uso)` : ""}.
         </p>
 

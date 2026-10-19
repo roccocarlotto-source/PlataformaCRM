@@ -58,8 +58,9 @@ function toFormValues(source: Source): SourceFormValues {
 // formularios del proyecto: `type` viaja en el POST pero NO existe en
 // updateSourceSchema (source.controller.ts). Una integración de webhook no se
 // convierte en una importación de Excel; se crea otra. En edición se muestra
-// deshabilitado con la razón escrita, en vez de esconderlo: que el dato esté a
-// la vista y no se pueda tocar informa más que su ausencia.
+// deshabilitado, en vez de esconderlo: que el dato esté a la vista y no se
+// pueda tocar informa más que su ausencia. La razón está en la guía de uso
+// (organizacion-y-sucursales#nueva-fuente).
 //
 // EL MAPEO SOLO APLICA A FILE_IMPORT. El backend lo rechaza en cualquier otro
 // tipo —en el create con el superRefine del schema, en el PATCH con un chequeo
@@ -201,11 +202,6 @@ export function SourceFormPage() {
                   if (type) setValues({ ...values, type });
                 }}
               />
-              {isEditMode ? (
-                <p className="ds-hint ds-field-grid--full">
-                  No se puede cambiar: para otro tipo, creá una fuente nueva.
-                </p>
-              ) : null}
 
               <div className="ds-field-grid--full">
                 <FormField label="Activa">

@@ -123,9 +123,6 @@ export function AgentWhatsappNumberPage() {
                 placeholder="106540352242922"
               />
             </FormField>
-            <p className="ds-hint ds-field-grid--full">
-              El «Phone number ID» de Meta, no el teléfono. Vacío lo libera.
-            </p>
           </div>
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}

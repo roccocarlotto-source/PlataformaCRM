@@ -97,17 +97,12 @@ function FormularioDeMensajes({ datos }: { datos: MensajesDeSalud }) {
 
   return (
     <div className="ds-stack">
-      <p className="ds-hint">
-        Cuando un paciente escribe algo que parece una urgencia o una consulta clínica, el agente
-        contesta con estos mensajes, sin usar la IA, y le pasa la conversación al equipo. Donde
-        escribas {"{clinica}"} va el nombre de la clínica.
-      </p>
       <Notice tone="warning" alert={false}>
         El contenido de estos mensajes es responsabilidad de la clínica.
       </Notice>
 
       <div className="ds-field-grid">
-        <div className="ds-field-grid--full">
+        <div className="ds-field-grid--full ds-stack">
           <FormField label="Mensaje de urgencia">
             <textarea
               rows={3}
@@ -116,7 +111,6 @@ function FormularioDeMensajes({ datos }: { datos: MensajesDeSalud }) {
               onChange={(event) => setValores({ ...valores, urgencia: event.target.value })}
             />
           </FormField>
-          <p className="ds-hint">Tiene que incluir un teléfono de emergencia (por ejemplo, 911).</p>
           {valores.urgencia !== porDefecto.urgencyMessageText ? (
             <Button
               type="button"
@@ -127,7 +121,7 @@ function FormularioDeMensajes({ datos }: { datos: MensajesDeSalud }) {
             </Button>
           ) : null}
         </div>
-        <div className="ds-field-grid--full">
+        <div className="ds-field-grid--full ds-stack">
           <FormField label="Mensaje de consulta clínica">
             <textarea
               rows={3}

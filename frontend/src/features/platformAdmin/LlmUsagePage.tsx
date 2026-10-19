@@ -32,9 +32,7 @@ export function LlmUsagePage() {
         ) : null}
         {usageQuery.isSuccess ? (
           <>
-            <p className="ds-hint">
-              Últimos {usageQuery.data.dias} días, una fila por turno. «—»: costo no informado.
-            </p>
+            <p className="ds-hint">Últimos {usageQuery.data.dias} días.</p>
             {usageQuery.data.organizaciones.length === 0 ? (
               <EmptyState>No hay organizaciones vigentes.</EmptyState>
             ) : (

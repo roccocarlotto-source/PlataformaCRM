@@ -94,7 +94,7 @@ export function OrganizationMetaConnectionCard({
 
   return (
     <Card heading="Facebook e Instagram de la organización">
-      <p className="ds-hint">Te lleva a Facebook y vuelve acá. Elegí solo la página del cliente.</p>
+      <p className="ds-hint">Elegí solo la página del cliente.</p>
 
       {completeMutation.isPending ? (
         <p className="ds-hint" role="status">

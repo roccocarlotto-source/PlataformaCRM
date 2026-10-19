@@ -61,34 +61,36 @@ function ModeloDeAgenteCard() {
   return (
     <form onSubmit={handleSubmit}>
       <Card heading="Agente de atención a clientes">
-        <div className="ds-field-grid">
-          <OrganizacionSelect value={organizationId} onChange={handleOrganizationChange} />
-          <AgenteSelect organizationId={organizationId} value={agentId} onChange={setAgentId} />
-          <FormField label={<span className="ds-required">Modelo</span>}>
-            <input
-              type="text"
-              value={modelName}
-              maxLength={100}
-              placeholder="openai/gpt-4o-mini"
-              onChange={(event) => setModelName(event.target.value)}
-              required
-            />
-          </FormField>
-          <p className="ds-hint ds-field-grid--full">
-            Tal cual lo publica OpenRouter; uno inexistente falla al usarlo.
-          </p>
-        </div>
-        {error ? <ErrorState>{error}</ErrorState> : null}
-        {resultado ? <p className="ds-hint">{resultado.texto}</p> : null}
-        <div className="ds-card-actions">
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={mutation.isPending}
-            loading={mutation.isPending}
-          >
-            {mutation.isPending ? "Guardando…" : "Guardar"}
-          </Button>
+        <div className="ds-stack">
+          <div className="ds-field-grid">
+            <OrganizacionSelect value={organizationId} onChange={handleOrganizationChange} />
+            <AgenteSelect organizationId={organizationId} value={agentId} onChange={setAgentId} />
+            <FormField label={<span className="ds-required">Modelo</span>}>
+              <input
+                type="text"
+                value={modelName}
+                maxLength={100}
+                placeholder="openai/gpt-4o-mini"
+                onChange={(event) => setModelName(event.target.value)}
+                required
+              />
+            </FormField>
+            <p className="ds-hint ds-field-grid--full">
+              Tal cual lo publica OpenRouter; uno inexistente falla al usarlo.
+            </p>
+          </div>
+          {error ? <ErrorState>{error}</ErrorState> : null}
+          {resultado ? <p className="ds-hint">{resultado.texto}</p> : null}
+          <div className="ds-card-actions">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={mutation.isPending}
+              loading={mutation.isPending}
+            >
+              {mutation.isPending ? "Guardando…" : "Guardar"}
+            </Button>
+          </div>
         </div>
       </Card>
     </form>
@@ -117,33 +119,32 @@ function ModeloDeAgenteInternoCard() {
   return (
     <form onSubmit={handleSubmit}>
       <Card heading="Agente interno de una organización">
-        <div className="ds-field-grid">
-          <OrganizacionSelect value={organizationId} onChange={setOrganizationId} />
-          <FormField label={<span className="ds-required">Modelo</span>}>
-            <input
-              type="text"
-              value={modelName}
-              maxLength={100}
-              placeholder="openai/gpt-4o-mini"
-              onChange={(event) => setModelName(event.target.value)}
-              required
-            />
-          </FormField>
-          <p className="ds-hint ds-field-grid--full">
-            La organización tiene que haber configurado su agente interno antes.
-          </p>
-        </div>
-        {error ? <ErrorState>{error}</ErrorState> : null}
-        {resultado ? <p className="ds-hint">{resultado.texto}</p> : null}
-        <div className="ds-card-actions">
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={mutation.isPending}
-            loading={mutation.isPending}
-          >
-            {mutation.isPending ? "Guardando…" : "Guardar"}
-          </Button>
+        <div className="ds-stack">
+          <div className="ds-field-grid">
+            <OrganizacionSelect value={organizationId} onChange={setOrganizationId} />
+            <FormField label={<span className="ds-required">Modelo</span>}>
+              <input
+                type="text"
+                value={modelName}
+                maxLength={100}
+                placeholder="openai/gpt-4o-mini"
+                onChange={(event) => setModelName(event.target.value)}
+                required
+              />
+            </FormField>
+          </div>
+          {error ? <ErrorState>{error}</ErrorState> : null}
+          {resultado ? <p className="ds-hint">{resultado.texto}</p> : null}
+          <div className="ds-card-actions">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={mutation.isPending}
+              loading={mutation.isPending}
+            >
+              {mutation.isPending ? "Guardando…" : "Guardar"}
+            </Button>
+          </div>
         </div>
       </Card>
     </form>

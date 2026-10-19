@@ -33,10 +33,7 @@ export interface ApiKeySecretDialogProps {
 export function ApiKeySecretDialog({ apiKey, sourceName, onClose }: ApiKeySecretDialogProps) {
   return (
     <Modal title="Clave de ingesta creada" onClose={onClose} closeLabel="Listo, ya la guardé">
-      <Notice tone="warning">
-        Esta es la única vez que vas a poder ver esta clave. No se guarda en ningún lado: si la
-        perdés, hay que revocarla y crear otra.
-      </Notice>
+      <Notice tone="warning">Esta es la única vez que vas a poder ver esta clave.</Notice>
 
       <p>
         Fuente: <strong>{sourceName}</strong>

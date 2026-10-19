@@ -160,11 +160,6 @@ export function AgentFacebookPagePage() {
                   value={values.agentId}
                   onChange={(agentId) => setValues({ ...values, agentId })}
                 />
-                {organizationId === "" ? (
-                  <p className="ds-hint ds-field-grid--full">
-                    Elegí la organización arriba para ver sus agentes.
-                  </p>
-                ) : null}
                 <FormField label="ID de la página de Facebook">
                   <input
                     type="text"
@@ -177,9 +172,6 @@ export function AgentFacebookPagePage() {
                     placeholder="104857600000001"
                   />
                 </FormField>
-                <p className="ds-hint ds-field-grid--full">
-                  El ID numérico de la página, no su nombre. Vacío la libera.
-                </p>
               </div>
             </Card>
             {error ? <ErrorState>{error}</ErrorState> : null}

@@ -311,15 +311,7 @@ export function ContactCustomFieldFormPage() {
               />
             </FormField>
           </div>
-          {isEditMode && puedeCambiarDeTipo ? (
-            <p className="ds-hint">
-              Solo se puede cambiar entre lista de opciones y selección múltiple.
-            </p>
-          ) : isEditMode ? (
-            <p className="ds-hint">No se puede cambiar: los contactos ya tienen valores.</p>
-          ) : (
-            <p className="ds-hint">La clave (la que usa el agente) no cambia después.</p>
-          )}
+          {isEditMode ? null : <p className="ds-hint">La clave no cambia después.</p>}
         </Card>
 
         {error ? <ErrorState>{error}</ErrorState> : null}

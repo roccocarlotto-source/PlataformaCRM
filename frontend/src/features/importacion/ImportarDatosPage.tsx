@@ -183,11 +183,7 @@ export function ImportarDatosPage() {
 
   return (
     <div className="ds-form">
-      <PageHeader
-        help={AYUDA.importarDatos}
-        title="Importar datos"
-        subtitle="Contactos y empresas de otro sistema, para el alta de un cliente"
-      />
+      <PageHeader help={AYUDA.importarDatos} title="Importar datos" />
       <div className="ds-stack">
         <Card heading="Organización">
           {organizaciones.isLoading ? <LoadingState /> : null}

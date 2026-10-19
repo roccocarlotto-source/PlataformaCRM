@@ -256,13 +256,10 @@ describe("AgentFacebookPagePage — página de un agente (ítem 173)", () => {
     await chooseSelectOption(user, agente, "Agente de prueba");
   }
 
-  it("sin organización, el selector de agente está deshabilitado y pide elegirla arriba", async () => {
+  it("sin organización, el selector de agente está deshabilitado", async () => {
     renderPage();
 
     expect(await screen.findByRole("combobox", { name: /Agente/ })).toBeDisabled();
-    expect(
-      screen.getByText("Elegí la organización arriba para ver sus agentes."),
-    ).toBeInTheDocument();
   });
 
   it("PUT con el agente elegido y la página recortada; muestra el resultado", async () => {

@@ -79,7 +79,6 @@ export function SugerirMapeoDesdeArchivo({ onSugerir, disabled }: SugerirMapeoDe
           setError(null);
         }}
       />
-      <p className="ds-hint">Solo se leen los encabezados; el archivo no se importa.</p>
 
       <Button
         disabled={disabled || cargando}
