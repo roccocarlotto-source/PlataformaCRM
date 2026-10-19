@@ -41,6 +41,8 @@ import {
   type CreateMessageData,
 } from "../repositories/message.repository";
 import { findVouchersDelContacto } from "../repositories/discountVoucher.repository";
+import { findFutureConfirmedBookingsOfContact } from "../repositories/booking.repository";
+import { findOpenOpportunitiesOfContact } from "../repositories/opportunity.repository";
 import { findEdicionYRubro } from "../repositories/organization.repository";
 import { registrarAvisoDePrivacidad } from "../clinicas/avisoDePrivacidad";
 import { findOldestActiveAdmin } from "../repositories/user.repository";
@@ -437,7 +439,7 @@ export const INSTRUCCION_USAR_HERRAMIENTAS =
 // preguntar; esta pone el límite de que actuar es ejecutar la herramienta, no
 // narrar que se ejecutó.
 export const INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO =
-  'No le digas nunca al cliente que hiciste algo —que reservaste un turno, que cargaste sus datos, que creaste una oportunidad, que generaste un link de pago— si no ejecutaste la herramienta correspondiente en esta misma conversación y te devolvió un resultado exitoso. Leer información NO es haber actuado: consultar qué servicios existen o qué horarios hay libres no reserva nada. Si todavía no ejecutaste la acción, hablá en futuro y decí qué falta ("te confirmo el turno en un momento", "necesito tal dato para reservarlo"), nunca en pasado. Una confirmación falsa hace que la persona se presente a un turno que no existe o espere un pago que nadie registró.';
+  'No le digas nunca al cliente que hiciste algo —que reservaste un turno, que cargaste sus datos, que creaste una oportunidad, que generaste un link de pago— si no ejecutaste la herramienta correspondiente en esta misma conversación y te devolvió un resultado exitoso. Leer información NO es haber actuado: consultar qué servicios existen o qué horarios hay libres no reserva nada. Si todavía no ejecutaste la acción, hablá en futuro y decí qué falta ("te confirmo el turno en un momento", "necesito tal dato para reservarlo"), nunca en pasado. Una confirmación falsa hace que la persona se presente a un turno que no existe o espere un pago que nadie registró. Las herramientas que usaste en mensajes anteriores de esta conversación no las ves acá, pero lo que le contestaste en esos mensajes salió de ellas: no desmientas ni "corrijas" lo que dijiste antes solo porque ahora no ves esas llamadas; corregí algo solo si una herramienta de este mensaje devuelve un dato distinto. Si es una reserva o una oportunidad, la fuente es lo que el CRM ya tiene registrado de esta persona, más arriba: lo que figura ahí está hecho, y lo que no figura no está registrado.';
 
 // Instrucción fija del ítem 92. Va con las otras fijas y NO es configurable
 // por el negocio: un agente que regala plata es un problema del producto, no
@@ -918,6 +920,54 @@ export function envolverDatosDelCrm(contenido: string): string {
 export const AVISO_DE_DATOS_RESERVADOS_EN_WEB =
   "Por este canal NO se te muestran el email ni el teléfono que el CRM pueda tener guardados, y no debés afirmar ni insinuar que los tenés. Si los necesitás, pedíselos a la persona y usá solo los que te dé en esta conversación.";
 
+// ---------------------------------------------------------------------------
+// LO QUE YA QUEDÓ REGISTRADO DE LA PERSONA (Taller Demo, 2026-10-18)
+// ---------------------------------------------------------------------------
+// Al modelo le llegan los TEXTOS de los mensajes anteriores (aHistorial), no
+// las tools que usó en ellos. Con INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO a la vista
+// releía sus propias respuestas y las desmentía: "no los verifiqué" de precios
+// que sí había buscado, y "la prueba todavía no está reservada, fue un error
+// mío" con la reserva hecha en el mensaje anterior — y ofrecía otro horario,
+// porque el de su propia reserva ya figuraba ocupado. En el eval (T6 y T7 de
+// scripts/eval-agente-real.ts) pasó en 6 de 10 corridas.
+//
+// El remedio es darle el dato, no la llamada: las reservas vigentes y las
+// oportunidades abiertas del contacto, leídas del CRM en cada turno, en el
+// mismo bloque que su nombre. Son la fuente de verdad en los dos sentidos: lo
+// que figura está hecho y lo que no figura no está registrado, así que la
+// protección del ítem 100 (no dar por hecho lo que no se hizo) sigue en pie.
+// ---------------------------------------------------------------------------
+export const MAX_REGISTROS_EN_EL_PROMPT = 5;
+
+export interface LoRegistradoDelContacto {
+  reservas: { servicio: string; startsAt: Date; endsAt: Date }[];
+  oportunidades: { titulo: string; etapa: string }[];
+}
+
+function seccionDeLoRegistrado(registrado: LoRegistradoDelContacto, zona: string): string {
+  if (registrado.reservas.length === 0 && registrado.oportunidades.length === 0) {
+    return "El CRM no tiene ninguna reserva vigente ni ninguna oportunidad abierta de esta persona.";
+  }
+  const lineas: string[] = [];
+  if (registrado.reservas.length > 0) {
+    lineas.push("Reservas vigentes:");
+    for (const r of registrado.reservas) {
+      const inicio = DateTime.fromJSDate(r.startsAt, { zone: zona }).setLocale("es");
+      const fin = DateTime.fromJSDate(r.endsAt, { zone: zona });
+      lineas.push(
+        `- ${r.servicio}: ${inicio.toFormat("cccc d 'de' LLLL, HH:mm")} a ${fin.toFormat("HH:mm")}`,
+      );
+    }
+  }
+  if (registrado.oportunidades.length > 0) {
+    lineas.push("Oportunidades abiertas:");
+    for (const o of registrado.oportunidades) {
+      lineas.push(`- ${o.titulo} (etapa: ${o.etapa})`);
+    }
+  }
+  return `Lo que el CRM ya tiene registrado de esta persona (lo hiciste vos en mensajes anteriores o lo cargó el equipo):\n${envolverDatosDelCrm(lineas.join("\n"))}\nEsto ya está hecho: si te pregunta por algo de esto, confirmalo con estos datos, sin volver a crearlo ni ofrecerle otro horario como si no existiera.`;
+}
+
 export function bloqueDeContacto(
   contact: {
     firstName: string;
@@ -930,7 +980,12 @@ export function bloqueDeContacto(
     noInterestNote?: string | null;
   } & CalificacionEnElPrompt,
   canal?: ConversationChannel,
+  // Lo que ya quedó registrado (ver seccionDeLoRegistrado), en la zona de la
+  // sucursal. Ausente: la sección no aparece (los tests del bloque solo).
+  registrado?: LoRegistradoDelContacto,
+  zona = "UTC",
 ): string {
+  const registro = registrado ? `\n${seccionDeLoRegistrado(registrado, zona)}` : "";
   const reservados = canal === "WEB";
   const sinInteres = contact.noInterestAt
     ? ` Esta persona está marcada SIN INTERÉS desde el ${contact.noInterestAt.toISOString().slice(0, 10)}${contact.noInterestNote ? ` (dijo: «${contact.noInterestNote}»)` : ""}: no le ofrezcas nada ni insistas; si pide algo, atendelo con normalidad.`
@@ -955,7 +1010,8 @@ export function bloqueDeContacto(
       (reservados
         ? `De la persona con la que estás hablando el CRM todavía no tiene el nombre cargado. Si lo necesitás para avanzar, podés preguntárselo. ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}`
         : "De la persona con la que estás hablando el CRM todavía no tiene ningún dato cargado (ni nombre, ni email, ni teléfono). Si lo necesitás para avanzar, podés preguntárselo.") +
-      sinInteres
+      sinInteres +
+      registro
     );
   }
 
@@ -967,9 +1023,9 @@ export function bloqueDeContacto(
     nombre === null
       ? "Su nombre no está cargado: si lo necesitás, ahí sí preguntáselo."
       : tieneNombreCompleto(contact)
-        ? "Llamala por su nombre cuando sea natural hacerlo."
+        ? "Ya tenés su nombre y apellido: no se los pidas, tampoco para registrar una oportunidad o una reserva. Llamala por su nombre cuando sea natural hacerlo."
         : "Tenés solo su nombre de pila, sin apellido: llamala por su nombre, y pedile nombre y apellido completos únicamente cuando vayas a registrar una oportunidad o una reserva.";
-  return `Datos que el CRM YA tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(datos.join(", "))}\nNo se los vuelvas a pedir: usalos. ${sobreElNombre}${reservados ? ` ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}` : ""}${sinInteres}`;
+  return `Datos que el CRM YA tiene de la persona con la que estás hablando:\n${envolverDatosDelCrm(datos.join(", "))}\nNo se los vuelvas a pedir: usalos. ${sobreElNombre}${reservados ? ` ${AVISO_DE_DATOS_RESERVADOS_EN_WEB}` : ""}${sinInteres}${registro}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1220,6 +1276,10 @@ export function armarSystemPrompt(
   conInstruccionDeIniciativa = true,
   // R11 (§3.2): los textos del rubro. Sin pasarlo, los de una automotora.
   textos: TextosDelPrompt = textosDeAutomotora(),
+  // Las reservas vigentes y las oportunidades abiertas del contacto, ya leídas
+  // (ver seccionDeLoRegistrado). Van en el bloque del contacto. Ausente: no
+  // se dice nada, como en los tests que arman el prompt sin conversación.
+  registrado?: LoRegistradoDelContacto,
 ): string {
   const partes = [agent.instructions.trim()];
 
@@ -1243,7 +1303,7 @@ export function armarSystemPrompt(
   // Ítem 105: con la fecha, porque es de la misma clase — contexto del turno
   // que el backend ya tiene y el modelo no tiene por qué ir a buscar.
   if (contacto) {
-    partes.push(bloqueDeContacto(contacto, canal));
+    partes.push(bloqueDeContacto(contacto, canal, registrado, contextoTemporal?.zona ?? "UTC"));
   }
 
   // B6: pegado a los datos del contacto, son de la misma persona.
@@ -2523,7 +2583,8 @@ async function responderSinMedir(
   // (base de conocimiento, sucursal, últimos mensajes) no dependen entre sí y
   // van en UNA ida en paralelo en vez de cuatro en serie. Si el gate calla al
   // agente, las otras tres se leyeron de más: son lecturas, y es el caso raro.
-  // Los cupones del contacto van en la misma ida (ver bloqueDeCupones).
+  // Los cupones del contacto van en la misma ida (ver bloqueDeCupones), y lo
+  // que ya quedó registrado de él también (ver seccionDeLoRegistrado).
   const [
     hayHumano,
     entradasDeLaSucursal,
@@ -2533,6 +2594,8 @@ async function responderSinMedir(
     cuponesDelContacto,
     camposPersonalizados,
     organizacion,
+    reservasDelContacto,
+    oportunidadesDelContacto,
   ] = await Promise.all([
     humanoAtiendeLaConversacion(conversation),
     findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
@@ -2545,6 +2608,13 @@ async function responderSinMedir(
     // La edición y el rubro, para las tools (docs/rubros.md §5.1), en la
     // misma ida.
     findEdicionYRubro(organizationId),
+    findFutureConfirmedBookingsOfContact(
+      contact.id,
+      organizationId,
+      new Date(),
+      MAX_REGISTROS_EN_EL_PROMPT,
+    ),
+    findOpenOpportunitiesOfContact(contact.id, organizationId, MAX_REGISTROS_EN_EL_PROMPT),
   ]);
 
   // PUNTO DE EXTENSIÓN DE ENTRADA (docs/rubros.md §5.3): las reglas del rubro
@@ -2734,6 +2804,17 @@ async function responderSinMedir(
     [...reglas.instruccionesDelPrompt, ...instruccionesDelNivel(nivelDelTurno)],
     toolDelNivel("create_opportunity", nivelDelTurno),
     textos,
+    {
+      reservas: reservasDelContacto.map((r) => ({
+        servicio: r.serviceType.name,
+        startsAt: r.startsAt,
+        endsAt: r.endsAt,
+      })),
+      oportunidades: oportunidadesDelContacto.map((o) => ({
+        titulo: o.title,
+        etapa: o.stage.name,
+      })),
+    },
   );
   const mensajes = ordenarPendientesAlFinal(
     ultimosMensajes,

@@ -190,6 +190,23 @@ const NOMBRES_DEL_TALLER = [
   ["Raúl", "Gutiérrez"],
   ["Natalia", "Píriz"],
 ] as const;
+// "la prueba todavía no está reservada", "no la confirmé", "no veo ninguna
+// reserva": negar algo que quedó hecho en un mensaje anterior.
+const NIEGA_LA_RESERVA = [
+  /\bno (est[aá]|qued[oó]) (todav[ií]a |a[uú]n )?(reservad|agendad|confirmad)/i,
+  /\b(todav[ií]a|a[uú]n) no (est[aá]|qued[oó]) (reservad|agendad|confirmad)/i,
+  /\bno (la|lo) (confirm[eé]|reserv[eé]|agend[eé])\b/i,
+  /\bno (tengo|veo|encuentro|figura|aparece)[^.?!\n]{0,40}\b(reserva|turno)/i,
+];
+// "tengo que corregir lo que te dije", "una corrección", "no los verifiqué".
+const CORRIGE_LO_DICHO = [
+  /\bcorreg(ir|irte|irme)\b/i,
+  /\bcorrecci[oó]n\b/i,
+  /\bno (lo |los |la |las )?(verifiqu[eé]|consult[eé]|chequ[eé])\b/i,
+  /\bme equivoqu[eé]\b/i,
+];
+// Los contactos del taller ya tienen nombre y apellido cargados.
+const PIDE_EL_APELLIDO = /\bapellido\b/i;
 // "¿Te lo reservo?", "¿querés que te lo reserve?", "¿lo agendo?"… y con el
 // detalle adentro: "¿Te reservo el turno … el lunes 19 a las 10 (30 minutos)?".
 const PREGUNTA_SI_RESERVA =
@@ -253,6 +270,50 @@ const ESCENARIOS: Escenario[] = [
     chequeoDeDatos: async (contactId) => {
       const n = await prisma.booking.count({ where: { contactId } });
       return n === 1 ? null : `pidió la reserva y quedaron ${String(n)} (esperaba 1)`;
+    },
+  },
+
+  // ---- Lo que ya quedó hecho en mensajes anteriores (Taller Demo, 2026-10-18) ----
+  // Al modelo le llegan los TEXTOS de los mensajes anteriores, no las tools que
+  // usó en ellos. Releyendo sus precios del mensaje 1 se "corrigió" ("no los
+  // verifiqué"), y en una réplica le dijo a la clienta que la prueba de manejo
+  // "todavía no está reservada" con la reserva hecha en el mensaje anterior.
+  {
+    id: "T6",
+    agente: "taller",
+    criterio:
+      "Pregunta por la reserva hecha en un mensaje anterior: la confirma, sin negarla ni duplicarla",
+    msgs: [
+      "Hola, reservame una prueba de manejo del Kwid para el lunes a las 10, por favor.",
+      "Perdón, ¿me confirmás que quedó reservada la prueba del lunes? ¿A qué hora era?",
+    ],
+    noDebeContenerAlFinal: [...NIEGA_LA_RESERVA, ...CORRIGE_LO_DICHO],
+    chequeoDeDatos: async (contactId) => {
+      const n = await prisma.booking.count({ where: { contactId } });
+      return n === 1 ? null : `quedaron ${String(n)} reservas (esperaba 1)`;
+    },
+  },
+  {
+    id: "T7",
+    agente: "taller",
+    criterio:
+      "Momento 3 del guion: sin corregir lo dicho, sin negar la reserva y sin pedir el apellido",
+    msgs: [
+      "Hola, busco un auto chico para la ciudad, hasta 15 mil dólares",
+      "Me interesa el Kwid. ¿Puedo ir a probarlo el lunes a las 10?",
+      "Sí, perfecto, reservame ese horario.",
+      "¿Y tienen taller para hacerle el service después?",
+    ],
+    toolsEsperadas: ["create_booking"],
+    noDebeContener: [...NIEGA_LA_RESERVA, ...CORRIGE_LO_DICHO, PIDE_EL_APELLIDO],
+    chequeoDeDatos: async (contactId) => {
+      const [reservas, abiertas] = await Promise.all([
+        prisma.booking.count({ where: { contactId } }),
+        prisma.opportunity.count({ where: { contactId, status: "OPEN", deletedAt: null } }),
+      ]);
+      return reservas === 1 && abiertas === 1
+        ? null
+        : `quedaron ${String(reservas)} reservas y ${String(abiertas)} oportunidades abiertas (esperaba 1 y 1)`;
     },
   },
 

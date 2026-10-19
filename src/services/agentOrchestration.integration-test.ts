@@ -3223,6 +3223,68 @@ test("D3: por el widget, create_opportunity de un visitante anónimo no crea nad
   }
 });
 
+// Taller Demo, 2026-10-18: al modelo no le llegan las tools de los mensajes
+// anteriores, así que negaba una reserva que había hecho. Ahora el prompt de
+// cada turno trae las reservas vigentes y las oportunidades abiertas del
+// contacto, leídas del CRM; las canceladas, las pasadas y las cerradas no.
+test("el prompt trae lo que el CRM ya tiene registrado del contacto: reservas vigentes y oportunidades abiertas", async () => {
+  const e = await montar("lo-registrado");
+  try {
+    const serviceType = await agendaDeLunes(e);
+    // El reloj real, no el de las reservas: la lectura usa new Date().
+    const enDosDias = DateTime.now().plus({ days: 2 }).startOf("hour");
+    const fila = (inicio: DateTime, status: "CONFIRMED" | "CANCELLED") => ({
+      organizationId: e.organizationId,
+      branchId: e.branchId,
+      serviceTypeId: serviceType.id,
+      resourceId: serviceType.resourceId,
+      contactId: e.contactId,
+      startsAt: inicio.toJSDate(),
+      endsAt: inicio.plus({ minutes: 60 }).toJSDate(),
+      status,
+    });
+    await prisma.booking.createMany({
+      data: [
+        fila(enDosDias, "CONFIRMED"),
+        fila(enDosDias.plus({ hours: 2 }), "CANCELLED"),
+        fila(DateTime.now().minus({ days: 3 }), "CONFIRMED"),
+      ],
+    });
+    const oportunidad = (title: string, status: "OPEN" | "WON") => ({
+      organizationId: e.organizationId,
+      contactId: e.contactId,
+      ownerId: e.ownerId,
+      pipelineId: e.pipelineId!,
+      stageId: e.stageId!,
+      title,
+      status,
+    });
+    await prisma.opportunity.createMany({
+      data: [
+        oportunidad("Test drive del Civic", "OPEN"),
+        oportunidad("Compra cerrada del Onix", "WON"),
+      ],
+    });
+
+    const doble = doblarProveedor([texto("Sí, tu test drive sigue en pie.")]);
+    await turno(e, "¿Me confirmás el test drive?", doble.proveedor);
+
+    const prompt = doble.requests[0].systemPrompt;
+    const inicio = enDosDias.setZone(TZ).setLocale("es");
+    assert.ok(
+      prompt.includes(
+        `- Test drive: ${inicio.toFormat("cccc d 'de' LLLL, HH:mm")} a ${inicio.plus({ minutes: 60 }).toFormat("HH:mm")}`,
+      ),
+      prompt,
+    );
+    assert.ok(prompt.includes("- Test drive del Civic (etapa: Nuevo)"));
+    assert.equal(prompt.match(/^- Test drive: /gm)?.length, 1, "ni la cancelada ni la pasada");
+    assert.ok(!prompt.includes("Compra cerrada del Onix"), "ni la oportunidad cerrada");
+  } finally {
+    await desmontar(e);
+  }
+});
+
 // D4 (docs-privados, local).
 test("D4: el agente no le agenda a un contacto más de 2 reservas futuras activas; las pasadas y las canceladas no cuentan", async () => {
   const e = await montar("d4-tope", { enabledTools: ["create_booking"] });

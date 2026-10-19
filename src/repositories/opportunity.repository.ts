@@ -302,6 +302,23 @@ export function countOpenOpportunitiesOf(
   });
 }
 
+// Las oportunidades ABIERTAS de un contacto, con título y etapa: el bloque del
+// contacto en el prompt del agente (bloqueDeContacto en
+// agentOrchestration.service.ts). Las más nuevas primero y con tope.
+export function findOpenOpportunitiesOfContact(
+  contactId: string,
+  organizationId: string,
+  limite: number,
+  db: Db = prisma,
+) {
+  return db.opportunity.findMany({
+    where: { contactId, organizationId, deletedAt: null, status: "OPEN" },
+    orderBy: { createdAt: "desc" },
+    take: limite,
+    select: { title: true, stage: { select: { name: true } } },
+  });
+}
+
 // Ítem 153 de docs/matriz-de-datos-crm.md — oportunidades vivas que "tienen" a
 // una unidad: una abierta la reserva; una ganada la vendió y, mientras la
 // entrega no se confirmó, la unidad todavía es de esa venta. Una ganada con
