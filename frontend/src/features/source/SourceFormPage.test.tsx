@@ -162,7 +162,7 @@ describe("SourceFormPage — creación", () => {
 });
 
 describe("SourceFormPage — edición", () => {
-  it("el tipo se muestra pero está DESHABILITADO, con la razón a la vista", async () => {
+  it("el tipo se muestra pero está DESHABILITADO", async () => {
     server.use(
       http.get(`${baseUrl}/:id`, () =>
         HttpResponse.json(makeSource({ id: "s1", type: "FILE_IMPORT", name: "Feria" })),
@@ -175,9 +175,6 @@ describe("SourceFormPage — edición", () => {
     const tipo = screen.getByLabelText("Tipo");
     expect(tipo).toBeDisabled();
     expect(tipo).toHaveValue("Importación de archivo");
-    expect(
-      screen.getByText(/No se puede cambiar: para otro tipo, creá una fuente nueva/),
-    ).toBeInTheDocument();
   });
 
   it("carga el mapeo persistido como filas y el PATCH no manda type", async () => {

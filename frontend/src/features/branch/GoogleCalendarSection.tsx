@@ -110,10 +110,6 @@ export function GoogleCalendarSection({
   return (
     <Card heading="Google Calendar">
       <div className="ds-stack">
-        <p className="ds-hint">
-          {`${concordancia(reserva).Los} ${reserva.plural} se reflejan en ese calendario y sus eventos ocupan horarios.`}
-        </p>
-
         {resultadoDelCallback?.conectado ? (
           <p className="ds-hint" role="status">
             Google Calendar quedó conectado.

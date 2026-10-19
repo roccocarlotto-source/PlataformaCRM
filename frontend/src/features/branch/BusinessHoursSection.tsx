@@ -135,8 +135,6 @@ export function BusinessHoursSection({
   return (
     <Card heading="Horario de atención">
       <div className="ds-stack">
-        <p className="ds-hint">Los mensajes automáticos solo salen dentro de este horario.</p>
-
         {datos.configured ? null : (
           <p className="ds-hint">Usa el horario por defecto: lunes a sábado de 9:00 a 20:00.</p>
         )}

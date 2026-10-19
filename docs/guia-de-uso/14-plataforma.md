@@ -288,6 +288,9 @@ unos se refieren a otros:
    encontrar a su contacto, por el identificador que tenía en el sistema
    anterior, por el email o por el teléfono. Si no lo encuentra, la fila falla.
 
+En una organización de edición **Esencial** no hay empresas: el orden es
+stock, después contactos y por último historial.
+
 Importar contactos sin empresas no es un error: la referencia queda vacía y la
 vista previa lo avisa. Conviene esperar a que termine una importación antes de
 subir la siguiente que depende de ella.

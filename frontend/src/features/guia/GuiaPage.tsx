@@ -38,9 +38,7 @@ export function GuiaPage() {
     return (
       <div>
         <PageHeader title="Ayuda" back={{ to: "/ayuda", label: "Ayuda" }} />
-        <EmptyState title="Esta sección no existe">
-          Volvé al índice de la guía para encontrar lo que buscás.
-        </EmptyState>
+        <EmptyState title="Esta sección no existe" />
       </div>
     );
   }
@@ -57,11 +55,7 @@ function Indice({ secciones }: { secciones: Seccion[] }) {
 
   return (
     <div>
-      <PageHeader
-        title="Ayuda"
-        subtitle="Cómo usar cada pantalla de la app, paso a paso."
-        help={AYUDA.ayuda}
-      />
+      <PageHeader title="Ayuda" help={AYUDA.ayuda} />
       <div className="ds-guia">
         <label className="ds-guia-search">
           <Search size={16} strokeWidth={1.5} aria-hidden="true" />
@@ -74,9 +68,7 @@ function Indice({ secciones }: { secciones: Seccion[] }) {
           />
         </label>
         {resultados.length === 0 ? (
-          <EmptyState title="No encontramos ese tema">
-            Probá con otra palabra, o recorré el índice borrando la búsqueda.
-          </EmptyState>
+          <EmptyState title="No encontramos ese tema" />
         ) : (
           <ul className="ds-guia-index">
             {resultados.map(({ seccion, encabezados }) => {

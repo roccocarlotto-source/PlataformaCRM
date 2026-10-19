@@ -210,7 +210,7 @@ export function NewOrganizationPage() {
             ) : (
               <p>
                 Se envió una invitación a <strong>{created.admin.email}</strong> para que configure
-                su contraseña. Cuando la complete, entra como administrador de la organización.
+                su contraseña.
               </p>
             )}
           </Card>
@@ -256,29 +256,17 @@ export function NewOrganizationPage() {
               </FormField>
             </div>
             {demo !== "" ? (
-              <>
-                <p className="ds-hint ds-field-grid--full">
-                  {demo === "clinica"
-                    ? "Crea «Clínica Demo», del rubro clínica y en edición Esencial, con una sede, " +
-                      "profesionales, prestaciones, pacientes y turnos inventados. El agente y las " +
-                      "automatizaciones quedan desactivados."
-                    : "Crea «Taller Demo», una automotora completa con el módulo Servicios, en modo " +
-                      "demo: los mensajes se simulan y nada sale de la plataforma. Trae dos " +
-                      "sucursales, stock, contactos, oportunidades, conversaciones, órdenes de " +
-                      "taller, tareas, un agente activo y automatizaciones, todo inventado."}
-                </p>
-                <div className="ds-field-grid--full">
-                  <FormField label="Sufijo del nombre (opcional)">
-                    <input
-                      type="text"
-                      value={sufijo}
-                      onChange={(event) => setSufijo(event.target.value)}
-                      maxLength={60}
-                      placeholder={demo === "clinica" ? "Norte" : "Este"}
-                    />
-                  </FormField>
-                </div>
-              </>
+              <div className="ds-field-grid--full">
+                <FormField label="Sufijo del nombre (opcional)">
+                  <input
+                    type="text"
+                    value={sufijo}
+                    onChange={(event) => setSufijo(event.target.value)}
+                    maxLength={60}
+                    placeholder={demo === "clinica" ? "Norte" : "Este"}
+                  />
+                </FormField>
+              </div>
             ) : (
               <>
                 <div className="ds-field-grid--full">
@@ -360,10 +348,6 @@ export function NewOrganizationPage() {
                       ))}
                     </select>
                   </FormField>
-                  <p className="ds-hint">
-                    El código de país completa los teléfonos cargados sin él (099 123 456 → +598 99
-                    123 456). Los tres se pueden cambiar después en Configuración → Organización.
-                  </p>
                 </div>
                 {eligeRubro ? (
                   <div className="ds-field-grid--full">
@@ -473,10 +457,6 @@ export function NewOrganizationPage() {
                   required
                 />
               </FormField>
-              <p className="ds-hint ds-field-grid--full">
-                Los tres reciben el mail para elegir su contraseña. El correo tiene un cupo por
-                hora: si alguno no llega, se reenvía desde Organizaciones.
-              </p>
             </div>
           </Card>
         ) : null}

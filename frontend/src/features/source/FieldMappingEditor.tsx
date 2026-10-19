@@ -45,7 +45,6 @@ export function FieldMappingEditor({ rows, onChange, disabled }: FieldMappingEdi
   return (
     <fieldset className="ds-field">
       <legend className="ds-field-label">Mapeo de columnas</legend>
-      <p className="ds-hint">Solo para importación de archivo: qué columna va a qué campo.</p>
 
       {rows.length === 0 ? (
         <EmptyState>No hay columnas mapeadas.</EmptyState>

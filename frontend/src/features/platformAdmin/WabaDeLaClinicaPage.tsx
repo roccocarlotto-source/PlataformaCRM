@@ -89,7 +89,6 @@ export function WabaDeLaClinicaPage() {
                 activa ? (
                   <p>
                     <Badge variant="success">Conectada</Badge> WABA <code>{conexion.wabaId}</code>.
-                    Sus plantillas se crean en esa cuenta.
                   </p>
                 ) : (
                   <p>
@@ -111,10 +110,6 @@ export function WabaDeLaClinicaPage() {
                       onChange={(event) => setWabaId(event.target.value)}
                     />
                   </FormField>
-                  <p className="ds-hint ds-field-grid--full">
-                    El «WhatsApp Business Account ID» que nos pasó la clínica. Antes, la clínica
-                    tiene que habernos agregado como socio de esa cuenta.
-                  </p>
                 </div>
               ) : null}
             </div>
@@ -134,7 +129,7 @@ export function WabaDeLaClinicaPage() {
         {error ? <ErrorState>{error}</ErrorState> : null}
 
         {conexionQuery.isSuccess ? (
-          <div>
+          <div className="ds-card-actions">
             <Button
               type="submit"
               variant="primary"

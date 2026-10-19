@@ -125,7 +125,6 @@ describe("ContactCustomFieldListPage por rubro", () => {
 
     expect(await screen.findByRole("heading", { name: "Campos de paciente" })).toBeInTheDocument();
     expect(screen.getByText("No cargues datos de salud en estos campos.")).toBeInTheDocument();
-    expect(screen.getByText(/no para la historia clínica/)).toBeInTheDocument();
   });
 
   it("automotora sin cambios: sin el aviso y con el título de siempre", async () => {

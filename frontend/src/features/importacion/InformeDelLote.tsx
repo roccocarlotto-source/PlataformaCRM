@@ -138,9 +138,6 @@ export function InformeDelLote({
                   : ".")}
         </p>
       ) : null}
-      {fallidas > 0 ? (
-        <p className="ds-hint">Trae el motivo de cada fila: corregí y volvé a subir.</p>
-      ) : null}
       {actualizadas > 0 ? (
         <p className="ds-hint">Lo actualizado no se deshace: el CSV trae el antes y el después.</p>
       ) : null}

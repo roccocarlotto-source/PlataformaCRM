@@ -202,23 +202,17 @@ export function OrganizationSettingsPage() {
       <PageHeader help={AYUDA.organizacion} title="Organización" />
       <div className="ds-stack">
         <Card heading="Moneda">
-          <div className="ds-stack">
-            <p className="ds-hint">
-              Configuración de {settings.name}. La alternativa es la segunda moneda en la que se
-              muestran precios.
-            </p>
-            <div className="ds-field-grid">
-              <CurrencySelect
-                label="Moneda de preferencia"
-                value={values.preferredCurrency}
-                onChange={(preferredCurrency) => setValues({ ...values, preferredCurrency })}
-              />
-              <CurrencySelect
-                label="Moneda alternativa"
-                value={values.alternateCurrency}
-                onChange={(alternateCurrency) => setValues({ ...values, alternateCurrency })}
-              />
-            </div>
+          <div className="ds-field-grid">
+            <CurrencySelect
+              label="Moneda de preferencia"
+              value={values.preferredCurrency}
+              onChange={(preferredCurrency) => setValues({ ...values, preferredCurrency })}
+            />
+            <CurrencySelect
+              label="Moneda alternativa"
+              value={values.alternateCurrency}
+              onChange={(alternateCurrency) => setValues({ ...values, alternateCurrency })}
+            />
           </div>
         </Card>
 
@@ -240,9 +234,6 @@ export function OrganizationSettingsPage() {
               />
             </FormField>
           </div>
-          <p className="ds-hint">
-            Se usa para completar los teléfonos cargados sin código de país.
-          </p>
         </Card>
 
         {/* Seguimiento de T-01. Valor persistido fuera de la lista ("UTC", la
@@ -267,7 +258,6 @@ export function OrganizationSettingsPage() {
               }}
             />
           </div>
-          <p className="ds-hint">Define hoy, esta semana y este mes en el dashboard.</p>
         </Card>
 
         {/* Rubros (docs/rubros.md §1.1): el rubro y la edición se ven, pero
@@ -298,20 +288,14 @@ export function OrganizationSettingsPage() {
                 />
               </div>
             ) : null}
-            <p className="ds-hint">El rubro y la edición los cambia el equipo de la plataforma.</p>
           </div>
         </Card>
 
         {settings.industry === "CLINICA" ? (
           <Card heading="Aviso de privacidad">
             <div className="ds-stack">
-              <p className="ds-hint">
-                El agente lo manda una sola vez a cada contacto, como mensaje aparte, antes de su
-                primera respuesta. Sin el aviso y el link no se puede activar un agente.
-              </p>
               <Notice tone="warning" alert={false}>
-                El texto de ejemplo es un borrador: no es asesoramiento legal. Revisalo con un
-                profesional antes de usarlo.
+                El texto de ejemplo es un borrador: no es asesoramiento legal.
               </Notice>
               <div className="ds-field-grid">
                 <div className="ds-field-grid--full">
@@ -353,7 +337,6 @@ export function OrganizationSettingsPage() {
                   </Button>
                 </div>
               ) : null}
-              <p className="ds-hint">El link va abajo del texto, en el mismo mensaje.</p>
             </div>
           </Card>
         ) : null}

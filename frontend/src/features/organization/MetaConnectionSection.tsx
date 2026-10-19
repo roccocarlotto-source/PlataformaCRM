@@ -24,10 +24,6 @@ export function MetaConnectionSection() {
 
   return (
     <Card heading="Facebook e Instagram">
-      <p className="ds-hint">
-        Con la página conectada, los agentes contestan por Messenger e Instagram.
-      </p>
-
       {connectionQuery.isLoading ? <LoadingState /> : null}
 
       {connectionQuery.isError ? (

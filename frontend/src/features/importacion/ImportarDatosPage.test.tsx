@@ -619,9 +619,6 @@ describe("ImportarDatosPage", () => {
     const user = userEvent.setup();
     renderPage(`/admin/imports?organizationId=${ORG}&batchId=${LOTE}`);
     await user.click(await screen.findByLabelText("Mantener sincronizado con la planilla"));
-    expect(
-      screen.getByText(/En cada sincronización se actualizan los campos mapeados/),
-    ).toBeInTheDocument();
     const horas = screen.getByLabelText(/Cada cuántas horas/);
     await user.clear(horas);
     await user.type(horas, "0");
@@ -778,7 +775,6 @@ describe("ImportarDatosPage — organización destino por edición", () => {
     expect(opciones).not.toContain("Empresas");
     expect(opciones).toContain("Contactos");
     await user.keyboard("{Escape}");
-    expect(screen.getByText(/^Primero stock/)).toBeInTheDocument();
 
     await subirContactos(user);
     expect(screen.queryByLabelText("Crear las empresas que no existen")).not.toBeInTheDocument();
@@ -792,7 +788,6 @@ describe("ImportarDatosPage — organización destino por edición", () => {
     const tipo = await screen.findByRole("combobox", { name: "Qué se importa" });
     expect(await listSelectOptions(user, tipo)).toContain("Empresas");
     await user.keyboard("{Escape}");
-    expect(screen.getByText(/^Primero empresas y stock/)).toBeInTheDocument();
 
     await subirContactos(user);
     expect(screen.getByLabelText("Crear las empresas que no existen")).toBeInTheDocument();

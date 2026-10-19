@@ -82,11 +82,6 @@ export function PasoArchivo({
           emptyOption={{ label: "Elegir…" }}
           onChange={setTipo}
         />
-        <p className="ds-hint">
-          {sinEmpresas
-            ? "Primero stock, después contactos, por último historial."
-            : "Primero empresas y stock, después contactos, por último historial."}
-        </p>
         <Select
           label="Sistema de origen"
           value={fuente}
@@ -108,7 +103,6 @@ export function PasoArchivo({
             />
           </FormField>
         ) : null}
-        <p className="ds-hint">Volver a subir del mismo origen actualiza sin duplicar.</p>
         {tipo === "VEHICLE" ? (
           <Select
             label="De dónde"
@@ -118,31 +112,23 @@ export function PasoArchivo({
           />
         ) : null}
         {origen === "sheets" ? (
-          <>
-            <FormField label="Link de la planilla">
-              <input
-                type="url"
-                value={link}
-                maxLength={2048}
-                placeholder="https://docs.google.com/spreadsheets/d/…"
-                onChange={(event) => setLink(event.target.value)}
-              />
-            </FormField>
-            <p className="ds-hint">Compartida como «Cualquier persona con el enlace puede ver».</p>
-          </>
-        ) : (
-          <>
-            <FileInputButton
-              label="Archivo (.csv o .xlsx, hasta 10 MB)"
-              accept=".csv,.xlsx"
-              selectedFileName={archivo?.name ?? null}
-              onFileSelected={setArchivo}
-              onClear={() => setArchivo(null)}
+          <FormField label="Link de la planilla">
+            <input
+              type="url"
+              value={link}
+              maxLength={2048}
+              placeholder="https://docs.google.com/spreadsheets/d/…"
+              onChange={(event) => setLink(event.target.value)}
             />
-            <p className="ds-hint">
-              Un .xls o un .ods no se pueden leer: guardalo como .xlsx o .csv y volvé a subirlo.
-            </p>
-          </>
+          </FormField>
+        ) : (
+          <FileInputButton
+            label="Archivo (.csv o .xlsx, hasta 10 MB)"
+            accept=".csv,.xlsx"
+            selectedFileName={archivo?.name ?? null}
+            onFileSelected={setArchivo}
+            onClear={() => setArchivo(null)}
+          />
         )}
         {subida.isError ? (
           <ErrorState>

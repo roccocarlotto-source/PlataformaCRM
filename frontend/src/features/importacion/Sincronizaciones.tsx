@@ -68,9 +68,6 @@ export function Sincronizaciones({
 
   return (
     <Card heading="Sincronizaciones">
-      <p className="ds-hint">
-        En cada sincronización se actualizan los campos mapeados; nada se borra.
-      </p>
       <ul className="ds-stack">
         {syncs.data.map((s) => {
           const estado = estadoDe(s);

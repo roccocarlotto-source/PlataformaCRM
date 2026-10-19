@@ -207,9 +207,6 @@ export function BranchFormPage() {
               }
               emptyOptionLabel={`Sin ${responsable.singular} por defecto`}
             />
-            <p className="ds-hint ds-field-grid--full">
-              {`A quien el agente asigna los contactos sin ${responsable.singular}.`}
-            </p>
           </div>
         </Card>
 

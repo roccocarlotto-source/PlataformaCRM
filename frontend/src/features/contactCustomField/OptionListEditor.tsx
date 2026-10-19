@@ -232,9 +232,9 @@ export function OptionListEditor({
         Agregar opción
       </Button>
 
-      <p className="ds-hint ds-option-hint">
-        {alcanzoElTope ? `Llegaste al máximo de ${MAX_OPCIONES} opciones.` : "Una opción por fila."}
-      </p>
+      {alcanzoElTope ? (
+        <p className="ds-hint ds-option-hint">Llegaste al máximo de {MAX_OPCIONES} opciones.</p>
+      ) : null}
       <p className="ds-sr-only" role="status">
         {aviso}
       </p>

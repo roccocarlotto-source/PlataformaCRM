@@ -432,7 +432,7 @@ describe("BranchFormPage — campos obligatorios", () => {
 // Ítem 69 — el vendedor por defecto de la sucursal
 // ---------------------------------------------------------------------------
 describe("BranchFormPage — vendedor por defecto", () => {
-  it("el campo aparece con su hint y se puede guardar la sucursal sin elegir a nadie", async () => {
+  it("el campo aparece y se puede guardar la sucursal sin elegir a nadie", async () => {
     let body: unknown;
     server.use(
       http.post(baseUrl, async ({ request }) => {
@@ -445,9 +445,6 @@ describe("BranchFormPage — vendedor por defecto", () => {
     renderForm("/branches/new");
 
     expect(await screen.findByLabelText("Vendedor por defecto")).toBeInTheDocument();
-    expect(
-      screen.getByText(/A quien el agente asigna los contactos sin vendedor/),
-    ).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Nombre"), "Casa Central");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
@@ -967,8 +964,6 @@ describe("BranchFormPage — Google Calendar", () => {
 // vuelta al default con [].
 // ---------------------------------------------------------------------------
 
-const TEXTO_DE_AYUDA_HORARIO = "Los mensajes automáticos solo salen dentro de este horario.";
-
 interface FranjaDePrueba {
   weekday: string;
   startTime: string;
@@ -987,14 +982,12 @@ describe("BranchFormPage — Horario de atención", () => {
   it("no aparece en el alta: el horario cuelga del id de la sucursal", () => {
     renderForm("/branches/new");
     expect(screen.queryByRole("heading", { name: "Horario de atención" })).not.toBeInTheDocument();
-    expect(screen.queryByText(TEXTO_DE_AYUDA_HORARIO)).not.toBeInTheDocument();
   });
 
-  it("en edición aparece con el texto de ayuda literal", async () => {
+  it("en edición aparece", async () => {
     renderForm("/branches/b1/edit", sucursalB1());
 
     expect(await screen.findByRole("heading", { name: "Horario de atención" })).toBeInTheDocument();
-    expect(await screen.findByText(TEXTO_DE_AYUDA_HORARIO)).toBeInTheDocument();
   });
 
   it("sin horario propio (configured: false) muestra el default y arranca el editor con él", async () => {

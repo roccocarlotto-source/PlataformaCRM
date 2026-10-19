@@ -1,8 +1,7 @@
 import { useAuth } from "../auth/AuthContext";
 import { Notice } from "../design-system/Notice";
 
-export const AVISO_DE_MODO_DEMO =
-  "Modo demo: los mensajes se simulan y no le llegan a nadie. Nada sale de la plataforma.";
+export const AVISO_DE_MODO_DEMO = "Modo demo: los mensajes se simulan y no le llegan a nadie.";
 
 // El aviso fijo de una organización en modo demo (src/services/modoDemo.service.ts,
 // docs-privados/taller-demo-diseno.md §2, local): quien la usa tiene que saber
