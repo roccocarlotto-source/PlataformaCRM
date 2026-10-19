@@ -259,7 +259,6 @@ describe("QrFormDialog — N° sugerido (§54)", () => {
 
     await waitFor(() => expect(dialog.getByLabelText("N°")).toHaveValue(4));
     expect(branchIdConsultado).toBe("b1");
-    expect(dialog.getByText(/Sugerido: el siguiente libre en esta sucursal/)).toBeInTheDocument();
   });
 
   it("no pisa lo que la persona ya escribió cuando la sugerencia llega después", async () => {

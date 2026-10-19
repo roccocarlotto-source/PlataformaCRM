@@ -554,19 +554,9 @@ export function OpportunityFormPage() {
   // vacíos. El diseño marca además Monto y Asignado, pero son opcionales en
   // el contrato (ver toCreateInput) y un asterisco ahí mentiría.
   //
-  // Los dos textos de ayuda son del export y describen comportamiento real
-  // (EMPTY_FORM.status es "OPEN"; ganada/perdida se derivan de la Etapa).
-  // Cada uno con su propio gate:
-  //
-  //   - "Se crea abierta…" es de creación y solo mientras siga abierta: con
-  //     una Etapa marcada elegida la oportunidad NO nace abierta y el texto
-  //     sería falso.
-  //   - El de abajo explica CÓMO cerrarla, así que se muestra en los dos
-  //     modos mientras esté abierta y desaparece al cerrarse (§51: el mismo
-  //     gate que la tarjeta "Estado y cierre", invertido). Desde §51 nombra
-  //     los dos caminos reales —elegir una etapa marcada acá mismo o mover
-  //     la tarjeta en el embudo—; decir solo "desde el embudo" era lo que
-  //     quedó viejo al sacar el selector de Estado.
+  // Los textos de ayuda del export (cómo nace y cómo se cierra una
+  // oportunidad) ya no van en pantalla: están en la guía de uso
+  // (docs/guia-de-uso/04-oportunidades-y-procesos-de-venta.md#cerrar).
   // La sección de Cotización (§39) va DESPUÉS del <form> y no adentro: tiene
   // sus propios formularios y botones, y un <form> no se anida. Solo en
   // edición — una oportunidad que todavía no existe no tiene a qué colgarle
@@ -854,7 +844,6 @@ export function OpportunityFormPage() {
                       }
                     />
                   </FormField>
-                  <p className="ds-hint ds-field-grid--full">Entidad vacía: financiación propia.</p>
                 </>
               ) : null}
             </div>
@@ -926,11 +915,6 @@ export function OpportunityFormPage() {
 
           {error ? <ErrorState>{error}</ErrorState> : null}
           <div>
-            {simple || isClosed(values.status) ? null : (
-              <p className="ds-hint">
-                Para cerrarla, elegí una etapa de cierre o movela en el embudo.
-              </p>
-            )}
             <RequiredFieldsHint />
             {soloLectura ? (
               <p className="ds-hint" role="status">

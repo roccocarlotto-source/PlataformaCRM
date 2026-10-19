@@ -131,7 +131,9 @@ En el menú de acciones de cada fila (los tres puntos):
 
 La **Vista de embudo** muestra el proceso de venta elegido como un tablero:
 una columna por etapa, en el orden configurado, y cada oportunidad como una
-tarjeta dentro de su etapa.
+tarjeta dentro de su etapa. Si la organización todavía no tiene procesos de
+venta, el embudo dice "No hay procesos de venta todavía": un administrador
+tiene que crear uno en [Procesos de venta](#procesos-de-venta).
 
 - Arriba podés cambiar el **Proceso de venta** (si la organización tiene
   más de uno; si no, se elige solo) y **buscar** una oportunidad por título.
@@ -238,9 +240,8 @@ Si la oportunidad tiene contacto, arriba a la derecha está el botón **Crear
 cupón**, para mandarle por WhatsApp un cupón de descuento. Cómo funciona está
 en [Cupones y QR](/ayuda/cupones-y-qr).
 
-Mientras la oportunidad está abierta, debajo del formulario se lee cómo
-cerrarla: eligiendo una etapa marcada como ganada o perdida, o moviéndola en
-el embudo. Cuando está cerrada aparece la tarjeta **Estado y cierre** (ver
+Una oportunidad abierta se cierra eligiendo una etapa marcada como ganada o
+perdida, o moviéndola en el embudo. Cuando está cerrada aparece la tarjeta **Estado y cierre** (ver
 [Cerrar una oportunidad](#cerrar)).
 
 > Las secciones de cotización, entrega, permuta y pagos las puede **modificar

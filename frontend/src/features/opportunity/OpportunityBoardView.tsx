@@ -195,11 +195,7 @@ export function OpportunityBoardView() {
   }
 
   if (pipelinesQuery.isSuccess && pipelinesQuery.data.data.length === 0) {
-    return (
-      <EmptyState>
-        No hay procesos de venta todavía. Creá uno en Procesos de venta para ver el embudo.
-      </EmptyState>
-    );
+    return <EmptyState>No hay procesos de venta todavía.</EmptyState>;
   }
 
   return (

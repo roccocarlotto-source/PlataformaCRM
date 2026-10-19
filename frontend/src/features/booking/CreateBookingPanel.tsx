@@ -177,9 +177,7 @@ export function CreateBookingPanel({
                 onChange={(event) => setForzar(event.target.checked)}
               />
             </FormField>
-            <p className="ds-hint">
-              Fuera de horario. Como administrador podés reservar igual; el cupo no se saltea.
-            </p>
+            <p className="ds-hint">Fuera de horario.</p>
           </>
         ) : null}
       </form>

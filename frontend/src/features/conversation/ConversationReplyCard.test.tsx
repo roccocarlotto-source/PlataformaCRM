@@ -89,10 +89,10 @@ describe("ConversationReplyCard", () => {
     await waitFor(() => expect(cuadro).toHaveValue(""));
   });
 
-  it("dice que sale por WhatsApp y hasta cuándo se puede escribir", () => {
+  it("dice hasta cuándo se puede escribir (por dónde sale está en la guía)", () => {
     renderCard(makeConversationDetail(ABIERTA));
-    expect(screen.getByText(/Sale por WhatsApp desde el número del negocio/)).toBeInTheDocument();
-    expect(screen.getByText(/el agente no responde/)).toBeInTheDocument();
+    expect(screen.getByText(/Podés escribir texto libre hasta/)).toBeInTheDocument();
+    expect(screen.queryByText(/Sale por WhatsApp desde el número del negocio/)).toBeNull();
   });
 
   it("pasadas las 24 h, el cuadro queda deshabilitado con la explicación", () => {
@@ -108,14 +108,14 @@ describe("ConversationReplyCard", () => {
     expect(screen.getByText(AVISO_VENTANA_VENCIDA)).toBeInTheDocument();
   });
 
-  it("Messenger e Instagram: se responde dentro de la ventana y dice por dónde sale", () => {
+  it("Messenger e Instagram: se responde dentro de la ventana y dice hasta cuándo", () => {
     const { unmount } = renderCard(makeConversationDetail({ ...ABIERTA, channel: "MESSENGER" }));
     expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeEnabled();
-    expect(screen.getByText(/Sale por Messenger/)).toBeInTheDocument();
+    expect(screen.getByText(/Podés escribir texto libre hasta/)).toBeInTheDocument();
     unmount();
     renderCard(makeConversationDetail({ ...ABIERTA, channel: "INSTAGRAM" }));
     expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeEnabled();
-    expect(screen.getByText(/Sale por Instagram/)).toBeInTheDocument();
+    expect(screen.getByText(/Podés escribir texto libre hasta/)).toBeInTheDocument();
   });
 
   it("Messenger o Instagram pasadas las 24 h: deshabilitado con la explicación de Meta", () => {
@@ -133,7 +133,6 @@ describe("ConversationReplyCard", () => {
   it("el chat web se responde sin ventana: el cuadro habilitado aunque no haya fin de ventana", () => {
     renderCard(makeConversationDetail({ channel: "WEB", replyWindowEndsAt: null }));
     expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeEnabled();
-    expect(screen.getByText(/Le llega al visitante en el chat de la web/)).toBeInTheDocument();
     expect(screen.queryByText(/Podés escribir texto libre hasta/)).toBeNull();
   });
 

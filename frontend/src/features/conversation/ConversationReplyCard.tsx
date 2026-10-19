@@ -36,14 +36,6 @@ import {
 //   - Si no: el cuadro para escribir.
 // ---------------------------------------------------------------------------
 
-// Por dónde sale la respuesta, según el canal.
-const COMO_SALE: Record<ConversationDetail["channel"], string> = {
-  WHATSAPP: "Sale por WhatsApp desde el número del negocio.",
-  MESSENGER: "Sale por Messenger desde la página de Facebook del negocio.",
-  INSTAGRAM: "Sale por Instagram desde la cuenta del negocio.",
-  WEB: "Le llega al visitante en el chat de la web. Si lo cerró, la ve cuando lo vuelva a abrir.",
-};
-
 // "Devolver al agente" sin haberle respondido al cliente: el backend le manda
 // el aviso fijo y deja la tarea pendiente (avisoSinRespuesta.service.ts), así
 // que antes se confirma. En un Modal del design system con acción principal
@@ -157,14 +149,11 @@ export function ConversationReplyCard({
           <p className="ds-hint" role="note">
             {motivo}
           </p>
-        ) : (
+        ) : tieneVentana ? (
           <p className="ds-hint">
-            {COMO_SALE[conversation.channel]} Mientras atiendas vos, el agente no responde.
-            {tieneVentana
-              ? ` Podés escribir texto libre hasta el ${formatDateTime(conversation.replyWindowEndsAt)}.`
-              : null}
+            {`Podés escribir texto libre hasta el ${formatDateTime(conversation.replyWindowEndsAt)}.`}
           </p>
-        )}
+        ) : null}
 
         {atiende ? (
           <div className="ds-card-actions">

@@ -1,9 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import {
-  concordancia,
-  VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
-  type Termino,
-} from "../../auth/vocabulario";
+import { VOCABULARIO_AUTOMOTORA_POR_DEFECTO, type Termino } from "../../auth/vocabulario";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
@@ -117,10 +113,6 @@ export function CreateVoucherDialog({
           onChange={(id) => setBranchId(id || undefined)}
           required
         />
-        <p className="ds-hint">
-          El WhatsApp con el cupón sale del número de {concordancia(sucursal).este}{" "}
-          {sucursal.singular}.
-        </p>
         {crear.error ? (
           <ErrorState>
             No pudimos crear el cupón

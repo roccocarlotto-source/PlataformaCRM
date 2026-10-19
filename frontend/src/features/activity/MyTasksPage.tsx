@@ -228,7 +228,6 @@ export function MyTasksPage() {
       <PageHeader
         help={AYUDA.misTareas}
         title="Mis tareas"
-        subtitle="Actividades asignadas a vos, con o sin vencimiento."
         actions={
           meId ? (
             // Nace asignada a quien la pide (ActivityFormPage lee assigneeId

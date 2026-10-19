@@ -136,10 +136,7 @@ export function ConversationBriefCard({ conversation }: ConversationBriefCardPro
               ) : null}
             </>
           ) : (
-            <EmptyState>
-              Esta conversación todavía no tiene un resumen. Generalo para ver de qué se trata sin
-              leer el hilo entero.
-            </EmptyState>
+            <EmptyState>Esta conversación todavía no tiene un resumen.</EmptyState>
           )}
 
           <div className="ds-card-actions">

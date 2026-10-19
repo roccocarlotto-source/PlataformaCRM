@@ -313,9 +313,7 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(
-          "Este proceso de venta todavía no tiene etapas. Agregá la primera acá abajo.",
-        ),
+        screen.getByText("Este proceso de venta todavía no tiene etapas."),
       ).toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: "Agregar etapa" })).toBeInTheDocument();
