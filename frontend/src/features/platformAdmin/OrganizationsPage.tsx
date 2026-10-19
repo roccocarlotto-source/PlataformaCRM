@@ -183,9 +183,7 @@ function ListaDeOrganizaciones() {
                   <th>Identificador</th>
                   <th>Edición</th>
                   <th>Módulos</th>
-                  <th>
-                    <span className="ds-sr-only">Acciones</span>
-                  </th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
