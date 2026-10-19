@@ -23,9 +23,10 @@ export function TarjetaVehiculosDelContacto({
 }) {
   const vehiculosQuery = useQuery(vehiculosDelContactoQuery(contactId));
 
-  // Mismo envoltorio que ContactVouchersSection: el ancho de la ficha.
+  // Mismo envoltorio que ContactVouchersSection: el ancho de la ficha, y
+  // .ds-payment-section para separarla de la sección de arriba.
   return (
-    <div className="ds-form ds-stack">
+    <div className="ds-form ds-stack ds-payment-section">
       <Card heading="Vehículos">
         {vehiculosQuery.isLoading ? <LoadingState variant="rows" /> : null}
         {vehiculosQuery.isError ? <ErrorState>No pudimos cargar sus vehículos.</ErrorState> : null}
