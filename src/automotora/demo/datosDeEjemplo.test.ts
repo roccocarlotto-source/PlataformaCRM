@@ -299,6 +299,19 @@ test("la orden lista para retirar es de un cliente con WhatsApp, avisado, con la
   assert.ok(conversacion.hace - ultimaEntrante / 60 > 24);
 });
 
+test("la conversación de WhatsApp de Lucía tiene la ventana de 24 h abierta: se le puede responder recién reiniciada", () => {
+  const conversacion = CONVERSACIONES.find((c) => c.contacto === 0 && c.canal === "WHATSAPP");
+  assert.ok(conversacion, "tiene conversación de WhatsApp");
+  const ultimaEntrante = Math.max(
+    ...conversacion.mensajes.filter((m) => m.de === "CONTACTO").map((m) => m.minuto),
+  );
+  const horasDesdeElUltimo = conversacion.hace - ultimaEntrante / 60;
+  // Con margen: la demo se muestra durante horas después del reinicio.
+  assert.ok(horasDesdeElUltimo > 0 && horasDesdeElUltimo <= 6, `${horasDesdeElUltimo} h`);
+  // Nada que tenga que caer en horario: el agente atiende a toda hora.
+  assert.ok(conversacion.mensajes.every((m) => m.de === "CONTACTO" || m.de === "AGENTE"));
+});
+
 test("ningún auto vendido hace menos de 3 meses está en el taller por un service de kilometraje", () => {
   const deKilometraje = new Set(["service10", "service20", "aceite"]);
   for (const o of ORDENES) {

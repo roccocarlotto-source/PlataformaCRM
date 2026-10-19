@@ -224,7 +224,8 @@ export const CONTACTOS: ContactoDeLaDemo[] = [
     telefono: "+59891234501",
     email: "lucia.fernandez@example.com",
     fuente: "WhatsApp",
-    hace: 4,
+    // Ayer: su conversación de WhatsApp es de hoy (ver CONVERSACIONES).
+    hace: 1,
     campos: { autoActual: "Chevrolet Celta 2012", formaDePago: "Financiado" },
   },
   // 1
@@ -608,7 +609,8 @@ export const OPORTUNIDADES: OportunidadDeLaDemo[] = [
     etapa: "prueba",
     montoUsd: 16900,
     unidad: "onix",
-    creada: { mes: 0, dia: 10 },
+    // Hoy (se recorta a hoy): la creó el agente en la conversación de hoy.
+    creada: { mes: 0, dia: 31 },
     origen: "WHATSAPP",
   },
   {
@@ -1376,10 +1378,16 @@ export const CONVERSACIONES: ConversacionDeLaDemo[] = [
       { de: "CONTACTO", texto: "Genial, paso mañana a la tarde. ¡Gracias!", minuto: 110 },
     ],
   },
+  // Lucía escribió hace pocas horas: la ventana de 24 h sigue abierta y, recién
+  // reiniciada la demo, la tarjeta para responder se puede usar (y muestra la
+  // advertencia de que el agente no responde mientras atiende una persona).
+  // Solo mensajes del cliente y del agente, que atiende a toda hora: uno de
+  // una persona caería fuera del horario de Casa Central según la hora del
+  // reinicio. La prueba de manejo es la tarea de hoy a las 16 (TAREAS).
   {
     canal: "WHATSAPP",
     contacto: 0,
-    hace: 96,
+    hace: 5,
     estado: "ACTIVE",
     mensajes: [
       {
@@ -1401,11 +1409,11 @@ export const CONVERSACIONES: ConversacionDeLaDemo[] = [
           },
         ],
       },
-      { de: "CONTACTO", texto: "Sí, ¿puede ser el sábado a la mañana?", minuto: 4 },
+      { de: "CONTACTO", texto: "Sí, ¿puede ser hoy a la tarde?", minuto: 4 },
       {
         de: "AGENTE",
         texto:
-          "Perfecto. Te anoto una prueba de manejo el sábado a las 10 en Casa Central. Un vendedor te va a confirmar por acá. ¿Tenés auto para entregar en parte de pago?",
+          "Perfecto. Te anoto una prueba de manejo hoy a las 16 en Casa Central. Un vendedor te va a confirmar por acá. ¿Tenés auto para entregar en parte de pago?",
         minuto: 5,
         tools: [
           {
@@ -1418,15 +1426,8 @@ export const CONVERSACIONES: ConversacionDeLaDemo[] = [
       { de: "CONTACTO", texto: "Tengo un Celta 2012, ¿lo toman?", minuto: 7 },
       {
         de: "AGENTE",
-        texto:
-          "Sí, tomamos usados en parte de pago. El sábado lo tasamos en el momento. ¡Te esperamos!",
+        texto: "Sí, tomamos usados en parte de pago. Hoy lo tasamos en el momento. ¡Te esperamos!",
         minuto: 8,
-      },
-      {
-        de: "PERSONA",
-        texto:
-          "Hola Lucía, soy Martín de ventas. Confirmado el sábado a las 10, te espero con el Onix listo.",
-        minuto: 65,
       },
     ],
   },
