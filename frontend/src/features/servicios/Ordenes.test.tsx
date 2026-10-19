@@ -450,9 +450,7 @@ describe("Órdenes — el turno de la agenda (S4b)", () => {
     );
     const user = userEvent.setup();
     renderEn("/taller/ordenes/nueva?turnoId=bk1");
-    expect(
-      await screen.findByText("La orden queda Agendada para ese horario y vinculada al turno."),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Turno" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /SBC 1001/ }));
     expect(await screen.findByText(/(el horario del turno)/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Crear orden" }));

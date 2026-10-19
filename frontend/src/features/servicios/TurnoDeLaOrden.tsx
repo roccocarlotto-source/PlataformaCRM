@@ -84,10 +84,8 @@ export function AvisoDelTurno({ orden }: { orden: FichaDeOrden }) {
   let texto = "";
   if (turno.status === "CANCELLED") {
     titulo = "El turno vinculado fue cancelado";
-    texto = "La orden sigue como estaba: vinculá otro turno, desvinculalo o cancelá la orden.";
   } else if (turno.status === "NO_SHOW") {
     titulo = "El cliente no vino al turno";
-    texto = "Vinculá otro turno, desvinculalo o cancelá la orden.";
   } else if (
     turno.status === "CONFIRMED" &&
     orden.scheduledFor &&
@@ -100,7 +98,7 @@ export function AvisoDelTurno({ orden }: { orden: FichaDeOrden }) {
 
   return (
     <Notice tone="warning" alert={false} title={titulo}>
-      <p>{texto}</p>
+      {texto ? <p>{texto}</p> : null}
       <p>
         <Button type="button" variant="secondary" onClick={() => setVinculando(true)}>
           Vincular otro turno
@@ -165,16 +163,10 @@ function VincularTurnoDialog({ orden, onClose }: { orden: FichaDeOrden; onClose:
         {turnos.isLoading ? <LoadingState variant="lines" /> : null}
         {turnos.isError ? <ErrorState>No pudimos cargar los turnos.</ErrorState> : null}
         {turnos.isSuccess && disponibles.length === 0 ? (
-          <p>
-            El cliente no tiene turnos confirmados por delante. Dale uno en la{" "}
-            <Link to="/agenda">Agenda</Link> y volvé a vincularlo.
-          </p>
+          <p>El cliente no tiene turnos confirmados por delante.</p>
         ) : null}
         {disponibles.length > 0 ? (
           <>
-            <p className="ds-hint">
-              Al vincularlo, la orden pasa a esperar el auto en el horario del turno.
-            </p>
             <ul className="ds-stack">
               {disponibles.map((t) => (
                 <li key={t.id}>

@@ -43,25 +43,29 @@ export function NuevaOrdenPage() {
   }
 
   return (
-    <div>
+    <div className="ds-form">
       <PageHeader help={AYUDA.nuevaOrden} title="Nueva orden" />
-      {turno.data ? <TurnoDeLaOrdenNueva turno={turno.data} /> : null}
-      {!elegido ? (
-        turno.data ? (
-          <ElegirVehiculoDelCliente contactId={turno.data.contactId} onElegir={setElegido} />
-        ) : (
-          <ElegirVehiculo onElegir={setElegido} />
-        )
-      ) : null}
-      {elegido && vehiculo.isLoading ? <LoadingState variant="lines" /> : null}
-      {elegido && vehiculo.isError ? <ErrorState>No pudimos cargar el vehículo.</ErrorState> : null}
-      {vehiculo.data ? (
-        <FormularioDeOrden
-          vehiculo={vehiculo.data}
-          turno={turno.data}
-          onCambiar={() => setElegido(undefined)}
-        />
-      ) : null}
+      <div className="ds-stack">
+        {turno.data ? <TurnoDeLaOrdenNueva turno={turno.data} /> : null}
+        {!elegido ? (
+          turno.data ? (
+            <ElegirVehiculoDelCliente contactId={turno.data.contactId} onElegir={setElegido} />
+          ) : (
+            <ElegirVehiculo onElegir={setElegido} />
+          )
+        ) : null}
+        {elegido && vehiculo.isLoading ? <LoadingState variant="lines" /> : null}
+        {elegido && vehiculo.isError ? (
+          <ErrorState>No pudimos cargar el vehículo.</ErrorState>
+        ) : null}
+        {vehiculo.data ? (
+          <FormularioDeOrden
+            vehiculo={vehiculo.data}
+            turno={turno.data}
+            onCambiar={() => setElegido(undefined)}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -71,7 +75,6 @@ function TurnoDeLaOrdenNueva({ turno }: { turno: Booking }) {
   return (
     <Card heading="Turno">
       <p>{formatDateTime(turno.startsAt)}</p>
-      <p className="ds-hint">La orden queda Agendada para ese horario y vinculada al turno.</p>
     </Card>
   );
 }
@@ -225,7 +228,7 @@ function FormularioDeOrden({
   }
 
   return (
-    <form onSubmit={guardar} className="ds-form">
+    <form onSubmit={guardar}>
       <div className="ds-stack">
         <Card heading="Vehículo">
           <p>

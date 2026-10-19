@@ -65,6 +65,8 @@ recordadas en tu navegador, igual que la sucursal):
   tarjeta queda en la columna nueva enseguida; si el paso no se pudo hacer,
   vuelve a la de antes con el aviso. En una pantalla de computadora entran las
   cinco columnas; en el celular se ven de a una, deslizando hacia el costado.
+  El tablero muestra hasta 200 órdenes: si hay más, arriba dice cuántas se
+  ven; elegí una sucursal o usá la lista.
 - **Lista**: todas las órdenes, también las entregadas y canceladas, con
   búsqueda por número (`OS-42` o `42`), matrícula o cliente. Por defecto
   muestra las **abiertas**; las entregadas y canceladas aparecen eligiendo
@@ -118,7 +120,8 @@ Con **Nueva orden** (en Órdenes, o en la ficha de un vehículo):
      ingreso** (obligatorio) y los daños, si hay. Los km del vehículo se
      actualizan si son más que los que tenía.
    - **Agendado**: viene más adelante, con la fecha en que se lo espera.
-4. Opcional: los **tipos de service**, el **encargado** (viene elegido quien
+4. Opcional: los **tipos de service** (los carga un administrador en
+   [Configuración](#configuracion)), el **encargado** (viene elegido quien
    crea la orden; se puede cambiar por cualquier usuario activo o dejar sin
    encargado), las **notas** y el **valor**. La **moneda** viene elegida con la
    del taller ([Configuración](#configuracion), UYU si no se cambió) y se puede
@@ -158,7 +161,8 @@ muestra su horario, el servicio y el recurso:
 
 - **Vincular turno** ofrece los turnos confirmados y futuros del cliente. Al
   vincular uno, la orden pasa a esperar el auto en ese horario. Un turno tiene
-  una sola orden abierta a la vez.
+  una sola orden abierta a la vez. Si el cliente no tiene turnos por delante,
+  dale uno en la [Agenda](/agenda) y volvé a vincularlo.
 - **Desvincular** saca el turno de la orden. El turno sigue en la agenda y la
   orden conserva su fecha.
 
@@ -166,8 +170,8 @@ El turno y la orden **no se mueven juntos**:
 
 - Si el turno se cancela en la agenda (o en Google Calendar), la orden queda
   como estaba y la ficha avisa **El turno vinculado fue cancelado**, con
-  **Vincular otro turno** y **Desvincular**. Si el cliente no vino, avisa **El
-  cliente no vino al turno**.
+  **Vincular otro turno** y **Desvincular** (o cancelá la orden). Si el cliente
+  no vino, avisa **El cliente no vino al turno**, con los mismos botones.
 - Si se cancela la orden, el turno sigue en la agenda: el diálogo lo recuerda,
   y se cancela desde la agenda si corresponde (cancelar un turno lo libera para
   otro cliente).
@@ -213,8 +217,9 @@ avisó y cuándo, y también en las actividades del contacto.
 Al entregar, el diálogo propone la fecha del **próximo service**: la fecha de
 hoy más el intervalo **más corto** entre los tipos de service de la orden (si
 dos trabajos piden plazos distintos, manda el que vence antes). Si ningún tipo
-tiene intervalo, se usa el de la [Configuración](#configuracion), y el diálogo
-lo aclara. La fecha se puede cambiar, o marcar **Sin próximo service**.
+tiene intervalo, se usa el de la [Configuración](#configuracion). Si tampoco
+hay uno ahí, el diálogo dice **Sin fecha propuesta**: elegí la fecha a mano. La
+fecha se puede cambiar, o marcar **Sin próximo service**.
 
 Lo que se confirma queda en el vehículo: es la fecha de la que van a salir los
 recordatorios al cliente.

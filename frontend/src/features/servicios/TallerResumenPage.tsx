@@ -156,7 +156,6 @@ export function TallerResumenPage() {
                       ? "1 vehículo sin fecha de compra"
                       : `${String(resumen.data.recambiosProximos.sinFechaDeCompra)} vehículos sin fecha de compra`}
                   </Link>
-                  : sin ella no se calcula el recambio.
                 </p>
               ) : (
                 <p className="ds-hint">Todos los vehículos tienen fecha de compra.</p>

@@ -171,7 +171,7 @@ function Tablero({ sucursal }: { sucursal: string | undefined }) {
     <>
       {ordenes.data.pagination.total > todas.length ? (
         <p className="ds-hint">
-          {`Se muestran ${todas.length} de ${ordenes.data.pagination.total} órdenes abiertas. Elegí una sucursal o usá la lista.`}
+          {`Se muestran ${todas.length} de ${ordenes.data.pagination.total} órdenes abiertas.`}
         </p>
       ) : null}
       <DndContext
@@ -357,11 +357,7 @@ function Lista({ sucursal }: { sucursal: string | undefined }) {
                 : "No hay órdenes en este estado"
           }
           icon={ClipboardList}
-        >
-          {!busqueda.trim() && estado === "ABIERTAS"
-            ? "Las entregadas y canceladas se ven eligiendo Todas en Estado."
-            : null}
-        </EmptyState>
+        />
       ) : null}
       {ordenes.isSuccess && ordenes.data.data.length > 0 ? (
         <Table>

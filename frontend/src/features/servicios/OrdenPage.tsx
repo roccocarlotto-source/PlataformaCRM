@@ -113,10 +113,6 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
         {orden.aprobacionPendiente ? (
           <Notice tone="warning" alert={false} title="Falta registrar la respuesta del cliente">
             <p>
-              Para pasarla a En trabajo o a Listo para retirar, registrá qué respondió el cliente.
-              Para cancelarla alcanza con el motivo.
-            </p>
-            <p>
               <Button type="button" variant="primary" onClick={() => setAprobando(true)}>
                 Registrar aprobación
               </Button>
