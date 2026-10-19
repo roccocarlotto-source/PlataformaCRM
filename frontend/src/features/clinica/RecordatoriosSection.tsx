@@ -110,9 +110,8 @@ export function RecordatoriosSection({ branchId }: { branchId: string }) {
     <Card heading="Recordatorios">
       <div className="ds-stack">
         <p className="ds-hint">
-          Antes de cada turno, {concordancia(contacto).el} {contacto.singular} recibe un WhatsApp
-          para confirmar o cancelar. Hace falta una regla activa «Recordatorio antes del turno» en
-          Automatizaciones.
+          Le llega por WhatsApp {concordancia(contacto).al} {contacto.singular}, si está activa la
+          regla «Recordatorio antes del turno».
         </p>
         <FormField label="Horas de anticipación del recordatorio">
           <input
@@ -150,7 +149,6 @@ export function RecordatoriosSection({ branchId }: { branchId: string }) {
             />
           </FormField>
         ) : null}
-        <p className="ds-hint">Cambiarlo no mueve los recordatorios que ya están programados.</p>
 
         {error ? <ErrorState>{error}</ErrorState> : null}
         {guardado ? (

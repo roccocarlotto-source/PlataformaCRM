@@ -62,7 +62,7 @@ export function ProfesionalesPage() {
     );
     const aviso =
       cantidad > 0
-        ? `${r.name} tiene ${cantidad} ${cantidad === 1 ? "turno futuro" : "turnos futuros"}. No se cancelan: a la recepción de la sede le queda una tarea por cada uno para reprogramarlo o cancelarlo.`
+        ? `${r.name} tiene ${cantidad} ${cantidad === 1 ? "turno futuro" : "turnos futuros"}: no se cancelan.`
         : `${r.name} no tiene turnos futuros.`;
     if (
       !(await confirm(`${aviso} ¿Archivar a ${r.name}?`, {

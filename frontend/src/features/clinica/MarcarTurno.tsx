@@ -38,9 +38,7 @@ export function MarcarTurno({ booking, onDone }: { booking: Booking; onDone: () 
   return (
     <div className="ds-stack">
       {esCorreccion ? (
-        <p className="ds-hint">
-          Marcado como {ROTULO_DE_ESTADO[booking.status]}. Podés corregirlo.
-        </p>
+        <p className="ds-hint">Marcado como {ROTULO_DE_ESTADO[booking.status]}.</p>
       ) : null}
       <FormField label="Nota (opcional)">
         <input

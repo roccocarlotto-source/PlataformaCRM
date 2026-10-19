@@ -50,10 +50,6 @@ export function SobreturnosDelProfesionalDialog({
           disabled={!permite}
         />
       </FormField>
-      <p className="ds-hint">
-        Un sobreturno es un turno de más encima de un horario completo. Lo cargan las personas del
-        equipo; el asistente nunca lo ofrece.
-      </p>
       {guardar.isError ? (
         <ErrorState>
           {guardar.error instanceof Error ? guardar.error.message : "No pudimos guardar."}

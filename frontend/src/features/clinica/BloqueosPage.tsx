@@ -18,7 +18,6 @@ import { useResources } from "../resource/queries";
 import type { BloqueoCreado } from "./agendaApi";
 import { useBloqueos, useBorrarBloqueo, useCrearBloqueo } from "./agendaQueries";
 import { sedesDeQuienEntra } from "./sedes";
-import { concordancia } from "../../auth/vocabulario";
 import { useVocabularioDeClinica } from "./vocabulario";
 
 // ---------------------------------------------------------------------------
@@ -64,76 +63,81 @@ export function BloqueosPage() {
   return (
     <div>
       <PageHeader help={AYUDA.bloqueos} title="Bloqueos" />
-      <div className="ds-list-card">
-        <div className="ds-filters">
-          <Select
-            label={termino.singularTitulo}
-            value={elegido}
-            options={profesionales.map((r) => ({ value: r.id, label: r.name }))}
-            onChange={(id) => setResourceId(id || undefined)}
-          />
+      {/* Un solo .ds-stack: la lista, el formulario y los turnos afectados
+          van a todo el ancho y con la misma separación entre tarjetas. */}
+      <div className="ds-stack">
+        <div className="ds-list-card">
+          <div className="ds-filters">
+            <Select
+              label={termino.singularTitulo}
+              value={elegido}
+              options={profesionales.map((r) => ({ value: r.id, label: r.name }))}
+              onChange={(id) => setResourceId(id || undefined)}
+            />
+          </div>
+
+          {recursosQuery.isLoading || bloqueosQuery.isLoading ? (
+            <LoadingState variant="rows" />
+          ) : null}
+          {bloqueosQuery.isError ? (
+            <ErrorState>
+              No pudimos cargar los bloqueos
+              {bloqueosQuery.error instanceof Error ? `: ${bloqueosQuery.error.message}` : "."}
+            </ErrorState>
+          ) : null}
+          {recursosQuery.isSuccess && profesionales.length === 0 ? (
+            <EmptyState title={`No hay ${termino.plural} para mostrar`} icon={CalendarOff} />
+          ) : null}
+
+          {bloqueosQuery.isSuccess && bloqueosQuery.data.bloqueos.length === 0 ? (
+            <EmptyState title="No hay bloqueos en los próximos dos meses" icon={CalendarOff} />
+          ) : null}
+          {bloqueosQuery.isSuccess && bloqueosQuery.data.bloqueos.length > 0 ? (
+            <Table>
+              <thead>
+                <tr>
+                  <th>Desde</th>
+                  <th>Hasta</th>
+                  <th>Motivo</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bloqueosQuery.data.bloqueos.map((b) => (
+                  <tr key={b.id}>
+                    <td>{formatDateTime(b.startsAt)}</td>
+                    <td>{formatDateTime(b.endsAt)}</td>
+                    <td className="ds-cell-muted">{b.reason ?? "—"}</td>
+                    <td>
+                      <Button
+                        variant="secondary"
+                        onClick={() => borrar.mutate(b.id)}
+                        disabled={borrar.isPending}
+                      >
+                        Quitar
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          ) : null}
+          {borrar.isError ? (
+            <ErrorState>
+              {borrar.error instanceof Error
+                ? borrar.error.message
+                : "No pudimos quitar el bloqueo."}
+            </ErrorState>
+          ) : null}
         </div>
 
-        {recursosQuery.isLoading || bloqueosQuery.isLoading ? (
-          <LoadingState variant="rows" />
-        ) : null}
-        {bloqueosQuery.isError ? (
-          <ErrorState>
-            No pudimos cargar los bloqueos
-            {bloqueosQuery.error instanceof Error ? `: ${bloqueosQuery.error.message}` : "."}
-          </ErrorState>
-        ) : null}
-        {recursosQuery.isSuccess && profesionales.length === 0 ? (
-          <EmptyState title={`No hay ${termino.plural} para mostrar`} icon={CalendarOff} />
-        ) : null}
-
-        {bloqueosQuery.isSuccess && bloqueosQuery.data.bloqueos.length === 0 ? (
-          <EmptyState title="No hay bloqueos en los próximos dos meses" icon={CalendarOff} />
-        ) : null}
-        {bloqueosQuery.isSuccess && bloqueosQuery.data.bloqueos.length > 0 ? (
-          <Table>
-            <thead>
-              <tr>
-                <th>Desde</th>
-                <th>Hasta</th>
-                <th>Motivo</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bloqueosQuery.data.bloqueos.map((b) => (
-                <tr key={b.id}>
-                  <td>{formatDateTime(b.startsAt)}</td>
-                  <td>{formatDateTime(b.endsAt)}</td>
-                  <td className="ds-cell-muted">{b.reason ?? "—"}</td>
-                  <td>
-                    <Button
-                      variant="secondary"
-                      onClick={() => borrar.mutate(b.id)}
-                      disabled={borrar.isPending}
-                    >
-                      Quitar
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        ) : null}
-        {borrar.isError ? (
-          <ErrorState>
-            {borrar.error instanceof Error ? borrar.error.message : "No pudimos quitar el bloqueo."}
-          </ErrorState>
-        ) : null}
+        {elegido ? <NuevoBloqueo key={elegido} resourceId={elegido} /> : null}
       </div>
-
-      {elegido ? <NuevoBloqueo key={elegido} resourceId={elegido} /> : null}
     </div>
   );
 }
 
 function NuevoBloqueo({ resourceId }: { resourceId: string }) {
-  const vocabulario = useVocabularioDeClinica();
   const crear = useCrearBloqueo(resourceId);
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
@@ -160,56 +164,60 @@ function NuevoBloqueo({ resourceId }: { resourceId: string }) {
   }
 
   return (
-    <div className="ds-stack">
-      <form onSubmit={handleSubmit} className="ds-form">
+    <>
+      <form onSubmit={handleSubmit}>
         <Card heading="Nuevo bloqueo">
-          <div className="ds-field-grid">
-            <FormField label={<span className="ds-required">Desde</span>}>
-              <input
-                type="datetime-local"
-                value={desde}
-                onChange={(e) => setDesde(e.target.value)}
-                required
-              />
-            </FormField>
-            <FormField label={<span className="ds-required">Hasta</span>}>
-              <input
-                type="datetime-local"
-                value={hasta}
-                onChange={(e) => setHasta(e.target.value)}
-                required
-              />
-            </FormField>
-            <div className="ds-field-grid--full">
-              <FormField
-                label={`Motivo (interno, ${concordancia(vocabulario.contacto).el} ${vocabulario.contacto.singular} no lo ve)`}
-              >
+          <div className="ds-stack">
+            <div className="ds-field-grid">
+              <FormField label={<span className="ds-required">Desde</span>}>
                 <input
-                  type="text"
-                  maxLength={200}
-                  value={motivo}
-                  onChange={(e) => setMotivo(e.target.value)}
+                  type="datetime-local"
+                  value={desde}
+                  onChange={(e) => setDesde(e.target.value)}
+                  required
                 />
               </FormField>
+              <FormField label={<span className="ds-required">Hasta</span>}>
+                <input
+                  type="datetime-local"
+                  value={hasta}
+                  onChange={(e) => setHasta(e.target.value)}
+                  required
+                />
+              </FormField>
+              <div className="ds-field-grid--full">
+                <FormField label="Motivo (interno)">
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={motivo}
+                    onChange={(e) => setMotivo(e.target.value)}
+                  />
+                </FormField>
+              </div>
             </div>
+            <div className="ds-card-actions">
+              <Button
+                type="submit"
+                variant="primary"
+                loading={crear.isPending}
+                disabled={crear.isPending}
+              >
+                Bloquear
+              </Button>
+            </div>
+            {crear.isError ? (
+              <ErrorState>
+                {crear.error instanceof Error
+                  ? crear.error.message
+                  : "No pudimos crear el bloqueo."}
+              </ErrorState>
+            ) : null}
           </div>
-          <Button
-            type="submit"
-            variant="primary"
-            loading={crear.isPending}
-            disabled={crear.isPending}
-          >
-            Bloquear
-          </Button>
-          {crear.isError ? (
-            <ErrorState>
-              {crear.error instanceof Error ? crear.error.message : "No pudimos crear el bloqueo."}
-            </ErrorState>
-          ) : null}
         </Card>
       </form>
       {creado && creado.turnosAfectados.length > 0 ? <TurnosAfectados resultado={creado} /> : null}
-    </div>
+    </>
   );
 }
 
@@ -220,9 +228,7 @@ function TurnosAfectados({ resultado }: { resultado: BloqueoCreado }) {
   return (
     <Card heading="Turnos dentro del bloqueo">
       <Notice tone="warning" alert={false}>
-        Estos turnos siguen en pie: no se cancelaron. A la recepción de la sede le quedó una tarea
-        por cada uno para avisarle {concordancia(vocabulario.contacto).al}{" "}
-        {vocabulario.contacto.singular}.
+        Estos turnos siguen en pie: no se cancelaron.
       </Notice>
       <Table>
         <thead>

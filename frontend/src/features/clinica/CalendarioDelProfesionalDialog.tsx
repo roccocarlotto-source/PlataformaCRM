@@ -70,12 +70,6 @@ export function CalendarioDelProfesionalDialog({
         onClick: () => guardar.mutate(calendarId.trim() ? calendarId.trim() : null),
       }}
     >
-      <p className="ds-hint">
-        Los turnos de {profesional.name} se crean en este calendario, y lo que tenga ocupado ahí no
-        se ofrece. Tiene que ser de la cuenta de Google conectada a la sede, o estar compartido con
-        ella con permiso para editar. Sin calendario, el profesional funciona solo con la agenda de
-        la plataforma.
-      </p>
       {listaQuery.isLoading ? <InlineLoading /> : null}
       {listaQuery.isSuccess ? (
         <Select
@@ -90,9 +84,7 @@ export function CalendarioDelProfesionalDialog({
         <>
           {sinLista ? (
             <Notice tone="info" alert={false}>
-              Para ver la lista de calendarios, reconectá Google en la sede. También podés pegar el
-              ID del calendario (en Google Calendar: Configuración del calendario → Integrar el
-              calendario).
+              Para ver la lista de calendarios, reconectá Google en la sede.
             </Notice>
           ) : (
             <ErrorState>

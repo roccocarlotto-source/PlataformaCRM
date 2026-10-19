@@ -159,11 +159,6 @@ function ProfesionalesDialog({
       closeLabel="Cancelar"
       primaryAction={{ label: "Guardar", onClick: guardar, loading: definir.isPending }}
     >
-      <p>
-        Elegí quiénes atienden esta {vocabulario.tipoDeServicio.singular}. Al dar un{" "}
-        {vocabulario.reserva.singular}, el {vocabulario.contacto.singular} puede elegir uno o tomar
-        el primero libre.
-      </p>
       {recursosQuery.isLoading ? <LoadingState variant="rows" /> : null}
       {definir.isError ? (
         <ErrorState>
@@ -244,9 +239,8 @@ function ControlDialog({
         />
       </FormField>
       <p className="ds-hint">
-        Después de un turno atendido, {concordancia(vocabulario.contacto).el}{" "}
-        {vocabulario.contacto.singular} recibe un WhatsApp para agendar el próximo. Hace falta una
-        regla activa «Recordar el control» en Automatizaciones. Vacío: sin control.
+        Le llega por WhatsApp {concordancia(vocabulario.contacto).al}{" "}
+        {vocabulario.contacto.singular}, si está activa la regla «Recordar el control».
       </p>
       {error ? <ErrorState>{error}</ErrorState> : null}
       {configurar.isError ? (

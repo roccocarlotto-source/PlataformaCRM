@@ -99,7 +99,7 @@ describe("BloqueosPage (R6)", () => {
 
     expect(await screen.findByText("Turnos dentro del bloqueo")).toBeInTheDocument();
     expect(screen.getByText("Paciente Ejemplo")).toBeInTheDocument();
-    expect(screen.getByText(/siguen en pie: no se cancelaron/)).toBeInTheDocument();
+    expect(screen.getByText("Estos turnos siguen en pie: no se cancelaron.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancelar turno" })).toBeInTheDocument();
     expect(enviado).toMatchObject({ startsAt: expect.any(String), endsAt: expect.any(String) });
   });

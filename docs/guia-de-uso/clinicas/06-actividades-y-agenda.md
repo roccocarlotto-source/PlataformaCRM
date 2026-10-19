@@ -225,6 +225,9 @@ Un sobreturno es un turno de más encima de un horario que ya está completo.
 - Para cargar uno, entrá a [Sobreturnos](/clinica/sobreturnos), elegí la
   prestación, el profesional, el día y el paciente, y tocá **Cargar
   sobreturno** en el horario que quieras. Solo aparecen horarios completos.
+- Si dice **No hay sobreturnos para ese día**, es porque el profesional no
+  admite sobreturnos, ya llegó a su tope del día o todavía tiene horarios
+  libres para un turno normal.
 - Un sobreturno respeta el horario del profesional y sus bloqueos, y no le
   quita lugar a los turnos normales. En el calendario aparece marcado como
   **Sobreturno**.
@@ -363,6 +366,9 @@ Para elegir quiénes la atienden:
 2. Marcá los profesionales que la hacen. Solo aparecen las personas de la
    misma sede que la prestación.
 3. Tocá **Guardar**.
+
+Al dar un turno de esa prestación, el paciente puede elegir a uno de ellos o
+tomar [el primero libre](#primero-libre).
 
 El profesional **principal** (el que se eligió al crear la prestación) queda
 siempre marcado: para cambiarlo, editá la prestación en **Configurar
