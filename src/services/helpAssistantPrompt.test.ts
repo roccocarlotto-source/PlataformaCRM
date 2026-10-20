@@ -70,6 +70,16 @@ test("armarPrompt: las reglas y el índice van en el prefijo; el texto elegido y
   assert.match(prompt.sistema, /Agente interno: no lo tiene/);
 });
 
+// Las dos de la prueba en producción del 2026-10-20: dedujo que el horario de
+// la sucursal limita al agente, y empezó con "Como te explicaba" sin haber
+// explicado nada.
+test("armarPrompt: no deducir lo que la guía no dice, ni citar respuestas que no hubo", () => {
+  const { prefijoCacheable } = armarPrompt(GUIA, BLOQUES, CONTEXTO);
+  assert.match(prefijoCacheable, /No deduzcas cómo funciona algo que la guía no dice/);
+  assert.match(prefijoCacheable, /decí que eso no lo sabés y dá el link/);
+  assert.match(prefijoCacheable, /No digas "como te dije", "como te explicaba"/);
+});
+
 test("armarPrompt: a una automotora se le dice qué no incluye su cuenta; a una clínica, nunca", () => {
   const automotora = armarPrompt(GUIA, BLOQUES, { ...CONTEXTO, noIncluye: ["cotizaciones"] });
   assert.match(automotora.sistema, /NO incluye: cotizaciones/);

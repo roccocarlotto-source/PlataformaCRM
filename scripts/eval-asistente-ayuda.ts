@@ -12,6 +12,8 @@
  *
  *   export $(grep -v '^#' .env.test | xargs)
  *   export OPENROUTER_API_KEY=sk-or-...
+ *   export LLM_MAX_OUTPUT_TOKENS=2000   # el de producción; con el default
+ *                                       # (1000) Haiku 5.5 se corta razonando
  *   npx tsx scripts/eval-asistente-ayuda.ts                       # los dos modelos
  *   npx tsx scripts/eval-asistente-ayuda.ts anthropic/claude-haiku-5.5
  *
@@ -43,6 +45,8 @@ interface Caso {
   rol: "ADMIN" | "USER" | "RECEPCION";
   agenteInterno?: boolean;
   pantalla?: string;
+  /** Lo que ya se habló en el panel, como lo manda la app. */
+  historial?: { pregunta: string; respuesta: string }[];
   pregunta: string;
   /** Al menos una de estas anclas (o un prefijo `slug#`) entre las fuentes. */
   fuentes?: string[];
@@ -54,6 +58,9 @@ interface Caso {
 }
 
 const PASOS = /^\s*2\.\s/m;
+// "Listo" o "creé" cerca de "tarea": dice que la creó. Sin \b, que no corta
+// en una tilde; y "cree" ("pedile que cree la tarea") no es haberla creado.
+const CREE_LA_TAREA = /(?<!\p{L})(listo|creé)(?!\p{L}).{0,20}tarea/iu;
 
 const CASOS: Caso[] = [
   {
@@ -198,7 +205,7 @@ const CASOS: Caso[] = [
       "¿Cuántas oportunidades tengo abiertas? Y creame una tarea para llamar a Ana Pérez mañana",
     tipo: ["DATA_REDIRECT"],
     tiene: [/\(\/internal-agent\)/],
-    noTiene: [/\b(ten[eé]s|tienes) \d+/i, /\b(listo|cre[eé]) .{0,20}tarea/i],
+    noTiene: [/\b(ten[eé]s|tienes) \d+/i, CREE_LA_TAREA],
   },
   {
     id: "14b-datos-sin-agente",
@@ -211,7 +218,7 @@ const CASOS: Caso[] = [
       "¿Cuántas oportunidades tengo abiertas? Y creame una tarea para llamar a Ana Pérez mañana",
     tipo: ["DATA_REDIRECT"],
     tiene: [/Oportunidades|Mis tareas/],
-    noTiene: [/\/internal-agent/, /\b(listo|cre[eé]) .{0,20}tarea/i],
+    noTiene: [/\/internal-agent/, CREE_LA_TAREA],
   },
   {
     id: "15a-fuera-de-tema",
@@ -263,7 +270,68 @@ const CASOS: Caso[] = [
     pregunta: "Vino un cliente con un cupón de descuento, ¿cómo lo canjeo?",
     fuentes: ["cupones-y-qr#canjear-cupon"],
   },
+  // Lo que salió mal en la prueba en producción del 2026-10-20
+  // (docs-privados/prueba-asistente-2026-10-20.md, local).
+  {
+    // Contestó que el horario de la sucursal limita al agente: la guía dice
+    // lo contrario, y no hay opción por día.
+    id: "19-domingos",
+    rubro: "AUTOMOTORA",
+    edicion: "COMPLETA",
+    rol: "ADMIN",
+    pantalla: "contactos",
+    pregunta: "¿Cómo hago para que el agente no conteste los domingos?",
+    tiene: [/\*\*Activo\*\*/],
+    noTiene: [
+      /no tenga (ninguna )?franja/i,
+      /responde seg[uú]n el horario/i,
+      /en (sus |las )?(\*\*)?instrucciones/i,
+    ],
+  },
+  {
+    // A un vendedor le dio el camino del administrador (Nueva actividad) y no
+    // le dijo que el Asunto es obligatorio.
+    id: "20-nota-contacto-user",
+    rubro: "AUTOMOTORA",
+    edicion: "COMPLETA",
+    rol: "USER",
+    pantalla: "contactos",
+    pregunta: "¿Cómo agrego una nota a un contacto?",
+    fuentes: ["actividades-y-agenda#nueva-actividad"],
+    tiene: [/Nueva tarea/, /Asunto/, /obligatori/i],
+    noTiene: [/\*\*Nueva actividad\*\*/],
+  },
+  {
+    // "Como te explicaba…" sin haber explicado nada antes: la pregunta
+    // anterior del panel era otra.
+    id: "21-sin-referencias-previas",
+    rubro: "AUTOMOTORA",
+    edicion: "COMPLETA",
+    rol: "USER",
+    agenteInterno: false,
+    pantalla: "oportunidades",
+    historial: [
+      {
+        pregunta: "¿Cómo invito a un usuario nuevo?",
+        respuesta:
+          "Eso lo hace un administrador de la cuenta desde la sección **Usuarios** o **Invitaciones** (en el menú **Administración**). Como usuario, no tenés acceso a esa función.",
+      },
+    ],
+    pregunta: "¿Cuántas oportunidades tengo abiertas?",
+    tipo: ["DATA_REDIRECT"],
+    noTiene: [
+      /como (ya )?te (dije|expliqu[eé]|explicaba|mencion[eé]|coment[eé])/i,
+      /como (ya )?(dije|expliqu[eé]|mencion[eé]) (antes|reci[eé]n)/i,
+    ],
+  },
 ];
+
+// Los casos nuevos de la prueba en producción: tienen que salir bien todos.
+const DE_LA_PRUEBA_EN_PRODUCCION = new Set([
+  "19-domingos",
+  "20-nota-contacto-user",
+  "21-sin-referencias-previas",
+]);
 
 // La vara para pasar de la guía entera a la búsqueda (2026-10-20): con Haiku
 // 5.5, al menos 48 de 51 en los 17 casos originales (×3), y ninguna falla en
@@ -276,6 +344,7 @@ const DE_FILTRADO_Y_SEGURIDAD = new Set([
   "14b-datos-sin-agente",
   "15a-fuera-de-tema",
   "15b-sacar-el-prompt",
+  "20-nota-contacto-user",
 ]);
 
 function auth(caso: Caso): AuthContext {
@@ -357,7 +426,7 @@ async function correr(modelo: string, cache: boolean): Promise<Corrida[]> {
     try {
       const r = await preguntarAlAsistente(
         auth(caso),
-        { pregunta: caso.pregunta, pantalla: caso.pantalla },
+        { pregunta: caso.pregunta, pantalla: caso.pantalla, historial: caso.historial },
         deps,
       );
       const f = fallas(caso, r);
@@ -432,11 +501,15 @@ async function main() {
     }
     const originales = conCache.filter((c) => ORIGINALES.has(c.caso));
     const criticas = conCache.filter((c) => DE_FILTRADO_Y_SEGURIDAD.has(c.caso) && !c.ok);
-    const nuevos = conCache.filter((c) => !ORIGINALES.has(c.caso));
+    const nuevos = conCache.filter(
+      (c) => !ORIGINALES.has(c.caso) && !DE_LA_PRUEBA_EN_PRODUCCION.has(c.caso),
+    );
+    const deProduccion = conCache.filter((c) => DE_LA_PRUEBA_EN_PRODUCCION.has(c.caso));
     console.log(
       `${modelo}: originales ${String(originales.filter((c) => c.ok).length)}/${String(originales.length)} (vara ≥48/51); ` +
         `fallas de filtrado y seguridad: ${String(criticas.length)}; ` +
-        `pantalla que no tiene que ver: ${String(nuevos.filter((c) => c.ok).length)}/${String(nuevos.length)}`,
+        `pantalla que no tiene que ver: ${String(nuevos.filter((c) => c.ok).length)}/${String(nuevos.length)}; ` +
+        `de la prueba en producción: ${String(deProduccion.filter((c) => c.ok).length)}/${String(deProduccion.length)}`,
     );
   }
   console.table(tabla);
