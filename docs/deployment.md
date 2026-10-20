@@ -9,10 +9,11 @@ decidido.
 
 Lo que sí está decidido y en el repo:
 
-- el backend se despliega como **contenedor** (`Dockerfile`, ver README
-  "Docker");
+- el backend corre en Render con el **runtime de Node**, no con el
+  `Dockerfile` (sección 2.1);
 - las migraciones se aplican con **un único comando**, `npm run migrate:deploy`,
-  desde fuera del contenedor;
+  que corre **el build de Render antes de compilar**: un merge a `master` con
+  una migración la aplica sola (sección 2.2);
 - el frontend es una **SPA estática** (`frontend/`, Vite) con un rewrite
   catch-all a `index.html` (`frontend/vercel.json`);
 - la base, la autenticación y el storage viven en un **proyecto de Supabase**
@@ -26,7 +27,7 @@ Lo que sí está decidido y en el repo:
 navegador ──► frontend (estático, Vercel)
    │               │  VITE_API_URL
    │               ▼
-   │          backend (contenedor Node 22, Express)  ──► Postgres  (Supabase, pooler 5432)
+   │          backend (Render, runtime Node, Express) ──► Postgres  (Supabase, pooler 5432)
    │               │                                 ──► Auth      (Supabase GoTrue, Admin API)
    │               │                                 ──► Storage   (Supabase, bucket vehicle-photos)
    │               ▼
@@ -51,7 +52,37 @@ revisión de cada worker — está dicho en `src/middlewares/rateLimit.ts` y en
 
 ## 2. Backend
 
-### 2.1 Artefacto: la imagen de `Dockerfile`
+### 2.1 Artefacto: el runtime de Node de Render (no el `Dockerfile`)
+
+**Producción no usa el `Dockerfile`.** El servicio de Render corre con el
+runtime de **Node**, con esta configuración (Settings del servicio, revisada el
+2026-10-20; no está versionada en el repo, no hay `render.yaml`):
+
+| Render | Valor |
+|---|---|
+| Runtime | Node (no Docker) |
+| Build Command | `npm install --include=dev && npx prisma generate && npm run migrate:deploy && npm run build` |
+| Start Command | El que figura en Settings → Deploy (no copiado acá). El del repo es `npm start` → `node dist/server.js` |
+
+Lo que eso implica:
+
+- **El build migra antes de compilar.** `npm install --include=dev` instala
+  `tsx` y el CLI de Prisma (son `devDependencies`), `prisma generate` arma el
+  cliente y `npm run migrate:deploy` aplica las migraciones pendientes y
+  reaplica el SQL manual (2.2), todo **antes** del `tsc`. Visto en el log del
+  build: "No pending migrations to apply" (o la migración aplicada) y
+  "apply-manual-sql: migraciones y SQL manual aplicados", y después el `tsc`.
+- **Si el build falla, sigue corriendo la versión anterior.** Render no
+  reemplaza la instancia en uso hasta que el build termina bien. Ojo: si lo
+  que falla es un paso **posterior** a `migrate:deploy` (el `tsc`), la base
+  queda migrada y la versión anterior sigue corriendo contra ella (2.2).
+- **Los archivos del repo están en el runtime**, porque Render corre sobre el
+  checkout entero: `docs/guia-de-uso/` (la lee el asistente "¿Cómo se hace?")
+  no necesita ningún paso propio.
+
+El `Dockerfile` sigue en el repo para correr la imagen a mano o en otra
+plataforma. Lo que sigue en esta sección describe esa imagen, **no** lo que
+corre en producción.
 
 Multi-stage (README, sección "Docker"): la etapa `build` compila con
 `devDependencies`; la etapa `runtime` instala solo `dependencies`, recibe el
@@ -68,10 +99,10 @@ usuario `node`.
 
 Dos cosas que conviene saber antes de apretar "deploy":
 
-- **El CI nunca construye la imagen.** `ci.yml` corre `npm run build` (tsc) y
-  descarta el artefacto; `docker build` no aparece en ningún job. La primera vez
-  que la imagen se construye de verdad es en la plataforma de despliegue (o a
-  mano con `docker build -t plataforma-crm-backend .`).
+- **Nadie construye la imagen hoy.** `ci.yml` corre `npm run build` (tsc) y
+  descarta el artefacto; `docker build` no aparece en ningún job, y Render no
+  la usa. Si se quiere usar, se construye a mano con
+  `docker build -t plataforma-crm-backend .`.
 - **`SHUTDOWN_TIMEOUT_MS` tiene que ser menor que el grace period de la
   plataforma** (el tiempo entre `SIGTERM` y `SIGKILL`). El default de 8 s está
   pensado para los 10 s de Docker; si la plataforma da más, se puede subir; si
@@ -93,16 +124,21 @@ Los dos `.sql` son idempotentes: correrlo cuando no cambió nada es un no-op
 seguro. **Nunca** `prisma migrate deploy` a secas: dejaría la base sin los
 objetos manuales (README, "Migraciones").
 
-Restricciones que fijan *desde dónde* se corre:
+**En producción lo corre el build de Render**, en cada deploy, antes de
+compilar (2.1). Mergear a `master` un PR con una migración es aplicarla: no hay
+un paso manual. Para confirmarla después del deploy: el log del build, o
+`prisma migrate status` contra producción (solo lee) y `npm run verify:schema`.
+
+Restricciones:
 
 - **Necesita `DIRECT_URL`** (conexión directa, puerto 5432 — no el pooler de
-  `DATABASE_URL`). El script falla explícitamente si falta.
-- **Necesita `tsx` y el CLI de Prisma**, que son `devDependencies` y **no están
-  en la imagen de runtime**, a propósito: aplicar migraciones es un paso de
-  despliegue con su propio momento, no algo que cada réplica que arranca deba
-  intentar. Por lo tanto se corre desde una máquina de desarrollo con el repo
-  clonado y el `.env` de producción cargado, o desde un job de CI/CD que hoy
-  **no existe**.
+  `DATABASE_URL`). El script falla explícitamente si falta; por eso
+  `DIRECT_URL` está cargada en las variables de Render aunque el proceso no la
+  lea.
+- **Necesita `tsx` y el CLI de Prisma**, que son `devDependencies`: el build de
+  Render los instala con `npm install --include=dev`. A mano, desde una máquina
+  de desarrollo con el repo clonado y el `.env` de producción cargado, solo
+  para la primera vez o para recuperar un build que falló a mitad de camino.
 - Después de la **primera** aplicación: `npm run prisma:seed` (catálogo `Role`
   ADMIN/USER, idempotente — sin él ningún alta de organización funciona) y
   `npm run verify:schema` (confirma que triggers, índices parciales, CHECKs y
@@ -114,13 +150,28 @@ Restricciones que fijan *desde dónde* se corre:
   `DEV_ALLOW_REMOTE_DB=true`. En producción (`NODE_ENV=production`) la variable
   no tiene efecto y los workers arrancan siempre.
 
-Orden respecto de la imagen: **migrar primero, desplegar la imagen nueva
-después**, que es el orden correcto para una migración aditiva (columna o
-tabla nueva: el código viejo la ignora). Una migración que borra o renombra
-algo que el código viejo todavía lee —ya hubo una,
-`20260904120000_remove_qr_claim_and_single_use`— pide el orden inverso o una
-ventana de indisponibilidad, y merece una nota propia acá cuando ocurra en
-producción.
+**Orden: la migración siempre va primero, y no se puede elegir.** El build la
+aplica antes de que arranque la instancia nueva, así que durante el build, y
+después si el build falla, **el código en uso corre contra la base ya
+migrada**. Por eso:
+
+- **Una migración aditiva** (columna con default, tabla o tipo nuevos) va en
+  un solo PR: el código en uso la ignora. Es el caso normal.
+- **Una migración que rompe el código en uso** (borra o renombra algo que ese
+  código todavía lee o escribe, agrega un NOT NULL sin default a una columna
+  que ese código inserta) **va en dos pasos, en dos PRs con dos deploys**:
+  1. primero el código que ya no depende de lo que se va a borrar o renombrar
+     (y que funciona con el esquema viejo y con el nuevo), mergeado y
+     desplegado;
+  2. después la migración, en un PR propio.
+
+  En un solo PR, el código viejo falla contra la base migrada desde que el
+  build aplica la migración hasta que arranca la instancia nueva, y para
+  siempre si el build falla después de migrar.
+
+Las dos notas que siguen son de antes de que el build migrara (la migración se
+corría a mano y se podía elegir el orden); quedan como historia de por qué
+esos casos necesitan los dos pasos.
 
 **Nota — `20261001120000_retirar_facturacion_qr` (ítem 135) va en el orden
 inverso: imagen nueva primero, migración después.** Dropea columnas de
@@ -158,13 +209,13 @@ de negocio funciona):
 | `DATABASE_URL` | `/health` reporta la base caída; toda ruta de negocio falla | Conexión **pooled** (Supavisor, **puerto 5432, modo sesión**, desde el 2026-10-18). En producción termina en `/postgres?connection_limit=6&pool_timeout=20`, **sin `pgbouncer=true`** (ver abajo). `connection_limit` es el pool de Prisma y tiene que cumplir **`2·connection_limit + 3 ≤ Pool Size`** del pooler. El cupo de turnos del agente se fija aparte con `AGENT_TURN_MAX_CONCURRENT` (en producción, **4**: `connection_limit − 2`). Al arrancar, el backend registra un error si la URL usa el 6543 sin `pgbouncer=true` o tiene un `?` de más (`src/utils/urlDeLaBase.ts`) |
 | `SUPABASE_URL` | Ningún JWT se puede verificar (el JWKS sale de acá) | Sin barra final |
 | `SUPABASE_SERVICE_ROLE_KEY` | Invitaciones, alta de organización por platform admin, purgas y el bucket de fotos fallan con 500 | Exclusiva del backend. Nunca con prefijo `VITE_` |
-| `NODE_ENV` | — | La imagen ya lo fija en `production` |
+| `NODE_ENV` | Workers y defaults de desarrollo | En Render va cargada en `production` (el runtime de Node no la fija; la imagen de Docker sí) |
 
-**B. Solo migraciones** (no va al contenedor):
+**B. Solo migraciones** (las usa el build, no el proceso):
 
 | Variable | Notas |
 |---|---|
-| `DIRECT_URL` | Conexión directa (5432). La exige `npm run migrate:deploy`; el runtime no la lee |
+| `DIRECT_URL` | Conexión directa (5432). La exige `npm run migrate:deploy`, que corre en el build de Render: tiene que estar en las variables del servicio aunque el proceso no la lea |
 
 **C. Necesarias para una función concreta** — sin ellas el resto del sistema
 anda y esa función falla con un error que dice qué falta (en el log, no en la
@@ -246,7 +297,7 @@ agregarle `?connection_limit=10` quedó con dos `?` y la base dejó de responder
   hasta que se configure `trust proxy` **a la topología real** (cuántos saltos),
   nunca `true` a ciegas. Queda como ajuste pendiente de la primera vez.
 - **Health check** en `/health`. Un 503 significa "la base no responde", no
-  "el proceso está muerto": si la plataforma reinicia el contenedor ante un
+  "el proceso está muerto": si la plataforma reinicia el proceso ante un
   503, va a reiniciarlo en bucle durante una caída de la base sin arreglar
   nada.
 - **Una sola instancia** (sección 1).
@@ -361,9 +412,9 @@ sección 6 cuando se hagan):
 2. `.env` de producción en la máquina desde la que se migra (**no** se
    commitea): `DIRECT_URL` + `DATABASE_URL` como mínimo.
 3. `npm run migrate:deploy` → `npm run prisma:seed` → `npm run verify:schema`.
-4. Backend: crear el servicio a partir del `Dockerfile` de la raíz, cargar las
-   variables del grupo A (2.3) más las del grupo C que correspondan, health
-   check en `/health`, una instancia.
+4. Backend: crear el servicio con el runtime de Node y el Build Command de
+   2.1, cargar las variables del grupo A (2.3), `DIRECT_URL` (grupo B) y las
+   del grupo C que correspondan, health check en `/health`, una instancia.
 5. Con la URL pública del backend: cargar las cuatro `VITE_*` (3.2) en el
    proyecto del frontend, Root Directory `frontend`, y desplegar.
 6. Con la URL pública del frontend: ponerla **primera** en `CORS_ORIGIN` del
@@ -375,15 +426,20 @@ sección 6 cuando se hagan):
 
 **Cada vez siguiente**:
 
-1. Si el PR trae migraciones: `npm run migrate:deploy` (y `verify:schema` si
-   tocó DDL manual) **antes** de la imagen nueva.
-2. Backend: build + deploy de la imagen desde `master`.
-3. Frontend: build + deploy desde `master`. Si cambió alguna `VITE_*`, cargarla
-   antes del build.
-4. Si el PR agregó una variable del grupo C, cargarla antes o junto con el
+1. Si el PR trae una migración que rompe el código en uso, partirla en dos
+   PRs (2.2) antes de mergear.
+2. Merge a `master`. Render despliega solo: el build aplica las migraciones
+   pendientes y el SQL manual, compila, y recién entonces arranca la
+   instancia nueva. Vercel despliega el frontend solo. Si cambió alguna
+   `VITE_*`, cargarla antes del merge.
+3. Si el PR agregó una variable del grupo C, cargarla antes o junto con el
    deploy (el caso de `QR_RESOLVE_PROXY_SECRET` es el que falla cerrado).
+4. Si el PR trajo una migración: confirmarla en el log del build, o con
+   `prisma migrate status` (solo lee) y `npm run verify:schema` contra
+   producción.
 
-Nada de esto está automatizado hoy: el CI valida (`ci.yml`), no despliega.
+El CI valida (`ci.yml`), no despliega: los deploys los disparan Render y
+Vercel al ver el merge a `master`.
 
 ---
 
