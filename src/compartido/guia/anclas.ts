@@ -104,6 +104,7 @@ export const AYUDA = {
   paginaDeFacebook: "plataforma#facebook",
   modeloDeIa: "plataforma#modelo-de-ia",
   usoDeIa: "plataforma#uso-de-ia",
+  preguntasALaAyuda: "plataforma#preguntas-a-la-ayuda",
   importarDatos: "plataforma#importar-datos",
 } as const;
 

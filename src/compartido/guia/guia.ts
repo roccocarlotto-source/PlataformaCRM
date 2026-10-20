@@ -547,6 +547,7 @@ export const RUTAS_DE_PLATAFORMA: readonly string[] = [
   "/admin/agents/facebook-page",
   "/admin/agents/model",
   "/admin/llm-usage",
+  "/admin/help-assistant",
   "/admin/imports",
 ];
 

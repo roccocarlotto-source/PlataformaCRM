@@ -4086,6 +4086,13 @@ input.ds-task-check:hover {
   white-space: normal;
 }
 
+/* La columna de texto principal de una tabla con varias columnas nowrap: sin
+   un mínimo, el navegador la achica hasta dos palabras por línea (la
+   pregunta de "Preguntas a la ayuda"). */
+.ds-cell-clamp--principal {
+  min-width: 240px;
+}
+
 /* ---------------------------------------------------------------------------
    Acciones de una fila de tabla — varios botones chicos de texto + ícono en
    línea (Ver imagen, Enviar, Copiar link, Editar, Eliminar). Medidas del

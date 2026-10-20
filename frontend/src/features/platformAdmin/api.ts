@@ -17,6 +17,8 @@ import type {
   CreateOrganizationInput,
   CreateOrganizationResponse,
   EdicionesDisponibles,
+  FiltrosDelInforme,
+  InformeDePreguntas,
   RubrosDisponibles,
   LlmUsageSummary,
   MetaAuthorization,
@@ -325,4 +327,19 @@ export async function desconectarWabaDeLaClinica(
     { method: "DELETE", getAccessToken },
   );
   return conexion;
+}
+
+// "Preguntas a la ayuda": los filtros vacíos no viajan (son "todos").
+export function getInformeDePreguntas(
+  filtros: FiltrosDelInforme,
+  signal?: AbortSignal,
+): Promise<InformeDePreguntas> {
+  const query = new URLSearchParams();
+  for (const [clave, valor] of Object.entries(filtros)) {
+    if (valor !== undefined && valor !== "") query.set(clave, String(valor));
+  }
+  return request<InformeDePreguntas>(`/admin/help-assistant/questions?${query.toString()}`, {
+    getAccessToken,
+    signal,
+  });
 }
