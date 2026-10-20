@@ -218,8 +218,11 @@ export function procesarRespuesta(texto: string, lector: QueVePuedeAbrir): Respu
     // Respondió con la guía pero no citó nada válido: al menos, la guía.
     fuentes.push({ titulo: "Ayuda", href: "/ayuda" });
   }
-  const pie = fuentes.length
-    ? `\n\nMás en la guía: ${fuentes.map((f) => `[${f.titulo}](${f.href})`).join(" · ")}`
+  // El pie no repite un tema que la respuesta ya linkeó ("Más detalles en
+  // [Invitar a una persona](…)" y abajo, otra vez, el mismo link).
+  const paraElPie = fuentes.filter((f) => !cuerpo.includes(`](${f.href})`));
+  const pie = paraElPie.length
+    ? `\n\nMás en la guía: ${paraElPie.map((f) => `[${f.titulo}](${f.href})`).join(" · ")}`
     : "";
   // Si pedía datos y la persona tiene el Agente interno, el link lo pone el
   // servidor: en el eval, el modelo lo nombraba ("está en el menú") sin linkear.

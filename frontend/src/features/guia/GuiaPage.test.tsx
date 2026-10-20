@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { http, HttpResponse } from "msw";
 import type { AuthContextValue } from "../../auth/AuthContext";
+import { ProveedorDelAsistente } from "../../asistente/ProveedorDelAsistente";
+import { env } from "../../config/env";
+import { server } from "../../test/msw/server";
+import { PanelDelAsistente } from "../asistente/PanelDelAsistente";
 import { GuiaPage } from "./GuiaPage";
 import { SECCIONES } from "./secciones";
 import { edicionDeMe } from "../../test/edicionFixtures";
@@ -10,6 +15,9 @@ import { automotoraDeMe, clinicaDeMe } from "../../test/rubroFixtures";
 
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+vi.mock("../../auth/getAccessToken", () => ({
+  getAccessToken: vi.fn(async () => "test-token"),
+}));
 
 // ADMIN por defecto: los tests de edición y de rubro miran la guía entera;
 // lo que oculta el rol se prueba en "GuiaPage — por rol".
@@ -264,5 +272,50 @@ describe("GuiaPage — por rol", () => {
     renderEn("/ayuda");
     expect(screen.queryByRole("link", { name: "Organización y sedes" })).toBeNull();
     expect(screen.getByRole("link", { name: "Agenda y tareas" })).toBeInTheDocument();
+  });
+});
+
+// La caja del asistente "¿Cómo se hace?" arriba del buscador: solo con el
+// asistente prendido; la pregunta abre el panel y sale enseguida.
+describe("GuiaPage — la caja de ¿Cómo se hace?", () => {
+  function renderConAsistente(disponible: boolean) {
+    useAuthMock.mockReturnValue(mockAuth(false));
+    return render(
+      <MemoryRouter initialEntries={["/ayuda"]}>
+        <ProveedorDelAsistente disponible={disponible}>
+          <Routes>
+            <Route path="/ayuda" element={<GuiaPage />} />
+          </Routes>
+          <PanelDelAsistente contactosEnPlural="clientes" />
+        </ProveedorDelAsistente>
+      </MemoryRouter>,
+    );
+  }
+
+  it("sin el asistente no está", () => {
+    renderConAsistente(false);
+    expect(screen.queryByLabelText("Preguntá cómo hacer algo")).not.toBeInTheDocument();
+  });
+
+  it("la pregunta abre el panel y sale con la pantalla Ayuda como contexto", async () => {
+    const cuerpos: unknown[] = [];
+    server.use(
+      http.post(`${env.apiUrl}/api/help-assistant/questions`, async ({ request }) => {
+        cuerpos.push(await request.json());
+        return HttpResponse.json({
+          id: "q-1",
+          respuesta: "Así se hace.",
+          fuentes: [],
+          tipo: "ANSWERED",
+          restantesHoy: 19,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderConAsistente(true);
+    await user.type(screen.getByLabelText("Preguntá cómo hacer algo"), "¿Cómo invito a alguien?");
+    await user.click(screen.getByRole("button", { name: "Preguntar" }));
+    expect(await screen.findByText("Así se hace.")).toBeInTheDocument();
+    expect(cuerpos).toEqual([{ pregunta: "¿Cómo invito a alguien?", pantalla: "ayuda" }]);
   });
 });

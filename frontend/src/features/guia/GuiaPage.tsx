@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Search } from "lucide-react";
+import { LARGO_MAXIMO_DE_LA_PREGUNTA, useAsistente } from "../../asistente/contexto";
 import { useAuth } from "../../auth/AuthContext";
+import { Button } from "../../design-system/Button";
 import { tieneModulo } from "../../auth/useModulo";
 import { esClinica } from "../../auth/vocabulario";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -47,6 +49,40 @@ export function GuiaPage() {
   return <SeccionDeGuia seccion={seccion} />;
 }
 
+// El asistente "¿Cómo se hace?" arriba del buscador de títulos: la pregunta
+// abre el panel y sale enseguida. Solo si el asistente está prendido.
+function CajaDelAsistente() {
+  const asistente = useAsistente();
+  const [pregunta, setPregunta] = useState("");
+  if (!asistente?.disponible) return null;
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!pregunta.trim()) return;
+    asistente?.enviar(pregunta);
+    setPregunta("");
+  }
+
+  return (
+    <form className="ds-asistente-caja" onSubmit={handleSubmit}>
+      <label className="ds-sr-only" htmlFor="ayuda-pregunta">
+        Preguntá cómo hacer algo
+      </label>
+      <input
+        id="ayuda-pregunta"
+        type="text"
+        placeholder="Preguntá cómo hacer algo"
+        maxLength={LARGO_MAXIMO_DE_LA_PREGUNTA}
+        value={pregunta}
+        onChange={(event) => setPregunta(event.target.value)}
+      />
+      <Button type="submit" variant="primary" disabled={!pregunta.trim()}>
+        Preguntar
+      </Button>
+    </form>
+  );
+}
+
 function Indice({ secciones }: { secciones: Seccion[] }) {
   const [consulta, setConsulta] = useState("");
   const resultados: ResultadoDeBusqueda[] = useMemo(
@@ -59,6 +95,7 @@ function Indice({ secciones }: { secciones: Seccion[] }) {
     <div>
       <PageHeader title="Ayuda" help={AYUDA.ayuda} />
       <div className="ds-guia">
+        <CajaDelAsistente />
         <label className="ds-guia-search">
           <Search size={16} strokeWidth={1.5} aria-hidden="true" />
           <span className="ds-sr-only">Buscar en la guía</span>

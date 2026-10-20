@@ -88,6 +88,19 @@ export function previaDeActivacion(
   );
 }
 
+// El asistente "¿Cómo se hace?": prenderlo o apagarlo en una organización.
+// Idempotente del lado del backend.
+export function cambiarAsistenteDeAyuda(
+  organizationId: string,
+  enabled: boolean,
+): Promise<{ id: string; helpAssistantEnabled: boolean }> {
+  return request(`/admin/organizations/${encodeURIComponent(organizationId)}/help-assistant`, {
+    method: "PATCH",
+    body: { enabled },
+    getAccessToken,
+  });
+}
+
 // Módulos activables (docs/servicios.md §1.5): activar y desactivar uno en
 // una organización. Idempotentes del lado del backend.
 export function activarModulo(

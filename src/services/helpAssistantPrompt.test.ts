@@ -180,3 +180,14 @@ test("procesarRespuesta: si pedía datos y tiene el Agente interno, el link lo p
   );
   assert.equal(yaLinkeado.respuesta.match(/\/internal-agent/g)?.length, 1);
 });
+
+test("procesarRespuesta: el pie no repite un tema que la respuesta ya linkeó", () => {
+  const r = procesarRespuesta(
+    "Así se hace. Más detalles en [Contactos](/ayuda/contactos-y-consultas#contactos).\nFUENTES: contactos-y-consultas#contactos, contactos-y-consultas#unir-contactos\nTIPO: guia",
+    LECTOR,
+  );
+  assert.equal(r.respuesta.match(/contactos-y-consultas#contactos\)/g)?.length, 1);
+  assert.match(r.respuesta, /Más en la guía: \[Unir contactos\]/);
+  // Las fuentes (para el registro) siguen siendo las dos.
+  assert.equal(r.fuentes.length, 2);
+});

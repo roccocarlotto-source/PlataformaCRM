@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ChevronLeft, CircleQuestionMark } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useAsistente, useEsCelular, useRegistrarPantalla } from "../asistente/contexto";
 
 export interface PageHeaderBack {
   to: string;
@@ -30,7 +31,16 @@ export interface PageHeaderProps {
 // "volver" tenía tres estilos distintos. Una sola forma: título, subtítulo
 // opcional, "volver" arriba del título, acciones a la derecha, y el "?" de la
 // guía pegado al título.
+//
+// El asistente "¿Cómo se hace?": el "?" le dice en qué pantalla está la persona
+// (useRegistrarPantalla) y, en el celular, abre la hoja con "Preguntale a la
+// guía" y "Ver la guía de esta pantalla" en vez de ir directo a la guía. Sin el
+// asistente (o fuera de AppLayout), el "?" es el link de siempre.
 export function PageHeader({ title, subtitle, back, actions, help }: PageHeaderProps) {
+  useRegistrarPantalla(help);
+  const asistente = useAsistente();
+  const esCelular = useEsCelular();
+  const conHoja = help !== undefined && esCelular && asistente?.disponible === true;
   return (
     <div className="ds-page-header">
       <div className="ds-page-header-main">
@@ -42,7 +52,17 @@ export function PageHeader({ title, subtitle, back, actions, help }: PageHeaderP
         ) : null}
         <div className="ds-page-title">
           <h1>{title}</h1>
-          {help ? (
+          {help && conHoja ? (
+            <button
+              type="button"
+              className="ds-page-help"
+              aria-label="Ayuda de esta pantalla"
+              title="Ayuda de esta pantalla"
+              onClick={() => asistente?.abrirHojaDeAyuda(help)}
+            >
+              <CircleQuestionMark size={18} strokeWidth={1.5} aria-hidden="true" />
+            </button>
+          ) : help ? (
             <Link
               to={`/ayuda/${help}`}
               className="ds-page-help"

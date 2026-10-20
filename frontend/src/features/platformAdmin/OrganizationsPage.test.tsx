@@ -678,3 +678,67 @@ describe("OrganizationsPage: módulos activables", () => {
     expect(dialogo).not.toHaveTextContent(/vehículos? de clientes?/);
   });
 });
+
+// La ayuda "¿Cómo se hace?": prendida por defecto en todas; se apaga por
+// organización.
+describe("OrganizationsPage: la ayuda ¿Cómo se hace?", () => {
+  const ayudaUrl = (id: string) => `${env.apiUrl}/api/admin/organizations/${id}/help-assistant`;
+
+  beforeEach(() => {
+    server.use(
+      http.get(editionsUrl, () => HttpResponse.json({ editions: ["COMPLETA", "ESENCIAL"] })),
+    );
+  });
+
+  async function filaDe(nombre: string) {
+    return (await screen.findByText(nombre)).closest("tr") as HTMLElement;
+  }
+
+  it("ofrece apagarla donde está prendida (o no vino el dato) y prenderla donde está apagada", async () => {
+    server.use(
+      http.get(listUrl, () =>
+        HttpResponse.json(
+          ORGS.map((o) => (o.id === "org-2" ? { ...o, helpAssistantEnabled: false } : o)),
+        ),
+      ),
+    );
+    renderPage();
+    const centro = await filaDe("Automotora Centro");
+    const norte = await filaDe("Automotora Norte");
+    expect(within(centro).getByRole("button", { name: "Apagar ayuda" })).toBeInTheDocument();
+    expect(within(centro).queryByText("Ayuda apagada")).not.toBeInTheDocument();
+    expect(within(norte).getByRole("button", { name: "Prender ayuda" })).toBeInTheDocument();
+    expect(within(norte).getByText("Ayuda apagada")).toBeInTheDocument();
+  });
+
+  it("apagar: pide confirmación, manda el PATCH con enabled false y avisa; cancelar no manda nada", async () => {
+    const cuerpos: unknown[] = [];
+    server.use(
+      http.get(listUrl, () => HttpResponse.json(ORGS)),
+      http.patch(ayudaUrl("org-1"), async ({ request }) => {
+        cuerpos.push(await request.json());
+        return HttpResponse.json({ id: "org-1", helpAssistantEnabled: false });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const boton = () =>
+      filaDe("Automotora Centro").then((fila) =>
+        within(fila).getByRole("button", { name: "Apagar ayuda" }),
+      );
+    await user.click(await boton());
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "¿Apagar la ayuda en «Automotora Centro»?",
+    );
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(cuerpos).toEqual([]);
+
+    await user.click(await boton());
+    await user.click(await screen.findByRole("button", { name: "Apagar" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      'Ayuda "¿Cómo se hace?" apagada en «Automotora Centro».',
+    );
+    expect(cuerpos).toEqual([{ enabled: false }]);
+  });
+});

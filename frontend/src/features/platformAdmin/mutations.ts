@@ -3,6 +3,7 @@ import { agentKeys } from "../agent/queries";
 import { internalAgentKeys } from "../internalAgent/queries";
 import {
   activarModulo,
+  cambiarAsistenteDeAyuda,
   desactivarModulo,
   assignAgentModel,
   assignFacebookPage,
@@ -80,6 +81,17 @@ export function useChangeOrganizationEdition() {
 
 // Activar o desactivar un módulo activable (docs/servicios.md §1.5): el
 // listado se recarga para mostrar la columna "Módulos" al día.
+export function useCambiarAsistenteDeAyuda() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ organizationId, enabled }: { organizationId: string; enabled: boolean }) =>
+      cambiarAsistenteDeAyuda(organizationId, enabled),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: platformAdminKeys.organizations() });
+    },
+  });
+}
+
 export function useCambiarModulo() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -306,3 +306,33 @@ agentes de IA, automatizaciones, sucursales y otras), y si una sección es toda
 de configuración, no aparece en el índice. Cuando la guía dice "solo un
 administrador puede…", es porque esa pantalla o esa acción no está disponible
 para un usuario: no la vas a encontrar en tu menú.
+
+### ¿Cómo se hace? {#como-se-hace}
+
+**¿Cómo se hace?** es una ayuda a la que le escribís una pregunta sobre cómo
+usar la plataforma ("¿cómo paso una oportunidad a la etapa siguiente?") y te contesta con los pasos, sacados de esta
+guía, y con el link al tema de la guía o a la pantalla donde se hace.
+
+- En la compu, tocá el botón **¿Cómo se hace?** abajo a la derecha. No aparece
+  en una conversación abierta ni en el agente interno, que tienen su propia
+  caja para escribir.
+- En el celular, tocá el **?** al lado del título de la pantalla y elegí
+  **Preguntale a la guía**. **Ver la guía de esta pantalla** abre la guía como
+  siempre.
+- En la pantalla **Ayuda**, escribí la pregunta en la caja de arriba y tocá
+  **Preguntar**.
+
+Qué tener en cuenta:
+
+- Solo explica cómo se usa la plataforma: no ve ni cambia datos de tu cuenta.
+  Si le preguntás cuántos clientes tenés o le pedís que cree algo, te dice
+  dónde verlo o, si lo tenés, que se lo pidas al agente interno.
+- Responde con lo que dice esta guía para tu cuenta. Si algo lo hace un
+  administrador, te lo dice; si la guía no lo cubre, también.
+- No escribas datos de clientes en la pregunta: no hacen falta.
+- Abajo de cada respuesta podés marcar si te sirvió. Eso nos ayuda a mejorar
+  la guía.
+- Hay un máximo de preguntas por día. Cuando quedan pocas te lo avisa, y al
+  llegar al máximo podés seguir usando la guía hasta el día siguiente.
+- La charla se borra al recargar la página.
+- Si no ves el botón, la ayuda no está habilitada en tu cuenta.
