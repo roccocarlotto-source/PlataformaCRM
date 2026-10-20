@@ -27,6 +27,7 @@ import { iniciarWorkerDeMensajesDelTaller } from "./servicios/recordatorio/worke
 import { iniciarBarridoDeVehiculosVendidos } from "./servicios/vehiculosVendidos/barrido";
 import { iniciarWorkerDeSincronizaciones } from "./workers/importSyncWorker";
 import { iniciarWorkerDeReintentoDePlantillas } from "./workers/plantillaReintentoWorker";
+import { iniciarPurgaDePreguntasDeAyuda } from "./workers/helpAssistantPurgeWorker";
 
 const server = app.listen(env.PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
@@ -201,6 +202,11 @@ const detenerBarridoDeVehiculosVendidos = arrancarWorkers
   ? iniciarBarridoDeVehiculosVendidos()
   : sinWorker;
 
+// La retención de 90 días de las preguntas al asistente "¿Cómo se hace?".
+const detenerPurgaDePreguntasDeAyuda = arrancarWorkers
+  ? iniciarPurgaDePreguntasDeAyuda()
+  : sinWorker;
+
 // El apagado ordenado (M-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -234,6 +240,7 @@ const shutdown = crearShutdown({
       detenerBarridoDelProximoService(),
       detenerWorkerDeMensajesDelTaller(),
       detenerBarridoDeVehiculosVendidos(),
+      detenerPurgaDePreguntasDeAyuda(),
       detenerWorkerDeReintentoDePlantillas(),
       detenerWorkerDeRecordatorios(),
       detenerWorkerDeSincronizaciones(),

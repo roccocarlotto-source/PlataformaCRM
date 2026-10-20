@@ -310,6 +310,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "POST /api/admin/organizations",
     "GET /api/admin/organizations/editions",
     "PATCH /api/admin/organizations/:organizationId/edition",
+    // El asistente "¿Cómo se hace?": prenderlo o apagarlo en una organización.
+    "PATCH /api/admin/organizations/:organizationId/help-assistant",
     // Rubros (docs/rubros.md §15, R3): los que se pueden elegir en el alta, y
     // cambiar el rubro de una organización sin datos (D1).
     "GET /api/admin/organizations/industries",

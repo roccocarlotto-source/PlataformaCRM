@@ -173,6 +173,8 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     assert.deepEqual(
       Object.keys(body).sort(),
       [
+        // El asistente "¿Cómo se hace?" prendido en la organización.
+        "asistenteDeAyuda",
         "canUseInternalAgent",
         // Ediciones (docs/ediciones.md §7): la edición y sus módulos.
         "edition",
@@ -198,6 +200,8 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     );
     assert.equal(body.id, fx.authUserId);
     assert.equal(body.email, fx.email);
+    // Prendido por defecto: la columna nace en true.
+    assert.equal(body.asistenteDeAyuda, true);
     assert.equal(body.fullName, fx.fullName);
     assert.equal(body.organizationId, fx.organizationId);
     assert.equal(body.role, fx.role);

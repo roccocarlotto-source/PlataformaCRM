@@ -6,6 +6,7 @@ import type { Db } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { AppError } from "../utils/AppError";
 import {
+  cambiarAsistenteDeAyuda,
   cambiarEdicionDeOrganizacion,
   cambiarRubroDeOrganizacion,
   createOrganizationWithFoundingAdmin,
@@ -596,4 +597,38 @@ test("cambiar a CLINICA con la llave en false: 400 sin abrir la transacción", a
     400,
   );
   assert.equal(transacciones, 0);
+});
+
+// ---------------------------------------------------------------------------
+// El asistente "¿Cómo se hace?": prenderlo o apagarlo. Lo que importa es que la
+// caché de auth se vacíe solo si se escribió (sin eso /api/me miente hasta el
+// TTL), y que una organización que no existe sea 404.
+// ---------------------------------------------------------------------------
+
+test("cambiarAsistenteDeAyuda: guarda, vacía la caché de auth y devuelve el estado", async () => {
+  const guardados: [string, boolean][] = [];
+  let vaciados = 0;
+  const result = await cambiarAsistenteDeAyuda("org-1", false, {
+    guardar: (organizationId, enabled) => {
+      guardados.push([organizationId, enabled]);
+      return Promise.resolve(1);
+    },
+    vaciarCacheDeAuth: () => {
+      vaciados++;
+    },
+  });
+  assert.deepEqual(result, { id: "org-1", helpAssistantEnabled: false });
+  assert.deepEqual(guardados, [["org-1", false]]);
+  assert.equal(vaciados, 1);
+});
+
+test("cambiarAsistenteDeAyuda: una organización inexistente o dada de baja es 404, sin tocar la caché", async () => {
+  await esperarAppError(
+    () =>
+      cambiarAsistenteDeAyuda("org-1", true, {
+        guardar: () => Promise.resolve(0),
+        vaciarCacheDeAuth: () => assert.fail("no debería vaciar la caché"),
+      }),
+    404,
+  );
 });

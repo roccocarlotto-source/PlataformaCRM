@@ -10,6 +10,7 @@ import { iniciarWorkerDeOutbox } from "./outboxWorker";
 import { iniciarWorkerDeSeguimientosQr } from "./qrFollowUpWorker";
 import { iniciarWorkerDeCupones } from "./discountVoucherFollowUpWorker";
 import { iniciarWorkerDeAvisoSinRespuesta } from "./avisoSinRespuestaWorker";
+import { iniciarPurgaDePreguntasDeAyuda } from "./helpAssistantPurgeWorker";
 
 // ---------------------------------------------------------------------------
 // M-12 (c) de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): el stop que devuelve cada
@@ -154,6 +155,18 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
         drenar: async () => {
           await pasada();
           return { avisados: 0, tardios: 0, descartados: 0, fallidos: 0 };
+        },
+      }),
+  },
+  {
+    // La retención de las preguntas al asistente "¿Cómo se hace?".
+    nombre: "purga de preguntas de ayuda",
+    iniciar: ({ pollMs, pasada }) =>
+      iniciarPurgaDePreguntasDeAyuda({
+        pollMs,
+        purgar: async () => {
+          await pasada();
+          return 0;
         },
       }),
   },

@@ -63,6 +63,21 @@ export async function subirOrganizacionACompleta(organizationId: string, db: Db 
   return count;
 }
 
+// El asistente "¿Cómo se hace?" (docs-privados/asistente-de-ayuda-diseno.md
+// §4.2, local): prenderlo o apagarlo en una organización vigente. Devuelve
+// cuántas cambió: 0 si no existe o está dada de baja.
+export async function guardarAsistenteDeAyuda(
+  organizationId: string,
+  enabled: boolean,
+  db: Db = prisma,
+) {
+  const { count } = await db.organization.updateMany({
+    where: { id: organizationId, deletedAt: null },
+    data: { helpAssistantEnabled: enabled },
+  });
+  return count;
+}
+
 // Cambio de rubro (docs/rubros.md §1.1, D1).
 export function rubroDeLaOrganizacionVigente(organizationId: string, db: Db = prisma) {
   return db.organization.findFirst({
@@ -141,6 +156,8 @@ export function listActiveOrganizations(db: Db = prisma) {
       edition: true,
       industry: true,
       isDemo: true,
+      // El asistente "¿Cómo se hace?": el switch de la pantalla de Plataforma.
+      helpAssistantEnabled: true,
       // Los módulos activables vigentes (docs/servicios.md §1.5).
       organizationModules: {
         where: { disabledAt: null },

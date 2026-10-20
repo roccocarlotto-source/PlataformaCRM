@@ -145,6 +145,7 @@ import {
 } from "./knowledgeBaseEntry.repository";
 import { setInternalAgentModel } from "./internalAgent.repository";
 import { purgeLlmTurnUsages, sumarUsoPorOrganizacion } from "./llmTurnUsage.repository";
+import { purgarPreguntasViejas } from "./helpAssistantQuestion.repository";
 import {
   softDeleteContactCustomFieldDefinition,
   updateContactCustomFieldDefinition,
@@ -1590,6 +1591,7 @@ interface FixtureNuevos {
   qrCodeY: string;
   qrFollowUpY: string;
   llmTurnUsageY: string;
+  preguntaDeAyudaY: string;
   campoY: string;
   voucherY: string;
   voucherFollowUpY: string;
@@ -1807,6 +1809,19 @@ before(async () => {
       createdAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000),
     },
   });
+  // Una pregunta al asistente "¿Cómo se hace?" de Y (migración 20261123120000).
+  const preguntaDeAyudaY = await prisma.helpAssistantQuestion.create({
+    data: {
+      organizationId: org,
+      userId: userY.id,
+      industry: "AUTOMOTORA",
+      edition: "COMPLETA",
+      role: "ADMIN",
+      question: "¿Cómo invito a una persona?",
+      outcome: "ANSWERED",
+      model: "doble/modelo",
+    },
+  });
   // B6: una definición de campo personalizado de Y.
   const campoY = await prisma.contactCustomFieldDefinition.create({
     data: {
@@ -2010,6 +2025,7 @@ before(async () => {
     qrCodeY: qrCodeY.id,
     qrFollowUpY: qrFollowUpY.id,
     llmTurnUsageY: llmTurnUsageY.id,
+    preguntaDeAyudaY: preguntaDeAyudaY.id,
     campoY: campoY.id,
     voucherY: voucherY.id,
     voucherFollowUpY: voucherFollowUpY.id,
@@ -2049,6 +2065,7 @@ after(async () => {
   await prisma.discountVoucher.deleteMany(w);
   await prisma.qrFollowUp.deleteMany(w);
   await prisma.llmTurnUsage.deleteMany(w);
+  await prisma.helpAssistantQuestion.deleteMany(w);
   await prisma.contactCustomFieldDefinition.deleteMany(w);
   await prisma.qrCode.deleteMany(w);
   await prisma.metaPageConnection.deleteMany(w);
@@ -2614,6 +2631,34 @@ test("H-01 ContactCustomFieldDefinition: update y softDelete con el id de Y y la
     leerY.campo,
     () => softDeleteContactCustomFieldDefinition(nx.campoY, nx.orgX),
     "softDeleteContactCustomFieldDefinition",
+  );
+});
+
+// Las preguntas al asistente "¿Cómo se hace?": la FK al usuario es compuesta,
+// así que una pregunta de X no puede apuntar a un usuario de Y (el motor la
+// rechaza), y la purga por fecha no toca una pregunta reciente.
+test("H-01 HelpAssistantQuestion: una pregunta de X no puede llevar un usuario de Y; la purga respeta el corte", async () => {
+  const userY = await prisma.user.findFirstOrThrow({ where: { organizationId: nx.orgY } });
+  await assert.rejects(
+    prisma.helpAssistantQuestion.create({
+      data: {
+        organizationId: nx.orgX,
+        userId: userY.id,
+        industry: "AUTOMOTORA",
+        edition: "COMPLETA",
+        role: "ADMIN",
+        question: "¿Cómo invito a una persona?",
+        outcome: "ANSWERED",
+        model: "doble/modelo",
+      },
+    }),
+    "la FK compuesta (organization_id, user_id) rechaza el usuario de otra organización",
+  );
+  const borradas = await purgarPreguntasViejas(new Date(Date.now() - 60_000));
+  assert.equal(
+    await prisma.helpAssistantQuestion.count({ where: { id: nx.preguntaDeAyudaY } }),
+    1,
+    `la pregunta reciente de Y sigue (la purga borró ${String(borradas)} vencidas de otras)`,
   );
 });
 

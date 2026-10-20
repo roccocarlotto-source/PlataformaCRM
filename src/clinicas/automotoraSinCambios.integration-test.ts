@@ -110,8 +110,10 @@ after(async () => {
 });
 
 // Las claves de /api/me antes de R2. R2 suma `industry`; R3, `vocabulario`
-// (una automotora no tiene `contactTerm`); R12, `rolesAsignables`.
+// (una automotora no tiene `contactTerm`); R12, `rolesAsignables`. El
+// asistente "¿Cómo se hace?" suma `asistenteDeAyuda`, para los dos rubros.
 const CLAVES_DE_ME_DE_HOY = [
+  "asistenteDeAyuda",
   "canUseInternalAgent",
   "edition",
   "email",

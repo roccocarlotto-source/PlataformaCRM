@@ -26,6 +26,7 @@ import {
   contarUsuariosConRoles,
   findActiveOrganizationEdition,
   findOrganizationBySlug,
+  guardarAsistenteDeAyuda,
   lockOrganizationForUpdate,
   rubroDeLaOrganizacionVigente,
   subirOrganizacionACompleta,
@@ -547,6 +548,38 @@ export async function cambiarEdicionDeOrganizacion(
     "No se puede bajar de edición: solo se puede pasar de ESENCIAL a COMPLETA.",
     409,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Prender o apagar el asistente "¿Cómo se hace?" en una organización
+// (docs-privados/asistente-de-ayuda-diseno.md §4.2, local). Solo un platform
+// admin. Idempotente: pedir el estado que ya tiene es un 200 igual.
+//
+// Después se vacía la caché de autenticación, por lo mismo que al cambiar la
+// edición: el flag viaja en el AuthContext cacheado, y sin esto /api/me
+// seguiría mostrando el botón (o el endpoint seguiría respondiendo) hasta el
+// TTL.
+// ---------------------------------------------------------------------------
+export interface CambiarAsistenteDeAyudaDeps {
+  guardar: (organizationId: string, enabled: boolean) => Promise<number>;
+  vaciarCacheDeAuth: () => void;
+}
+
+const defaultCambiarAsistenteDeAyudaDeps: CambiarAsistenteDeAyudaDeps = {
+  guardar: (organizationId, enabled) => guardarAsistenteDeAyuda(organizationId, enabled),
+  vaciarCacheDeAuth: vaciarContextosDeAuth,
+};
+
+export async function cambiarAsistenteDeAyuda(
+  organizationId: string,
+  enabled: boolean,
+  deps: CambiarAsistenteDeAyudaDeps = defaultCambiarAsistenteDeAyudaDeps,
+): Promise<{ id: string; helpAssistantEnabled: boolean }> {
+  if ((await deps.guardar(organizationId, enabled)) === 0) {
+    throw new AppError("Organización no encontrada", 404);
+  }
+  deps.vaciarCacheDeAuth();
+  return { id: organizationId, helpAssistantEnabled: enabled };
 }
 
 // ---------------------------------------------------------------------------

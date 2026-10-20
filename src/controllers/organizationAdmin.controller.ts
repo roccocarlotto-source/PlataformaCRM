@@ -11,6 +11,7 @@ import {
   previaDeActivacion,
 } from "../services/organizationModules.service";
 import {
+  cambiarAsistenteDeAyuda,
   cambiarEdicionDeOrganizacion,
   cambiarRubroDeOrganizacion,
   createOrganizationWithFoundingAdmin,
@@ -71,6 +72,15 @@ const organizationIdSchema = z.string().uuid("organizationId inválido");
 // El nombre del módulo: si no es activable, el service responde 400.
 const moduloSchema = z.string().min(1, "modulo es requerido").max(50, "modulo inválido");
 
+const cambiarAsistenteDeAyudaSchema = z
+  .object({
+    enabled: z.boolean({
+      required_error: "enabled es requerido",
+      invalid_type_error: "enabled tiene que ser true o false",
+    }),
+  })
+  .strict();
+
 const cambiarEdicionSchema = z
   .object({
     edition: z.nativeEnum(OrganizationEdition, {
@@ -112,6 +122,15 @@ export const changeOrganizationEditionHandler = asyncHandler<AuthenticatedReques
     const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
     const { edition } = parseOrThrow(cambiarEdicionSchema, req.body);
     res.status(200).json(await cambiarEdicionDeOrganizacion(organizationId, edition));
+  },
+);
+
+// Prender o apagar el asistente "¿Cómo se hace?" (ver cambiarAsistenteDeAyuda).
+export const changeHelpAssistantHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdSchema, req.params.organizationId);
+    const { enabled } = parseOrThrow(cambiarAsistenteDeAyudaSchema, req.body);
+    res.status(200).json(await cambiarAsistenteDeAyuda(organizationId, enabled));
   },
 );
 

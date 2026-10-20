@@ -70,6 +70,10 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     // Modo demo (docs-privados/taller-demo-diseno.md §2, local): el aviso y la
     // marca "Simulado" del frontend. Lo que decide es la guardia del backend.
     isDemo: req.auth.isDemo ?? false,
+    // El asistente "¿Cómo se hace?" (docs-privados/asistente-de-ayuda-diseno.md
+    // §4.2, local): el frontend muestra el botón solo si está prendido en la
+    // organización. Lo que decide es el endpoint, que responde 403 si no.
+    asistenteDeAyuda: req.auth.helpAssistantEnabled ?? true,
     // Con los módulos activables que la organización tenga activados
     // (docs/servicios.md §1.4): sin ninguno, la lista de siempre.
     modulos: MODULOS.filter((modulo) =>
