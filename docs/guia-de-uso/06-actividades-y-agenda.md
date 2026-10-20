@@ -94,13 +94,19 @@ Si sos administrador, al tildarla queda confirmada y desaparece directamente.
 
 ## Nueva actividad {#nueva-actividad}
 
-Se llega desde **Nueva actividad** (listado de Actividades, administradores)
-o **Nueva tarea** (Mis tareas, todos). Algunas pantallas la abren con datos ya
-cargados, por ejemplo **Crear tarea de seguimiento** en
+Cualquier rol llega desde **Actividades → Mis tareas → Nueva tarea**. Un
+administrador también puede usar **Nueva actividad**, en el listado de
+Actividades. Algunas pantallas la abren con datos ya cargados, por ejemplo
+**Crear tarea de seguimiento** en
 [Consultas sin identificar](/ayuda/contactos-y-consultas).
 
+Para dejar una **nota** sobre un contacto (algo que hablaron, un dato para
+recordar), es lo mismo: elegí el tipo **Nota** y relacionala con ese
+contacto. El **Asunto** es obligatorio también en una nota.
+
 1. Elegí el **Tipo**: Llamada, Reunión, Email, Tarea o Nota.
-2. Escribí el **Asunto** (obligatorio) y, si hace falta, **Notas**.
+2. Escribí el **Asunto** (obligatorio: sin asunto no se guarda) y, si hace
+   falta, **Notas**.
 3. Relacionala con una **Empresa**, un **Contacto** o una **Oportunidad**
    (o más de uno). Al menos uno es obligatorio; cada selector tiene su botón
    **Quitar**.

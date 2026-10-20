@@ -505,13 +505,18 @@ IA también las crean (un seguimiento, una derivación a la recepción). Ver
 
 ## Nueva tarea {#nueva-actividad}
 
-Se llega desde **Nueva tarea** (Mis tareas, todos) o **Nueva actividad**
-(Todas las tareas, administradores). Algunas pantallas la abren con datos ya
-cargados, por ejemplo **Crear tarea de seguimiento** en
+Cualquier rol llega desde **Mis tareas → Nueva tarea**. Un administrador
+también puede usar **Nueva actividad**, en Todas las tareas. Algunas
+pantallas la abren con datos ya cargados, por ejemplo **Crear tarea de
+seguimiento** en
 [Consultas sin identificar](/ayuda/contactos-y-consultas#consultas-sin-identificar).
 
+Para dejar una **nota** sobre un paciente (un dato administrativo para
+recordar, nunca de salud), es lo mismo: elegí el tipo **Nota** y relacionala
+con ese paciente. El **Asunto** es obligatorio también en una nota.
+
 1. Elegí el **Tipo**: Llamada, Reunión, Email, Tarea o Nota.
-2. Escribí el **Asunto** (obligatorio), por ejemplo "Llamar a Ana Pérez para
+2. Escribí el **Asunto** (obligatorio: sin asunto no se guarda), por ejemplo "Llamar a Ana Pérez para
    reprogramar", y, si hace falta, **Notas**. **No cargues datos de salud.**
 3. En **Contacto**, elegí el paciente (se busca por nombre o email). La tarea
    tiene que estar relacionada con alguien; el selector tiene su botón

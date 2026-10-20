@@ -174,8 +174,10 @@ vence o cuándo se canjeó.
 - **Oportunidades**: en [Oportunidades](/opportunities), con la columna
   Contacto. Ver
   [Oportunidades y procesos de venta](/ayuda/oportunidades-y-procesos-de-venta).
-- **Tareas**: desde Actividades. Ver
-  [Actividades y agenda](/ayuda/actividades-y-agenda).
+- **Tareas y notas**: las tuyas, en [Mis tareas](/tasks); un administrador
+  ve las de todos en Actividades. Para cargar una nueva sobre este contacto
+  (una tarea o una nota), ver
+  [Nueva actividad](/ayuda/actividades-y-agenda#nueva-actividad).
 
 ## Vehículo de interés {#vehiculo-de-interes}
 

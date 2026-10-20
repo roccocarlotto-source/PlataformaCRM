@@ -185,8 +185,10 @@ vence o cuándo se canjeó.
   por nombre. Ver [Conversaciones](/ayuda/conversaciones#bandeja).
 - **Turnos**: en [Turnos](/bookings) y en la [Agenda](/agenda). Ver
   [Turnos](/ayuda/actividades-y-agenda#reservas).
-- **Tareas**: en [Mis tareas](/tasks). Ver
-  [Tareas](/ayuda/actividades-y-agenda#actividades).
+- **Tareas y notas**: las tuyas, en [Mis tareas](/tasks); un administrador
+  ve las de todos en Todas las tareas. Para cargar una nueva sobre este
+  paciente (una tarea o una nota), ver
+  [Nueva tarea](/ayuda/actividades-y-agenda#nueva-actividad).
 
 ## Marca «sin interés» {#sin-interes}
 

@@ -47,6 +47,23 @@ fecha de creación o por nombre. El menú de cada fila ofrece:
 > atendió quedan en el historial. Si solo querés pausarlo, desmarcá
 > **Activo** en su configuración.
 
+### Días y horarios en que responde {#dias-y-horarios}
+
+Un agente activo responde a cualquier hora, todos los días. El
+[horario de atención](/ayuda/organizacion-y-sucursales#horario) de la sede
+no lo limita, y no hay una opción para que no responda ciertos días (por
+ejemplo, los domingos) o en cierto horario. Las alternativas:
+
+- **Pausarlo a mano**: desmarcá **Activo** en su configuración y volvé a
+  marcarlo cuando quieras que responda de nuevo.
+- **Primer contacto, solo fuera del horario**: si tu clínica tiene la tarjeta
+  [Cuánto hace la IA](#nuevo-agente), con el nivel **Primer contacto** podés
+  marcar **Solo fuera del horario de la sede**. Dentro del horario
+  atiende recepción y el agente no responde; fuera del horario, el agente toma el
+  primer contacto. Ojo: un día sin franjas en el horario (un domingo en que no
+  abren, por ejemplo) cuenta como fuera del horario, así que ese día el agente
+  sí responde.
+
 ## Crear o editar un agente {#nuevo-agente}
 
 En [Agentes de IA](/agents), tocá **Nuevo agente**, o **Editar** en la fila de
