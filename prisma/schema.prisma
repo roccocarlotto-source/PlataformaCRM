@@ -790,6 +790,11 @@ model Organization {
   // (src/services/modoDemo.service.ts). Solo lo pone el alta de una demo.
   isDemo Boolean @default(false) @map("is_demo")
 
+  // El asistente "¿Cómo se hace?" (docs-privados/asistente-de-ayuda-diseno.md
+  // §4.2, local): ayuda sobre la guía de uso, para todos los usuarios. Prendido
+  // por defecto; lo apaga un platform admin si un cliente no lo quiere.
+  helpAssistantEnabled Boolean @default(true) @map("help_assistant_enabled")
+
   // La configuración de una clínica (docs/rubros.md §1.3). Solo existe si el
   // rubro es CLINICA: la crea el alta, o el cambio de rubro. Si falta, el
   // código usa los defaults.
@@ -860,6 +865,8 @@ model Organization {
   internalAgentMessages         InternalAgentMessage[]
   // El consumo del modelo por turno del agente (B4, migración 20261023120000).
   llmTurnUsages                 LlmTurnUsage[]
+  // Las preguntas al asistente "¿Cómo se hace?" (migración 20261123120000).
+  helpAssistantQuestions        HelpAssistantQuestion[]
   // Campos personalizados de contactos (B6, migración 20261024120000).
   contactCustomFieldDefinitions ContactCustomFieldDefinition[]
   importBatches                 ImportBatch[]
@@ -1009,6 +1016,7 @@ model User {
   serviceOrderApprovals       ServiceOrderApproval[]       @relation("ServiceOrderApprovalRecordedBy")
   serviceOrderPhotos          ServiceOrderPhoto[]          @relation("ServiceOrderPhotoUploadedBy")
   customerVehicleNotices      CustomerVehicleNotice[]      @relation("CustomerVehicleNoticeCreatedBy")
+  helpAssistantQuestions      HelpAssistantQuestion[]
 
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -3518,6 +3526,85 @@ model LlmTurnUsage {
   // El gasto por organización en una ventana de tiempo, y la purga por fecha.
   @@index([organizationId, createdAt])
   @@map("llm_turn_usages")
+}
+
+// ---------------------------------------------------------------------------
+// HelpAssistantQuestion — una pregunta al asistente "¿Cómo se hace?"
+// (docs-privados/asistente-de-ayuda-diseno.md §7.3, local). Sirve para tres
+// cosas: el tope de preguntas por usuario y por día, el freno de gasto diario
+// de la plataforma y ver qué pregunta la gente para mejorar la guía y las
+// pantallas.
+//
+// Lo mínimo útil, y nada más:
+//   - la pregunta va ENMASCARADA (emails, teléfonos y documentos se
+//     reemplazan antes de guardarla) y la respuesta NO se guarda;
+//   - se borra a los 90 días (workers/helpAssistantPurgeWorker.ts);
+//   - organización y usuario están para el tope y el aislamiento; el informe
+//     de Plataforma no los muestra.
+//
+// CASCADE en las dos FKs, como llm_turn_usages: es un registro, no un dato
+// que alguien edite, y no tiene que trabar el borrado de una organización ni
+// el de un usuario.
+// ---------------------------------------------------------------------------
+
+enum HelpAssistantOutcome {
+  // Respondió con la guía.
+  ANSWERED
+  // La guía no lo cubre: la lista de huecos de la guía.
+  NOT_COVERED
+  // Pedía datos o una acción: derivó al Agente interno o a una pantalla.
+  DATA_REDIRECT
+  // Otro tema, o un intento de sacarle las instrucciones.
+  OFF_TOPIC
+  // Falló el modelo o la respuesta vino cortada.
+  ERROR
+}
+
+enum HelpAssistantFeedback {
+  UP
+  DOWN
+}
+
+model HelpAssistantQuestion {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+
+  // El contexto con el que se preguntó, para agrupar en el informe.
+  industry OrganizationIndustry
+  edition  OrganizationEdition
+  role     String               @db.VarChar(20)
+  // La clave de AYUDA de la pantalla (frontend/src/features/guia/anclas.ts),
+  // nunca la URL: las URLs llevan ids.
+  screen   String?              @db.VarChar(60)
+
+  // Enmascarada. Tope de 500 caracteres, el mismo del endpoint.
+  question String                 @db.VarChar(500)
+  // Las anclas (slug#ancla) que citó la respuesta.
+  sources  String[]               @default([])
+  outcome  HelpAssistantOutcome
+  feedback HelpAssistantFeedback?
+
+  // El costo real de la pregunta, con el caché del prompt por separado.
+  model            String   @db.VarChar(200)
+  promptTokens     Int      @default(0) @map("prompt_tokens")
+  completionTokens Int      @default(0) @map("completion_tokens")
+  cacheReadTokens  Int      @default(0) @map("cache_read_tokens")
+  cacheWriteTokens Int      @default(0) @map("cache_write_tokens")
+  costUsd          Decimal? @map("cost_usd") @db.Decimal(12, 6)
+  durationMs       Int?     @map("duration_ms")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
+
+  // El tope por usuario: sus preguntas de hoy.
+  @@index([userId, createdAt])
+  // El freno de gasto diario de toda la plataforma, la purga por fecha y el
+  // informe.
+  @@index([createdAt])
+  @@map("help_assistant_questions")
 }
 
 // ---------------------------------------------------------------------------

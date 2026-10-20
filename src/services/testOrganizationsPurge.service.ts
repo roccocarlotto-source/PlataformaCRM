@@ -122,6 +122,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("listado-vigente-{hex8}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("listado-de-baja-{hex8}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("edicion-cambio-{hex8}", `${C}organizationAdmin.controller.integration-test.ts`),
+  patron("asistente-ayuda-{hex8}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("esencial-cerrada-{ts}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("completa-explicita-{ts}", `${C}organizationAdmin.controller.integration-test.ts`),
   patron("esencial-abierta-{ts}", `${C}organizationAdmin.controller.integration-test.ts`),

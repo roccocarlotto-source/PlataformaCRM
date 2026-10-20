@@ -37,6 +37,7 @@ export interface UsuarioParaAuth {
     edition: OrganizationEdition;
     industry: OrganizationIndustry;
     isDemo: boolean;
+    helpAssistantEnabled: boolean;
   };
   role: { name: string };
   // null salvo para Recepción en una clínica ([] si no tiene sedes).
@@ -57,6 +58,7 @@ interface FilaUsuarioParaAuth {
   organization_edition: OrganizationEdition;
   organization_industry: OrganizationIndustry;
   organization_is_demo: boolean;
+  organization_help_assistant_enabled: boolean;
   role_name: string;
   sedes: string[] | null;
   modulos_activados: string[];
@@ -69,6 +71,7 @@ export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth |
            o.edition::text AS organization_edition,
            o.industry::text AS organization_industry,
            o.is_demo AS organization_is_demo,
+           o.help_assistant_enabled AS organization_help_assistant_enabled,
            r.name AS role_name,
            CASE WHEN o.industry = 'CLINICA' AND r.name = 'RECEPCION' THEN
              COALESCE((SELECT array_agg(ub.branch_id::text ORDER BY ub.branch_id)
@@ -101,6 +104,7 @@ export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth |
       edition: fila.organization_edition,
       industry: fila.organization_industry,
       isDemo: fila.organization_is_demo,
+      helpAssistantEnabled: fila.organization_help_assistant_enabled,
     },
     role: { name: fila.role_name },
     sedes: fila.sedes,

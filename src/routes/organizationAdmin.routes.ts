@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   activarModuloHandler,
+  changeHelpAssistantHandler,
   changeOrganizationEditionHandler,
   changeOrganizationIndustryHandler,
   createOrganizationHandler,
@@ -108,6 +109,16 @@ organizationAdminRouter.patch(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   changeOrganizationEditionHandler,
+);
+
+// El asistente "¿Cómo se hace?" (docs-privados/asistente-de-ayuda-diseno.md
+// §4.2, local): prenderlo o apagarlo en una organización. Misma cadena.
+organizationAdminRouter.patch(
+  "/admin/organizations/:organizationId/help-assistant",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  changeHelpAssistantHandler,
 );
 
 // Módulos activables (docs/servicios.md §1.5): activar y desactivar uno en

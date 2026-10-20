@@ -17,6 +17,7 @@ import {
   defaultOrganizationAdminDeps,
 } from "../services/organizationAdmin.service";
 import {
+  changeHelpAssistantHandler,
   changeOrganizationEditionHandler,
   createOrganizationHandler,
   listEditionsHandler,
@@ -79,6 +80,12 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
     stubAuthenticate,
     requirePlatformAdmin,
     changeOrganizationEditionHandler,
+  );
+  app.patch(
+    "/api/admin/organizations/:organizationId/help-assistant",
+    stubAuthenticate,
+    requirePlatformAdmin,
+    changeHelpAssistantHandler,
   );
   app.post(
     "/api/admin/organizations/:organizationId/admin-invitation/resend",
@@ -405,6 +412,8 @@ test("listado: 403 para un ADMIN común; el platform admin ve las vigentes con i
         industry: "AUTOMOTORA",
         // Modo demo (modoDemo.service.ts): una organización común no lo es.
         isDemo: false,
+        // El asistente "¿Cómo se hace?": prendido por defecto.
+        helpAssistantEnabled: true,
         // Los módulos activables vigentes (docs/servicios.md §1.5): ninguno.
         modulosActivados: [],
       });
@@ -607,6 +616,51 @@ test("PATCH /edition: sube ESENCIAL a COMPLETA; repetir es 200 sin cambios; baja
 
       assert.equal((await patch(randomUUID(), "COMPLETA")).status, 404);
       assert.equal((await patch(org.id, "PREMIUM")).status, 400);
+    });
+  } finally {
+    identidad = undefined;
+    await prisma.organization.deleteMany({ where: { id: org.id } });
+  }
+});
+
+test("PATCH /help-assistant: el platform admin lo apaga y lo prende; repetir es 200; inexistente 404; body inválido 400; un ADMIN común 403", async () => {
+  const sufijo = randomUUID().slice(0, 8);
+  const org = await prisma.organization.create({
+    data: { name: `Asistente ${sufijo}`, slug: `asistente-ayuda-${sufijo}` },
+  });
+  const patch = (id: string, body: unknown) =>
+    fetch(`${baseUrl}/api/admin/organizations/${id}/help-assistant`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const enLaBase = async () =>
+    (await prisma.organization.findUniqueOrThrow({ where: { id: org.id } })).helpAssistantEnabled;
+  try {
+    assert.equal(await enLaBase(), true, "nace prendido");
+
+    identidad = comoUsuario(randomUUID(), org.id, "ADMIN");
+    assert.equal((await patch(org.id, { enabled: false })).status, 403);
+    assert.equal(await enLaBase(), true);
+
+    await conPlatformAdmin(async (platformAdminUserId) => {
+      identidad = comoUsuario(platformAdminUserId, randomUUID(), "USER");
+
+      const apagar = await patch(org.id, { enabled: false });
+      assert.equal(apagar.status, 200);
+      assert.deepEqual(await apagar.json(), { id: org.id, helpAssistantEnabled: false });
+      assert.equal(await enLaBase(), false);
+
+      assert.equal((await patch(org.id, { enabled: false })).status, 200, "repetir no es error");
+
+      const prender = await patch(org.id, { enabled: true });
+      assert.equal(prender.status, 200);
+      assert.equal(await enLaBase(), true);
+
+      assert.equal((await patch(randomUUID(), { enabled: false })).status, 404);
+      assert.equal((await patch(org.id, { enabled: "no" })).status, 400);
+      assert.equal((await patch(org.id, {})).status, 400);
+      assert.equal((await patch(org.id, { enabled: false, extra: 1 })).status, 400);
     });
   } finally {
     identidad = undefined;

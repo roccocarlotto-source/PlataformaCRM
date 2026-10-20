@@ -297,7 +297,10 @@ from (
       ('service_order_status_changes'), ('service_order_approvals'),
       ('service_order_job_types'), ('service_order_photos'),
       -- S6 (migración 20261119120000): el registro de avisos y la cola.
-      ('customer_vehicle_notices'), ('service_messages')
+      ('customer_vehicle_notices'), ('service_messages'),
+      -- Las preguntas al asistente "¿Cómo se hace?" (migración 20261123120000):
+      -- organization_id propio y la política uniforme.
+      ('help_assistant_questions')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -1070,7 +1073,13 @@ from (
       ('invitation_branches_organization_id_invitation_id_fkey', 'c',
        'la sede de una invitación es una asignación, no una referencia: se va con la invitación (R20)'),
       ('invitation_branches_organization_id_branch_id_fkey', 'c',
-       'la sede de una invitación es una asignación, no una referencia: se va con la sede (R20)')
+       'la sede de una invitación es una asignación, no una referencia: se va con la sede (R20)'),
+      -- Las preguntas al asistente "¿Cómo se hace?" (migración 20261123120000):
+      -- un registro de uso, como llm_turn_usages con la organización. Con
+      -- RESTRICT, borrar un usuario (la purga de las organizaciones de prueba,
+      -- los tests) tendría que acordarse de vaciar esto antes.
+      ('help_assistant_questions_organization_id_user_id_fkey', 'c',
+       'una pregunta al asistente es un registro de uso, no una referencia: se va con el usuario')
     ) as exc(conname, del, motivo)
     full outer join (
       select

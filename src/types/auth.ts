@@ -43,6 +43,10 @@ export interface AuthContext {
   // mismo JOIN. Opcional para no obligar a cada fixture de test a declararlo:
   // ausente vale false.
   isDemo?: boolean;
+  // El asistente "¿Cómo se hace?" prendido en la organización
+  // (organizations.help_assistant_enabled), por el mismo JOIN. Opcional por el
+  // mismo motivo que isDemo: ausente vale true, el default de la columna.
+  helpAssistantEnabled?: boolean;
   // Las sedes de una Recepción de clínica (docs/rubros.md §11.5, R20), sin las
   // borradas. SOLO existe para Recepción en una CLINICA: para cualquier otro
   // usuario la clave no está, y el contexto de una automotora es el mismo de
