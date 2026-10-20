@@ -11,7 +11,12 @@ import { automotoraDeMe, clinicaDeMe } from "../../test/rubroFixtures";
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 
-function mockAuth(isPlatformAdmin: boolean): AuthContextValue {
+// ADMIN por defecto: los tests de edición y de rubro miran la guía entera;
+// lo que oculta el rol se prueba en "GuiaPage — por rol".
+function mockAuth(
+  isPlatformAdmin: boolean,
+  role: "ADMIN" | "USER" | "RECEPCION" = "ADMIN",
+): AuthContextValue {
   return {
     status: "authenticated",
     me: {
@@ -19,7 +24,7 @@ function mockAuth(isPlatformAdmin: boolean): AuthContextValue {
       email: "a@example.com",
       fullName: "Ana",
       organizationId: "org-1",
-      role: "USER",
+      role,
       isPlatformAdmin,
       canUseInternalAgent: false,
     },
@@ -205,5 +210,59 @@ describe("GuiaPage — por rubro", () => {
     expect(titulos).toContain("Agenda y tareas -> /ayuda/actividades-y-agenda");
     expect(titulos).toContain("Organización y sedes -> /ayuda/organizacion-y-sucursales");
     expect(titulos).not.toMatch(/\/ayuda\/(stock|oportunidades-y-procesos-de-venta)/);
+  });
+});
+
+// Roles (asistente de ayuda, P6): USER y RECEPCION no ven los bloques de
+// administrador, ni las secciones que se quedan sin ninguno, ni links a
+// pantallas de AdminRoute.
+describe("GuiaPage — por rol", () => {
+  function conRol(role: "USER" | "RECEPCION", esClinica: boolean) {
+    const base = mockAuth(false, role);
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: {
+        ...base.me!,
+        ...(esClinica ? clinicaDeMe("COMPLETA") : automotoraDeMe("COMPLETA")),
+      },
+    });
+  }
+
+  it("un USER no ve las secciones de configuración en el índice", () => {
+    conRol("USER", false);
+    renderEn("/ayuda");
+    expect(screen.queryByRole("link", { name: "Base de conocimiento" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Conversaciones" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Invitar a una persona" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Los dos roles" })).toBeInTheDocument();
+  });
+
+  it("un USER ve cómo deriva el agente pero no cómo se configura", () => {
+    conRol("USER", false);
+    renderEn("/ayuda/agentes-de-ia");
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Derivar a una persona" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "Instrucciones" })).toBeNull();
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "Instalar el chat en un sitio web" }),
+    ).toBeNull();
+  });
+
+  it("un USER no tiene links a pantallas de administrador", () => {
+    conRol("USER", false);
+    const { container } = renderEn("/ayuda/usuarios-y-permisos");
+    const hrefs = [...container.querySelectorAll("article a[href^='/']")].map((a) =>
+      a.getAttribute("href"),
+    );
+    expect(hrefs).not.toContain("/users");
+    expect(hrefs).not.toContain("/invitations/new");
+  });
+
+  it("Recepción no ve Organización y sedes, y sí la agenda", () => {
+    conRol("RECEPCION", true);
+    renderEn("/ayuda");
+    expect(screen.queryByRole("link", { name: "Organización y sedes" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Agenda y tareas" })).toBeInTheDocument();
   });
 });

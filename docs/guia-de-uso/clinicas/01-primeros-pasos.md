@@ -260,6 +260,9 @@ Arriba de la guía hay un buscador: busca sobre los **títulos** de las
 secciones y de los temas, no sobre el texto completo. Los links dentro de la
 guía llevan a otras secciones o a la pantalla de la app que corresponde.
 
-Cuando la guía dice "solo un administrador puede…", es porque esa pantalla
-o esa acción no está disponible para Recepción: no la vas a encontrar en tu
-menú.
+La guía muestra lo que tu cuenta usa. Recepción no ve las partes que
+explican cómo se configura algo que solo maneja un administrador (usuarios,
+profesionales, prestaciones, el asistente, automatizaciones, sedes y otras), y
+si una sección es toda de configuración, no aparece en el índice. Cuando la
+guía dice "solo un administrador puede…", es porque esa pantalla o esa acción
+no está disponible para Recepción: no la vas a encontrar en tu menú.

@@ -58,6 +58,30 @@ profesionales, prestaciones, turnos, agenda, sedes y responsable. Sin nada de
 autos: un test falla si aparecen "cliente", "vehículo", "stock",
 "oportunidad" o "vendedor". Los roles son **Administrador** y **Recepción**.
 
+## Qué ve cada rol
+
+Un usuario (USER en una automotora, Recepción en una clínica) no ve los
+bloques que explican algo que solo puede hacer un administrador: una pantalla
+de configuración o una acción que el sistema le niega. La lista de esos
+bloques está en `src/compartido/guia/guia.ts` (`SOLO_ADMIN_DE_ANCLA` y
+`SOLO_ADMIN_DE_ANCLA_DE_CLINICA`, una por guía). Lo mismo usa el asistente
+"¿Cómo se hace?", así que nunca le explica a alguien algo que no ve en Ayuda.
+
+- Un bloque es un `##` con sus `###`, o un `###` con `{#ancla}` propia. Un
+  `###` dentro de un `##` oculto se oculta con él.
+- Si una pantalla nueva es de administrador, su `##` (o el `###` con los
+  pasos) va en la lista. Un test lo exige: el "?" de una pantalla de
+  administrador tiene que llevar a un bloque de la lista, y el de una pantalla
+  de todos, nunca.
+- Un bloque que explica qué hace el sistema (qué le llega al cliente, cuándo
+  deriva el agente) se queda visible aunque se configure en una pantalla de
+  administrador: le sirve al usuario para entender su trabajo.
+- Si un bloque mezcla pasos de administrador con algo que sirve a todos, se
+  separa: lo de todos queda en el `##` y los pasos van en un `###` con ancla
+  propia (ver `#pagos` y `#registrar-pago`).
+- Los links a pantallas de administrador se muestran como texto común a quien
+  no es administrador.
+
 ## Formato
 
 - El archivo empieza con un único `# Título de la sección`.

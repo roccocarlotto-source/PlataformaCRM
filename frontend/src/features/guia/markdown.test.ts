@@ -54,4 +54,13 @@ describe("asignarAnclas", () => {
       "## A {#a}\n\n### Filtros {#filtros}\n\n## B {#b}\n\n### Filtros {#filtros-2}\n\n```\n### no\n```\n",
     );
   });
+
+  it("un ### sin ancla nunca le gana el nombre a un ## con esa ancla explícita, aunque esté antes", () => {
+    // El caso de conversaciones: "### Responder" dentro de Detalle, y más
+    // abajo "## Responder {#responder}", que es adonde van los links.
+    const md = "## Detalle {#detalle}\n\n### Responder\n\n## Responder {#responder}\n";
+    expect(asignarAnclas(md)).toBe(
+      "## Detalle {#detalle}\n\n### Responder {#responder-2}\n\n## Responder {#responder}\n",
+    );
+  });
 });

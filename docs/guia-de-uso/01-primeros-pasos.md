@@ -300,6 +300,9 @@ secciones y de los temas (por ejemplo, "horario" te lleva a "Horario de
 atención"), no sobre el texto completo. Los links dentro de la guía llevan
 a otras secciones o a la pantalla de la app que corresponde.
 
-Cuando la guía dice "solo un administrador puede…", es porque esa pantalla
-o esa acción no está disponible para un usuario: no la vas a encontrar en
-tu menú.
+La guía muestra lo que tu cuenta usa. Un usuario no ve las partes que
+explican cómo se configura algo que solo maneja un administrador (usuarios,
+agentes de IA, automatizaciones, sucursales y otras), y si una sección es toda
+de configuración, no aparece en el índice. Cuando la guía dice "solo un
+administrador puede…", es porque esa pantalla o esa acción no está disponible
+para un usuario: no la vas a encontrar en tu menú.

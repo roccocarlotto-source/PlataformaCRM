@@ -28,6 +28,11 @@ frontend
 supabase
 scripts
 *.md
+# Salvo la guía de uso: el asistente "¿Cómo se hace?" la lee en runtime
+# (src/services/guiaDeUso.service.ts). Las excepciones van DESPUÉS de las
+# exclusiones de arriba (docs y *.md), o no tienen efecto.
+!docs/guia-de-uso
+!docs/guia-de-uso/**/*.md
 npm-audit.json
 .gstack
 

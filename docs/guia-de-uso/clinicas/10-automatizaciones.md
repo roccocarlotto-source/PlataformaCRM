@@ -165,7 +165,12 @@ dice qué prestación le interesa.
 Antes de cada turno, el paciente recibe un WhatsApp para **confirmar** o
 **cancelar** con un botón. Lo usan solo las clínicas.
 
-### Cómo se activa
+El recordatorio **no lleva la prestación ni ningún dato de salud**: se ve en
+la pantalla del teléfono. Sale desde el número de WhatsApp de la sede del
+turno, y sale a la hora que corresponde aunque la sede esté cerrada. El
+paciente tiene que tener un teléfono de WhatsApp cargado.
+
+### Cómo se activa {#activar-recordatorio}
 
 1. En [Automatizaciones](/automations), creá una regla con el evento
    **Recordatorio antes del turno** y la acción **Mandar el recordatorio por
@@ -193,14 +198,9 @@ El texto con el que arranca la regla:
 | `{hora}` | La hora del turno ("10:30"). | Obligatoria. |
 | `{profesional}` | El profesional. | Opcional. |
 
-Van en ese orden. **El recordatorio no lleva la prestación ni ningún dato de
-salud**: se ve en la pantalla del teléfono.
+Van en ese orden.
 
-El recordatorio sale desde el número de WhatsApp de la sede del turno, y sale
-a la hora que corresponde aunque la sede esté cerrada. El paciente tiene que
-tener un teléfono de WhatsApp cargado.
-
-### Qué pasa con la respuesta
+### Qué pasa con la respuesta {#respuesta-al-recordatorio}
 
 - **Confirmo:** el turno queda **Confirmado por el paciente** (se ve en el
   detalle del turno, ver

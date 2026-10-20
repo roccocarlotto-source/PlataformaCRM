@@ -10,10 +10,11 @@ export default defineConfig({
   // La guía de uso (features/guia/secciones.ts) importa los markdown de
   // docs/guia-de-uso/, fuera de frontend/. En el build Vite los lee sin más;
   // el dev server, en cambio, solo sirve archivos de la lista `allow`, que
-  // por defecto es este paquete. Solo esa carpeta, no todo el repo.
+  // por defecto es este paquete. Solo esa carpeta, no todo el repo. Lo mismo
+  // para la lógica de la guía, que comparte con el backend (src/compartido/).
   server: {
     fs: {
-      allow: [".", "../docs/guia-de-uso"],
+      allow: [".", "../docs/guia-de-uso", "../src/compartido"],
     },
   },
   test: {
