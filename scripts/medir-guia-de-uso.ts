@@ -10,15 +10,16 @@ import type { RoleName } from "../src/types/auth";
 // (docs-privados/asistente-de-ayuda-diseno.md §7.1, local).
 //
 // Sin base ni red: lee docs/guia-de-uso/ del disco. Los tokens son una
-// ESTIMACIÓN (caracteres / 3,5, la relación habitual del español con
-// markdown en los tokenizadores de Anthropic); el número exacto lo da el
-// `usage` de la primera llamada real. Haiku 5.5 cobra el prompt 5 veces más
-// caro pasados los 100k tokens: si una vista se acerca, el script lo marca.
+// ESTIMACIÓN con la relación MEDIDA para Haiku 5.5 el 2026-10-20 (eval del
+// asistente: 82.367 tokens reales para ~190 mil caracteres, unos 2,3 por
+// token; el tokenizador nuevo cuenta bastante más que la regla habitual de
+// 3,5). Haiku 5.5 cobra el prompt 5 veces más caro pasados los 100k tokens:
+// si una vista se acerca, el script lo marca.
 //
 //   npx tsx scripts/medir-guia-de-uso.ts
 // ---------------------------------------------------------------------------
 
-const CARACTERES_POR_TOKEN = 3.5;
+const CARACTERES_POR_TOKEN = 2.3;
 const LIMITE_DE_PRECIO = 100_000;
 
 interface Vista {

@@ -200,8 +200,9 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     );
     assert.equal(body.id, fx.authUserId);
     assert.equal(body.email, fx.email);
-    // Prendido por defecto: la columna nace en true.
-    assert.equal(body.asistenteDeAyuda, true);
+    // El interruptor global (HELP_ASSISTANT_ENABLED) está apagado por
+    // defecto, así que no se ofrece aunque la organización lo tenga prendido.
+    assert.equal(body.asistenteDeAyuda, false);
     assert.equal(body.fullName, fx.fullName);
     assert.equal(body.organizationId, fx.organizationId);
     assert.equal(body.role, fx.role);

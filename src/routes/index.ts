@@ -19,6 +19,7 @@ import { healthRouter } from "./health.routes";
 import { importRouter } from "./import.routes";
 import { ingestionEventRouter } from "./ingestionEvent.routes";
 import { internalAgentRouter } from "./internalAgent.routes";
+import { helpAssistantRouter } from "./helpAssistant.routes";
 import { invitationRouter } from "./invitation.routes";
 import { knowledgeBaseEntryRouter } from "./knowledgeBaseEntry.routes";
 import { meRouter } from "./me.routes";
@@ -151,6 +152,7 @@ routes.use("/api", conversationRouter);
 // subsistema aparte (no usa Agent ni Conversation): chat con authenticate +
 // requireInternalAgentAccess, configuración ADMIN-only. Ver su router.
 routes.use("/api", internalAgentRouter);
+routes.use("/api", helpAssistantRouter);
 
 // Motor de automatizaciones (docs/automations-architecture.md §8): CRUD de las
 // reglas trigger -> acción de la organización. Va acá, con los demás CRUD de

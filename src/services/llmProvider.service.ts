@@ -97,6 +97,12 @@ export type LlmMessage = LlmUserMessage | LlmAssistantMessage | LlmToolResultMes
 
 export interface LlmCompletionRequest {
   systemPrompt: string;
+  // Un prefijo del system prompt que se repite IGUAL en muchas llamadas (la
+  // guía del asistente "¿Cómo se hace?"): va antes de systemPrompt, marcado
+  // para el caché del prompt del proveedor (cache_control, TTL de 5 minutos).
+  // Lo que cambia en cada llamada va en systemPrompt y en messages, después
+  // del corte. Sin esto, el system prompt viaja como siempre.
+  systemPromptCacheable?: string;
   messages: LlmMessage[];
   // El catálogo YA FILTRADO por Agent.enabledTools (paso 2 de §4). Vacío es
   // válido: el modelo solo puede responder texto.
@@ -122,6 +128,11 @@ export interface LlmUsage {
   promptTokens: number;
   completionTokens: number;
   costUsd: number | null;
+  // Del caché del prompt, solo si el proveedor los informa
+  // (usage.prompt_tokens_details): leídos del caché y escritos en él. Están
+  // incluidos en promptTokens.
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 export interface LlmCompletionResult {
@@ -267,7 +278,7 @@ interface ToolCallDeOpenAi {
 }
 
 type ParteDeOpenAi =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }
   | { type: "input_audio"; input_audio: { data: string; format: string } }
   | { type: "image_url"; image_url: { url: string } };
 
@@ -319,8 +330,30 @@ function parteDeOpenAi(parte: LlmContentPart): ParteDeOpenAi {
 
 // Traduce el historial neutral al formato de OpenAI. Es la mitad del adaptador
 // que existe para que el loop no sepa nada de `tool_calls`/`tool_call_id`.
-function aMensajesDeOpenAi(systemPrompt: string, messages: LlmMessage[]): MensajeDeOpenAi[] {
-  const salida: MensajeDeOpenAi[] = [{ role: "system", content: systemPrompt }];
+function aMensajesDeOpenAi(
+  systemPrompt: string,
+  messages: LlmMessage[],
+  systemPromptCacheable?: string,
+): MensajeDeOpenAi[] {
+  // Con prefijo cacheable, el system va en dos partes y el corte del caché
+  // (cache_control) cierra la primera: es el formato que OpenRouter le pasa a
+  // los proveedores que cachean por breakpoint (Anthropic, Gemini).
+  const salida: MensajeDeOpenAi[] = [
+    {
+      role: "system",
+      content:
+        systemPromptCacheable === undefined
+          ? systemPrompt
+          : [
+              {
+                type: "text",
+                text: systemPromptCacheable,
+                cache_control: { type: "ephemeral" },
+              },
+              { type: "text", text: systemPrompt },
+            ],
+    },
+  ];
 
   for (const mensaje of messages) {
     switch (mensaje.role) {
@@ -437,14 +470,29 @@ export function leerUsage(crudo: unknown): LlmUsage | null {
   if (!crudo || typeof crudo !== "object") {
     return null;
   }
-  const { prompt_tokens, completion_tokens, cost } = crudo as Record<string, unknown>;
+  const { prompt_tokens, completion_tokens, cost, prompt_tokens_details } = crudo as Record<
+    string,
+    unknown
+  >;
   const entero = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
   const promptTokens = entero(prompt_tokens);
   const completionTokens = entero(completion_tokens);
   if (promptTokens === null || completionTokens === null) {
     return null;
   }
-  return { promptTokens, completionTokens, costUsd: entero(cost) };
+  const detalle =
+    prompt_tokens_details && typeof prompt_tokens_details === "object"
+      ? (prompt_tokens_details as Record<string, unknown>)
+      : {};
+  const cacheReadTokens = entero(detalle.cached_tokens);
+  const cacheWriteTokens = entero(detalle.cache_write_tokens);
+  return {
+    promptTokens,
+    completionTokens,
+    costUsd: entero(cost),
+    ...(cacheReadTokens !== null ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens !== null ? { cacheWriteTokens } : {}),
+  };
 }
 
 // FACTORY, mismo patrón que crearClienteGoogleCalendar(): recibe su
@@ -457,10 +505,18 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
   return {
     name: OPENROUTER_PROVIDER_NAME,
 
-    async complete({ systemPrompt, messages, tools, model, signal, toolChoice }) {
+    async complete({
+      systemPrompt,
+      systemPromptCacheable,
+      messages,
+      tools,
+      model,
+      signal,
+      toolChoice,
+    }) {
       const cuerpo: Record<string, unknown> = {
         model: model ?? config.defaultModel,
-        messages: aMensajesDeOpenAi(systemPrompt, messages),
+        messages: aMensajesDeOpenAi(systemPrompt, messages, systemPromptCacheable),
         // FABLE-B-01 / OPUS-B-06 (docs-privados, local): un techo a lo que
         // puede generar CADA llamada. Sin él, un modelo que entra en un loop
         // de repetición genera hasta su máximo en cada ronda del turno.

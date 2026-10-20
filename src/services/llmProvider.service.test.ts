@@ -148,6 +148,55 @@ test("leerUsage: sin costo es null; sin tokens legibles no hay usage, y nunca la
   assert.equal(leerUsage({ prompt_tokens: 10, completion_tokens: -1 }), null);
 });
 
+test("leerUsage: los tokens del caché del prompt, solo si vienen", () => {
+  assert.deepEqual(
+    leerUsage({
+      prompt_tokens: 50_000,
+      completion_tokens: 300,
+      cost: 0.0009,
+      prompt_tokens_details: { cached_tokens: 49_000, cache_write_tokens: 0 },
+    }),
+    {
+      promptTokens: 50_000,
+      completionTokens: 300,
+      costUsd: 0.0009,
+      cacheReadTokens: 49_000,
+      cacheWriteTokens: 0,
+    },
+  );
+  assert.deepEqual(
+    leerUsage({ prompt_tokens: 10, completion_tokens: 2, prompt_tokens_details: "raro" }),
+    { promptTokens: 10, completionTokens: 2, costUsd: null },
+  );
+});
+
+test("systemPromptCacheable: el system va en dos partes y el corte del caché cierra la primera", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "hola" }) });
+  await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete({
+    ...PEDIDO_BASICO,
+    systemPrompt: "Contexto de esta pregunta.",
+    systemPromptCacheable: "La guía entera.",
+  });
+  const sistema = (cuerpoDe(llamadas[0]).messages as { role: string; content: unknown }[])[0];
+  assert.deepEqual(sistema, {
+    role: "system",
+    content: [
+      { type: "text", text: "La guía entera.", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "Contexto de esta pregunta." },
+    ],
+  });
+});
+
+test("sin systemPromptCacheable el system es un string, como siempre", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "hola" }) });
+  await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete({
+    ...PEDIDO_BASICO,
+    systemPrompt: "Sos un asistente.",
+  });
+  const sistema = (cuerpoDe(llamadas[0]).messages as { role: string; content: unknown }[])[0];
+  assert.deepEqual(sistema, { role: "system", content: "Sos un asistente." });
+});
+
 // RESPUESTA CORTADA POR LARGO (Taller Demo, 2026-10-18): finish_reason "length".
 test("una respuesta cortada en el texto vuelve marcada, con el texto y el consumo", async () => {
   const { fetch } = mockearFetch({
