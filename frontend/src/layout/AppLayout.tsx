@@ -13,8 +13,11 @@ import {
   UserRound,
   Upload,
 } from "lucide-react";
+import { ProveedorDelAsistente } from "../asistente/ProveedorDelAsistente";
 import { useAuth } from "../auth/AuthContext";
-import { esClinica, marcaDe } from "../auth/vocabulario";
+import { esClinica, marcaDe, vocabularioDe } from "../auth/vocabulario";
+import { BotonDelAsistente, HojaDeAyuda } from "../features/asistente/BotonYHojaDelAsistente";
+import { PanelDelAsistente } from "../features/asistente/PanelDelAsistente";
 import { useEsencialOfrecida } from "../features/platformAdmin/queries";
 import { Button } from "../design-system/Button";
 import { ErrorState } from "../design-system/ErrorState";
@@ -115,125 +118,138 @@ export function AppLayout() {
   }
 
   return (
-    <div className={`ds-shell${isNavOpen ? " is-nav-open" : ""}`}>
-      <aside id={sidebarId} ref={sidebarRef} className="ds-sidebar">
-        <Link to="/" className="ds-sidebar-brand">
-          <span className="ds-sidebar-brand-mark" aria-hidden="true">
-            <LayoutDashboard size={16} strokeWidth={1.5} />
-          </span>
-          <span className="ds-sidebar-brand-name">{marca}</span>
-        </Link>
-        <nav className="ds-sidebar-nav">
-          {esClinica(me) ? (
-            <MenuDeClinica me={me} isAdmin={isAdmin} canUseInternalAgent={canUseInternalAgent} />
-          ) : (
-            <MenuDeAutomotora me={me} isAdmin={isAdmin} canUseInternalAgent={canUseInternalAgent} />
-          )}
-          {isPlatformAdmin ? (
-            <div className="ds-sidebar-group">
-              <span className="ds-sidebar-group-label">Plataforma</span>
-              <SidebarLink to="/admin/organizations/new" icon={Building}>
-                Nueva organización
-              </SidebarLink>
-              {/* end: si no, también queda marcado en /admin/organizations/new. */}
-              {esencialOfrecida ? (
-                <SidebarLink to="/admin/organizations" end icon={Building2}>
-                  Organizaciones
-                </SidebarLink>
-              ) : null}
-              <SidebarLink to="/admin/agents/whatsapp-number" icon={MessageCircle}>
-                Número de WhatsApp
-              </SidebarLink>
-              <SidebarLink to="/admin/organizations/whatsapp-business" icon={MessageCircle}>
-                WhatsApp de una clínica
-              </SidebarLink>
-              <SidebarLink to="/admin/agents/facebook-page" icon={MessagesSquare}>
-                Página de Facebook
-              </SidebarLink>
-              <SidebarLink to="/admin/agents/model" icon={Bot}>
-                Modelo de IA
-              </SidebarLink>
-              {/* B4: el gasto en el modelo por organización, últimos 30 días. */}
-              <SidebarLink to="/admin/llm-usage" icon={Activity}>
-                Uso de IA
-              </SidebarLink>
-              <SidebarLink to="/admin/imports" icon={Upload}>
-                Importar datos
-              </SidebarLink>
-            </div>
-          ) : null}
-          {/* Ayuda: la guía de uso (features/guia). Último ítem del nav, para
-              los dos roles, fuera de toda sección: no pertenece a ningún
-              módulo, es sobre todos. */}
-          <div className="ds-sidebar-group ds-sidebar-group--ayuda">
-            <SidebarLink to="/ayuda" icon={CircleQuestionMark}>
-              Ayuda
-            </SidebarLink>
-          </div>
-        </nav>
-        <div className="ds-sidebar-account">
-          {/* Selector de tema (§31): en el pie de la sidebar, arriba de la
-              identidad y de "Cerrar sesión" — siempre a mano, sin una pantalla
-              de configuración que hoy no existe. */}
-          <ThemeToggle />
-          <div className="ds-sidebar-account-top">
-            {me ? (
-              <span className="ds-sidebar-account-mark" aria-hidden="true">
-                <UserRound size={16} strokeWidth={1.5} />
-              </span>
-            ) : null}
-            <div className="ds-sidebar-account-identity">
-              {me ? (
-                <>
-                  <span className="ds-sidebar-account-name">{me.fullName}</span>
-                  <span className="ds-sidebar-account-role">{roleLabel(me.role)}</span>
-                </>
-              ) : null}
-            </div>
-          </div>
-          <Button type="button" onClick={handleLogout} disabled={isLoggingOut}>
-            {isLoggingOut ? "Cerrando sesión…" : "Cerrar sesión"}
-          </Button>
-        </div>
-        {logoutError ? <ErrorState>{logoutError}</ErrorState> : null}
-      </aside>
-      {isNavOpen ? (
-        <div
-          className="ds-sidebar-backdrop"
-          aria-hidden="true"
-          onClick={() => setIsNavOpen(false)}
-        />
-      ) : null}
-      <div className="ds-shell-body">
-        {/* Barra superior: solo se ve en el celular (CSS), donde la sidebar
-            no entra al lado del contenido. */}
-        <header className="ds-topbar">
-          <button
-            ref={menuButtonRef}
-            type="button"
-            className="ds-topbar-menu"
-            aria-label={isNavOpen ? "Cerrar menú" : "Abrir menú"}
-            aria-expanded={isNavOpen}
-            aria-controls={sidebarId}
-            onClick={() => setIsNavOpen((open) => !open)}
-          >
-            <Menu size={20} strokeWidth={1.5} aria-hidden="true" />
-          </button>
-          <Link to="/" className="ds-topbar-brand">
+    // El asistente "¿Cómo se hace?": su estado vive acá para que la charla
+    // sobreviva a navegar. Sin asistenteDeAyuda en /me, nada de él se ve.
+    <ProveedorDelAsistente disponible={me?.asistenteDeAyuda === true}>
+      <div
+        className={`ds-shell${isNavOpen ? " is-nav-open" : ""}${me?.asistenteDeAyuda === true ? " ds-shell--con-asistente" : ""}`}
+      >
+        <aside id={sidebarId} ref={sidebarRef} className="ds-sidebar">
+          <Link to="/" className="ds-sidebar-brand">
             <span className="ds-sidebar-brand-mark" aria-hidden="true">
               <LayoutDashboard size={16} strokeWidth={1.5} />
             </span>
             <span className="ds-sidebar-brand-name">{marca}</span>
           </Link>
-        </header>
-        <main>
-          {/* R20: el aviso de una Recepción de clínica sin sedes; para el
+          <nav className="ds-sidebar-nav">
+            {esClinica(me) ? (
+              <MenuDeClinica me={me} isAdmin={isAdmin} canUseInternalAgent={canUseInternalAgent} />
+            ) : (
+              <MenuDeAutomotora
+                me={me}
+                isAdmin={isAdmin}
+                canUseInternalAgent={canUseInternalAgent}
+              />
+            )}
+            {isPlatformAdmin ? (
+              <div className="ds-sidebar-group">
+                <span className="ds-sidebar-group-label">Plataforma</span>
+                <SidebarLink to="/admin/organizations/new" icon={Building}>
+                  Nueva organización
+                </SidebarLink>
+                {/* end: si no, también queda marcado en /admin/organizations/new. */}
+                {esencialOfrecida ? (
+                  <SidebarLink to="/admin/organizations" end icon={Building2}>
+                    Organizaciones
+                  </SidebarLink>
+                ) : null}
+                <SidebarLink to="/admin/agents/whatsapp-number" icon={MessageCircle}>
+                  Número de WhatsApp
+                </SidebarLink>
+                <SidebarLink to="/admin/organizations/whatsapp-business" icon={MessageCircle}>
+                  WhatsApp de una clínica
+                </SidebarLink>
+                <SidebarLink to="/admin/agents/facebook-page" icon={MessagesSquare}>
+                  Página de Facebook
+                </SidebarLink>
+                <SidebarLink to="/admin/agents/model" icon={Bot}>
+                  Modelo de IA
+                </SidebarLink>
+                {/* B4: el gasto en el modelo por organización, últimos 30 días. */}
+                <SidebarLink to="/admin/llm-usage" icon={Activity}>
+                  Uso de IA
+                </SidebarLink>
+                <SidebarLink to="/admin/imports" icon={Upload}>
+                  Importar datos
+                </SidebarLink>
+              </div>
+            ) : null}
+            {/* Ayuda: la guía de uso (features/guia). Último ítem del nav, para
+              los dos roles, fuera de toda sección: no pertenece a ningún
+              módulo, es sobre todos. */}
+            <div className="ds-sidebar-group ds-sidebar-group--ayuda">
+              <SidebarLink to="/ayuda" icon={CircleQuestionMark}>
+                Ayuda
+              </SidebarLink>
+            </div>
+          </nav>
+          <div className="ds-sidebar-account">
+            {/* Selector de tema (§31): en el pie de la sidebar, arriba de la
+              identidad y de "Cerrar sesión" — siempre a mano, sin una pantalla
+              de configuración que hoy no existe. */}
+            <ThemeToggle />
+            <div className="ds-sidebar-account-top">
+              {me ? (
+                <span className="ds-sidebar-account-mark" aria-hidden="true">
+                  <UserRound size={16} strokeWidth={1.5} />
+                </span>
+              ) : null}
+              <div className="ds-sidebar-account-identity">
+                {me ? (
+                  <>
+                    <span className="ds-sidebar-account-name">{me.fullName}</span>
+                    <span className="ds-sidebar-account-role">{roleLabel(me.role)}</span>
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <Button type="button" onClick={handleLogout} disabled={isLoggingOut}>
+              {isLoggingOut ? "Cerrando sesión…" : "Cerrar sesión"}
+            </Button>
+          </div>
+          {logoutError ? <ErrorState>{logoutError}</ErrorState> : null}
+        </aside>
+        {isNavOpen ? (
+          <div
+            className="ds-sidebar-backdrop"
+            aria-hidden="true"
+            onClick={() => setIsNavOpen(false)}
+          />
+        ) : null}
+        <div className="ds-shell-body">
+          {/* Barra superior: solo se ve en el celular (CSS), donde la sidebar
+            no entra al lado del contenido. */}
+          <header className="ds-topbar">
+            <button
+              ref={menuButtonRef}
+              type="button"
+              className="ds-topbar-menu"
+              aria-label={isNavOpen ? "Cerrar menú" : "Abrir menú"}
+              aria-expanded={isNavOpen}
+              aria-controls={sidebarId}
+              onClick={() => setIsNavOpen((open) => !open)}
+            >
+              <Menu size={20} strokeWidth={1.5} aria-hidden="true" />
+            </button>
+            <Link to="/" className="ds-topbar-brand">
+              <span className="ds-sidebar-brand-mark" aria-hidden="true">
+                <LayoutDashboard size={16} strokeWidth={1.5} />
+              </span>
+              <span className="ds-sidebar-brand-name">{marca}</span>
+            </Link>
+          </header>
+          <main>
+            {/* R20: el aviso de una Recepción de clínica sin sedes; para el
               resto no renderiza nada. */}
-          <AvisoSinSedes />
-          <AvisoDeModoDemo />
-          <Outlet />
-        </main>
+            <AvisoSinSedes />
+            <AvisoDeModoDemo />
+            <Outlet />
+          </main>
+        </div>
+        <BotonDelAsistente />
+        <HojaDeAyuda />
+        <PanelDelAsistente contactosEnPlural={vocabularioDe(me).contacto.plural} />
       </div>
-    </div>
+    </ProveedorDelAsistente>
   );
 }

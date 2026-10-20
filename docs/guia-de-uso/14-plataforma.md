@@ -179,6 +179,23 @@ Para sacarlo, tocá **Desactivar Servicios** y confirmá con **Desactivar**. Los
 usuarios de esa organización dejan de verlo enseguida, pero sus datos se
 conservan y vuelven si lo activás de nuevo.
 
+### Prender o apagar la ayuda "¿Cómo se hace?" {#ayuda-como-se-hace}
+
+La ayuda **¿Cómo se hace?** (ver
+[Primeros pasos](/ayuda/primeros-pasos#como-se-hace)) está prendida en todas las
+organizaciones. Si un cliente no la quiere:
+
+1. En la fila de la organización, tocá **Apagar ayuda**.
+2. Confirmá con **Apagar**.
+
+Arriba de la lista aparece *Ayuda apagada*, y en la columna **Módulos** se ve
+**Ayuda apagada**. Sus usuarios dejan de ver el botón y la caja de la pantalla
+Ayuda enseguida; la guía sigue igual. Para volver a prenderla, tocá **Prender
+ayuda** y confirmá con **Prender**.
+
+> Además hay un interruptor de toda la plataforma, que maneja el equipo técnico:
+> si está apagado, nadie ve la ayuda, aunque la organización la tenga prendida.
+
 ### Reenviar la invitación del administrador
 
 Si la persona que va a administrar una organización no recibió el email de la

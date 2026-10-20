@@ -5422,6 +5422,19 @@ button.ds-calendar-slot:focus-visible {
   color: var(--color-text-faint);
 }
 
+/* En el celular, con el asistente, el "?" es un <button> (abre la hoja de
+   ayuda): sin el relleno, el borde ni el fondo de un botón común. */
+button.ds-page-help {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+button.ds-page-help svg {
+  flex-shrink: 0;
+}
+
 .ds-page-help:hover {
   background: var(--color-surface-muted);
   color: var(--color-accent);
@@ -5694,5 +5707,252 @@ button.ds-calendar-slot:focus-visible {
     border: none;
     box-shadow: none;
     overflow: visible;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   El asistente "¿Cómo se hace?" (features/asistente). En la compu, un botón
+   flotante abajo a la derecha y un panel anclado a esa esquina; en el celular
+   y la tablet (hasta 1023px) no hay botón —se entra por el "?" de cada
+   pantalla, que abre la hoja— y el panel ocupa la pantalla entera.
+
+   Capas: por DEBAJO de los modales (100) y los toasts (200), así un confirm
+   o un aviso siempre quedan arriba del chat. La charla reusa .ds-chat*; acá
+   solo lo propio: el contenedor, el pie de cada respuesta y el aviso del tope.
+   --------------------------------------------------------------------------- */
+.ds-asistente-boton {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font: inherit;
+  font-weight: 600;
+  box-shadow: var(--shadow-overlay);
+  cursor: pointer;
+}
+
+.ds-asistente-boton:hover {
+  background: var(--color-accent-hover);
+}
+
+.ds-asistente-boton:focus-visible,
+.ds-asistente-cerrar:focus-visible,
+.ds-asistente-feedback button:focus-visible,
+.ds-asistente-hoja-opcion:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.ds-asistente-panel {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  width: min(26rem, calc(100vw - var(--space-5) * 2));
+  height: min(36rem, calc(100vh - var(--space-5) * 2));
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+}
+
+.ds-asistente-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.ds-asistente-header h2 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.ds-asistente-cerrar {
+  display: inline-flex;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+/* Los botones de ícono no tienen el relleno de un botón común: con él, el ícono
+   quedaba en 0px de ancho. */
+.ds-asistente-cerrar svg,
+.ds-asistente-feedback button svg {
+  flex-shrink: 0;
+}
+
+.ds-asistente-cerrar:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+/* La charla llena el alto que queda entre el encabezado y la caja. */
+.ds-asistente-chat {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  margin-bottom: var(--space-3);
+}
+
+.ds-asistente-respuesta {
+  white-space: normal;
+}
+
+/* La guía se muestra como tarjeta (.ds-guia-prose); adentro de la burbuja, no:
+   la burbuja ya es el contenedor. */
+.ds-asistente-respuesta .ds-guia-prose {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.ds-asistente-respuesta .ds-guia-prose > :first-child {
+  margin-top: 0;
+}
+
+.ds-asistente-respuesta .ds-guia-prose > :last-child {
+  margin-bottom: 0;
+}
+
+.ds-asistente-feedback {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ds-asistente-feedback button {
+  display: inline-flex;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.ds-asistente-feedback button:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-accent);
+}
+
+.ds-asistente-aviso {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.ds-asistente-form textarea {
+  margin-top: 0;
+  min-height: var(--control-height);
+  resize: none;
+}
+
+/* La hoja del "?" en el celular: dos opciones, pegada abajo. */
+.ds-asistente-hoja-fondo {
+  position: fixed;
+  inset: 0;
+  z-index: 94;
+  background: rgba(27, 27, 24, 0.32);
+}
+
+.ds-asistente-hoja {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 95;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom));
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-overlay);
+}
+
+.ds-asistente-hoja-opcion {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-asistente-hoja-opcion:hover {
+  background: var(--color-surface-muted);
+}
+
+/* En la compu, el botón flotante tapaba lo último de una página (la acción
+   de la última fila de una lista): con el asistente prendido, el contenido
+   termina con lugar libre para el botón. */
+@media (min-width: 1024px) {
+  .ds-shell--con-asistente .ds-shell-body > main {
+    padding-bottom: calc(var(--control-height) + var(--space-5) * 2);
+  }
+}
+
+/* La caja de la pantalla Ayuda, arriba del buscador de títulos. */
+.ds-asistente-caja {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+
+.ds-asistente-caja input {
+  flex: 1;
+  margin-top: 0;
+}
+
+@media (max-width: 1023px) {
+  /* En el celular el chat ocupa la pantalla: nada abajo queda tapado a medias. */
+  .ds-asistente-panel {
+    inset: 0;
+    width: auto;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
+  }
+
+  /* 16px como mínimo: con menos, Safari de iPhone hace zoom al enfocar. */
+  .ds-asistente-form textarea,
+  .ds-asistente-caja input {
+    font-size: max(16px, 1rem);
   }
 }

@@ -15,6 +15,7 @@ import { esDemo } from "./clinicaDemo";
 import { previaDeActivacion } from "./api";
 import { NOMBRE_DE_EDICION } from "./ediciones";
 import {
+  useCambiarAsistenteDeAyuda,
   useCambiarModulo,
   useChangeOrganizationEdition,
   useReenviarInvitacionDelAdministrador,
@@ -70,6 +71,7 @@ function ListaDeOrganizaciones() {
   const [reenviada, setReenviada] = useState<string | null>(null);
   const [reiniciada, setReiniciada] = useState<string | null>(null);
   const cambiarModulo = useCambiarModulo();
+  const cambiarAyuda = useCambiarAsistenteDeAyuda();
   const [moduloCambiado, setModuloCambiado] = useState<string | null>(null);
 
   function limpiarMensajes() {
@@ -108,6 +110,27 @@ function ListaDeOrganizaciones() {
       setModuloCambiado(`Servicios ${activo ? "activado" : "desactivado"} en «${org.name}».`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pudimos cambiar el módulo");
+    }
+  }
+
+  // El asistente "¿Cómo se hace?": prendido por defecto en todas; se apaga si
+  // un cliente no lo quiere. Sin el dato (backend anterior), vale prendido.
+  async function cambiarAsistente(org: PlatformOrganization, enabled: boolean) {
+    limpiarMensajes();
+    const ok = await confirm(
+      enabled
+        ? `¿Prender la ayuda en «${org.name}»? Sus usuarios van a ver el botón "¿Cómo se hace?" para preguntar cómo se usa la plataforma.`
+        : `¿Apagar la ayuda en «${org.name}»? Sus usuarios dejan de ver el botón "¿Cómo se hace?" enseguida; la guía de Ayuda sigue igual.`,
+      { confirmLabel: enabled ? "Prender" : "Apagar", danger: !enabled },
+    );
+    if (!ok) return;
+    try {
+      await cambiarAyuda.mutateAsync({ organizationId: org.id, enabled });
+      setModuloCambiado(
+        `Ayuda "¿Cómo se hace?" ${enabled ? "prendida" : "apagada"} en «${org.name}».`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No pudimos cambiar la ayuda");
     }
   }
 
@@ -201,9 +224,14 @@ function ListaDeOrganizaciones() {
                     <td>
                       {org.modulosActivados.includes("servicios") ? (
                         <Badge variant="info">Servicios</Badge>
-                      ) : (
-                        "—"
-                      )}
+                      ) : null}
+                      {org.helpAssistantEnabled === false ? (
+                        <Badge variant="neutral">Ayuda apagada</Badge>
+                      ) : null}
+                      {!org.modulosActivados.includes("servicios") &&
+                      org.helpAssistantEnabled !== false
+                        ? "—"
+                        : null}
                     </td>
                     <td>
                       <div className="ds-row-actions">
@@ -239,6 +267,15 @@ function ListaDeOrganizaciones() {
                               : "Activar Servicios"}
                           </Button>
                         ) : null}
+                        <Button
+                          type="button"
+                          onClick={() =>
+                            void cambiarAsistente(org, org.helpAssistantEnabled === false)
+                          }
+                          disabled={cambiarAyuda.isPending}
+                        >
+                          {org.helpAssistantEnabled === false ? "Prender ayuda" : "Apagar ayuda"}
+                        </Button>
                         {esDemo(org) ? (
                           <BotonDeReinicioDeLaDemo
                             org={org}

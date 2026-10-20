@@ -48,6 +48,10 @@ export interface MeResponse {
   // mensajes. Opcional: un backend anterior no lo manda. Lo que decide es la
   // guardia del backend (src/services/modoDemo.service.ts).
   isDemo?: boolean;
+  // El asistente "¿Cómo se hace?": prendido si lo están el interruptor global
+  // del backend y el de la organización. Opcional: un backend anterior no lo
+  // manda, y entonces no se ofrece. Lo que decide es el endpoint.
+  asistenteDeAyuda?: boolean;
   // R12: los roles que el ADMIN puede asignar en esta organización (los de
   // su rubro), en orden. Opcional: un backend anterior no lo manda, y
   // entonces son los de una automotora (ver features/user/roles.ts).

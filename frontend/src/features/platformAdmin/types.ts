@@ -198,6 +198,9 @@ export interface PlatformOrganization {
   // Modo demo (docs-privados/taller-demo-diseno.md §2, local). Opcional: un
   // backend anterior no lo manda.
   isDemo?: boolean;
+  // El asistente "¿Cómo se hace?" prendido en la organización. Opcional: un
+  // backend anterior no lo manda (y entonces vale prendido, su default).
+  helpAssistantEnabled?: boolean;
 }
 
 // Contrato de GET /api/admin/organizations/editions.
