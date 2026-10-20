@@ -301,7 +301,14 @@ export const MODULOS_SIN_RUTAS: ReadonlySet<Modulo> = new Set<Modulo>([
 ]);
 
 export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
-  comun: ["GET /api/me", "GET /api/organization", "PATCH /api/organization"],
+  comun: [
+    "GET /api/me",
+    "GET /api/organization",
+    "PATCH /api/organization",
+    // El asistente "¿Cómo se hace?": en las dos ediciones y los dos rubros.
+    "POST /api/help-assistant/questions",
+    "PATCH /api/help-assistant/questions/:id/feedback",
+  ],
   // Protegidas por requirePlatformAdmin; el gate nunca las bloquea (están en
   // las dos ediciones). La edición de la organización DESTINO de una
   // importación es asunto del PR 9, no del gate.

@@ -833,6 +833,34 @@ const envSchema = z.object({
   // /health lo muestra (FABLE-G-10, docs-privados, local). Una key sin límite
   // no alerta nunca. 0 apaga la alerta.
   OPENROUTER_KEY_ALERT_THRESHOLD_USD: z.coerce.number().min(0).default(2),
+
+  // -------------------------------------------------------------------------
+  // El asistente "¿Cómo se hace?" (docs-privados/asistente-de-ayuda-diseno.md,
+  // local): ayuda sobre la guía de uso, sin tools. Lo paga la plataforma.
+  //
+  // HELP_ASSISTANT_ENABLED: el interruptor GLOBAL. Apagado por defecto: el
+  // endpoint responde 404 y /api/me no lo ofrece, aunque la organización lo
+  // tenga prendido (organizations.help_assistant_enabled). Mismo enum explícito
+  // que EXCHANGE_RATE_WORKER_ENABLED, por el mismo motivo.
+  HELP_ASSISTANT_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((valor) => valor === "true"),
+  // El modelo del asistente. Sin valor, el de OPENROUTER_MODEL.
+  HELP_ASSISTANT_MODEL: z.string().min(1).optional(),
+  // El caché del prompt (la guía, que es el 98 % de cada pregunta): conviene
+  // si más del ~22 % de las preguntas lo encuentran caliente (§7.1 del
+  // diseño). Se apaga sin tocar código si la tasa real no llega.
+  HELP_ASSISTANT_PROMPT_CACHE: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  // El tope de preguntas por usuario y por día, en la zona de su organización.
+  HELP_ASSISTANT_DAILY_LIMIT: z.coerce.number().int().min(1).max(1000).default(20),
+  // El freno de gasto de TODA la plataforma en el día (UTC), en dólares: al
+  // llegar, el asistente se apaga para todos hasta el día siguiente. 0 lo
+  // apaga del todo.
+  HELP_ASSISTANT_DAILY_BUDGET_USD: z.coerce.number().min(0).default(5),
 });
 
 function parseEnv() {

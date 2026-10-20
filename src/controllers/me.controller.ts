@@ -5,6 +5,7 @@ import { MODULOS, ROLES_POR_RUBRO, modulosDe } from "../config/ediciones";
 import { vocabularioDe } from "../config/vocabulario";
 import { findPlatformAdminByUserId } from "../repositories/platformAdmin.repository";
 import { findUserById } from "../repositories/user.repository";
+import { asistenteDisponible } from "../services/helpAssistant.service";
 import { sedesDelActor } from "../services/permisos";
 import { prisma } from "../lib/prisma";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -73,7 +74,9 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     // El asistente "¿Cómo se hace?" (docs-privados/asistente-de-ayuda-diseno.md
     // §4.2, local): el frontend muestra el botón solo si está prendido en la
     // organización. Lo que decide es el endpoint, que responde 403 si no.
-    asistenteDeAyuda: req.auth.helpAssistantEnabled ?? true,
+    // Prendido si lo están el interruptor global (HELP_ASSISTANT_ENABLED) y
+    // el de la organización.
+    asistenteDeAyuda: asistenteDisponible(req.auth),
     // Con los módulos activables que la organización tenga activados
     // (docs/servicios.md §1.4): sin ninguno, la lista de siempre.
     modulos: MODULOS.filter((modulo) =>
