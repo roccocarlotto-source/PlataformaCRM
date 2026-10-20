@@ -50,6 +50,7 @@ import { AgentModelPage } from "../features/platformAdmin/AgentModelPage";
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
 import { WabaDeLaClinicaPage } from "../features/platformAdmin/WabaDeLaClinicaPage";
 import { LlmUsagePage } from "../features/platformAdmin/LlmUsagePage";
+import { PreguntasALaAyudaPage } from "../features/platformAdmin/PreguntasALaAyudaPage";
 import { ImportarDatosPage } from "../features/importacion/ImportarDatosPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { OrganizationsPage } from "../features/platformAdmin/OrganizationsPage";
@@ -484,6 +485,9 @@ export const router = createBrowserRouter([
               { path: "/admin/agents/model", element: <AgentModelPage /> },
               // B4: el gasto en el modelo por organización (GET /api/admin/llm-usage).
               { path: "/admin/llm-usage", element: <LlmUsagePage /> },
+              // Lo que le preguntan al asistente "¿Cómo se hace?" (GET
+              // /api/admin/help-assistant/questions).
+              { path: "/admin/help-assistant", element: <PreguntasALaAyudaPage /> },
               // Importación de datos para el alta de clientes (docs/importacion-de-datos.md).
               { path: "/admin/imports", element: <ImportarDatosPage /> },
             ],

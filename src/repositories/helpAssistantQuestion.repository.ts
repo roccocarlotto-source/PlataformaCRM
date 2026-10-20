@@ -1,8 +1,9 @@
-import type {
-  HelpAssistantFeedback,
-  HelpAssistantOutcome,
-  OrganizationEdition,
-  OrganizationIndustry,
+import {
+  Prisma,
+  type HelpAssistantFeedback,
+  type HelpAssistantOutcome,
+  type OrganizationEdition,
+  type OrganizationIndustry,
 } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
@@ -95,4 +96,133 @@ export async function purgarPreguntasViejas(corte: Date, db: Db = prisma): Promi
     where: { createdAt: { lt: corte } },
   });
   return count;
+}
+
+// ---------------------------------------------------------------------------
+// El informe de Plataforma ("Preguntas a la ayuda"): de todas las
+// organizaciones, sin usuario ni organización en ninguna fila que devuelve.
+// ---------------------------------------------------------------------------
+
+export interface FiltroDelInforme {
+  desde: Date;
+  industry?: OrganizationIndustry;
+  role?: string;
+  screen?: string;
+  outcome?: HelpAssistantOutcome;
+  feedback?: HelpAssistantFeedback;
+}
+
+/** Las condiciones del filtro, sin la pantalla cuando se cuentan las
+ *  preguntas por pantalla (si no, la lista tendría una sola). */
+function condicionesDe(filtro: FiltroDelInforme, conPantalla = true): Prisma.Sql {
+  const condiciones = [Prisma.sql`created_at >= ${filtro.desde}`];
+  if (filtro.industry) condiciones.push(Prisma.sql`industry::text = ${filtro.industry}`);
+  if (filtro.role) condiciones.push(Prisma.sql`role = ${filtro.role}`);
+  if (conPantalla && filtro.screen) condiciones.push(Prisma.sql`screen = ${filtro.screen}`);
+  if (filtro.outcome) condiciones.push(Prisma.sql`outcome::text = ${filtro.outcome}`);
+  if (filtro.feedback) condiciones.push(Prisma.sql`feedback::text = ${filtro.feedback}`);
+  return Prisma.join(condiciones, " AND ");
+}
+
+export interface TotalesPorResultado {
+  outcome: HelpAssistantOutcome;
+  preguntas: number;
+  utiles: number;
+  noUtiles: number;
+  conCache: number;
+  /** null: ninguna pregunta del grupo informó costo. */
+  costoUsd: number | null;
+}
+
+export function totalesPorResultado(
+  filtro: FiltroDelInforme,
+  db: Db = prisma,
+): Promise<TotalesPorResultado[]> {
+  return db.$queryRaw<TotalesPorResultado[]>`
+    SELECT outcome::text AS outcome,
+           count(*)::int AS preguntas,
+           count(*) FILTER (WHERE feedback = 'UP')::int AS utiles,
+           count(*) FILTER (WHERE feedback = 'DOWN')::int AS "noUtiles",
+           count(*) FILTER (WHERE cache_read_tokens > 0)::int AS "conCache",
+           sum(cost_usd)::float8 AS "costoUsd"
+      FROM help_assistant_questions
+     WHERE ${condicionesDe(filtro)}
+     GROUP BY outcome`;
+}
+
+export interface PreguntasDePantalla {
+  /** null: la pregunta llegó sin pantalla, o con una que no está en AYUDA. */
+  screen: string | null;
+  preguntas: number;
+}
+
+export function preguntasPorPantalla(
+  filtro: FiltroDelInforme,
+  db: Db = prisma,
+): Promise<PreguntasDePantalla[]> {
+  return db.$queryRaw<PreguntasDePantalla[]>`
+    SELECT screen, count(*)::int AS preguntas
+      FROM help_assistant_questions
+     WHERE ${condicionesDe(filtro, false)}
+     GROUP BY screen
+     ORDER BY preguntas DESC, screen`;
+}
+
+export const TOPE_DE_PREGUNTAS_FRECUENTES = 20;
+
+export interface PreguntaFrecuente {
+  /** La forma más reciente en que se escribió. */
+  pregunta: string;
+  veces: number;
+  ultima: Date;
+}
+
+/** Las preguntas que se repiten, agrupadas sin mayúsculas, tildes, signos ni
+ *  espacios de más: "¿Cómo invito a un vendedor?" y "como invito a un vendedor"
+ *  son la misma. Solo las que aparecen dos veces o más. */
+export function preguntasFrecuentes(
+  filtro: FiltroDelInforme,
+  db: Db = prisma,
+): Promise<PreguntaFrecuente[]> {
+  return db.$queryRaw<PreguntaFrecuente[]>`
+    SELECT (array_agg(question ORDER BY created_at DESC))[1] AS pregunta,
+           count(*)::int AS veces,
+           max(created_at) AS ultima
+      FROM help_assistant_questions
+     WHERE ${condicionesDe(filtro)}
+     GROUP BY btrim(regexp_replace(
+                translate(lower(regexp_replace(question, '[[:punct:]¿¡]', '', 'g')), 'áéíóúü', 'aeiouu'),
+                '[[:space:]]+', ' ', 'g'))
+    HAVING count(*) > 1
+     ORDER BY veces DESC, ultima DESC
+     LIMIT ${TOPE_DE_PREGUNTAS_FRECUENTES}`;
+}
+
+export const TOPE_DE_PREGUNTAS_RECIENTES = 50;
+
+export interface PreguntaDelInforme {
+  id: string;
+  createdAt: Date;
+  industry: OrganizationIndustry;
+  role: string;
+  screen: string | null;
+  question: string;
+  sources: string[];
+  outcome: HelpAssistantOutcome;
+  feedback: HelpAssistantFeedback | null;
+}
+
+/** Las últimas preguntas. Sin organization_id ni user_id: el informe nunca
+ *  dice quién preguntó. */
+export function preguntasRecientes(
+  filtro: FiltroDelInforme,
+  db: Db = prisma,
+): Promise<PreguntaDelInforme[]> {
+  return db.$queryRaw<PreguntaDelInforme[]>`
+    SELECT id, created_at AS "createdAt", industry::text AS industry, role, screen,
+           question, sources, outcome::text AS outcome, feedback::text AS feedback
+      FROM help_assistant_questions
+     WHERE ${condicionesDe(filtro)}
+     ORDER BY created_at DESC
+     LIMIT ${TOPE_DE_PREGUNTAS_RECIENTES}`;
 }

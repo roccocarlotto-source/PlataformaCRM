@@ -163,3 +163,79 @@ test("por HTTP: con el interruptor global apagado (default) la pregunta es 404; 
   });
   assert.equal(sinSesion.status, 401);
 });
+
+test("informe de Plataforma: solo el platform admin; agrupa, filtra y nunca dice quién preguntó", async () => {
+  const [u0, u1] = org.authIds;
+  const [token0, token1] = org.tokens;
+  // Una pantalla propia del test: la tabla es de todas las organizaciones.
+  const pantalla = `informe-${org.id.slice(0, 8)}`;
+  await registrarPregunta(fila(u0, { screen: pantalla, question: "¿Cómo invito a un vendedor?" }));
+  await registrarPregunta(fila(u1, { screen: pantalla, question: "como invito a un vendedor" }));
+  await registrarPregunta(fila(u0, { screen: pantalla, question: "Cómo  invito a un VENDEDOR!!" }));
+  const hueco = await registrarPregunta(
+    fila(u1, {
+      screen: pantalla,
+      role: "USER",
+      outcome: "NOT_COVERED",
+      question: "¿Cómo exporto a PDF?",
+    }),
+  );
+  await guardarFeedback(hueco, org.id, u1, "DOWN");
+  await registrarPregunta(fila(u0, { screen: pantalla, outcome: "ERROR", costUsd: null }));
+
+  const informe = (token: string, query: string) =>
+    fetch(`${baseUrl}/api/admin/help-assistant/questions?${query}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+  assert.equal((await informe(token0, "")).status, 403, "un ADMIN común no lo ve");
+
+  await prisma.platformAdmin.create({ data: { userId: u0 } });
+  try {
+    const res = await informe(token0, `screen=${pantalla}`);
+    assert.equal(res.status, 200);
+    const texto = await res.text();
+    assert.ok(!texto.includes(org.id), "sin la organización");
+    assert.ok(!texto.includes(u0) && !texto.includes(u1), "sin los usuarios");
+
+    const cuerpo = JSON.parse(texto) as {
+      dias: number;
+      resumen: { preguntas: number; noUtiles: number; porResultado: Record<string, number> };
+      pantallas: { clave: string | null; preguntas: number }[];
+      frecuentes: { pregunta: string; veces: number }[];
+      recientes: { question: string; outcome: string; feedback: string | null }[];
+    };
+    assert.equal(cuerpo.dias, 30);
+    assert.equal(cuerpo.resumen.preguntas, 5);
+    assert.equal(cuerpo.resumen.porResultado.NOT_COVERED, 1);
+    assert.equal(cuerpo.resumen.porResultado.ERROR, 1);
+    assert.equal(cuerpo.resumen.noUtiles, 1);
+    assert.equal(cuerpo.pantallas.find((p) => p.clave === pantalla)?.preguntas, 5);
+    // Las tres formas de la misma pregunta son una, con la última escrita.
+    assert.equal(cuerpo.frecuentes.length, 1);
+    assert.deepEqual(cuerpo.frecuentes[0], {
+      ...cuerpo.frecuentes[0],
+      pregunta: "Cómo  invito a un VENDEDOR!!",
+      veces: 3,
+    });
+    assert.equal(cuerpo.recientes.length, 5);
+
+    const huecos = (await (
+      await informe(token0, `screen=${pantalla}&outcome=NOT_COVERED&role=USER&feedback=DOWN`)
+    ).json()) as typeof cuerpo;
+    assert.equal(huecos.resumen.preguntas, 1);
+    assert.equal(huecos.recientes[0].question, "¿Cómo exporto a PDF?");
+    assert.equal(huecos.recientes[0].feedback, "DOWN");
+
+    const clinicas = (await (
+      await informe(token0, `screen=${pantalla}&industry=CLINICA&dias=7`)
+    ).json()) as typeof cuerpo;
+    assert.equal(clinicas.resumen.preguntas, 0);
+
+    assert.equal((await informe(token0, "dias=15")).status, 400);
+    assert.equal((await informe(token0, "outcome=OTRO")).status, 400);
+    assert.equal((await informe(token1, "")).status, 403);
+  } finally {
+    await prisma.platformAdmin.delete({ where: { userId: u0 } });
+  }
+});

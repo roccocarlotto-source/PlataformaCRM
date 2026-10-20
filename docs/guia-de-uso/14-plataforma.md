@@ -6,7 +6,7 @@ una automotora no la ve.
 
 Las pantallas están en el grupo **Plataforma** del menú, al final: **Nueva
 organización**, **Número de WhatsApp**, **Página de Facebook**, **Modelo de
-IA**, **Uso de IA** e **Importar datos**.
+IA**, **Uso de IA**, **Preguntas a la ayuda** e **Importar datos**.
 
 > Las pantallas que actúan sobre un agente de un cliente (**Número de
 > WhatsApp**, **Página de Facebook** y **Modelo de IA**) lo eligen de dos
@@ -776,3 +776,45 @@ una palabra corta o un pedazo de una larga.
 
 Aparecen todas las organizaciones vigentes, también las que no usaron agentes
 en el período (quedan en cero).
+
+## Preguntas a la ayuda {#preguntas-a-la-ayuda}
+
+**Plataforma → Preguntas a la ayuda** muestra qué le preguntan a la ayuda
+**¿Cómo se hace?** en todas las organizaciones. Sirve para ver qué falta en la
+guía y qué pantallas confunden. Es de solo lectura y **nunca dice quién
+preguntó ni de qué organización**.
+
+Las preguntas se guardan **90 días**, con los datos personales tapados: un
+email aparece como `[email]`, y un teléfono o un documento, como `[número]`. La
+respuesta no se guarda.
+
+### Filtros
+
+- **Período:** los últimos 7, 30 o 90 días.
+- **Rubro**, **Rol** y **Pantalla:** desde dónde se preguntó. La lista de
+  pantallas trae solo las que tienen preguntas.
+- **Resultado:** qué hizo la ayuda con la pregunta (ver abajo).
+- **Opinión:** las que marcaron con 👍 o con 👎.
+
+### Qué muestra
+
+- **El resumen:** cuántas preguntas hubo, cuántas se respondieron con la guía,
+  cuántas la guía no cubre, cuántos 👍 y 👎 recibieron, y cuánto costaron en
+  dólares. *Con caché* es la parte de las preguntas que aprovecharon el caché
+  del modelo, que las hace más baratas.
+- **Preguntas frecuentes:** las que se hicieron dos veces o más. Se cuentan
+  como iguales aunque cambien las mayúsculas, las tildes o los signos.
+- **Por pantalla:** cuántas preguntas salieron de cada pantalla.
+- **Últimas preguntas:** las 50 más recientes, con su resultado, su opinión y
+  los temas de la guía que citó la respuesta.
+
+| Resultado | Qué significa |
+|---|---|
+| **Respondida** | La respondió con la guía. |
+| **La guía no lo cubre** | La guía no tiene ese tema. Es la lista de lo que conviene agregar. |
+| **Pedía datos** | Pedía datos de la cuenta o una acción, y la ayuda mandó al Agente interno o a una pantalla. |
+| **Fuera de tema** | No era sobre la plataforma. |
+| **Falló** | El modelo no respondió. No le cuenta como pregunta a quien la hizo. |
+
+> Para encontrar lo que falta en la guía, filtrá **Resultado: La guía no lo
+> cubre** u **Opinión: 👎 No le sirvió** y mirá las preguntas frecuentes.

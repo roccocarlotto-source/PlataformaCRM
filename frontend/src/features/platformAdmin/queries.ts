@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   getEstadoDelReinicioDeLaDemo,
+  getInformeDePreguntas,
   getLlmUsage,
   getOrganizationMetaConnection,
   listAgentesDeOrganizacion,
@@ -9,6 +10,7 @@ import {
   listOrganizations,
   getWabaDeLaClinica,
 } from "./api";
+import type { FiltrosDelInforme } from "./types";
 
 // Las lecturas de las pantallas de plataforma. Con namespace propio: los datos
 // son de OTRAS organizaciones y no se mezclan con las claves de la propia.
@@ -21,6 +23,8 @@ export const platformAdminKeys = {
   agentesDeOrganizacion: (organizationId: string) =>
     [...platformAdminKeys.agentesDeOrganizaciones(), organizationId] as const,
   llmUsage: () => [...platformAdminKeys.all, "llm-usage"] as const,
+  informeDePreguntas: (filtros: FiltrosDelInforme) =>
+    [...platformAdminKeys.all, "help-assistant-questions", filtros] as const,
   editions: () => [...platformAdminKeys.all, "editions"] as const,
   industries: () => [...platformAdminKeys.all, "industries"] as const,
   wabaDeLaClinica: (organizationId: string) =>
@@ -114,5 +118,14 @@ export function useWabaDeLaClinica(organizationId: string) {
     queryKey: platformAdminKeys.wabaDeLaClinica(organizationId),
     queryFn: ({ signal }) => getWabaDeLaClinica(organizationId, signal),
     enabled: organizationId !== "",
+  });
+}
+
+// "Preguntas a la ayuda", con sus filtros en la clave: cambiar uno es otra
+// consulta, y volver al anterior sale del caché.
+export function useInformeDePreguntas(filtros: FiltrosDelInforme) {
+  return useQuery({
+    queryKey: platformAdminKeys.informeDePreguntas(filtros),
+    queryFn: ({ signal }) => getInformeDePreguntas(filtros, signal),
   });
 }

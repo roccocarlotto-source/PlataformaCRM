@@ -260,3 +260,48 @@ export interface AltaDeWabaDeLaClinica {
   reglasSincronizadas: number;
   erroresDeSincronizacion: { automationId: string; error: string }[];
 }
+
+// Contrato de GET /api/admin/help-assistant/questions: "Preguntas a la ayuda",
+// lo que le preguntan al asistente "¿Cómo se hace?" en todas las
+// organizaciones. Ninguna fila dice quién preguntó ni de qué organización.
+export type DiasDelInforme = 7 | 30 | 90;
+export type ResultadoDeLaPregunta =
+  "ANSWERED" | "NOT_COVERED" | "DATA_REDIRECT" | "OFF_TOPIC" | "ERROR";
+export type FeedbackDeLaPregunta = "UP" | "DOWN";
+
+export interface FiltrosDelInforme {
+  dias: DiasDelInforme;
+  industry?: OrganizationIndustry;
+  role?: string;
+  screen?: string;
+  outcome?: ResultadoDeLaPregunta;
+  feedback?: FeedbackDeLaPregunta;
+}
+
+export interface InformeDePreguntas {
+  dias: DiasDelInforme;
+  resumen: {
+    preguntas: number;
+    porResultado: Record<ResultadoDeLaPregunta, number>;
+    utiles: number;
+    noUtiles: number;
+    // De las que no fallaron, cuántas leyeron el caché del prompt.
+    conCache: number;
+    // null: ninguna pregunta del período informó costo.
+    costoUsd: number | null;
+  };
+  // Con todos los filtros salvo el de pantalla. clave null = sin pantalla.
+  pantallas: { clave: string | null; titulo: string | null; preguntas: number }[];
+  frecuentes: { pregunta: string; veces: number; ultima: string }[];
+  recientes: {
+    id: string;
+    createdAt: string;
+    industry: OrganizationIndustry;
+    role: string;
+    screen: string | null;
+    question: string;
+    sources: string[];
+    outcome: ResultadoDeLaPregunta;
+    feedback: FeedbackDeLaPregunta | null;
+  }[];
+}

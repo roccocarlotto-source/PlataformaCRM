@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Menu,
   MessageCircle,
+  MessageCircleQuestionMark,
   MessagesSquare,
   UserRound,
   Upload,
@@ -168,6 +169,10 @@ export function AppLayout() {
                 {/* B4: el gasto en el modelo por organización, últimos 30 días. */}
                 <SidebarLink to="/admin/llm-usage" icon={Activity}>
                   Uso de IA
+                </SidebarLink>
+                {/* Lo que le preguntan al asistente "¿Cómo se hace?". */}
+                <SidebarLink to="/admin/help-assistant" icon={MessageCircleQuestionMark}>
+                  Preguntas a la ayuda
                 </SidebarLink>
                 <SidebarLink to="/admin/imports" icon={Upload}>
                   Importar datos
