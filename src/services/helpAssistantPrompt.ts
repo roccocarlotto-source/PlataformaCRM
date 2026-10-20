@@ -1,4 +1,5 @@
 import { AVISO_DE_ADMIN, type Seccion } from "../compartido/guia/guia";
+import { indiceDe, textoDeLosBloques, type Bloque } from "./helpAssistantBusqueda";
 
 // ---------------------------------------------------------------------------
 // El asistente "¿Cómo se hace?" (docs-privados/asistente-de-ayuda-diseno.md
@@ -6,8 +7,9 @@ import { AVISO_DE_ADMIN, type Seccion } from "../compartido/guia/guia";
 // red, sin env— para poder probarlas enteras:
 //
 //   - enmascarar: los datos personales que alguien escribe sin querer;
-//   - armarPrompt: las reglas fijas + la guía filtrada (el prefijo que se
-//     cachea) y el contexto de la pregunta (lo que cambia);
+//   - armarPrompt: las reglas fijas + el índice de la guía filtrada (el prefijo
+//     que se cachea), y el texto de los bloques que eligió la búsqueda con el
+//     contexto de la pregunta (lo que cambia);
 //   - procesarRespuesta: lo que el modelo contesta, antes de que lo vea nadie.
 //     Saca las líneas de control, deja solo los links que esa persona puede
 //     abrir, agrega el pie con la guía y frena una respuesta que repite las
@@ -74,7 +76,7 @@ export const MODULOS_CON_NOMBRE: Readonly<Record<string, string>> = {
 const REGLAS = `Sos "¿Cómo se hace?", la ayuda de la plataforma: explicás cómo usarla.
 
 Reglas:
-1. Respondé SOLO con lo que dice la GUÍA de abajo. Si la guía no lo dice, decí que la guía no cubre eso y sugerí preguntarle a quien administra la cuenta. No inventes botones, pantallas, pasos, plazos ni opciones.
+1. Respondé SOLO con lo que dice el TEXTO de la guía que viene abajo. El ÍNDICE lista todos los temas de la guía que esta persona ve, pero el texto trae solo los que parecen relevantes. Si el tema está en el índice y su texto no vino, no inventes los pasos: decí cómo se llama el tema y linkealo como [Título](/ayuda/slug#ancla). Si el tema no está en el índice, decí que la guía no cubre eso y sugerí preguntarle a quien administra la cuenta. No inventes botones, pantallas, pasos, plazos ni opciones.
 2. No podés ver ni cambiar datos de la cuenta. Si te piden un dato o una acción (cuántos, cuáles, creame, mandale, borrá), decí que vos solo explicás cómo se hace. Si la persona tiene el Agente interno, decí que eso lo puede pedir ahí. Si no, decí en qué pantalla lo puede ver o hacer. Nunca digas que hiciste algo.
 3. Si un tema de la guía dice "${AVISO_DE_ADMIN.replace(/\.$/, "")}", respondé que eso lo hace un administrador de la cuenta, sin explicar los pasos.
 4. Solo temas de la plataforma. A cualquier otra cosa (redactar textos, preguntas generales, otras aplicaciones, opiniones) respondé exactamente: "Solo puedo ayudarte con el uso de la plataforma. ¿Qué querés hacer?".
@@ -88,26 +90,28 @@ TIPO: guia | no-cubierta | datos | fuera-de-tema`;
 // docs/guia-de-uso, "La guía de una clínica").
 const REGLA_DE_CLINICA = `8. Esta cuenta es una clínica. Usá su vocabulario: pacientes, profesionales, prestaciones, turnos, agenda, sedes. Nunca digas "cliente", "vehículo", "stock", "oportunidad" ni "vendedor".`;
 
-/** El texto de la guía que recibe el modelo: las secciones visibles con su
- *  slug, para que pueda citar `slug#ancla`. */
-export function guiaComoTexto(secciones: Seccion[]): string {
-  return secciones
-    .map((seccion) => `<seccion slug="${seccion.slug}">\n${seccion.markdown.trim()}\n</seccion>`)
-    .join("\n\n");
-}
-
 export interface Prompt {
-  /** Las reglas y la guía: igual para todas las personas con la misma vista. */
+  /** Las reglas y el índice de la guía: igual para todas las preguntas de
+   *  personas con la misma vista. */
   prefijoCacheable: string;
-  /** El contexto de esta pregunta. */
+  /** El texto de los bloques elegidos y el contexto de esta pregunta. */
   sistema: string;
 }
 
-export function armarPrompt(secciones: Seccion[], contexto: ContextoDeLaPregunta): Prompt {
+/** El prompt: reglas + índice de la guía visible (el prefijo que se cachea), y
+ *  el texto de los bloques que eligió la búsqueda (helpAssistantBusqueda) con
+ *  el contexto de la pregunta. */
+export function armarPrompt(
+  secciones: Seccion[],
+  elegidos: Bloque[],
+  contexto: ContextoDeLaPregunta,
+): Prompt {
   const reglas = contexto.esClinica ? `${REGLAS}\n${REGLA_DE_CLINICA}` : REGLAS;
-  const prefijoCacheable = `${reglas}\n\n<guia>\n${guiaComoTexto(secciones)}\n</guia>`;
+  const prefijoCacheable = `${reglas}\n\n<indice>\n${indiceDe(secciones)}\n</indice>`;
 
   const lineas = [
+    `<guia>\n${textoDeLosBloques(elegidos)}\n</guia>`,
+    "",
     "Contexto de la persona que pregunta:",
     `- Rubro: ${contexto.esClinica ? "clínica" : "automotora"}.`,
     `- Rol: ${nombreDelRol(contexto.rol, contexto.esClinica)}.`,

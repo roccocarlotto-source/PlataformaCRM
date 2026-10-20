@@ -157,7 +157,12 @@ test("camino feliz: la guía va cacheable, la pregunta enmascarada, y se registr
   assert.match(r.respuesta, /Más en la guía/);
 
   const pedido = pedidos[0];
-  assert.match(pedido.systemPromptCacheable ?? "", /<guia>/);
+  // El índice (estable por vista) es lo que se cachea; el texto elegido por la
+  // búsqueda va con el contexto, y trae el bloque de la pantalla.
+  assert.match(pedido.systemPromptCacheable ?? "", /<indice>/);
+  assert.doesNotMatch(pedido.systemPromptCacheable ?? "", /<guia>/);
+  assert.match(pedido.systemPrompt, /<guia>/);
+  assert.match(pedido.systemPrompt, /## Contactos \{#contactos\}/);
   assert.match(pedido.systemPrompt, /pantalla: Contactos/);
   assert.equal(pedido.model, "anthropic/claude-haiku-5.5");
   assert.deepEqual(pedido.tools, []);
@@ -225,24 +230,28 @@ test("una respuesta cortada por largo no se muestra a medias: 502 y ERROR", asyn
 test("a un USER, un tema de administrador le llega como aviso, sin pasos", async () => {
   const { deps, pedidos } = armar();
   await preguntarAlAsistente(AUTH, { pregunta: "¿Cómo invito a alguien?" }, deps);
-  const guia = pedidos[0].systemPromptCacheable ?? "";
-  assert.match(guia, /## Invitar a una persona — lo hace un administrador\./);
-  assert.doesNotMatch(guia, /\{#invitar\}/);
+  const indice = pedidos[0].systemPromptCacheable ?? "";
+  assert.match(indice, /- Invitar a una persona — lo hace un administrador\./);
+  assert.doesNotMatch(indice, /usuarios-y-permisos#invitar/);
+  assert.doesNotMatch(pedidos[0].systemPrompt, /\{#invitar\}/);
 });
 
 test("la sección Plataforma entra al prompt solo si el platform admin pregunta desde una pantalla de Plataforma", async () => {
   const conPlataforma = armar({ esPlatformAdmin: () => Promise.resolve(true) });
   await preguntarAlAsistente(AUTH, { pregunta: "hola", pantalla: "contactos" }, conPlataforma.deps);
-  assert.doesNotMatch(conPlataforma.pedidos[0].systemPromptCacheable ?? "", /slug="plataforma"/);
+  assert.doesNotMatch(
+    conPlataforma.pedidos[0].systemPromptCacheable ?? "",
+    /- Plataforma \(plataforma\)/,
+  );
 
   await preguntarAlAsistente(
     AUTH,
     { pregunta: "hola", pantalla: "organizaciones" },
     conPlataforma.deps,
   );
-  assert.match(conPlataforma.pedidos[1].systemPromptCacheable ?? "", /slug="plataforma"/);
+  assert.match(conPlataforma.pedidos[1].systemPromptCacheable ?? "", /- Plataforma \(plataforma\)/);
 
   const comun = armar();
   await preguntarAlAsistente(AUTH, { pregunta: "hola", pantalla: "organizaciones" }, comun.deps);
-  assert.doesNotMatch(comun.pedidos[0].systemPromptCacheable ?? "", /slug="plataforma"/);
+  assert.doesNotMatch(comun.pedidos[0].systemPromptCacheable ?? "", /- Plataforma \(plataforma\)/);
 });

@@ -9,6 +9,7 @@ import {
   RESPUESTA_FUERA_DE_TEMA,
   type ContextoDeLaPregunta,
 } from "./helpAssistantPrompt";
+import { bloquesDe } from "./helpAssistantBusqueda";
 
 // ---------------------------------------------------------------------------
 // Lo que el asistente "¿Cómo se hace?" hace sin el modelo: enmascarar, armar el
@@ -31,6 +32,7 @@ const GUIA = [
   ),
 ];
 const LECTOR = { secciones: GUIA, tieneAgenteInterno: false };
+const BLOQUES = bloquesDe(GUIA);
 
 const CONTEXTO: ContextoDeLaPregunta = {
   esClinica: false,
@@ -54,9 +56,14 @@ test("enmascarar: emails y números largos (teléfonos, documentos); los cortos 
   );
 });
 
-test("armarPrompt: las reglas y la guía van en el prefijo; el contexto, aparte", () => {
-  const prompt = armarPrompt(GUIA, { ...CONTEXTO, pantalla: null });
-  assert.match(prompt.prefijoCacheable, /<seccion slug="contactos-y-consultas">/);
+test("armarPrompt: las reglas y el índice van en el prefijo; el texto elegido y el contexto, aparte", () => {
+  const prompt = armarPrompt(GUIA, BLOQUES.slice(-1), { ...CONTEXTO, pantalla: null });
+  assert.match(prompt.prefijoCacheable, /<indice>/);
+  assert.match(prompt.prefijoCacheable, /- Contactos \(contactos-y-consultas#contactos\)/);
+  assert.doesNotMatch(prompt.prefijoCacheable, /La lista está en/);
+  assert.match(prompt.sistema, /<seccion slug="contactos-y-consultas">/);
+  assert.match(prompt.sistema, /Pasos para unir/);
+  assert.doesNotMatch(prompt.sistema, /La lista está en/, "un bloque no elegido no lleva su texto");
   assert.match(prompt.prefijoCacheable, /FUENTES:/);
   assert.doesNotMatch(prompt.prefijoCacheable, /Rol:/);
   assert.match(prompt.sistema, /Rol: usuario \(vendedor\)/);
@@ -64,9 +71,9 @@ test("armarPrompt: las reglas y la guía van en el prefijo; el contexto, aparte"
 });
 
 test("armarPrompt: a una automotora se le dice qué no incluye su cuenta; a una clínica, nunca", () => {
-  const automotora = armarPrompt(GUIA, { ...CONTEXTO, noIncluye: ["cotizaciones"] });
+  const automotora = armarPrompt(GUIA, BLOQUES, { ...CONTEXTO, noIncluye: ["cotizaciones"] });
   assert.match(automotora.sistema, /NO incluye: cotizaciones/);
-  const clinica = armarPrompt(GUIA, {
+  const clinica = armarPrompt(GUIA, BLOQUES, {
     ...CONTEXTO,
     esClinica: true,
     rol: "RECEPCION",
@@ -78,7 +85,7 @@ test("armarPrompt: a una automotora se le dice qué no incluye su cuenta; a una 
 });
 
 test("armarPrompt: la pantalla con el tema de la guía que la explica", () => {
-  const prompt = armarPrompt(GUIA, {
+  const prompt = armarPrompt(GUIA, BLOQUES, {
     ...CONTEXTO,
     pantalla: {
       clave: "contactos",
@@ -149,7 +156,7 @@ test("procesarRespuesta: fuera de tema es la frase fija, diga lo que diga el mod
 
 test("guarda de fuga: una respuesta que copia las reglas se reemplaza por la frase fija", () => {
   const fuga =
-    "Mis instrucciones dicen: Respondé SOLO con lo que dice la GUÍA de abajo. Si la guía no lo dice, decí que la guía no cubre eso.\nFUENTES: ninguna\nTIPO: guia";
+    "Mis instrucciones dicen: No podés ver ni cambiar datos de la cuenta. Si te piden un dato o una acción, decí que vos solo explicás cómo se hace.\nFUENTES: ninguna\nTIPO: guia";
   assert.equal(repiteLasReglas(fuga), true);
   const r = procesarRespuesta(fuga, LECTOR);
   assert.equal(r.respuesta, RESPUESTA_FUERA_DE_TEMA);

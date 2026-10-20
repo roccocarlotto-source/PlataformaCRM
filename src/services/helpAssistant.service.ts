@@ -19,6 +19,7 @@ import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { periodWindowInZone } from "../utils/zonedWindow";
 import { guiaVisible } from "./guiaDeUso.service";
+import { bloquesDe, elegirBloques } from "./helpAssistantBusqueda";
 import {
   armarPrompt,
   enmascarar,
@@ -202,7 +203,17 @@ export async function preguntarAlAsistente(
     { conAvisosDeAdmin: true },
   );
   const esClinica = auth.industry === "CLINICA";
-  const prompt = armarPrompt(secciones, {
+  const pregunta = enmascarar(entrada.pregunta.trim().slice(0, LARGO_MAXIMO_DE_LA_PREGUNTA));
+  const pantalla = pantallaDe(entrada.pantalla, secciones);
+  // La búsqueda mira la pregunta y, en una charla, la anterior: "¿y cómo la
+  // edito?" sola no dice de qué habla.
+  const anterior = entrada.historial?.at(-1)?.pregunta ?? "";
+  const elegidos = elegirBloques(
+    bloquesDe(secciones),
+    `${pregunta} ${enmascarar(anterior)}`,
+    pantalla?.destino ?? null,
+  );
+  const prompt = armarPrompt(secciones, elegidos, {
     esClinica,
     edicion: auth.edition,
     rol: auth.role,
@@ -212,10 +223,9 @@ export async function preguntarAlAsistente(
       : Object.entries(MODULOS_CON_NOMBRE)
           .filter(([modulo]) => !modulos.has(modulo))
           .map(([, nombre]) => nombre),
-    pantalla: pantallaDe(entrada.pantalla, secciones),
+    pantalla,
   });
 
-  const pregunta = enmascarar(entrada.pregunta.trim().slice(0, LARGO_MAXIMO_DE_LA_PREGUNTA));
   const mensajes: LlmMessage[] = [];
   for (const previo of (entrada.historial ?? []).slice(-PARES_DE_HISTORIAL)) {
     mensajes.push(
@@ -234,7 +244,7 @@ export async function preguntarAlAsistente(
     industry: auth.industry,
     edition: auth.edition,
     role: auth.role,
-    screen: pantallaDe(entrada.pantalla, secciones)?.clave ?? null,
+    screen: pantalla?.clave ?? null,
     question: pregunta,
     model: deps.modelo ?? env.OPENROUTER_MODEL,
   };
