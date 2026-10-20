@@ -69,7 +69,7 @@ sucursal, creá uno nuevo.
 > escanea una copia impresa, no lo lleva a ningún lado. No se puede deshacer
 > desde la pantalla.
 
-### Ver y descargar la imagen
+## Ver y descargar un QR {#ver-imagen-qr}
 
 Con **Ver imagen** se abre la imagen del QR, con el mensaje debajo si lo
 cargaste. Desde ahí:

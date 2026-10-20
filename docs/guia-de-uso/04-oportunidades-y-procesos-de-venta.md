@@ -265,7 +265,7 @@ Cada cotización tiene un estado:
 | Vencida | Estaba enviada y pasó su fecha de validez. |
 | Reemplazada | Se creó una más nueva y esta pasó al historial. |
 
-### Crear una cotización
+### Crear una cotización {#crear-cotizacion}
 
 1. En la ficha de la oportunidad, tocá **Nueva cotización**.
 2. Cargá el **Precio ofertado** (obligatorio) y la **Moneda**. Si ya había una
@@ -284,7 +284,7 @@ le cambian la unidad a la oportunidad, la cotización no cambia.
 > Si había una cotización en Borrador o Enviada, al guardar la nueva, la
 > anterior pasa al historial como **Reemplazada**.
 
-### Qué se puede hacer con la cotización vigente
+### Qué se puede hacer con la cotización vigente {#acciones-de-la-cotizacion}
 
 - En **Borrador**: **Editar** (mismo formulario), **Enviar** (pasa a Enviada)
   o crear una **Nueva cotización**. No se puede enviar una cotización cuya
@@ -309,16 +309,6 @@ La tarjeta **Pagos** registra lo que el cliente fue pagando: una seña con la
 oportunidad abierta, cuotas con la venta ganada, lo que sea. Es informativa:
 nada de lo que se carga acá bloquea la entrega ni el cierre.
 
-### Registrar un pago
-
-1. Tocá **Agregar pago**.
-2. Cargá el **Monto**, el **Método** (Efectivo, Transferencia, Tarjeta, Cheque
-   u Otro) y la **Fecha**. Los tres son obligatorios.
-3. Tocá **Agregar**.
-
-La moneda del pago es la de la oportunidad en ese momento. Cada pago se puede
-**Editar** o **Eliminar** (pide confirmación).
-
 Debajo de la lista se lee **Pagado: X de Y · Saldo: Z**, donde Y es el monto
 de la oportunidad. Tené en cuenta:
 
@@ -329,6 +319,16 @@ de la oportunidad. Tené en cuenta:
   (la tarjeta también lo avisa).
 - El saldo puede dar negativo si se cobró de más o el monto bajó: se muestra
   tal cual.
+
+### Registrar un pago {#registrar-pago}
+
+1. Tocá **Agregar pago**.
+2. Cargá el **Monto**, el **Método** (Efectivo, Transferencia, Tarjeta, Cheque
+   u Otro) y la **Fecha**. Los tres son obligatorios.
+3. Tocá **Agregar**.
+
+La moneda del pago es la de la oportunidad en ese momento. Cada pago se puede
+**Editar** o **Eliminar** (pide confirmación).
 
 ## Permuta {#permuta}
 
@@ -422,7 +422,7 @@ etapas**. Se puede buscar por nombre y ordenar por fecha de creación o nombre.
 En el menú de acciones: **Ver detalle**, **Editar** y **Eliminar** (pide
 confirmación).
 
-### Crear un proceso de venta
+### Crear un proceso de venta {#crear-proceso-de-venta}
 
 1. Tocá **Nuevo proceso de venta**.
 2. Poné el **Nombre** (obligatorio), por ejemplo "Venta de usados".
@@ -463,7 +463,7 @@ Cada etapa tiene:
   perdida en el mismo proceso. En la lista se ven como **Cierre ganado** y
   **Cierre perdido**.
 
-### Agregar una etapa
+### Agregar una etapa {#agregar-etapa}
 
 1. En **Editar proceso de venta**, bajo **Nueva etapa**, escribí el **Nombre
    de la etapa**.
@@ -473,7 +473,7 @@ Cada etapa tiene:
    queda vacío, con el cursor en el nombre, para cargar la siguiente. La nueva
    etapa va al final; después la podés subir.
 
-### Editar, reordenar y eliminar
+### Editar, reordenar y eliminar {#editar-reordenar-eliminar-etapas}
 
 - **Subir** y **Bajar**: mueven la etapa un lugar. Cada movimiento se guarda
   al instante; mientras se guarda uno, los botones se deshabilitan.

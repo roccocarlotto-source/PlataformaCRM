@@ -25,9 +25,9 @@ export const AYUDA = {
   oportunidadesEsencial: "oportunidades-y-procesos-de-venta#oportunidades-esencial",
   oportunidadEsencialForm: "oportunidades-y-procesos-de-venta#nueva-oportunidad-esencial",
   procesosDeVenta: "oportunidades-y-procesos-de-venta#procesos-de-venta",
-  procesoForm: "oportunidades-y-procesos-de-venta#procesos-de-venta",
+  procesoForm: "oportunidades-y-procesos-de-venta#crear-proceso-de-venta",
   etapas: "oportunidades-y-procesos-de-venta#etapas",
-  etapaForm: "oportunidades-y-procesos-de-venta#etapas",
+  etapaForm: "oportunidades-y-procesos-de-venta#agregar-etapa",
 
   stock: "stock#stock",
   unidadForm: "stock#ficha-de-unidad",

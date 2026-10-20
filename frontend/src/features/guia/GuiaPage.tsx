@@ -25,10 +25,12 @@ export function GuiaPage() {
   // Ediciones (docs/ediciones.md §9): sin los ## de módulos que la
   // organización no tiene. En COMPLETA, la guía de siempre.
   // Rubros (docs/rubros.md §1.3, R17): una clínica ve la guía de clinicas/.
+  // Roles: USER y RECEPCION, sin los bloques de administrador.
   const secciones = seccionesVisibles(
     me?.isPlatformAdmin === true,
     (modulo) => tieneModulo(me, modulo),
     esClinica(me),
+    me?.role === "ADMIN",
   );
 
   if (!slug) return <Indice secciones={secciones} />;

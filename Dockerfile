@@ -86,6 +86,12 @@ COPY --from=build /app/prisma/schema.prisma ./prisma/schema.prisma
 
 COPY --from=build /app/dist ./dist
 
+# La guía de uso (docs/guia-de-uso/): la lee el backend en runtime para el
+# asistente "¿Cómo se hace?" (src/services/guiaDeUso.service.ts la busca a dos
+# niveles de dist/services/, o sea en /app/docs). Va directo del contexto: no
+# se compila. Ver la excepción en .dockerignore.
+COPY docs/guia-de-uso ./docs/guia-de-uso
+
 # Usuario sin privilegios. Las imágenes oficiales de Node ya traen el usuario
 # `node` (uid 1000); no hace falta crearlo.
 USER node
