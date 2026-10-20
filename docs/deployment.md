@@ -62,7 +62,7 @@ runtime de **Node**, con esta configuración (Settings del servicio, revisada el
 |---|---|
 | Runtime | Node (no Docker) |
 | Build Command | `npm install --include=dev && npx prisma generate && npm run migrate:deploy && npm run build` |
-| Start Command | El que figura en Settings → Deploy (no copiado acá). El del repo es `npm start` → `node dist/server.js` |
+| Start Command | `npm start` (`node dist/server.js`; visto en el log del deploy: "Running 'npm start'") |
 
 Lo que eso implica:
 
