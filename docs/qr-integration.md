@@ -622,7 +622,7 @@ prueban del lado original:
    `plataforma-crm-qr-integration` a ciegas — confirmar primero que
    `origin/master` ya tiene el merge de PR #134):
    ```
-   cd "U:/Proyectos/Plataforma CRM"
+   # desde la carpeta raíz del repo
    git fetch origin
    git worktree add ../plataforma-crm-qr-integration-fase2 -b feat/qr-integration-fase2 origin/master
    cd ../plataforma-crm-qr-integration-fase2
@@ -960,7 +960,7 @@ archivos de abajo.
 1. Nuevo worktree limpio, mismo patrón que Fase 1/2 (confirmar primero que
    `origin/master` ya tiene el merge del PR de esta guía y el de Fase 2):
    ```
-   cd "U:/Proyectos/Plataforma CRM"
+   # desde la carpeta raíz del repo
    git fetch origin
    git worktree add ../plataforma-crm-qr-integration-fase3 -b feat/qr-integration-fase3 origin/master
    cd ../plataforma-crm-qr-integration-fase3
@@ -1308,7 +1308,7 @@ hasta ahora no tenía protección contra acceso directo.
 1. **Backend primero, en un worktree nuevo de `Plataforma CRM`** (mismo
    patrón que las fases anteriores):
    ```
-   cd "U:/Proyectos/Plataforma CRM"
+   # desde la carpeta raíz del repo
    git fetch origin
    git worktree add ../plataforma-crm-qr-integration-fase4-backend -b feat/qr-integration-fase4-backend origin/master
    cd ../plataforma-crm-qr-integration-fase4-backend
@@ -1331,7 +1331,7 @@ hasta ahora no tenía protección contra acceso directo.
 6. **Recién después de que el PR de backend esté mergeado**, worktree
    nuevo de `Plataforma-QR` para el Worker:
    ```
-   cd "U:/Proyectos/Plataforma-QR"
+   # desde la carpeta del proyecto Plataforma-QR
    git fetch origin
    git worktree add ../plataforma-qr-worker-fase4 -b feat/worker-repoint-fase4 origin/master
    cd ../plataforma-qr-worker-fase4/cloudflare/worker
