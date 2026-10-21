@@ -3,7 +3,7 @@
    color/tamaño hardcodeado suelto.
 
    Valores de modo claro tomados de los estilos COMPUTADOS de los exports de
-   Claude Design (U:\Proyectos\Sistema Saas\Pantallas, fuera del repo): una
+   Claude Design de las pantallas del SaaS (fuera del repo): una
    paleta de neutros cálidos (nunca gris puro), un único acento índigo y dos
    semánticos (éxito/peligro). El diseño es solo modo claro: el bloque
    :root[data-theme="dark"] de abajo es una derivación propia con el mismo
