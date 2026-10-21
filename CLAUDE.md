@@ -1,5 +1,49 @@
 # CLAUDE.md
 
+> Proyecto de Xentech. En local, la guía general de Xentech (`../../CLAUDE.md`) se carga sola. En sesiones en la nube no existe: este archivo tiene todo lo necesario. Si hay conflicto, este archivo manda.
+
+## Resumen (Xentech)
+
+- **Perfil:** producto-propio (ver `../../perfiles/producto-propio.md`)
+- **Estado:** en desarrollo activo, con despliegue en producción.
+
+## Herramientas de este proyecto
+
+Sumado a Xentech con `/sumar-proyecto` el 2026-10-20. Estas herramientas están instaladas solo en la PC de Rocco: en las sesiones en la nube no existen, y ahí se trabaja con lo que dice el resto de este archivo.
+
+| Usar | Para |
+|---|---|
+| gstack `/plan-ceo-review` | Decidir qué construir después, en funcionalidades grandes |
+| gstack `/plan-eng-review` | Revisar un plan antes de programar |
+| mattpocock `/grill-me` | Afinar un cambio antes de planificarlo |
+| mattpocock `/tdd` | Escribir código con tests primero |
+| gstack `/review` | Revisar el código de un cambio antes del PR |
+| gstack `/investigate` | Bugs difíciles |
+| gstack `/qa` (`/qa-only` para solo reportar) | QA exploratorio en el navegador |
+| gstack `/cso` | Seguridad rápida, en cada release. El informe va a `docs-privados/` |
+| Cloudflare `security-audit` | Seguridad profunda, periódica. El informe va a `docs-privados/` |
+| Impeccable | Diseño de interfaz en `frontend/`, solo cuando Rocco lo pide |
+| `karpathy-guidelines` | Reglas generales al programar (se carga sola) |
+
+**Excluidas en este proyecto:**
+
+- gstack `/ship` y `/land-and-deploy`: los PRs siguen el flujo propio de la sección "GitHub CLI (`gh`)" (`pr-body-*.md`, merge solo con el CI remoto en verde).
+- mattpocock `/to-spec` y `/to-tickets` (GitHub Issues): las tareas viven en `docs/frontend-cambios-pendientes.md` y `docs/matriz-de-datos-crm.md`.
+- gstack `/document-release`: la guía de uso se actualiza en el mismo PR de cada cambio (sección "Guía de uso").
+- gstack `/office-hours`: es para ideas nuevas, y este proyecto ya existe.
+- Playwright: el repo no tiene suite E2E. Agregarla es una decisión aparte.
+
+## Reglas generales (de Xentech)
+
+- Responder en español rioplatense (voseo). Los textos para usuarios finales van en "tú" neutro.
+- Explicar en lenguaje claro y concreto, sin dar por sentada la jerga. Si hay un error, decirlo directo.
+- Las decisiones de criterio (stack, diseño, arquitectura, librerías) se consultan antes de tomarlas: opciones, pros y contras, y una recomendación.
+- No modificar el diseño visual ni la UX sin pedido explícito.
+- Nunca inventar clientes, testimonios, métricas ni años de experiencia.
+- Todo comando o prompt que se deje para correr en la PC de Rocco tiene que ser compatible con Git Bash en Windows (rutas `/c/...`, comillas en rutas con espacios). La nube corre en Linux, pero esos comandos se ejecutan en Windows.
+
+---
+
 ## Project Identity
 
 - **Project:** Plataforma CRM
@@ -152,40 +196,6 @@ se trabaja sin él con lo que dicen el código y el prompt — nunca se inventa
 ni se reconstruye de memoria su contenido. Y lo que la sesión produzca de ese
 tipo (una auditoría, un informe de prueba) no se commitea: se le entrega a
 Rocco en la respuesta para que lo guarde él en `docs-privados/`.
-
----
-
-## Toolkit Discovery
-
-The responsibility of this section is to make the Toolkit locatable —
-not to describe it.
-
-The Toolkit is discovered at:
-
-U:\Proyectos\Claude-Toolkit-V1.1
-
-Today this is expressed as an absolute path. The discovery mechanism
-may change in the future without changing what this section is for.
-
----
-
-## Activation
-
-When the user writes:
-
-Activate Claude-Toolkit
-
-this signals the Toolkit, at the location declared above, to begin
-its own bootstrap. What happens next is defined entirely by the
-Toolkit's own CLAUDE.md — nothing about it is described here.
-
----
-
-## Boundaries
-
-This file must never contain: Toolkit rules, Constitutional
-Principles, internal Toolkit documentation, or Router logic. Any of
-that belongs to the Toolkit's own CLAUDE.md, never to this one.
 
 ---
 
