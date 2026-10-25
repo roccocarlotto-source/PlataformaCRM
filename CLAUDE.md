@@ -47,9 +47,11 @@ Sumado a Xentech con `/sumar-proyecto` el 2026-10-20. Estas herramientas están 
 ## Project Identity
 
 - **Project:** Plataforma CRM
-- **Description:** CRM SaaS multi-tenant — backend en Node.js + Express +
-  TypeScript, Prisma ORM sobre PostgreSQL (Supabase), autenticación
-  delegada a Supabase Auth.
+- **Description:** CRM SaaS multi-tenant para pymes, con agentes de IA
+  que atienden por WhatsApp, Messenger, Instagram y un widget web.
+  Backend en Node.js + Express + TypeScript, Prisma ORM sobre PostgreSQL
+  (Supabase), autenticación delegada a Supabase Auth; frontend en
+  `frontend/` (Vite + React).
 
 ---
 
@@ -60,25 +62,36 @@ Sumado a Xentech con `/sumar-proyecto` el 2026-10-20. Estas herramientas están 
 
 - **Stack:** Node.js + Express + TypeScript, Prisma ORM, PostgreSQL
   (Supabase), autenticación Supabase Auth (JWT verificado vía
-  JWKS/ES256)
-- **Status / Phase:** Infraestructura base y autenticación completas.
-  Módulos de negocio (`Company`, `Contact`, `Pipeline`, `Stage`,
-  `Opportunity`, `Activity`, `Invitation`) completos — CRUD, soft
-  delete, paginación. Administración acotada de `User`. Sin endpoint
-  de login propio (decisión de diseño estable, no pendiente).
-  Capa de ingesta completa (`Source`, `ApiKey`, `IngestionEvent`):
-  ítems 1 a 5 del orden de construcción de
-  `docs/ingestion-architecture.md` §6 — CI con Postgres y tests de
-  aislamiento, modelos y migraciones, gestión de API keys, webhook de
-  landing page, e importación de Excel/CSV. El ítem 6 (bases de datos
-  externas) está pospuesto por decisión explícita de §7 de ese
-  documento, no es un pendiente sin decidir.
-- **Key context:** Multi-tenant real — aislamiento por organización
-  verificado end-to-end contra un proyecto real de Supabase. Diseño
-  completo del producto y modelo de datos en
-  `docs/project-overview.md`; diseño de autenticación/onboarding en
-  `docs/authentication-architecture.md`; diseño de la capa de ingesta
-  en `docs/ingestion-architecture.md`.
+  JWKS/ES256). Frontend Vite + React + TanStack Query. Modelos de IA vía
+  OpenRouter. Producción: backend en Render (runtime Node), frontend en
+  Vercel.
+- **Status / Phase:** en producción. Cada organización tiene un
+  **rubro** (`AUTOMOTORA` | `CLINICA`, `docs/rubros.md`) y una
+  **edición** (`COMPLETA` | `ESENCIAL`, `docs/ediciones.md`); el módulo
+  `servicios` (taller de postventa, `docs/servicios.md`) se activa por
+  organización. Núcleo común: empresas, contactos, pipelines y
+  oportunidades, actividades/tareas, conversaciones con el agente,
+  automatizaciones, ingesta de leads, cupones y QR de reseñas, guía de
+  uso y asistente de ayuda. Automotora: stock de vehículos,
+  cotizaciones, pagos y entregas. Clínica: agenda de profesionales,
+  recordatorios, seguimiento después del turno y reglas de salud. Sin
+  endpoint de login propio (decisión estable).
+- **Dónde está cada cosa:** `src/` por capas (routes → controllers →
+  services → repositories) más `src/workers/` (colas) y una carpeta por
+  rubro o módulo (`src/automotora/`, `src/clinicas/`, `src/servicios/`).
+  `prisma/schema.prisma` tiene ~77 modelos; el SQL que Prisma no soporta
+  (constraints, triggers, RLS) vive en `prisma/sql/`. Pantallas en
+  `frontend/src/features/<módulo>/`.
+- **Docs vigentes:** índice en `README.md` ("Documentación"). Diseños:
+  `docs/project-overview.md` (núcleo CRM original),
+  `authentication-architecture.md`, `ingestion-architecture.md`,
+  `ai-agent-architecture.md`, `automations-architecture.md`,
+  `booking-architecture.md`, `rubros.md`, `ediciones.md`,
+  `servicios.md`; datos personales en `data-classification.md`;
+  despliegue en `deployment.md`.
+- **Key context:** Multi-tenant real — toda consulta filtra por
+  `organizationId` y el aislamiento se verifica en el CI con tests de
+  integración contra el Supabase local.
 
 ---
 

@@ -11,12 +11,11 @@ import { AppError } from "./AppError";
 // ---------------------------------------------------------------------------
 // Cifrado simétrico de secretos RECUPERABLES, en reposo.
 //
-// GENÉRICO A PROPÓSITO — nada acá dice "Google" ni "refresh token". Hoy el único
-// consumidor es GoogleCalendarConnection.refreshToken, pero esta es la clase de
-// utilitario que va a necesitar cualquier otro secreto que el sistema tenga que
-// guardar Y VOLVER A USAR (la API key de servicio de Resea, tokens de WhatsApp
-// Business, credenciales de una base externa). Escribirlo atado al primer caso
-// garantizaba escribirlo dos veces.
+// GENÉRICO A PROPÓSITO — nada acá dice "Google" ni "refresh token". Lo usan
+// GoogleCalendarConnection.refreshToken y MetaPageConnection.pageAccessToken (el
+// token de página de Meta), y es la clase de utilitario que va a necesitar
+// cualquier otro secreto que el sistema tenga que guardar Y VOLVER A USAR.
+// Para saber quién lo usa hoy, buscar `getCifrador()`: esta lista no se mantiene.
 //
 // ---------------------------------------------------------------------------
 // POR QUÉ ESTE ARCHIVO EXISTE Y NO SE REUSÓ utils/apiKey.ts
