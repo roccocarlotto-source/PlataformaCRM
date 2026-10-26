@@ -602,7 +602,12 @@ Las tablas con FK a `contacts` son `customer_vehicles`, `service_orders`,
   `frontend/src/features/contact/merge.ts`. Los vehículos y las órdenes del
   contacto absorbido pasan al que queda.
 - **Borrado completo de datos personales** (`contact.service.ts:716`), D14:
-  - borra los objetos de Storage de las fotos de sus órdenes y sus filas;
+  - borra los objetos de Storage de las fotos de sus órdenes y sus filas.
+    **A implementar con S5** *(2026-10-26)*: la subida de fotos todavía no
+    existe y el borrado hoy no toca `service_order_photos`. Cuando salga S5
+    se suman al borrado el `deleteMany` de las filas y el borrado de cada
+    objeto en Storage (fuera de la transacción, como el título de Google
+    Calendar), con su caso en `borradoCompleto.integration-test.ts`;
   - anonimiza matrícula, chasis y notas de sus vehículos, y la nota de sus
     filas en `customer_vehicle_owner_changes`;
   - vacía `damageNotes` y `notes` de sus órdenes, y cancela sus envíos
@@ -811,8 +816,8 @@ el módulo, la ficha no monta la tarjeta ni hace el pedido.
     guardadas;
   - las fotos **no se mandan a ningún tercero**: ni al agente, ni a Meta, ni a
     Google.
-  - Pueden mostrar la matrícula y objetos personales del interior: se suma una
-    fila en `docs/data-classification.md`.
+  - Pueden mostrar la matrícula y objetos personales del interior: tienen su
+    fila en `docs/data-classification.md` §2.7 (Regulated).
   - Cualquier usuario de la organización que ve la orden ve sus fotos.
 - **Borrado:**
   - **Una foto:** primero el objeto en Storage, después la fila, como

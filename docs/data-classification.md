@@ -191,6 +191,36 @@ paciente. Su historial, `ClinicHealthSettingsChange`, guarda quién los cambió
 (`changedById`, una persona usuaria: §2.1) y el antes y el después de esos
 mismos textos. Nada de lo que escribe un paciente entra ahí.
 
+### 2.7 Módulos que llegaron después del inventario
+
+*(2026-10-26.)* Venta de unidades (cotización, pagos, entrega, cupones), el
+módulo Servicios (`docs/servicios.md`), la base de conocimiento y los dos
+asistentes internos se construyeron después de §2.1-§2.6 y no estaban
+inventariados. Lo que no está inventariado no entra en el borrado ni en la
+retención, así que se suman acá con el mismo criterio.
+
+| Modelo · campo | Clase | Nota |
+|---|---|---|
+| `CustomerVehicle.licensePlate`, `.licensePlateNorm`, `.vin` | **Regulated** | La matrícula y el chasis identifican el vehículo de una persona y, con él, a la persona. El borrado a pedido los anonimiza (§5.2) |
+| `CustomerVehicle.make`, `.model` | **Internal** | |
+| `CustomerVehicle.notes` | **Internal por diseño, Regulated por contenido** | Texto libre (§2.5). El borrado a pedido lo vacía |
+| `ServiceOrder.damageNotes`, `.notes` | **Internal por diseño, Regulated por contenido** | El borrado a pedido los vacía |
+| `ServiceOrder.cancelReason` | **Internal por diseño, Regulated por contenido** | |
+| `ServiceOrderStatusChange.note` | **Internal por diseño, Regulated por contenido** | |
+| `ServiceOrderApproval.approverName` | **Regulated** | Por diseño es el nombre de quien aprobó el trabajo: el cliente |
+| `ServiceOrderApproval.description` | **Internal por diseño, Regulated por contenido** | |
+| `ServiceOrderPhoto` (objeto en Storage) | **Regulated** | Una foto de la orden puede mostrar la matrícula y objetos personales del interior. Bucket privado, URLs firmadas de 1 hora, no sale a ningún tercero (`docs/servicios.md` §4.9). La subida **todavía no existe** (S5) |
+| `Quote.lines` | **Internal por diseño, Regulated por contenido** | JSON con el texto libre de cada línea |
+| `Payment.amount`, `.method`, `.paidAt` | **Regulated** cuando el comprador es una persona física | Lo que pagó una persona, cuándo y cómo. A diferencia de `Opportunity.amount` (§1), en una automotora el cliente suele ser una persona y no una empresa |
+| `Delivery.checklist` | **Internal por diseño, Regulated por contenido** | JSON; los ítems propios de cada entrega son texto libre |
+| `DiscountVoucher.label` | **Internal por diseño, Regulated por contenido** | |
+| `KnowledgeBaseEntry.title`, `.content` | **Internal** | Contenido del negocio (horarios, stock sincronizado) que el agente usa para responder. Por contenido, si alguien escribe ahí datos de una persona |
+| `HelpAssistantQuestion.question` | **Internal por diseño, Regulated por contenido** | Lo que un usuario le pregunta al asistente "¿Cómo se hace?". Se guarda con emails y números de 7 o más dígitos enmascarados, pero no los nombres. Se purga a los 90 días (`helpAssistantPurgeWorker.ts`) |
+| `InternalAgentMessage.content`, `.toolCalls` | **Internal por diseño, Regulated por contenido** | La conversación de un usuario con el agente interno, que lee datos del CRM y puede citarlos. **Sin purga** |
+
+Los Regulated "por contenido" de esta tabla tienen el mismo problema que
+§2.5, y lo que el borrado a pedido alcanza de ellos hoy está en §5.2.
+
 ---
 
 ## 3. Por dónde salen del servidor
@@ -271,7 +301,7 @@ tabla no es código y está en §6.1.
 | **Minimización** | Parcial. La proyección del listado de eventos y el cierre de `D2-2` son minimización real. `rawPayload` es lo contrario por diseño: guarda todo lo que llegue |
 | **Retención** | Sí para `IngestionEvent`, desde `D2-3` — ver §5.1. **No para el resto** |
 | **Borrado a pedido** | Sí para un `Contact`, desde `D2-4` — ver §5.2 |
-| **Compartir con terceros** | No aplica: hoy no se comparte ningún dato personal con ningún tercero. Supabase es infraestructura, no destinatario |
+| **Compartir con terceros** | **Sí, con proveedores técnicos** que tratan datos por cuenta de la organización: ver §4.1. El encuadre legal de cada uno está pendiente |
 
 **Ninguna fila de esta tabla cambió al reclasificar a Regulated, y eso
 es el resultado, no una omisión.** Los controles que GDPR exige de un
@@ -283,6 +313,36 @@ que ya estaba hecho, de recomendación a obligación. Las tres filas que
 siguen sin decir "Sí" completo —registro de accesos parcial,
 minimización parcial, retención solo de `IngestionEvent`— eran huecos
 declarados antes y lo siguen siendo ahora, con más peso.
+
+### 4.1 Terceros que reciben datos personales
+
+*(2026-10-26.)* Hasta esta fecha la fila "Compartir con terceros" decía que
+no se compartía ningún dato personal con nadie. No era cierto: el propio §5.2
+ya reconocía datos "en Meta" y "en el proveedor del modelo". La lista real,
+verificada contra el código:
+
+| Tercero | Qué recibe | Dónde | Mitigación visible en el repo |
+|---|---|---|---|
+| **Supabase** (Postgres, Auth, Storage) | Todo lo de §2 | `sa-east-1`, São Paulo, Brasil (`docs/deployment.md`) | Infraestructura: cifrado en reposo (§4) |
+| **Render** (backend) | El tráfico de la API y los logs del backend | Región sin verificar (`docs/deployment.md`) | Los logs se redactan (§4) |
+| **Vercel** (frontend) | La IP de cada persona usuaria que abre el CRM | CDN global | No recibe datos del backend |
+| **OpenRouter y el modelo** (agente de IA, asistentes) | Nombre, email y teléfono del contacto, su calificación como lead, el historial de la conversación y los audios e imágenes que manda; las preguntas al asistente "¿Cómo se hace?" (enmascaradas, §2.7) y lo que se escribe al agente interno | EE.UU. | `provider.data_collection: "deny"` en cada llamada (`src/services/llmProvider.service.ts`). La retención del lado del proveedor es la suya |
+| **Meta** (WhatsApp, Messenger, Instagram) | Todos los mensajes de esas conversaciones, incluidos los que manda el agente o una persona desde el CRM | EE.UU. | — |
+| **Google Calendar** (si la organización lo conecta) | El título de cada turno: la prestación y el nombre del contacto (`src/services/booking.service.ts`). La descripción no lleva datos del contacto | EE.UU. | El borrado a pedido reescribe el título (§5.2) |
+| **Cloudflare** (Worker de QR y cupones) | El formulario público del QR o del cupón, en camino al backend (`docs/qr-integration.md`) | Global | — |
+| **Resend** (correo de Supabase Auth) | Email de cada persona usuaria invitada o que entra con enlace mágico | EE.UU. | — |
+| **Google Fonts** | La IP y el navegador de cada persona usuaria del CRM (`frontend/index.html`) | Global | — |
+
+**Lo que esta tabla no resuelve, y queda pendiente de revisión legal.** Cada
+uno de estos proveedores trata datos por cuenta de la organización, y casi
+todos lo hacen fuera de Uruguay. Para las organizaciones uruguayas aplica la
+Ley 18.331 (transferencia internacional, art. 23) además de lo que §6.1 dice
+de GDPR. El contrato marco de Xentech (MSA, cláusulas 9.3 a 9.5) define a
+Xentech como encargado de tratamiento y avisa que los proveedores de IA
+pueden estar fuera de Uruguay, pero deja como pendiente de revisión el
+acuerdo de encargado, el registro ante la URCDP y el encuadre de la
+transferencia. Esta tabla es el insumo para esa revisión: qué dato sale, a
+quién y adónde. No es asesoría legal.
 
 ---
 
@@ -430,7 +490,19 @@ por ese chequeo.
    pide `data_collection: "deny"`; la retención es la suya); los logs del
    backend (con redacción, §4); los backups de Supabase hasta que roten; y lo
    que la organización exportó o copió. El evento de Google Calendar sí se
-   limpia desde acá (arriba), salvo lo que quede pendiente.
+   limpia desde acá (arriba), salvo lo que quede pendiente. La lista
+   completa de terceros está en §4.1.
+6. **Lo que se escribió sobre la persona en los módulos de §2.7**
+   *(2026-10-26)*: `Quote.lines`, `Delivery.checklist`,
+   `DiscountVoucher.label`, `ServiceOrder.cancelReason`,
+   `ServiceOrderStatusChange.note`, `ServiceOrderApproval.approverName` y
+   `.description`, `HelpAssistantQuestion.question` (hasta su purga de 90
+   días) e `InternalAgentMessage.content` (sin purga). El borrado sí vacía
+   las notas de los vehículos y de las órdenes, y anonimiza matrícula y
+   chasis.
+7. **Las fotos de las órdenes de Servicios.** `docs/servicios.md` §2.8 las
+   incluye en el borrado, pero la subida todavía no existe (S5) y el borrado
+   hoy no toca `service_order_photos`: se implementa junto con la subida.
 
 Las de la base están escritas también en el código que las deja afuera.
 **`promotionNotes` salió de esta lista el 2026-08-28**: era el punto 1 y
@@ -548,6 +620,8 @@ Este documento se desactualiza solo. Hay que revisarlo cuando:
   existe, y por eso la reclasificación fue del conjunto entero; con ese
   dato, segmentar volvería a ser posible — y habría que decidir si
   conviene;
-- se comparta cualquier dato con un tercero — hoy no pasa, y el estándar
-  exige base legal, acuerdo de tratamiento y documentación antes de que
-  pase.
+- se sume un tercero, o cambie lo que recibe o dónde lo procesa uno de
+  §4.1 — el estándar exige base legal, acuerdo de tratamiento y
+  documentación, y §4.1 tiene que seguir siendo la lista real;
+- se agregue un modelo nuevo con datos de una persona: va a §2 (como §2.7)
+  y a lo que el borrado de §5.2 alcanza o no.
