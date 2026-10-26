@@ -114,7 +114,8 @@ conversación](#atender) y [Responder](#responder).
 ## Atender una conversación {#atender}
 
 "Atender" quiere decir que una persona toma la conversación y el agente de IA
-deja de contestar. Pasa de dos maneras.
+deja de contestar. Pasa cuando el agente deriva, cuando no puede responder o
+cuando una persona responde.
 
 ### Cuando el agente deriva
 
@@ -138,6 +139,24 @@ pendiente. La bandeja la marca con **Pidió hablar con una persona · sin
 responder** hasta que alguien le escriba o complete la tarea. El tiempo de
 espera y el texto del aviso se configuran en
 [Agentes de IA](/ayuda/agentes-de-ia).
+
+### Cuando el agente no puede responder
+
+Si el agente no logra contestarle al cliente por un fallo técnico (por
+ejemplo, el servicio de IA o el envío por WhatsApp, Messenger o Instagram
+fallan varias veces seguidas), el sistema reintenta durante unos minutos. Si
+igual no puede, la conversación pasa a una persona, como cuando el agente
+deriva:
+
+1. La conversación pasa a **Derivada a un humano** y queda asignada al
+   vendedor del contacto, al vendedor por defecto de la sucursal o, si no hay
+   ninguno, al administrador.
+2. Se crea una **tarea** con el aviso "El agente no pudo responder por un
+   fallo técnico". El mensaje del cliente está en la conversación, sin
+   respuesta.
+
+En este caso la IA no escribe el resumen, porque puede ser justamente lo que
+falló. Se puede pedir después desde la conversación.
 
 ### Cuando una persona responde
 

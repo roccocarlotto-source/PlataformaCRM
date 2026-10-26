@@ -31,6 +31,7 @@ import {
   derivarEntranteSinAgente,
   conLockDeConversacion,
   humanoAtiendeLaConversacion,
+  MOTIVO_FALLO_TECNICO,
   responderEnLaConversacion,
 } from "../services/agentOrchestration.service";
 import { enviarEnPartes } from "../services/envioEnPartes";
@@ -683,6 +684,36 @@ export interface OpcionesDrenado {
   debeSeguir?: () => boolean;
 }
 
+// AGE-13 (docs-privados/auditoria-2026-10-21/informe.md, local): un turno en
+// FAILED dejaba al cliente sin respuesta y la conversación "atendida por el
+// agente": nadie lee los jobs FAILED, así que ningún vendedor se enteraba.
+// Ahora la conversación pasa a una persona, con su tarea, por el mismo camino
+// que cuando el agente está apagado (derivarEntranteSinAgente, idempotente):
+//   - sin `responder`: no se manda nada al cliente, el envío puede ser
+//     justamente lo que falló;
+//   - sin brief (MOTIVO_FALLO_TECNICO está en MOTIVOS_SIN_BRIEF): el modelo
+//     puede ser lo que falló;
+//   - solo una conversación ACTIVE: una cerrada (el FAILED de
+//     MOTIVO_CONVERSACION_CERRADA) o que ya atiende una persona no se toca.
+// Best-effort: si también esto falla (la base caída), queda el log y el job
+// en FAILED, como antes.
+async function derivarTurnoFallido(job: JobReclamado): Promise<void> {
+  try {
+    const entrante = await findMessageById(job.messageId, job.organizationId);
+    if (!entrante) return;
+    await derivarEntranteSinAgente({
+      organizationId: job.organizationId,
+      conversationId: entrante.conversationId,
+      motivo: MOTIVO_FALLO_TECNICO,
+    });
+  } catch (err) {
+    logger.error(
+      { err, jobId: job.id, organizationId: job.organizationId },
+      "No se pudo derivar la conversación de un turno en FAILED: requiere revisión manual",
+    );
+  }
+}
+
 async function registrarFallo(job: JobReclamado, err: unknown, resumen: ResumenDrenado) {
   const lastError = describirError(err);
   const resolucion = resolverFalloDelJob(job.attempts, clasificarFallo(err), new Date(), {
@@ -695,7 +726,7 @@ async function registrarFallo(job: JobReclamado, err: unknown, resumen: ResumenD
 
   try {
     if (resolucion.estado === "FAILED") {
-      await markAgentInboundJobFailed(job, lastError);
+      const marcado = await markAgentInboundJobFailed(job, lastError);
       resumen.fallidos++;
       logger.error(
         {
@@ -705,8 +736,12 @@ async function registrarFallo(job: JobReclamado, err: unknown, resumen: ResumenD
           messageId: job.messageId,
           attempts: job.attempts,
         },
-        "Turno del agente en FAILED: el cliente no recibió respuesta y requiere revisión manual",
+        "Turno del agente en FAILED: el cliente no recibió respuesta; se deriva a una persona",
       );
+      // count 0: el lease se perdió y otro proceso tiene el job; ese decide.
+      if (marcado.count > 0) {
+        await derivarTurnoFallido(job);
+      }
       return;
     }
     await rescheduleAgentInboundJob(job, { nextAttemptAt: resolucion.nextAttemptAt, lastError });
@@ -846,13 +881,18 @@ export async function drenarTurnosPendientes(
         // en cada reclamo, así que esto corta el ciclo sin haber pasado por
         // ningún catch.
         if (job.attempts > env.AGENT_INBOUND_MAX_ATTEMPTS) {
-          await markAgentInboundJobFailed(
+          const marcado = await markAgentInboundJobFailed(
             job,
             `Agotó sus ${String(env.AGENT_INBOUND_MAX_ATTEMPTS)} intentos sin terminar (el proceso que lo tomaba no llegó a cerrarlo)`,
           ).catch((err: unknown) => {
             logger.error({ err, jobId: job.id }, "No se pudo marcar FAILED un turno del agente");
+            return null;
           });
           resumen.fallidos++;
+          // AGE-13: el mismo cliente sin respuesta que en registrarFallo.
+          if (marcado && marcado.count > 0) {
+            await derivarTurnoFallido(job);
+          }
           continue;
         }
 
