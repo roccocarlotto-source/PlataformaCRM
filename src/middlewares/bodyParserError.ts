@@ -43,6 +43,56 @@ export function clasificarErrorDeBodyParser(err: unknown): TipoErrorBodyParser |
   }
 }
 
+// ---------------------------------------------------------------------------
+// Límite de tamaño de las listas de un pedido JSON.
+//
+// Ningún endpoint recibe por JSON listas largas: lo más grande legítimo son
+// los 500 rowIds de una decisión de importación, y las importaciones de miles
+// de filas llegan como archivo (multipart) o como URL de Google Sheets, que no
+// pasan por acá. Un pedido con más elementos de lista que esto se corta con 400
+// antes de llegar a la validación de cada endpoint, que trabaja elemento por
+// elemento y no tiene que recibir listas de decenas de miles.
+//
+// Cuenta el TOTAL de elementos de todas las listas del cuerpo, anidadas
+// incluidas: un tope por lista se esquivaría con muchas listas chicas.
+// Recorrido iterativo, no recursivo: un cuerpo con miles de niveles de
+// anidamiento no puede agotar la pila.
+// ---------------------------------------------------------------------------
+
+export const MAX_ELEMENTOS_DE_LISTA_POR_PEDIDO = 2000;
+
+export const MENSAJE_LISTAS_DEMASIADO_LARGAS = `El pedido tiene listas con más de ${String(
+  MAX_ELEMENTOS_DE_LISTA_POR_PEDIDO,
+)} elementos en total`;
+
+export function superaElTopeDeListas(
+  cuerpo: unknown,
+  tope: number = MAX_ELEMENTOS_DE_LISTA_POR_PEDIDO,
+): boolean {
+  let total = 0;
+  const pendientes: unknown[] = [cuerpo];
+  while (pendientes.length > 0) {
+    const valor = pendientes.pop();
+    if (valor === null || typeof valor !== "object") continue;
+    if (Array.isArray(valor)) {
+      total += valor.length;
+      if (total > tope) return true;
+    }
+    for (const hijo of Array.isArray(valor) ? valor : Object.values(valor)) {
+      if (hijo !== null && typeof hijo === "object") pendientes.push(hijo);
+    }
+  }
+  return false;
+}
+
+// Para el camino feliz de cada parser JSON: undefined si el cuerpo está dentro
+// del tope, o el AppError(400) con el que cortar.
+export function errorSiLasListasSonDemasiadoLargas(cuerpo: unknown): AppError | undefined {
+  return superaElTopeDeListas(cuerpo)
+    ? new AppError(MENSAJE_LISTAS_DEMASIADO_LARGAS, 400)
+    : undefined;
+}
+
 export interface TraduccionDeErrorDeBodyParser {
   message: string;
   statusCode: number;
@@ -59,7 +109,7 @@ export function envolverParserConTraduccion(
   return (req, res, next) => {
     parser(req, res, (err?: unknown) => {
       if (!err) {
-        next();
+        next(errorSiLasListasSonDemasiadoLargas(req.body));
         return;
       }
 

@@ -1,6 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { AppError } from "../utils/AppError";
-import { clasificarErrorDeBodyParser } from "./bodyParserError";
+import { clasificarErrorDeBodyParser, errorSiLasListasSonDemasiadoLargas } from "./bodyParserError";
 
 // ---------------------------------------------------------------------------
 // Parseo del cuerpo de la ingesta, con su propio límite y su propio
@@ -63,7 +63,7 @@ const parser = express.json({
 export function ingestJsonParser(req: Request, res: Response, next: NextFunction): void {
   parser(req, res, (err: unknown) => {
     if (!err) {
-      next();
+      next(errorSiLasListasSonDemasiadoLargas(req.body));
       return;
     }
 

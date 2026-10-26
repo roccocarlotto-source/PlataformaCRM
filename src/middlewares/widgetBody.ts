@@ -1,6 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { AppError } from "../utils/AppError";
-import { clasificarErrorDeBodyParser } from "./bodyParserError";
+import { clasificarErrorDeBodyParser, errorSiLasListasSonDemasiadoLargas } from "./bodyParserError";
 
 // ---------------------------------------------------------------------------
 // Parseo del cuerpo del widget del canal Web (paso 5b), calcado de
@@ -42,7 +42,7 @@ const parser = express.json({
 export function widgetJsonParser(req: Request, res: Response, next: NextFunction): void {
   parser(req, res, (err: unknown) => {
     if (!err) {
-      next();
+      next(errorSiLasListasSonDemasiadoLargas(req.body));
       return;
     }
 
