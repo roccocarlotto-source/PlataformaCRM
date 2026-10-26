@@ -7,18 +7,28 @@ import { lockOrganizationForUpdate } from "../repositories/organization.reposito
 import {
   confirmDelivery,
   createDeliveryForSoldVehicle,
+  ENTREGA_CONFIRMADA_BLOQUEA_BORRADO,
   ENTREGA_CONFIRMADA_INMUTABLE,
+  ENTREGA_NO_CONFIRMADA,
   ENTREGA_YA_CONFIRMADA,
   ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS,
   getDeliveryById,
   listDeliveriesByOpportunity,
+  revertDelivery,
   UNIDAD_NO_VENDIDA,
   updateDelivery,
 } from "./delivery.service";
 import { createOpportunity, deleteOpportunity, updateOpportunity } from "./opportunity.service";
 import { createPipeline } from "./pipeline.service";
 import { createStage } from "./stage.service";
-import { getVehicleChangeLog, setVehicleStatusForOpportunityLink } from "./vehicle.service";
+import {
+  CAMPO_ENTREGA_REVERTIDA,
+  ESTADO_LO_MANEJA_LA_VENTA,
+  getVehicleChangeLog,
+  setVehicleStatusForOpportunityLink,
+  UNIDAD_ENTREGADA_POR_UNA_VENTA,
+  updateVehicle,
+} from "./vehicle.service";
 import {
   assertAppError,
   borrador,
@@ -547,4 +557,229 @@ test("FKs compuestas: una entrega de A con la oportunidad, la unidad o el usuari
     () => prisma.delivery.create({ data: { ...conUsuarioB, deliveredById: b.userId } }),
     "deliveries -> users",
   );
+});
+
+// ---------------------------------------------------------------------------
+// NEG-EST-1 (docs-privados/auditoria-2026-10-21/informe.md, local) — con una venta en el CRM, el estado de la unidad lo maneja la
+// venta: desde la ficha, Entregado confirma la entrega y Entregado → Vendido
+// la revierte (también con el botón "Revertir entrega"). Sin venta, a mano.
+// NEG-EST-3 — borrar una oportunidad ganada.
+// ---------------------------------------------------------------------------
+
+function entrega(id: string) {
+  return prisma.delivery.findUniqueOrThrow({ where: { id } });
+}
+
+test("NEG-EST-1: con la venta ganada, los cambios a mano que dejaban la entrega inconfirmable son 409 y se sigue pudiendo confirmar", async () => {
+  const { vehicle, delivery } = await ganadaConUnidad();
+
+  for (const status of ["RESERVED", "IN_PREPARATION", "IN_TRANSIT"] as const) {
+    assertAppError(
+      await capturar(() => updateVehicle(a.organizationId, a.userId, vehicle.id, { status })),
+      409,
+      ESTADO_LO_MANEJA_LA_VENTA,
+    );
+  }
+  assert.equal(await estadoDeUnidad(vehicle.id), "SOLD");
+
+  const confirmada = await confirmDelivery(a.organizationId, a.userId, delivery.id);
+  assert.equal(confirmada.status, "DELIVERED");
+});
+
+test("NEG-EST-1: Entregado desde la ficha confirma la entrega pendiente, con quién y cuándo, junto con el resto del PATCH", async () => {
+  const { vehicle, delivery } = await ganadaConUnidad();
+
+  const actualizada = await updateVehicle(a.organizationId, a.userId, vehicle.id, {
+    status: "DELIVERED",
+    exteriorColor: "Rojo",
+  });
+
+  assert.equal(actualizada.status, "DELIVERED");
+  assert.equal(actualizada.exteriorColor, "Rojo");
+  const confirmada = await entrega(delivery.id);
+  assert.equal(confirmada.status, "DELIVERED");
+  assert.equal(confirmada.deliveredById, a.userId);
+  assert.ok(confirmada.deliveredAt);
+
+  const log = await getVehicleChangeLog(a.organizationId, vehicle.id, { page: 1, pageSize: 10 });
+  const estados = log.data.filter((row) => row.fieldName === "status");
+  assert.equal(estados[0]?.oldValue, "SOLD");
+  assert.equal(estados[0]?.newValue, "DELIVERED");
+  assert.equal(estados.filter((row) => row.newValue === "DELIVERED").length, 1, "una sola fila");
+
+  // Ya confirmada desde la ficha, el botón de la oportunidad da 409.
+  assertAppError(
+    await capturar(() => confirmDelivery(a.organizationId, a.userId, delivery.id)),
+    409,
+    ENTREGA_YA_CONFIRMADA,
+  );
+});
+
+test("NEG-EST-1: Entregado → Vendido desde la ficha revierte la entrega y deja la nota en el historial; se puede volver a confirmar", async () => {
+  const { vehicle, delivery } = await ganadaConUnidad();
+  const confirmada = await confirmDelivery(a.organizationId, a.userId, delivery.id);
+
+  await updateVehicle(a.organizationId, a.userId, vehicle.id, { status: "SOLD" });
+
+  assert.equal(await estadoDeUnidad(vehicle.id), "SOLD");
+  const revertida = await entrega(delivery.id);
+  assert.equal(revertida.status, "PENDING");
+  assert.equal(revertida.deliveredAt, null);
+  assert.equal(revertida.deliveredById, null);
+
+  const log = await getVehicleChangeLog(a.organizationId, vehicle.id, { page: 1, pageSize: 10 });
+  const nota = log.data.find((row) => row.fieldName === CAMPO_ENTREGA_REVERTIDA);
+  assert.ok(nota, "queda la nota de la reversión");
+  assert.equal(nota.oldValue, confirmada.deliveredAt?.toISOString());
+  assert.equal(nota.newValue, null);
+  assert.equal(nota.changedById, a.userId);
+  const estado = log.data.find((row) => row.fieldName === "status");
+  assert.equal(estado?.oldValue, "DELIVERED");
+  assert.equal(estado?.newValue, "SOLD");
+
+  // Un error no es definitivo, y la corrección tampoco.
+  await confirmDelivery(a.organizationId, a.userId, delivery.id);
+  assert.equal(await estadoDeUnidad(vehicle.id), "DELIVERED");
+});
+
+test("NEG-EST-1: con la entrega confirmada, cualquier otro estado a mano es 409 (primero se revierte)", async () => {
+  const { vehicle, delivery } = await ganadaConUnidad();
+  await confirmDelivery(a.organizationId, a.userId, delivery.id);
+
+  for (const status of ["AVAILABLE", "UNAVAILABLE", "RESERVED", "IN_PREPARATION"] as const) {
+    assertAppError(
+      await capturar(() => updateVehicle(a.organizationId, a.userId, vehicle.id, { status })),
+      409,
+      UNIDAD_ENTREGADA_POR_UNA_VENTA,
+    );
+  }
+  assert.equal(await estadoDeUnidad(vehicle.id), "DELIVERED");
+  assert.equal((await entrega(delivery.id)).status, "DELIVERED");
+});
+
+test("NEG-EST-1: el botón 'Revertir entrega' deja la entrega pendiente y la unidad vendida; la oportunidad vuelve a poder cambiar", async () => {
+  const { vehicle, opp, delivery } = await ganadaConUnidad();
+  await confirmDelivery(a.organizationId, a.userId, delivery.id);
+
+  const revertida = await revertDelivery(a.organizationId, a.userId, delivery.id);
+  assert.equal(revertida.status, "PENDING");
+  assert.equal(revertida.deliveredBy, null);
+  assert.equal(await estadoDeUnidad(vehicle.id), "SOLD");
+  const log = await getVehicleChangeLog(a.organizationId, vehicle.id, { page: 1, pageSize: 10 });
+  assert.ok(log.data.some((row) => row.fieldName === CAMPO_ENTREGA_REVERTIDA));
+
+  // Revertir otra vez: no hay nada que revertir.
+  assertAppError(
+    await capturar(() => revertDelivery(a.organizationId, a.userId, delivery.id)),
+    409,
+    ENTREGA_NO_CONFIRMADA,
+  );
+
+  // El guard del ítem 151 ya no aplica: la venta se puede perder.
+  await updateOpportunity(a.organizationId, a.userId, opp.id, { status: "LOST" });
+  assert.equal(await estadoDeUnidad(vehicle.id), "AVAILABLE");
+});
+
+test("NEG-EST-1: sin venta en el CRM, Vendido → Entregado y vuelta atrás a mano", async () => {
+  const vehicle = await borrador(a);
+  for (const status of ["SOLD", "DELIVERED", "SOLD", "AVAILABLE"] as const) {
+    await updateVehicle(a.organizationId, a.userId, vehicle.id, { status });
+    assert.equal(await estadoDeUnidad(vehicle.id), status);
+  }
+});
+
+test("NEG-EST-1: reservada que pasa a En preparación o En tránsito y recién ahí se gana: queda Vendido y la entrega se confirma", async () => {
+  for (const operativo of ["IN_PREPARATION", "IN_TRANSIT"] as const) {
+    const vehicle = await borrador(a);
+    const opp = await oportunidad({ vehicleId: vehicle.id });
+    assert.equal(await estadoDeUnidad(vehicle.id), "RESERVED");
+
+    await updateVehicle(a.organizationId, a.userId, vehicle.id, { status: operativo });
+    assert.equal(await estadoDeUnidad(vehicle.id), operativo);
+
+    await updateOpportunity(a.organizationId, a.userId, opp.id, { status: "WON" });
+    assert.equal(await estadoDeUnidad(vehicle.id), "SOLD", operativo);
+
+    const delivery = await prisma.delivery.findFirstOrThrow({ where: { opportunityId: opp.id } });
+    const confirmada = await confirmDelivery(a.organizationId, a.userId, delivery.id);
+    assert.equal(confirmada.status, "DELIVERED", operativo);
+    assert.equal(await estadoDeUnidad(vehicle.id), "DELIVERED", operativo);
+  }
+});
+
+test("carrera: Entregado desde la ficha vs reabrir la oportunidad — la ficha espera el lock, ve la venta abierta y da 409", async () => {
+  const { vehicle, opp, delivery } = await ganadaConUnidad();
+
+  const rival = await sostenerTransaccion(async (tx) => {
+    await lockOrganizationForUpdate(a.organizationId, tx);
+    await tx.opportunity.update({ where: { id: opp.id }, data: { status: "OPEN" } });
+    await setVehicleStatusForOpportunityLink(
+      a.organizationId,
+      a.userId,
+      vehicle.id,
+      "RESERVED",
+      tx,
+    );
+  });
+
+  const ficha = updateVehicle(a.organizationId, a.userId, vehicle.id, { status: "DELIVERED" });
+  await esperarBloqueadoPor(rival, ficha, "ficha vs reabrir");
+  rival.liberar();
+  await rival.terminada;
+
+  assertAppError(await capturar(() => ficha), 409, ESTADO_LO_MANEJA_LA_VENTA);
+  assert.equal(await estadoDeUnidad(vehicle.id), "RESERVED");
+  assert.equal((await entrega(delivery.id)).status, "PENDING");
+});
+
+test("NEG-EST-3: borrar una ganada con la entrega pendiente libera la unidad en la misma operación", async () => {
+  const { vehicle, opp } = await ganadaConUnidad();
+  await deleteOpportunity(a.organizationId, a.userId, opp.id);
+  assert.equal(await estadoDeUnidad(vehicle.id), "AVAILABLE");
+
+  // Libre de verdad: otra venta la puede tomar.
+  const otra = await oportunidad({ vehicleId: vehicle.id });
+  assert.equal(otra.vehicleId, vehicle.id);
+  assert.equal(await estadoDeUnidad(vehicle.id), "RESERVED");
+});
+
+test("NEG-EST-3: borrar una ganada con la entrega confirmada es 409; revertida, se puede", async () => {
+  const { vehicle, opp, delivery } = await ganadaConUnidad();
+  await confirmDelivery(a.organizationId, a.userId, delivery.id);
+
+  assertAppError(
+    await capturar(() => deleteOpportunity(a.organizationId, a.userId, opp.id)),
+    409,
+    ENTREGA_CONFIRMADA_BLOQUEA_BORRADO,
+  );
+  const viva = await prisma.opportunity.findUniqueOrThrow({ where: { id: opp.id } });
+  assert.equal(viva.deletedAt, null);
+  assert.equal(await estadoDeUnidad(vehicle.id), "DELIVERED");
+
+  await revertDelivery(a.organizationId, a.userId, delivery.id);
+  await deleteOpportunity(a.organizationId, a.userId, opp.id);
+  assert.equal(await estadoDeUnidad(vehicle.id), "AVAILABLE");
+});
+
+test("NEG-EST-3: borrar una perdida no suelta la unidad que después tomó otra venta", async () => {
+  const vehicle = await borrador(a);
+  const perdida = await oportunidad({ vehicleId: vehicle.id });
+  await updateOpportunity(a.organizationId, a.userId, perdida.id, { status: "LOST" });
+  const nueva = await oportunidad({ vehicleId: vehicle.id });
+  assert.equal(await estadoDeUnidad(vehicle.id), "RESERVED");
+
+  await deleteOpportunity(a.organizationId, a.userId, perdida.id);
+  assert.equal(await estadoDeUnidad(vehicle.id), "RESERVED");
+  const releida = await prisma.opportunity.findUniqueOrThrow({ where: { id: nueva.id } });
+  assert.equal(releida.vehicleId, vehicle.id);
+});
+
+test("otra organización: revertir la entrega de A desde B da 404 y no toca nada", async () => {
+  const { vehicle, delivery } = await ganadaConUnidad();
+  await confirmDelivery(a.organizationId, a.userId, delivery.id);
+
+  const err = await capturar(() => revertDelivery(b.organizationId, b.userId, delivery.id));
+  assert.equal((err as { statusCode?: number }).statusCode, 404);
+  assert.equal((await entrega(delivery.id)).status, "DELIVERED");
+  assert.equal(await estadoDeUnidad(vehicle.id), "DELIVERED");
 });

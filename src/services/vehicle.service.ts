@@ -1,5 +1,6 @@
 import {
   Prisma,
+  type DeliveryStatus,
   type VehicleBodyType,
   type VehicleColorFinish,
   type VehicleCondition,
@@ -14,8 +15,13 @@ import {
 import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import { findBranchById } from "../repositories/branch.repository";
 import {
+  confirmDeliveryConditional,
+  revertDeliveryConditional,
+} from "../repositories/delivery.repository";
+import {
   countOpportunitiesHoldingVehicle,
   findOpportunityById,
+  findSaleOfVehicle,
 } from "../repositories/opportunity.repository";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
@@ -437,6 +443,62 @@ export function computeMissingFieldsForPublish(
 export const UNIDAD_RETENIDA_POR_OPORTUNIDAD =
   "La unidad está reservada o vendida por una oportunidad: liberala desde la oportunidad (cambiándole la unidad o cerrándola como perdida)";
 
+export const ESTADO_LO_MANEJA_LA_VENTA =
+  "El estado de esta unidad lo maneja su venta: se reserva, se vende y se entrega desde la oportunidad";
+
+export const UNIDAD_ENTREGADA_POR_UNA_VENTA =
+  "La unidad ya se entregó en una venta: para cambiar su estado, primero revertí la entrega (de Entregado a Vendido)";
+
+export const ENTREGA_CAMBIO_MIENTRAS_GUARDABAS =
+  "La entrega de esta unidad cambió mientras guardabas: recargá la ficha y volvé a intentar";
+
+// NEG-EST-1 (docs-privados/auditoria-2026-10-21/informe.md, local) — Con una venta en el CRM (una oportunidad abierta o ganada que
+// tiene la unidad vinculada), el estado lo maneja la venta. Desde la ficha
+// queda:
+//   - con la venta abierta: Reservado, En preparación y En tránsito (los dos
+//     últimos son operativos y opportunity.service los respeta);
+//   - con la venta ganada y la entrega pendiente: Vendido → Entregado, que
+//     CONFIRMA la entrega (lo mismo que el botón de la oportunidad);
+//   - con la entrega confirmada: Entregado → Vendido, que la REVIERTE.
+// Todo lo demás, 409. "Vendido" con la venta ganada se acepta siempre: es el
+// estado que la venta dicta, y repara una unidad que quedó en otro.
+//
+// Confirmar y revertir solo desde la ficha (`desdeLaFicha`): una importación
+// que trae "vendida" nunca deshace una entrega confirmada en el CRM.
+//
+// Función pura: solo se llama con un cambio real (actual !== destino).
+export type CambioDeEstadoConVenta = "directo" | "confirmarEntrega" | "revertirEntrega";
+
+export function decidirCambioDeEstadoConVenta(
+  actual: VehicleStatus,
+  destino: VehicleStatus,
+  venta: { ganada: boolean; entrega: DeliveryStatus | null },
+  desdeLaFicha: boolean,
+): CambioDeEstadoConVenta {
+  if (venta.ganada && venta.entrega === "DELIVERED") {
+    if (destino === "SOLD" && desdeLaFicha) {
+      return "revertirEntrega";
+    }
+    throw new AppError(UNIDAD_ENTREGADA_POR_UNA_VENTA, 409);
+  }
+  if (destino === "AVAILABLE" || destino === "UNAVAILABLE") {
+    throw new AppError(UNIDAD_RETENIDA_POR_OPORTUNIDAD, 409);
+  }
+  if (!venta.ganada) {
+    if (destino === "RESERVED" || destino === "IN_PREPARATION" || destino === "IN_TRANSIT") {
+      return "directo";
+    }
+    throw new AppError(ESTADO_LO_MANEJA_LA_VENTA, 409);
+  }
+  if (destino === "SOLD") {
+    return "directo";
+  }
+  if (destino === "DELIVERED" && actual === "SOLD" && venta.entrega === "PENDING" && desdeLaFicha) {
+    return "confirmarEntrega";
+  }
+  throw new AppError(ESTADO_LO_MANEJA_LA_VENTA, 409);
+}
+
 export const VEHICULO_INCOMPLETO_PARA_PUBLICAR = "La unidad no está completa para publicar";
 
 // Exportada porque también la aplica vehiclePhoto.service al borrar la última
@@ -678,19 +740,25 @@ export async function updateVehicle(
   input: UpdateVehicleInput,
 ) {
   return prisma.$transaction(
-    (tx) => updateVehicleEnTransaccion(organizationId, actorUserId, id, input, tx),
+    (tx) =>
+      updateVehicleEnTransaccion(organizationId, actorUserId, id, input, tx, {
+        desdeLaFicha: true,
+      }),
     OPCIONES_DE_TRANSACCION_LARGA,
   );
 }
 
 // Lo mismo dentro de una transacción ya abierta (la importación de stock,
-// como createVehicleEnTransaccion).
+// como createVehicleEnTransaccion). Solo el PATCH de la ficha pasa
+// `desdeLaFicha`: es lo único que puede confirmar o revertir una entrega
+// (decidirCambioDeEstadoConVenta).
 export async function updateVehicleEnTransaccion(
   organizationId: string,
   actorUserId: string,
   id: string,
   input: UpdateVehicleInput,
   tx: Db,
+  opciones: { desdeLaFicha?: boolean } = {},
 ) {
   await lockOrganizationForUpdate(organizationId, tx);
   // 404 si no existe, no es de esta organización, o está dada de baja.
@@ -715,19 +783,35 @@ export async function updateVehicleEnTransaccion(
   // Ítem 153: volverla a AVAILABLE a mano mientras una oportunidad la
   // retiene habilitaba vincularla a una segunda oportunidad — dos clientes
   // con el mismo auto, y al ganar una la otra quedaba esperando un auto
-  // vendido. Los demás cambios a mano (IN_PREPARATION, IN_TRANSIT) siguen
-  // permitidos: son operativos y opportunity.service ya los respeta.
+  // vendido. UNAVAILABLE ("No disponible", migración 20261026120000)
+  // tampoco: sacaría del stock ofrecible una unidad que una oportunidad tiene
+  // reservada o vendida, y la oportunidad seguiría apuntando a ella.
   //
-  // UNAVAILABLE ("No disponible", migración 20261026120000) tampoco: sacaría
-  // del stock ofrecible una unidad que una oportunidad tiene reservada o
-  // vendida, y la oportunidad seguiría apuntando a ella.
-  if (
-    (data.status === "AVAILABLE" || data.status === "UNAVAILABLE") &&
-    current.status !== data.status &&
-    (await countOpportunitiesHoldingVehicle(id, organizationId, tx)) > 0
-  ) {
-    throw new AppError(UNIDAD_RETENIDA_POR_OPORTUNIDAD, 409);
+  // NEG-EST-1: Reservado, Vendido y Entregado a mano dejaban la entrega
+  // imposible de confirmar. Las reglas completas, en
+  // decidirCambioDeEstadoConVenta. Sin venta en el CRM, cualquier cambio.
+  let cambioDeEntrega: {
+    tipo: "confirmarEntrega" | "revertirEntrega";
+    entrega: { id: string; deliveredAt: Date | null };
+  } | null = null;
+  if (data.status !== undefined && data.status !== current.status) {
+    const venta = await findSaleOfVehicle(id, organizationId, tx);
+    if (venta) {
+      const entrega = venta.deliveries[0] ?? null;
+      const tipo = decidirCambioDeEstadoConVenta(
+        current.status,
+        data.status,
+        { ganada: venta.status === "WON", entrega: entrega?.status ?? null },
+        opciones.desdeLaFicha === true,
+      );
+      if (tipo !== "directo" && entrega) {
+        cambioDeEntrega = { tipo, entrega };
+      }
+    }
   }
+  // Confirmar o revertir mueven el estado por su propio camino (abajo), con
+  // su historial: el UPDATE general no lo toca.
+  const general: UpdateVehicleInput = cambioDeEntrega ? { ...data, status: undefined } : data;
 
   if (data.branchId !== undefined) {
     await validateBranchId(organizationId, data.branchId, tx);
@@ -749,28 +833,55 @@ export async function updateVehicleEnTransaccion(
 
   const entries = computeChangeLogEntries(
     current as unknown as Record<string, unknown>,
-    data as Record<string, unknown>,
+    general as Record<string, unknown>,
   );
-  if (entries.length === 0) {
+  if (entries.length === 0 && !cambioDeEntrega) {
     // Todo lo que vino ya estaba así: sin escritura y sin historial.
     return current;
   }
 
-  // Solo los campos que cambian: un UPDATE que reescribe con el mismo valor
-  // no aporta nada y movería updatedAt sin motivo.
-  const changed = Object.fromEntries(
-    entries.map((entry) => [entry.fieldName, data[entry.fieldName as keyof UpdateVehicleInput]]),
-  ) as VehicleUpdateData;
+  if (entries.length > 0) {
+    // Solo los campos que cambian: un UPDATE que reescribe con el mismo valor
+    // no aporta nada y movería updatedAt sin motivo.
+    const changed = Object.fromEntries(
+      entries.map((entry) => [
+        entry.fieldName,
+        general[entry.fieldName as keyof UpdateVehicleInput],
+      ]),
+    ) as VehicleUpdateData;
 
-  const result = await updateVehicleRepo(id, organizationId, changed, tx);
-  if (result.count === 0) {
-    throw new AppError(VEHICULO_NO_ENCONTRADO, 404);
+    const result = await updateVehicleRepo(id, organizationId, changed, tx);
+    if (result.count === 0) {
+      throw new AppError(VEHICULO_NO_ENCONTRADO, 404);
+    }
+    await createVehicleChangeLogs(
+      { organizationId, vehicleId: id, changedById: actorUserId },
+      entries,
+      tx,
+    );
   }
-  await createVehicleChangeLogs(
-    { organizationId, vehicleId: id, changedById: actorUserId },
-    entries,
-    tx,
-  );
+
+  if (cambioDeEntrega) {
+    const hecho =
+      cambioDeEntrega.tipo === "confirmarEntrega"
+        ? await confirmarEntregaEnTransaccion(
+            organizationId,
+            actorUserId,
+            cambioDeEntrega.entrega.id,
+            id,
+            tx,
+          )
+        : await revertirEntregaEnTransaccion(
+            organizationId,
+            actorUserId,
+            cambioDeEntrega.entrega,
+            id,
+            tx,
+          );
+    if (!hecho) {
+      throw new AppError(ENTREGA_CAMBIO_MIENTRAS_GUARDABAS, 409);
+    }
+  }
 
   const updated = await getVehicleById(organizationId, id, tx);
   // Ítem 152: vendida, reservada o despublicada → su entrada de la base de
@@ -895,4 +1006,66 @@ export async function liberarVehiculoDeOportunidad(
     current.statusBeforeHold === "UNAVAILABLE" ? "UNAVAILABLE" : "AVAILABLE";
   await setVehicleStatusForOpportunityLink(organizationId, actorUserId, vehicleId, destino, tx);
   await updateVehicleRepo(vehicleId, organizationId, { statusBeforeHold: null }, tx);
+}
+
+// ---------------------------------------------------------------------------
+// Confirmar y revertir una entrega (§40, NEG-EST-1): la entrega y la unidad se
+// mueven juntas. Las usan el botón de la oportunidad (delivery.service.ts) y
+// el selector de estado de la ficha (updateVehicleEnTransaccion), dentro de la
+// transacción del caller y con el lock de organización ya tomado. El caller
+// ya validó los estados bajo ese lock; `false` = el CAS de la entrega no
+// encontró la fila en el estado esperado, y el caller responde su 409.
+// ---------------------------------------------------------------------------
+
+export async function confirmarEntregaEnTransaccion(
+  organizationId: string,
+  actorUserId: string,
+  deliveryId: string,
+  vehicleId: string,
+  tx: Db,
+): Promise<boolean> {
+  const result = await confirmDeliveryConditional(
+    deliveryId,
+    organizationId,
+    { deliveredById: actorUserId, deliveredAt: new Date() },
+    tx,
+  );
+  if (result.count === 0) {
+    return false;
+  }
+  await setVehicleStatusForOpportunityLink(organizationId, actorUserId, vehicleId, "DELIVERED", tx);
+  return true;
+}
+
+// "Que un error no sea definitivo": la entrega vuelve a PENDING (sin quién ni
+// cuándo) y la unidad a SOLD. Además de la fila de status, el historial de la
+// unidad guarda una fila "deliveryReverted" con el instante de la
+// confirmación que se deshizo; quién revirtió y cuándo son el changedBy y el
+// changedAt de esa misma fila. Sin migración: fieldName es texto libre.
+export const CAMPO_ENTREGA_REVERTIDA = "deliveryReverted";
+
+export async function revertirEntregaEnTransaccion(
+  organizationId: string,
+  actorUserId: string,
+  entrega: { id: string; deliveredAt: Date | null },
+  vehicleId: string,
+  tx: Db,
+): Promise<boolean> {
+  const result = await revertDeliveryConditional(entrega.id, organizationId, tx);
+  if (result.count === 0) {
+    return false;
+  }
+  await setVehicleStatusForOpportunityLink(organizationId, actorUserId, vehicleId, "SOLD", tx);
+  await createVehicleChangeLogs(
+    { organizationId, vehicleId, changedById: actorUserId },
+    [
+      {
+        fieldName: CAMPO_ENTREGA_REVERTIDA,
+        oldValue: entrega.deliveredAt?.toISOString() ?? null,
+        newValue: null,
+      },
+    ],
+    tx,
+  );
+  return true;
 }

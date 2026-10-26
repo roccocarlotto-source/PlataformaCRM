@@ -12,10 +12,15 @@ import {
   assertIdentifiersAvailable,
   computeChangeLogEntries,
   computeMissingFieldsForPublish,
+  decidirCambioDeEstadoConVenta,
+  ESTADO_LO_MANEJA_LA_VENTA,
+  UNIDAD_ENTREGADA_POR_UNA_VENTA,
+  UNIDAD_RETENIDA_POR_OPORTUNIDAD,
   formatInternalCode,
   serializeChangeLogValue,
   type VehicleWritableFields,
 } from "./vehicle.service";
+import type { VehicleStatus } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
 // Las reglas puras del módulo de stock (Fase 2a), sin base: completitud para
@@ -336,5 +341,118 @@ test("unicidad: un identificador vacío (null/undefined) nunca choca, aunque hay
       vin: null,
       licensePlate: undefined,
     }),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// NEG-EST-1 (docs-privados/auditoria-2026-10-21/informe.md, local) — con una venta en el CRM, el estado de la unidad lo maneja la
+// venta. La aplicación (con la entrega real y el historial) está en
+// delivery.service.integration-test.ts.
+// ---------------------------------------------------------------------------
+
+const ESTADOS: VehicleStatus[] = [
+  "AVAILABLE",
+  "UNAVAILABLE",
+  "RESERVED",
+  "IN_PREPARATION",
+  "IN_TRANSIT",
+  "SOLD",
+  "DELIVERED",
+];
+const ABIERTA = { ganada: false, entrega: null };
+const GANADA_PENDIENTE = { ganada: true, entrega: "PENDING" as const };
+const GANADA_ENTREGADA = { ganada: true, entrega: "DELIVERED" as const };
+
+test("venta abierta: Reservado, En preparación y En tránsito pasan directo", () => {
+  for (const destino of ["RESERVED", "IN_PREPARATION", "IN_TRANSIT"] as const) {
+    assert.equal(decidirCambioDeEstadoConVenta("RESERVED", destino, ABIERTA, true), "directo");
+  }
+});
+
+test("venta abierta: Disponible/No disponible siguen con el 409 del ítem 153; Vendido/Entregado, 409", () => {
+  for (const destino of ["AVAILABLE", "UNAVAILABLE"] as const) {
+    assertAppError(
+      () => decidirCambioDeEstadoConVenta("RESERVED", destino, ABIERTA, true),
+      409,
+      UNIDAD_RETENIDA_POR_OPORTUNIDAD,
+    );
+  }
+  for (const destino of ["SOLD", "DELIVERED"] as const) {
+    assertAppError(
+      () => decidirCambioDeEstadoConVenta("RESERVED", destino, ABIERTA, true),
+      409,
+      ESTADO_LO_MANEJA_LA_VENTA,
+    );
+  }
+});
+
+test("venta ganada con entrega pendiente: Vendido → Entregado desde la ficha confirma la entrega", () => {
+  assert.equal(
+    decidirCambioDeEstadoConVenta("SOLD", "DELIVERED", GANADA_PENDIENTE, true),
+    "confirmarEntrega",
+  );
+});
+
+test("venta ganada con entrega pendiente: Entregado fuera de la ficha (importación), 409", () => {
+  assertAppError(
+    () => decidirCambioDeEstadoConVenta("SOLD", "DELIVERED", GANADA_PENDIENTE, false),
+    409,
+    ESTADO_LO_MANEJA_LA_VENTA,
+  );
+});
+
+test("venta ganada con entrega pendiente: los cambios que dejaban la entrega inconfirmable, 409", () => {
+  for (const destino of ["RESERVED", "IN_PREPARATION", "IN_TRANSIT"] as const) {
+    assertAppError(
+      () => decidirCambioDeEstadoConVenta("SOLD", destino, GANADA_PENDIENTE, true),
+      409,
+      ESTADO_LO_MANEJA_LA_VENTA,
+    );
+  }
+  for (const destino of ["AVAILABLE", "UNAVAILABLE"] as const) {
+    assertAppError(
+      () => decidirCambioDeEstadoConVenta("SOLD", destino, GANADA_PENDIENTE, true),
+      409,
+      UNIDAD_RETENIDA_POR_OPORTUNIDAD,
+    );
+  }
+});
+
+test("venta ganada: Vendido pasa directo desde cualquier estado (es el que dicta la venta)", () => {
+  for (const actual of ["IN_PREPARATION", "IN_TRANSIT", "RESERVED"] as const) {
+    assert.equal(decidirCambioDeEstadoConVenta(actual, "SOLD", GANADA_PENDIENTE, false), "directo");
+  }
+  assert.equal(
+    decidirCambioDeEstadoConVenta("IN_PREPARATION", "SOLD", { ganada: true, entrega: null }, true),
+    "directo",
+  );
+});
+
+test("venta ganada sin unidad en SOLD: Entregado no confirma (la entrega exige SOLD), 409", () => {
+  assertAppError(
+    () => decidirCambioDeEstadoConVenta("IN_PREPARATION", "DELIVERED", GANADA_PENDIENTE, true),
+    409,
+    ESTADO_LO_MANEJA_LA_VENTA,
+  );
+});
+
+test("entrega confirmada: Entregado → Vendido desde la ficha la revierte; todo lo demás, 409", () => {
+  assert.equal(
+    decidirCambioDeEstadoConVenta("DELIVERED", "SOLD", GANADA_ENTREGADA, true),
+    "revertirEntrega",
+  );
+  for (const destino of ESTADOS.filter((e) => e !== "DELIVERED")) {
+    if (destino === "SOLD") continue;
+    assertAppError(
+      () => decidirCambioDeEstadoConVenta("DELIVERED", destino, GANADA_ENTREGADA, true),
+      409,
+      UNIDAD_ENTREGADA_POR_UNA_VENTA,
+    );
+  }
+  // Una importación que trae "vendida" no deshace una entrega del CRM.
+  assertAppError(
+    () => decidirCambioDeEstadoConVenta("DELIVERED", "SOLD", GANADA_ENTREGADA, false),
+    409,
+    UNIDAD_ENTREGADA_POR_UNA_VENTA,
   );
 });

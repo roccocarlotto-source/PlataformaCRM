@@ -47,6 +47,15 @@ function fakeBackend(initial: Delivery | null) {
           deliveredBy: { id: "u1", fullName: "Ana Pérez" },
           vehicle: delivery.vehicle ? { ...delivery.vehicle, status: "DELIVERED" } : null,
         };
+      } else if (body.status === "PENDING") {
+        delivery = {
+          ...delivery,
+          status: "PENDING",
+          deliveredAt: null,
+          deliveredById: null,
+          deliveredBy: null,
+          vehicle: delivery.vehicle ? { ...delivery.vehicle, status: "SOLD" } : null,
+        };
       } else {
         delivery = {
           ...delivery,
@@ -248,6 +257,46 @@ describe("DeliverySection", () => {
     expect(within(card).getByText("Entregada")).toBeInTheDocument();
     expect(within(card).getByLabelText("Fecha programada")).toHaveValue("2026-09-20");
     expect(within(card).getByRole("button", { name: "Confirmar entrega" })).toBeDisabled();
+  });
+
+  it("pendiente: no ofrece 'Revertir entrega'", async () => {
+    fakeBackend(makeDelivery());
+    renderSection();
+
+    const card = await deliveryCard();
+    expect(
+      within(card).queryByRole("button", { name: "Revertir entrega" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("entregada: revertir pide confirmación; cancelar no manda nada; aceptar la vuelve a pendiente y editable", async () => {
+    const user = userEvent.setup();
+    const { received } = fakeBackend(
+      makeDelivery({
+        status: "DELIVERED",
+        deliveredAt: "2026-09-20T14:30:00.000Z",
+        deliveredBy: { id: "u1", fullName: "Ana Pérez" },
+      }),
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    renderSection();
+
+    const card = await deliveryCard();
+    const revertButton = within(card).getByRole("button", { name: "Revertir entrega" });
+    await user.click(revertButton);
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("¿Revertir la entrega?"));
+    expect(received).toHaveLength(0);
+
+    confirmSpy.mockReturnValueOnce(true);
+    await user.click(revertButton);
+
+    expect(await within(card).findByText("Pendiente de entrega")).toBeInTheDocument();
+    expect(received).toEqual([{ status: "PENDING" }]);
+    expect(within(card).getByRole("button", { name: "Confirmar entrega" })).toBeEnabled();
+    expect(
+      within(card).queryByRole("button", { name: "Revertir entrega" }),
+    ).not.toBeInTheDocument();
+    expect(within(card).getByLabelText("Fecha programada")).toBeEnabled();
   });
 
   it("un 409 al confirmar se muestra en la tarjeta y la vista se refresca con el estado real", async () => {

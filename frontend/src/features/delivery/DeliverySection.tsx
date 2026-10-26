@@ -11,7 +11,7 @@ import type { Opportunity } from "../opportunity/types";
 import { vehicleLabel } from "../quote/format";
 import { DELIVERY_STATUS_LABEL, DELIVERY_STATUS_VARIANT } from "./labels";
 import { confirmQuestion } from "./confirmQuestion";
-import { useConfirmDelivery, useUpdateDelivery } from "./mutations";
+import { useConfirmDelivery, useRevertDelivery, useUpdateDelivery } from "./mutations";
 import { useOpportunityDelivery } from "./queries";
 import type { Delivery, UpdateDeliveryInput } from "./types";
 
@@ -37,7 +37,9 @@ export interface DeliverySectionProps {
 // del campo y no en cada onChange: tipear un año dígito a dígito mandaría
 // "0002-09-30" y compañía.
 //
-// Una vez entregada todo queda en solo lectura, con quién y cuándo.
+// Una vez entregada todo queda en solo lectura, con quién y cuándo. Lo único
+// que queda es "Revertir entrega", para una confirmada por error: vuelve a
+// pendiente y la unidad a Vendido, y queda en el historial de la unidad.
 //
 // Vive en OpportunityFormPage, que es ADMIN-only (AdminRoute), así que no hay
 // gating por rol acá: las escrituras son authorize("ADMIN") en el backend.
@@ -78,6 +80,7 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
   const confirm = useConfirm();
   const updateMutation = useUpdateDelivery(opportunityId);
   const confirmMutation = useConfirmDelivery(opportunityId);
+  const revertMutation = useRevertDelivery(opportunityId);
 
   const savedDate = delivery.scheduledAt ? delivery.scheduledAt.slice(0, 10) : "";
   const [scheduledAt, setScheduledAt] = useState(savedDate);
@@ -85,7 +88,7 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const isPending = delivery.status === "PENDING";
-  const isBusy = updateMutation.isPending || confirmMutation.isPending;
+  const isBusy = updateMutation.isPending || confirmMutation.isPending || revertMutation.isPending;
   const locked = !isPending || isBusy;
 
   async function save(input: UpdateDeliveryInput) {
@@ -135,6 +138,22 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
       await confirmMutation.mutateAsync(delivery.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "No pudimos confirmar la entrega");
+    }
+  }
+
+  async function handleRevert() {
+    if (
+      !(await confirm(
+        "¿Revertir la entrega? Vuelve a quedar pendiente y la unidad pasa de Entregado a Vendido. Queda registrado en el historial de la unidad.",
+        { confirmLabel: "Revertir entrega", danger: true },
+      ))
+    )
+      return;
+    setActionError(null);
+    try {
+      await revertMutation.mutateAsync(delivery.id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "No pudimos revertir la entrega");
     }
   }
 
@@ -228,6 +247,11 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
           >
             Confirmar entrega
           </Button>
+          {delivery.status === "DELIVERED" ? (
+            <Button disabled={isBusy} loading={revertMutation.isPending} onClick={handleRevert}>
+              Revertir entrega
+            </Button>
+          ) : null}
         </div>
         {actionError ? <ErrorState>{actionError}</ErrorState> : null}
       </Card>

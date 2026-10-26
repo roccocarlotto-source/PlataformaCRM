@@ -123,3 +123,13 @@ export function confirmDeliveryConditional(
     data: { status: "DELIVERED", ...data },
   });
 }
+
+// "Revertir entrega" (NEG-EST-1, docs-privados/auditoria-2026-10-21/informe.md, local): el CAS inverso. DELIVERED -> PENDING solo si
+// sigue DELIVERED, y se borra quién y cuándo — el historial de la unidad
+// guarda la fecha de la confirmación que se deshizo. Mismo contrato de count.
+export function revertDeliveryConditional(id: string, organizationId: string, db: Db = prisma) {
+  return db.delivery.updateMany({
+    where: { id, organizationId, status: "DELIVERED" },
+    data: { status: "PENDING", deliveredById: null, deliveredAt: null },
+  });
+}

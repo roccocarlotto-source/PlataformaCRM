@@ -28,3 +28,12 @@ export function confirmDelivery(id: string): Promise<Delivery> {
     getAccessToken,
   });
 }
+
+// "Revertir entrega": una confirmada por error vuelve a pendiente.
+export function revertDelivery(id: string): Promise<Delivery> {
+  return request<Delivery>(`/deliveries/${id}`, {
+    method: "PATCH",
+    body: { status: "PENDING" },
+    getAccessToken,
+  });
+}

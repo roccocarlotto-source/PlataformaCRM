@@ -673,6 +673,39 @@ describe("VehicleFormPage — historial de cambios", () => {
     await user.click(dialog.getByRole("button", { name: "Cerrar" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("la nota de 'Revertir entrega' se muestra con la fecha de la confirmación que se deshizo, no como antes → después", async () => {
+    server.use(
+      ...baseHandlers(),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeVehicleDetail({ id: params.id as string })),
+      ),
+      http.get(`${baseUrl}/:id/change-log`, () =>
+        HttpResponse.json({
+          data: [
+            makeChangeLogEntry({
+              id: "cl1",
+              fieldName: "deliveryReverted",
+              oldValue: "2026-09-20T14:30:00.000Z",
+              newValue: null,
+            }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/vehicles/v1/edit");
+    await waitFor(() => expect(screen.getByLabelText("Marca")).toHaveValue("Toyota"));
+    await user.click(screen.getByRole("button", { name: "Ver historial de cambios" }));
+
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(
+      await dialog.findByText(/^Entrega revertida \(se había confirmado el .+\)$/),
+    ).toBeInTheDocument();
+    expect(dialog.queryByText(/→/)).not.toBeInTheDocument();
+  });
 });
 
 // Ítem 19.B de docs/frontend-cambios-pendientes.md: al completar uno de los

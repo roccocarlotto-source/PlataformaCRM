@@ -22,7 +22,7 @@ export const deliveryRouter = Router();
 deliveryRouter.get("/deliveries", authenticate, listDeliveriesHandler);
 deliveryRouter.get("/deliveries/:id", authenticate, getDeliveryHandler);
 
-// PATCH: "Confirmar entrega" o la edición del checklist/fecha, nunca las dos
+// PATCH: "Confirmar entrega", "Revertir entrega" o la edición del checklist/fecha, nunca las dos
 // en el mismo body (ver updateDeliveryHandler). businessWriteRateLimiter
 // (R1.9) va después de authenticate y antes de authorize — ver rateLimit.ts.
 deliveryRouter.patch(

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  confirmDeliverySchema,
+  deliveryStatusSchema,
   listDeliveriesQuerySchema,
   updateDeliverySchema,
 } from "./delivery.controller";
@@ -11,20 +11,21 @@ import {
 // al service. Sin HTTP ni base, mismo criterio que quote.controller.test.ts.
 // ---------------------------------------------------------------------------
 
-test("confirmar: solo { status: 'DELIVERED' }", () => {
-  assert.deepEqual(confirmDeliverySchema.parse({ status: "DELIVERED" }), { status: "DELIVERED" });
-  for (const status of ["PENDING", "delivered", null, undefined]) {
-    assert.equal(confirmDeliverySchema.safeParse({ status }).success, false, String(status));
+test("confirmar y revertir: solo { status: 'DELIVERED' } o { status: 'PENDING' }", () => {
+  assert.deepEqual(deliveryStatusSchema.parse({ status: "DELIVERED" }), { status: "DELIVERED" });
+  assert.deepEqual(deliveryStatusSchema.parse({ status: "PENDING" }), { status: "PENDING" });
+  for (const status of ["delivered", "pending", null, undefined]) {
+    assert.equal(deliveryStatusSchema.safeParse({ status }).success, false, String(status));
   }
 });
 
 test("confirmar: status junto con checklist o scheduledAt es 400 — las dos formas no se mezclan", () => {
   assert.equal(
-    confirmDeliverySchema.safeParse({ status: "DELIVERED", scheduledAt: "2026-09-30" }).success,
+    deliveryStatusSchema.safeParse({ status: "DELIVERED", scheduledAt: "2026-09-30" }).success,
     false,
   );
   assert.equal(
-    confirmDeliverySchema.safeParse({ status: "DELIVERED", checklist: [] }).success,
+    deliveryStatusSchema.safeParse({ status: "DELIVERED", checklist: [] }).success,
     false,
   );
 });
