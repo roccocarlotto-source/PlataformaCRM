@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import express from "express";
+import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { createMetaWebhookRouter } from "../routes/metaWebhook.routes";
+import { MOTIVO_FALLO_TECNICO } from "../services/agentOrchestration.service";
 import { resetLlmProviderParaTests, setLlmProviderForTests } from "../services/llmProvider.service";
 import { completarNombreDesdeElPerfil } from "../services/metaContact.service";
 import { obtenerTokenParaEnviar } from "../services/metaPageConnection.service";
@@ -729,30 +731,165 @@ test("Meta rechaza el token (190) -> FAILED sin reintentos, la conexión pasa a 
   }
 });
 
+// AGE-13 (docs-privados/auditoria-2026-10-21/informe.md, local): un turno en
+// FAILED quedaba en silencio, con la conversación "atendida por el agente".
+//
+// La tarea de la derivación necesita a quién asignarse: sin vendedor del
+// contacto ni de la sucursal, el ADMIN activo más antiguo. Una organización
+// real siempre tiene uno; la C de este archivo nace sin usuarios. Cada test
+// crea el suyo y lo desactiva al terminar: OPUS-B-01 espera que el ADMIN
+// activo más antiguo de C sea el que crea él.
+async function conAdminDeC(fn: (adminId: string) => Promise<void>) {
+  const adminId = await crearAdmin(negocioC.orgId);
+  try {
+    await fn(adminId);
+  } finally {
+    await prisma.user.update({ where: { id: adminId }, data: { isActive: false } });
+  }
+}
+
+async function derivacionDe(messageId: string) {
+  const entrante = await prisma.message.findUniqueOrThrow({ where: { id: messageId } });
+  const conversacion = await prisma.conversation.findUniqueOrThrow({
+    where: { id: entrante.conversationId },
+  });
+  const tareas = await prisma.activity.findMany({
+    where: { organizationId: conversacion.organizationId, contactId: conversacion.contactId },
+  });
+  return { conversacion, tareas };
+}
+
 test("la organización reconectó OTRA página después de que llegó el mensaje -> FAILED sin turno ni envío", async () => {
   reiniciarDobles();
-  try {
+  await conAdminDeC(async (adminId) => {
+    try {
+      const mid = `m_${randomUUID()}`;
+      await enviar(
+        payload({ object: "page", cuentaId: negocioC.pageId, senderId: idAlAzar("6"), mid }),
+      );
+      // El job ya está encolado con la página vieja; la conexión cambia de página.
+      await prisma.metaPageConnection.update({
+        where: { organizationId: negocioC.orgId },
+        data: { pageId: idAlAzar("1") },
+      });
+
+      const resumen = await drenarC();
+      assert.equal(resumen.fallidos, 1);
+      assert.equal(llamadasAlLlm, 0);
+      assert.equal(enviadosAMeta.length, 0);
+      const { job } = await jobDe(mid);
+      assert.equal(job.status, "FAILED");
+      assert.equal(job.attempts, 1, "permanente: sin reintentos");
+      assert.match(job.lastError ?? "", /OTRA página/);
+
+      // AGE-13: el cliente se quedó sin respuesta → la conversación pasa a una
+      // persona con su tarea, sin llamar al modelo ni mandar nada.
+      const { conversacion, tareas } = await derivacionDe(job.messageId);
+      assert.equal(conversacion.status, "TRANSFERRED_TO_HUMAN");
+      assert.equal(conversacion.assignedUserId, adminId);
+      assert.equal(tareas.length, 1);
+      assert.equal(tareas[0].body, MOTIVO_FALLO_TECNICO);
+      assert.equal(tareas[0].assigneeId, adminId);
+    } finally {
+      await restaurarConexionC();
+    }
+  });
+});
+
+test("AGE-13: un turno que agota los reintentos termina en FAILED y la conversación pasa a una persona con su tarea", async () => {
+  reiniciarDobles();
+  await conAdminDeC(async (adminId) => {
     const mid = `m_${randomUUID()}`;
     await enviar(
-      payload({ object: "page", cuentaId: negocioC.pageId, senderId: idAlAzar("6"), mid }),
+      payload({ object: "page", cuentaId: negocioC.pageId, senderId: idAlAzar("7"), mid }),
     );
-    // El job ya está encolado con la página vieja; la conexión cambia de página.
-    await prisma.metaPageConnection.update({
-      where: { organizationId: negocioC.orgId },
-      data: { pageId: idAlAzar("1") },
+
+    // Meta rechaza cada envío con un error transitorio (rate limit, 613).
+    for (let intento = 1; intento <= env.AGENT_INBOUND_MAX_ATTEMPTS; intento++) {
+      falloDelEnvio = new MetaSendError(400, '{"error":{"code":613}}', 613, null);
+      await prisma.agentInboundJob.updateMany({
+        where: { organizationId: negocioC.orgId, status: "PENDING" },
+        data: { nextAttemptAt: new Date(Date.now() - 1000) },
+      });
+      const resumen = await drenarC();
+      const ultimo = intento === env.AGENT_INBOUND_MAX_ATTEMPTS;
+      assert.equal(resumen.fallidos, ultimo ? 1 : 0, `intento ${intento}`);
+      assert.equal(resumen.pospuestos, ultimo ? 0 : 1, `intento ${intento}`);
+      if (!ultimo) {
+        const { job } = await jobDe(mid);
+        const { conversacion } = await derivacionDe(job.messageId);
+        assert.equal(conversacion.status, "ACTIVE", "mientras reintenta, sigue con el agente");
+      }
+    }
+
+    const { job } = await jobDe(mid);
+    assert.equal(job.status, "FAILED");
+    assert.equal(job.attempts, env.AGENT_INBOUND_MAX_ATTEMPTS);
+    assert.equal(llamadasAlLlm, 1, "un solo turno: los reintentos reenvían");
+    assert.equal(enviadosAMeta.length, 0);
+
+    const { conversacion, tareas } = await derivacionDe(job.messageId);
+    assert.equal(conversacion.status, "TRANSFERRED_TO_HUMAN");
+    assert.ok(conversacion.transferredToHumanAt);
+    assert.equal(conversacion.assignedUserId, adminId);
+    assert.equal(tareas.length, 1);
+    assert.equal(tareas[0].body, MOTIVO_FALLO_TECNICO);
+    assert.equal(tareas[0].assigneeId, adminId);
+    assert.equal(tareas[0].completedAt, null);
+  });
+});
+
+test("AGE-13: un turno que agotó los intentos sin terminar (el proceso se caía al tomarlo) también se deriva", async () => {
+  reiniciarDobles();
+  await conAdminDeC(async (adminId) => {
+    const mid = `m_${randomUUID()}`;
+    await enviar(
+      payload({ object: "page", cuentaId: negocioC.pageId, senderId: idAlAzar("9"), mid }),
+    );
+    // Como si cada reclamo anterior hubiera vencido por lease: el próximo
+    // reclamo lo deja por encima del máximo sin pasar por ningún catch.
+    const { entrante } = await jobDe(mid);
+    await prisma.agentInboundJob.updateMany({
+      where: { messageId: entrante.id },
+      data: { attempts: env.AGENT_INBOUND_MAX_ATTEMPTS },
+    });
+
+    const resumen = await drenarC();
+    assert.equal(resumen.fallidos, 1);
+    assert.equal(llamadasAlLlm, 0, "sin turno");
+    const { job } = await jobDe(mid);
+    assert.equal(job.status, "FAILED");
+    assert.match(job.lastError ?? "", /sin terminar/);
+
+    const { conversacion, tareas } = await derivacionDe(entrante.id);
+    assert.equal(conversacion.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(conversacion.assignedUserId, adminId);
+    assert.equal(tareas.length, 1);
+    assert.equal(tareas[0].body, MOTIVO_FALLO_TECNICO);
+  });
+});
+
+test("AGE-13: un turno de una conversación cerrada termina en FAILED sin reabrirla ni crear tarea", async () => {
+  reiniciarDobles();
+  await conAdminDeC(async () => {
+    const mid = `m_${randomUUID()}`;
+    await enviar(
+      payload({ object: "page", cuentaId: negocioC.pageId, senderId: idAlAzar("8"), mid }),
+    );
+    const { entrante } = await jobDe(mid);
+    await prisma.conversation.update({
+      where: { id: entrante.conversationId },
+      data: { status: "CLOSED" },
     });
 
     const resumen = await drenarC();
     assert.equal(resumen.fallidos, 1);
     assert.equal(llamadasAlLlm, 0);
-    assert.equal(enviadosAMeta.length, 0);
-    const { job } = await jobDe(mid);
-    assert.equal(job.status, "FAILED");
-    assert.equal(job.attempts, 1, "permanente: sin reintentos");
-    assert.match(job.lastError ?? "", /OTRA página/);
-  } finally {
-    await restaurarConexionC();
-  }
+
+    const { conversacion, tareas } = await derivacionDe(entrante.id);
+    assert.equal(conversacion.status, "CLOSED");
+    assert.equal(tareas.length, 0);
+  });
 });
 
 // OPUS-I-01 (docs-privados/auditoria-2026-10-04-OPUS.md, local): con el agente

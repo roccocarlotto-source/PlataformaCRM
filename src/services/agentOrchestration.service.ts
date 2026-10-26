@@ -288,16 +288,24 @@ export const MOTIVO_TIEMPO_AGOTADO =
 export const MOTIVO_AGENTE_NO_ATIENDE =
   "El agente está apagado o no atiende este canal: el mensaje del cliente quedó en la conversación y lo tiene que responder una persona";
 
+// AGE-13 (docs-privados/auditoria-2026-10-21/informe.md, local): el turno del
+// agente agotó sus reintentos (o tuvo un error permanente) y el cliente no
+// recibió respuesta. Lo deriva el worker al pasar el job a FAILED.
+export const MOTIVO_FALLO_TECNICO =
+  "El agente no pudo responder por un fallo técnico: el mensaje del cliente quedó en la conversación sin respuesta y lo tiene que responder una persona";
+
 // Los motivos en los que el proveedor del modelo es justamente lo que falló:
 // generar el brief sería volver a golpearlo (con sus propios reintentos) en el
 // peor momento. El brief se puede pedir a mano desde la bandeja después.
 //
 // MOTIVO_AGENTE_NO_ATIENDE entra por otro motivo: esa derivación existe para
 // que el CRM funcione sin IA, y no puede depender de una llamada al modelo.
+// MOTIVO_FALLO_TECNICO, por los dos: el modelo puede ser lo que falló.
 const MOTIVOS_SIN_BRIEF = new Set([
   MOTIVO_PROVEEDOR_CAIDO,
   MOTIVO_TIEMPO_AGOTADO,
   MOTIVO_AGENTE_NO_ATIENDE,
+  MOTIVO_FALLO_TECNICO,
 ]);
 
 // El tercer disparador fijo de derivación (ítem 110), junto a los dos que ya
@@ -1811,10 +1819,14 @@ export function agenteAtiendeElCanal(
 // el aviso fijo y se devuelve su id para que el worker la mande. Gana aunque
 // la conversación ya esté derivada. En un rubro sin reglas (AUTOMOTORA) no
 // cambia nada: deriva como siempre.
+//
+// `motivo` (default MOTIVO_AGENTE_NO_ATIENDE) es el texto de la tarea. El
+// worker pasa MOTIVO_FALLO_TECNICO cuando un turno termina en FAILED (AGE-13).
 export async function derivarEntranteSinAgente(entrada: {
   organizationId: string;
   conversationId: string;
   responder?: boolean;
+  motivo?: string;
 }): Promise<{ salienteId: string | null }> {
   const { organizationId, conversationId } = entrada;
   const conversation = await findConversationById(conversationId, organizationId);
@@ -1878,7 +1890,7 @@ export async function derivarEntranteSinAgente(entrada: {
     branchId: conversation.branchId,
     contact: { ...contact, ownerId },
     agentName: agent.name,
-    motivo: MOTIVO_AGENTE_NO_ATIENDE,
+    motivo: entrada.motivo ?? MOTIVO_AGENTE_NO_ATIENDE,
   });
   return { salienteId: null };
 }
