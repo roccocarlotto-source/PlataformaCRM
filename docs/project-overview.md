@@ -1,7 +1,28 @@
 # Plataforma CRM — Project Overview
 
-> Última actualización: 2026-07-14.
-> Este documento es la fuente de verdad del estado del proyecto. Cualquier sesión nueva
+> **Alcance de este documento (aviso del 2026-10-25).** Describe el **núcleo CRM original**
+> (organizaciones, usuarios, empresas, contactos, pipelines, oportunidades, actividades e
+> invitaciones) y la construcción del frontend hasta M8. **Ya no es la fuente de verdad del
+> proyecto completo**: documenta 13 de los ~77 modelos de `prisma/schema.prisma`, y su
+> sección de estado se cortó en agosto de 2026. Lo que vino después está en sus propios
+> diseños:
+>
+> - rubros (`AUTOMOTORA` | `CLINICA`): [`rubros.md`](./rubros.md);
+> - ediciones (`COMPLETA` | `ESENCIAL`): [`ediciones.md`](./ediciones.md);
+> - taller de postventa (módulo `servicios`): [`servicios.md`](./servicios.md);
+> - agentes de IA y canales: [`ai-agent-architecture.md`](./ai-agent-architecture.md);
+> - automatizaciones: [`automations-architecture.md`](./automations-architecture.md);
+> - agenda y turnos: [`booking-architecture.md`](./booking-architecture.md);
+> - ingesta de leads: [`ingestion-architecture.md`](./ingestion-architecture.md);
+> - datos personales y terceros: [`data-classification.md`](./data-classification.md);
+> - despliegue: [`deployment.md`](./deployment.md).
+>
+> El estado actual en pocas líneas está en el `README.md` de la raíz ("Estado"). Las
+> secciones de abajo siguen valiendo para lo que describen; el texto original del aviso
+> queda a continuación como registro.
+>
+> Última actualización del contenido original: 2026-07-14.
+> Este documento era la fuente de verdad del estado del proyecto. Cualquier sesión nueva
 > (humana o de Claude) debería poder entender el proyecto completo leyendo solo este
 > archivo, sin depender del historial de chat.
 >
