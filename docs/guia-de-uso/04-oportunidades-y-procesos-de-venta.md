@@ -39,7 +39,9 @@ Una oportunidad la edita quien la tiene asignada o un administrador; la de otra
 persona se ve en solo lectura. Eliminar y reasignar: solo un administrador.
 
 > Eliminar una oportunidad no se deshace desde la app. Si tenía una unidad de
-> stock vinculada, la unidad vuelve a quedar disponible.
+> stock vinculada, la unidad vuelve a quedar disponible. Una venta con la
+> entrega ya confirmada no se puede eliminar: primero hay que revertir la
+> entrega.
 
 ### Nueva oportunidad {#nueva-oportunidad-esencial}
 
@@ -125,7 +127,9 @@ En el menú de acciones de cada fila (los tres puntos):
 - **Eliminar**: solo administradores. Pide confirmación.
 
 > Eliminar una oportunidad no se deshace desde la app. Si tenía una unidad de
-> stock vinculada, la unidad vuelve a quedar disponible.
+> stock vinculada, la unidad vuelve a quedar disponible. Una venta con la
+> entrega ya confirmada no se puede eliminar: primero hay que revertir la
+> entrega.
 
 ## El embudo {#embudo}
 
@@ -375,8 +379,16 @@ Para cerrar el ciclo:
 Al confirmar, la unidad pasa a **Entregado** en el stock y la tarjeta queda en
 solo lectura con quién y cuándo la confirmó.
 
-> **Confirmar entrega no se deshace.** La entrega ya no se puede modificar y la
-> unidad queda como Entregado. Confirmá cuando el cliente se llevó el auto.
+Confirmá cuando el cliente se llevó el auto: una vez confirmada, la entrega ya
+no se puede editar, y la venta no se puede reabrir, perder, cambiar de unidad
+ni eliminar.
+
+Si la confirmaste por error, un administrador puede tocar **Revertir entrega**
+en la misma tarjeta. La entrega vuelve a **Pendiente de entrega**, editable, y
+la unidad vuelve a **Vendido**. En el historial de la unidad queda una fila
+**Entrega revertida**, con quién la revirtió, cuándo, y la fecha en que se
+había confirmado. También se puede hacer desde la ficha de la unidad (ver
+[Estados de una unidad](/ayuda/stock#estados)).
 
 Si la oportunidad se reabre o se marca como perdida antes de confirmar, la
 unidad vuelve a Reservada o Disponible y la entrega no se puede confirmar

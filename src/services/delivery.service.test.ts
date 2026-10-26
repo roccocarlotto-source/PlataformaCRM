@@ -5,11 +5,14 @@ import { AppError } from "../utils/AppError";
 import {
   assertConfirmable,
   assertEditable,
+  assertRevertible,
   DEFAULT_DELIVERY_CHECKLIST_LABELS,
   defaultDeliveryChecklist,
   ENTREGA_CONFIRMADA_INMUTABLE,
+  ENTREGA_NO_CONFIRMADA,
   ENTREGA_YA_CONFIRMADA,
   normalizeChecklist,
+  UNIDAD_NO_ENTREGADA,
   UNIDAD_NO_VENDIDA,
 } from "./delivery.service";
 
@@ -117,5 +120,36 @@ test("confirmar sin unidad (vehicleId nulo o dada de baja): 409", () => {
     () => assertConfirmable({ status: "PENDING", vehicleId: VEHICLE_ID }, null),
     409,
     UNIDAD_NO_VENDIDA,
+  );
+});
+
+// --- Revertir (NEG-EST-1) ---------------------------------------------------
+
+test("revertir una entrega DELIVERED con la unidad DELIVERED: procede", () => {
+  assert.doesNotThrow(() =>
+    assertRevertible({ status: "DELIVERED", vehicleId: VEHICLE_ID }, { status: "DELIVERED" }),
+  );
+});
+
+test("revertir una entrega que no está confirmada: 409", () => {
+  assertAppError(
+    () => assertRevertible({ status: "PENDING", vehicleId: VEHICLE_ID }, { status: "SOLD" }),
+    409,
+    ENTREGA_NO_CONFIRMADA,
+  );
+});
+
+test("revertir con la unidad en cualquier estado que no sea DELIVERED, o sin unidad: 409", () => {
+  for (const status of TODOS_LOS_ESTADOS_DE_UNIDAD.filter((s) => s !== "DELIVERED")) {
+    assertAppError(
+      () => assertRevertible({ status: "DELIVERED", vehicleId: VEHICLE_ID }, { status }),
+      409,
+      UNIDAD_NO_ENTREGADA,
+    );
+  }
+  assertAppError(
+    () => assertRevertible({ status: "DELIVERED", vehicleId: null }, null),
+    409,
+    UNIDAD_NO_ENTREGADA,
   );
 });

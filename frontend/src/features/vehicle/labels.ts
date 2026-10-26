@@ -177,6 +177,8 @@ export const FIELD_LABELS: Record<string, string> = {
   publicDescription: "Descripción pública",
   internalNotes: "Notas internas",
   photos: "Al menos una foto",
+  // No es un campo: la nota que deja "Revertir entrega" en el historial.
+  deliveryReverted: "Entrega revertida",
 };
 
 export function fieldLabel(fieldName: string): string {

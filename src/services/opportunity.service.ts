@@ -43,6 +43,7 @@ import { lastPeriodsInZone, periodWindowInZone, type ZonedWindow } from "../util
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
 import {
   createDeliveryForSoldVehicle,
+  ENTREGA_CONFIRMADA_BLOQUEA_BORRADO,
   ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS,
   ensureDeliveryForSoldVehicle,
   hasConfirmedDelivery,
@@ -881,14 +882,34 @@ export async function deleteOpportunity(organizationId: string, actorUserId: str
     return;
   }
 
-  // Con unidad: se libera si sigue reservada por este vínculo (mismo criterio
-  // que al desvincular en updateOpportunity), y el soft delete va en la misma
+  // Con unidad: se libera si este vínculo la retiene —reservada por una
+  // abierta o vendida por una ganada—, y el soft delete va en la misma
   // transacción bajo el lock de organización.
-  const vehicleId = opportunity.vehicleId;
+  //
+  // NEG-EST-3 (docs-privados/auditoria-2026-10-21/informe.md, local): antes solo se liberaba una RESERVED, y borrar una ganada dejaba
+  // la unidad "Vendido" sin venta. Con la entrega CONFIRMADA no se borra: el
+  // auto ya se lo llevó el cliente y la venta es su registro (si la entrega
+  // fue un error, primero se revierte). Una entrega pendiente queda con la
+  // oportunidad borrada, inalcanzable como ella (requireReachableDelivery).
+  //
+  // El vínculo y el estado se releen bajo el lock: una perdida ya soltó la
+  // unidad, y si otra venta la tomó después, no es de esta.
   await prisma.$transaction(async (tx) => {
     await lockOrganizationForUpdate(organizationId, tx);
-    const vehicle = await findVehicleById(vehicleId, organizationId, tx);
-    if (vehicle && vehicle.status === "RESERVED") {
+    if (await hasConfirmedDelivery(organizationId, id, tx)) {
+      throw new AppError(ENTREGA_CONFIRMADA_BLOQUEA_BORRADO, 409);
+    }
+    const bajoLock = await lockOpportunityForUpdate(id, organizationId, tx);
+    if (!bajoLock) {
+      throw new AppError("Oportunidad no encontrada", 404);
+    }
+    const vehicleId = bajoLock.vehicleId;
+    const vehicle = vehicleId ? await findVehicleById(vehicleId, organizationId, tx) : null;
+    if (
+      vehicleId &&
+      bajoLock.status !== "LOST" &&
+      (vehicle?.status === "RESERVED" || vehicle?.status === "SOLD")
+    ) {
       await liberarVehiculoDeOportunidad(organizationId, actorUserId, vehicleId, tx);
     }
     const result = await softDeleteOpportunity(id, organizationId, tx);

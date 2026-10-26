@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { vehicleKeys } from "../vehicle/queries";
-import { confirmDelivery, updateDelivery } from "./api";
+import { confirmDelivery, revertDelivery, updateDelivery } from "./api";
 import { deliveryKeys } from "./queries";
 import type { Delivery, DeliveryListResponse, UpdateDeliveryInput } from "./types";
 
@@ -39,6 +39,19 @@ export function useConfirmDelivery(opportunityId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => confirmDelivery(id),
+    onSuccess: (delivery) => {
+      writeBack(queryClient, opportunityId, delivery);
+      queryClient.invalidateQueries({ queryKey: vehicleKeys.all });
+    },
+    onError: () => refresh(queryClient, opportunityId),
+  });
+}
+
+// Revertir devuelve la unidad de DELIVERED a SOLD: mismas invalidaciones.
+export function useRevertDelivery(opportunityId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => revertDelivery(id),
     onSuccess: (delivery) => {
       writeBack(queryClient, opportunityId, delivery);
       queryClient.invalidateQueries({ queryKey: vehicleKeys.all });

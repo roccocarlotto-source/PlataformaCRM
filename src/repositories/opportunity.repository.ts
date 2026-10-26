@@ -341,6 +341,24 @@ export function countOpportunitiesHoldingVehicle(
   });
 }
 
+// NEG-EST-1 (docs-privados/auditoria-2026-10-21/informe.md, local) — LA venta que maneja el estado de una unidad: la oportunidad viva
+// (abierta o ganada) que la tiene vinculada, con su entrega. A diferencia de
+// countOpportunitiesHoldingVehicle, una ganada con la entrega CONFIRMADA
+// también cuenta: es la que permite revertir esa entrega desde la ficha. El
+// ítem 153 impide que dos oportunidades vivas retengan la misma unidad, así
+// que hay a lo sumo una. Bajo el lock de organización del caller.
+export function findSaleOfVehicle(vehicleId: string, organizationId: string, db: Db = prisma) {
+  return db.opportunity.findFirst({
+    where: { vehicleId, organizationId, deletedAt: null, status: { in: ["OPEN", "WON"] } },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      deliveries: { select: { id: true, status: true, deliveredAt: true } },
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Oportunidades estancadas (ítem 76 de docs/frontend-cambios-pendientes.md):
 // el barrido diario del trigger opportunity.stale y la marca anti-redraft.

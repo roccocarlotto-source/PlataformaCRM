@@ -292,7 +292,9 @@ test("reemplazar por una unidad no disponible es 409 y no cambia nada", async ()
   assert.equal(await estadoDe(ocupada.id), "RESERVED");
 });
 
-test("borrar una oportunidad libera la unidad si sigue RESERVED, y no la toca si ya está SOLD", async () => {
+// NEG-EST-3 (docs-privados/auditoria-2026-10-21/informe.md, local): antes una SOLD quedaba "Vendido" sin venta. Con la entrega
+// confirmada el borrado es 409 (delivery.service.integration-test.ts).
+test("borrar una oportunidad libera la unidad que retiene, RESERVED o SOLD con la entrega pendiente", async () => {
   const reservada = await borrador(e);
   const opp1 = await oportunidad({ vehicleId: reservada.id });
   await deleteOpportunity(e.organizationId, e.userId, opp1.id);
@@ -302,7 +304,7 @@ test("borrar una oportunidad libera la unidad si sigue RESERVED, y no la toca si
   const opp2 = await oportunidad({ vehicleId: vendida.id, status: "WON" });
   assert.equal(await estadoDe(vendida.id), "SOLD");
   await deleteOpportunity(e.organizationId, e.userId, opp2.id);
-  assert.equal(await estadoDe(vendida.id), "SOLD");
+  assert.equal(await estadoDe(vendida.id), "AVAILABLE");
 
   const borradas = await prisma.opportunity.findMany({
     where: { id: { in: [opp1.id, opp2.id] } },

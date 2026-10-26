@@ -261,8 +261,8 @@ porque el agente solo ofrece las disponibles.
 | Entregado | El cliente se la llevó. Cierre del ciclo. |
 | No disponible | Sigue en el stock pero no se ofrece. Igual se puede vincular a una oportunidad. |
 
-El estado se puede elegir a mano en la tarjeta **Comercial**, pero los cambios
-importantes los hace el sistema a partir de las oportunidades:
+Cuando la unidad tiene una venta en el CRM (una oportunidad abierta o ganada
+con la unidad vinculada), el estado lo maneja la venta:
 
 - Vincular la unidad a una oportunidad **abierta** → **Reservado**.
 - La oportunidad se **gana** → **Vendido**, y se crea la entrega.
@@ -270,6 +270,21 @@ importantes los hace el sistema a partir de las oportunidades:
 - La oportunidad se **pierde**, se **elimina** o se le **quita el vínculo** →
   vuelve a **Disponible** (o a No disponible si estaba así).
 - La oportunidad se **reabre** → vuelve a **Reservado**.
+
+En ese caso, en la tarjeta **Comercial** de la unidad solo se puede:
+
+- Con la venta **abierta**: pasarla a **En preparación** o **En tránsito**, y
+  volverla a **Reservado**. Si después se gana, pasa a **Vendido** igual.
+- Con la venta **ganada**: pasarla de **Vendido** a **Entregado**, que confirma
+  la entrega (lo mismo que **Confirmar entrega** en la oportunidad).
+- Con la entrega **confirmada**: pasarla de **Entregado** a **Vendido**, que
+  revierte la entrega (lo mismo que **Revertir entrega** en la oportunidad).
+
+Cualquier otro cambio muestra un aviso que explica por qué no se puede.
+
+Si la unidad **no** tiene una venta en el CRM (por ejemplo, se vendió por
+fuera), el estado se elige a mano libremente, incluidos **Vendido** y
+**Entregado**, y se puede volver atrás.
 
 Todo esto está explicado desde el lado de la venta en
 [Oportunidades](/ayuda/oportunidades-y-procesos-de-venta#cerrar).

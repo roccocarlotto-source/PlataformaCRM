@@ -10,6 +10,11 @@ import { useVehicleChangeLog } from "./queries";
 
 const PAGE_SIZE = 20;
 
+// La nota de "Revertir entrega" (backend: CAMPO_ENTREGA_REVERTIDA en
+// vehicle.service.ts). No es un "antes → después": oldValue es el instante de
+// la confirmación que se deshizo; quién revirtió y cuándo son los de la fila.
+const CAMPO_ENTREGA_REVERTIDA = "deliveryReverted";
+
 export interface VehicleChangeLogDialogProps {
   vehicleId: string;
   onClose: () => void;
@@ -43,7 +48,9 @@ export function VehicleChangeLogDialog({ vehicleId, onClose }: VehicleChangeLogD
             <li key={entry.id} className="ds-list-row">
               <span className="ds-list-main">
                 <span className="ds-list-primary">
-                  {fieldLabel(entry.fieldName)}: {entry.oldValue ?? "—"} → {entry.newValue ?? "—"}
+                  {entry.fieldName === CAMPO_ENTREGA_REVERTIDA
+                    ? `${fieldLabel(entry.fieldName)}${entry.oldValue ? ` (se había confirmado el ${formatDateTime(entry.oldValue)})` : ""}`
+                    : `${fieldLabel(entry.fieldName)}: ${entry.oldValue ?? "—"} → ${entry.newValue ?? "—"}`}
                 </span>
                 <span className="ds-list-secondary">
                   {formatDateTime(entry.changedAt)} · {entry.changedBy.fullName}

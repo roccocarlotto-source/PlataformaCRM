@@ -1,7 +1,6 @@
 import { Prisma, type DeliveryStatus, type VehicleStatus } from "@prisma/client";
 import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import {
-  confirmDeliveryConditional,
   createDelivery,
   findDeliveryById,
   findDeliveryByOpportunity,
@@ -14,7 +13,7 @@ import { findOpportunityById } from "../repositories/opportunity.repository";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
-import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
+import { confirmarEntregaEnTransaccion, revertirEntregaEnTransaccion } from "./vehicle.service";
 
 // ---------------------------------------------------------------------------
 // Entrega (§40 de docs/frontend-cambios-pendientes.md).
@@ -30,7 +29,9 @@ import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
 //     mueve la unidad de SOLD a DELIVERED. El checklist es INFORMATIVO: se
 //     confirma aunque falten ítems (a veces se entrega igual sin el manual).
 //   - Una vez DELIVERED es un registro histórico inmutable (409 al editar),
-//     mismo criterio que Quote una vez SENT.
+//     mismo criterio que Quote una vez SENT. Lo único que admite es
+//     "Revertir entrega" (revertDelivery, NEG-EST-1), para una confirmada
+//     por error: vuelve a PENDING y la unidad a SOLD.
 //
 // Las piezas de decisión son funciones puras exportadas
 // (defaultDeliveryChecklist, normalizeChecklist, assertEditable,
@@ -88,6 +89,8 @@ export const UNIDAD_NO_VENDIDA =
 export const ENTREGA_YA_EXISTE = "La oportunidad ya tiene una entrega registrada";
 export const ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS =
   "La unidad de esta oportunidad ya se entregó: no se puede cambiar el estado de la oportunidad ni su unidad";
+export const ENTREGA_CONFIRMADA_BLOQUEA_BORRADO =
+  "La unidad de esta oportunidad ya se entregó: no se puede eliminar la oportunidad. Si la entrega fue un error, revertila primero";
 
 // Editar solo mientras está PENDING. 409 y no 400: no es un dato inválido, es
 // un conflicto con el estado que la base tiene ahora — mismo criterio que
@@ -311,24 +314,73 @@ export async function confirmDelivery(organizationId: string, actorUserId: strin
       : null;
     assertConfirmable(delivery, vehicle);
 
-    const result = await confirmDeliveryConditional(
-      id,
-      organizationId,
-      { deliveredById: actorUserId, deliveredAt: new Date() },
-      tx,
-    );
-    if (result.count === 0) {
-      throw new AppError(ENTREGA_YA_CONFIRMADA, 409);
-    }
-
     // assertConfirmable ya garantizó vehicleId no nulo y la unidad SOLD.
-    await setVehicleStatusForOpportunityLink(
+    const hecho = await confirmarEntregaEnTransaccion(
       organizationId,
       actorUserId,
+      id,
       delivery.vehicleId as string,
-      "DELIVERED",
       tx,
     );
+    if (!hecho) {
+      throw new AppError(ENTREGA_YA_CONFIRMADA, 409);
+    }
+  }, OPCIONES_DE_TRANSACCION_LARGA);
+
+  return requireDelivery(organizationId, id);
+}
+
+// ---------------------------------------------------------------------------
+// "Revertir entrega" (NEG-EST-1, docs-privados/auditoria-2026-10-21/informe.md, local): una entrega confirmada por error vuelve a
+// pendiente y la unidad a Vendido. Solo ADMIN (lo exige la ruta). Lo mismo
+// que pasar la unidad de Entregado a Vendido desde su ficha — las dos puertas
+// usan revertirEntregaEnTransaccion —, y el historial de la unidad guarda
+// quién revirtió, cuándo, y la fecha de la confirmación que se deshizo.
+//
+// Mismo lock y mismo razonamiento que confirmDelivery: la unidad se lee bajo
+// el lock de organización, que serializa toda escritura de Vehicle.status.
+// ---------------------------------------------------------------------------
+
+export const ENTREGA_NO_CONFIRMADA =
+  "Esta entrega todavía no fue confirmada: no hay nada que revertir";
+
+export const UNIDAD_NO_ENTREGADA =
+  "La unidad de esta entrega ya no figura como entregada: revisá su estado en el stock antes de revertir";
+
+export function assertRevertible(
+  delivery: { status: DeliveryStatus; vehicleId: string | null },
+  vehicle: { status: VehicleStatus } | null,
+): void {
+  if (delivery.status !== "DELIVERED") {
+    throw new AppError(ENTREGA_NO_CONFIRMADA, 409);
+  }
+  if (delivery.vehicleId === null || vehicle === null || vehicle.status !== "DELIVERED") {
+    throw new AppError(UNIDAD_NO_ENTREGADA, 409);
+  }
+}
+
+export async function revertDelivery(organizationId: string, actorUserId: string, id: string) {
+  await requireReachableDelivery(organizationId, id);
+
+  await prisma.$transaction(async (tx) => {
+    await lockOrganizationForUpdate(organizationId, tx);
+
+    const delivery = await requireReachableDelivery(organizationId, id, tx);
+    const vehicle = delivery.vehicleId
+      ? await findVehicleById(delivery.vehicleId, organizationId, tx)
+      : null;
+    assertRevertible(delivery, vehicle);
+
+    const hecho = await revertirEntregaEnTransaccion(
+      organizationId,
+      actorUserId,
+      delivery,
+      delivery.vehicleId as string,
+      tx,
+    );
+    if (!hecho) {
+      throw new AppError(ENTREGA_NO_CONFIRMADA, 409);
+    }
   }, OPCIONES_DE_TRANSACCION_LARGA);
 
   return requireDelivery(organizationId, id);

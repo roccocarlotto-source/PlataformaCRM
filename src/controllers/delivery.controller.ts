@@ -4,6 +4,7 @@ import {
   confirmDelivery,
   getDeliveryById,
   listDeliveriesByOpportunity,
+  revertDelivery,
   updateDelivery,
 } from "../services/delivery.service";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -43,8 +44,8 @@ const scheduledAtSchema = z.coerce.date({ invalid_type_error: "scheduledAt invá
 // PATCH /deliveries/:id tiene DOS formas, y no se mezclan (mismo criterio que
 // PATCH /quotes/:id):
 //
-//   1. { status: "DELIVERED" }: "Confirmar entrega". El único destino: a
-//      PENDING no se vuelve.
+//   1. { status: "DELIVERED" }: "Confirmar entrega"; { status: "PENDING" }:
+//      "Revertir entrega", para una confirmada por error (NEG-EST-1).
 //   2. { checklist?, scheduledAt? }: editar una entrega PENDING.
 //
 // Juntar status con otro campo es 400: ¿se guarda el checklist y después se
@@ -52,10 +53,10 @@ const scheduledAtSchema = z.coerce.date({ invalid_type_error: "scheduledAt invá
 //
 // Exportados para fijar con tests unitarios (sin base) qué rechaza el borde:
 // ver delivery.controller.test.ts.
-export const confirmDeliverySchema = z
+export const deliveryStatusSchema = z
   .object({
-    status: z.literal("DELIVERED", {
-      errorMap: () => ({ message: "status debe ser DELIVERED" }),
+    status: z.enum(["DELIVERED", "PENDING"], {
+      errorMap: () => ({ message: "status debe ser DELIVERED o PENDING" }),
     }),
   })
   .strict("status no se combina con otros campos en el mismo PATCH");
@@ -106,8 +107,9 @@ export const updateDeliveryHandler = asyncHandler<AuthenticatedRequest>(
     // La presencia de `status` decide la forma; cada schema es .strict(), así
     // que mezclar las dos cae en el 400 de la que corresponda.
     if ("status" in req.body) {
-      parseOrThrow(confirmDeliverySchema, req.body);
-      const delivery = await confirmDelivery(req.auth.organizationId, req.auth.userId, id);
+      const { status } = parseOrThrow(deliveryStatusSchema, req.body);
+      const cambiar = status === "DELIVERED" ? confirmDelivery : revertDelivery;
+      const delivery = await cambiar(req.auth.organizationId, req.auth.userId, id);
       res.status(200).json(delivery);
       return;
     }
