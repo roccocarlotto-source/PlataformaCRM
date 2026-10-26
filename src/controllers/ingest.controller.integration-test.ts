@@ -756,11 +756,14 @@ test("un anidamiento excesivo CON X-External-Id da 400 con el mensaje del guard,
 // repositorio todavía no desborda (antes del fix ese caso daba 202: se
 // guardaba sin chequear); el desborde aparece desde unos miles de niveles.
 // JSON.parse de V8 es iterativo y lo acepta sin problema, así que el cuerpo
-// pasa el parser y llega entero al service — 10.000 niveles son ~20 KB,
-// holgado bajo INGEST_MAX_BODY_BYTES. Es el escenario literal del hallazgo.
+// pasa el parser y llega entero al service — 10.000 niveles son ~60 KB, bajo
+// INGEST_MAX_BODY_BYTES. Es el escenario literal del hallazgo. Con OBJETOS
+// anidados y no con listas: 10.000 listas anidadas son 10.000 elementos de
+// lista, y el límite de listas del parser (bodyParserError.ts) las cortaría
+// antes de llegar al chequeo de profundidad que este test cubre.
 test("un anidamiento de miles de niveles CON X-External-Id da 400, no el 500 del desborde de pila (M-15)", async () => {
   const niveles = 10_000;
-  const raw = `{"payload":${"[".repeat(niveles)}1${"]".repeat(niveles)}}`;
+  const raw = `{"payload":${'{"a":'.repeat(niveles)}1${"}".repeat(niveles)}}`;
   assert.ok(raw.length < INGEST_MAX_BODY_BYTES, "el cuerpo tiene que pasar el límite de tamaño");
 
   const externalId = `abismo-${randomUUID()}`;

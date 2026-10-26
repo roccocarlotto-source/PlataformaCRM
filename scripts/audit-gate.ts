@@ -59,6 +59,11 @@ interface Excepcion {
   // De dónde sale la decisión de aceptarla. Sin esto, dentro de seis meses la
   // excepción es una línea sin dueño que nadie se anima a sacar.
   hallazgo: string;
+  // Opcional: fecha (AAAA-MM-DD, UTC) desde la que la excepción deja de valer.
+  // Pasada esa fecha el gate vuelve a bloquear solo, sin que nadie tenga que
+  // acordarse de sacarla: para excepciones temporales mientras llega el
+  // arreglo de raíz.
+  vence?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +82,20 @@ const EXCEPCIONES: Excepcion[] = [
       "(lib/xlsx/xform/sheet/cf-ext/cf-rule-ext-xform.js): verificado no alcanzable. No hay " +
       "arreglo no disruptivo — `npm audit fix --force` degradaría exceljs a 3.4.0.",
     hallazgo: "S-1, docs-privados/review-ingesta-2026-08-27.md",
+  },
+  {
+    ghsa: "GHSA-mrhx-c7xc-m3w5",
+    paquete: "zod",
+    workspace: "backend",
+    motivo:
+      "El arreglo es zod 4 (versión mayor, ~85 archivos). Mientras tanto, todo cuerpo JSON pasa " +
+      "por el límite de tamaño de listas de src/middlewares/bodyParserError.ts " +
+      "(MAX_ELEMENTOS_DE_LISTA_POR_PEDIDO = 2000 elementos en total) antes de llegar a zod, en " +
+      "los cuatro parsers JSON (global, webhooks, ingesta y widget); medido, el peor caso queda " +
+      "en unos MB por pedido. Las importaciones grandes llegan como archivo. TEMPORAL: vence en " +
+      "30 días; la tarea de migrar a zod 4 está anotada.",
+    hallazgo: "docs-privados/arreglos-tanda-1/ESTADO.md (local), decisión de Rocco del 26/10",
+    vence: "2026-11-25",
   },
 ];
 
@@ -132,8 +151,15 @@ if (workspaceArg !== undefined && !WORKSPACES.includes(workspaceArg as Workspace
 
 const workspace: Workspace = (workspaceArg as Workspace | undefined) ?? "backend";
 
-// Solo las excepciones verificadas para ESTE workspace. El resto no existe acá.
-const EXCEPCIONES_DEL_WORKSPACE = EXCEPCIONES.filter((e) => e.workspace === workspace);
+// Solo las excepciones verificadas para ESTE workspace y todavía vigentes. El
+// resto no existe acá. Una vencida se avisa abajo y su advisory vuelve a
+// bloquear.
+const HOY = new Date().toISOString().slice(0, 10);
+const estaVencida = (e: Excepcion) => e.vence !== undefined && HOY > e.vence;
+const EXCEPCIONES_VENCIDAS = EXCEPCIONES.filter((e) => e.workspace === workspace && estaVencida(e));
+const EXCEPCIONES_DEL_WORKSPACE = EXCEPCIONES.filter(
+  (e) => e.workspace === workspace && !estaVencida(e),
+);
 
 let reporte: ReporteAudit;
 
@@ -225,7 +251,13 @@ for (const exc of EXCEPCIONES_DEL_WORKSPACE) {
       activa
         ? "aceptada explícitamente (high/critical)"
         : "declarada, hoy no alcanza el umbral high/critical"
-    } — ${exc.hallazgo}`,
+    }${exc.vence ? ` (vence el ${exc.vence})` : ""} — ${exc.hallazgo}`,
+  );
+}
+
+for (const exc of EXCEPCIONES_VENCIDAS) {
+  console.log(
+    `    · ${exc.ghsa} (${exc.paquete}) — VENCIDA el ${exc.vence ?? ""}: ya no exceptúa nada`,
   );
 }
 

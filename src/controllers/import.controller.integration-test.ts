@@ -8,6 +8,7 @@ import express from "express";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { jsonParser } from "../middlewares/bodyParserError";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
@@ -45,7 +46,7 @@ let closeApp: () => Promise<void>;
 
 function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
   const app = express();
-  app.use(express.json());
+  app.use(jsonParser);
   app.use("/api", sourceRouter);
   app.use("/api", importRouter);
   app.use(notFound);
@@ -300,6 +301,33 @@ test("un CSV válido crea N eventos con el MISMO batchId y el payload SIN TRADUC
       );
     }
   }
+});
+
+// El límite de tamaño de las listas de un pedido JSON (bodyParserError.ts) no
+// alcanza a las importaciones: el archivo llega como multipart, y un lote de
+// miles de filas sigue entrando entero.
+test("una importación de 2500 filas, por encima del tope de listas JSON, entra entera", async () => {
+  const source = await crearSource("Importación grande", "FILE_IMPORT");
+  const filas = Array.from(
+    { length: 2500 },
+    (_, i) => `Persona${String(i)},Apellido${String(i)},persona${String(i)}@ejemplo.test`,
+  );
+  const csv = ["Nombre,Apellido,Mail", ...filas].join("\n");
+
+  const res = await subir(admin.accessToken, source, "grande.csv", csv);
+  assert.equal(res.status, 202);
+  const body = (await res.json()) as { batchId: string; filasLeidas: number; insertados: number };
+  assert.equal(body.filasLeidas, 2500);
+  assert.equal(body.insertados, 2500);
+  assert.equal(
+    await prisma.ingestionEvent.count({ where: { organizationId: orgId, batchId: body.batchId } }),
+    2500,
+  );
+  // Fuera de la cola: los tests de abajo drenan los PENDING de la organización
+  // de a tandas, y 2500 eventos ajenos les dejarían los suyos sin procesar.
+  await prisma.ingestionEvent.deleteMany({
+    where: { organizationId: orgId, batchId: body.batchId },
+  });
 });
 
 test("subir el MISMO archivo dos veces no duplica: la segunda vez todo es duplicado", async () => {
