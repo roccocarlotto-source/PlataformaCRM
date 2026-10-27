@@ -43,6 +43,19 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   };
 }
 
+// El menú pide el número de conversaciones pendientes (UX-02) en cada render.
+// Sin pendientes por defecto; los tests del número ponen el suyo con
+// server.use (el último en registrarse gana). Sin esto, MSW rechaza el pedido
+// (onUnhandledRequest: "error") y vitest termina con errores aunque los tests
+// pasen.
+beforeEach(() => {
+  server.use(
+    http.get(`${env.apiUrl}/api/conversations/pendientes/count`, () =>
+      HttpResponse.json({ total: 0 }),
+    ),
+  );
+});
+
 // ThemeProvider REAL (no mock): el toggle de tema del pie de la sidebar (§31)
 // necesita el contexto, y el provider no tiene dependencias externas — con el
 // matchMedia de test/setup.ts (que no prefiere oscuro) resuelve "Sistema" a
