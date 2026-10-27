@@ -75,7 +75,7 @@ describe("VehicleSelect", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Toyota Corolla 2020 XEi · 25000.00 USD" }),
+        screen.getByRole("button", { name: "Toyota Corolla 2020 XEi · 25.000 USD" }),
       ).toBeInTheDocument(),
     );
     expect(
@@ -95,7 +95,7 @@ describe("VehicleSelect", () => {
 
     await user.type(screen.getByPlaceholderText(PLACEHOLDER), "corolla");
     const resultado = await screen.findByRole("button", {
-      name: "Toyota Corolla 2020 XEi · 25000.00 USD",
+      name: "Toyota Corolla 2020 XEi · 25.000 USD",
     });
     await user.click(resultado);
 
@@ -141,7 +141,7 @@ describe("VehicleSelect", () => {
     const user = userEvent.setup();
     const onChange = renderSelect("v-reservada");
 
-    await waitFor(() => expect(screen.getByText(/Ford Ranger 2020 · 40000.00 USD/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/Ford Ranger 2020 · 40.000 USD/)).toBeVisible());
     expect(captured[0].pathname.endsWith("/api/vehicles/v-reservada")).toBe(true);
     expect(captured[0].searchParams.has("status")).toBe(false);
     const badge = screen.getByText("Reservado");

@@ -381,7 +381,7 @@ describe("OpportunityListPage", () => {
     const row = screen.getByText("Renovación anual").closest("tr") as HTMLElement;
     // Pipeline y Stage van consolidados en un solo badge "Embudo · Etapa".
     expect(within(row).getByText("Ventas · Prospecto")).toBeInTheDocument();
-    expect(within(row).getByText(/1500\.00 USD/)).toBeInTheDocument();
+    expect(within(row).getByText(/1\.500 USD/)).toBeInTheDocument();
   });
 
   // D2 (OPUS-I-03, docs-privados, local): un USER crea, y edita las que tiene
@@ -597,7 +597,7 @@ describe("OpportunityListPage", () => {
     expect(dialog).toHaveTextContent("Acme Corp");
     expect(dialog).toHaveTextContent("Ventas");
     expect(dialog).toHaveTextContent("Prospecto");
-    expect(dialog).toHaveTextContent("1500.00 USD");
+    expect(dialog).toHaveTextContent("1.500 USD");
     expect(dialog).toHaveTextContent("Ana Pérez");
     expect(dialog).toHaveTextContent("Financiación propia");
     expect(dialog).toHaveTextContent("Showroom");

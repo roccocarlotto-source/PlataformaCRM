@@ -71,7 +71,7 @@ describe("TopDealsList", () => {
     expect(fills).toHaveLength(2);
     expect(fills[0].style.width).toBe("100%");
     expect(fills[1].style.width).toBe("25%");
-    expect(within(card()).getByText("8000.00 UYU")).toBeInTheDocument();
+    expect(within(card()).getByText("8.000 UYU")).toBeInTheDocument();
   });
 
   it("si el resumen falla no se pide el listado y se muestra el error del resumen", async () => {

@@ -5,6 +5,7 @@ import {
   nivelEfectivo,
   toolDelNivel,
 } from "./agentNivelDeIa";
+import { formatearMonto } from "../utils/formatoDeMonto";
 import { toolDelRubro } from "../config/ediciones";
 import type {
   AgentParticipation,
@@ -894,9 +895,15 @@ function datosDeCalificacion(contact: CalificacionEnElPrompt): string[] {
   const monto = contact.leadBudgetAmount;
   if (monto !== null && monto !== undefined && String(monto).trim().length > 0) {
     const moneda = tieneContenidoReal(contact.leadBudgetCurrency ?? null)
-      ? ` ${contact.leadBudgetCurrency}`
+      ? (contact.leadBudgetCurrency as string)
       : "";
-    datos.push(`presupuesto: ${String(monto)}${moneda}`);
+    // "23.000 USD", el formato de montos de todo el sistema (UX-09): el modelo
+    // lo repite tal cual al cliente. Un valor que no es un número se pasa como
+    // vino.
+    const texto = String(monto);
+    datos.push(
+      `presupuesto: ${Number.isFinite(Number(texto)) ? formatearMonto(texto, moneda) : `${texto} ${moneda}`.trim()}`,
+    );
   }
   if (tieneContenidoReal(contact.leadUrgency ?? null)) {
     datos.push(`urgencia: ${contact.leadUrgency}`);

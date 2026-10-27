@@ -209,7 +209,7 @@ describe("toAreaPath", () => {
 });
 
 describe("tooltipLayout", () => {
-  const text = "oct: 100.00 USD";
+  const text = "oct: 100 USD";
 
   it("centrado sobre el punto, arriba de él, con el texto en el centro del rect", () => {
     const layout = tooltipLayout(point(300, 120), text, WIDTH);

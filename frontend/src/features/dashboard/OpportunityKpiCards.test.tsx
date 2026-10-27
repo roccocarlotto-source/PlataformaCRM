@@ -85,8 +85,8 @@ describe("OpportunityKpiCards", () => {
     expect(within(section()).queryByText("3")).not.toBeInTheDocument();
     // openValue (4500.00) tampoco se muestra desde el §36: la card que lo
     // leía era "Valor del pipeline".
-    expect(within(section()).queryByText("4500.00 USD")).not.toBeInTheDocument();
-    expect(within(section()).getByText("3000.00 USD")).toBeInTheDocument();
+    expect(within(section()).queryByText("4.500 USD")).not.toBeInTheDocument();
+    expect(within(section()).getByText("3.000 USD")).toBeInTheDocument();
     expect(within(section()).getByText("50%")).toBeInTheDocument();
 
     const up = within(section()).getByText("+2 vs. mes anterior");
@@ -247,15 +247,15 @@ describe("OpportunityKpiCards — conteo de llegada (§37)", () => {
     server.use(summaryByGranularity());
     renderSwitchable("month");
 
-    await waitFor(() => expect(values()).toEqual(["0", "0.00 USD", "0%"]));
+    await waitFor(() => expect(values()).toEqual(["0", "0 USD", "0%"]));
 
     advance(COUNT_UP_DURATION_MS / 3);
     const aMitad = values();
-    expect(aMitad).not.toEqual(["0", "0.00 USD", "0%"]);
-    expect(aMitad).not.toEqual(["5", "3000.00 USD", "50%"]);
+    expect(aMitad).not.toEqual(["0", "0 USD", "0%"]);
+    expect(aMitad).not.toEqual(["5", "3.000 USD", "50%"]);
 
     advance(COUNT_UP_DURATION_MS);
-    expect(values()).toEqual(["5", "3000.00 USD", "50%"]);
+    expect(values()).toEqual(["5", "3.000 USD", "50%"]);
   });
 
   it("cambiar a un período NO visitado (pasa por Cargando…) muestra los números nuevos directo, sin volver a contar", async () => {
@@ -263,14 +263,14 @@ describe("OpportunityKpiCards — conteo de llegada (§37)", () => {
     server.use(summaryByGranularity());
     const setGranularity = renderSwitchable("month");
 
-    await waitFor(() => expect(values()).toEqual(["0", "0.00 USD", "0%"]));
+    await waitFor(() => expect(values()).toEqual(["0", "0 USD", "0%"]));
     advance(COUNT_UP_DURATION_MS + 50);
-    expect(values()).toEqual(["5", "3000.00 USD", "50%"]);
+    expect(values()).toEqual(["5", "3.000 USD", "50%"]);
 
     setGranularity("week");
     await waitFor(() => expect(within(section()).getAllByText("Cargando…")).toHaveLength(3));
     // Sin avanzar ningún frame: si contara, se quedaría en 0.
-    await waitFor(() => expect(values()).toEqual(["9", "1200.00 USD", "75%"]));
+    await waitFor(() => expect(values()).toEqual(["9", "1.200 USD", "75%"]));
   });
 
   it("volver al período de la primera carga mientras el otro todavía carga tampoco vuelve a contar", async () => {
@@ -278,7 +278,7 @@ describe("OpportunityKpiCards — conteo de llegada (§37)", () => {
     server.use(summaryByGranularity());
     const setGranularity = renderSwitchable("month");
 
-    await waitFor(() => expect(values()).toEqual(["0", "0.00 USD", "0%"]));
+    await waitFor(() => expect(values()).toEqual(["0", "0 USD", "0%"]));
     advance(COUNT_UP_DURATION_MS + 50);
 
     setGranularity("week");
@@ -286,7 +286,7 @@ describe("OpportunityKpiCards — conteo de llegada (§37)", () => {
     // El mensual está en caché (la misma referencia del primer resumen) y los
     // números se vuelven a montar: tienen que aparecer ya asentados.
     setGranularity("month");
-    expect(values()).toEqual(["5", "3000.00 USD", "50%"]);
+    expect(values()).toEqual(["5", "3.000 USD", "50%"]);
   });
 
   it('una tasa de cierre en "—" en la primera carga que después tiene número tampoco cuenta', async () => {
@@ -306,11 +306,11 @@ describe("OpportunityKpiCards — conteo de llegada (§37)", () => {
     );
     const setGranularity = renderSwitchable("month");
 
-    await waitFor(() => expect(values()).toEqual(["0", "0.00 USD", "—"]));
+    await waitFor(() => expect(values()).toEqual(["0", "0 USD", "—"]));
     advance(COUNT_UP_DURATION_MS + 50);
-    expect(values()).toEqual(["5", "0.00 USD", "—"]);
+    expect(values()).toEqual(["5", "0 USD", "—"]);
 
     setGranularity("week");
-    await waitFor(() => expect(values()).toEqual(["5", "3000.00 USD", "50%"]));
+    await waitFor(() => expect(values()).toEqual(["5", "3.000 USD", "50%"]));
   });
 });

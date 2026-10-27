@@ -137,3 +137,39 @@ export function positionAfterSignificant(
   }
   return text.length;
 }
+
+// ---------------------------------------------------------------------------
+// Un importe en pantalla, con su moneda: EL formato de montos de todo el
+// sistema (UX-09 de docs-privados/auditoria-2026-10-21/informe-etapa-2.md,
+// local: el inicio, el embudo y el taller mostraban "23000.00 USD" o
+// "UYU 5200.00" con un formato propio). Vivía en features/quote/format.ts;
+// se mueve acá para que oportunidades, inicio, stock, pagos, cotización y
+// taller usen el mismo.
+//
+// Todo pasa por CENTAVOS ENTEROS: sumar los strings convertidos a float
+// ("0.1" + "0.2") dejaría restos que el formato después redondearía de
+// maneras distintas según el orden. Los importes del backend traen a lo sumo
+// dos decimales, así que Math.round(x * 100) es exacto.
+// ---------------------------------------------------------------------------
+export function toCents(amount: string): number {
+  return Math.round(Number(amount) * 100);
+}
+
+// Exportada para el total de pagos (features/payment/totals.ts, §43), que suma
+// en centavos por el mismo motivo.
+export function centsToCanonical(cents: number): string {
+  const abs = Math.abs(cents);
+  const integer = Math.floor(abs / 100);
+  const decimals = String(abs % 100).padStart(2, "0");
+  return `${cents < 0 ? "-" : ""}${integer}.${decimals}`;
+}
+
+// "24.150 USD" / "−500 USD" / "24.150,50 USD". formatAmount (el formato
+// uruguayo de CurrencyInput) muestra los centavos solo si los hay (§52) y
+// descarta el signo, así que el menos se agrega acá con el signo tipográfico,
+// que no se confunde con un guión.
+export function formatMoney(amount: string, currency: string): string {
+  const cents = toCents(amount);
+  const sign = cents < 0 ? "−" : "";
+  return `${sign}${formatAmount(centsToCanonical(Math.abs(cents)))} ${currency}`;
+}

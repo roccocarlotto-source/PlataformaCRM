@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeQuote } from "../../test/quoteFixtures";
-import { formatMoney, quoteTotal, toCents, vehicleLabel } from "./format";
+import { formatMoney, toCents } from "../../design-system/currencyFormat";
+import { quoteTotal, vehicleLabel } from "./format";
 
 describe("quote/format", () => {
   it("toCents: exacto para importes de hasta dos decimales, negativos incluidos", () => {

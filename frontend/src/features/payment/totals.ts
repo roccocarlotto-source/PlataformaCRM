@@ -1,4 +1,4 @@
-import { centsToCanonical, toCents } from "../quote/format";
+import { centsToCanonical, toCents } from "../../design-system/currencyFormat";
 import type { Opportunity } from "../opportunity/types";
 import type { Payment } from "./types";
 

@@ -5,7 +5,7 @@ import { ETIQUETA_DE_MONEDA_LOCAL, monedaLocalDe, priceCell } from "./format";
 describe("priceCell", () => {
   it("USD si lo tiene; 'Consultar precio' manda; '—' sin ningún precio", () => {
     expect(priceCell(makeVehicle({ priceListUsd: "25000.00", priceListLocal: "1025000.00" }))).toBe(
-      "25000.00 USD",
+      "25.000 USD",
     );
     expect(priceCell(makeVehicle({ priceListUsd: "25000.00", priceOnRequest: true }))).toBe(
       "Consultar precio",
@@ -15,9 +15,9 @@ describe("priceCell", () => {
 
   it("solo en moneda local: el precio local, con la moneda o la etiqueta genérica", () => {
     const soloPesos = makeVehicle({ priceListUsd: null, priceListLocal: "520000.00" });
-    expect(priceCell(soloPesos, "UYU")).toBe("520000.00 UYU");
-    expect(priceCell(soloPesos)).toBe(`520000.00 ${ETIQUETA_DE_MONEDA_LOCAL}`);
-    expect(priceCell(soloPesos, null)).toBe(`520000.00 ${ETIQUETA_DE_MONEDA_LOCAL}`);
+    expect(priceCell(soloPesos, "UYU")).toBe("520.000 UYU");
+    expect(priceCell(soloPesos)).toBe(`520.000 ${ETIQUETA_DE_MONEDA_LOCAL}`);
+    expect(priceCell(soloPesos, null)).toBe(`520.000 ${ETIQUETA_DE_MONEDA_LOCAL}`);
   });
 });
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listOpportunities } from "../opportunity/api";
+import { formatAmount } from "../opportunity/format";
 import { opportunityKeys, useOpportunity } from "../opportunity/queries";
 import type { Opportunity } from "../opportunity/types";
 import { InlineLoading } from "../../design-system/LoadingState";
@@ -19,7 +20,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 // — Number() antes de formatear, nunca .toFixed() directo sobre el string
 // crudo. Mismo cuidado que OpportunityListPage.
 function formatOpportunityLabel(opportunity: Opportunity): string {
-  return `${opportunity.title} — ${opportunity.status} — ${Number(opportunity.amount).toFixed(2)} ${opportunity.currency}`;
+  return `${opportunity.title} — ${opportunity.status} — ${formatAmount(opportunity.amount, opportunity.currency)}`;
 }
 
 // Selector de Opportunity para Activity — búsqueda server-side por título
