@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { ChevronRight, type LucideIcon } from "lucide-react";
+import { Badge } from "../design-system/Badge";
 
 // Las piezas de la sidebar (AppLayout), compartidas por el menú de cada rubro
 // (docs/rubros.md §1.3): MenuDeAutomotora y MenuDeClinica.
@@ -8,16 +9,25 @@ import { ChevronRight, type LucideIcon } from "lucide-react";
 // Ícono + href + label de cada link, para no repetir el patrón de NavLink
 // (className por isActive) en cada ítem. Los labels son EXACTAMENTE los que
 // ya cubre AppLayout.test.tsx — el restyle no toca ningún texto.
+// `contador` (UX-02): un número al lado del rótulo, con el Badge del design
+// system. Con 0 o sin dato no se muestra. Para un lector de pantalla el link
+// dice qué es ("Conversaciones 3 pendientes"): el número visible va oculto y
+// `contadorLabel` va como texto solo para lectores. Un aria-label sobre el
+// span no alcanza: un span sin rol no aporta su aria-label al nombre del link.
 export function SidebarLink({
   to,
   end,
   icon: Icon,
   children,
+  contador,
+  contadorLabel,
 }: {
   to: string;
   end?: boolean;
   icon: LucideIcon;
   children: string;
+  contador?: number;
+  contadorLabel?: string;
 }) {
   return (
     <NavLink
@@ -27,6 +37,17 @@ export function SidebarLink({
     >
       <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
       {children}
+      {contador ? (
+        <>
+          <Badge variant="info" className="ds-sidebar-count" aria-hidden="true">
+            {contador}
+          </Badge>
+          {/* El espacio va como nodo de texto propio, afuera del span: adentro
+              se recorta al calcular el nombre, y el link quedaba
+              "Conversaciones3 pendientes". */}{" "}
+          <span className="ds-sr-only">{contadorLabel ?? String(contador)}</span>
+        </>
+      ) : null}
     </NavLink>
   );
 }

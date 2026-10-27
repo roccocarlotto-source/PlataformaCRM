@@ -335,6 +335,75 @@ export interface ConversationFilters {
   contactId?: string;
   status?: ConversationStatus;
   channel?: ConversationChannel;
+  // "Mis pendientes" (UX-02): los ids que calculó pendientesDelActor. La
+  // bandeja y el contador del menú parten de la MISMA lista de ids.
+  ids?: readonly string[];
+}
+
+// ---------------------------------------------------------------------------
+// UX-02 (docs-privados/auditoria-2026-10-21/informe-etapa-2.md, local): las
+// conversaciones que esperan a una persona, para el contador del menú y el
+// filtro "Mis pendientes" de la bandeja. Esta consulta trae las CANDIDATAS,
+// ya acotadas al alcance del actor; conversation.service.ts termina de
+// decidir la marca "pidió hablar con una persona · sin responder" con la
+// misma función que usa la lista.
+//
+//   - esperando: derivada a un humano y, entre el cliente y las personas del
+//     equipo, el último que escribió fue el cliente. Lo que diga el agente o
+//     una automatización en el medio (un "te paso con alguien") no cuenta
+//     como respuesta;
+//   - con aviso: tuvo el aviso de "no hay nadie disponible"
+//     (noticeType UNANSWERED_HANDOFF). Candidata a la marca.
+//
+// Alcance (decisión de Rocco, 26/10): `sedes` es el filtro de Recepción
+// (R20); `usuarioId` acota a un USER a lo suyo más lo que no tiene a nadie.
+// Ninguno de los dos va para un ADMIN.
+// ---------------------------------------------------------------------------
+
+export interface AlcanceDePendientes {
+  sedes?: readonly string[];
+  usuarioId?: string;
+}
+
+export interface CandidataPendiente {
+  id: string;
+  contactId: string;
+  esperando: boolean;
+}
+
+export async function findCandidatasPendientes(
+  organizationId: string,
+  alcance: AlcanceDePendientes,
+  db: Db = prisma,
+): Promise<CandidataPendiente[]> {
+  const porSede = alcance.sedes
+    ? Prisma.sql`AND c.branch_id = ANY(${[...alcance.sedes]}::uuid[])`
+    : Prisma.empty;
+  const porUsuario = alcance.usuarioId
+    ? Prisma.sql`AND (c.assigned_user_id = ${alcance.usuarioId}::uuid OR c.assigned_user_id IS NULL)`
+    : Prisma.empty;
+  const filas = await db.$queryRaw<
+    { id: string; contactId: string; esperando: boolean; conAviso: boolean }[]
+  >`
+    SELECT c.id, c.contact_id AS "contactId",
+      (c.status = 'TRANSFERRED_TO_HUMAN'::"ConversationStatus" AND (
+        SELECT m.sender_type FROM messages m
+        WHERE m.conversation_id = c.id
+          AND m.sender_type IN ('CONTACT'::"MessageSenderType", 'HUMAN'::"MessageSenderType")
+        ORDER BY m.created_at DESC, m.id DESC LIMIT 1
+      ) = 'CONTACT'::"MessageSenderType") AS esperando,
+      EXISTS (
+        SELECT 1 FROM messages m
+        WHERE m.conversation_id = c.id AND m.notice_type = 'UNANSWERED_HANDOFF'::"MessageNoticeType"
+      ) AS "conAviso"
+    FROM conversations c
+    WHERE c.organization_id = ${organizationId}::uuid
+      AND c.status IN ('ACTIVE'::"ConversationStatus", 'TRANSFERRED_TO_HUMAN'::"ConversationStatus")
+      ${porSede}
+      ${porUsuario}`;
+  return filas
+    .filter((f) => f.esperando || f.conAviso)
+    .map(({ id, contactId, esperando }) => ({ id, contactId, esperando }));
 }
 
 export type ConversationSortBy = "lastMessageAt" | "createdAt";
@@ -391,6 +460,7 @@ function buildWhere(
     ...(filters.contactId ? { contactId: filters.contactId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.channel ? { channel: filters.channel } : {}),
+    ...(filters.ids ? { id: { in: [...filters.ids] } } : {}),
   };
 }
 

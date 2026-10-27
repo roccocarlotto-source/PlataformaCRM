@@ -478,6 +478,8 @@ exports[`automotora sin cambios: los textos de antes de R17b > conversaciones 1`
   "[aria-label] Ayuda de esta pantalla",
   "[title] Ayuda de esta pantalla",
   "Filtros",
+  "Ver",
+  "[placeholder] Todas",
   "Buscar",
   "[placeholder] Buscar por contacto",
   "Estado",
@@ -549,7 +551,7 @@ exports[`automotora sin cambios: los textos de antes de R17b > conversación 1`]
   "Mensaje para el cliente",
   "[placeholder] Escribí tu respuesta…",
   "Mientras atiendas vos, el agente no responde.",
-  "Podés escribir texto libre hasta el #, #.",
+  "Podés escribir texto libre hasta el #, #",
   "Enviar",
 ]
 `;
@@ -722,9 +724,9 @@ exports[`automotora sin cambios: los textos de antes de R17b > menú 1`] = `
   "Dashboard",
   "Agente interno",
   "Canjear cupón",
+  "Conversaciones",
   "CRM",
   "Contactos",
-  "Conversaciones",
   "Empresas",
   "Oportunidades",
   "Procesos de venta",

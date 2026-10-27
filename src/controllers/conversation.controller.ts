@@ -4,6 +4,7 @@ import type { Response } from "express";
 import { z } from "zod";
 import {
   closeConversation,
+  contarPendientes,
   generateConversationBrief,
   getConversationById,
   listConversations,
@@ -52,6 +53,12 @@ const listQuerySchema = z.object({
   // docs-privados, local): con la lista escrita a mano, Messenger e Instagram
   // quedaron afuera y filtrar por ellos daba 400. Del enum, uno nuevo entra solo.
   channel: z.nativeEnum(ConversationChannel).optional(),
+  // "Mis pendientes" (UX-02): lo que lista el contador del menú. Texto
+  // explícito y no z.coerce.boolean, que convierte "false" en true.
+  pendientes: z
+    .enum(["true", "false"])
+    .transform((v) => v === "true")
+    .optional(),
   // Por defecto, la bandeja: lo último que se movió, arriba.
   sortBy: z.enum(["lastMessageAt", "createdAt"]).default("lastMessageAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
@@ -62,6 +69,16 @@ export const listConversationsHandler = asyncHandler<AuthenticatedRequest>(
     const query = parseOrThrow(listQuerySchema, req.query);
     const result = await listConversations(req.auth.organizationId, query, req.auth);
     res.status(200).json(result);
+  },
+);
+
+// El número del menú (UX-02): cuántas conversaciones le esperan a quien
+// pregunta. Mismo cálculo que `?pendientes=true` de la lista
+// (pendientesDelActor).
+export const countPendientesHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const total = await contarPendientes(req.auth.organizationId, req.auth);
+    res.status(200).json({ total });
   },
 );
 

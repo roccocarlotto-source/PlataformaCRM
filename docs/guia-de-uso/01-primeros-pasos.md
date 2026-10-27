@@ -183,8 +183,10 @@ las secciones:
   aparece si tenés acceso (ver [El agente interno](#agente-interno)).
 - **Canjear cupón**: para escanear el QR de un cupón de descuento en el
   mostrador (ver [Cupones y QR](/ayuda/cupones-y-qr)).
-- **CRM**: **Contactos** (con **Conversaciones**, **Empresas** y
-  **Oportunidades** colgando de él), **Procesos de venta** y **Stock**.
+- **Conversaciones**: la bandeja, con el número de las que esperan a una
+  persona (ver [Lo que te espera](/ayuda/conversaciones#pendientes)).
+- **CRM**: **Contactos** (con **Empresas** y **Oportunidades** colgando de
+  él), **Procesos de venta** y **Stock**.
 - **Actividades**: **Mis tareas**, **Reservas** y **Calendario** para todos;
   **Actividades** (el listado completo del equipo), **Recursos** y **Tipos
   de servicio** solo para administradores.

@@ -163,4 +163,6 @@ export interface ConversationListQuery {
   channel?: ConversationChannel;
   sortBy?: ConversationSortBy;
   sortOrder?: SortOrder;
+  // "Mis pendientes" (UX-02): lo que cuenta el número del menú.
+  pendientes?: boolean;
 }

@@ -12,8 +12,8 @@ de algo que pasó con un tercero.
 
 ## Bandeja {#bandeja}
 
-La pantalla [Conversaciones](/conversations) lista todas las conversaciones
-de la organización, de la que tuvo movimiento más reciente a la más vieja.
+La pantalla [Conversaciones](/conversations) (en el menú, arriba de todo)
+lista todas las conversaciones de la organización, de la que tuvo movimiento más reciente a la más vieja.
 Ese orden es fijo. La lista se actualiza sola cada pocos segundos: no hace
 falta recargar para ver si llegó un mensaje nuevo.
 
@@ -43,8 +43,29 @@ Tocar el nombre del contacto abre la conversación en una ventana encima de
 la lista. Al cerrarla volvés exactamente donde estabas, con los mismos
 filtros y en la misma página.
 
+### Lo que te espera {#pendientes}
+
+Al lado de **Conversaciones**, en el menú, aparece un número: cuántas
+conversaciones esperan a una persona. Cuenta las que se derivaron a un
+humano y en las que el cliente fue el último en escribir (lo que diga
+el agente en el medio no cuenta como respuesta), y las que tienen la marca
+**Pidió hablar con una persona · sin responder**. Sin pendientes, no hay
+número.
+
+Qué cuenta depende de quién sos:
+
+- **Administrador**: las de toda la organización.
+- **Recepción**: las de tus sucursales.
+- **Usuario**: las asignadas a vos y las que todavía no tienen a nadie
+  asignado, para que ninguna quede esperando sin dueño.
+
+El número se actualiza solo cada minuto. Tocarlo abre la bandeja con el
+filtro **Ver: Mis pendientes**, que muestra exactamente esas
+conversaciones.
+
 ### Filtros
 
+- **Ver**: **Todas** o **Mis pendientes** (arriba).
 - **Buscar**: por el nombre, apellido o email del contacto. No busca dentro
   de los mensajes.
 - **Estado**, **Canal**, **Sucursal** y **Agente**.
