@@ -551,7 +551,7 @@ exports[`automotora sin cambios: los textos de antes de R17b > conversación 1`]
   "Mensaje para el cliente",
   "[placeholder] Escribí tu respuesta…",
   "Mientras atiendas vos, el agente no responde.",
-  "Podés escribir texto libre hasta el #, #",
+  "Podés escribir texto libre hasta el #, #.",
   "Enviar",
 ]
 `;
