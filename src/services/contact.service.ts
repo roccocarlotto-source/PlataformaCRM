@@ -29,6 +29,7 @@ import {
 import {
   countContacts,
   createContact as createContactRepo,
+  anonimizarVentaDelContacto,
   borrarRastroDelContacto,
   erasePersonalDataDeLosUnidos,
   erasePersonalDataFromContact,
@@ -51,13 +52,21 @@ import {
   type SortOrder,
   type UpdateLeadQualificationData,
 } from "../repositories/contact.repository";
-import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
+import {
+  anonimizarEventosNoPromovidosQueMencionan,
+  anonymizeIngestionEventsOfContact,
+} from "../repositories/ingestionEvent.repository";
+import { anonimizarPreguntasQueMencionan } from "../repositories/helpAssistantQuestion.repository";
+import { borrarMensajesQueMencionan } from "../repositories/internalAgent.repository";
+import { findUserByIdInOrganization } from "../repositories/user.repository";
+import { criteriosDeMencion, hayCriterios } from "../utils/mencionDeLaPersona";
 import { countOpenOpportunitiesOf } from "../repositories/opportunity.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { anonimizarVehiculosDelContacto } from "../servicios/repositories/customerVehicle.repository";
 import { anonimizarOrdenesDelContacto } from "../servicios/repositories/serviceOrder.repository";
 import {
   findDefaultPhoneCountryCode,
+  findOrganizationById,
   lockOrganizationForUpdate,
 } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
@@ -750,14 +759,21 @@ export interface ResultadoDeBorrado {
   // Borrado completo (2026-10-12): lo que se limpió fuera de la fila, y lo
   // que quedó pendiente fuera de la base (Google Calendar), sin datos
   // personales.
+  // Desde el 2026-10-26 los mensajes y los turnos del agente se BORRAN (DAT-03);
+  // cada conversación queda con la nota del sistema.
   mensajesBorrados: number;
   conversacionesCerradas: number;
-  trabajosDeEntradaAnonimizados: number;
+  trabajosDeEntradaBorrados: number;
   actividadesBorradas: number;
   identidadesBorradas: number;
   seguimientosCancelados: number;
   eventosDeGoogleLimpiados: number;
   pendientes: PendienteDelBorrado[];
+  // DAT-03 y DAT-04 (docs-privados/auditoria-2026-10-21/informe.md, local).
+  oportunidadesAnonimizadas: number;
+  eventosNoPromovidosAnonimizados: number;
+  preguntasDeAyudaAnonimizadas: number;
+  mensajesDelAgenteInternoBorrados: number;
   // Cuántos eventos de ingesta perdieron su rawPayload. Se devuelve porque el
   // estándar pide que el borrado sea verificable, y porque quien lo pide tiene
   // que poder decir cuánto se borró sin ir a mirar la base.
@@ -765,6 +781,20 @@ export interface ResultadoDeBorrado {
   // Cuántos contactos que se habían unido en este quedaron anonimizados
   // también (OPUS-C-02 / FABLE-C-03, docs-privados, local).
   contactosUnidosAnonimizados: number;
+}
+
+// "Datos borrados a pedido del titular el <fecha> por <usuario>" (regla de
+// Rocco del 23/10): el único mensaje que queda en cada conversación. Sin datos
+// de la persona borrada; el usuario es quien hizo el borrado. La fecha, en la
+// zona de la organización.
+export function notaDelBorrado(cuando: Date, zona: string, quien: string | null): string {
+  const fecha = new Intl.DateTimeFormat("es-UY", {
+    timeZone: zona,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(cuando);
+  return `Datos borrados a pedido del titular el ${fecha} por ${quien ?? "un administrador"}`;
 }
 
 export async function erasePersonalData(
@@ -788,6 +818,22 @@ export async function erasePersonalData(
   if (!contacto) {
     throw new AppError("Contacto no encontrado", 404);
   }
+
+  // DAT-03 (docs-privados/auditoria-2026-10-21/informe.md, local). La nota que
+  // queda en cada conversación, y con qué se busca a la persona en lo que
+  // otros escribieron. Los datos se leen ANTES de anonimizar la fila. Si el
+  // contacto ya estaba borrado (se repite el borrado, por ejemplo para
+  // reintentar Google), su nombre ya es el marcador: no hay nada que buscar.
+  const [organizacion, quienBorra] = await Promise.all([
+    findOrganizationById(organizationId),
+    findUserByIdInOrganization(erasedById, organizationId),
+  ]);
+  const nota = notaDelBorrado(
+    new Date(),
+    organizacion?.timezone ?? "UTC",
+    quienBorra?.fullName ?? null,
+  );
+  const criterios = contacto.personalDataErasedAt ? null : criteriosDeMencion(contacto);
 
   // TIMEOUT EXPLÍCITO (2026-10-12). Son ~22 sentencias en serie aunque el
   // contacto no tenga nada más que la fila: cada tabla se recorre igual. Con el
@@ -818,11 +864,30 @@ export async function erasePersonalData(
     // vehículos, y la nota de sus cambios de dueño. Los vehículos quedan, sin
     // datos personales. Un contacto sin vehículos no cambia nada.
     await anonimizarVehiculosDelContacto(organizationId, id, tx);
-    // Y las órdenes: daños al ingreso y notas. Las órdenes quedan (D14).
+    // Y las órdenes: daños, notas, cancelación, cambios de estado y
+    // aprobaciones. Las órdenes quedan (D14).
     await anonimizarOrdenesDelContacto(organizationId, id, tx);
-    // Borrado completo: mensajes, conversaciones, cola, tareas, identidades y
-    // seguimientos; y quién y cuándo.
-    const rastro = await borrarRastroDelContacto(id, organizationId, tx);
+    // DAT-03: el texto de la venta (oportunidades, cotizaciones, entregas,
+    // cupones). Las filas y los montos quedan.
+    const venta = await anonimizarVentaDelContacto(id, organizationId, tx);
+    // DAT-03 y DAT-04: lo que la menciona sin estar vinculado a ella, buscado
+    // por nombre completo, email o teléfono, solo en esta organización.
+    let noPromovidos = 0;
+    let preguntasDeAyuda = 0;
+    let mensajesDelAgenteInterno = 0;
+    if (criterios && hayCriterios(criterios)) {
+      noPromovidos = await anonimizarEventosNoPromovidosQueMencionan(organizationId, criterios, tx);
+      preguntasDeAyuda = await anonimizarPreguntasQueMencionan(
+        organizationId,
+        criterios,
+        MARCADOR_DE_DATO_BORRADO,
+        tx,
+      );
+      mensajesDelAgenteInterno = await borrarMensajesQueMencionan(organizationId, criterios, tx);
+    }
+    // Borrado completo: mensajes (se borran; queda la nota), conversaciones,
+    // cola, tareas, identidades y seguimientos; y quién y cuándo.
+    const rastro = await borrarRastroDelContacto(id, organizationId, nota, tx);
     await marcarBorradoDeDatosPersonales(id, organizationId, erasedById, tx);
     const turnosEnGoogle = await tx.booking.findMany({
       where: { organizationId, contactId: id, googleEventId: { not: null } },
@@ -842,10 +907,14 @@ export async function erasePersonalData(
         contactosUnidosAnonimizados: unidos.contactosUnidos,
         mensajesBorrados: rastro.mensajes,
         conversacionesCerradas: rastro.conversaciones,
-        trabajosDeEntradaAnonimizados: rastro.trabajosDeEntrada,
+        trabajosDeEntradaBorrados: rastro.trabajosDeEntrada,
         actividadesBorradas: rastro.actividades,
         identidadesBorradas: rastro.identidades,
         seguimientosCancelados: rastro.seguimientosCancelados,
+        oportunidadesAnonimizadas: venta.oportunidades,
+        eventosNoPromovidosAnonimizados: noPromovidos,
+        preguntasDeAyudaAnonimizadas: preguntasDeAyuda,
+        mensajesDelAgenteInternoBorrados: mensajesDelAgenteInterno,
       },
       turnosEnGoogle,
     };

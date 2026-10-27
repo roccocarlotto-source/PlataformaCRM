@@ -338,14 +338,23 @@ En la ficha, tocá **Borrar datos personales** y confirmá. El sistema borra:
 - lo que anotó el asistente de IA o una persona sobre el paciente: intención,
   prestación de interés, urgencia, presupuesto, zona, notas y los
   campos personalizados;
-- el texto de todas sus conversaciones (quedan cerradas y con "[dato
-  borrado]" en cada mensaje) y el resumen de la derivación;
+- todos los mensajes de sus conversaciones y el resumen de la derivación.
+  Las conversaciones quedan cerradas, con un único mensaje: "Datos borrados
+  a pedido del titular el … por …";
 - el asunto y el texto de sus tareas y notas;
 - sus identidades de WhatsApp, Messenger e Instagram;
-- los seguimientos y recordatorios que todavía no salieron (se cancelan).
+- los seguimientos y recordatorios que todavía no salieron (se cancelan);
+- lo que lo menciona en el asistente "¿Cómo se hace?" y en el agente
+  interno (por nombre completo, email o teléfono; nunca por el nombre solo:
+  una pregunta sobre otra persona con el mismo nombre de pila no se toca);
+- los formularios de una landing o una importación que traían su email o su
+  teléfono, aunque nunca se hayan convertido en el paciente.
 
 Lo que **no** se borra: sus turnos quedan como registro (la prestación, el
 profesional y la fecha), pero ya sin su nombre.
+
+Si la persona vuelve a escribir después del borrado, entra como un **paciente
+nuevo**, en una conversación nueva: el sistema ya no la reconoce.
 
 Después, la ficha dice **"Datos personales borrados el … por …"**: queda
 registrado quién lo hizo y cuándo, y el botón ya no aparece.

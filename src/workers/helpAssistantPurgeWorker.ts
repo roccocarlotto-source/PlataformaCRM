@@ -3,10 +3,19 @@ import {
   fechaDeCorteDePreguntas,
   purgarPreguntasViejas,
 } from "../repositories/helpAssistantQuestion.repository";
+import {
+  fechaDeCorteDelAgenteInterno,
+  purgarMensajesViejosDelAgenteInterno,
+} from "../repositories/internalAgent.repository";
 
 // ---------------------------------------------------------------------------
 // La retención de las preguntas al asistente "¿Cómo se hace?": una vez por
 // día borra las de más de 90 días (DIAS_DE_RETENCION_DE_PREGUNTAS).
+//
+// Desde el 2026-10-26, en la misma pasada, los mensajes del agente interno de
+// más de 90 días (DIAS_DE_RETENCION_DEL_AGENTE_INTERNO; DAT-03 de
+// docs-privados/auditoria-2026-10-21/informe.md, local): son el mismo tipo de
+// texto —lo que un usuario escribe sobre clientes— y antes no tenían plazo.
 //
 // UN WORKER Y NO UN SCRIPT MANUAL, a diferencia de purge:llm-turn-usages y las
 // otras purgas. Esas borran registros técnicos y da igual si se corren tarde;
@@ -25,7 +34,11 @@ export function iniciarPurgaDePreguntasDeAyuda(
   opciones: { pollMs?: number; purgar?: () => Promise<number> } = {},
 ): () => Promise<void> {
   const pollMs = opciones.pollMs ?? POLL_MS;
-  const purgar = opciones.purgar ?? (() => purgarPreguntasViejas(fechaDeCorteDePreguntas()));
+  const purgar =
+    opciones.purgar ??
+    (async () =>
+      (await purgarPreguntasViejas(fechaDeCorteDePreguntas())) +
+      (await purgarMensajesViejosDelAgenteInterno(fechaDeCorteDelAgenteInterno())));
   let detenido = false;
   let timer: NodeJS.Timeout | undefined;
   let tickEnCurso: Promise<void> | undefined;

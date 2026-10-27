@@ -34,6 +34,7 @@ import {
   RESPUESTA_TIPO_NO_SOPORTADO,
 } from "../services/whatsappWebhook.service";
 import { proximaAperturaDeLaSucursal } from "../services/branchBusinessHours.service";
+import { erasePersonalData } from "../services/contact.service";
 import { closeConversation } from "../services/conversation.service";
 import { WHATSAPP_CONTACT_SOURCE } from "../services/whatsappContact.service";
 import { hmacSha256Hex } from "../utils/hmac";
@@ -2254,4 +2255,34 @@ test("message_template_status_update de una plantilla que no es de este CRM, o s
 
   const rota = await enviar(cambioDePlantilla({ event: 42 }));
   assert.equal(rota.status, 200);
+});
+
+// DAT-03 (docs-privados/auditoria-2026-10-21/informe.md, local; regla de
+// Rocco del 23/10): después del borrado a pedido, la persona ya no existe para
+// el CRM. Si vuelve a escribir, entra como un contacto nuevo, en una
+// conversación nueva; la vieja queda cerrada con la nota del sistema.
+test("borrado a pedido: si la persona vuelve a escribir, entra como contacto nuevo en una conversación nueva", async () => {
+  const waId = waIdAlAzar();
+  assert.equal((await enviar(payloadDeTexto({ waId, body: "Hola, quiero info" }))).status, 200);
+  await drenar();
+  const antes = await conversacionDelNumero(waId);
+
+  await erasePersonalData(fx.orgId, antes.contacto.id, fx.userId);
+
+  assert.equal((await enviar(payloadDeTexto({ waId, body: "Hola de nuevo" }))).status, 200);
+  const despues = await conversacionDelNumero(waId);
+  assert.notEqual(despues.contacto.id, antes.contacto.id, "contacto nuevo");
+  assert.notEqual(despues.conversacion.id, antes.conversacion.id, "conversación nueva");
+  assert.deepEqual(
+    despues.conversacion.messages.map((m) => m.content),
+    ["Hola de nuevo"],
+  );
+
+  const vieja = await prisma.conversation.findUniqueOrThrow({
+    where: { id: antes.conversacion.id },
+    include: { messages: true },
+  });
+  assert.equal(vieja.status, "CLOSED");
+  assert.equal(vieja.messages.length, 1);
+  assert.match(vieja.messages[0].content, /^Datos borrados a pedido del titular el /);
 });

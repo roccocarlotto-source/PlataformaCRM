@@ -6,6 +6,7 @@ import {
   type ServiceOrderStatus,
 } from "@prisma/client";
 import { prisma, type Db } from "../../lib/prisma";
+import { MARCADOR_DE_DATO_BORRADO } from "../../repositories/contact.repository";
 import { ESTADOS_ABIERTOS } from "../config/estados";
 
 // ---------------------------------------------------------------------------
@@ -577,16 +578,31 @@ export async function existeUsuarioActivo(organizationId: string, id: string): P
   return n > 0;
 }
 
-/** Borrado completo de un contacto (D14, §2.8): daños al ingreso y notas de sus
- *  órdenes. Las órdenes quedan, para que los números del taller no cambien. */
+/** Borrado completo de un contacto (D14, §2.8): el texto de sus órdenes. Las
+ *  órdenes quedan, para que los números del taller no cambien.
+ *
+ *  DAT-03 (docs-privados/auditoria-2026-10-21/informe.md, local): además de
+ *  daños y notas, el motivo de cancelación, la nota de cada cambio de estado y
+ *  la aprobación (por diseño, `approverName` es el cliente). `description` y
+ *  `approverName` son NOT NULL: van al marcador. Los montos y las decisiones
+ *  quedan. */
 export async function anonimizarOrdenesDelContacto(
   organizationId: string,
   contactId: string,
   tx: Prisma.TransactionClient,
 ): Promise<void> {
+  const deSusOrdenes = { organizationId, serviceOrder: { contactId } };
   await tx.serviceOrder.updateMany({
     where: { organizationId, contactId },
-    data: { damageNotes: null, notes: null },
+    data: { damageNotes: null, notes: null, cancelReason: null },
+  });
+  await tx.serviceOrderStatusChange.updateMany({
+    where: deSusOrdenes,
+    data: { note: null },
+  });
+  await tx.serviceOrderApproval.updateMany({
+    where: deSusOrdenes,
+    data: { approverName: MARCADOR_DE_DATO_BORRADO, description: MARCADOR_DE_DATO_BORRADO },
   });
 }
 

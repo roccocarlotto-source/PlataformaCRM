@@ -6,6 +6,7 @@ import {
   type OrganizationIndustry,
 } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
+import { sqlMenciona, type CriteriosDeMencion } from "../utils/mencionDeLaPersona";
 
 // ---------------------------------------------------------------------------
 // Las preguntas al asistente "¿Cómo se hace?" (help_assistant_questions;
@@ -96,6 +97,25 @@ export async function purgarPreguntasViejas(corte: Date, db: Db = prisma): Promi
     where: { createdAt: { lt: corte } },
   });
   return count;
+}
+
+/** Borrado a pedido de una persona (DAT-03 de
+ *  docs-privados/auditoria-2026-10-21/informe.md, local): las preguntas de
+ *  ESTA organización que la mencionan (nombre completo, email o teléfono:
+ *  mencionDeLaPersona.ts) quedan con el texto en el marcador. La fila NO se
+ *  borra: guarda el costo de la pregunta, y los totales de "Preguntas a la
+ *  ayuda" no tienen que cambiar (criterio de Rocco, 26/10). Devuelve cuántas. */
+export function anonimizarPreguntasQueMencionan(
+  organizationId: string,
+  criterios: CriteriosDeMencion,
+  marcador: string,
+  db: Db = prisma,
+): Promise<number> {
+  return db.$executeRaw`
+    UPDATE help_assistant_questions SET question = ${marcador}
+    WHERE organization_id = ${organizationId}::uuid
+      AND question <> ${marcador}
+      AND ${sqlMenciona("question", criterios)}`;
 }
 
 // ---------------------------------------------------------------------------

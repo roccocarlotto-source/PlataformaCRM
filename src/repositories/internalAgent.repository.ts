@@ -1,5 +1,6 @@
 import type { InternalAgentMessageSenderType, Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
+import { sqlMenciona, type CriteriosDeMencion } from "../utils/mencionDeLaPersona";
 
 // ---------------------------------------------------------------------------
 // El agente de IA interno (ítem 179): su configuración —un registro por
@@ -130,4 +131,40 @@ export async function findEtiquetasDeAgenda(
     }),
   ]);
   return { contactos, servicios, sucursales };
+}
+
+// Borrado a pedido de una persona (DAT-03 de
+// docs-privados/auditoria-2026-10-21/informe.md, local): los mensajes del
+// agente interno de ESTA organización que la mencionan —lo que escribió un
+// usuario o lo que respondió el agente, en el texto o en las tools— se borran.
+// No guardan costo propio. Devuelve cuántos.
+export function borrarMensajesQueMencionan(
+  organizationId: string,
+  criterios: CriteriosDeMencion,
+  db: Db = prisma,
+): Promise<number> {
+  return db.$executeRaw`
+    DELETE FROM internal_agent_messages
+    WHERE organization_id = ${organizationId}::uuid
+      AND (${sqlMenciona("content", criterios)}
+        OR ${sqlMenciona("coalesce(tool_calls::text, '')", criterios)})`;
+}
+
+// Retención (decisión de Rocco, 26/10): los mensajes del agente interno se
+// purgan a los 90 días, como las preguntas al asistente de ayuda. Antes no
+// tenían plazo. Lo corre el mismo worker diario (helpAssistantPurgeWorker.ts).
+export const DIAS_DE_RETENCION_DEL_AGENTE_INTERNO = 90;
+
+export function fechaDeCorteDelAgenteInterno(ahora: Date = new Date()): Date {
+  return new Date(ahora.getTime() - DIAS_DE_RETENCION_DEL_AGENTE_INTERNO * 24 * 60 * 60 * 1000);
+}
+
+export async function purgarMensajesViejosDelAgenteInterno(
+  corte: Date,
+  db: Db = prisma,
+): Promise<number> {
+  const { count } = await db.internalAgentMessage.deleteMany({
+    where: { createdAt: { lt: corte } },
+  });
+  return count;
 }

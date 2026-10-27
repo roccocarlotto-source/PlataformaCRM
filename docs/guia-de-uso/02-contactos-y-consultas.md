@@ -349,14 +349,25 @@ En la ficha, tocá **Borrar datos personales** y confirmá. El sistema borra:
 - lo que anotó el asistente de IA o una persona sobre el contacto: intención,
   producto o servicio de interés, urgencia, presupuesto, zona, notas y los
   campos personalizados, y el vehículo de interés;
-- el texto de todas sus conversaciones (quedan cerradas y con "[dato
-  borrado]" en cada mensaje) y el resumen de la derivación;
+- todos los mensajes de sus conversaciones y el resumen de la derivación.
+  Las conversaciones quedan cerradas, con un único mensaje: "Datos borrados
+  a pedido del titular el … por …";
 - el asunto y el texto de sus tareas y notas;
 - sus identidades de WhatsApp, Messenger e Instagram;
-- los seguimientos y recordatorios que todavía no salieron (se cancelan).
+- los seguimientos y recordatorios que todavía no salieron (se cancelan);
+- el texto de sus oportunidades (título, motivo de pérdida y financiera), de
+  las líneas de sus cotizaciones, de su entrega y de sus cupones;
+- lo que lo menciona en el asistente "¿Cómo se hace?" y en el agente
+  interno (por nombre completo, email o teléfono; nunca por el nombre solo:
+  una pregunta sobre otra persona con el mismo nombre de pila no se toca);
+- los formularios de una landing o una importación que traían su email o su
+  teléfono, aunque nunca se hayan convertido en el contacto.
 
-Lo que **no** se borra: sus oportunidades y turnos quedan como registro, pero
-ya sin su nombre.
+Lo que **no** se borra: sus oportunidades, cotizaciones, entregas, cupones y
+turnos quedan como registro, con sus montos y fechas, pero ya sin su nombre.
+
+Si la persona vuelve a escribir después del borrado, entra como un **contacto
+nuevo**, en una conversación nueva: el sistema ya no la reconoce.
 
 Después, la ficha dice **"Datos personales borrados el … por …"**: queda
 registrado quién lo hizo y cuándo, y el botón ya no aparece.

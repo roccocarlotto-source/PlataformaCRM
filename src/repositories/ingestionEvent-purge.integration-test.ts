@@ -80,25 +80,31 @@ after(async () => {
 // El test central: los cuatro casos de la política, en una sola pasada.
 // ---------------------------------------------------------------------------
 
-test("la purga borra solo PROCESSED/DUPLICATE vencidos, y no toca FAILED ni PENDING", async () => {
+test("la purga borra PROCESSED, FAILED, PENDING y DEAD_LETTER vencidos (DAT-04: 90 días también para los no promovidos) y no toca los recientes", async () => {
   const procesadoViejo = await crearEvento(IngestionStatus.PROCESSED, VIEJO);
   const procesadoReciente = await crearEvento(IngestionStatus.PROCESSED, RECIENTE);
   const falladoViejo = await crearEvento(IngestionStatus.FAILED, VIEJO);
   const pendienteViejo = await crearEvento(IngestionStatus.PENDING, VIEJO);
+  const falladoReciente = await crearEvento(IngestionStatus.FAILED, RECIENTE);
+  const muertoViejo = await crearEvento(IngestionStatus.DEAD_LETTER, VIEJO);
+  const muertoReciente = await crearEvento(IngestionStatus.DEAD_LETTER, RECIENTE);
 
   const corte = fechaDeCorteDeRetencion();
   const { count } = await purgeIngestionEvents(corte, { organizationId: orgId });
 
-  assert.equal(count, 1, "solo el PROCESSED vencido entra en la purga");
+  assert.equal(count, 4, "el PROCESSED, el FAILED, el PENDING y el DEAD_LETTER vencidos");
 
   assert.equal(await existe(procesadoViejo), null, "PROCESSED vencido: se borra");
   assert.ok(await existe(procesadoReciente), "PROCESSED dentro de los 90 días: sobrevive");
 
-  // Los dos que NUNCA se purgan, sin importar la edad. No es una optimización:
-  // un PENDING es trabajo sin hacer y un FAILED es el único lugar donde vive
-  // el dato que no se pudo promover.
-  assert.ok(await existe(falladoViejo), "FAILED vencido: NO se toca");
-  assert.ok(await existe(pendienteViejo), "PENDING vencido: NO se toca");
+  // DAT-04 (docs-privados/auditoria-2026-10-21/informe.md, local): hasta el
+  // 2026-10-26 FAILED y PENDING no se purgaban nunca, y guardaban sin plazo
+  // datos de personas que nunca llegaron a ser contactos.
+  assert.equal(await existe(falladoViejo), null, "FAILED vencido: se borra");
+  assert.equal(await existe(pendienteViejo), null, "PENDING vencido: se borra");
+  assert.ok(await existe(falladoReciente), "FAILED dentro de los 90 días: sobrevive");
+  assert.equal(await existe(muertoViejo), null, "DEAD_LETTER vencido: se borra");
+  assert.ok(await existe(muertoReciente), "DEAD_LETTER dentro de los 90 días: sobrevive");
 });
 
 // ---------------------------------------------------------------------------
@@ -127,7 +133,7 @@ test("un DUPLICATE vencido también se purga", async () => {
 
 test("--dry-run cuenta exactamente lo que la purga borraría, y no borra nada", async () => {
   const procesadoViejo = await crearEvento(IngestionStatus.PROCESSED, VIEJO);
-  await crearEvento(IngestionStatus.FAILED, VIEJO);
+  await crearEvento(IngestionStatus.FAILED, RECIENTE);
 
   const corte = fechaDeCorteDeRetencion();
   const scope = { organizationId: orgId };

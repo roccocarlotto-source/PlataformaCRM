@@ -42,12 +42,16 @@ test("S3: borrar los datos de un contacto sin vehículos responde lo mismo que a
     "contactosUnidosAnonimizados",
     "conversacionesCerradas",
     "eventosDeGoogleLimpiados",
+    "eventosNoPromovidosAnonimizados",
     "identidadesBorradas",
     "ingestionEventsAnonimizados",
     "mensajesBorrados",
+    "mensajesDelAgenteInternoBorrados",
+    "oportunidadesAnonimizadas",
     "pendientes",
+    "preguntasDeAyudaAnonimizadas",
     "seguimientosCancelados",
-    "trabajosDeEntradaAnonimizados",
+    "trabajosDeEntradaBorrados",
   ]);
 });
 

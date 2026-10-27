@@ -52,7 +52,7 @@ async function main() {
 
   console.log("Purga de retención de ingestion_events");
   console.log(
-    `  Política: ${String(DIAS_DE_RETENCION_INGESTION_EVENT)} días (PROCESSED/DUPLICATE)`,
+    `  Política: ${String(DIAS_DE_RETENCION_INGESTION_EVENT)} días (PROCESSED/DUPLICATE/FAILED/PENDING/DEAD_LETTER)`,
   );
   console.log(`  Corte:    created_at < ${corte.toISOString()}`);
   console.log(`  Modo:     ${dryRun ? "DRY-RUN (no borra nada)" : "BORRADO REAL"}`);

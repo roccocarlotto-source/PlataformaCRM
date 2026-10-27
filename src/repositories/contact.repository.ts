@@ -929,12 +929,15 @@ const DATOS_BORRADOS = {
 // 2026-10-12): lo que el contacto dejó fuera de su fila. Corre en la misma
 // transacción que el resto del borrado (la recibe en `db`).
 //
-//   - mensajes de sus conversaciones: el texto pasa al marcador; toolCalls (la
-//     auditoría de un guardrail guarda la respuesta bloqueada), el error de
-//     entrega y el id de Meta, a NULL;
+//   - mensajes de sus conversaciones: se BORRAN, con los turnos del agente que
+//     los referencian (DAT-03 de docs-privados/auditoria-2026-10-21/informe.md,
+//     local; decisión de Rocco del 23/10: la conversación queda vacía). Cada
+//     conversación queda con un único mensaje AUTOMATION, la nota del sistema
+//     (sin datos de la persona: fecha y quién borró). El costo de IA de esos
+//     turnos NO se pierde: vive en llm_turn_usages, sin FK a la conversación
+//     ni a los mensajes, sin contenido;
 //   - conversaciones: sin brief ni hilo externo (en WhatsApp es su número), y
 //     CERRADAS: una persona no puede responder a un hilo sin destino;
-//   - la cola del webhook: su número o id en el canal pasa al marcador;
 //   - sus tareas y notas: asunto al marcador, cuerpo a NULL;
 //   - sus identidades de canal, de TODOS los canales (Instagram y Messenger
 //     también: son ids de la persona);
@@ -960,42 +963,49 @@ export interface RastroBorrado {
 export async function borrarRastroDelContacto(
   id: string,
   organizationId: string,
+  // "Datos borrados a pedido del titular el <fecha> por <usuario>": el único
+  // mensaje que queda en cada conversación. Lo arma el service.
+  notaDelSistema: string,
   db: Db,
 ): Promise<RastroBorrado> {
   const deSusConversaciones = { organizationId, conversation: { contactId: id } };
-  const mensajes = await db.message.updateMany({
-    where: deSusConversaciones,
-    data: {
-      content: MARCADOR_DE_DATO_BORRADO,
-      toolCalls: Prisma.DbNull,
-      deliveryError: null,
-      externalMessageId: null,
-    },
-  });
-  const trabajos = await db.agentInboundJob.updateMany({
-    where: { organizationId, message: { conversation: { contactId: id } } },
-    data: { externalUserId: MARCADOR_DE_DATO_BORRADO, lastError: null },
-  });
-  // Un entrante todavía sin turno no se procesa: la conversación se cierra y
-  // su texto ya es el marcador. Mismo corte que al cerrar una conversación
-  // (cancelPendingInboundJobsOfConversation).
-  await db.agentInboundJob.updateMany({
+  // Primero los turnos: es la única FK a messages (el entrante y la
+  // respuesta). Un entrante todavía sin turno tampoco se procesa: su job se
+  // va con él.
+  const trabajos = await db.agentInboundJob.deleteMany({
     where: {
       organizationId,
-      status: "PENDING",
-      responseMessageId: null,
-      message: { conversation: { contactId: id } },
-    },
-    data: {
-      status: "FAILED",
-      lockedUntil: null,
-      nextAttemptAt: null,
-      lastError: MOTIVO_SEGUIMIENTO_CANCELADO_POR_BORRADO,
+      OR: [
+        { message: { conversation: { contactId: id } } },
+        { responseMessage: { conversation: { contactId: id } } },
+      ],
     },
   });
+  const mensajes = await db.message.deleteMany({ where: deSusConversaciones });
+  const ahora = new Date();
   const conversaciones = await db.conversation.updateMany({
     where: { organizationId, contactId: id },
-    data: { brief: null, briefEditedByUserId: null, externalThreadId: null, status: "CLOSED" },
+    data: {
+      brief: null,
+      briefEditedByUserId: null,
+      externalThreadId: null,
+      status: "CLOSED",
+      lastMessageAt: ahora,
+    },
+  });
+  const suyas = await db.conversation.findMany({
+    where: { organizationId, contactId: id },
+    select: { id: true },
+  });
+  await db.message.createMany({
+    data: suyas.map((c) => ({
+      organizationId,
+      conversationId: c.id,
+      direction: "OUTBOUND" as const,
+      senderType: "AUTOMATION" as const,
+      content: notaDelSistema,
+      createdAt: ahora,
+    })),
   });
   const actividades = await db.activity.updateMany({
     where: { organizationId, contactId: id },
@@ -1033,6 +1043,86 @@ export async function borrarRastroDelContacto(
     identidades: identidades.count,
     seguimientosCancelados: qr.count + consultas.count + cupones.count,
   };
+}
+
+// ---------------------------------------------------------------------------
+// DAT-03 (docs-privados/auditoria-2026-10-21/informe.md, local): lo que se
+// escribió sobre la persona en la VENTA. Las filas quedan (son historial del
+// negocio y alimentan reportes); el texto libre se va:
+//
+//   - sus oportunidades: título al marcador, motivo de pérdida y financiera a
+//     NULL. Monto, moneda, estado, etapa y fechas quedan;
+//   - las cotizaciones de esas oportunidades: la descripción de cada línea al
+//     marcador, los montos quedan (decisión de Rocco, 26/10: los totales no
+//     cambian);
+//   - las entregas: el texto de cada ítem del checklist al marcador, la tilde
+//     queda;
+//   - sus cupones: la etiqueta al marcador;
+//   - las actividades colgadas SOLO de esas oportunidades (sin contactId: las
+//     del contacto ya las limpia borrarRastroDelContacto).
+// ---------------------------------------------------------------------------
+
+export async function anonimizarVentaDelContacto(
+  id: string,
+  organizationId: string,
+  db: Db,
+): Promise<{ oportunidades: number }> {
+  const suyas = await db.opportunity.findMany({
+    where: { organizationId, contactId: id },
+    select: { id: true },
+  });
+  const opportunityIds = suyas.map((o) => o.id);
+  const oportunidades = await db.opportunity.updateMany({
+    where: { organizationId, contactId: id },
+    data: { title: MARCADOR_DE_DATO_BORRADO, lostReason: null, financingLender: null },
+  });
+
+  if (opportunityIds.length > 0) {
+    const deSusOportunidades = { organizationId, opportunityId: { in: opportunityIds } };
+    const cotizaciones = await db.quote.findMany({
+      where: deSusOportunidades,
+      select: { id: true, lines: true },
+    });
+    for (const cotizacion of cotizaciones) {
+      await db.quote.updateMany({
+        where: { id: cotizacion.id, organizationId },
+        data: { lines: sinTexto(cotizacion.lines, "description") },
+      });
+    }
+    const entregas = await db.delivery.findMany({
+      where: deSusOportunidades,
+      select: { id: true, checklist: true },
+    });
+    for (const entrega of entregas) {
+      await db.delivery.updateMany({
+        where: { id: entrega.id, organizationId },
+        data: { checklist: sinTexto(entrega.checklist, "label") },
+      });
+    }
+    await db.activity.updateMany({
+      where: { ...deSusOportunidades, contactId: null },
+      data: { subject: MARCADOR_DE_DATO_BORRADO, body: null },
+    });
+  }
+
+  await db.discountVoucher.updateMany({
+    where: { organizationId, contactId: id },
+    data: { label: MARCADOR_DE_DATO_BORRADO },
+  });
+
+  return { oportunidades: oportunidades.count };
+}
+
+// Un arreglo JSON de objetos con un campo de texto libre: ese campo al
+// marcador, el resto (montos, tildes) igual. Fail-closed, como la redacción
+// de promotionNotes: lo que no tiene la forma esperada se descarta.
+function sinTexto(valor: Prisma.JsonValue, campo: string): Prisma.InputJsonArray {
+  if (!Array.isArray(valor)) return [];
+  return valor.flatMap((item) =>
+    item !== null && typeof item === "object" && !Array.isArray(item)
+      ? [{ ...item, [campo]: MARCADOR_DE_DATO_BORRADO }]
+      : [],
+  ) as Prisma.InputJsonArray;
 }
 
 /** Quién y cuándo (CHECK: los dos juntos). Lo pendiente fuera de la base lo
