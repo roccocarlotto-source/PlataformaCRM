@@ -92,11 +92,11 @@ function mockFiltros() {
   ];
 }
 
-function renderPage() {
+function renderPage(ruta = "/conversations") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/conversations"]}>
+      <MemoryRouter initialEntries={[ruta]}>
         <ConversationListPage />
         <EspiaDeUbicacion />
       </MemoryRouter>
@@ -360,6 +360,42 @@ describe("ConversationListPage", () => {
     expect(ultima.searchParams.get("search")).toBe("ana");
     expect(ultima.searchParams.get("status")).toBe("TRANSFERRED_TO_HUMAN");
     expect(ultima.searchParams.get("page")).toBe("1");
+  });
+
+  // UX-02: "Mis pendientes" es la lista que cuenta el número del menú.
+  it("«Mis pendientes» manda pendientes=true; «Todas» lo saca", async () => {
+    const urls: URL[] = [];
+    server.use(
+      ...mockFiltros(),
+      http.get(baseUrl, ({ request }) => {
+        urls.push(new URL(request.url));
+        return HttpResponse.json(listResponse());
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Ana Pérez");
+    expect(urls.at(-1)?.searchParams.get("pendientes")).toBeNull();
+
+    await chooseSelectOption(user, screen.getByLabelText("Ver"), "Mis pendientes");
+    await waitFor(() => expect(urls.at(-1)?.searchParams.get("pendientes")).toBe("true"));
+
+    await chooseSelectOption(user, screen.getByLabelText("Ver"), "Todas");
+    await waitFor(() => expect(urls.at(-1)?.searchParams.get("pendientes")).toBeNull());
+  });
+
+  it("desde el número del menú (?pendientes=true) entra con «Mis pendientes» elegido", async () => {
+    const urls: URL[] = [];
+    server.use(
+      ...mockFiltros(),
+      http.get(baseUrl, ({ request }) => {
+        urls.push(new URL(request.url));
+        return HttpResponse.json(listResponse());
+      }),
+    );
+    renderPage("/conversations?pendientes=true");
+    await screen.findByText("Ana Pérez");
+    expect(urls[0]?.searchParams.get("pendientes")).toBe("true");
   });
 
   it("el filtro vacío no viaja: 'Todos' vuelve a no filtrar", async () => {

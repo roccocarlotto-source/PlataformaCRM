@@ -1974,6 +1974,12 @@ fieldset.ds-stack {
   flex: 0 0 auto;
 }
 
+/* UX-02: el número de pendientes al lado de un link (SidebarLink contador),
+   pegado a la derecha. El resto lo pone .ds-badge. */
+.ds-sidebar-count {
+  margin-left: auto;
+}
+
 .ds-sidebar-link:hover {
   background: var(--color-surface-muted);
   color: var(--color-text);

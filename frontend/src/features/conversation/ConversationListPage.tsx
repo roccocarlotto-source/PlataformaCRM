@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { MessagesSquare } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
@@ -66,6 +67,12 @@ export function ConversationListPage() {
   const [channel, setChannel] = useState<ConversationChannel | "">("");
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
   const [agentId, setAgentId] = useState<string | undefined>(undefined);
+  // "Mis pendientes" (UX-02): lo que cuenta el número del menú, que trae
+  // ?pendientes=true. Solo se lee al entrar: después es un filtro más.
+  const [searchParams] = useSearchParams();
+  const [soloPendientes, setSoloPendientes] = useState(
+    () => searchParams.get("pendientes") === "true",
+  );
   // La conversación abierta en el pop up, o null (ítem 73). SIN SINCRONIZAR
   // CON LA URL, a propósito y es lo que Rocco pidió: ni querystring ni ruta
   // nueva. Cerrar el pop up devuelve al MISMO listado, con los mismos filtros
@@ -81,6 +88,7 @@ export function ConversationListPage() {
     channel: channel || undefined,
     branchId,
     agentId,
+    pendientes: soloPendientes || undefined,
   });
 
   // Solo alimenta el filtro: los nombres de las filas vienen resueltos del
@@ -105,6 +113,14 @@ export function ConversationListPage() {
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>
         <div className="ds-filters">
+          <Select
+            id="conversation-list-ver"
+            label="Ver"
+            value={soloPendientes ? "pendientes" : ""}
+            options={[{ value: "pendientes" as const, label: "Mis pendientes" }]}
+            emptyOption={{ label: "Todas" }}
+            onChange={(value) => aplicarFiltro(() => setSoloPendientes(value === "pendientes"))}
+          />
           <label>
             {/* Solo para lectores de pantalla: el placeholder ya dice qué
                 busca (docs/frontend-cambios-pendientes.md §4.b). */}

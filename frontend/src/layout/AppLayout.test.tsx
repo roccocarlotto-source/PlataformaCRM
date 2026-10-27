@@ -43,6 +43,19 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   };
 }
 
+// El menú pide el número de conversaciones pendientes (UX-02) en cada render.
+// Sin pendientes por defecto; los tests del número ponen el suyo con
+// server.use (el último en registrarse gana). Sin esto, MSW rechaza el pedido
+// (onUnhandledRequest: "error") y vitest termina con errores aunque los tests
+// pasen.
+beforeEach(() => {
+  server.use(
+    http.get(`${env.apiUrl}/api/conversations/pendientes/count`, () =>
+      HttpResponse.json({ total: 0 }),
+    ),
+  );
+});
+
 // ThemeProvider REAL (no mock): el toggle de tema del pie de la sidebar (§31)
 // necesita el contexto, y el provider no tiene dependencias externas — con el
 // matchMedia de test/setup.ts (que no prefiere oscuro) resuelve "Sistema" a
@@ -279,23 +292,52 @@ describe("AppLayout — nav de Automatizaciones (ítem 62)", () => {
   });
 });
 
-describe("AppLayout — nav de Conversaciones (ítem 66)", () => {
-  it("el link se muestra para ambos roles, en el grupo CRM y debajo de Contactos", async () => {
+describe("AppLayout — nav de Conversaciones (ítem 66, UX-02)", () => {
+  const pendientesUrl = `${env.apiUrl}/api/conversations/pendientes/count`;
+
+  it("de primer nivel para ambos roles: visible sin desplegar nada, fuera de Contactos", () => {
+    server.use(http.get(pendientesUrl, () => HttpResponse.json({ total: 0 })));
     for (const role of ["USER", "ADMIN"] as const) {
-      const user = userEvent.setup();
       useAuthMock.mockReturnValue(mockAuth(role));
       const { unmount } = renderLayout();
-      await openContactos(user);
 
+      // Sin abrir ninguna sección (UX-02: antes estaba plegada adentro de
+      // Contactos, y una conversación derivada esperaba sin que nadie la viera).
       const link = screen.getByRole("link", { name: "Conversaciones" });
       expect(link).toHaveAttribute("href", "/conversations");
-      // En el grupo CRM y no en Administración: es lectura de un dato del
-      // CRM, no configuración ADMIN-only como Agentes de IA.
-      expect(link.closest(".ds-sidebar-group")).toBe(
+      expect(link.closest(".ds-sidebar-group")).not.toBe(
         screen.getByRole("link", { name: "Contactos" }).closest(".ds-sidebar-group"),
       );
       unmount();
     }
+  });
+
+  it("con pendientes: el número al lado, y el link lleva a la bandeja con «Mis pendientes»", async () => {
+    server.use(http.get(pendientesUrl, () => HttpResponse.json({ total: 3 })));
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout();
+
+    // Para un lector de pantalla, el link dice qué es el número.
+    const links = await screen.findAllByRole("link", { name: "Conversaciones 3 pendientes" });
+    for (const link of links) {
+      expect(link).toHaveAttribute("href", "/conversations?pendientes=true");
+    }
+  });
+
+  it("sin pendientes (0) no se muestra ningún número", async () => {
+    let pedidos = 0;
+    server.use(
+      http.get(pendientesUrl, () => {
+        pedidos += 1;
+        return HttpResponse.json({ total: 0 });
+      }),
+    );
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+
+    await waitFor(() => expect(pedidos).toBe(1));
+    expect(screen.getByRole("link", { name: "Conversaciones" })).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 });
 

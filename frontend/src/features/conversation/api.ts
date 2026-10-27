@@ -21,6 +21,7 @@ function buildListQueryString(query: ConversationListQuery): string {
   if (query.channel) params.set("channel", query.channel);
   if (query.sortBy) params.set("sortBy", query.sortBy);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
+  if (query.pendientes) params.set("pendientes", "true");
   const queryString = params.toString();
   return queryString ? `?${queryString}` : "";
 }
@@ -30,6 +31,16 @@ export function listConversations(
   signal?: AbortSignal,
 ): Promise<ConversationListResponse> {
   return request<ConversationListResponse>(`/conversations${buildListQueryString(query)}`, {
+    getAccessToken,
+    signal,
+  });
+}
+
+// El número del menú (UX-02): cuántas conversaciones le esperan a quien
+// pregunta. El backend lo calcula con el mismo filtro que `pendientes` de la
+// lista, así que el número y la lista a la que lleva coinciden.
+export function countPendientes(signal?: AbortSignal): Promise<{ total: number }> {
+  return request<{ total: number }>("/conversations/pendientes/count", {
     getAccessToken,
     signal,
   });

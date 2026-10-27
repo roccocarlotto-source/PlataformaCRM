@@ -4,6 +4,7 @@ import { cancelPendingInboundJobsOfConversation } from "../repositories/agentInb
 import {
   closeConversation as closeConversationRepo,
   countConversations,
+  findCandidatasPendientes,
   findConversationWithMessages,
   findManyConversations,
   updateConversation,
@@ -12,7 +13,7 @@ import {
   type SortOrder,
 } from "../repositories/conversation.repository";
 import { AppError } from "../utils/AppError";
-import { exigirSedeDelActor, filtroDeSedes, type ActorConSedes } from "./permisos";
+import { exigirSedeDelActor, filtroDeSedes, sedesDelActor, type ActorConSedes } from "./permisos";
 import {
   conversacionesConPedidoSinResponder,
   pedidoSinResponderDelHilo,
@@ -58,21 +59,31 @@ export interface ListConversationsParams {
   contactId?: string;
   status?: ConversationFilters["status"];
   channel?: ConversationFilters["channel"];
+  // "Mis pendientes" (UX-02): solo las que esperan a una persona y le tocan
+  // a quien pregunta (pendientesDelActor). Es la lista a la que lleva el
+  // contador del menú.
+  pendientes?: boolean;
   sortBy: ConversationSortBy;
   sortOrder: SortOrder;
 }
+
+// Quien mira la bandeja: sus sedes (R20) y, para "Mis pendientes", quién es.
+export type ActorDeLaBandeja = ActorConSedes & { userId?: string };
 
 // `actor` (R20): una Recepción de clínica ve solo las conversaciones de sus
 // sedes (filtroDeSedes); para cualquier otro usuario, la bandeja de antes.
 export async function listConversations(
   organizationId: string,
   params: ListConversationsParams,
-  actor?: ActorConSedes,
+  actor?: ActorDeLaBandeja,
 ) {
-  const { page, pageSize, sortBy, sortOrder, ...pedidos } = params;
+  const { page, pageSize, sortBy, sortOrder, pendientes, ...pedidos } = params;
   const filters: ConversationFilters = actor
     ? { ...pedidos, branchId: undefined, ...filtroDeSedes(actor, pedidos.branchId) }
     : pedidos;
+  if (pendientes) {
+    filters.ids = await pendientesDelActor(organizationId, actor);
+  }
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
@@ -95,6 +106,48 @@ export async function listConversations(
       totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// UX-02 (docs-privados/auditoria-2026-10-21/informe-etapa-2.md, local): lo que
+// le espera a quien mira la bandeja. UNA función para el contador del menú y
+// para el filtro "Mis pendientes" de la lista: los dos parten de estos ids,
+// así que no pueden dar distinto (lo fija conversationPendientes.integration-test.ts).
+//
+// Pendiente = derivada esperando respuesta de una persona, o con la marca
+// "pidió hablar con una persona · sin responder" (la misma función que pinta
+// la marca en la lista: conversacionesConPedidoSinResponder).
+//
+// Alcance (decisión de Rocco, 26/10), dentro de lo que la bandeja ya le deja
+// ver a cada uno:
+//   - ADMIN: toda la organización;
+//   - RECEPCION de clínica: sus sedes, con el mismo filtro de la bandeja (R20);
+//   - USER: las asignadas a él más las que no tienen a nadie asignado, de toda
+//     la organización (un USER no tiene sucursal; la bandeja le muestra todas).
+// ---------------------------------------------------------------------------
+
+export async function pendientesDelActor(
+  organizationId: string,
+  actor?: ActorDeLaBandeja,
+): Promise<string[]> {
+  const sedes = actor ? sedesDelActor(actor) : "todas";
+  const candidatas = await findCandidatasPendientes(organizationId, {
+    ...(sedes === "todas" ? {} : { sedes }),
+    ...(actor?.role === "USER" && actor.userId ? { usuarioId: actor.userId } : {}),
+  });
+  const esperando = candidatas.filter((c) => c.esperando).map((c) => c.id);
+  const conMarca = await conversacionesConPedidoSinResponder(
+    organizationId,
+    candidatas.filter((c) => !c.esperando),
+  );
+  return [...esperando, ...conMarca];
+}
+
+export async function contarPendientes(
+  organizationId: string,
+  actor?: ActorDeLaBandeja,
+): Promise<number> {
+  return (await pendientesDelActor(organizationId, actor)).length;
 }
 
 // 404 y no 403 cuando la conversación es de otra organización, mismo criterio

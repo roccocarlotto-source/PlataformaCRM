@@ -154,8 +154,9 @@ producto (**Plataforma CRM**) te lleva siempre al Dashboard. Después vienen:
 - **Agenda**: el calendario de turnos. Debajo cuelgan **Turnos** (la lista
   de turnos), **Bloqueos** y **Sobreturnos**; un administrador ve además
   **Profesionales**, **Prestaciones** y **Configurar prestaciones**.
-- **Pacientes**: la lista de pacientes, con **Conversaciones** colgando de
-  ella.
+- **Conversaciones**: la bandeja, con el número de las que esperan a una
+  persona (ver [Lo que te espera](/ayuda/conversaciones#pendientes)).
+- **Pacientes**: la lista de pacientes.
 - **Tareas**: **Mis tareas** para todos; **Todas las tareas** (las de todo el
   equipo) solo para administradores.
 - **Agentes de IA** (solo administradores): el asistente que atiende a los
@@ -167,7 +168,7 @@ producto (**Plataforma CRM**) te lleva siempre al Dashboard. Después vienen:
 
 Cada sección se pliega o despliega tocando su título. La sección de la
 pantalla en la que estás se abre sola, así siempre ves dónde estás parado.
-En **Agenda**, **Pacientes** y **Agentes de IA** el título es a la vez un
+En **Agenda** y **Agentes de IA** el título es a la vez un
 link: tocarlo abre esa pantalla y despliega lo que cuelga de ella.
 
 Al pie del menú está el [selector de tema](#tema), tu nombre con tu rol
