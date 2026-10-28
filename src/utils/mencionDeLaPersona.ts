@@ -23,11 +23,14 @@ import { Prisma } from "@prisma/client";
 //     ("ana@x.com.uy" es otro);
 //   - teléfono: solo si tiene 8 dígitos o más. Se comparan los últimos 8, con
 //     hasta dos separadores entre cada dígito (" ", "-", ".", paréntesis), sin
-//     un dígito pegado a la derecha. A la izquierda puede ir el código de país
-//     del contacto (+598, 00598) y/o el 0 de larga distancia, y nada más: un
-//     número con OTRO código de país y los mismos últimos dígitos ("+54 99 000
-//     111") no es este. Si el texto no trae código de país, no hay forma de
-//     distinguirlo, y se toma como este.
+//     un dígito pegado a la derecha. A la izquierda solo pueden ir dígitos
+//     que el número guardado del contacto tiene antes de esos 8, agrupados
+//     como sea, y el 0 de larga distancia: para +5491123456789 valen
+//     "+54 9 11 2345-6789", "+54 11 2345-6789", "11 2345-6789" y
+//     "011 2345-6789" (las reglas exactas, en patronDeTelefono). Un número
+//     con OTROS dígitos delante ("+54 99 000 111" para un contacto
+//     +59899000111) no es este. Si el texto no trae nada delante, no hay forma
+//     de distinguirlo, y se toma como este.
 //
 // Las clases de caracteres son explícitas (y no [[:alnum:]]) para no depender
 // del locale de la base, y la sintaxis es la común a las expresiones de
@@ -89,10 +92,32 @@ export function patronDeTelefono(phone: string | null): string | null {
   if (digitos.length < DIGITOS_DEL_TELEFONO) return null;
   const clave = digitos.slice(-DIGITOS_DEL_TELEFONO).split("").join(SEPARADOR);
   // Lo que va antes de los últimos 8 en el número guardado: el código de país
-  // si está en formato internacional (+59899000111 → 598).
+  // y, según el país, el 9 o el 1 de celular y el código de área
+  // (+5491123456789 → 54911). Revisión de #585: escrito agrupado ("+54 9 11")
+  // no se encontraba. Ahora, con separadores entre cada dígito:
+  //   - con "+" o "00": los dos primeros dígitos del prefijo son obligatorios
+  //     (el código de país: +598 no es +58) y los demás pueden faltar, uno por
+  //     uno ("+54 11 …" sin el 9, "+52 55 …" sin el 1);
+  //   - sin "+": un final del prefijo, entero ("11 2345-6789", el área), con
+  //     el 0 de larga distancia opcional ("011 2345-6789"). Sin un "+" justo
+  //     antes: "+1 55 …" es otro país aunque "1 55" sea un final de 52155.
+  // Los lookbehind impiden que haya otros dígitos antes.
   const prefijo = digitos.slice(0, -DIGITOS_DEL_TELEFONO).replace(/^0+/, "");
-  const conPais = prefijo ? `(?:(?:\\+|00)?${SEPARADOR}${prefijo}${SEPARADOR})?` : "";
-  return `(?<![0-9]${SEPARADOR})${conPais}(?:0${SEPARADOR})?${clave}(?![0-9])`;
+  const d = (digito: string) => `${digito}${SEPARADOR}`;
+  const cero = `(?:${d("0")})?`;
+  const sinNadaAntes = (antes: string) => `(?<![0-9${antes}]${SEPARADOR})`;
+  const sinPais = prefijo
+    ? `${cero}(?:(?:${[...prefijo].map((_, i) => prefijo.slice(i).split("").join(SEPARADOR)).join("|")})${SEPARADOR})?`
+    : "";
+  const formas = [`${sinNadaAntes("+")}${sinPais}${cero}${clave}`];
+  if (prefijo) {
+    const obligatorios = prefijo.slice(0, 2).split("").map(d).join("");
+    const opcionales = [...prefijo.slice(2)].map((digito) => `(?:${d(digito)})?`).join("");
+    formas.push(
+      `${sinNadaAntes("")}(?:\\+|00)${SEPARADOR}${obligatorios}${opcionales}${cero}${clave}`,
+    );
+  }
+  return `(?:${formas.join("|")})(?![0-9])`;
 }
 
 export function hayCriterios(c: CriteriosDeMencion): boolean {

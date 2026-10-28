@@ -50,7 +50,54 @@ test("un número distinto, uno que sigue con más dígitos, o uno de otro país,
     "+5499000111",
     "5499000111",
     "1299000111",
+    // +58 (Venezuela): su 8 es el final del 598, pero el país no es este.
+    "+58 99 000 111",
+    "+1 98 99 000 111",
   ]) {
+    assert.ok(!coincide(patron, texto), texto);
+  }
+});
+
+// Revisión de #585: el prefijo escrito agrupado (país, 9 o 1 de celular,
+// área) no se encontraba.
+test("Argentina: el celular con el prefijo agrupado, con o sin el 9, o solo con el área", () => {
+  const patron = patronDeTelefono("+5491123456789");
+  for (const texto of [
+    "+54 9 11 2345-6789",
+    "+54 11 2345-6789",
+    "+549 11 2345 6789",
+    "0054 9 11 2345 6789",
+    "11 2345-6789",
+    "011 2345-6789",
+    "(011) 2345-6789",
+    "9 11 2345 6789",
+    "2345-6789",
+  ]) {
+    assert.ok(coincide(patron, texto), texto);
+  }
+  // Otros países con los mismos últimos 8 dígitos.
+  for (const texto of [
+    "+52 1 55 2345 6789",
+    "+598 2345 6789",
+    "+55 11 2345 6789",
+    "55 2345-6789",
+    "12 2345-6789",
+  ]) {
+    assert.ok(!coincide(patron, texto), texto);
+  }
+});
+
+test("México: con y sin el 1 de celular, y solo con el área", () => {
+  const patron = patronDeTelefono("+5215512345678");
+  for (const texto of [
+    "+52 1 55 1234 5678",
+    "+52 55 1234 5678",
+    "55 1234 5678",
+    "01 55 1234 5678",
+  ]) {
+    assert.ok(coincide(patron, texto), texto);
+  }
+  for (const texto of ["+54 9 11 1234 5678", "+1 55 1234 5678", "33 1234 5678"]) {
     assert.ok(!coincide(patron, texto), texto);
   }
 });

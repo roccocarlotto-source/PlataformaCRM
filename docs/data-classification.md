@@ -519,9 +519,13 @@ organización del contacto** (`src/utils/mencionDeLaPersona.ts`):
   a "ana@…" no toca a "juliana@…";
 - por **teléfono normalizado**, solo si tiene 8 dígitos o más: los últimos 8,
   con cualquier separador entre ellos ("+598 99 000 111" y "099 000 111" son
-  el mismo número) y sin otro dígito a la derecha. A la izquierda se acepta el
-  código de país del contacto, así que "+54 99 000 111" (otro país, mismos
-  dígitos) no se toca; escrito sin código de país no se puede distinguir.
+  el mismo número) y sin otro dígito a la derecha. A la izquierda solo se
+  aceptan los dígitos que el número guardado tiene antes de esos 8 (país, 9 o
+  1 de celular, área), agrupados como sea: con "+" o "00", el código de país y
+  lo que siga, aunque falte el 9 o el 1 ("+54 9 11 2345-6789" y "+54 11
+  2345-6789"); sin "+", el final, como el área ("11 2345-6789", "011
+  2345-6789"). Así "+54 99 000 111" (otro país, mismos dígitos) no se toca
+  para un contacto de Uruguay; escrito sin nada delante no se puede distinguir.
 
 Hasta el 2026-10-28 era un `LIKE '%…%'`, que tocaba también lo de esas otras
 personas (revisión de #585).
@@ -557,9 +561,10 @@ agente interno se va igual con su purga de 90 días.
    `.consignorEmail`, `.titleHolder`; §2.7). No hay ninguna FK al contacto:
    el consignante no es un `Contact`. Pendiente, en un PR aparte: decidir cómo
    se identifica a esa persona para un pedido de borrado *(2026-10-28)*.
-7. **Un teléfono escrito sin código de país** en un texto que lo menciona: no
-   se distingue de otro país con los mismos últimos 8 dígitos, y se toma como
-   del contacto.
+7. **Un teléfono escrito solo con sus últimos 8 dígitos** (sin país ni área)
+   en un texto que lo menciona: no se distingue de otro número con los mismos
+   últimos 8, y se toma como del contacto. Y al revés, un número escrito sin
+   "+" y sin el 9 o el 1 de celular ("54 11 2345-6789") no se encuentra.
 
 Las de la base están escritas también en el código que las deja afuera.
 **`promotionNotes` salió de esta lista el 2026-08-28**, y el **2026-10-26**

@@ -36,6 +36,7 @@ import {
   MARCADOR_DE_DATO_BORRADO,
   marcarBorradoDeDatosPersonales,
   marcarPendienteDelBorrado,
+  PREFIJO_DE_LA_NOTA_DEL_BORRADO,
   type PendienteDelBorrado,
   existsOtherContactWithPhone,
   findContactById,
@@ -798,7 +799,7 @@ export function notaDelBorrado(cuando: Date, zona: string, quien: string | null)
     month: "2-digit",
     year: "numeric",
   }).format(cuando);
-  return `Datos borrados a pedido del titular el ${fecha} por ${quien ?? "un administrador"}`;
+  return `${PREFIJO_DE_LA_NOTA_DEL_BORRADO} el ${fecha} por ${quien ?? "un administrador"}`;
 }
 
 // Ver la nota del timeout dentro de erasePersonalData.
@@ -832,8 +833,9 @@ export async function erasePersonalData(
   // contacto ya estaba borrado (se repite el borrado, por ejemplo para
   // reintentar Google), su nombre ya es el marcador: no hay nada que buscar.
   // Y repetirlo no pisa la nota, la fecha ni quién lo hizo (revisión de
-  // #585): la nota se arma con los del primer borrado, y solo se completa lo
-  // que faltó.
+  // #585): la nota que ya está se conserva tal cual (borrarRastroDelContacto
+  // la reconoce por su prefijo), y donde falte se arma con la fecha y el autor
+  // del primer borrado.
   const yaBorrado = contacto.personalDataErasedAt;
   const [organizacion, quienBorra] = await Promise.all([
     findOrganizationById(organizationId),

@@ -775,6 +775,10 @@ test("si Google falla: no frena el borrado y queda pendiente; repetirlo con Goog
 
   const [nota] = await prisma.message.findMany({ where: { conversationId: e.conversationId } });
 
+  // Entre un borrado y otro cambia el nombre de quien hizo el primero: la nota
+  // no se rearma, se conserva tal cual (revisión de #585).
+  await prisma.user.update({ where: { id: e.adminId }, data: { fullName: "Nombre Cambiado" } });
+
   // Lo repite OTRA persona, con Google sano: limpia el evento y lo pendiente,
   // y nada más (revisión de #585).
   const otroUsuario = e.org.authIds[1];
@@ -1032,4 +1036,51 @@ test("límites de palabra: lo de «Mariana López», «juli…@» y un teléfono
   assert.deepEqual(suyo.rawPayload, { erased: true });
   const ajeno = await prisma.ingestionEvent.findUniqueOrThrow({ where: { id: eventoAjeno.id } });
   assert.deepEqual(ajeno.rawPayload, { email: `juli${email}` });
+});
+
+// Revisión de #585: el teléfono con el prefijo agrupado ("+54 9 11 …") no se
+// encontraba. Contra Postgres, con un testigo de otro país con los mismos
+// últimos 8 dígitos.
+test("teléfono argentino escrito agrupado, con o sin país, se encuentra; uno de México con los mismos dígitos no", async () => {
+  const org = await crearOrgDePrueba("borrado-completo", "COMPLETA", "AUTOMOTORA", 1);
+  orgs.push(org);
+  const organizationId = org.id;
+  const persona = await prisma.contact.create({
+    data: { organizationId, firstName: "Persona", lastName: "Ejemplo", phone: "+5491123456789" },
+  });
+  const agente = await prisma.internalAgent.create({
+    data: {
+      organizationId,
+      name: "Interno",
+      instructions: "Ayudá al equipo.",
+      modelProvider: "openrouter",
+      modelName: "doble/modelo",
+    },
+  });
+  const mensaje = (content: string) =>
+    prisma.internalAgentMessage.create({
+      data: {
+        organizationId,
+        internalAgentId: agente.id,
+        userId: org.authIds[0],
+        senderType: "USER",
+        content,
+      },
+    });
+  const suyos = [
+    await mensaje("Su cel: +54 9 11 2345-6789"),
+    await mensaje("Llamala al +54 11 2345-6789"),
+    await mensaje("Fijo: 011 2345-6789"),
+    await mensaje("Cel 11 2345-6789"),
+  ];
+  const ajeno = await mensaje("El de México: +52 1 55 2345 6789");
+
+  const r = await erasePersonalData(organizationId, persona.id, org.authIds[0]);
+
+  assert.equal(r.mensajesDelAgenteInternoBorrados, suyos.length);
+  const queda = await prisma.internalAgentMessage.findMany({
+    where: { organizationId },
+    select: { id: true, content: true },
+  });
+  assert.deepEqual(queda, [{ id: ajeno.id, content: ajeno.content }]);
 });

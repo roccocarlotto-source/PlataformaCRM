@@ -960,6 +960,10 @@ export interface RastroBorrado {
   seguimientosCancelados: number;
 }
 
+// Cómo empieza la nota del sistema que queda en cada conversación: así la
+// reconoce un borrado repetido. La arma notaDelBorrado (contact.service.ts).
+export const PREFIJO_DE_LA_NOTA_DEL_BORRADO = "Datos borrados a pedido del titular";
+
 export async function borrarRastroDelContacto(
   id: string,
   organizationId: string,
@@ -981,11 +985,17 @@ export async function borrarRastroDelContacto(
       ],
     },
   });
-  // Al repetir el borrado la nota es la misma (el service la arma con la fecha
-  // y el autor del primero): se conserva, y solo se agrega donde falte.
-  const laNota = { senderType: "AUTOMATION" as const, content: notaDelSistema };
+  // Al repetir el borrado, la nota que ya está se conserva tal cual y solo se
+  // agrega donde falte. Se la reconoce por quién la escribió y cómo empieza,
+  // NO por el texto entero (revisión de #585): si entre un borrado y otro
+  // cambia el nombre de quien lo hizo, o la zona de la organización, el texto
+  // rearmado sería otro y la nota original se perdería.
+  const unaNota = {
+    senderType: "AUTOMATION" as const,
+    content: { startsWith: PREFIJO_DE_LA_NOTA_DEL_BORRADO },
+  };
   const mensajes = await db.message.deleteMany({
-    where: { ...deSusConversaciones, NOT: laNota },
+    where: { ...deSusConversaciones, NOT: unaNota },
   });
   // lastMessageAt NO cambia (revisión de #585): con la fecha del borrado, la
   // conversación subía al principio de la bandeja sin que nadie escribiera.
@@ -999,7 +1009,7 @@ export async function borrarRastroDelContacto(
     },
   });
   const sinNota = await db.conversation.findMany({
-    where: { organizationId, contactId: id, messages: { none: laNota } },
+    where: { organizationId, contactId: id, messages: { none: unaNota } },
     select: { id: true },
   });
   if (sinNota.length > 0) {
@@ -1008,7 +1018,8 @@ export async function borrarRastroDelContacto(
         organizationId,
         conversationId: c.id,
         direction: "OUTBOUND" as const,
-        ...laNota,
+        senderType: "AUTOMATION" as const,
+        content: notaDelSistema,
       })),
     });
   }
