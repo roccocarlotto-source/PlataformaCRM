@@ -229,7 +229,7 @@ export function IngestionEventListPage() {
         ) : null}
 
         {eventsQuery.isSuccess && eventsQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Fuente</th>

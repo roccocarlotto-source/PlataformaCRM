@@ -350,7 +350,7 @@ export function KnowledgeBaseListPage() {
         ) : null}
 
         {entriesQuery.isSuccess && entries.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th className="ds-cell-pick">

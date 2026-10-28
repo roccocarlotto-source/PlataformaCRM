@@ -359,7 +359,7 @@ export function AgentEmbedPage() {
             ) : null}
 
             {tokens.length > 0 ? (
-              <Table>
+              <Table accionesFijas>
                 <thead>
                   <tr>
                     <th>Prefijo</th>

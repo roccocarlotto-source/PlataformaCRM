@@ -59,7 +59,7 @@ export function PrestacionesPage() {
         ) : null}
 
         {prestacionesQuery.isSuccess && prestaciones.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>{prestacion.singularTitulo}</th>

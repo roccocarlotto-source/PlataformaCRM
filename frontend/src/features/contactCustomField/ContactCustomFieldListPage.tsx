@@ -97,7 +97,7 @@ export function ContactCustomFieldListPage() {
         ) : null}
 
         {fieldsQuery.isSuccess && campos.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Etiqueta</th>

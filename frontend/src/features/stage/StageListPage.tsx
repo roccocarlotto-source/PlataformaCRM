@@ -173,7 +173,7 @@ export function StageListPage() {
         ) : null}
 
         {stagesQuery.isSuccess && stagesQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas={isAdmin}>
             <thead>
               <tr>
                 <th>Orden</th>

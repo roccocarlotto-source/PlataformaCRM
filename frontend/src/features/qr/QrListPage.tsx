@@ -221,7 +221,7 @@ export function QrListPage() {
         ) : null}
 
         {qrCodesQuery.isSuccess && qrCodesQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>N°</th>

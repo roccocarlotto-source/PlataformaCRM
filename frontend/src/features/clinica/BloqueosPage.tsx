@@ -93,7 +93,7 @@ export function BloqueosPage() {
             <EmptyState title="No hay bloqueos en los próximos dos meses" icon={CalendarOff} />
           ) : null}
           {bloqueosQuery.isSuccess && bloqueosQuery.data.bloqueos.length > 0 ? (
-            <Table>
+            <Table accionesFijas>
               <thead>
                 <tr>
                   <th>Desde</th>
@@ -230,7 +230,7 @@ function TurnosAfectados({ resultado }: { resultado: BloqueoCreado }) {
       <Notice tone="warning" alert={false}>
         Estos turnos siguen en pie: no se cancelaron.
       </Notice>
-      <Table>
+      <Table accionesFijas>
         <thead>
           <tr>
             <th>{vocabulario.contacto.singularTitulo}</th>

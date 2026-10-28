@@ -156,7 +156,7 @@ export function AutomationListPage() {
         ) : null}
 
         {automationsQuery.isSuccess && automationsQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Nombre</th>

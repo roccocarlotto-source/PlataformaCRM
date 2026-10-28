@@ -227,6 +227,15 @@ arriba con el botón de menú (las tres líneas) a la izquierda:
 Todo lo demás (secciones, tema, cerrar sesión) funciona igual que en la
 computadora.
 
+### Las tablas de cada pantalla
+
+Si una tabla tiene más columnas de las que entran en tu pantalla, se desliza
+hacia el costado (con la rueda del mouse y Shift, con el touchpad o
+arrastrando en el celular). La columna **Acciones**, con los tres puntos de
+cada fila, queda siempre a la vista contra el borde derecho. Mientras quedan
+columnas escondidas detrás, esa columna lleva una sombra suave a su
+izquierda: es la señal de que la tabla sigue.
+
 ## Tema claro y oscuro {#tema}
 
 Al pie del menú hay tres botones: **Sistema**, **Claro** y **Oscuro**.
