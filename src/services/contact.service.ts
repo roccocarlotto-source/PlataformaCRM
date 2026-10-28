@@ -4,7 +4,7 @@ import {
   type LeadUrgency,
   type LifecycleStage,
 } from "@prisma/client";
-import { OPCIONES_DE_TRANSACCION_LARGA, prisma, type Db } from "../lib/prisma";
+import { prisma, type Db } from "../lib/prisma";
 import {
   normalizarTelefono,
   soloDigitos,
@@ -57,6 +57,7 @@ import {
   anonymizeIngestionEventsOfContact,
 } from "../repositories/ingestionEvent.repository";
 import { anonimizarPreguntasQueMencionan } from "../repositories/helpAssistantQuestion.repository";
+import { borrarVinculosDelContacto } from "../repositories/importacion.repository";
 import { borrarMensajesQueMencionan } from "../repositories/internalAgent.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
 import { criteriosDeMencion, hayCriterios } from "../utils/mencionDeLaPersona";
@@ -774,6 +775,9 @@ export interface ResultadoDeBorrado {
   eventosNoPromovidosAnonimizados: number;
   preguntasDeAyudaAnonimizadas: number;
   mensajesDelAgenteInternoBorrados: number;
+  // Revisión de #585: los vínculos de importación (claves email:, telefono:,
+  // id: del contacto y de sus unidos, y los de sus actividades).
+  vinculosDeImportacionBorrados: number;
   // Cuántos eventos de ingesta perdieron su rawPayload. Se devuelve porque el
   // estándar pide que el borrado sea verificable, y porque quien lo pide tiene
   // que poder decir cuánto se borró sin ir a mirar la base.
@@ -796,6 +800,9 @@ export function notaDelBorrado(cuando: Date, zona: string, quien: string | null)
   }).format(cuando);
   return `Datos borrados a pedido del titular el ${fecha} por ${quien ?? "un administrador"}`;
 }
+
+// Ver la nota del timeout dentro de erasePersonalData.
+export const OPCIONES_DE_TRANSACCION_DEL_BORRADO = { maxWait: 10_000, timeout: 45_000 } as const;
 
 export async function erasePersonalData(
   organizationId: string,
@@ -824,24 +831,38 @@ export async function erasePersonalData(
   // otros escribieron. Los datos se leen ANTES de anonimizar la fila. Si el
   // contacto ya estaba borrado (se repite el borrado, por ejemplo para
   // reintentar Google), su nombre ya es el marcador: no hay nada que buscar.
+  // Y repetirlo no pisa la nota, la fecha ni quién lo hizo (revisión de
+  // #585): la nota se arma con los del primer borrado, y solo se completa lo
+  // que faltó.
+  const yaBorrado = contacto.personalDataErasedAt;
   const [organizacion, quienBorra] = await Promise.all([
     findOrganizationById(organizationId),
-    findUserByIdInOrganization(erasedById, organizationId),
+    findUserByIdInOrganization(contacto.personalDataErasedById ?? erasedById, organizationId),
   ]);
   const nota = notaDelBorrado(
-    new Date(),
+    yaBorrado ?? new Date(),
     organizacion?.timezone ?? "UTC",
     quienBorra?.fullName ?? null,
   );
-  const criterios = contacto.personalDataErasedAt ? null : criteriosDeMencion(contacto);
+  const criterios = yaBorrado ? null : criteriosDeMencion(contacto);
 
-  // TIMEOUT EXPLÍCITO (2026-10-12). Son ~22 sentencias en serie aunque el
-  // contacto no tenga nada más que la fila: cada tabla se recorre igual. Con el
-  // pooler de Supabase (pgbouncer=true) eso midió ~52 idas y vueltas, y con la
+  // TIMEOUT EXPLÍCITO (2026-10-12). Con el pooler de Supabase (pgbouncer=true)
+  // las ~22 sentencias de entonces midieron ~52 idas y vueltas, y con la
   // latencia de producción hasta la base (São Paulo) pasaba los 5 s por
   // defecto de Prisma: vencía con P2028, el usuario veía "conflicto temporal"
-  // y el borrado se revertía entero. Mismos valores que la unión de contactos
-  // (contactMerge.service.ts). Lo fija borradoCompleto.integration-test.ts.
+  // y el borrado se revertía entero. Lo fija borradoCompleto.integration-test.ts.
+  //
+  // TIMEOUT PROPIO, más largo que OPCIONES_DE_TRANSACCION_LARGA (revisión de
+  // #585). Con DAT-03/DAT-04 la transacción hace 43 idas y vueltas en serie
+  // (BEGIN y COMMIT incluidos), medidas en el peor caso razonable —20
+  // conversaciones, 10 oportunidades con cotización y entrega, 3 eventos de
+  // ingesta— por borradoCompleto.consultas.integration-test.ts. La cantidad no
+  // crece con las filas (una sentencia por tabla), salvo los eventos de
+  // ingesta promovidos: uno más por evento. A ~350 ms por consulta en
+  // producción son ~15 s, demasiado cerca de los 20 s de la opción larga; 45 s
+  // alcanzan para ~125 consultas (≈80 eventos de ingesta más). Ni el frontend
+  // ni el servidor cortan antes: el pedido no tiene timeout propio y el
+  // requestTimeout de Node es de 300 s.
   const { resultado, turnosEnGoogle } = await prisma.$transaction(async (tx) => {
     const contacto = await erasePersonalDataFromContact(id, organizationId, tx);
 
@@ -888,7 +909,16 @@ export async function erasePersonalData(
     // Borrado completo: mensajes (se borran; queda la nota), conversaciones,
     // cola, tareas, identidades y seguimientos; y quién y cuándo.
     const rastro = await borrarRastroDelContacto(id, organizationId, nota, tx);
-    await marcarBorradoDeDatosPersonales(id, organizationId, erasedById, tx);
+    // DAT-04 (revisión de #585): sin sus vínculos de importación, reimportar
+    // la misma fila o sincronizar crea un contacto nuevo en vez de revivir este.
+    const vinculos = await borrarVinculosDelContacto(organizationId, id, tx);
+    if (yaBorrado) {
+      // Quién y cuándo quedan los del primer borrado; lo pendiente se vuelve a
+      // calcular después del commit.
+      await marcarPendienteDelBorrado(id, organizationId, [], tx);
+    } else {
+      await marcarBorradoDeDatosPersonales(id, organizationId, erasedById, tx);
+    }
     const turnosEnGoogle = await tx.booking.findMany({
       where: { organizationId, contactId: id, googleEventId: { not: null } },
       select: {
@@ -915,10 +945,11 @@ export async function erasePersonalData(
         eventosNoPromovidosAnonimizados: noPromovidos,
         preguntasDeAyudaAnonimizadas: preguntasDeAyuda,
         mensajesDelAgenteInternoBorrados: mensajesDelAgenteInterno,
+        vinculosDeImportacionBorrados: vinculos,
       },
       turnosEnGoogle,
     };
-  }, OPCIONES_DE_TRANSACCION_LARGA);
+  }, OPCIONES_DE_TRANSACCION_DEL_BORRADO);
 
   // DESPUÉS DEL COMMIT: el nombre en los eventos de Google de sus turnos. Una
   // falla de Google no deshace ni frena el borrado; queda como pendiente, en

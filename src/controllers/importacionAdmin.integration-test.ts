@@ -12,6 +12,8 @@ import { importUpload } from "../middlewares/importUpload";
 import { notFound } from "../middlewares/notFound";
 import { requirePlatformAdmin } from "../middlewares/requirePlatformAdmin";
 import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
+import { MARCADOR_DE_DATO_BORRADO } from "../repositories/contact.repository";
+import { erasePersonalData } from "../services/contact.service";
 import { findRoleByName } from "../repositories/role.repository";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
@@ -831,6 +833,50 @@ test("deshacer: da de baja lo creado y sus vínculos, deja lo que tuvo uso propi
       despues.map((c) => c.firstName),
       ["Ana", "Beto", "Diego"],
     );
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// DAT-04 (revisión de #585): los vínculos del sistema de origen guardaban las
+// claves del contacto (id:, email:, telefono:) y reimportar la misma fila lo
+// encontraba y le volvía a escribir los datos al borrado.
+test("borrado a pedido: reimportar la misma fila crea un contacto NUEVO y el borrado queda intacto", async () => {
+  const e = await montar("borrado-a-pedido");
+  try {
+    const contenido = await fixture("contactos.csv", e.vendedorEmail);
+    const { batchId, subida } = await importarContactos(e, contenido, { sourceName: "Planilla" });
+    await confirmarYPromover(e, batchId);
+    const ana = await prisma.contact.findFirstOrThrow({
+      where: { organizationId: e.organizationId, firstName: "Ana" },
+    });
+    assert.ok(
+      (await prisma.externalRecordLink.count({ where: { entityId: ana.id } })) > 0,
+      "la importación la vinculó",
+    );
+
+    const r = await erasePersonalData(e.organizationId, ana.id, e.vendedorId);
+    assert.ok(r.vinculosDeImportacionBorrados >= 3, "id:, email: y telefono:");
+    assert.equal(await prisma.externalRecordLink.count({ where: { entityId: ana.id } }), 0);
+    const borrada = await prisma.contact.findUniqueOrThrow({ where: { id: ana.id } });
+
+    const otra = await importarContactos(e, contenido, { sourceId: subida.body.lote.sourceId });
+    await confirmarYPromover(e, otra.batchId);
+
+    const nueva = await prisma.contact.findFirstOrThrow({
+      where: { organizationId: e.organizationId, firstName: "Ana", deletedAt: null },
+    });
+    assert.notEqual(nueva.id, ana.id, "es un contacto nuevo");
+    assert.equal(nueva.email, "ana.perez@example.com");
+    assert.equal(
+      (await prisma.externalRecordLink.count({ where: { entityId: nueva.id } })) > 0,
+      true,
+      "los vínculos apuntan al nuevo",
+    );
+    const despues = await prisma.contact.findUniqueOrThrow({ where: { id: ana.id } });
+    assert.deepEqual(despues, borrada, "el borrado no cambió en nada");
+    assert.equal(despues.firstName, MARCADOR_DE_DATO_BORRADO);
+    assert.equal(despues.email, null);
   } finally {
     await desmontar(e);
   }

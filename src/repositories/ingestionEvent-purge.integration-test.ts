@@ -108,6 +108,45 @@ test("la purga borra PROCESSED, FAILED, PENDING y DEAD_LETTER vencidos (DAT-04: 
 });
 
 // ---------------------------------------------------------------------------
+// La política entera (data-classification.md §5.1), estado por estado
+// (revisión de #585): cada estado de IngestionStatus tiene que estar decidido
+// acá. Un estado nuevo en el enum hace fallar el test hasta que alguien decida
+// si se purga a los 90 días o tiene su propia regla.
+// ---------------------------------------------------------------------------
+
+const POLITICA: Record<IngestionStatus, "a los 90 días" | "regla propia"> = {
+  PROCESSED: "a los 90 días",
+  DUPLICATE: "a los 90 días",
+  FAILED: "a los 90 días",
+  PENDING: "a los 90 días",
+  DEAD_LETTER: "a los 90 días",
+  // 7 días sin confirmar el lote: descartarSinConfirmarVencidos
+  // (importacion.repository.ts).
+  STAGED: "regla propia",
+};
+
+test("cada estado se purga como dice la política: vencido se va si es de los 90 días, STAGED queda", async () => {
+  assert.deepEqual(
+    Object.keys(POLITICA).sort(),
+    Object.values(IngestionStatus).sort(),
+    "un estado del enum sin decidir en la política",
+  );
+  const viejos = await Promise.all(
+    Object.values(IngestionStatus).map(async (status) => ({
+      status,
+      id: await crearEvento(status, VIEJO),
+    })),
+  );
+
+  await purgeIngestionEvents(fechaDeCorteDeRetencion(), { organizationId: orgId });
+
+  for (const { status, id } of viejos) {
+    const sigue = (await existe(id)) !== null;
+    assert.equal(sigue, POLITICA[status] === "regla propia", `${status} vencido`);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // DUPLICATE tiene su propio test: hoy ningún código lo escribe (los duplicados
 // no crean fila), así que el caso solo existe si alguien lo construye a mano.
 // Está en la política igual, y si un día se empieza a escribir, esto ya lo

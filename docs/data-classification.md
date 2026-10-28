@@ -220,6 +220,9 @@ retención, así que se suman acá con el mismo criterio.
 | `KnowledgeBaseEntry.title`, `.content` | **Internal** | Contenido del negocio (horarios, stock sincronizado) que el agente usa para responder. Por contenido, si alguien escribe ahí datos de una persona |
 | `HelpAssistantQuestion.question` | **Internal por diseño, Regulated por contenido** | Lo que un usuario le pregunta al asistente "¿Cómo se hace?". Se guarda con emails y números de 7 o más dígitos enmascarados, pero no los nombres. Se purga a los 90 días (`helpAssistantPurgeWorker.ts`) |
 | `InternalAgentMessage.content`, `.toolCalls` | **Internal por diseño, Regulated por contenido** | La conversación de un usuario con el agente interno, que lee datos del CRM y puede citarlos. Se purga a los 90 días, en el mismo worker que las preguntas al asistente *(2026-10-26)* |
+| `Vehicle.consignorName`, `.consignorDocument`, `.consignorPhone`, `.consignorEmail` | **Regulated** | El dueño que dejó la unidad en consignación: un tercero que no es un `Contact` (no está en el pipeline a propósito, ver `schema.prisma`). Se vacían al cambiar el origen de la unidad, pero **el borrado a pedido no los alcanza** (§5.2, "Qué NO alcanza") *(2026-10-28)* |
+| `Vehicle.titleHolder` | **Regulated** | El titular de la unidad según los papeles: el nombre de una persona. Mismo límite que el consignante |
+| `ExternalRecordLink.externalKey` | **Regulated** cuando es de un contacto | La clave con la que una importación reconoce a un contacto: `email:…`, `telefono:…` o el id del sistema de origen. El borrado a pedido la borra (§5.2) |
 
 Los Regulated "por contenido" de esta tabla tienen el mismo problema que
 §2.5, y lo que el borrado a pedido alcanza de ellos hoy está en §5.2.
@@ -426,7 +429,7 @@ porque el marcador no es reversible ni re-identificable; conservar el
 | `IngestionEvent.promotionNotes` de esos mismos eventos | **Redactado, no borrado.** Se conservan `tipo`, `campo` y `motivo`; los valores —`crm` y `entrante`— pasan al mismo marcador fijo |
 | Los campos del lead: `leadScore`, `leadIntent`, `leadServiceOfInterest`, `leadUrgency`, `leadBudget*`, `leadLocation`, `leadNotes`, `leadAiData`, `customFields`, `noInterestNote`, `vehicleOfInterest*` | `NULL` *(borrado completo, 2026-10-12)* |
 | `Message` de sus conversaciones | **Se borran** *(2026-10-26)*. Cada conversación queda con un único mensaje del sistema: "Datos borrados a pedido del titular el <fecha> por <usuario>" (quien hizo el borrado; sin datos de la persona) |
-| `Conversation` | `brief` y `externalThreadId` (en WhatsApp, su número) a `NULL`, y **cerrada** |
+| `Conversation` | `brief` y `externalThreadId` (en WhatsApp, su número) a `NULL`, y **cerrada**. `lastMessageAt` no cambia: la conversación no sube al principio de la bandeja |
 | `AgentInboundJob` de esos mensajes | **Se borran**, con sus mensajes. El costo de IA de esos turnos no se pierde: vive en `LlmTurnUsage`, sin contenido y sin FK a la conversación |
 | `Opportunity` del contacto | `title` al marcador; `lostReason` y `financingLender` a `NULL`. Monto, estado y etapa quedan |
 | `Quote.lines` de esas oportunidades | La descripción de cada línea al marcador; los montos quedan |
@@ -437,9 +440,10 @@ porque el marcador no es reversible ni re-identificable; conservar el
 | `ServiceOrderApproval.approverName` y `.description` | El marcador (son `NOT NULL`) |
 | `IngestionEvent.externalId` de los eventos que lo promovieron | `erased:<id del evento>`: sigue siendo único, ya no es el email |
 | Eventos de ingesta **no promovidos** que lo mencionan (por email o teléfono) | Igual que los promovidos: crudo `{ erased: true }`, sin plan ni cambios, id externo borrado; un `PENDING` pasa a `FAILED` |
-| `HelpAssistantQuestion.question` que lo menciona | El marcador. La fila queda: guarda el costo de la pregunta |
+| `HelpAssistantQuestion.question` que lo menciona | El marcador. La fila queda: guarda el costo de la pregunta. En la práctica solo por nombre completo: el email y el teléfono ya se guardan enmascarados |
 | `InternalAgentMessage` que lo menciona | **Se borran** |
 | `Activity` del contacto | `subject` al marcador, `body` a `NULL` |
+| `ExternalRecordLink` (vínculos de importación) del contacto, de los contactos unidos a él y de sus actividades | **Se borran** *(2026-10-28)*. Sus claves son sus datos (`email:…`, `telefono:…`, `id:…`), y con el vínculo vivo una importación nueva o la próxima sincronización encontraban al contacto borrado y le volvían a escribir los datos. Sin él, la fila crea un contacto **nuevo**; además, el resolutor de la importación ignora todo contacto con `personalDataErasedAt`. Deshacer el lote que lo creó ya no lo alcanza |
 | `ContactChannelIdentity` | Borradas, de todos los canales |
 | Seguimientos (`QrFollowUp`, `InquiryFollowUp`, `DiscountVoucherFollowUp`) y recordatorios (`BookingMessage`) | Los pendientes se cancelan; ninguno conserva su último error |
 | El título del evento de Google Calendar de cada turno | El nombre pasa al marcador, **después** del commit y sin frenar el borrado: lo que Google no acepta queda en `Contact.personalDataErasePending` y en la respuesta |
@@ -491,7 +495,16 @@ por ese chequeo.
 
 **Si la persona vuelve a escribir, entra como un contacto nuevo**, en una
 conversación nueva: sus identidades de canal se borraron y su teléfono ya no
-está en la ficha, así que nada la vincula con el contacto borrado.
+está en la ficha, así que nada la vincula con el contacto borrado. **Lo mismo
+si se la vuelve a importar** *(2026-10-28)*: sin sus vínculos de importación, la
+misma fila crea un contacto nuevo y el borrado queda intacto.
+
+**Repetir el borrado** (por ejemplo, para reintentar Google) completa lo que
+faltó y nada más *(2026-10-28)*: la fecha, quién lo hizo y la nota de cada
+conversación quedan las del primero. La transacción tiene su propio timeout
+(45 s): en el peor caso razonable medido —20 conversaciones, 10 oportunidades
+con cotización y entrega— son 43 idas y vueltas a la base, ~15 s en producción
+(`borradoCompleto.consultas.integration-test.ts`).
 
 **Cómo se busca lo que "la menciona"** *(2026-10-26)*. Las preguntas al
 asistente, los mensajes del agente interno y los eventos de ingesta no
@@ -499,11 +512,19 @@ promovidos no tienen ninguna FK al contacto. Se buscan por texto, **solo en la
 organización del contacto** (`src/utils/mencionDeLaPersona.ts`):
 
 - por **nombre completo** (nombre y apellido juntos), nunca por el nombre de
-  pila solo, que encontraría a otras personas. En la ingesta no se busca por
-  nombre: el crudo trae nombre y apellido en campos separados;
-- por **email**;
-- por **teléfono normalizado**: los últimos 8 dígitos, con cualquier separador
-  entre ellos ("+598 99 000 111" y "099 000 111" son el mismo número).
+  pila solo, que encontraría a otras personas. **Como palabra entera**: borrar
+  a "Ana López" no toca lo que dice "Mariana López". En la ingesta no se busca
+  por nombre: el crudo trae nombre y apellido en campos separados;
+- por **email**, sin letra, número ni `._%+-` pegados a la izquierda: borrar
+  a "ana@…" no toca a "juliana@…";
+- por **teléfono normalizado**, solo si tiene 8 dígitos o más: los últimos 8,
+  con cualquier separador entre ellos ("+598 99 000 111" y "099 000 111" son
+  el mismo número) y sin otro dígito a la derecha. A la izquierda se acepta el
+  código de país del contacto, así que "+54 99 000 111" (otro país, mismos
+  dígitos) no se toca; escrito sin código de país no se puede distinguir.
+
+Hasta el 2026-10-28 era un `LIKE '%…%'`, que tocaba también lo de esas otras
+personas (revisión de #585).
 
 Es imperfecto a propósito: un apodo, un nombre mal escrito o solo el apellido
 no se encuentran. Lo que no se encuentra en las preguntas al asistente y en el
@@ -531,6 +552,14 @@ agente interno se va igual con su purga de 90 días.
 5. **Las fotos de las órdenes de Servicios.** `docs/servicios.md` §2.8 las
    incluye en el borrado, pero la subida todavía no existe (S5) y el borrado
    hoy no toca `service_order_photos`: se implementa junto con la subida.
+6. **Los datos del consignante y el titular de una unidad**
+   (`Vehicle.consignorName`, `.consignorDocument`, `.consignorPhone`,
+   `.consignorEmail`, `.titleHolder`; §2.7). No hay ninguna FK al contacto:
+   el consignante no es un `Contact`. Pendiente, en un PR aparte: decidir cómo
+   se identifica a esa persona para un pedido de borrado *(2026-10-28)*.
+7. **Un teléfono escrito sin código de país** en un texto que lo menciona: no
+   se distingue de otro país con los mismos últimos 8 dígitos, y se toma como
+   del contacto.
 
 Las de la base están escritas también en el código que las deja afuera.
 **`promotionNotes` salió de esta lista el 2026-08-28**, y el **2026-10-26**

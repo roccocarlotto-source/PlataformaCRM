@@ -367,7 +367,9 @@ Lo que **no** se borra: sus oportunidades, cotizaciones, entregas, cupones y
 turnos quedan como registro, con sus montos y fechas, pero ya sin su nombre.
 
 Si la persona vuelve a escribir después del borrado, entra como un **contacto
-nuevo**, en una conversación nueva: el sistema ya no la reconoce.
+nuevo**, en una conversación nueva: el sistema ya no la reconoce. Lo mismo si
+vuelve a llegar en una importación o en la sincronización de una planilla: se
+crea un contacto nuevo y el borrado no se toca.
 
 Después, la ficha dice **"Datos personales borrados el … por …"**: queda
 registrado quién lo hizo y cuándo, y el botón ya no aparece.
@@ -384,7 +386,8 @@ contacto ya no lo ofrecen. Si alguien lo intenta igual, el sistema responde
 
 Lo que sí sigue: completar sus tareas, editar sus oportunidades, cancelar,
 reprogramar o marcar atendidos sus turnos, y volver a tocar el borrado (por
-ejemplo, para reintentar Google Calendar).
+ejemplo, para reintentar Google Calendar). Repetirlo completa lo que faltó, sin
+cambiar la fecha ni quién lo hizo.
 
 ### Google Calendar
 
@@ -412,9 +415,10 @@ otros:
 - **Lo que la empresa sacó del sistema:** exportaciones a Excel, capturas de
   pantalla, mails o mensajes reenviados.
 
-Tampoco alcanza al texto de las oportunidades, ni a los envíos de un formulario o una
-importación que nunca llegaron a convertirse en contacto: si hace falta, se
-revisan a mano.
+Tampoco alcanza a los datos del **consignante** ni al **titular** de una
+unidad en [Stock](/ayuda/stock): no están vinculados al contacto. Si la persona
+también era consignante o titular de una unidad, borrá esos datos a mano en la
+ficha de la unidad.
 
 ## Empresas {#empresas}
 

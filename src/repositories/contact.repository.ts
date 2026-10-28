@@ -981,8 +981,14 @@ export async function borrarRastroDelContacto(
       ],
     },
   });
-  const mensajes = await db.message.deleteMany({ where: deSusConversaciones });
-  const ahora = new Date();
+  // Al repetir el borrado la nota es la misma (el service la arma con la fecha
+  // y el autor del primero): se conserva, y solo se agrega donde falte.
+  const laNota = { senderType: "AUTOMATION" as const, content: notaDelSistema };
+  const mensajes = await db.message.deleteMany({
+    where: { ...deSusConversaciones, NOT: laNota },
+  });
+  // lastMessageAt NO cambia (revisión de #585): con la fecha del borrado, la
+  // conversación subía al principio de la bandeja sin que nadie escribiera.
   const conversaciones = await db.conversation.updateMany({
     where: { organizationId, contactId: id },
     data: {
@@ -990,23 +996,22 @@ export async function borrarRastroDelContacto(
       briefEditedByUserId: null,
       externalThreadId: null,
       status: "CLOSED",
-      lastMessageAt: ahora,
     },
   });
-  const suyas = await db.conversation.findMany({
-    where: { organizationId, contactId: id },
+  const sinNota = await db.conversation.findMany({
+    where: { organizationId, contactId: id, messages: { none: laNota } },
     select: { id: true },
   });
-  await db.message.createMany({
-    data: suyas.map((c) => ({
-      organizationId,
-      conversationId: c.id,
-      direction: "OUTBOUND" as const,
-      senderType: "AUTOMATION" as const,
-      content: notaDelSistema,
-      createdAt: ahora,
-    })),
-  });
+  if (sinNota.length > 0) {
+    await db.message.createMany({
+      data: sinNota.map((c) => ({
+        organizationId,
+        conversationId: c.id,
+        direction: "OUTBOUND" as const,
+        ...laNota,
+      })),
+    });
+  }
   const actividades = await db.activity.updateMany({
     where: { organizationId, contactId: id },
     data: { subject: MARCADOR_DE_DATO_BORRADO, body: null },
@@ -1067,43 +1072,27 @@ export async function anonimizarVentaDelContacto(
   organizationId: string,
   db: Db,
 ): Promise<{ oportunidades: number }> {
-  const suyas = await db.opportunity.findMany({
-    where: { organizationId, contactId: id },
-    select: { id: true },
-  });
-  const opportunityIds = suyas.map((o) => o.id);
   const oportunidades = await db.opportunity.updateMany({
     where: { organizationId, contactId: id },
     data: { title: MARCADOR_DE_DATO_BORRADO, lostReason: null, financingLender: null },
   });
 
-  if (opportunityIds.length > 0) {
-    const deSusOportunidades = { organizationId, opportunityId: { in: opportunityIds } };
-    const cotizaciones = await db.quote.findMany({
-      where: deSusOportunidades,
-      select: { id: true, lines: true },
-    });
-    for (const cotizacion of cotizaciones) {
-      await db.quote.updateMany({
-        where: { id: cotizacion.id, organizationId },
-        data: { lines: sinTexto(cotizacion.lines, "description") },
-      });
-    }
-    const entregas = await db.delivery.findMany({
-      where: deSusOportunidades,
-      select: { id: true, checklist: true },
-    });
-    for (const entrega of entregas) {
-      await db.delivery.updateMany({
-        where: { id: entrega.id, organizationId },
-        data: { checklist: sinTexto(entrega.checklist, "label") },
-      });
-    }
-    await db.activity.updateMany({
-      where: { ...deSusOportunidades, contactId: null },
-      data: { subject: MARCADOR_DE_DATO_BORRADO, body: null },
-    });
-  }
+  // UNA sentencia por tabla, sin importar cuántas cotizaciones o entregas
+  // tenga (revisión de #585: antes era un UPDATE por fila, y cada sentencia es
+  // una ida y vuelta a la base dentro de la transacción).
+  const deSusOportunidades = Prisma.sql`organization_id = ${organizationId}::uuid
+    AND opportunity_id IN (
+      SELECT id FROM opportunities
+      WHERE organization_id = ${organizationId}::uuid AND contact_id = ${id}::uuid)`;
+  await db.$executeRaw`
+    UPDATE quotes SET lines = ${sqlSinTexto("lines", "description")}, updated_at = now()
+    WHERE ${deSusOportunidades}`;
+  await db.$executeRaw`
+    UPDATE deliveries SET checklist = ${sqlSinTexto("checklist", "label")}, updated_at = now()
+    WHERE ${deSusOportunidades}`;
+  await db.$executeRaw`
+    UPDATE activities SET subject = ${MARCADOR_DE_DATO_BORRADO}, body = NULL, updated_at = now()
+    WHERE ${deSusOportunidades} AND contact_id IS NULL`;
 
   await db.discountVoucher.updateMany({
     where: { organizationId, contactId: id },
@@ -1114,19 +1103,23 @@ export async function anonimizarVentaDelContacto(
 }
 
 // Un arreglo JSON de objetos con un campo de texto libre: ese campo al
-// marcador, el resto (montos, tildes) igual. Fail-closed, como la redacción
-// de promotionNotes: lo que no tiene la forma esperada se descarta.
-function sinTexto(valor: Prisma.JsonValue, campo: string): Prisma.InputJsonArray {
-  if (!Array.isArray(valor)) return [];
-  return valor.flatMap((item) =>
-    item !== null && typeof item === "object" && !Array.isArray(item)
-      ? [{ ...item, [campo]: MARCADOR_DE_DATO_BORRADO }]
-      : [],
-  ) as Prisma.InputJsonArray;
+// marcador, el resto (montos, tildes) igual y en el mismo orden. Fail-closed,
+// como la redacción de promotionNotes: lo que no tiene la forma esperada se
+// descarta. `columna` es siempre un nombre fijo del código.
+function sqlSinTexto(columna: string, campo: string): Prisma.Sql {
+  const col = Prisma.raw(columna);
+  return Prisma.sql`CASE WHEN jsonb_typeof(${col}) = 'array' THEN coalesce((
+      SELECT jsonb_agg(item.valor || jsonb_build_object(${campo}::text, ${MARCADOR_DE_DATO_BORRADO}::text) ORDER BY item.n)
+      FROM jsonb_array_elements(${col}) WITH ORDINALITY AS item(valor, n)
+      WHERE jsonb_typeof(item.valor) = 'object'), '[]'::jsonb)
+    ELSE '[]'::jsonb END`;
 }
 
 /** Quién y cuándo (CHECK: los dos juntos). Lo pendiente fuera de la base lo
- *  escribe después marcarPendienteDelBorrado. */
+ *  escribe después marcarPendienteDelBorrado. Solo la primera vez: repetir el
+ *  borrado (por ejemplo, para reintentar Google) no pisa quién lo hizo ni
+ *  cuándo (revisión de #585); ese caso limpia lo pendiente con
+ *  marcarPendienteDelBorrado. */
 export function marcarBorradoDeDatosPersonales(
   id: string,
   organizationId: string,
@@ -1134,7 +1127,7 @@ export function marcarBorradoDeDatosPersonales(
   db: Db,
 ) {
   return db.contact.updateMany({
-    where: { id, organizationId },
+    where: { id, organizationId, personalDataErasedAt: null },
     data: {
       personalDataErasedAt: new Date(),
       personalDataErasedById: erasedById,

@@ -30,15 +30,20 @@ import {
 
 const POLL_MS = 24 * 60 * 60 * 1000;
 
+// Una pasada: las dos retenciones de 90 días. Exportada para el test
+// (helpAssistantPurgeWorker.integration-test.ts). Devuelve cuántas filas borró.
+export async function purgarTextosViejos(ahora: Date = new Date()): Promise<number> {
+  return (
+    (await purgarPreguntasViejas(fechaDeCorteDePreguntas(ahora))) +
+    (await purgarMensajesViejosDelAgenteInterno(fechaDeCorteDelAgenteInterno(ahora)))
+  );
+}
+
 export function iniciarPurgaDePreguntasDeAyuda(
   opciones: { pollMs?: number; purgar?: () => Promise<number> } = {},
 ): () => Promise<void> {
   const pollMs = opciones.pollMs ?? POLL_MS;
-  const purgar =
-    opciones.purgar ??
-    (async () =>
-      (await purgarPreguntasViejas(fechaDeCorteDePreguntas())) +
-      (await purgarMensajesViejosDelAgenteInterno(fechaDeCorteDelAgenteInterno())));
+  const purgar = opciones.purgar ?? (() => purgarTextosViejos());
   let detenido = false;
   let timer: NodeJS.Timeout | undefined;
   let tickEnCurso: Promise<void> | undefined;

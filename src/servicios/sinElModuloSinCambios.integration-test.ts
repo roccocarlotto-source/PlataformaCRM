@@ -52,6 +52,7 @@ test("S3: borrar los datos de un contacto sin vehículos responde lo mismo que a
     "preguntasDeAyudaAnonimizadas",
     "seguimientosCancelados",
     "trabajosDeEntradaBorrados",
+    "vinculosDeImportacionBorrados",
   ]);
 });
 

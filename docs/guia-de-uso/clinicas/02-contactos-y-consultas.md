@@ -354,7 +354,9 @@ Lo que **no** se borra: sus turnos quedan como registro (la prestación, el
 profesional y la fecha), pero ya sin su nombre.
 
 Si la persona vuelve a escribir después del borrado, entra como un **paciente
-nuevo**, en una conversación nueva: el sistema ya no la reconoce.
+nuevo**, en una conversación nueva: el sistema ya no la reconoce. Lo mismo si
+vuelve a llegar en una importación: se crea un paciente nuevo y el borrado no
+se toca.
 
 Después, la ficha dice **"Datos personales borrados el … por …"**: queda
 registrado quién lo hizo y cuándo, y el botón ya no aparece.
@@ -371,7 +373,8 @@ los datos personales borrados: queda en solo lectura."
 
 Lo que sí sigue: completar sus tareas, cancelar, reprogramar o marcar
 atendidos sus turnos, y volver a tocar el borrado (por ejemplo, para
-reintentar Google Calendar).
+reintentar Google Calendar). Repetirlo completa lo que faltó, sin cambiar la
+fecha ni quién lo hizo.
 
 ### Google Calendar
 
@@ -398,7 +401,3 @@ otros:
   vencen.
 - **Lo que la clínica sacó del sistema:** exportaciones a Excel, capturas de
   pantalla, mails o mensajes reenviados.
-
-Tampoco alcanza a los envíos de un formulario o una importación que nunca
-llegaron a convertirse en paciente: si hace falta, se
-revisan a mano.
