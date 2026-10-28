@@ -4,6 +4,7 @@ import {
   deleteContactHandler,
   descartarConsultaHandler,
   erasePersonalDataHandler,
+  erasePreviewHandler,
   getContactHandler,
   listContactsHandler,
   mergeContactHandler,
@@ -71,6 +72,15 @@ contactRouter.post(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   erasePersonalDataHandler,
+);
+// Lo que la confirmación del borrado avisa antes de hacerlo (de qué fuentes
+// de importación vino). ADMIN-only, como el borrado: solo tiene sentido para
+// quien puede borrar.
+contactRouter.get(
+  "/contacts/:id/erase-preview",
+  authenticate,
+  authorize("ADMIN"),
+  erasePreviewHandler,
 );
 
 // Unir contactos duplicados (contactMerge.service.ts). ADMIN-only, también la

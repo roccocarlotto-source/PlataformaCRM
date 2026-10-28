@@ -804,6 +804,12 @@ describe("ContactFormPage — sin interés (ítem 185)", () => {
 // Borrado de datos personales a pedido del titular: solo ADMIN, con
 // confirmación (irreversible); después, cuándo y quién, y el formulario con lo
 // anonimizado (no con lo que se borró).
+// Antes de confirmar se piden las fuentes de importación de las que vino
+// (erase-preview, revisión de #585).
+function vistaPreviaHandler(fuentes: string[] = []) {
+  return http.get(`${contactsUrl}/:id/erase-preview`, () => HttpResponse.json({ fuentes }));
+}
+
 describe("ContactFormPage — borrar datos personales", () => {
   it("ADMIN: confirma, borra y la ficha muestra cuándo y quién, con el formulario ya anonimizado", async () => {
     let borrado = false;
@@ -825,6 +831,7 @@ describe("ContactFormPage — borrar datos personales", () => {
             : makeContact({ id: "ct1" }),
         ),
       ),
+      vistaPreviaHandler(),
       http.post(`${contactsUrl}/:id/erase-personal-data`, () => {
         borrado = true;
         return HttpResponse.json({
@@ -843,7 +850,11 @@ describe("ContactFormPage — borrar datos personales", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
     await user.click(screen.getByRole("button", { name: "Borrar datos personales" }));
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/No se puede deshacer/));
+    await waitFor(() =>
+      expect(confirmSpy).toHaveBeenCalledWith(
+        "¿Borrar los datos personales de este contacto? No se puede deshacer.",
+      ),
+    );
     // La fecha con el mismo formateador de la pantalla: depende del locale
     // del entorno (en el CI sale "10/12/2026").
     expect(
@@ -861,6 +872,7 @@ describe("ContactFormPage — borrar datos personales", () => {
     server.use(
       usersHandler(),
       http.get(`${contactsUrl}/:id`, () => HttpResponse.json(makeContact({ id: "ct1" }))),
+      vistaPreviaHandler(),
       http.post(`${contactsUrl}/:id/erase-personal-data`, () => {
         llamado = true;
         return HttpResponse.json({});
@@ -871,7 +883,48 @@ describe("ContactFormPage — borrar datos personales", () => {
     renderForm("/contacts/ct1/edit");
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
     await user.click(screen.getByRole("button", { name: "Borrar datos personales" }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
     expect(llamado).toBe(false);
+    confirmSpy.mockRestore();
+  });
+
+  it("si vino de una importación o sincronización, la confirmación avisa que hay que sacarla también de ahí", async () => {
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () => HttpResponse.json(makeContact({ id: "ct1" }))),
+      vistaPreviaHandler(["Planilla de ventas", "CRM viejo"]),
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit");
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
+    await user.click(screen.getByRole("button", { name: "Borrar datos personales" }));
+    await waitFor(() =>
+      expect(confirmSpy).toHaveBeenCalledWith(
+        "¿Borrar los datos personales de este contacto? No se puede deshacer. Esta persona vino de Planilla de ventas y CRM viejo. Sacala también de ahí, o la próxima sincronización la va a volver a crear como contacto nuevo.",
+      ),
+    );
+    confirmSpy.mockRestore();
+  });
+
+  it("si la vista previa falla, confirma igual sin el aviso", async () => {
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, () => HttpResponse.json(makeContact({ id: "ct1" }))),
+      http.get(`${contactsUrl}/:id/erase-preview`, () =>
+        HttpResponse.json({ error: { message: "x" } }, { status: 500 }),
+      ),
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    renderForm("/contacts/ct1/edit");
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
+    await user.click(screen.getByRole("button", { name: "Borrar datos personales" }));
+    await waitFor(() =>
+      expect(confirmSpy).toHaveBeenCalledWith(
+        "¿Borrar los datos personales de este contacto? No se puede deshacer.",
+      ),
+    );
     confirmSpy.mockRestore();
   });
 

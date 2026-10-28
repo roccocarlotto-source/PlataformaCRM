@@ -202,6 +202,7 @@ test("§11.2: Recepción no configura nada (403 en usuarios, invitaciones, agent
     ["POST", `/api/branches/${id}/google-calendar/connect`, {}],
     ["DELETE", `/api/contacts/${id}`, undefined],
     ["POST", `/api/contacts/${id}/erase-personal-data`, {}],
+    ["GET", `/api/contacts/${id}/erase-preview`, undefined],
     ["POST", `/api/contacts/${id}/merge`, {}],
   ];
   for (const [metodo, path, body] of configuracion) {

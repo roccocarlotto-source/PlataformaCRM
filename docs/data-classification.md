@@ -443,7 +443,7 @@ porque el marcador no es reversible ni re-identificable; conservar el
 | `HelpAssistantQuestion.question` que lo menciona | El marcador. La fila queda: guarda el costo de la pregunta. En la práctica solo por nombre completo: el email y el teléfono ya se guardan enmascarados |
 | `InternalAgentMessage` que lo menciona | **Se borran** |
 | `Activity` del contacto | `subject` al marcador, `body` a `NULL` |
-| `ExternalRecordLink` (vínculos de importación) del contacto, de los contactos unidos a él y de sus actividades | **Se borran** *(2026-10-28)*. Sus claves son sus datos (`email:…`, `telefono:…`, `id:…`), y con el vínculo vivo una importación nueva o la próxima sincronización encontraban al contacto borrado y le volvían a escribir los datos. Sin él, la fila crea un contacto **nuevo**; además, el resolutor de la importación ignora todo contacto con `personalDataErasedAt`. Deshacer el lote que lo creó ya no lo alcanza |
+| `ExternalRecordLink` (vínculos de importación) del contacto, de los contactos unidos a él y de sus actividades | **Se borran** *(2026-10-28)*. Sus claves son sus datos (`email:…`, `telefono:…`, `id:…`), y con el vínculo vivo una importación nueva o la próxima sincronización encontraban al contacto borrado y le volvían a escribir los datos. Sin él, la fila crea un contacto **nuevo**; además, el resolutor de la importación ignora todo contacto con `personalDataErasedAt`. Deshacer el lote que lo creó ya no lo alcanza. Si la persona sigue en el sistema de origen, la próxima sincronización la vuelve a crear como contacto nuevo: por eso la confirmación del borrado nombra las fuentes de las que vino (`GET /api/contacts/:id/erase-preview`) y pide sacarla también de ahí |
 | `ContactChannelIdentity` | Borradas, de todos los canales |
 | Seguimientos (`QrFollowUp`, `InquiryFollowUp`, `DiscountVoucherFollowUp`) y recordatorios (`BookingMessage`) | Los pendientes se cancelan; ninguno conserva su último error |
 | El título del evento de Google Calendar de cada turno | El nombre pasa al marcador, **después** del commit y sin frenar el borrado: lo que Google no acepta queda en `Contact.personalDataErasePending` y en la respuesta |
@@ -513,8 +513,11 @@ organización del contacto** (`src/utils/mencionDeLaPersona.ts`):
 
 - por **nombre completo** (nombre y apellido juntos), nunca por el nombre de
   pila solo, que encontraría a otras personas. **Como palabra entera**: borrar
-  a "Ana López" no toca lo que dice "Mariana López". En la ingesta no se busca
-  por nombre: el crudo trae nombre y apellido en campos separados;
+  a "Ana López" no toca lo que dice "Mariana López". Pero sí lo que dice "Ana
+  López Fernández", "Ana López-García" o "María Ana López": el nombre completo
+  está entero adentro, y el texto no distingue si es otra persona o la misma
+  con el segundo apellido. En la ingesta no se busca por nombre: el crudo trae
+  nombre y apellido en campos separados;
 - por **email**, sin letra, número ni `._%+-` pegados a la izquierda: borrar
   a "ana@…" no toca a "juliana@…";
 - por **teléfono normalizado**, solo si tiene 8 dígitos o más: los últimos 8,
@@ -522,10 +525,14 @@ organización del contacto** (`src/utils/mencionDeLaPersona.ts`):
   el mismo número) y sin otro dígito a la derecha. A la izquierda solo se
   aceptan los dígitos que el número guardado tiene antes de esos 8 (país, 9 o
   1 de celular, área), agrupados como sea: con "+" o "00", el código de país y
-  lo que siga, aunque falte el 9 o el 1 ("+54 9 11 2345-6789" y "+54 11
-  2345-6789"); sin "+", el final, como el área ("11 2345-6789", "011
-  2345-6789"). Así "+54 99 000 111" (otro país, mismos dígitos) no se toca
-  para un contacto de Uruguay; escrito sin nada delante no se puede distinguir.
+  lo que siga. El 9 o el 1 se pueden omitir en el texto **solo si el número
+  guardado los tiene**: para un contacto guardado como +5491123456789 valen
+  "+54 9 11 2345-6789" y "+54 11 2345-6789", pero para uno guardado como
+  +541123456789 (sin el 9) no vale "+54 9 11 2345-6789". Sin "+", el final,
+  como el área ("11 2345-6789", "011 2345-6789"). Así "+54 99 000 111" (otro
+  país, mismos dígitos) no se toca para un contacto de Uruguay; escrito sin
+  nada delante no se puede distinguir. Las formas que no se encuentran, en el
+  punto 7 de la lista de abajo.
 
 Hasta el 2026-10-28 era un `LIKE '%…%'`, que tocaba también lo de esas otras
 personas (revisión de #585).
@@ -563,8 +570,24 @@ agente interno se va igual con su purga de 90 días.
    se identifica a esa persona para un pedido de borrado *(2026-10-28)*.
 7. **Un teléfono escrito solo con sus últimos 8 dígitos** (sin país ni área)
    en un texto que lo menciona: no se distingue de otro número con los mismos
-   últimos 8, y se toma como del contacto. Y al revés, un número escrito sin
-   "+" y sin el 9 o el 1 de celular ("54 11 2345-6789") no se encuentra.
+   últimos 8, y se toma como del contacto. Lo mismo si entre el prefijo y el
+   número hay un separador que no es espacio, guion, punto ni paréntesis (una
+   barra, un salto de línea) o más de dos seguidos: "+54 11 / 99000111" se
+   toma como el +59899000111 de un contacto de Uruguay. *(2026-10-28)*
+8. **Formas de escribir un teléfono de Argentina o México que no se
+   encuentran** *(2026-10-28, revisión de #585)*:
+   - el 9 o el 1 de celular escritos en el texto cuando el número guardado no
+     los tiene (un alta por formulario de Argentina queda +5411…): "+54 9 11
+     2345-6789" para un +541123456789, "+52 1 55 1234 5678" para un
+     +525512345678;
+   - el 15 del celular argentino en formato local ("15 2345-6789", "011 15
+     2345-6789") y el 044 de México;
+   - un número escrito sin "+" y sin el 9 o el 1 de celular ("54 11
+     2345-6789").
+
+   Lo que no se encuentra en las preguntas al asistente, en el agente interno y
+   en los eventos de ingesta no promovidos se va igual con su purga de 90 días.
+   Hacer opcionales el 9, el 1 y el 15 en los dos sentidos queda pendiente.
 
 Las de la base están escritas también en el código que las deja afuera.
 **`promotionNotes` salió de esta lista el 2026-08-28**, y el **2026-10-26**

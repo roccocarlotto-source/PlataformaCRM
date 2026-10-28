@@ -46,7 +46,7 @@ after(async () => {
 const TOPE_DE_CONSULTAS = 48;
 const MS_POR_CONSULTA_EN_PRODUCCION = 350;
 
-test("peor caso razonable: la cantidad de consultas no crece con las conversaciones, oportunidades ni cotizaciones", async () => {
+test("peor caso razonable (20 conversaciones, 10 oportunidades con cotización y entrega): el borrado no pasa el tope de consultas y entra en su timeout con el doble de margen", async () => {
   const org = await crearOrgDePrueba("borrado-consultas", "COMPLETA", "AUTOMOTORA", 1);
   orgs.push(org);
   const organizationId = org.id;

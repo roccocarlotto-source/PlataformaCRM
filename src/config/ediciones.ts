@@ -392,6 +392,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "DELETE /api/contacts/:id",
     "POST /api/contacts/:id/descartar",
     "POST /api/contacts/:id/erase-personal-data",
+    "GET /api/contacts/:id/erase-preview",
     "GET /api/contacts/:id/merge-preview",
     "POST /api/contacts/:id/merge",
   ],

@@ -560,3 +560,29 @@ export function borrarVinculosDelContacto(
       )
   `;
 }
+
+// Las fuentes de importación o sincronización de las que vino el contacto (él
+// o los que se unieron a él), por nombre: la confirmación del borrado avisa que
+// hay que sacarlo también de ahí, porque sin sus vínculos la próxima
+// sincronización lo crea como contacto NUEVO (revisión de #585). Una fuente
+// dada de baja ya no sincroniza: no cuenta.
+export async function fuentesDeImportacionDelContacto(
+  organizationId: string,
+  contactId: string,
+  db: Db = prisma,
+): Promise<string[]> {
+  const filas = await db.$queryRaw<{ name: string }[]>`
+    SELECT DISTINCT s.name
+    FROM external_record_links l
+    JOIN sources s ON s.organization_id = l.organization_id AND s.id = l.source_id
+    WHERE l.organization_id = ${organizationId}::uuid
+      AND s.deleted_at IS NULL
+      AND l.entity_type = 'CONTACT'
+      AND l.entity_id IN (
+        SELECT id FROM contacts
+        WHERE organization_id = ${organizationId}::uuid
+          AND (id = ${contactId}::uuid OR merged_into_id = ${contactId}::uuid))
+    ORDER BY s.name
+  `;
+  return filas.map((f) => f.name);
+}

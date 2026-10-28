@@ -87,6 +87,13 @@ export function erasePersonalData(id: string): Promise<ResultadoDeBorrado> {
   });
 }
 
+// Antes de confirmar el borrado: de qué fuentes de importación o
+// sincronización vino. El borrado se lleva sus vínculos, y la próxima
+// sincronización la crearía como contacto nuevo (revisión de #585).
+export function vistaPreviaDelBorrado(id: string): Promise<{ fuentes: string[] }> {
+  return request<{ fuentes: string[] }>(`/contacts/${id}/erase-preview`, { getAccessToken });
+}
+
 export function deleteContact(id: string): Promise<void> {
   return request<void>(`/contacts/${id}`, {
     method: "DELETE",

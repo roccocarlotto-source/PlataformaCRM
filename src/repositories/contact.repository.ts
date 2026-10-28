@@ -944,8 +944,9 @@ const DATOS_BORRADOS = {
 //   - los seguimientos que todavía no salieron se cancelan (saldrían a un
 //     contacto sin datos), y ninguno conserva su último error.
 //
-// Los turnos quedan como registro: no tienen texto propio y apuntan a un
-// contacto ya anonimizado. Idempotente, como el resto del borrado.
+// Los turnos de la agenda (bookings; no los del agente, que se borran arriba)
+// quedan como registro: no tienen texto propio y apuntan a un contacto ya
+// anonimizado. Idempotente, como el resto del borrado.
 // ---------------------------------------------------------------------------
 
 export const MOTIVO_SEGUIMIENTO_CANCELADO_POR_BORRADO =

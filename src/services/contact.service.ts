@@ -58,7 +58,10 @@ import {
   anonymizeIngestionEventsOfContact,
 } from "../repositories/ingestionEvent.repository";
 import { anonimizarPreguntasQueMencionan } from "../repositories/helpAssistantQuestion.repository";
-import { borrarVinculosDelContacto } from "../repositories/importacion.repository";
+import {
+  borrarVinculosDelContacto,
+  fuentesDeImportacionDelContacto,
+} from "../repositories/importacion.repository";
 import { borrarMensajesQueMencionan } from "../repositories/internalAgent.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
 import { criteriosDeMencion, hayCriterios } from "../utils/mencionDeLaPersona";
@@ -800,6 +803,22 @@ export function notaDelBorrado(cuando: Date, zona: string, quien: string | null)
     year: "numeric",
   }).format(cuando);
   return `${PREFIJO_DE_LA_NOTA_DEL_BORRADO} el ${fecha} por ${quien ?? "un administrador"}`;
+}
+
+// Lo que la confirmación del borrado muestra antes de hacerlo (revisión de
+// #585): de qué fuentes de importación o sincronización vino. El borrado se
+// lleva sus vínculos, así que la próxima sincronización la crearía como
+// contacto nuevo; quien borra tiene que saber que la tiene que sacar también
+// de ahí. Mismo alcance que erasePersonalData: incluye los soft-deleteados.
+export async function vistaPreviaDelBorrado(
+  organizationId: string,
+  id: string,
+): Promise<{ fuentes: string[] }> {
+  const contacto = await findContactByIdIncludingDeleted(id, organizationId);
+  if (!contacto) {
+    throw new AppError("Contacto no encontrado", 404);
+  }
+  return { fuentes: await fuentesDeImportacionDelContacto(organizationId, id) };
 }
 
 // Ver la nota del timeout dentro de erasePersonalData.

@@ -208,6 +208,8 @@ after(async () => {
     if (!org) continue;
     // ingestion_events antes que contacts: promoted_contact_id los referencia.
     await prisma.ingestionEvent.deleteMany({ where: { organizationId: org } });
+    // Los vínculos de importación, antes que sus fuentes (erase-preview).
+    await prisma.externalRecordLink.deleteMany({ where: { organizationId: org } });
     await prisma.contact.deleteMany({ where: { organizationId: org } });
     await prisma.source.deleteMany({ where: { organizationId: org } });
     await prisma.user.deleteMany({ where: { organizationId: org } });
@@ -734,4 +736,73 @@ test("B-27 (repository): si una fila desaparece entre el findMany y su escritura
   assert.equal(restantes.length, 1);
   assert.notEqual(restantes[0].id, purgados[0]);
   assert.deepEqual(restantes[0].rawPayload, RAW_PAYLOAD_BORRADO);
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/contacts/:id/erase-preview (revisión de #585): las fuentes de
+// importación o sincronización de las que vino, para que la confirmación avise
+// que hay que sacarlo también de ahí. Sin sus vínculos, la próxima
+// sincronización lo crearía como contacto nuevo.
+// ---------------------------------------------------------------------------
+
+function vincular(sourceId: string, entityId: string, externalKey: string) {
+  return prisma.externalRecordLink.create({
+    data: { organizationId: orgA, sourceId, entityType: "CONTACT", externalKey, entityId },
+  });
+}
+
+test("erase-preview: las fuentes de él y de sus unidos, sin repetir y sin las dadas de baja; después del borrado, ninguna", async () => {
+  const { contactId } = await crearContactoConEvento(orgA, sourceA);
+  const unido = await prisma.contact.create({
+    data: {
+      organizationId: orgA,
+      firstName: "Ana",
+      lastName: "Gómez",
+      mergedIntoId: contactId,
+      deletedAt: new Date(),
+    },
+  });
+  const planilla = await prisma.source.create({
+    data: { organizationId: orgA, name: "Planilla de ventas", type: "FILE_IMPORT" },
+  });
+  const deBaja = await prisma.source.create({
+    data: { organizationId: orgA, name: "CRM viejo", type: "EXTERNAL_DB", deletedAt: new Date() },
+  });
+  const sufijo = randomUUID().slice(0, 8);
+  await vincular(planilla.id, contactId, `email:ana-${sufijo}@ejemplo.test`);
+  await vincular(planilla.id, contactId, `id:${sufijo}`);
+  await vincular(sourceA, unido.id, `id:unido-${sufijo}`);
+  await vincular(deBaja.id, contactId, `id:viejo-${sufijo}`);
+
+  const antes = await call("GET", `/api/contacts/${contactId}/erase-preview`, adminA.accessToken);
+  assert.equal(antes.status, 200);
+  assert.deepEqual(await antes.json(), { fuentes: ["Landing de borrado", "Planilla de ventas"] });
+
+  const borrado = await call(
+    "POST",
+    `/api/contacts/${contactId}/erase-personal-data`,
+    adminA.accessToken,
+  );
+  assert.equal(borrado.status, 200);
+
+  const despues = await call("GET", `/api/contacts/${contactId}/erase-preview`, adminA.accessToken);
+  assert.deepEqual(await despues.json(), { fuentes: [] });
+});
+
+test("erase-preview: sin vínculos, ninguna fuente; un USER recibe 403 y el ADMIN de otra organización 404", async () => {
+  const { contactId } = await crearContactoConEvento(orgA, sourceA);
+  await vincular(sourceA, contactId, `id:${randomUUID().slice(0, 8)}`);
+  const { contactId: sinVinculos } = await crearContactoConEvento(orgA, sourceA);
+
+  const vacio = await call("GET", `/api/contacts/${sinVinculos}/erase-preview`, adminA.accessToken);
+  assert.equal(vacio.status, 200);
+  assert.deepEqual(await vacio.json(), { fuentes: [] });
+
+  const comoUser = await call("GET", `/api/contacts/${contactId}/erase-preview`, userA.accessToken);
+  assert.equal(comoUser.status, 403);
+
+  // 404 y no 403 ni la lista: no se confirma la existencia de recursos ajenos.
+  const otraOrg = await call("GET", `/api/contacts/${contactId}/erase-preview`, adminB.accessToken);
+  assert.equal(otraOrg.status, 404);
+  assert.ok(!(await otraOrg.text()).includes("Landing de borrado"));
 });

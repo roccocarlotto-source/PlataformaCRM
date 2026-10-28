@@ -17,6 +17,7 @@ import {
   getContactById,
   listContacts,
   updateContact,
+  vistaPreviaDelBorrado,
 } from "../services/contact.service";
 import { assertPuedeEditar, ownerAlCrear } from "../services/permisosDelVendedor";
 import type { AuthenticatedRequest } from "../types/auth";
@@ -239,6 +240,16 @@ export const erasePersonalDataHandler = asyncHandler<AuthenticatedRequest>(
 
     const resultado = await erasePersonalData(req.auth.organizationId, id, req.auth.userId);
     res.status(200).json(resultado);
+  },
+);
+
+// GET /api/contacts/:id/erase-preview — lo que la confirmación del borrado
+// muestra antes de hacerlo: los nombres de las fuentes de importación o
+// sincronización de las que vino. Sin datos de la persona.
+export const erasePreviewHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(idParamSchema, req.params.id);
+    res.status(200).json(await vistaPreviaDelBorrado(req.auth.organizationId, id));
   },
 );
 

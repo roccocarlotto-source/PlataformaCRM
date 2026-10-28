@@ -32,13 +32,30 @@ import { Prisma } from "@prisma/client";
 //     +59899000111) no es este. Si el texto no trae nada delante, no hay forma
 //     de distinguirlo, y se toma como este.
 //
+// LÍMITES CONOCIDOS (revisión de #585, 28/10; data-classification.md §5.2).
+// Se aceptaron así; arreglar los teléfonos queda para la tanda 2:
+//   - el 9 de Argentina y el 1 de México se pueden OMITIR en el texto si el
+//     número guardado los tiene, pero no al revés: guardado +541123456789 (sin
+//     el 9, como queda un alta por formulario), "+54 9 11 2345-6789" no se
+//     encuentra; guardado +525512345678, tampoco "+52 1 55 1234 5678";
+//   - el 15 del celular argentino escrito en local ("15 2345-6789",
+//     "011 15 2345-6789") y el 044 de México no se encuentran;
+//   - un nombre completo que sigue o precede a otras palabras sí coincide:
+//     borrar a "Ana López" toca lo que dice "Ana López Fernández", "Ana
+//     López-García" o "María Ana López" (otra persona, o la misma: el texto no
+//     lo distingue);
+//   - con un separador que no es de la lista (una barra, un salto de línea) o
+//     con más de dos seguidos, los dígitos de delante dejan de verse: "+54 11 /
+//     99000111" se toma como el +59899000111.
+//
 // Las clases de caracteres son explícitas (y no [[:alnum:]]) para no depender
 // del locale de la base, y la sintaxis es la común a las expresiones de
 // Postgres y de JavaScript: los unitarios prueban el mismo patrón que corre en
 // la base.
 //
 // Es imperfecto a propósito y está documentado (data-classification.md §5.2):
-// un apodo o un nombre mal escrito no se encuentran.
+// un apodo o un nombre mal escrito no se encuentran, más los límites de
+// arriba.
 // ---------------------------------------------------------------------------
 
 export interface PersonaABuscar {

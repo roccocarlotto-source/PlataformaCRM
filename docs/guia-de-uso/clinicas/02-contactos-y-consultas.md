@@ -358,6 +358,12 @@ nuevo**, en una conversación nueva: el sistema ya no la reconoce. Lo mismo si
 vuelve a llegar en una importación: se crea un paciente nuevo y el borrado no
 se toca.
 
+Si el paciente vino de una importación o de una sincronización, la
+confirmación te avisa de cuál: *"Esta persona vino de … Sacala también de
+ahí, o la próxima sincronización la va a volver a crear como contacto
+nuevo."* El borrado no puede tocar la planilla ni el sistema de origen: sacala
+vos de ahí antes de la próxima sincronización.
+
 Después, la ficha dice **"Datos personales borrados el … por …"**: queda
 registrado quién lo hizo y cuándo, y el botón ya no aparece.
 
