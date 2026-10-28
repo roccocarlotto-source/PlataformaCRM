@@ -9,7 +9,7 @@ import { FormField } from "../../design-system/FormField";
 import { Select } from "../../design-system/Select";
 import { formatDate } from "../opportunity/format";
 import type { Opportunity } from "../opportunity/types";
-import { formatMoney } from "../quote/format";
+import { formatMoney } from "../../design-system/currencyFormat";
 import { PAYMENT_METHOD_LABEL } from "./labels";
 import { useCreatePayment, useDeletePayment, useUpdatePayment } from "./mutations";
 import {

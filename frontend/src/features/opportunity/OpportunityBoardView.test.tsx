@@ -239,7 +239,7 @@ describe("OpportunityBoardView", () => {
     const prospecto = column("Prospecto");
     expect(within(prospecto).getByText("Renovación anual")).toBeInTheDocument();
     // Dos veces: en la tarjeta y en el footer "Total" de la columna.
-    expect(within(prospecto).getAllByText("1500.00 USD")).toHaveLength(2);
+    expect(within(prospecto).getAllByText("1.500 USD")).toHaveLength(2);
     expect(within(column("Propuesta")).getByText("—")).toBeInTheDocument();
   });
 
@@ -399,7 +399,7 @@ describe("OpportunityBoardView", () => {
     expect(captured.opportunityRequests.every((u) => u.searchParams.get("pageSize") === "100"));
 
     // 3 oportunidades en total; en curso solo las OPEN: 100 + 250, no 999.
-    expect(screen.getByText("3 oportunidades · 350.00 USD en curso")).toBeInTheDocument();
+    expect(screen.getByText("3 oportunidades · 350 USD en curso")).toBeInTheDocument();
   });
 
   it("el buscador filtra por título client-side, sin pedir nada nuevo", async () => {

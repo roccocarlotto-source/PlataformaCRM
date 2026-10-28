@@ -211,7 +211,7 @@ describe("DashboardPage — render general y estados", () => {
     expect(within(stock).getByText("5")).toBeInTheDocument();
 
     const summary = screen.getByLabelText("Resumen comercial");
-    await waitFor(() => expect(within(summary).getByText("3000.00 USD")).toBeInTheDocument());
+    await waitFor(() => expect(within(summary).getByText("3.000 USD")).toBeInTheDocument());
     expect(within(summary).getByText("5")).toBeInTheDocument();
     expect(within(summary).getByText("50%")).toBeInTheDocument();
 
@@ -401,14 +401,14 @@ describe("DashboardPage — render general y estados", () => {
     renderDashboard();
 
     const summary = screen.getByLabelText("Resumen comercial");
-    await waitFor(() => expect(within(summary).getByText("3000.00 USD")).toBeInTheDocument());
+    await waitFor(() => expect(within(summary).getByText("3.000 USD")).toBeInTheDocument());
     expect(within(summary).getByText("Ganado este mes")).toBeInTheDocument();
     await within(screen.getByLabelText("Ingresos ganados por mes")).findByRole("img");
 
     await user.click(screen.getByRole("button", { name: "Semanal" }));
 
     // Las tres cards que siguen al selector cambian de rótulo y de número…
-    await waitFor(() => expect(within(summary).getByText("700.00 USD")).toBeInTheDocument());
+    await waitFor(() => expect(within(summary).getByText("700 USD")).toBeInTheDocument());
     expect(within(summary).getByText("Ganado esta semana")).toBeInTheDocument();
     expect(within(summary).getByText("Oportunidades creadas esta semana")).toBeInTheDocument();
     expect(within(summary).getByText("Tasa de cierre de la semana")).toBeInTheDocument();
@@ -445,7 +445,7 @@ describe("DashboardPage — render general y estados", () => {
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
     const summary = screen.getByLabelText("Resumen comercial");
-    await waitFor(() => expect(within(summary).getByText("3000.00 USD")).toBeInTheDocument());
+    await waitFor(() => expect(within(summary).getByText("3.000 USD")).toBeInTheDocument());
     const pipeline = screen.getByLabelText("Proceso de venta");
     expect(within(pipeline).getByText("Cargando…")).toBeInTheDocument();
 
@@ -568,17 +568,17 @@ describe("DashboardPage — conteo de llegada (§37)", () => {
       );
 
     await waitFor(() => expect(valuesOf("Resumen de stock")).toEqual(["0", "0"]));
-    await waitFor(() => expect(valuesOf("Resumen comercial")).toEqual(["0", "0.00 USD", "0%"]));
+    await waitFor(() => expect(valuesOf("Resumen comercial")).toEqual(["0", "0 USD", "0%"]));
 
     act(() => {
       vi.advanceTimersByTime(COUNT_UP_DURATION_MS + 50);
     });
     expect(valuesOf("Resumen de stock")).toEqual(["12", "5"]);
-    expect(valuesOf("Resumen comercial")).toEqual(["5", "3000.00 USD", "50%"]);
+    expect(valuesOf("Resumen comercial")).toEqual(["5", "3.000 USD", "50%"]);
 
     await user.click(screen.getByRole("button", { name: "Semanal" }));
     // Sin avanzar ningún frame: si volviera a contar, se quedaría en 0.
-    await waitFor(() => expect(valuesOf("Resumen comercial")).toEqual(["1", "700.00 USD", "25%"]));
+    await waitFor(() => expect(valuesOf("Resumen comercial")).toEqual(["1", "700 USD", "25%"]));
     expect(valuesOf("Resumen de stock")).toEqual(["12", "5"]);
   });
 });

@@ -789,7 +789,7 @@ test("el bloque de contacto incluye lo que el CRM ya sabe del lead", () => {
     leadLocation: "Pilar",
   });
   assert.match(bloque, /busca: SUV familiar/);
-  assert.match(bloque, /presupuesto: 20000 USD/);
+  assert.match(bloque, /presupuesto: 20\.000 USD/);
   assert.match(bloque, /urgencia: HIGH/);
   assert.match(bloque, /zona: Pilar/);
   assert.match(bloque, /No se los vuelvas a pedir/);
@@ -813,7 +813,7 @@ test("el score NO va al prompt", () => {
 test("un presupuesto sin moneda se muestra igual, y los vacíos no ensucian", () => {
   assert.match(
     bloqueDeContacto({ ...CONTACTO_BASE, leadBudgetAmount: "15000", leadBudgetCurrency: null }),
-    /presupuesto: 15000(?! )/,
+    /presupuesto: 15\.000(?! )/,
   );
   const vacios = bloqueDeContacto({
     ...CONTACTO_BASE,

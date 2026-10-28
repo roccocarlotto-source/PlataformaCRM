@@ -227,7 +227,7 @@ test("flujo completo: barrido -> evento -> outbox -> Activity con el borrador de
   const contexto = pedido.messages[0].content ?? "";
   assert.ok(typeof contexto === "string");
   assert.match(contexto, /- Título: Corolla 2024 gris/);
-  assert.match(contexto, /- Monto: 25000 USD/);
+  assert.match(contexto, /- Monto: 25\.000 USD/);
   assert.match(contexto, /Cliente: ¿Tienen el Corolla en gris\?/);
   assert.match(contexto, /Agente: Sí, hay una unidad disponible\./);
   assert.doesNotMatch(contexto, /Hilux/);

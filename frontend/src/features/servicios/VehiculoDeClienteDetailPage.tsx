@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatMoney } from "../../design-system/currencyFormat";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { Badge } from "../../design-system/Badge";
@@ -253,7 +254,7 @@ function HistorialDeOrdenes({ vehiculoId }: { vehiculoId: string }) {
                 </td>
                 <td>{o.tipos.map((t) => t.name).join(", ") || "—"}</td>
                 <td>{o.mileageIn === null ? "—" : o.mileageIn.toLocaleString()}</td>
-                <td>{o.amount ? `${o.currency ?? ""} ${o.amount}`.trim() : "—"}</td>
+                <td>{o.amount ? formatMoney(o.amount, o.currency ?? "").trim() : "—"}</td>
                 <td>{o.assignee?.fullName ?? "—"}</td>
               </tr>
             ))}

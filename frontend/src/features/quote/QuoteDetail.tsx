@@ -2,7 +2,8 @@ import { Badge } from "../../design-system/Badge";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { Table } from "../../design-system/Table";
 import { formatDate } from "../opportunity/format";
-import { formatMoney, quoteTotal, vehicleLabel } from "./format";
+import { formatMoney } from "../../design-system/currencyFormat";
+import { quoteTotal, vehicleLabel } from "./format";
 import { QUOTE_STATUS_LABEL, QUOTE_STATUS_VARIANT } from "./labels";
 import type { Quote } from "./types";
 

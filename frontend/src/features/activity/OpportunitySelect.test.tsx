@@ -71,7 +71,7 @@ describe("OpportunitySelect", () => {
     expect(captured[0].searchParams.get("pageSize")).toBe("20");
 
     await waitFor(() =>
-      expect(screen.getByText(/Renovación anual — OPEN — 1500\.00 USD/)).toBeInTheDocument(),
+      expect(screen.getByText(/Renovación anual — OPEN — 1\.500 USD/)).toBeInTheDocument(),
     );
   });
 

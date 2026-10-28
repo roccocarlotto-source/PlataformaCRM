@@ -237,7 +237,7 @@ describe("VehicleListPage", () => {
     await waitFor(() => expect(screen.getByText("Toyota Corolla 2020")).toBeInTheDocument());
     expect(
       cellByHeader(screen.getByText("Toyota Corolla 2020").closest("tr"), "Precio"),
-    ).toHaveTextContent("25000.00 USD");
+    ).toHaveTextContent("25.000 USD");
     expect(
       cellByHeader(screen.getByText("Ford Corolla 2020").closest("tr"), "Precio"),
     ).toHaveTextContent("Consultar precio");
@@ -282,7 +282,7 @@ describe("VehicleListPage", () => {
     await waitFor(() =>
       expect(
         cellByHeader(screen.getByText("Suzuki Corolla 2020").closest("tr"), "Precio"),
-      ).toHaveTextContent("520000.00 UYU"),
+      ).toHaveTextContent("520.000 UYU"),
     );
   });
 
