@@ -154,7 +154,7 @@ export function ResourceListPage() {
         ) : null}
 
         {resourcesQuery.isSuccess && resources.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Nombre</th>

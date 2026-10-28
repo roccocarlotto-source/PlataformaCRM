@@ -1369,7 +1369,7 @@ describe("OpportunityFormPage", () => {
 
     await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "corolla");
     await user.click(
-      await screen.findByRole("button", { name: "Toyota Corolla 2020 · 25000.00 USD" }),
+      await screen.findByRole("button", { name: "Toyota Corolla 2020 · 25.000 USD" }),
     );
 
     expect(screen.getByLabelText("Monto")).toHaveValue("");
@@ -1417,7 +1417,7 @@ describe("OpportunityFormPage", () => {
     await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
     await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "corolla");
     await user.click(
-      await screen.findByRole("button", { name: "Toyota Corolla 2020 · 25000.00 USD" }),
+      await screen.findByRole("button", { name: "Toyota Corolla 2020 · 25.000 USD" }),
     );
     expect(screen.getByText(PRICE_HINT)).toBeInTheDocument();
 
@@ -1461,9 +1461,7 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/op1/edit");
 
-    await waitFor(() =>
-      expect(screen.getByText(/Toyota Corolla 2020 · 25000.00 USD/)).toBeVisible(),
-    );
+    await waitFor(() => expect(screen.getByText(/Toyota Corolla 2020 · 25.000 USD/)).toBeVisible());
     expect(screen.getByText("Reservado")).toHaveClass("ds-badge--info");
     // La unidad con la que arrancó el form no es "nueva": nada se vacía y no
     // hay aviso.
@@ -1514,14 +1512,12 @@ describe("OpportunityFormPage", () => {
 
     await waitFor(() => expect(screen.getByText(/Toyota Corolla 2020/)).toBeVisible());
     await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "ranger");
-    await user.click(
-      await screen.findByRole("button", { name: "Ford Ranger 2020 · 40000.00 USD" }),
-    );
+    await user.click(await screen.findByRole("button", { name: "Ford Ranger 2020 · 40.000 USD" }));
 
     expect(screen.getByLabelText("Monto")).toHaveValue("");
     expect(screen.getByLabelText("Moneda")).toHaveValue("");
     expect(screen.getByText(PRICE_HINT)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText(/Ford Ranger 2020 · 40000.00 USD/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/Ford Ranger 2020 · 40.000 USD/)).toBeVisible());
 
     await user.click(screen.getByRole("button", { name: /guardar/i }));
     await waitFor(() => expect(patched.length).toBe(1));

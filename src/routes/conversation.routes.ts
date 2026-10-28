@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   closeConversationHandler,
+  countPendientesHandler,
   createConversationReplyHandlers,
   generateConversationBriefHandler,
   getConversationHandler,
@@ -42,6 +43,9 @@ export function createConversationRouter(deps?: DepsDeRespuestaHumana) {
   // conversation.repository.ts), así que un id de otra organización es 404
   // también en el PATCH y en los POST.
   conversationRouter.get("/conversations", authenticate, listConversationsHandler);
+  // El contador del menú (UX-02). ANTES de /conversations/:id: si no, Express
+  // tomaría "pendientes" como un id (y daría 400 por no ser un uuid).
+  conversationRouter.get("/conversations/pendientes/count", authenticate, countPendientesHandler);
   conversationRouter.get("/conversations/:id", authenticate, getConversationHandler);
 
   // ---------------------------------------------------------------------------

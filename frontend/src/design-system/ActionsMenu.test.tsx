@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { ActionsMenu, type ActionsMenuAction } from "./ActionsMenu";
+import { placeMenu } from "./placeMenu";
 
 // MemoryRouter porque una acción con `to` es un Link de react-router, como
 // en cualquier ListPage.
@@ -227,5 +228,47 @@ describe("ActionsMenu", () => {
     for (const item of screen.getAllByRole("menuitem")) {
       expect(item).toHaveAttribute("tabindex", "-1");
     }
+  });
+});
+
+// UX-11: con la columna de acciones fija a la derecha, el "⋮" de la última
+// fila o de una tabla al pie de la pantalla no puede abrir un menú que quede
+// fuera de la vista. jsdom no calcula layout, así que la ubicación se prueba
+// sobre la función pura con rectángulos inventados (ventana de 1366×768).
+describe("placeMenu", () => {
+  const ventana = { width: 1366, height: 768 };
+  const menu = { width: 160, height: 120 };
+  // Trigger de 32×32 contra el borde derecho de la tabla.
+  const trigger = (top: number) => ({ top, bottom: top + 32, right: 1300 });
+
+  it("con lugar abajo: debajo del trigger, alineado a su borde derecho", () => {
+    expect(placeMenu(trigger(100), menu, ventana)).toEqual({ top: 136, right: 66 });
+  });
+
+  it("en la última fila, sin lugar abajo: se abre hacia arriba", () => {
+    expect(placeMenu(trigger(700), menu, ventana)).toEqual({ bottom: 72, right: 66 });
+  });
+
+  it("sin lugar ni abajo ni arriba: del lado con más lugar, con alto máximo y scroll", () => {
+    const bajita = { width: 1366, height: 200 };
+    expect(placeMenu(trigger(40), { width: 160, height: 300 }, bajita)).toEqual({
+      top: 76,
+      right: 66,
+      maxHeight: 120,
+      overflowY: "auto",
+    });
+    expect(placeMenu(trigger(140), { width: 160, height: 300 }, bajita)).toEqual({
+      bottom: 64,
+      right: 66,
+      maxHeight: 132,
+      overflowY: "auto",
+    });
+  });
+
+  it("si alineado a la derecha se saldría por la izquierda, se pega al borde izquierdo", () => {
+    expect(placeMenu({ top: 100, bottom: 132, right: 100 }, menu, ventana)).toEqual({
+      top: 136,
+      left: 4,
+    });
   });
 });

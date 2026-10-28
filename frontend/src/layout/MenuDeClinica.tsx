@@ -12,7 +12,6 @@ import {
   MailPlus,
   MapPin,
   MessageSquareText,
-  MessagesSquare,
   QrCode,
   Settings2,
   Shapes,
@@ -23,6 +22,7 @@ import {
 import type { MeResponse } from "../auth/AuthContext";
 import { tieneModulo } from "../auth/useModulo";
 import { vocabularioDe } from "../auth/vocabulario";
+import { ConversacionesLink } from "./ConversacionesLink";
 import { SidebarLink, SidebarSection } from "./Sidebar";
 
 // El menú de una clínica (docs/rubros.md §1.3 y §3.1): Agenda, Turnos,
@@ -96,15 +96,13 @@ export function MenuDeClinica({
           </>
         ) : null}
       </SidebarSection>
-      <SidebarSection
-        label={v.contacto.pluralTitulo}
-        link={{ to: "/contacts", icon: Users }}
-        paths={["/conversations"]}
-      >
-        <SidebarLink to="/conversations" icon={MessagesSquare}>
-          Conversaciones
-        </SidebarLink>
-      </SidebarSection>
+      {/* UX-02: de primer nivel y con el número de las que esperan a una
+          persona (ConversacionesLink): es la tarea número uno de recepción.
+          Antes estaba plegada adentro de los pacientes, sin número. */}
+      <ConversacionesLink />
+      <SidebarLink to="/contacts" icon={Users}>
+        {v.contacto.pluralTitulo}
+      </SidebarLink>
       <SidebarSection label="Tareas" paths={["/tasks", "/activities"]}>
         <SidebarLink to="/tasks" icon={CheckSquare}>
           Mis tareas

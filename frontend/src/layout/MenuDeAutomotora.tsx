@@ -20,7 +20,6 @@ import {
   MailPlus,
   MapPin,
   MessageSquareText,
-  MessagesSquare,
   QrCode,
   Settings2,
   Shapes,
@@ -34,6 +33,7 @@ import {
 } from "lucide-react";
 import type { MeResponse } from "../auth/AuthContext";
 import { tieneModulo } from "../auth/useModulo";
+import { ConversacionesLink } from "./ConversacionesLink";
 import { SidebarLink, SidebarSection } from "./Sidebar";
 
 // El menú de una automotora (docs/rubros.md §1.3): el de siempre, sin ningún
@@ -75,34 +75,24 @@ export function MenuDeAutomotora({
       <SidebarLink to="/vouchers/scan" end icon={TicketCheck}>
         Canjear cupón
       </SidebarLink>
+      {/* UX-02: de primer nivel y con el número de las que esperan a una
+          persona (ConversacionesLink). Antes estaba plegada adentro de
+          Contactos, sin número. Visible para todos los roles: es lectura
+          abierta de un dato del CRM, no configuración (ítem 66). */}
+      <ConversacionesLink />
       <SidebarSection
         label="CRM"
-        paths={[
-          "/contacts",
-          "/conversations",
-          "/companies",
-          "/opportunities",
-          "/pipelines",
-          "/vehicles",
-        ]}
+        paths={["/contacts", "/companies", "/opportunities", "/pipelines", "/vehicles"]}
       >
         {/* Contactos (ítem 79) es a la vez link a /contacts y sub-desplegable
-            de lo que cuelga de un contacto: lo que se habló con él, su
-            empresa y sus oportunidades. */}
+            de lo que cuelga de un contacto: su empresa y sus oportunidades.
+            Las conversaciones salieron a primer nivel (UX-02, arriba). */}
         <SidebarSection
           label="Contactos"
           link={{ to: "/contacts", icon: Users }}
           nested
-          paths={["/conversations", "/companies", "/opportunities"]}
+          paths={["/companies", "/opportunities"]}
         >
-          {/* Bandeja de conversaciones (ítem 66): debajo de Contactos
-              porque es lo que se habló CON ellos. En el grupo CRM y no en
-              Administración —a diferencia de Agentes de IA / Base de
-              conocimiento / Automatizaciones— y visible para ambos roles:
-              es lectura abierta de un dato del CRM, no configuración. */}
-          <SidebarLink to="/conversations" icon={MessagesSquare}>
-            Conversaciones
-          </SidebarLink>
           {tieneEmpresas ? (
             <SidebarLink to="/companies" icon={Building2}>
               Empresas

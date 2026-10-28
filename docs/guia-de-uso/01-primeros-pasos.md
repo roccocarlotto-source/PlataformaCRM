@@ -183,8 +183,10 @@ las secciones:
   aparece si tenés acceso (ver [El agente interno](#agente-interno)).
 - **Canjear cupón**: para escanear el QR de un cupón de descuento en el
   mostrador (ver [Cupones y QR](/ayuda/cupones-y-qr)).
-- **CRM**: **Contactos** (con **Conversaciones**, **Empresas** y
-  **Oportunidades** colgando de él), **Procesos de venta** y **Stock**.
+- **Conversaciones**: la bandeja, con el número de las que esperan a una
+  persona (ver [Lo que te espera](/ayuda/conversaciones#pendientes)).
+- **CRM**: **Contactos** (con **Empresas** y **Oportunidades** colgando de
+  él), **Procesos de venta** y **Stock**.
 - **Actividades**: **Mis tareas**, **Reservas** y **Calendario** para todos;
   **Actividades** (el listado completo del equipo), **Recursos** y **Tipos
   de servicio** solo para administradores.
@@ -224,6 +226,15 @@ arriba con el botón de menú (las tres líneas) a la izquierda:
 
 Todo lo demás (secciones, tema, cerrar sesión) funciona igual que en la
 computadora.
+
+### Las tablas de cada pantalla
+
+Si una tabla tiene más columnas de las que entran en tu pantalla, se desliza
+hacia el costado (con la rueda del mouse y Shift, con el touchpad o
+arrastrando en el celular). La columna **Acciones**, con los tres puntos de
+cada fila, queda siempre a la vista contra el borde derecho. Mientras quedan
+columnas escondidas detrás, esa columna lleva una sombra suave a su
+izquierda: es la señal de que la tabla sigue.
 
 ## Tema claro y oscuro {#tema}
 

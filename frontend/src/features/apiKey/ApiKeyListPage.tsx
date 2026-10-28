@@ -263,7 +263,7 @@ export function ApiKeyListPage() {
         ) : null}
 
         {apiKeysQuery.isSuccess && apiKeysQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Fuente</th>

@@ -397,6 +397,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   ],
   conversaciones: [
     "GET /api/conversations",
+    "GET /api/conversations/pendientes/count",
     "GET /api/conversations/:id",
     "PATCH /api/conversations/:id",
     "POST /api/conversations/:id/close",

@@ -1,28 +1,13 @@
-import { formatAmount } from "../../design-system/currencyFormat";
+import { centsToCanonical, toCents } from "../../design-system/currencyFormat";
 import type { Quote } from "./types";
 
 // ---------------------------------------------------------------------------
 // Importes de la cotización. Funciones puras, sin React (format.test.ts).
 //
-// Todo pasa por CENTAVOS ENTEROS: el total es el precio más la suma de las
-// líneas, y sumar los strings convertidos a float ("0.1" + "0.2") dejaría
-// restos que el formato después redondearía de maneras distintas según el
-// orden. Los importes del backend traen a lo sumo dos decimales, así que
-// Math.round(x * 100) es exacto.
+// El total es el precio más la suma de las líneas, en centavos enteros. El
+// formato de un importe (formatMoney) y los centavos viven en
+// design-system/currencyFormat.ts: son los de todo el sistema.
 // ---------------------------------------------------------------------------
-
-export function toCents(amount: string): number {
-  return Math.round(Number(amount) * 100);
-}
-
-// Exportada para el total de pagos (features/payment/totals.ts, §43), que suma
-// en centavos por el mismo motivo.
-export function centsToCanonical(cents: number): string {
-  const abs = Math.abs(cents);
-  const integer = Math.floor(abs / 100);
-  const decimals = String(abs % 100).padStart(2, "0");
-  return `${cents < 0 ? "-" : ""}${integer}.${decimals}`;
-}
 
 // Precio del vehículo + accesorios − descuentos, como string canónico con
 // dos decimales ("24150.00").
@@ -32,16 +17,6 @@ export function quoteTotal(quote: Pick<Quote, "amount" | "lines">): string {
     toCents(quote.amount),
   );
   return centsToCanonical(cents);
-}
-
-// "24.150 USD" / "−500 USD" / "24.150,50 USD". formatAmount (el formato
-// uruguayo de CurrencyInput) muestra los centavos solo si los hay (§52) y
-// descarta el signo, así que el menos se agrega acá con el signo tipográfico,
-// que no se confunde con un guión.
-export function formatMoney(amount: string, currency: string): string {
-  const cents = toCents(amount);
-  const sign = cents < 0 ? "−" : "";
-  return `${sign}${formatAmount(centsToCanonical(Math.abs(cents)))} ${currency}`;
 }
 
 // La unidad cotizada en una línea: "Toyota Corolla XEI 2022 · STK-000123".

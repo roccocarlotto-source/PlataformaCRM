@@ -102,7 +102,7 @@ export function ProfesionalesPage() {
         ) : null}
 
         {recursosQuery.isSuccess && profesionales.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Nombre</th>

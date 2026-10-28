@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getConversation, listConversations } from "./api";
+import { countPendientes, getConversation, listConversations } from "./api";
 import type { ConversationListQuery } from "./types";
 
 // Misma forma jerárquica que agentKeys/knowledgeBaseKeys. Sin namespacing
@@ -18,6 +18,9 @@ import type { ConversationListQuery } from "./types";
 // durante un refetch (ver la cabecera de ConversationDetail).
 export const DETAIL_REFETCH_MS = 5_000;
 export const LIST_REFETCH_MS = 10_000;
+// El número del menú (UX-02) está en todas las pantallas: cada 60 s alcanza,
+// y al volver a la pestaña refetchOnWindowFocus lo pone al día.
+export const PENDIENTES_REFETCH_MS = 60_000;
 
 export const conversationKeys = {
   all: ["conversations"] as const,
@@ -25,7 +28,16 @@ export const conversationKeys = {
   list: (query: ConversationListQuery) => [...conversationKeys.lists(), query] as const,
   details: () => [...conversationKeys.all, "detail"] as const,
   detail: (id: string) => [...conversationKeys.details(), id] as const,
+  pendientes: () => [...conversationKeys.all, "pendientes"] as const,
 };
+
+export function usePendientesCount() {
+  return useQuery({
+    queryKey: conversationKeys.pendientes(),
+    queryFn: ({ signal }) => countPendientes(signal),
+    refetchInterval: PENDIENTES_REFETCH_MS,
+  });
+}
 
 export function useConversations(query: ConversationListQuery, options?: { enabled?: boolean }) {
   return useQuery({

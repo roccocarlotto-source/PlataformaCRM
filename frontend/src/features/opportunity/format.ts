@@ -1,13 +1,17 @@
+import { centsToCanonical, formatMoney, toCents } from "../../design-system/currencyFormat";
+
 // Formateo de los dos datos numéricos/temporales de Opportunity. Vivían
 // como funciones privadas de OpportunityListPage; se extraen acá porque la
 // vista de embudo (OpportunityBoardView) muestra exactamente los mismos
 // datos en las tarjetas, y dos copias divergirían tarde o temprano.
 
-// amount siempre llega como string desde la API (Prisma.Decimal, ver
-// types.ts) — Number() antes de formatear, nunca .toFixed() directo sobre
-// el string crudo.
+// "23.000 USD": el formato de montos de todo el sistema (formatMoney, en
+// design-system/currencyFormat.ts). Antes era propio —"23000.00 USD"— y el
+// inicio, el embudo y el stock se leían distinto que la cotización y los
+// pagos (UX-09 de docs-privados/auditoria-2026-10-21/informe-etapa-2.md,
+// local). Se conserva el nombre para no tocar a los que lo importan.
 export function formatAmount(amount: string, currency: string): string {
-  return `${Number(amount).toFixed(2)} ${currency}`;
+  return formatMoney(amount, currency);
 }
 
 // Fecha sola (sin hora) a partir del ISO de la API. Se toma solo la parte
@@ -30,14 +34,15 @@ export function formatDate(iso: string): string {
 // cargado por API puede traer otros), así que sumar 1500 USD con 300 ARS
 // en un solo número sería un dato inventado.
 // Devuelve un total por moneda, en orden de primera aparición, y "—" si no
-// hay nada que sumar. Number() sobre cada amount: nunca concatenar strings.
+// hay nada que sumar. La suma es en centavos enteros (toCents): sumar floats
+// dejaba restos que el formato truncaba distinto según el orden.
 export function formatAmountTotals(items: readonly { amount: string; currency: string }[]): string {
   const totals = new Map<string, number>();
   for (const item of items) {
-    totals.set(item.currency, (totals.get(item.currency) ?? 0) + Number(item.amount));
+    totals.set(item.currency, (totals.get(item.currency) ?? 0) + toCents(item.amount));
   }
   if (totals.size === 0) return "—";
-  return Array.from(totals, ([currency, total]) => formatAmount(String(total), currency)).join(
-    " · ",
-  );
+  return Array.from(totals, ([currency, cents]) =>
+    formatAmount(centsToCanonical(cents), currency),
+  ).join(" · ");
 }

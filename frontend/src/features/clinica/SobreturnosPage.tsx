@@ -118,7 +118,7 @@ export function SobreturnosPage() {
           <EmptyState title="No hay sobreturnos para ese día" icon={CalendarPlus} />
         ) : null}
         {sobreturnos.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Horario completo</th>

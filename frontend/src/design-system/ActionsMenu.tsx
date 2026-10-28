@@ -10,6 +10,7 @@ import {
 } from "react";
 import { MoreVertical } from "lucide-react";
 import { Link } from "react-router-dom";
+import { placeMenu } from "./placeMenu";
 
 // ---------------------------------------------------------------------------
 // Menú de acciones de una fila de tabla: un botón de "3 puntos" (kebab) que
@@ -42,7 +43,7 @@ import { Link } from "react-router-dom";
 // página scrollea con el menú abierto el trigger se mueve y el menú no, así
 // que el menú se cierra al primer scroll o resize; es lo que hace un
 // <select> nativo. Alineado al borde derecho del trigger (es la última
-// columna) y, si no entra debajo, se abre hacia arriba.
+// columna) y, si no entra debajo, se abre hacia arriba: ver placeMenu.
 //
 // ACCESIBILIDAD: sigue el patrón "menu button" de WAI-ARIA. El trigger lleva
 // aria-haspopup="menu", aria-expanded y aria-controls; su nombre accesible es
@@ -94,9 +95,6 @@ export interface ActionsMenuProps {
 
 const ICON = { size: 16, strokeWidth: 1.5, "aria-hidden": true } as const;
 
-// Distancia entre el trigger y el menú, en px (= --space-1).
-const GAP = 4;
-
 export function ActionsMenu({ actions, label = "Más acciones" }: ActionsMenuProps) {
   const triggerId = useId();
   const menuId = `${triggerId}-menu`;
@@ -129,20 +127,15 @@ export function ActionsMenu({ actions, label = "Más acciones" }: ActionsMenuPro
     );
   }
 
-  // Ubicar el menú respecto del trigger ANTES de pintar (useLayoutEffect):
-  // pegado al borde derecho del trigger, debajo si entra y arriba si no.
+  // Ubicar el menú respecto del trigger ANTES de pintar (useLayoutEffect).
   useLayoutEffect(() => {
     if (!open) return;
     const trigger = triggerRef.current?.getBoundingClientRect();
     const menu = menuRef.current?.getBoundingClientRect();
     if (!trigger || !menu) return;
-    const fitsBelow = trigger.bottom + GAP + menu.height <= window.innerHeight;
-    setMenuStyle({
-      right: window.innerWidth - trigger.right,
-      ...(fitsBelow
-        ? { top: trigger.bottom + GAP }
-        : { bottom: window.innerHeight - trigger.top + GAP }),
-    });
+    setMenuStyle(
+      placeMenu(trigger, menu, { width: window.innerWidth, height: window.innerHeight }),
+    );
   }, [open]);
 
   // Foco inicial al abrir, ya con el menú ubicado.

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
+import { formatMoney } from "../../design-system/currencyFormat";
 import { DetailList } from "../../design-system/DetailList";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -39,8 +40,10 @@ import type { EstadoDeOrden, FichaDeOrden } from "./types";
 // las transiciones permitidas, ingreso, trabajo, aprobaciones e historial.
 // Las fotos llegan con S5 y el aviso al cliente con S12.
 
+// "5.200 UYU": el formato de montos de todo el sistema (UX-09). Antes
+// "UYU 5200.00", al revés y sin separador de miles.
 function valor(o: { amount: string | null; currency: string | null }): string | null {
-  return o.amount ? `${o.currency ?? ""} ${o.amount}`.trim() : null;
+  return o.amount ? formatMoney(o.amount, o.currency ?? "").trim() : null;
 }
 
 export function OrdenPage() {

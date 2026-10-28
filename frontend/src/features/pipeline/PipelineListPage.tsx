@@ -136,7 +136,7 @@ export function PipelineListPage() {
         ) : null}
 
         {pipelinesQuery.isSuccess && pipelinesQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas={isAdmin}>
             <thead>
               <tr>
                 <th>Nombre</th>

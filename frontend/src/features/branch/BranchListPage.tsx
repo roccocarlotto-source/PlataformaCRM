@@ -145,7 +145,7 @@ export function BranchListPage() {
         ) : null}
 
         {branchesQuery.isSuccess && branchesQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Nombre</th>

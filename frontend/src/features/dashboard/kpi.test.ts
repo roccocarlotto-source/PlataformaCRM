@@ -84,7 +84,7 @@ describe("buildKpiCards", () => {
         wonLastPeriod: { count: 2, value: "1000.00" },
       }),
     ).get("won");
-    expect(card?.value).toBe("750.00 UYU");
+    expect(card?.value).toBe("750 UYU");
     expect(card?.delta).toEqual({ direction: "down", text: "-25% vs. mes anterior" });
   });
 
@@ -227,7 +227,7 @@ describe("buildKpiCards — numericValue y formatValue (§37)", () => {
       makeDashboardSummary({ currency: "UYU", wonThisPeriod: { count: 1, value: "750.50" } }),
     ).get("won");
     expect(card?.numericValue).toBe(750.5);
-    expect(card?.formatValue(123.456)).toBe("123.46 UYU");
+    expect(card?.formatValue(123.456)).toBe("123,46 UYU");
   });
 
   it("tasa de cierre: el porcentaje, redondeado en los frames intermedios", () => {

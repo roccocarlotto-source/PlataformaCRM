@@ -77,11 +77,11 @@ describe("RevenueByMonthChart", () => {
       expect(within(svg as HTMLElement).getByText(month)).toBeInTheDocument();
     }
     // El máximo de la serie rotula el techo, en la moneda.
-    expect(within(svg as HTMLElement).getByText("3000.00 USD")).toBeInTheDocument();
+    expect(within(svg as HTMLElement).getByText("3.000 USD")).toBeInTheDocument();
 
     // <title> nativo por punto y tabla para lector de pantalla, ésta con la
     // clave cruda del backend y no con el rótulo corto.
-    expect(svg.querySelector("circle.ds-chart-point title")?.textContent).toBe("oct: 100.00 USD");
+    expect(svg.querySelector("circle.ds-chart-point title")?.textContent).toBe("oct: 100 USD");
     const table = within(card()).getByRole("table", { name: "Ingresos ganados por mes" });
     expect(within(table).getAllByRole("row")).toHaveLength(7);
     expect(within(table).getByText("2026-03")).toBeInTheDocument();
@@ -136,16 +136,16 @@ describe("RevenueByMonthChart", () => {
     fireEvent.pointerMove(hit, { clientX: 270 });
     expect(crosshair.classList.contains("is-visible")).toBe(true);
     expect(crosshair.style.transform).toBe("translateX(283.2px)");
-    expect(crosshair.querySelector("text")?.textContent).toBe("dic: 250.00 USD");
+    expect(crosshair.querySelector("text")?.textContent).toBe("dic: 250 USD");
 
     // Del otro lado del corte, el punto activo es el anterior.
     fireEvent.pointerMove(hit, { clientX: 200 });
     expect(crosshair.style.transform).toBe("translateX(185.6px)");
-    expect(crosshair.querySelector("text")?.textContent).toBe("nov: 0.00 USD");
+    expect(crosshair.querySelector("text")?.textContent).toBe("nov: 0 USD");
 
     // Más allá del último punto se queda en el último, no se sale de la serie.
     fireEvent.pointerMove(hit, { clientX: 9_999 });
-    expect(crosshair.querySelector("text")?.textContent).toBe("mar: 3000.00 USD");
+    expect(crosshair.querySelector("text")?.textContent).toBe("mar: 3.000 USD");
   });
 
   it("al salir del gráfico el crosshair se oculta, pero se desvanece donde estaba", async () => {

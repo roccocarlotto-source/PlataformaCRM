@@ -245,7 +245,7 @@ export function BookingListPage() {
         ) : null}
 
         {bookingsQuery.isSuccess && bookings.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Turno</th>

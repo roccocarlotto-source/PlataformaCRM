@@ -198,7 +198,7 @@ export function ConsultasSinIdentificarTab() {
         ) : null}
 
         {consultasQuery.isSuccess && consultasQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Consulta</th>

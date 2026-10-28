@@ -190,7 +190,7 @@ export function SourceListPage() {
         ) : null}
 
         {sourcesQuery.isSuccess && sourcesQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Nombre</th>

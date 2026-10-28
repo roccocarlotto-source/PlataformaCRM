@@ -25,7 +25,7 @@ test("el contexto lleva título, monto con moneda, etapa, fechas y los días sin
   const contexto = armarContextoDeBorrador(DATOS, null, AHORA);
 
   assert.match(contexto, /^- Título: Corolla 2024$/m);
-  assert.match(contexto, /^- Monto: 25000 USD$/m);
+  assert.match(contexto, /^- Monto: 25\.000 USD$/m);
   assert.match(contexto, /^- Etapa: Negociación$/m);
   assert.match(contexto, /^- Creada el: 2026-09-01$/m);
   assert.match(contexto, /^- Último movimiento: 2026-09-11 \(hace 10 días\)$/m);

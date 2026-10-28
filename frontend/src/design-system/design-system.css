@@ -684,6 +684,40 @@ fieldset.ds-stack {
   width: 1%;
 }
 
+/* <Table accionesFijas> (UX-11): la última columna —"Acciones"— queda pegada
+   al borde derecho mientras la tabla scrollea de costado. Lleva fondo propio
+   (el de la fila, también en hover) porque las celdas que pasan por debajo
+   se verían a través. z-index 1 la pone por encima de lo que pasa por
+   debajo; mientras su menú "⋮" está abierto sube a 10 (el de
+   .ds-actions-menu-list): una celda sticky es un contexto de apilamiento y,
+   sin eso, la celda fija de la fila de abajo le taparía el menú.
+   :not([colspan]): una celda que ocupa varias columnas no es la de acciones
+   (el mini-formulario de edición de StageEditor) y, fija, se correría por
+   encima de las de su izquierda. */
+.ds-table-wrap--acciones-fijas .ds-table th:last-child,
+.ds-table-wrap--acciones-fijas .ds-table td:last-child:not([colspan]) {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--color-surface);
+}
+
+.ds-table-wrap--acciones-fijas .ds-table tbody tr:hover td:last-child:not([colspan]) {
+  background: var(--color-surface-muted);
+}
+
+.ds-table-wrap--acciones-fijas .ds-table td:last-child:not([colspan]):has(.ds-actions-menu-list) {
+  z-index: 10;
+}
+
+/* Sombra a la izquierda de la columna fija solo mientras tapa columnas
+   (data-tapa-columnas lo pone Table.tsx al medir): es la señal de que la
+   tabla sigue hacia la derecha. */
+.ds-table-wrap--acciones-fijas[data-tapa-columnas] .ds-table th:last-child,
+.ds-table-wrap--acciones-fijas[data-tapa-columnas] .ds-table td:last-child:not([colspan]) {
+  box-shadow: var(--shadow-columna-fija);
+}
+
 /* ---------------------------------------------------------------------- */
 /* BulkSelectionBar.tsx                                                    */
 /* ---------------------------------------------------------------------- */
@@ -1972,6 +2006,12 @@ fieldset.ds-stack {
 
 .ds-sidebar-link svg {
   flex: 0 0 auto;
+}
+
+/* UX-02: el número de pendientes al lado de un link (SidebarLink contador),
+   pegado a la derecha. El resto lo pone .ds-badge. */
+.ds-sidebar-count {
+  margin-left: auto;
 }
 
 .ds-sidebar-link:hover {

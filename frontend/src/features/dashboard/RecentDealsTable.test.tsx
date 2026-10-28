@@ -71,13 +71,13 @@ describe("RecentDealsTable", () => {
 
     const row1 = within(card()).getByText("Renovación anual").closest("tr");
     await waitFor(() => expect(cellByHeader(row1, "Empresa")).toHaveTextContent("Acme Corp"));
-    expect(cellByHeader(row1, "Monto")).toHaveTextContent("1500.00 USD");
+    expect(cellByHeader(row1, "Monto")).toHaveTextContent("1.500 USD");
     expect(cellByHeader(row1, "Estado")).toHaveTextContent("Abierta");
 
     // Sin empresa: guion, nunca el id crudo; el status ganado con su Badge.
     const row2 = within(card()).getByText("Flota nueva").closest("tr");
     expect(cellByHeader(row2, "Empresa")).toHaveTextContent("—");
-    expect(cellByHeader(row2, "Monto")).toHaveTextContent("9000.00 UYU");
+    expect(cellByHeader(row2, "Monto")).toHaveTextContent("9.000 UYU");
     expect(cellByHeader(row2, "Estado")?.querySelector(".ds-badge--success")).toHaveTextContent(
       "Ganada",
     );

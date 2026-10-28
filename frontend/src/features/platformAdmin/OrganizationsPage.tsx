@@ -199,7 +199,7 @@ function ListaDeOrganizaciones() {
           organizationsQuery.data.length === 0 ? (
             <EmptyState>No hay organizaciones vigentes.</EmptyState>
           ) : (
-            <Table>
+            <Table accionesFijas>
               <thead>
                 <tr>
                   <th>Organización</th>

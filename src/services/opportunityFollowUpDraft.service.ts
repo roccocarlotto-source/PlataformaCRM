@@ -2,6 +2,7 @@ import { findLatestConversationByContact } from "../repositories/conversation.re
 import { findLastMessages } from "../repositories/message.repository";
 import { findOpportunityForFollowUpDraft } from "../repositories/opportunity.repository";
 import { AppError } from "../utils/AppError";
+import { formatearMonto } from "../utils/formatoDeMonto";
 import { armarTranscript, limpiarRespuesta } from "./conversationBrief.service";
 import { LlmProviderError, getLlmProvider, type LlmProvider } from "./llmProvider.service";
 
@@ -74,7 +75,9 @@ export function armarContextoDeBorrador(
     Math.floor((ahora.getTime() - datos.updatedAt.getTime()) / MS_POR_DIA),
   );
   const monto =
-    Number(datos.amount) > 0 ? `${datos.amount} ${datos.currency}` : "sin monto cargado";
+    // "23.000 USD" (UX-09): el borrador lo lee el vendedor y puede llegar al
+    // cliente; antes el modelo recibía "23000.00 USD" y a veces lo copiaba.
+    Number(datos.amount) > 0 ? formatearMonto(datos.amount, datos.currency) : "sin monto cargado";
 
   const lineas = [
     "Datos de la oportunidad:",
