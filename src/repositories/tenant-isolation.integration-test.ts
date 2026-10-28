@@ -69,6 +69,7 @@ import { confirmDeliveryConditional, updatePendingDelivery } from "./delivery.re
 import { deletePayment, updatePayment } from "./payment.repository";
 import {
   MARCADOR_DE_DATO_BORRADO,
+  anonimizarVentaDelContacto,
   borrarRastroDelContacto,
   marcarBorradoDeDatosPersonales,
   marcarPendienteDelBorrado,
@@ -2265,8 +2266,13 @@ test("H-01 borrado completo: con la organización de X, el contacto de Y queda i
   const antesIdentidad = await leerY.identity();
   const antesContacto = await prisma.contact.findUniqueOrThrow({ where: { id: nx.contactY } });
   const rastro = await prisma.$transaction((tx) =>
-    borrarRastroDelContacto(nx.contactY, nx.orgX, tx),
+    borrarRastroDelContacto(nx.contactY, nx.orgX, "nota", tx),
   );
+  // DAT-03: el texto de la venta tampoco cruza.
+  const venta = await prisma.$transaction((tx) =>
+    anonimizarVentaDelContacto(nx.contactY, nx.orgX, tx),
+  );
+  assert.deepEqual(venta, { oportunidades: 0 });
   assert.deepEqual(rastro, {
     mensajes: 0,
     conversaciones: 0,

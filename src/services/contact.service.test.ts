@@ -11,6 +11,7 @@ import {
   identidadAplicable,
   nombreEsUnMarcador,
   normalizeEmail,
+  notaDelBorrado,
   rethrowAsConflict,
   telefonoParaGuardar,
 } from "./contact.service";
@@ -432,4 +433,20 @@ test("el teléfono se guarda solo si el contacto no tiene uno, igual que el mail
   );
   assert.deepEqual(conTelefono.aplica, {});
   assert.deepEqual(conTelefono.ignorados, ["phone"]);
+});
+
+// DAT-03 (docs-privados/auditoria-2026-10-21/informe.md, local): la nota que
+// queda en cada conversación después del borrado. Sin datos de la persona; la
+// fecha, en la zona de la organización.
+test("notaDelBorrado: fecha en la zona de la organización y quién borró", () => {
+  // 02:30 UTC del 27/10 es todavía el 26/10 en Montevideo (UTC-3).
+  const cuando = new Date("2026-10-27T02:30:00Z");
+  assert.equal(
+    notaDelBorrado(cuando, "America/Montevideo", "Laura Gómez"),
+    "Datos borrados a pedido del titular el 26/10/2026 por Laura Gómez",
+  );
+  assert.equal(
+    notaDelBorrado(cuando, "UTC", null),
+    "Datos borrados a pedido del titular el 27/10/2026 por un administrador",
+  );
 });

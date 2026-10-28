@@ -338,14 +338,31 @@ En la ficha, tocá **Borrar datos personales** y confirmá. El sistema borra:
 - lo que anotó el asistente de IA o una persona sobre el paciente: intención,
   prestación de interés, urgencia, presupuesto, zona, notas y los
   campos personalizados;
-- el texto de todas sus conversaciones (quedan cerradas y con "[dato
-  borrado]" en cada mensaje) y el resumen de la derivación;
+- todos los mensajes de sus conversaciones y el resumen de la derivación.
+  Las conversaciones quedan cerradas, con un único mensaje: "Datos borrados
+  a pedido del titular el … por …";
 - el asunto y el texto de sus tareas y notas;
 - sus identidades de WhatsApp, Messenger e Instagram;
-- los seguimientos y recordatorios que todavía no salieron (se cancelan).
+- los seguimientos y recordatorios que todavía no salieron (se cancelan);
+- lo que lo menciona en el asistente "¿Cómo se hace?" y en el agente
+  interno (por nombre completo, email o teléfono; nunca por el nombre solo:
+  una pregunta sobre otra persona con el mismo nombre de pila no se toca);
+- los formularios de una landing o una importación que traían su email o su
+  teléfono, aunque nunca se hayan convertido en el paciente.
 
 Lo que **no** se borra: sus turnos quedan como registro (la prestación, el
 profesional y la fecha), pero ya sin su nombre.
+
+Si la persona vuelve a escribir después del borrado, entra como un **paciente
+nuevo**, en una conversación nueva: el sistema ya no la reconoce. Lo mismo si
+vuelve a llegar en una importación: se crea un paciente nuevo y el borrado no
+se toca.
+
+Si el paciente vino de una importación o de una sincronización, la
+confirmación te avisa de cuál: *"Esta persona vino de … Sacala también de
+ahí, o la próxima sincronización la va a volver a crear como contacto
+nuevo."* El borrado no puede tocar la planilla ni el sistema de origen: sacala
+vos de ahí antes de la próxima sincronización.
 
 Después, la ficha dice **"Datos personales borrados el … por …"**: queda
 registrado quién lo hizo y cuándo, y el botón ya no aparece.
@@ -362,7 +379,8 @@ los datos personales borrados: queda en solo lectura."
 
 Lo que sí sigue: completar sus tareas, cancelar, reprogramar o marcar
 atendidos sus turnos, y volver a tocar el borrado (por ejemplo, para
-reintentar Google Calendar).
+reintentar Google Calendar). Repetirlo completa lo que faltó, sin cambiar la
+fecha ni quién lo hizo.
 
 ### Google Calendar
 
@@ -389,7 +407,3 @@ otros:
   vencen.
 - **Lo que la clínica sacó del sistema:** exportaciones a Excel, capturas de
   pantalla, mails o mensajes reenviados.
-
-Tampoco alcanza a los envíos de un formulario o una importación que nunca
-llegaron a convertirse en paciente: si hace falta, se
-revisan a mano.

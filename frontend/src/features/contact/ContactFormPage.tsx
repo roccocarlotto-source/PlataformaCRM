@@ -33,6 +33,7 @@ import { USUARIOS_PARA_ELEGIR, usersQuery } from "../user/queries";
 import { contactVouchersQuery } from "../voucher/queries";
 import type { ContactCustomFieldValue } from "../contactCustomField/types";
 import { etiquetasDeEtapa, LIFECYCLE_STAGES } from "./labels";
+import { vistaPreviaDelBorrado } from "./api";
 import { useCreateContact, useErasePersonalData, useUpdateContact } from "./mutations";
 import { Notice } from "../../design-system/Notice";
 import { useContact } from "./queries";
@@ -259,13 +260,26 @@ export function ContactFormPage() {
 
   // Borrado de datos personales a pedido del titular: solo ADMIN, irreversible.
   const borrandoDatos = useErasePersonalData(id ?? "");
+  const [preparandoBorrado, setPreparandoBorrado] = useState(false);
 
   async function handleBorrarDatosPersonales() {
+    // Si vino de una importación o sincronización, el aviso de sacarla también
+    // de ahí (revisión de #585). Si la vista previa falla, se confirma igual
+    // sin el aviso: es un consejo, y no frena el borrado que pidió el titular.
+    setPreparandoBorrado(true);
+    const fuentes = await vistaPreviaDelBorrado(id ?? "")
+      .then((r) => r.fuentes)
+      .catch(() => [] as string[])
+      .finally(() => setPreparandoBorrado(false));
+    const aviso =
+      fuentes.length > 0
+        ? ` Esta persona vino de ${new Intl.ListFormat("es", { type: "conjunction" }).format(fuentes)}. Sacala también de ahí, o la próxima sincronización la va a volver a crear como contacto nuevo.`
+        : "";
     if (
-      !(await confirm("¿Borrar los datos personales de este contacto? No se puede deshacer.", {
-        confirmLabel: "Borrar datos personales",
-        danger: true,
-      }))
+      !(await confirm(
+        `¿Borrar los datos personales de este contacto? No se puede deshacer.${aviso}`,
+        { confirmLabel: "Borrar datos personales", danger: true },
+      ))
     ) {
       return;
     }
@@ -366,8 +380,8 @@ export function ContactFormPage() {
                     type="button"
                     variant="danger"
                     onClick={() => void handleBorrarDatosPersonales()}
-                    disabled={borrandoDatos.isPending}
-                    loading={borrandoDatos.isPending}
+                    disabled={borrandoDatos.isPending || preparandoBorrado}
+                    loading={borrandoDatos.isPending || preparandoBorrado}
                   >
                     Borrar datos personales
                   </Button>

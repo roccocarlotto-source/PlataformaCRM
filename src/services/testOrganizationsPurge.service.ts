@@ -205,6 +205,14 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "src/services/borradoCompleto.integration-test.ts",
   ),
   patron(
+    "borrado-consultas-{etiqueta}-{ts}-{hex8}",
+    "src/services/borradoCompleto.consultas.integration-test.ts",
+  ),
+  patron(
+    "purga-de-textos-{etiqueta}-{ts}-{hex8}",
+    "src/workers/helpAssistantPurgeWorker.integration-test.ts",
+  ),
+  patron(
     "google-por-profesional-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/googlePorProfesional.integration-test.ts",
   ),

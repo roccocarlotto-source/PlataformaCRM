@@ -929,20 +929,24 @@ const DATOS_BORRADOS = {
 // 2026-10-12): lo que el contacto dejó fuera de su fila. Corre en la misma
 // transacción que el resto del borrado (la recibe en `db`).
 //
-//   - mensajes de sus conversaciones: el texto pasa al marcador; toolCalls (la
-//     auditoría de un guardrail guarda la respuesta bloqueada), el error de
-//     entrega y el id de Meta, a NULL;
+//   - mensajes de sus conversaciones: se BORRAN, con los turnos del agente que
+//     los referencian (DAT-03 de docs-privados/auditoria-2026-10-21/informe.md,
+//     local; decisión de Rocco del 23/10: la conversación queda vacía). Cada
+//     conversación queda con un único mensaje AUTOMATION, la nota del sistema
+//     (sin datos de la persona: fecha y quién borró). El costo de IA de esos
+//     turnos NO se pierde: vive en llm_turn_usages, sin FK a la conversación
+//     ni a los mensajes, sin contenido;
 //   - conversaciones: sin brief ni hilo externo (en WhatsApp es su número), y
 //     CERRADAS: una persona no puede responder a un hilo sin destino;
-//   - la cola del webhook: su número o id en el canal pasa al marcador;
 //   - sus tareas y notas: asunto al marcador, cuerpo a NULL;
 //   - sus identidades de canal, de TODOS los canales (Instagram y Messenger
 //     también: son ids de la persona);
 //   - los seguimientos que todavía no salieron se cancelan (saldrían a un
 //     contacto sin datos), y ninguno conserva su último error.
 //
-// Los turnos quedan como registro: no tienen texto propio y apuntan a un
-// contacto ya anonimizado. Idempotente, como el resto del borrado.
+// Los turnos de la agenda (bookings; no los del agente, que se borran arriba)
+// quedan como registro: no tienen texto propio y apuntan a un contacto ya
+// anonimizado. Idempotente, como el resto del borrado.
 // ---------------------------------------------------------------------------
 
 export const MOTIVO_SEGUIMIENTO_CANCELADO_POR_BORRADO =
@@ -957,46 +961,69 @@ export interface RastroBorrado {
   seguimientosCancelados: number;
 }
 
+// Cómo empieza la nota del sistema que queda en cada conversación: así la
+// reconoce un borrado repetido. La arma notaDelBorrado (contact.service.ts).
+export const PREFIJO_DE_LA_NOTA_DEL_BORRADO = "Datos borrados a pedido del titular";
+
 export async function borrarRastroDelContacto(
   id: string,
   organizationId: string,
+  // "Datos borrados a pedido del titular el <fecha> por <usuario>": el único
+  // mensaje que queda en cada conversación. Lo arma el service.
+  notaDelSistema: string,
   db: Db,
 ): Promise<RastroBorrado> {
   const deSusConversaciones = { organizationId, conversation: { contactId: id } };
-  const mensajes = await db.message.updateMany({
-    where: deSusConversaciones,
-    data: {
-      content: MARCADOR_DE_DATO_BORRADO,
-      toolCalls: Prisma.DbNull,
-      deliveryError: null,
-      externalMessageId: null,
-    },
-  });
-  const trabajos = await db.agentInboundJob.updateMany({
-    where: { organizationId, message: { conversation: { contactId: id } } },
-    data: { externalUserId: MARCADOR_DE_DATO_BORRADO, lastError: null },
-  });
-  // Un entrante todavía sin turno no se procesa: la conversación se cierra y
-  // su texto ya es el marcador. Mismo corte que al cerrar una conversación
-  // (cancelPendingInboundJobsOfConversation).
-  await db.agentInboundJob.updateMany({
+  // Primero los turnos: es la única FK a messages (el entrante y la
+  // respuesta). Un entrante todavía sin turno tampoco se procesa: su job se
+  // va con él.
+  const trabajos = await db.agentInboundJob.deleteMany({
     where: {
       organizationId,
-      status: "PENDING",
-      responseMessageId: null,
-      message: { conversation: { contactId: id } },
-    },
-    data: {
-      status: "FAILED",
-      lockedUntil: null,
-      nextAttemptAt: null,
-      lastError: MOTIVO_SEGUIMIENTO_CANCELADO_POR_BORRADO,
+      OR: [
+        { message: { conversation: { contactId: id } } },
+        { responseMessage: { conversation: { contactId: id } } },
+      ],
     },
   });
+  // Al repetir el borrado, la nota que ya está se conserva tal cual y solo se
+  // agrega donde falte. Se la reconoce por quién la escribió y cómo empieza,
+  // NO por el texto entero (revisión de #585): si entre un borrado y otro
+  // cambia el nombre de quien lo hizo, o la zona de la organización, el texto
+  // rearmado sería otro y la nota original se perdería.
+  const unaNota = {
+    senderType: "AUTOMATION" as const,
+    content: { startsWith: PREFIJO_DE_LA_NOTA_DEL_BORRADO },
+  };
+  const mensajes = await db.message.deleteMany({
+    where: { ...deSusConversaciones, NOT: unaNota },
+  });
+  // lastMessageAt NO cambia (revisión de #585): con la fecha del borrado, la
+  // conversación subía al principio de la bandeja sin que nadie escribiera.
   const conversaciones = await db.conversation.updateMany({
     where: { organizationId, contactId: id },
-    data: { brief: null, briefEditedByUserId: null, externalThreadId: null, status: "CLOSED" },
+    data: {
+      brief: null,
+      briefEditedByUserId: null,
+      externalThreadId: null,
+      status: "CLOSED",
+    },
   });
+  const sinNota = await db.conversation.findMany({
+    where: { organizationId, contactId: id, messages: { none: unaNota } },
+    select: { id: true },
+  });
+  if (sinNota.length > 0) {
+    await db.message.createMany({
+      data: sinNota.map((c) => ({
+        organizationId,
+        conversationId: c.id,
+        direction: "OUTBOUND" as const,
+        senderType: "AUTOMATION" as const,
+        content: notaDelSistema,
+      })),
+    });
+  }
   const actividades = await db.activity.updateMany({
     where: { organizationId, contactId: id },
     data: { subject: MARCADOR_DE_DATO_BORRADO, body: null },
@@ -1035,8 +1062,76 @@ export async function borrarRastroDelContacto(
   };
 }
 
+// ---------------------------------------------------------------------------
+// DAT-03 (docs-privados/auditoria-2026-10-21/informe.md, local): lo que se
+// escribió sobre la persona en la VENTA. Las filas quedan (son historial del
+// negocio y alimentan reportes); el texto libre se va:
+//
+//   - sus oportunidades: título al marcador, motivo de pérdida y financiera a
+//     NULL. Monto, moneda, estado, etapa y fechas quedan;
+//   - las cotizaciones de esas oportunidades: la descripción de cada línea al
+//     marcador, los montos quedan (decisión de Rocco, 26/10: los totales no
+//     cambian);
+//   - las entregas: el texto de cada ítem del checklist al marcador, la tilde
+//     queda;
+//   - sus cupones: la etiqueta al marcador;
+//   - las actividades colgadas SOLO de esas oportunidades (sin contactId: las
+//     del contacto ya las limpia borrarRastroDelContacto).
+// ---------------------------------------------------------------------------
+
+export async function anonimizarVentaDelContacto(
+  id: string,
+  organizationId: string,
+  db: Db,
+): Promise<{ oportunidades: number }> {
+  const oportunidades = await db.opportunity.updateMany({
+    where: { organizationId, contactId: id },
+    data: { title: MARCADOR_DE_DATO_BORRADO, lostReason: null, financingLender: null },
+  });
+
+  // UNA sentencia por tabla, sin importar cuántas cotizaciones o entregas
+  // tenga (revisión de #585: antes era un UPDATE por fila, y cada sentencia es
+  // una ida y vuelta a la base dentro de la transacción).
+  const deSusOportunidades = Prisma.sql`organization_id = ${organizationId}::uuid
+    AND opportunity_id IN (
+      SELECT id FROM opportunities
+      WHERE organization_id = ${organizationId}::uuid AND contact_id = ${id}::uuid)`;
+  await db.$executeRaw`
+    UPDATE quotes SET lines = ${sqlSinTexto("lines", "description")}, updated_at = now()
+    WHERE ${deSusOportunidades}`;
+  await db.$executeRaw`
+    UPDATE deliveries SET checklist = ${sqlSinTexto("checklist", "label")}, updated_at = now()
+    WHERE ${deSusOportunidades}`;
+  await db.$executeRaw`
+    UPDATE activities SET subject = ${MARCADOR_DE_DATO_BORRADO}, body = NULL, updated_at = now()
+    WHERE ${deSusOportunidades} AND contact_id IS NULL`;
+
+  await db.discountVoucher.updateMany({
+    where: { organizationId, contactId: id },
+    data: { label: MARCADOR_DE_DATO_BORRADO },
+  });
+
+  return { oportunidades: oportunidades.count };
+}
+
+// Un arreglo JSON de objetos con un campo de texto libre: ese campo al
+// marcador, el resto (montos, tildes) igual y en el mismo orden. Fail-closed,
+// como la redacción de promotionNotes: lo que no tiene la forma esperada se
+// descarta. `columna` es siempre un nombre fijo del código.
+function sqlSinTexto(columna: string, campo: string): Prisma.Sql {
+  const col = Prisma.raw(columna);
+  return Prisma.sql`CASE WHEN jsonb_typeof(${col}) = 'array' THEN coalesce((
+      SELECT jsonb_agg(item.valor || jsonb_build_object(${campo}::text, ${MARCADOR_DE_DATO_BORRADO}::text) ORDER BY item.n)
+      FROM jsonb_array_elements(${col}) WITH ORDINALITY AS item(valor, n)
+      WHERE jsonb_typeof(item.valor) = 'object'), '[]'::jsonb)
+    ELSE '[]'::jsonb END`;
+}
+
 /** Quién y cuándo (CHECK: los dos juntos). Lo pendiente fuera de la base lo
- *  escribe después marcarPendienteDelBorrado. */
+ *  escribe después marcarPendienteDelBorrado. Solo la primera vez: repetir el
+ *  borrado (por ejemplo, para reintentar Google) no pisa quién lo hizo ni
+ *  cuándo (revisión de #585); ese caso limpia lo pendiente con
+ *  marcarPendienteDelBorrado. */
 export function marcarBorradoDeDatosPersonales(
   id: string,
   organizationId: string,
@@ -1044,7 +1139,7 @@ export function marcarBorradoDeDatosPersonales(
   db: Db,
 ) {
   return db.contact.updateMany({
-    where: { id, organizationId },
+    where: { id, organizationId, personalDataErasedAt: null },
     data: {
       personalDataErasedAt: new Date(),
       personalDataErasedById: erasedById,

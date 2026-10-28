@@ -527,3 +527,62 @@ export function guardarVinculo(
       updated_at = now()
   `;
 }
+
+// Borrado a pedido de una persona (DAT-04 de
+// docs-privados/auditoria-2026-10-21/informe.md, local; revisión de #585): sus
+// vínculos con los sistemas de origen. Las claves de un contacto SON sus datos
+// (email:…, telefono:…, id:… del sistema de origen), y mientras el vínculo
+// exista, reimportar la misma fila o la próxima sincronización encuentran al
+// contacto borrado y le vuelven a escribir los datos. Se van:
+//   - los CONTACT del contacto y de los que se unieron a él (la unión los dejó
+//     apuntando al unido, y el resolutor sigue la unión hasta este);
+//   - los ACTIVITY de sus actividades: reimportar el historial reescribiría el
+//     texto que el borrado ya limpió.
+// Sin ellos, la fila reimportada crea un contacto NUEVO. Deshacer el lote que
+// lo creó ya no lo encuentra: un contacto borrado a pedido no se deshace.
+// Devuelve cuántos vínculos se borraron.
+export function borrarVinculosDelContacto(
+  organizationId: string,
+  contactId: string,
+  db: Db,
+): Promise<number> {
+  return db.$executeRaw`
+    DELETE FROM external_record_links
+    WHERE organization_id = ${organizationId}::uuid
+      AND (
+        (entity_type = 'CONTACT' AND entity_id IN (
+          SELECT id FROM contacts
+          WHERE organization_id = ${organizationId}::uuid
+            AND (id = ${contactId}::uuid OR merged_into_id = ${contactId}::uuid)))
+        OR (entity_type = 'ACTIVITY' AND entity_id IN (
+          SELECT id FROM activities
+          WHERE organization_id = ${organizationId}::uuid AND contact_id = ${contactId}::uuid))
+      )
+  `;
+}
+
+// Las fuentes de importación o sincronización de las que vino el contacto (él
+// o los que se unieron a él), por nombre: la confirmación del borrado avisa que
+// hay que sacarlo también de ahí, porque sin sus vínculos la próxima
+// sincronización lo crea como contacto NUEVO (revisión de #585). Una fuente
+// dada de baja ya no sincroniza: no cuenta.
+export async function fuentesDeImportacionDelContacto(
+  organizationId: string,
+  contactId: string,
+  db: Db = prisma,
+): Promise<string[]> {
+  const filas = await db.$queryRaw<{ name: string }[]>`
+    SELECT DISTINCT s.name
+    FROM external_record_links l
+    JOIN sources s ON s.organization_id = l.organization_id AND s.id = l.source_id
+    WHERE l.organization_id = ${organizationId}::uuid
+      AND s.deleted_at IS NULL
+      AND l.entity_type = 'CONTACT'
+      AND l.entity_id IN (
+        SELECT id FROM contacts
+        WHERE organization_id = ${organizationId}::uuid
+          AND (id = ${contactId}::uuid OR merged_into_id = ${contactId}::uuid))
+    ORDER BY s.name
+  `;
+  return filas.map((f) => f.name);
+}

@@ -15,6 +15,7 @@ import {
 } from "../routes/gateDeModulos.test-helper";
 import { createBranch } from "./branch.service";
 import { erasePersonalData } from "./contact.service";
+import { enmascarar } from "./helpAssistantPrompt";
 import type { ClienteGoogleCalendar, EventoARenombrar } from "./googleCalendar.service";
 import {
   MOTIVO_GOOGLE_RECHAZO,
@@ -46,7 +47,24 @@ interface Escenario {
   email: string;
   bookingId: string;
   conversationId: string;
+  // DAT-03 / DAT-04 (docs-privados/auditoria-2026-10-21/informe.md, local).
+  opportunityId: string;
+  preguntaConCostoId: string;
+  preguntaDelEmailId: string;
+  eventoNoPromovidoId: string;
+  eventoPromovidoId: string;
+  // Otra persona con el MISMO nombre de pila: lo suyo no se toca (regla de
+  // Rocco: nunca se busca por el nombre de pila solo).
+  testigo: { contactId: string; preguntaId: string; mensajeInternoId: string };
 }
+
+// El mismo teléfono escrito como lo escribiría una persona: con 0 adelante y
+// espacios. La búsqueda normalizada tiene que encontrarlo.
+const TELEFONO_ESCRITO = "099 000 111";
+const COSTO_DE_LA_PREGUNTA = "0.012300";
+// El último mensaje de la conversación, antes del borrado: el borrado no lo
+// cambia (que la conversación no suba al principio de la bandeja).
+const ULTIMO_MENSAJE = new Date("2026-01-15T12:00:00Z");
 
 const orgs: OrgDePrueba[] = [];
 let clinica: Escenario;
@@ -89,9 +107,14 @@ function dobleDeGoogle(opciones: { renombrarFalla?: boolean } = {}) {
 
 async function montar(
   industry: OrganizationIndustry,
-  opciones: { conGoogle: boolean },
+  opciones: { conGoogle: boolean; usuarios?: number },
 ): Promise<Escenario> {
-  const org = await crearOrgDePrueba("borrado-completo", "COMPLETA", industry, 1);
+  const org = await crearOrgDePrueba(
+    "borrado-completo",
+    "COMPLETA",
+    industry,
+    opciones.usuarios ?? 1,
+  );
   orgs.push(org);
   const organizationId = org.id;
   const adminId = org.authIds[0];
@@ -144,6 +167,7 @@ async function montar(
       channel: "WHATSAPP",
       externalThreadId: TELEFONO.slice(1),
       brief: `${NOMBRE} pidió un turno`,
+      lastMessageAt: ULTIMO_MENSAJE,
     },
   });
   const entrante = await prisma.message.create({
@@ -271,6 +295,139 @@ async function montar(
       },
     });
   }
+
+  // --- DAT-03: la venta -----------------------------------------------------
+  const pipeline = await prisma.pipeline.create({ data: { organizationId, name: "Ventas" } });
+  const stage = await prisma.stage.create({
+    data: { organizationId, pipelineId: pipeline.id, name: "Contacto", order: 1 },
+  });
+  const opportunity = await prisma.opportunity.create({
+    data: {
+      organizationId,
+      ownerId: adminId,
+      pipelineId: pipeline.id,
+      stageId: stage.id,
+      contactId: contact.id,
+      title: `Venta a ${NOMBRE} ${APELLIDO}`,
+      lostReason: `${NOMBRE} se arrepintió`,
+      financingLender: `Banco de ${APELLIDO}`,
+    },
+  });
+  await prisma.quote.create({
+    data: {
+      organizationId,
+      opportunityId: opportunity.id,
+      createdById: adminId,
+      amount: 1500,
+      currency: "USD",
+      lines: [
+        { description: `Auto para ${NOMBRE} ${APELLIDO}`, amount: "1000.00" },
+        { description: `Seguro de ${NOMBRE}`, amount: "500.00" },
+      ] as Prisma.InputJsonValue,
+    },
+  });
+  await prisma.delivery.create({
+    data: {
+      organizationId,
+      opportunityId: opportunity.id,
+      checklist: [{ label: `Llaves para ${NOMBRE}`, checked: true }] as Prisma.InputJsonValue,
+    },
+  });
+  await prisma.discountVoucher.create({
+    data: {
+      organizationId,
+      contactId: contact.id,
+      createdByUserId: adminId,
+      label: `Cupón de ${NOMBRE} ${APELLIDO}`,
+      expiresAt: new Date(ahora.getTime() + 30 * 86400_000),
+    },
+  });
+  await prisma.activity.create({
+    data: {
+      organizationId,
+      authorId: adminId,
+      type: "NOTE",
+      opportunityId: opportunity.id,
+      subject: `Habló ${NOMBRE} ${APELLIDO}`,
+      body: `Al ${TELEFONO}`,
+    },
+  });
+
+  // --- DAT-03: los asistentes; el testigo comparte el nombre de pila --------
+  const testigo = await prisma.contact.create({
+    data: { organizationId, firstName: NOMBRE, lastName: "Testigo" },
+  });
+  const pregunta = (question: string, costUsd?: string) =>
+    prisma.helpAssistantQuestion.create({
+      data: {
+        organizationId,
+        userId: adminId,
+        industry,
+        edition: "COMPLETA",
+        role: "ADMIN",
+        question,
+        outcome: "ANSWERED",
+        model: "doble/modelo",
+        ...(costUsd ? { costUsd } : {}),
+      },
+    });
+  const preguntaConCosto = await pregunta(
+    `¿Cómo cargo la venta de ${NOMBRE} ${APELLIDO}?`,
+    COSTO_DE_LA_PREGUNTA,
+  );
+  // Como en producción: el asistente guarda la pregunta ENMASCARADA
+  // (helpAssistant.service.ts), así que el email ya no está y no hay nada que
+  // anonimizar. La fila no se toca.
+  const preguntaDelEmail = await pregunta(enmascarar(`¿Le mando un cupón a ${email}?`));
+  const preguntaDelTestigo = await pregunta(`¿Cómo le cobro a ${NOMBRE} Testigo?`);
+  const agenteInterno = await prisma.internalAgent.create({
+    data: {
+      organizationId,
+      name: "Interno",
+      instructions: "Ayudá al equipo.",
+      modelProvider: "openrouter",
+      modelName: "doble/modelo",
+    },
+  });
+  const mensajeInterno = (senderType: "USER" | "AGENT", content: string) =>
+    prisma.internalAgentMessage.create({
+      data: {
+        organizationId,
+        internalAgentId: agenteInterno.id,
+        userId: adminId,
+        senderType,
+        content,
+      },
+    });
+  await mensajeInterno("USER", `Buscame a ${NOMBRE} ${APELLIDO}`);
+  await mensajeInterno("AGENT", `Su teléfono es ${TELEFONO_ESCRITO}`);
+  const delTestigo = await mensajeInterno("USER", `Hablé con ${NOMBRE} Testigo`);
+
+  // --- DAT-04: la ingesta ---------------------------------------------------
+  const source = await prisma.source.create({
+    data: { organizationId, name: "Landing", type: "WEBHOOK" },
+  });
+  const promovido = await prisma.ingestionEvent.create({
+    data: {
+      organizationId,
+      sourceId: source.id,
+      externalId: email,
+      rawPayload: { email } as Prisma.InputJsonValue,
+      status: "PROCESSED",
+      promotedContactId: contact.id,
+    },
+  });
+  const noPromovido = await prisma.ingestionEvent.create({
+    data: {
+      organizationId,
+      sourceId: source.id,
+      externalId: `otro-${randomUUID().slice(0, 8)}`,
+      rawPayload: { nombre: NOMBRE, telefono: TELEFONO_ESCRITO } as Prisma.InputJsonValue,
+      status: "FAILED",
+      errorMessage: "teléfono inválido",
+    },
+  });
+
   return {
     org,
     adminId,
@@ -279,6 +436,16 @@ async function montar(
     email,
     bookingId: booking.id,
     conversationId: conversation.id,
+    opportunityId: opportunity.id,
+    preguntaConCostoId: preguntaConCosto.id,
+    preguntaDelEmailId: preguntaDelEmail.id,
+    eventoNoPromovidoId: noPromovido.id,
+    eventoPromovidoId: promovido.id,
+    testigo: {
+      contactId: testigo.id,
+      preguntaId: preguntaDelTestigo.id,
+      mensajeInternoId: delTestigo.id,
+    },
   };
 }
 
@@ -291,6 +458,14 @@ before(async () => {
 after(async () => {
   for (const org of orgs) {
     const where = { organizationId: org.id };
+    await prisma.delivery.deleteMany({ where });
+    await prisma.quote.deleteMany({ where });
+    await prisma.discountVoucher.deleteMany({ where });
+    await prisma.helpAssistantQuestion.deleteMany({ where });
+    await prisma.internalAgentMessage.deleteMany({ where });
+    await prisma.internalAgent.deleteMany({ where });
+    await prisma.ingestionEvent.deleteMany({ where });
+    await prisma.source.deleteMany({ where });
     await prisma.booking.deleteMany({ where });
     await prisma.serviceType.deleteMany({ where });
     await prisma.resource.deleteMany({ where });
@@ -312,20 +487,33 @@ after(async () => {
  *  quedar ni el nombre, ni el apellido, ni el email, ni el teléfono. */
 async function todoLoDeLaOrganizacion(e: Escenario): Promise<string> {
   const where = { organizationId: e.org.id };
+  // Lo del testigo (otra persona con el mismo nombre de pila) se mira aparte:
+  // TIENE que seguir diciendo "Anabela".
   const filas = await Promise.all([
-    prisma.contact.findMany({ where }),
+    prisma.contact.findMany({ where: { ...where, id: { not: e.testigo.contactId } } }),
     prisma.message.findMany({ where }),
     prisma.conversation.findMany({ where }),
     prisma.agentInboundJob.findMany({ where }),
     prisma.activity.findMany({ where }),
     prisma.contactChannelIdentity.findMany({ where }),
     prisma.inquiryFollowUp.findMany({ where }),
+    prisma.opportunity.findMany({ where }),
+    prisma.quote.findMany({ where }),
+    prisma.delivery.findMany({ where }),
+    prisma.discountVoucher.findMany({ where }),
+    prisma.helpAssistantQuestion.findMany({
+      where: { ...where, id: { not: e.testigo.preguntaId } },
+    }),
+    prisma.internalAgentMessage.findMany({
+      where: { ...where, id: { not: e.testigo.mensajeInternoId } },
+    }),
+    prisma.ingestionEvent.findMany({ where }),
   ]);
   return JSON.stringify(filas);
 }
 
 function assertSinRastro(texto: string, e: Escenario) {
-  for (const dato of [NOMBRE, APELLIDO, e.email, TELEFONO, TELEFONO.slice(1)]) {
+  for (const dato of [NOMBRE, APELLIDO, e.email, TELEFONO, TELEFONO.slice(1), TELEFONO_ESCRITO]) {
     assert.ok(!texto.includes(dato), `quedó "${dato}" en la base`);
   }
 }
@@ -358,24 +546,99 @@ async function verificarBorradoCompleto(e: Escenario, renombrados: EventoARenomb
   assert.equal(contacto.personalDataErasedById, e.adminId, "quedó quién");
   assert.equal(contacto.personalDataErasePending, null, "nada pendiente");
 
+  // DAT-03: los mensajes se borran; queda solo la nota del sistema, sin datos
+  // de la persona (fecha y quién borró).
   const mensajes = await prisma.message.findMany({ where: { conversationId: e.conversationId } });
-  assert.equal(mensajes.length, 2);
-  for (const m of mensajes) {
-    assert.equal(m.content, MARCADOR_DE_DATO_BORRADO);
-    assert.equal(m.toolCalls, null);
-    assert.equal(m.deliveryError, null);
-    assert.equal(m.externalMessageId, null);
-  }
+  assert.equal(mensajes.length, 1, "la conversación queda con la nota y nada más");
+  assert.equal(mensajes[0].senderType, "AUTOMATION");
+  assert.equal(mensajes[0].senderUserId, null);
+  assert.match(
+    mensajes[0].content,
+    /^Datos borrados a pedido del titular el \d{2}\/\d{2}\/\d{4} por .+$/,
+  );
   const conversacion = await prisma.conversation.findUniqueOrThrow({
     where: { id: e.conversationId },
   });
   assert.equal(conversacion.brief, null);
   assert.equal(conversacion.externalThreadId, null);
   assert.equal(conversacion.status, "CLOSED");
+  assert.deepEqual(conversacion.lastMessageAt, ULTIMO_MENSAJE, "no sube en la bandeja");
 
-  const [trabajo] = await prisma.agentInboundJob.findMany({ where: { organizationId: e.org.id } });
-  assert.equal(trabajo.externalUserId, MARCADOR_DE_DATO_BORRADO);
-  assert.equal(trabajo.lastError, null);
+  assert.equal(
+    await prisma.agentInboundJob.count({ where: { organizationId: e.org.id } }),
+    0,
+    "los turnos del agente se van con sus mensajes",
+  );
+
+  // DAT-03: la venta. Las filas y los montos quedan; el texto no.
+  const oportunidad = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: e.opportunityId },
+  });
+  assert.equal(oportunidad.title, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(oportunidad.lostReason, null);
+  assert.equal(oportunidad.financingLender, null);
+  const [cotizacion] = await prisma.quote.findMany({ where: { opportunityId: e.opportunityId } });
+  assert.deepEqual(cotizacion.lines, [
+    { description: MARCADOR_DE_DATO_BORRADO, amount: "1000.00" },
+    { description: MARCADOR_DE_DATO_BORRADO, amount: "500.00" },
+  ]);
+  assert.equal(cotizacion.amount.toString(), "1500");
+  const [entrega] = await prisma.delivery.findMany({ where: { opportunityId: e.opportunityId } });
+  assert.deepEqual(entrega.checklist, [{ label: MARCADOR_DE_DATO_BORRADO, checked: true }]);
+  const [cupon] = await prisma.discountVoucher.findMany({ where: { contactId: e.contactId } });
+  assert.equal(cupon.label, MARCADOR_DE_DATO_BORRADO);
+  const [deLaOportunidad] = await prisma.activity.findMany({
+    where: { opportunityId: e.opportunityId, contactId: null },
+  });
+  assert.equal(deLaOportunidad.subject, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(deLaOportunidad.body, null);
+
+  // DAT-03: el asistente de ayuda. La pregunta queda con su costo (los
+  // totales no cambian), sin el texto.
+  const conCosto = await prisma.helpAssistantQuestion.findUniqueOrThrow({
+    where: { id: e.preguntaConCostoId },
+  });
+  assert.equal(conCosto.question, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(conCosto.costUsd?.toFixed(6), COSTO_DE_LA_PREGUNTA);
+  const delEmail = await prisma.helpAssistantQuestion.findUniqueOrThrow({
+    where: { id: e.preguntaDelEmailId },
+  });
+  assert.equal(delEmail.question, "¿Le mando un cupón a [email]?", "enmascarada, intacta");
+  // El agente interno: los dos que la mencionaban (nombre completo; teléfono
+  // escrito con 0 y espacios) se borraron.
+  assert.equal(
+    await prisma.internalAgentMessage.count({
+      where: { organizationId: e.org.id, id: { not: e.testigo.mensajeInternoId } },
+    }),
+    0,
+  );
+
+  // DAT-04: la ingesta. El promovido pierde también el id externo (era el
+  // email); el no promovido —que nada vinculaba al contacto— se encontró por
+  // el teléfono.
+  const promovido = await prisma.ingestionEvent.findUniqueOrThrow({
+    where: { id: e.eventoPromovidoId },
+  });
+  assert.equal(promovido.externalId, `erased:${promovido.id}`);
+  const noPromovido = await prisma.ingestionEvent.findUniqueOrThrow({
+    where: { id: e.eventoNoPromovidoId },
+  });
+  assert.deepEqual(noPromovido.rawPayload, { erased: true });
+  assert.equal(noPromovido.externalId, `erased:${noPromovido.id}`);
+  assert.equal(noPromovido.status, "FAILED");
+
+  // El testigo —mismo nombre de pila, otra persona— queda intacto.
+  const testigo = await prisma.contact.findUniqueOrThrow({ where: { id: e.testigo.contactId } });
+  assert.equal(testigo.firstName, NOMBRE);
+  assert.equal(testigo.lastName, "Testigo");
+  const preguntaDelTestigo = await prisma.helpAssistantQuestion.findUniqueOrThrow({
+    where: { id: e.testigo.preguntaId },
+  });
+  assert.equal(preguntaDelTestigo.question, `¿Cómo le cobro a ${NOMBRE} Testigo?`);
+  const mensajeDelTestigo = await prisma.internalAgentMessage.findUniqueOrThrow({
+    where: { id: e.testigo.mensajeInternoId },
+  });
+  assert.equal(mensajeDelTestigo.content, `Hablé con ${NOMBRE} Testigo`);
 
   const [tarea] = await prisma.activity.findMany({ where: { contactId: e.contactId } });
   assert.equal(tarea.subject, MARCADOR_DE_DATO_BORRADO);
@@ -415,7 +678,15 @@ test("clínica: borra todo el rastro del paciente, deja el turno y saca su nombr
   );
   assert.equal(r.mensajesBorrados, 2);
   assert.equal(r.conversacionesCerradas, 1);
-  assert.equal(r.trabajosDeEntradaAnonimizados, 1);
+  assert.equal(r.trabajosDeEntradaBorrados, 1);
+  assert.equal(r.oportunidadesAnonimizadas, 1);
+  assert.equal(r.eventosNoPromovidosAnonimizados, 1);
+  assert.equal(
+    r.preguntasDeAyudaAnonimizadas,
+    1,
+    "la del nombre completo; la del email se guardó enmascarada",
+  );
+  assert.equal(r.mensajesDelAgenteInternoBorrados, 2, "la del nombre completo y la del teléfono");
   assert.equal(r.actividadesBorradas, 1);
   assert.equal(r.identidadesBorradas, 3);
   assert.equal(r.seguimientosCancelados, 1);
@@ -451,6 +722,28 @@ test("aislamiento: los borrados de las otras organizaciones no tocaron nada de e
     await prisma.contactChannelIdentity.count({ where: { contactId: otra.contactId } }),
     3,
   );
+
+  // DAT-03 / DAT-04: la búsqueda por nombre completo, email o teléfono nunca
+  // sale de la organización del contacto. Acá hay una persona con el MISMO
+  // nombre completo, y nada suyo se tocó.
+  const oportunidad = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: otra.opportunityId },
+  });
+  assert.equal(oportunidad.title, `Venta a ${NOMBRE} ${APELLIDO}`);
+  const pregunta = await prisma.helpAssistantQuestion.findUniqueOrThrow({
+    where: { id: otra.preguntaConCostoId },
+  });
+  assert.equal(pregunta.question, `¿Cómo cargo la venta de ${NOMBRE} ${APELLIDO}?`);
+  assert.equal(
+    await prisma.internalAgentMessage.count({ where: { organizationId: otra.org.id } }),
+    3,
+  );
+  const noPromovido = await prisma.ingestionEvent.findUniqueOrThrow({
+    where: { id: otra.eventoNoPromovidoId },
+  });
+  assert.equal(noPromovido.status, "FAILED");
+  assert.deepEqual(noPromovido.rawPayload, { nombre: NOMBRE, telefono: TELEFONO_ESCRITO });
+  assert.equal(await prisma.message.count({ where: { conversationId: otra.conversationId } }), 2);
 });
 
 test("sin Google conectado en la sede: el borrado se hace igual y el evento queda pendiente, en la respuesta y en el contacto", async () => {
@@ -469,8 +762,8 @@ test("sin Google conectado en la sede: el borrado se hace igual y el evento qued
   assertSinRastro(await todoLoDeLaOrganizacion(otra), otra);
 });
 
-test("si Google falla: no frena el borrado y queda pendiente; repetirlo con Google sano lo limpia", async () => {
-  const e = await montar("CLINICA", { conGoogle: true });
+test("si Google falla: no frena el borrado y queda pendiente; repetirlo con Google sano lo limpia sin pisar la nota, la fecha ni quién", async () => {
+  const e = await montar("CLINICA", { conGoogle: true, usuarios: 2 });
   const caido = dobleDeGoogle({ renombrarFalla: true });
   const r = await erasePersonalData(e.org.id, e.contactId, e.adminId, caido.cliente);
   assert.deepEqual(r.pendientes, [{ bookingId: e.bookingId, motivo: MOTIVO_GOOGLE_RECHAZO }]);
@@ -480,13 +773,26 @@ test("si Google falla: no frena el borrado y queda pendiente; repetirlo con Goog
     { bookingId: e.bookingId, motivo: MOTIVO_GOOGLE_RECHAZO },
   ]);
 
-  // Idempotente: repetirlo con Google sano limpia el evento y lo pendiente.
+  const [nota] = await prisma.message.findMany({ where: { conversationId: e.conversationId } });
+
+  // Entre un borrado y otro cambia el nombre de quien hizo el primero: la nota
+  // no se rearma, se conserva tal cual (revisión de #585).
+  await prisma.user.update({ where: { id: e.adminId }, data: { fullName: "Nombre Cambiado" } });
+
+  // Lo repite OTRA persona, con Google sano: limpia el evento y lo pendiente,
+  // y nada más (revisión de #585).
+  const otroUsuario = e.org.authIds[1];
   const sano = dobleDeGoogle();
-  const otraVez = await erasePersonalData(e.org.id, e.contactId, e.adminId, sano.cliente);
+  const otraVez = await erasePersonalData(e.org.id, e.contactId, otroUsuario, sano.cliente);
   assert.deepEqual(otraVez.pendientes, []);
   assert.equal(sano.renombrados.length, 1);
+  assert.equal(otraVez.mensajesBorrados, 0, "la nota no se borra");
   const despues = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
   assert.equal(despues.personalDataErasePending, null);
+  assert.deepEqual(despues.personalDataErasedAt, contacto.personalDataErasedAt, "misma fecha");
+  assert.equal(despues.personalDataErasedById, e.adminId, "quien lo hizo primero");
+  const mensajes = await prisma.message.findMany({ where: { conversationId: e.conversationId } });
+  assert.deepEqual(mensajes, [nota], "la misma nota, sin otra al lado");
 });
 
 // El caso de producción del 2026-10-12: un paciente con email y 3 turnos, sin
@@ -656,4 +962,125 @@ test("servicios (D14): anonimiza matrícula, chasis y notas de sus vehículos y 
   assert.equal(ordenDespues.notes, null);
   assert.equal(ordenDespues.mileageIn, 50000, "la orden queda, con sus números");
   assert.equal(ordenDespues.amount?.toFixed(2), "1000.00");
+});
+
+// Revisión de #585: la búsqueda era un LIKE '%…%' y tocaba lo de otras
+// personas cuyo nombre o email CONTIENE al de esta. Ahora va con límites de
+// palabra (mencionDeLaPersona.ts); acá, contra Postgres, con los testigos que
+// no se tienen que tocar.
+test("límites de palabra: lo de «Mariana López», «juli…@» y un teléfono de otro país con los mismos últimos dígitos no se toca", async () => {
+  const org = await crearOrgDePrueba("borrado-completo", "COMPLETA", "AUTOMOTORA", 1);
+  orgs.push(org);
+  const organizationId = org.id;
+  const email = `ana-${randomUUID().slice(0, 8)}@example.test`;
+  const ana = await prisma.contact.create({
+    data: { organizationId, firstName: "Ana", lastName: "López", email, phone: "+59899000222" },
+  });
+  const agente = await prisma.internalAgent.create({
+    data: {
+      organizationId,
+      name: "Interno",
+      instructions: "Ayudá al equipo.",
+      modelProvider: "openrouter",
+      modelName: "doble/modelo",
+    },
+  });
+  const mensaje = (content: string) =>
+    prisma.internalAgentMessage.create({
+      data: {
+        organizationId,
+        internalAgentId: agente.id,
+        userId: org.authIds[0],
+        senderType: "USER",
+        content,
+      },
+    });
+  const suyos = [
+    await mensaje("Llamá a ANA LÓPEZ mañana"),
+    await mensaje(`Escribile a ${email}.`),
+    await mensaje("Su cel: 099 000 222"),
+  ];
+  const ajenos = [
+    await mensaje("Llamá a Mariana López mañana"),
+    await mensaje(`Escribile a juli${email}`),
+    await mensaje("La de Buenos Aires: +54 99 000 222"),
+  ];
+  const source = await prisma.source.create({
+    data: { organizationId, name: "Landing", type: "WEBHOOK" },
+  });
+  const evento = (correo: string) =>
+    prisma.ingestionEvent.create({
+      data: {
+        organizationId,
+        sourceId: source.id,
+        externalId: `ev-${randomUUID().slice(0, 8)}`,
+        rawPayload: { email: correo } as Prisma.InputJsonValue,
+        status: "FAILED",
+      },
+    });
+  const eventoSuyo = await evento(email);
+  const eventoAjeno = await evento(`juli${email}`);
+
+  const r = await erasePersonalData(organizationId, ana.id, org.authIds[0]);
+
+  assert.equal(r.mensajesDelAgenteInternoBorrados, 3);
+  for (const m of suyos) {
+    assert.equal(await prisma.internalAgentMessage.count({ where: { id: m.id } }), 0, m.content);
+  }
+  for (const m of ajenos) {
+    const despues = await prisma.internalAgentMessage.findUniqueOrThrow({ where: { id: m.id } });
+    assert.equal(despues.content, m.content, "no se tocó");
+  }
+  assert.equal(r.eventosNoPromovidosAnonimizados, 1);
+  const suyo = await prisma.ingestionEvent.findUniqueOrThrow({ where: { id: eventoSuyo.id } });
+  assert.deepEqual(suyo.rawPayload, { erased: true });
+  const ajeno = await prisma.ingestionEvent.findUniqueOrThrow({ where: { id: eventoAjeno.id } });
+  assert.deepEqual(ajeno.rawPayload, { email: `juli${email}` });
+});
+
+// Revisión de #585: el teléfono con el prefijo agrupado ("+54 9 11 …") no se
+// encontraba. Contra Postgres, con un testigo de otro país con los mismos
+// últimos 8 dígitos.
+test("teléfono argentino escrito agrupado, con o sin país, se encuentra; uno de México con los mismos dígitos no", async () => {
+  const org = await crearOrgDePrueba("borrado-completo", "COMPLETA", "AUTOMOTORA", 1);
+  orgs.push(org);
+  const organizationId = org.id;
+  const persona = await prisma.contact.create({
+    data: { organizationId, firstName: "Persona", lastName: "Ejemplo", phone: "+5491123456789" },
+  });
+  const agente = await prisma.internalAgent.create({
+    data: {
+      organizationId,
+      name: "Interno",
+      instructions: "Ayudá al equipo.",
+      modelProvider: "openrouter",
+      modelName: "doble/modelo",
+    },
+  });
+  const mensaje = (content: string) =>
+    prisma.internalAgentMessage.create({
+      data: {
+        organizationId,
+        internalAgentId: agente.id,
+        userId: org.authIds[0],
+        senderType: "USER",
+        content,
+      },
+    });
+  const suyos = [
+    await mensaje("Su cel: +54 9 11 2345-6789"),
+    await mensaje("Llamala al +54 11 2345-6789"),
+    await mensaje("Fijo: 011 2345-6789"),
+    await mensaje("Cel 11 2345-6789"),
+  ];
+  const ajeno = await mensaje("El de México: +52 1 55 2345 6789");
+
+  const r = await erasePersonalData(organizationId, persona.id, org.authIds[0]);
+
+  assert.equal(r.mensajesDelAgenteInternoBorrados, suyos.length);
+  const queda = await prisma.internalAgentMessage.findMany({
+    where: { organizationId },
+    select: { id: true, content: true },
+  });
+  assert.deepEqual(queda, [{ id: ajeno.id, content: ajeno.content }]);
 });

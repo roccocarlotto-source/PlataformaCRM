@@ -4,7 +4,7 @@ import {
   type LeadUrgency,
   type LifecycleStage,
 } from "@prisma/client";
-import { OPCIONES_DE_TRANSACCION_LARGA, prisma, type Db } from "../lib/prisma";
+import { prisma, type Db } from "../lib/prisma";
 import {
   normalizarTelefono,
   soloDigitos,
@@ -29,12 +29,14 @@ import {
 import {
   countContacts,
   createContact as createContactRepo,
+  anonimizarVentaDelContacto,
   borrarRastroDelContacto,
   erasePersonalDataDeLosUnidos,
   erasePersonalDataFromContact,
   MARCADOR_DE_DATO_BORRADO,
   marcarBorradoDeDatosPersonales,
   marcarPendienteDelBorrado,
+  PREFIJO_DE_LA_NOTA_DEL_BORRADO,
   type PendienteDelBorrado,
   existsOtherContactWithPhone,
   findContactById,
@@ -51,13 +53,25 @@ import {
   type SortOrder,
   type UpdateLeadQualificationData,
 } from "../repositories/contact.repository";
-import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
+import {
+  anonimizarEventosNoPromovidosQueMencionan,
+  anonymizeIngestionEventsOfContact,
+} from "../repositories/ingestionEvent.repository";
+import { anonimizarPreguntasQueMencionan } from "../repositories/helpAssistantQuestion.repository";
+import {
+  borrarVinculosDelContacto,
+  fuentesDeImportacionDelContacto,
+} from "../repositories/importacion.repository";
+import { borrarMensajesQueMencionan } from "../repositories/internalAgent.repository";
+import { findUserByIdInOrganization } from "../repositories/user.repository";
+import { criteriosDeMencion, hayCriterios } from "../utils/mencionDeLaPersona";
 import { countOpenOpportunitiesOf } from "../repositories/opportunity.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { anonimizarVehiculosDelContacto } from "../servicios/repositories/customerVehicle.repository";
 import { anonimizarOrdenesDelContacto } from "../servicios/repositories/serviceOrder.repository";
 import {
   findDefaultPhoneCountryCode,
+  findOrganizationById,
   lockOrganizationForUpdate,
 } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
@@ -750,14 +764,24 @@ export interface ResultadoDeBorrado {
   // Borrado completo (2026-10-12): lo que se limpió fuera de la fila, y lo
   // que quedó pendiente fuera de la base (Google Calendar), sin datos
   // personales.
+  // Desde el 2026-10-26 los mensajes y los turnos del agente se BORRAN (DAT-03);
+  // cada conversación queda con la nota del sistema.
   mensajesBorrados: number;
   conversacionesCerradas: number;
-  trabajosDeEntradaAnonimizados: number;
+  trabajosDeEntradaBorrados: number;
   actividadesBorradas: number;
   identidadesBorradas: number;
   seguimientosCancelados: number;
   eventosDeGoogleLimpiados: number;
   pendientes: PendienteDelBorrado[];
+  // DAT-03 y DAT-04 (docs-privados/auditoria-2026-10-21/informe.md, local).
+  oportunidadesAnonimizadas: number;
+  eventosNoPromovidosAnonimizados: number;
+  preguntasDeAyudaAnonimizadas: number;
+  mensajesDelAgenteInternoBorrados: number;
+  // Revisión de #585: los vínculos de importación (claves email:, telefono:,
+  // id: del contacto y de sus unidos, y los de sus actividades).
+  vinculosDeImportacionBorrados: number;
   // Cuántos eventos de ingesta perdieron su rawPayload. Se devuelve porque el
   // estándar pide que el borrado sea verificable, y porque quien lo pide tiene
   // que poder decir cuánto se borró sin ir a mirar la base.
@@ -766,6 +790,39 @@ export interface ResultadoDeBorrado {
   // también (OPUS-C-02 / FABLE-C-03, docs-privados, local).
   contactosUnidosAnonimizados: number;
 }
+
+// "Datos borrados a pedido del titular el <fecha> por <usuario>" (regla de
+// Rocco del 23/10): el único mensaje que queda en cada conversación. Sin datos
+// de la persona borrada; el usuario es quien hizo el borrado. La fecha, en la
+// zona de la organización.
+export function notaDelBorrado(cuando: Date, zona: string, quien: string | null): string {
+  const fecha = new Intl.DateTimeFormat("es-UY", {
+    timeZone: zona,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(cuando);
+  return `${PREFIJO_DE_LA_NOTA_DEL_BORRADO} el ${fecha} por ${quien ?? "un administrador"}`;
+}
+
+// Lo que la confirmación del borrado muestra antes de hacerlo (revisión de
+// #585): de qué fuentes de importación o sincronización vino. El borrado se
+// lleva sus vínculos, así que la próxima sincronización la crearía como
+// contacto nuevo; quien borra tiene que saber que la tiene que sacar también
+// de ahí. Mismo alcance que erasePersonalData: incluye los soft-deleteados.
+export async function vistaPreviaDelBorrado(
+  organizationId: string,
+  id: string,
+): Promise<{ fuentes: string[] }> {
+  const contacto = await findContactByIdIncludingDeleted(id, organizationId);
+  if (!contacto) {
+    throw new AppError("Contacto no encontrado", 404);
+  }
+  return { fuentes: await fuentesDeImportacionDelContacto(organizationId, id) };
+}
+
+// Ver la nota del timeout dentro de erasePersonalData.
+export const OPCIONES_DE_TRANSACCION_DEL_BORRADO = { maxWait: 10_000, timeout: 45_000 } as const;
 
 export async function erasePersonalData(
   organizationId: string,
@@ -789,13 +846,44 @@ export async function erasePersonalData(
     throw new AppError("Contacto no encontrado", 404);
   }
 
-  // TIMEOUT EXPLÍCITO (2026-10-12). Son ~22 sentencias en serie aunque el
-  // contacto no tenga nada más que la fila: cada tabla se recorre igual. Con el
-  // pooler de Supabase (pgbouncer=true) eso midió ~52 idas y vueltas, y con la
+  // DAT-03 (docs-privados/auditoria-2026-10-21/informe.md, local). La nota que
+  // queda en cada conversación, y con qué se busca a la persona en lo que
+  // otros escribieron. Los datos se leen ANTES de anonimizar la fila. Si el
+  // contacto ya estaba borrado (se repite el borrado, por ejemplo para
+  // reintentar Google), su nombre ya es el marcador: no hay nada que buscar.
+  // Y repetirlo no pisa la nota, la fecha ni quién lo hizo (revisión de
+  // #585): la nota que ya está se conserva tal cual (borrarRastroDelContacto
+  // la reconoce por su prefijo), y donde falte se arma con la fecha y el autor
+  // del primer borrado.
+  const yaBorrado = contacto.personalDataErasedAt;
+  const [organizacion, quienBorra] = await Promise.all([
+    findOrganizationById(organizationId),
+    findUserByIdInOrganization(contacto.personalDataErasedById ?? erasedById, organizationId),
+  ]);
+  const nota = notaDelBorrado(
+    yaBorrado ?? new Date(),
+    organizacion?.timezone ?? "UTC",
+    quienBorra?.fullName ?? null,
+  );
+  const criterios = yaBorrado ? null : criteriosDeMencion(contacto);
+
+  // TIMEOUT EXPLÍCITO (2026-10-12). Con el pooler de Supabase (pgbouncer=true)
+  // las ~22 sentencias de entonces midieron ~52 idas y vueltas, y con la
   // latencia de producción hasta la base (São Paulo) pasaba los 5 s por
   // defecto de Prisma: vencía con P2028, el usuario veía "conflicto temporal"
-  // y el borrado se revertía entero. Mismos valores que la unión de contactos
-  // (contactMerge.service.ts). Lo fija borradoCompleto.integration-test.ts.
+  // y el borrado se revertía entero. Lo fija borradoCompleto.integration-test.ts.
+  //
+  // TIMEOUT PROPIO, más largo que OPCIONES_DE_TRANSACCION_LARGA (revisión de
+  // #585). Con DAT-03/DAT-04 la transacción hace 43 idas y vueltas en serie
+  // (BEGIN y COMMIT incluidos), medidas en el peor caso razonable —20
+  // conversaciones, 10 oportunidades con cotización y entrega, 3 eventos de
+  // ingesta— por borradoCompleto.consultas.integration-test.ts. La cantidad no
+  // crece con las filas (una sentencia por tabla), salvo los eventos de
+  // ingesta promovidos: uno más por evento. A ~350 ms por consulta en
+  // producción son ~15 s, demasiado cerca de los 20 s de la opción larga; 45 s
+  // alcanzan para ~125 consultas (≈80 eventos de ingesta más). Ni el frontend
+  // ni el servidor cortan antes: el pedido no tiene timeout propio y el
+  // requestTimeout de Node es de 300 s.
   const { resultado, turnosEnGoogle } = await prisma.$transaction(async (tx) => {
     const contacto = await erasePersonalDataFromContact(id, organizationId, tx);
 
@@ -818,12 +906,40 @@ export async function erasePersonalData(
     // vehículos, y la nota de sus cambios de dueño. Los vehículos quedan, sin
     // datos personales. Un contacto sin vehículos no cambia nada.
     await anonimizarVehiculosDelContacto(organizationId, id, tx);
-    // Y las órdenes: daños al ingreso y notas. Las órdenes quedan (D14).
+    // Y las órdenes: daños, notas, cancelación, cambios de estado y
+    // aprobaciones. Las órdenes quedan (D14).
     await anonimizarOrdenesDelContacto(organizationId, id, tx);
-    // Borrado completo: mensajes, conversaciones, cola, tareas, identidades y
-    // seguimientos; y quién y cuándo.
-    const rastro = await borrarRastroDelContacto(id, organizationId, tx);
-    await marcarBorradoDeDatosPersonales(id, organizationId, erasedById, tx);
+    // DAT-03: el texto de la venta (oportunidades, cotizaciones, entregas,
+    // cupones). Las filas y los montos quedan.
+    const venta = await anonimizarVentaDelContacto(id, organizationId, tx);
+    // DAT-03 y DAT-04: lo que la menciona sin estar vinculado a ella, buscado
+    // por nombre completo, email o teléfono, solo en esta organización.
+    let noPromovidos = 0;
+    let preguntasDeAyuda = 0;
+    let mensajesDelAgenteInterno = 0;
+    if (criterios && hayCriterios(criterios)) {
+      noPromovidos = await anonimizarEventosNoPromovidosQueMencionan(organizationId, criterios, tx);
+      preguntasDeAyuda = await anonimizarPreguntasQueMencionan(
+        organizationId,
+        criterios,
+        MARCADOR_DE_DATO_BORRADO,
+        tx,
+      );
+      mensajesDelAgenteInterno = await borrarMensajesQueMencionan(organizationId, criterios, tx);
+    }
+    // Borrado completo: mensajes (se borran; queda la nota), conversaciones,
+    // cola, tareas, identidades y seguimientos; y quién y cuándo.
+    const rastro = await borrarRastroDelContacto(id, organizationId, nota, tx);
+    // DAT-04 (revisión de #585): sin sus vínculos de importación, reimportar
+    // la misma fila o sincronizar crea un contacto nuevo en vez de revivir este.
+    const vinculos = await borrarVinculosDelContacto(organizationId, id, tx);
+    if (yaBorrado) {
+      // Quién y cuándo quedan los del primer borrado; lo pendiente se vuelve a
+      // calcular después del commit.
+      await marcarPendienteDelBorrado(id, organizationId, [], tx);
+    } else {
+      await marcarBorradoDeDatosPersonales(id, organizationId, erasedById, tx);
+    }
     const turnosEnGoogle = await tx.booking.findMany({
       where: { organizationId, contactId: id, googleEventId: { not: null } },
       select: {
@@ -842,14 +958,19 @@ export async function erasePersonalData(
         contactosUnidosAnonimizados: unidos.contactosUnidos,
         mensajesBorrados: rastro.mensajes,
         conversacionesCerradas: rastro.conversaciones,
-        trabajosDeEntradaAnonimizados: rastro.trabajosDeEntrada,
+        trabajosDeEntradaBorrados: rastro.trabajosDeEntrada,
         actividadesBorradas: rastro.actividades,
         identidadesBorradas: rastro.identidades,
         seguimientosCancelados: rastro.seguimientosCancelados,
+        oportunidadesAnonimizadas: venta.oportunidades,
+        eventosNoPromovidosAnonimizados: noPromovidos,
+        preguntasDeAyudaAnonimizadas: preguntasDeAyuda,
+        mensajesDelAgenteInternoBorrados: mensajesDelAgenteInterno,
+        vinculosDeImportacionBorrados: vinculos,
       },
       turnosEnGoogle,
     };
-  }, OPCIONES_DE_TRANSACCION_LARGA);
+  }, OPCIONES_DE_TRANSACCION_DEL_BORRADO);
 
   // DESPUÉS DEL COMMIT: el nombre en los eventos de Google de sus turnos. Una
   // falla de Google no deshace ni frena el borrado; queda como pendiente, en

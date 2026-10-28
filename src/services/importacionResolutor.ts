@@ -273,16 +273,25 @@ export class ResolutorDeImportacion {
     const reemplazos = new Map<string, string>();
     for (let salto = 0; salto <= MAX_SALTOS_DE_UNION && pendientes.length > 0; salto++) {
       const filas = await this.db.$queryRaw<
-        (FilaDeContacto & { deleted_at: Date | null; merged_into_id: string | null })[]
+        (FilaDeContacto & {
+          deleted_at: Date | null;
+          merged_into_id: string | null;
+          personal_data_erased_at: Date | null;
+        })[]
       >`
         SELECT id, first_name, last_name, email, phone, job_title, source, lifecycle_stage,
                customer_since, lead_notes, custom_fields, owner_id, company_id,
-               vehicle_of_interest_id, deleted_at, merged_into_id
+               vehicle_of_interest_id, deleted_at, merged_into_id, personal_data_erased_at
         FROM contacts
         WHERE organization_id = ${this.organizationId}::uuid AND id = ANY(${pendientes}::uuid[])
       `;
       const siguientes: string[] = [];
       for (const f of filas) {
+        // Un contacto con los datos borrados a pedido (DAT-04, revisión de
+        // #585) no existe para la importación: la fila crea uno NUEVO en vez
+        // de volver a escribirle los datos al borrado. El borrado ya se lleva
+        // sus vínculos; esto cubre cualquier otro camino que llegue a él.
+        if (f.personal_data_erased_at !== null) continue;
         if (f.deleted_at === null) {
           this.contactos.set(f.id, aContactoExistente(f));
         } else if (f.merged_into_id !== null) {

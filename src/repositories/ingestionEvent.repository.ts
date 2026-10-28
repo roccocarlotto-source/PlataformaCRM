@@ -8,6 +8,7 @@ import {
 import type { PromotionNote } from "../types/promotion";
 import { prisma, type Db } from "../lib/prisma";
 import { AppError } from "../utils/AppError";
+import { sqlMenciona, type CriteriosDeMencion } from "../utils/mencionDeLaPersona";
 import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
 
 // ---------------------------------------------------------------------------
@@ -920,15 +921,24 @@ export function retryIngestionEventConditional(
 // de la ronda anterior: el mismo hueco sin cerrar por segunda vez).
 //
 // La política vive en docs/data-classification.md §5.1: 90 días desde
-// created_at, solo PROCESSED y DUPLICATE, borrado FÍSICO. La consulta es
-// exactamente la que §9.1 de docs/ingestion-architecture.md ya especificaba
-// hace meses; lo que faltaba era algo que la corriera.
+// created_at, borrado FÍSICO, para PROCESSED, DUPLICATE, FAILED, PENDING y
+// DEAD_LETTER. La
+// consulta es la que §9.1 de docs/ingestion-architecture.md ya especificaba;
+// lo que faltaba era algo que la corriera.
 //
-// POR QUÉ SOLO ESOS DOS ESTADOS, y no es una optimización: un PENDING es
-// trabajo sin hacer, y un FAILED es el ÚNICO lugar donde vive el dato que no se
-// pudo promover a Contact. Borrarlos por edad sería perder información que
-// nadie recuperó todavía — un evento viejo y fallido es justamente el que hay
-// que mirar, no el que hay que borrar. Vale sin importar la antigüedad.
+// FAILED y PENDING SE SUMARON EL 2026-10-26 (DAT-04 de
+// docs-privados/auditoria-2026-10-21/informe.md, local; plazo decidido por
+// Rocco). Antes no se purgaban nunca, con este argumento: un FAILED es el único
+// lugar donde vive el dato que no se pudo promover. Es cierto, y por eso
+// mismo era el problema: datos de personas que nunca llegaron a ser contactos
+// —y que por eso ni siquiera pueden pedir su borrado— se guardaban sin plazo.
+// 90 días alcanzan para mirar y reintentar un evento fallido; después, el dato
+// se va como el de los procesados.
+//
+// DEAD_LETTER entra con ellos (decisión de Rocco, 26/10): es un FAILED por error
+// de sistema, con el mismo dato sin promover adentro. STAGED queda afuera: tiene
+// su propia regla (7 días, descartarSinConfirmarVencidos en
+// importacion.repository.ts).
 //
 // POR QUÉ ACÁ Y NO ADENTRO DEL SCRIPT: para que el `where` sea UNO SOLO. El
 // dry-run cuenta y el borrado destruye; si cada uno armara su propio filtro,
@@ -943,7 +953,13 @@ export function retryIngestionEventConditional(
 
 export const DIAS_DE_RETENCION_INGESTION_EVENT = 90;
 
-const ESTADOS_PURGABLES = [IngestionStatus.PROCESSED, IngestionStatus.DUPLICATE];
+const ESTADOS_PURGABLES = [
+  IngestionStatus.PROCESSED,
+  IngestionStatus.DUPLICATE,
+  IngestionStatus.FAILED,
+  IngestionStatus.PENDING,
+  IngestionStatus.DEAD_LETTER,
+];
 
 export function fechaDeCorteDeRetencion(ahora: Date = new Date()): Date {
   const corte = new Date(ahora);
@@ -1178,6 +1194,10 @@ export async function anonymizeIngestionEventsOfContact(
         // de las notas, no hay un registro de conflicto que conservar.
         plan: Prisma.DbNull,
         changes: Prisma.DbNull,
+        // DAT-04 (docs-privados/auditoria-2026-10-21/informe.md, local): el
+        // id externo que manda la fuente suele ser el email. Sigue siendo
+        // único (la deduplicación no se rompe) pero ya no dice nada.
+        externalId: idExternoBorrado(evento.id),
       },
     });
 
@@ -1189,4 +1209,46 @@ export async function anonymizeIngestionEventsOfContact(
   }
 
   return { count: eventos.length };
+}
+
+export function idExternoBorrado(eventoId: string): string {
+  return `erased:${eventoId}`;
+}
+
+export const MOTIVO_EVENTO_BORRADO_A_PEDIDO =
+  "Datos borrados a pedido del titular: el evento no se procesa";
+
+// DAT-04 — los eventos que NUNCA llegaron a ser el contacto (FAILED,
+// PENDING, DEAD_LETTER, STAGED: `promoted_contact_id` NULL) no tienen nada
+// que los vincule a él, así que el borrado no los encontraba y conservaban el
+// formulario entero. Se buscan por el email o el teléfono del contacto en el
+// crudo y en el id externo (nunca por el nombre: el crudo trae nombre y
+// apellido en campos separados), solo en esta organización, y quedan como los
+// promovidos: sin crudo, sin plan ni cambios, con el id externo borrado. Un
+// PENDING pasa a FAILED: ya no hay nada que promover. Un STAGED queda STAGED
+// (es parte de un lote sin confirmar y su máquina de estados es la del lote):
+// si se confirma, la fila sin datos falla la validación como cualquier otra.
+export async function anonimizarEventosNoPromovidosQueMencionan(
+  organizationId: string,
+  criterios: CriteriosDeMencion,
+  db: Db = prisma,
+): Promise<number> {
+  if (!criterios.email && !criterios.telefono) return 0;
+  const menciona = Prisma.sql`(${sqlMenciona("raw_payload::text", criterios, { porNombre: false })} OR ${sqlMenciona("coalesce(external_id, '')", criterios, { porNombre: false })})`;
+  return db.$executeRaw`
+    UPDATE ingestion_events SET
+      raw_payload = ${JSON.stringify(RAW_PAYLOAD_BORRADO)}::jsonb,
+      promotion_notes = NULL,
+      plan = NULL,
+      changes = NULL,
+      last_error = NULL,
+      external_id = 'erased:' || id::text,
+      status = CASE WHEN status = 'PENDING' THEN 'FAILED'::"IngestionStatus" ELSE status END,
+      error_message = ${MOTIVO_EVENTO_BORRADO_A_PEDIDO},
+      next_attempt_at = NULL,
+      updated_at = now()
+    WHERE organization_id = ${organizationId}::uuid
+      AND promoted_contact_id IS NULL
+      AND raw_payload <> ${JSON.stringify(RAW_PAYLOAD_BORRADO)}::jsonb
+      AND ${menciona}`;
 }
