@@ -326,7 +326,7 @@ export function StageEditor({ pipelineId }: StageEditorProps) {
         ) : null}
 
         {stagesQuery.isSuccess && stages.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Orden</th>

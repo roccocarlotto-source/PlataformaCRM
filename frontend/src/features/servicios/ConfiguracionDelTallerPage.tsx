@@ -202,7 +202,7 @@ function Tipos() {
           <EmptyState>Todavía no hay tipos de service.</EmptyState>
         ) : null}
         {tipos.isSuccess && tipos.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Nombre</th>

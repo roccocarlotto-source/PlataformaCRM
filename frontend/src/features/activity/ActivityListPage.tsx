@@ -290,7 +290,7 @@ export function ActivityListPage() {
 
         {/* Mismas columnas y mismo orden que antes del restyle. */}
         {activitiesQuery.isSuccess && rows.length > 0 ? (
-          <Table>
+          <Table accionesFijas={isAdmin}>
             <thead>
               <tr>
                 <th>Asunto</th>

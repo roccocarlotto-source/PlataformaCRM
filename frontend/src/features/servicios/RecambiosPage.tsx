@@ -124,7 +124,7 @@ export function RecambiosPage() {
         ) : null}
 
         {recambios.isSuccess && filas.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th className="ds-cell-pick">

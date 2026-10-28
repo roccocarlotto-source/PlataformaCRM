@@ -174,7 +174,7 @@ export function AgentListPage() {
         ) : null}
 
         {agentsQuery.isSuccess && agentsQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Nombre</th>

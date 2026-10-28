@@ -281,7 +281,7 @@ export function ContactListPage() {
           el listado. Los tests ubican celdas por el texto de su <th>, no por
           índice, así que reordenar no los rompe. */}
           {contactsQuery.isSuccess && contactsQuery.data.data.length > 0 ? (
-            <Table>
+            <Table accionesFijas>
               <thead>
                 <tr>
                   <th>Nombre</th>

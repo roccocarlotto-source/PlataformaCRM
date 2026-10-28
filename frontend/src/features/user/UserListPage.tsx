@@ -317,7 +317,7 @@ export function UserListPage() {
         ) : null}
 
         {usersQuery.isSuccess && rows.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Nombre</th>

@@ -158,7 +158,7 @@ export function InvitationListPage() {
         ) : null}
 
         {invitationsQuery.isSuccess && rows.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Email</th>

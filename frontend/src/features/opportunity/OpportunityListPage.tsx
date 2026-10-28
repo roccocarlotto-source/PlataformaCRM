@@ -262,7 +262,7 @@ function OpportunityTableView() {
 
         {/* Columnas en el orden de la pantalla "Oportunidades CRM" del diseño. */}
         {opportunitiesQuery.isSuccess && rows.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Título</th>

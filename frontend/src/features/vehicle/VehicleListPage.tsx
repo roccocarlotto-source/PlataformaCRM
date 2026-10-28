@@ -285,7 +285,7 @@ export function VehicleListPage() {
         ) : null}
 
         {vehiclesQuery.isSuccess && vehiclesQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Foto</th>

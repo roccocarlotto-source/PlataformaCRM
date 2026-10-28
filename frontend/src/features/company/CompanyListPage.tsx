@@ -179,7 +179,7 @@ export function CompanyListPage() {
           País, sin Dominio ni Acciones); cambiarlo toca datos, no es parte de
           este restyle. */}
         {companiesQuery.isSuccess && companiesQuery.data.data.length > 0 ? (
-          <Table>
+          <Table accionesFijas={isAdmin}>
             <thead>
               <tr>
                 <th>Nombre</th>

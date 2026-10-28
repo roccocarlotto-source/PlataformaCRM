@@ -177,7 +177,7 @@ export function ServiceTypeListPage() {
         ) : null}
 
         {serviceTypesQuery.isSuccess && serviceTypes.length > 0 ? (
-          <Table>
+          <Table accionesFijas>
             <thead>
               <tr>
                 <th>Nombre</th>
