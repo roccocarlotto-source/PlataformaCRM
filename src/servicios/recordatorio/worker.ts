@@ -51,12 +51,14 @@ import {
   posponerHasta,
   reclamarMensaje,
   reprogramarIntento,
+  asignadoDeLaTarea,
   tieneElModulo,
   type MensajeParaEnviar,
   type MensajeReclamado,
 } from "./repository";
 import { crearTareaDelAviso } from "./tarea";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
+import { avisarColaFallida, CUERPO_DE_WHATSAPP_FALLIDO } from "../../services/tareaPorColaFallida";
 
 // ---------------------------------------------------------------------------
 // El envío del recordatorio del próximo service (docs/servicios.md §6.3, S7),
@@ -258,12 +260,13 @@ async function registrarFallo(
     backoff: BACKOFF,
   });
   if (resolucion.estado === "FAILED") {
-    await marcarFallido(reclamo, motivo);
+    const marcado = await marcarFallido(reclamo, motivo);
     resumen.fallidos++;
     logger.error(
       { err, serviceMessageId: reclamo.id, attempts: reclamo.attempts },
       "Recordatorio del próximo service en FAILED: el cliente no recibió el WhatsApp",
     );
+    if (marcado.count > 0) await avisarMensajeFallido(reclamo);
     return;
   }
   await reprogramarIntento(reclamo, { nextAttemptAt: resolucion.nextAttemptAt, motivo });
@@ -374,4 +377,36 @@ export function iniciarWorkerDeMensajesDelTaller(
     if (timer) clearTimeout(timer);
     await tickEnCurso;
   };
+}
+
+// El cliente no recibió el WhatsApp del taller: la tarea va al encargado del
+// vehículo, como la del próximo service (ver services/tareaPorColaFallida.ts).
+function avisarMensajeFallido(reclamo: MensajeReclamado): Promise<void> {
+  return avisarColaFallida("mensaje del taller", async () => {
+    const fila = await prisma.serviceMessage.findFirst({
+      where: { id: reclamo.id, organizationId: reclamo.organizationId },
+      select: { contactId: true, customerVehicleId: true, branchId: true },
+    });
+    if (!fila) return null;
+    return {
+      organizationId: reclamo.organizationId,
+      asignado: fila.customerVehicleId
+        ? await asignadoDeLaTarea(reclamo.organizationId, fila.customerVehicleId, fila.branchId)
+        : null,
+      contactId: fila.contactId,
+      asunto: (cliente) => `Contactar a ${cliente}: no le llegó el WhatsApp del taller`,
+      cuerpo: CUERPO_DE_WHATSAPP_FALLIDO,
+      grupo: {
+        etiqueta: "mensajes del taller",
+        contarFallidosDesde: (desde) =>
+          prisma.serviceMessage.count({
+            where: {
+              organizationId: reclamo.organizationId,
+              status: "FAILED",
+              updatedAt: { gte: desde },
+            },
+          }),
+      },
+    };
+  });
 }

@@ -6,6 +6,8 @@ import { entregarEvento, type ResultadoDeEntrega } from "../services/outbox.serv
 import type { RegistroDeHandlers } from "../services/outboxHandlers";
 import { registroDeHandlers } from "../services/outboxHandlers";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
+import { avisarColaFallida } from "../services/tareaPorColaFallida";
+import { findOldestActiveAdmin } from "../repositories/user.repository";
 
 // ---------------------------------------------------------------------------
 // Worker in-process con polling del motor de eventos salientes.
@@ -74,6 +76,7 @@ export async function drenarOutbox(opciones: OpcionesDeDrenado = {}): Promise<Re
     // la transacción se revierte y el evento ya no es alcanzable desde el
     // catch. Sin este id no habría a quién posponer.
     let idReclamado: string | undefined;
+    let organizacionReclamada: string | undefined;
 
     try {
       resultado = await prisma.$transaction(
@@ -88,6 +91,7 @@ export async function drenarOutbox(opciones: OpcionesDeDrenado = {}): Promise<Re
           }
 
           idReclamado = evento.id;
+          organizacionReclamada = evento.organizationId;
           return await entregarEvento(evento, tx, { registro });
         },
         {
@@ -136,6 +140,9 @@ export async function drenarOutbox(opciones: OpcionesDeDrenado = {}): Promise<Re
       resumen.reprogramados++;
     } else {
       resumen.muertos++;
+      if (idReclamado && organizacionReclamada) {
+        await avisarEventoMuerto(organizacionReclamada, idReclamado);
+      }
     }
   }
 
@@ -244,4 +251,58 @@ export function iniciarWorkerDeOutbox(opciones: OpcionesDelWorker = {}): () => P
     // caso de esperar está acotado por un lote (batch size × tiempo por evento).
     await tickEnCurso;
   };
+}
+
+// Un evento que agotó sus intentos: una tarea por cada automatización que
+// falló con él (quedan en automation_executions) o, si no hay ninguna —otro
+// proceso automático, o sin handler—, una genérica. La tarea se ata al
+// contacto o a la oportunidad del evento (casi todos los traen en el payload);
+// sin ninguno de los dos no hay tarea, solo el log.
+function idDelPayload(payload: unknown, clave: "contactId" | "opportunityId"): string | null {
+  const valor = (payload as Record<string, unknown> | null)?.[clave];
+  return typeof valor === "string" && /^[0-9a-f-]{36}$/i.test(valor) ? valor : null;
+}
+
+function avisarEventoMuerto(organizationId: string, outboxEventId: string): Promise<void> {
+  return avisarColaFallida("automatizaciones", async () => {
+    const evento = await prisma.outboxEvent.findFirst({
+      where: { id: outboxEventId, organizationId },
+      select: { payload: true },
+    });
+    // Es un problema de configuración: va al ADMIN aunque el contacto tenga dueño.
+    const relacion = {
+      asignado: (await findOldestActiveAdmin(organizationId))?.id ?? null,
+      contactId: idDelPayload(evento?.payload, "contactId"),
+      opportunityId: idDelPayload(evento?.payload, "opportunityId"),
+    };
+    const grupo = {
+      etiqueta: "automatizaciones",
+      contarFallidosDesde: (desde: Date) =>
+        prisma.outboxEvent.count({
+          where: { organizationId, status: "DEAD_LETTER" as const, updatedAt: { gte: desde } },
+        }),
+    };
+    const fallidas = await prisma.automationExecution.findMany({
+      where: { organizationId, outboxEventId, status: "FAILED" },
+      select: { automation: { select: { name: true } } },
+    });
+    if (fallidas.length === 0) {
+      return {
+        organizationId,
+        ...relacion,
+        grupo,
+        asunto: () => "Un proceso automático no se pudo completar",
+        cuerpo:
+          "Un proceso automático falló después de varios intentos. Avisale al soporte de la plataforma.",
+      };
+    }
+    return fallidas.map(({ automation }) => ({
+      organizationId,
+      ...relacion,
+      grupo,
+      asunto: () => `No se pudo ejecutar la automatización "${automation.name}"`,
+      cuerpo:
+        "La automatización falló después de varios intentos. Revisá su configuración en Automatizaciones.",
+    }));
+  });
 }

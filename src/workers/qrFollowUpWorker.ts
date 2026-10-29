@@ -30,6 +30,8 @@ import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils
 import { baseDeLaApiPublica, buildQrImageUrl, type TipoDeQr } from "../utils/qrImage";
 import { parametrosDelCuerpo } from "../utils/whatsappTemplateText";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
+import { avisarColaFallida, CUERPO_DE_WHATSAPP_FALLIDO } from "../services/tareaPorColaFallida";
+import { prisma } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
 // El worker de seguimientos por WhatsApp con el QR (ítem 159 de
@@ -361,12 +363,13 @@ async function registrarFallo(reclamo: QrFollowUpReclamado, err: unknown, resume
 
   try {
     if (resolucion.estado === "FAILED") {
-      await markQrFollowUpFailed(reclamo, lastError);
+      const marcado = await markQrFollowUpFailed(reclamo, lastError);
       resumen.fallidos++;
       logger.error(
         { err, qrFollowUpId: reclamo.id, attempts: reclamo.attempts },
         "Seguimiento con QR en FAILED: el cliente no recibió el WhatsApp",
       );
+      if (marcado.count > 0) await avisarSeguimientoFallido(reclamo);
       return;
     }
     await rescheduleQrFollowUp(reclamo, { nextAttemptAt: resolucion.nextAttemptAt, lastError });
@@ -494,7 +497,7 @@ export async function drenarSeguimientosQr(
     // el ciclo sin haber pasado por ningún catch.
     if (reclamo.attempts > env.QR_FOLLOWUP_MAX_ATTEMPTS) {
       const agotado = reclamo;
-      await markQrFollowUpFailed(
+      const marcado = await markQrFollowUpFailed(
         agotado,
         `Agotó sus ${String(env.QR_FOLLOWUP_MAX_ATTEMPTS)} intentos sin terminar (el proceso que lo tomaba no llegó a cerrarlo)`,
       ).catch((err: unknown) => {
@@ -502,8 +505,10 @@ export async function drenarSeguimientosQr(
           { err, qrFollowUpId: agotado.id },
           "No se pudo marcar FAILED un seguimiento con QR",
         );
+        return null;
       });
       resumen.fallidos++;
+      if (marcado && marcado.count > 0) await avisarSeguimientoFallido(agotado);
       continue;
     }
 
@@ -590,4 +595,34 @@ export function iniciarWorkerDeSeguimientosQr(
     }
     await tickEnCurso;
   };
+}
+
+// El cliente se quedó sin el WhatsApp con el QR: una persona lo tiene que contactar
+// (ver services/tareaPorColaFallida.ts).
+function avisarSeguimientoFallido(reclamo: QrFollowUpReclamado): Promise<void> {
+  return avisarColaFallida("seguimiento con QR", async () => {
+    const fila = await prisma.qrFollowUp.findFirst({
+      where: { id: reclamo.id, organizationId: reclamo.organizationId },
+      select: { contactId: true, opportunityId: true },
+    });
+    if (!fila) return null;
+    return {
+      organizationId: reclamo.organizationId,
+      contactId: fila.contactId,
+      opportunityId: fila.opportunityId,
+      asunto: (cliente) => `Contactar a ${cliente}: no le llegó el WhatsApp con el QR`,
+      cuerpo: CUERPO_DE_WHATSAPP_FALLIDO,
+      grupo: {
+        etiqueta: "seguimientos con QR",
+        contarFallidosDesde: (desde) =>
+          prisma.qrFollowUp.count({
+            where: {
+              organizationId: reclamo.organizationId,
+              status: "FAILED",
+              updatedAt: { gte: desde },
+            },
+          }),
+      },
+    };
+  });
 }

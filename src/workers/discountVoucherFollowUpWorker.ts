@@ -32,6 +32,7 @@ import {
   type ResultadoDelEnvio as ResultadoDelEnvioDelSeguimiento,
 } from "./qrFollowUpWorker";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
+import { avisarColaFallida, CUERPO_DE_WHATSAPP_FALLIDO } from "../services/tareaPorColaFallida";
 
 // ---------------------------------------------------------------------------
 // El worker de cupones de descuento por WhatsApp (ítem 177 de
@@ -321,12 +322,13 @@ async function registrarFallo(
 
   try {
     if (resolucion.estado === "FAILED") {
-      await markDiscountVoucherFollowUpFailed(reclamo, lastError);
+      const marcado = await markDiscountVoucherFollowUpFailed(reclamo, lastError);
       resumen.fallidos++;
       logger.error(
         { err, discountVoucherFollowUpId: reclamo.id, attempts: reclamo.attempts },
         "Cupón de descuento en FAILED: el cliente no recibió el WhatsApp",
       );
+      if (marcado.count > 0) await avisarCuponFallido(reclamo);
       return;
     }
     await rescheduleDiscountVoucherFollowUp(reclamo, {
@@ -440,7 +442,7 @@ export async function drenarCupones(opciones: OpcionesDrenado = {}): Promise<Res
 
     if (reclamo.attempts > env.DISCOUNT_VOUCHER_FOLLOWUP_MAX_ATTEMPTS) {
       const agotado = reclamo;
-      await markDiscountVoucherFollowUpFailed(
+      const marcado = await markDiscountVoucherFollowUpFailed(
         agotado,
         `Agotó sus ${String(env.DISCOUNT_VOUCHER_FOLLOWUP_MAX_ATTEMPTS)} intentos sin terminar (el proceso que lo tomaba no llegó a cerrarlo)`,
       ).catch((err: unknown) => {
@@ -448,8 +450,10 @@ export async function drenarCupones(opciones: OpcionesDrenado = {}): Promise<Res
           { err, discountVoucherFollowUpId: agotado.id },
           "No se pudo marcar FAILED un cupón de descuento",
         );
+        return null;
       });
       resumen.fallidos++;
+      if (marcado && marcado.count > 0) await avisarCuponFallido(agotado);
       continue;
     }
 
@@ -528,4 +532,35 @@ export function iniciarWorkerDeCupones(opciones: OpcionesDelWorker = {}): () => 
     }
     await tickEnCurso;
   };
+}
+
+// El cliente se quedó sin el WhatsApp con el cupón de descuento: una persona lo tiene que contactar
+// (ver services/tareaPorColaFallida.ts).
+function avisarCuponFallido(reclamo: DiscountVoucherFollowUpReclamado): Promise<void> {
+  return avisarColaFallida("cupón de descuento", async () => {
+    const fila = await prisma.discountVoucherFollowUp.findFirst({
+      where: { id: reclamo.id, organizationId: reclamo.organizationId },
+      select: { contactId: true, opportunityId: true },
+    });
+    if (!fila) return null;
+    return {
+      organizationId: reclamo.organizationId,
+      contactId: fila.contactId,
+      opportunityId: fila.opportunityId,
+      asunto: (cliente) =>
+        `Contactar a ${cliente}: no le llegó el WhatsApp con el cupón de descuento`,
+      cuerpo: CUERPO_DE_WHATSAPP_FALLIDO,
+      grupo: {
+        etiqueta: "cupones de descuento",
+        contarFallidosDesde: (desde) =>
+          prisma.discountVoucherFollowUp.count({
+            where: {
+              organizationId: reclamo.organizationId,
+              status: "FAILED",
+              updatedAt: { gte: desde },
+            },
+          }),
+      },
+    };
+  });
 }

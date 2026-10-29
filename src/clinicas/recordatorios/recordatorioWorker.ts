@@ -40,6 +40,7 @@ import {
 import { ErrorPermanenteDelSeguimiento, clasificarFallo } from "../../workers/qrFollowUpWorker";
 import { leerConfiguracionDeSede } from "../repositories/clinicSettings.repository";
 import { asignadoParaLaSede } from "../services/reprogramar.service";
+import { recepcionistaParaElAviso } from "../services/sedesDeUsuarios.service";
 import {
   BOTONES_DEL_RECORDATORIO,
   MOTIVO_REGLA_INACTIVA,
@@ -64,6 +65,7 @@ import {
   type RecordatorioReclamado,
 } from "./repository";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
+import { avisarColaFallida } from "../../services/tareaPorColaFallida";
 
 // ---------------------------------------------------------------------------
 // El worker de los mensajes de un turno de clínica: el recordatorio
@@ -316,12 +318,13 @@ async function registrarFallo(
     backoff: BACKOFF,
   });
   if (resolucion.estado === "FAILED") {
-    await marcarFallido(reclamo, motivo);
+    const marcado = await marcarFallido(reclamo, motivo);
     resumen.fallidos++;
     logger.error(
       { err, bookingMessageId: reclamo.id, attempts: reclamo.attempts },
       "Recordatorio de turno en FAILED: el paciente no recibió el WhatsApp",
     );
+    if (marcado.count > 0) await avisarRecordatorioFallido(reclamo);
     return;
   }
   await reprogramarIntento(reclamo, { nextAttemptAt: resolucion.nextAttemptAt, motivo });
@@ -478,4 +481,47 @@ export function iniciarWorkerDeRecordatorios(
     if (timer) clearTimeout(timer);
     await tickEnCurso;
   };
+}
+
+// El paciente no recibió el recordatorio: una tarea para la sede, como la de
+// "sin respuesta" (ver services/tareaPorColaFallida.ts).
+function avisarRecordatorioFallido(reclamo: RecordatorioReclamado): Promise<void> {
+  return avisarColaFallida("recordatorio de turno", async () => {
+    const fila = await prisma.bookingMessage.findFirst({
+      where: { id: reclamo.id, organizationId: reclamo.organizationId },
+      select: {
+        contactId: true,
+        bookingStartsAt: true,
+        booking: { select: { branchId: true, branch: { select: { timezone: true } } } },
+      },
+    });
+    if (!fila) return null;
+    const { dia, hora } = diaYHora(fila.bookingStartsAt, fila.booking.branch.timezone);
+    const sede = fila.booking.branchId;
+    return {
+      organizationId: reclamo.organizationId,
+      asignado: await asignadoParaLaSede(reclamo.organizationId, sede),
+      contactId: fila.contactId,
+      branchId: fila.booking.branchId,
+      asunto: (paciente) =>
+        `Llamar a ${paciente}: no le llegó el recordatorio del turno del ${dia} a las ${hora}`,
+      cuerpo:
+        "El recordatorio por WhatsApp no se pudo enviar después de varios intentos. Llamalo para confirmarle el turno.",
+      grupo: {
+        etiqueta: "recordatorios de turno",
+        // Solo la recepción de la sede (si no tiene, el ADMIN): la tarea
+        // agrupada lleva a una pantalla que un USER no ve.
+        asignado: await recepcionistaParaElAviso(reclamo.organizationId, sede),
+        contarFallidosDesde: (desde) =>
+          prisma.bookingMessage.count({
+            where: {
+              organizationId: reclamo.organizationId,
+              status: "FAILED",
+              updatedAt: { gte: desde },
+              booking: { branchId: sede },
+            },
+          }),
+      },
+    };
+  });
 }

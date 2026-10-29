@@ -92,6 +92,29 @@ Si sos administrador, al tildarla queda confirmada y desaparece directamente.
   le asignó un administrador solo las puede completar. Un administrador edita
   cualquiera.
 
+### Tareas por un envío que no salió {#envio-fallido}
+
+Cuando un mensaje automático no se pudo mandar después de varios intentos,
+el sistema crea una tarea para que una persona se ocupe, que vence en el día:
+
+- **"Contactar a… : no le llegó el WhatsApp…"** cuando no salió un
+  seguimiento de consulta, el QR, el cupón de descuento o un mensaje del
+  taller. Va al vendedor de la oportunidad o, si no tiene, al del contacto;
+  en el taller, a quien atiende el vehículo. Si no hay nadie, al
+  administrador.
+- **"No se pudo ejecutar la automatización…"** cuando una automatización
+  falló varias veces seguidas. Va al administrador, relacionada con el
+  contacto o la oportunidad que la disparó.
+
+Mientras una de estas tareas siga abierta, otro envío fallido igual al mismo
+cliente no crea otra.
+
+Si fallan muchos el mismo día (por ejemplo, porque WhatsApp no anda), las
+tres primeras de cada tipo son tareas como las de arriba. Desde la cuarta se
+juntan en **una sola** tarea, "Más … que no salieron el dd/mm: N", que va al
+administrador y se actualiza con el número en vez de repetirse. La lista con
+cada cliente está en [Envíos que no salieron](#envios-que-no-salieron).
+
 ## Envíos que no salieron {#envios-que-no-salieron}
 
 **Actividades → Envíos que no salieron** lista los mensajes automáticos que no

@@ -216,6 +216,12 @@ Van en ese orden.
   recordatorio (o 2 horas antes del turno, si eso es antes) la recepción de la
   sede recibe una tarea "Confirmar por teléfono el turno de…". Si el turno es a
   menos de 2 horas, no hay tarea. Si después confirma, la tarea se cierra sola.
+- **Si el recordatorio no se pudo mandar** (WhatsApp lo rechazó o falló varias
+  veces seguidas), la recepción de la sede recibe una tarea "Llamar a… : no le
+  llegó el recordatorio del turno del…", para confirmarlo por teléfono. Si en
+  el día fallan más de tres en la sede, desde el cuarto se juntan en una sola
+  tarea con el número, y la lista está en
+  [Envíos que no salieron](/ayuda/actividades-y-agenda#envios-que-no-salieron).
 
 Los botones funcionan con cualquier nivel del asistente, y también con el
 asistente apagado. Si el turno se reprograma, el recordatorio se recalcula
