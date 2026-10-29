@@ -545,6 +545,7 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
       ADMIN: [
         "Actividades",
         "Mis tareas",
+        "Envíos que no salieron",
         "Reservas",
         "Calendario",
         "Recursos",

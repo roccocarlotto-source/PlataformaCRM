@@ -220,7 +220,8 @@ Van en ese orden.
   veces seguidas), la recepción de la sede recibe una tarea "Llamar a… : no le
   llegó el recordatorio del turno del…", para confirmarlo por teléfono. Si en
   el día fallan más de tres en la sede, desde el cuarto se juntan en una sola
-  tarea con el número, y la lista está en **Envíos que no salieron**.
+  tarea con el número, y la lista está en
+  [Envíos que no salieron](/ayuda/actividades-y-agenda#envios-que-no-salieron).
 
 Los botones funcionan con cualquier nivel del asistente, y también con el
 asistente apagado. Si el turno se reprograma, el recordatorio se recalcula

@@ -101,6 +101,8 @@ test("toda ruta con authorize deja pasar a ADMIN, y ninguna se le abre a Recepci
     // R10: atendido / no vino (§4.8, §11.2).
     "PATCH /api/bookings/:id/attended",
     "PATCH /api/bookings/:id/no-show",
+    // Tanda 2: la lista de envíos que no salieron (solo sus sedes).
+    "GET /api/envios-que-no-salieron",
   ];
   assert.deepEqual(
     conRol.filter((r) => r.roles?.includes("RECEPCION")).map((r) => r.ruta),

@@ -18,6 +18,7 @@ import { googleCalendarConnectionRouter } from "./googleCalendarConnection.route
 import { healthRouter } from "./health.routes";
 import { importRouter } from "./import.routes";
 import { ingestionEventRouter } from "./ingestionEvent.routes";
+import { enviosQueNoSalieronRouter } from "./enviosQueNoSalieron.routes";
 import { internalAgentRouter } from "./internalAgent.routes";
 import { helpAssistantRouter } from "./helpAssistant.routes";
 import { invitationRouter } from "./invitation.routes";
@@ -188,6 +189,9 @@ routes.use("/api", bookingRouter);
 // vacío en el retry), así que no tiene ninguna dependencia de orden con el
 // express.json() global.
 routes.use("/api", ingestionEventRouter);
+// Los envíos automáticos que agotaron sus reintentos: la lista que acompaña a
+// la tarea agrupada de services/tareaPorColaFallida.ts.
+routes.use("/api", enviosQueNoSalieronRouter);
 
 // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
 //

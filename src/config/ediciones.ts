@@ -484,6 +484,8 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "GET /api/activities/:id",
     "PATCH /api/activities/:id",
     "DELETE /api/activities/:id",
+    // La lista que acompaña a la tarea agrupada de envíos fallidos.
+    "GET /api/envios-que-no-salieron",
   ],
   cupones_y_qr: [
     "GET /api/qr",

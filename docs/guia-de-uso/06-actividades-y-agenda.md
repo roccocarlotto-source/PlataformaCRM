@@ -113,7 +113,23 @@ Si fallan muchos el mismo día (por ejemplo, porque WhatsApp no anda), las
 tres primeras de cada tipo son tareas como las de arriba. Desde la cuarta se
 juntan en **una sola** tarea, "Más … que no salieron el dd/mm: N", que va al
 administrador y se actualiza con el número en vez de repetirse. La lista con
-cada cliente está en la pantalla **Envíos que no salieron**.
+cada cliente está en [Envíos que no salieron](#envios-que-no-salieron).
+
+## Envíos que no salieron {#envios-que-no-salieron}
+
+**Actividades → Envíos que no salieron** lista los mensajes automáticos que no
+se pudieron mandar después de varios intentos (seguimientos de consulta, QR,
+cupones, mensajes del taller) y las automatizaciones que fallaron, del más
+reciente al más viejo. La ve solo un administrador.
+
+Cada fila tiene la **fecha**, el **tipo de envío**, el **cliente** (tocándolo
+se abre su ficha), la **sucursal** si la tiene y el **motivo** en palabras
+simples (por ejemplo, "WhatsApp rechazó el envío" o "Pasaron más de 24 horas
+desde el último mensaje del cliente"). Con más de una sucursal se puede
+filtrar por **Sede**; lo que no tiene sucursal (QR, automatizaciones) aparece
+solo sin filtro.
+
+Sirve para ponerse al día con los clientes que se quedaron sin su mensaje.
 
 ## Nueva actividad {#nueva-actividad}
 

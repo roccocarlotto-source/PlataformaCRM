@@ -31,3 +31,10 @@ export function puedeEditarContacto(me: Yo, contacto: { ownerId: string | null }
 
 export const AVISO_SOLO_LECTURA =
   "Está asignado a otra persona: solo quien lo tiene asignado o un administrador puede editarlo.";
+
+// La lista "Envíos que no salieron": ADMIN (todo) y Recepción (sus sedes; el
+// backend acota). Un USER no: es la lista de la tarea agrupada, que nunca se
+// le asigna (src/routes/enviosQueNoSalieron.routes.ts).
+export function puedeVerEnviosQueNoSalieron(me: Yo): boolean {
+  return me?.role === "ADMIN" || me?.role === "RECEPCION";
+}
