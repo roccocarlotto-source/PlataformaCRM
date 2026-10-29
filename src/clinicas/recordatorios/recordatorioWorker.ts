@@ -496,15 +496,30 @@ function avisarRecordatorioFallido(reclamo: RecordatorioReclamado): Promise<void
     });
     if (!fila) return null;
     const { dia, hora } = diaYHora(fila.bookingStartsAt, fila.booking.branch.timezone);
+    const sede = fila.booking.branchId;
+    const recepcion = await asignadoParaLaSede(reclamo.organizationId, sede);
     return {
       organizationId: reclamo.organizationId,
-      asignado: await asignadoParaLaSede(reclamo.organizationId, fila.booking.branchId),
+      asignado: recepcion,
       contactId: fila.contactId,
       branchId: fila.booking.branchId,
       asunto: (paciente) =>
         `Llamar a ${paciente}: no le llegó el recordatorio del turno del ${dia} a las ${hora}`,
       cuerpo:
         "El recordatorio por WhatsApp no se pudo enviar después de varios intentos. Llamalo para confirmarle el turno.",
+      grupo: {
+        etiqueta: "recordatorios de turno",
+        asignado: recepcion,
+        contarFallidosDesde: (desde) =>
+          prisma.bookingMessage.count({
+            where: {
+              organizationId: reclamo.organizationId,
+              status: "FAILED",
+              updatedAt: { gte: desde },
+              booking: { branchId: sede },
+            },
+          }),
+      },
     };
   });
 }

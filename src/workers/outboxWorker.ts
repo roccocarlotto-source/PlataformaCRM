@@ -275,6 +275,13 @@ function avisarEventoMuerto(organizationId: string, outboxEventId: string): Prom
       contactId: idDelPayload(evento?.payload, "contactId"),
       opportunityId: idDelPayload(evento?.payload, "opportunityId"),
     };
+    const grupo = {
+      etiqueta: "automatizaciones",
+      contarFallidosDesde: (desde: Date) =>
+        prisma.outboxEvent.count({
+          where: { organizationId, status: "DEAD_LETTER" as const, updatedAt: { gte: desde } },
+        }),
+    };
     const fallidas = await prisma.automationExecution.findMany({
       where: { organizationId, outboxEventId, status: "FAILED" },
       select: { automation: { select: { name: true } } },
@@ -283,6 +290,7 @@ function avisarEventoMuerto(organizationId: string, outboxEventId: string): Prom
       return {
         organizationId,
         ...relacion,
+        grupo,
         asunto: () => "Un proceso automático no se pudo completar",
         cuerpo:
           "Un proceso automático falló después de varios intentos. Avisale al soporte de la plataforma.",
@@ -291,6 +299,7 @@ function avisarEventoMuerto(organizationId: string, outboxEventId: string): Prom
     return fallidas.map(({ automation }) => ({
       organizationId,
       ...relacion,
+      grupo,
       asunto: () => `No se pudo ejecutar la automatización "${automation.name}"`,
       cuerpo:
         "La automatización falló después de varios intentos. Revisá su configuración en Automatizaciones.",

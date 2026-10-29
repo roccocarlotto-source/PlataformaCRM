@@ -590,6 +590,17 @@ function avisarSeguimientoFallido(reclamo: InquiryFollowUpReclamado): Promise<vo
       asunto: (cliente) =>
         `Contactar a ${cliente}: no le llegó el WhatsApp de seguimiento de su consulta`,
       cuerpo: CUERPO_DE_WHATSAPP_FALLIDO,
+      grupo: {
+        etiqueta: "seguimientos de consultas",
+        contarFallidosDesde: (desde) =>
+          prisma.inquiryFollowUp.count({
+            where: {
+              organizationId: reclamo.organizationId,
+              status: "FAILED",
+              updatedAt: { gte: desde },
+            },
+          }),
+      },
     };
   });
 }

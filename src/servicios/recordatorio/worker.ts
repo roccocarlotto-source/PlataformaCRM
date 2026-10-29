@@ -396,6 +396,17 @@ function avisarMensajeFallido(reclamo: MensajeReclamado): Promise<void> {
       contactId: fila.contactId,
       asunto: (cliente) => `Contactar a ${cliente}: no le llegó el WhatsApp del taller`,
       cuerpo: CUERPO_DE_WHATSAPP_FALLIDO,
+      grupo: {
+        etiqueta: "mensajes del taller",
+        contarFallidosDesde: (desde) =>
+          prisma.serviceMessage.count({
+            where: {
+              organizationId: reclamo.organizationId,
+              status: "FAILED",
+              updatedAt: { gte: desde },
+            },
+          }),
+      },
     };
   });
 }

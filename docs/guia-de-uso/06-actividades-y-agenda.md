@@ -109,6 +109,12 @@ el sistema crea una tarea para que una persona se ocupe, que vence en el día:
 Mientras una de estas tareas siga abierta, otro envío fallido igual al mismo
 cliente no crea otra.
 
+Si fallan muchos el mismo día (por ejemplo, porque WhatsApp no anda), las
+tres primeras de cada tipo son tareas como las de arriba. Desde la cuarta se
+juntan en **una sola** tarea, "Más … que no salieron el dd/mm: N", que va al
+administrador y se actualiza con el número en vez de repetirse. La lista con
+cada cliente está en la pantalla **Envíos que no salieron**.
+
 ## Nueva actividad {#nueva-actividad}
 
 Cualquier rol llega desde **Actividades → Mis tareas → Nueva tarea**. Un

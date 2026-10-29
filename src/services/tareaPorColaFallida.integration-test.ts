@@ -9,6 +9,7 @@ import { crearRegistroDeHandlers } from "./outboxHandlers";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import {
+  MAXIMO_INDIVIDUALES,
   avisarColaFallida,
   crearTareaPorColaFallida,
   type AvisoDeColaFallida,
@@ -28,6 +29,8 @@ import {
 //      (la base exige empresa, contacto u oportunidad).
 //   6. Contacto borrado: no se crea nada.
 //   7. avisarColaFallida no lanza aunque armar el aviso falle.
+//   9. Desde la 4.ª falla del día: UNA tarea agrupada, sin nombres, que se
+//      actualiza con el número en vez de duplicarse; va al asignado del grupo.
 //   8. De punta a punta en el outbox: un evento con contacto que agota sus
 //      intentos deja una tarea al ADMIN, atada a ese contacto.
 // ---------------------------------------------------------------------------
@@ -75,6 +78,8 @@ function aviso(extra: Partial<AvisoDeColaFallida>): AvisoDeColaFallida {
     organizationId: orgId,
     asunto: (cliente) => `Contactar a ${cliente}: no le llegó el WhatsApp de prueba`,
     cuerpo: "Cuerpo de prueba",
+    // Por defecto, la primera falla del día: tarea individual.
+    grupo: { etiqueta: "envíos de prueba", contarFallidosDesde: () => Promise.resolve(1) },
     ...extra,
   };
 }
@@ -253,4 +258,57 @@ test("8. outbox: un evento con contacto que agota sus intentos deja la tarea al 
     adminId,
     "es configuración: va al ADMIN, no al dueño del contacto",
   );
+});
+
+test("9. desde la 4.ª falla del día, una sola tarea agrupada que se actualiza", async () => {
+  const etiqueta = `grupo ${randomUUID().slice(0, 6)}`;
+  const conFallas = (n: number, contactId: string, asignado?: string) =>
+    aviso({
+      contactId,
+      grupo: { etiqueta, asignado, contarFallidosDesde: () => Promise.resolve(n) },
+    });
+  const primero = await crearContacto(vendedorId);
+  const segundo = await crearContacto(vendedorId);
+  const delGrupo = () =>
+    prisma.activity.findMany({
+      where: { organizationId: orgId, subject: { startsWith: `Más ${etiqueta} ` } },
+    });
+
+  assert.equal(
+    await crearTareaPorColaFallida(conFallas(MAXIMO_INDIVIDUALES, primero.id)),
+    "CREADA",
+  );
+  assert.equal(
+    await crearTareaPorColaFallida(conFallas(MAXIMO_INDIVIDUALES + 1, segundo.id, otroVendedorId)),
+    "AGRUPADA",
+  );
+  let [grupo] = await delGrupo();
+  assert.match(grupo.subject, /que no salieron el \d{2}\/\d{2}: 1$/);
+  assert.equal(grupo.contactId, segundo.id, "atada al primer cliente del grupo");
+  assert.equal(grupo.assigneeId, otroVendedorId, "va al asignado del grupo");
+  assert.ok(!grupo.body?.includes(segundo.lastName), "sin nombres en el texto");
+  assert.ok(grupo.body?.includes("/envios-que-no-salieron"));
+  assert.equal((await tareasDe(segundo.id)).length, 1, "el 4.º no tiene tarea individual");
+
+  const tercero = await crearContacto(vendedorId);
+  assert.equal(
+    await crearTareaPorColaFallida(conFallas(MAXIMO_INDIVIDUALES + 3, tercero.id)),
+    "AGRUPADA",
+  );
+  const todas = await delGrupo();
+  assert.equal(todas.length, 1, "se actualiza, no se duplica");
+  [grupo] = todas;
+  assert.match(grupo.subject, /: 3$/);
+  assert.equal((await tareasDe(tercero.id)).length, 0);
+
+  // Sin asignado propio, va al ADMIN.
+  const otraEtiqueta = aviso({
+    contactId: tercero.id,
+    grupo: { etiqueta: `${etiqueta}-b`, contarFallidosDesde: () => Promise.resolve(10) },
+  });
+  await crearTareaPorColaFallida(otraEtiqueta);
+  const [deOtraCola] = await prisma.activity.findMany({
+    where: { organizationId: orgId, subject: { startsWith: `Más ${etiqueta}-b ` } },
+  });
+  assert.equal(deOtraCola.assigneeId, adminId);
 });

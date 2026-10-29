@@ -550,6 +550,17 @@ function avisarCuponFallido(reclamo: DiscountVoucherFollowUpReclamado): Promise<
       asunto: (cliente) =>
         `Contactar a ${cliente}: no le llegó el WhatsApp con el cupón de descuento`,
       cuerpo: CUERPO_DE_WHATSAPP_FALLIDO,
+      grupo: {
+        etiqueta: "cupones de descuento",
+        contarFallidosDesde: (desde) =>
+          prisma.discountVoucherFollowUp.count({
+            where: {
+              organizationId: reclamo.organizationId,
+              status: "FAILED",
+              updatedAt: { gte: desde },
+            },
+          }),
+      },
     };
   });
 }

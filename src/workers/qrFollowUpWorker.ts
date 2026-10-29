@@ -612,6 +612,17 @@ function avisarSeguimientoFallido(reclamo: QrFollowUpReclamado): Promise<void> {
       opportunityId: fila.opportunityId,
       asunto: (cliente) => `Contactar a ${cliente}: no le llegó el WhatsApp con el QR`,
       cuerpo: CUERPO_DE_WHATSAPP_FALLIDO,
+      grupo: {
+        etiqueta: "seguimientos con QR",
+        contarFallidosDesde: (desde) =>
+          prisma.qrFollowUp.count({
+            where: {
+              organizationId: reclamo.organizationId,
+              status: "FAILED",
+              updatedAt: { gte: desde },
+            },
+          }),
+      },
     };
   });
 }

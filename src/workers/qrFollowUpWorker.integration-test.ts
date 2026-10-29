@@ -539,6 +539,26 @@ test("G-07: con la sucursal cerrada según su horario, se corre a la próxima ap
   }
 });
 
+test("un FAILED que ya estaba (anterior al deploy) no crea ninguna tarea al drenar", async () => {
+  await soloEstaRegla(0);
+  const opp = await ganarOportunidad("Viejo");
+  await prisma.qrFollowUp.updateMany({
+    where: { organizationId: e.organizationId, opportunityId: opp.id },
+    data: { status: "FAILED", lastError: "falló antes del deploy" },
+  });
+  const { deps } = doblarEnvio();
+
+  await drenarSeguimientos(deps);
+
+  const tareas = await prisma.activity.count({
+    where: {
+      organizationId: e.organizationId,
+      subject: { contains: "no le llegó el WhatsApp con el QR" },
+    },
+  });
+  assert.equal(tareas, 0, "las tareas nacen solo en la transición a FAILED");
+});
+
 test("un 400 de Meta es permanente: FAILED al primer intento", async () => {
   await soloEstaRegla(0);
   const opp = await ganarOportunidad("Permanente");
