@@ -7,6 +7,7 @@ import {
 } from "../repositories/googleCalendarConnection.repository";
 import type { ClienteGoogleCalendar } from "../services/googleCalendar.service";
 import { renovarCanal } from "../services/googleCalendarConnection.service";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // Worker de renovación de canales de notificaciones push (paso 4 de
@@ -203,6 +204,7 @@ export function iniciarWorkerDeCanales(opciones: OpcionesDelWorker = {}): () => 
 
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await renovar();
 
         if (resumen.renovados + resumen.fallidos > 0) {
@@ -213,7 +215,9 @@ export function iniciarWorkerDeCanales(opciones: OpcionesDelWorker = {}): () => 
         // conexión, así que llegar acá significa que falló la consulta misma. El
         // bucle NO puede morir por eso — si muere, los canales dejan de renovarse
         // en silencio y la sincronización inversa se apaga sola en siete días.
-        logger.error({ err }, "Fallo inesperado en la pasada de renovación de canales");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en la pasada de renovación de canales");
+        }
       }
     })();
 

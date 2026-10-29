@@ -2,7 +2,11 @@ import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { AppError } from "../utils/AppError";
-import { traducirErrorDePrisma } from "../utils/prismaErrors";
+import {
+  BaseNoDisponibleError,
+  REINTENTAR_DESPUES_DE_SEGUNDOS,
+  traducirErrorDePrisma,
+} from "../utils/prismaErrors";
 
 // ---------------------------------------------------------------------------
 // Middleware de error centralizado. Debe montarse último, después de todas las
@@ -73,6 +77,12 @@ export function errorHandler(err: unknown, req: Request, res: Response, next: Ne
   if (res.headersSent) {
     next(err);
     return;
+  }
+
+  // La base no responde: el cliente puede reintentar, y Retry-After le dice
+  // cuándo tiene sentido.
+  if (appError instanceof BaseNoDisponibleError) {
+    res.setHeader("Retry-After", String(REINTENTAR_DESPUES_DE_SEGUNDOS));
   }
 
   res.status(statusCode).json({

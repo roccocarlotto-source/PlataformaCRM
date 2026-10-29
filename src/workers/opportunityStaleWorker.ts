@@ -11,6 +11,7 @@ import {
   TRIGGER_OPPORTUNITY_STALE,
   configDeOportunidadEstancadaSchema,
 } from "../services/automationTriggers";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // Worker de oportunidades estancadas (ítem 76 de
@@ -255,6 +256,7 @@ export function iniciarWorkerDeOportunidadesEstancadas(
 
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await barrer();
 
         if (resumen.emitidos + resumen.fallidas > 0) {
@@ -265,7 +267,9 @@ export function iniciarWorkerDeOportunidadesEstancadas(
         // por organización, así que llegar acá es que falló la consulta de
         // reglas. El bucle NO puede morir por eso — si muere, las reglas de
         // opportunity.stale dejan de dispararse en silencio.
-        logger.error({ err }, "Fallo inesperado en la pasada de oportunidades estancadas");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en la pasada de oportunidades estancadas");
+        }
       }
     })();
 

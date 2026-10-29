@@ -25,6 +25,7 @@ import {
   type VentaParaConvertir,
   type VentaRevertida,
 } from "./repository";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // De la venta al vehículo del cliente (docs/servicios.md §5, §6.1 y §2.2.1;
@@ -375,6 +376,7 @@ export function iniciarBarridoDeVehiculosVendidos(
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const r = await barrer();
         // Los conflictos se repiten en cada pasada hasta que alguien los
         // resuelve: solos no ameritan una línea de log cada 15 minutos.
@@ -384,7 +386,9 @@ export function iniciarBarridoDeVehiculosVendidos(
         }
       } catch (err) {
         // Falló la consulta de organizaciones: el bucle no puede morir por eso.
-        logger.error({ err }, "Fallo inesperado en la pasada de vehículos vendidos");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en la pasada de vehículos vendidos");
+        }
       }
     })();
     await tickEnCurso;

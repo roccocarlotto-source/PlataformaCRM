@@ -7,6 +7,7 @@ import { hoyEnLaZona } from "../../services/opportunityClosing";
 import { barrerRecambios } from "../recambio/barrido";
 import { TRIGGER_NEXT_SERVICE_DUE, ventanaDeFechas, yaEsHoraDelBarrido } from "./config";
 import { avisosDeLaRegla, candidatosDelBarrido, crearAviso, tieneElModulo } from "./repository";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El barrido del próximo service (docs/servicios.md §6.2, S7).
@@ -168,11 +169,14 @@ export function iniciarBarridoDelProximoService(
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const r = await barrer();
         if (r.avisos + r.fallidas > 0) logger.info(r, "Pasada del próximo service");
       } catch (err) {
         // Falló la consulta de reglas: el bucle no puede morir por eso.
-        logger.error({ err }, "Fallo inesperado en la pasada del próximo service");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en la pasada del próximo service");
+        }
       }
     })();
     await tickEnCurso;

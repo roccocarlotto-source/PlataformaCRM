@@ -54,6 +54,7 @@ import {
   clasificarFallo as clasificarFalloDelSeguimientoQr,
   type ResultadoDelEnvio as ResultadoDelEnvioDelSeguimiento,
 } from "./qrFollowUpWorker";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El worker de seguimientos de consultas por WhatsApp (ítem 185 de
@@ -469,7 +470,9 @@ export async function drenarSeguimientosDeConsultas(
         excluir: pospuestos,
       });
     } catch (err) {
-      logger.error({ err }, "No se pudo reclamar un seguimiento de consulta de la cola");
+      if (!anotarSiLaBaseNoResponde(err)) {
+        logger.error({ err }, "No se pudo reclamar un seguimiento de consulta de la cola");
+      }
       break;
     }
     if (!reclamo) {
@@ -535,12 +538,15 @@ export function iniciarWorkerDeSeguimientosDeConsultas(
     }
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await drenar(() => !detenido);
         if (resumen.enviados + resumen.cancelados + resumen.pospuestos + resumen.fallidos > 0) {
           logger.info(resumen, "Drenado de seguimientos de consultas");
         }
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en el drenado de seguimientos de consultas");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el drenado de seguimientos de consultas");
+        }
       }
     })();
     await tickEnCurso;

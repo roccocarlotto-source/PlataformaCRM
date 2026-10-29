@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Prisma } from "@prisma/client";
 import { AppError } from "./AppError";
-import { traducirErrorDePrisma } from "./prismaErrors";
+import {
+  BaseNoDisponibleError,
+  esErrorDeConexionALaBase,
+  traducirErrorDePrisma,
+} from "./prismaErrors";
 
 // M-11 (c) de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — la traducción central de los
 // códigos genéricos de Prisma. Sin base: el error se construye a mano con el
@@ -47,7 +51,7 @@ test("P2003 se traduce a un 400 operacional — el llamador referenció un id qu
 test("P2002, P2025 y cualquier otro código devuelven undefined", () => {
   assert.equal(traducirErrorDePrisma(errorDePrisma("P2002")), undefined);
   assert.equal(traducirErrorDePrisma(errorDePrisma("P2025")), undefined);
-  assert.equal(traducirErrorDePrisma(errorDePrisma("P1001")), undefined);
+  assert.equal(traducirErrorDePrisma(errorDePrisma("P1003")), undefined);
 });
 
 test("lo que no es un PrismaClientKnownRequestError devuelve undefined", () => {
@@ -55,4 +59,40 @@ test("lo que no es un PrismaClientKnownRequestError devuelve undefined", () => {
   assert.equal(traducirErrorDePrisma(new AppError("P2003", 400)), undefined);
   assert.equal(traducirErrorDePrisma({ code: "P2003" }), undefined);
   assert.equal(traducirErrorDePrisma(undefined), undefined);
+});
+
+// La base que no responde: 503 operacional (el cliente puede reintentar) y,
+// salvo P2024, la señal con la que los workers frenan.
+for (const code of ["P1001", "P1002", "P1008", "P1017"]) {
+  test(`${code} es la base que no responde: 503 operacional y frena a los workers`, () => {
+    const err = errorDePrisma(code);
+    const traducido = traducirErrorDePrisma(err);
+
+    assert.ok(traducido instanceof BaseNoDisponibleError);
+    assert.equal(traducido.statusCode, 503);
+    assert.equal(traducido.isOperational, true);
+    assert.match(traducido.message, /Reintentá/);
+    assert.ok(!traducido.message.includes("contacts"), "nada del mensaje crudo llega");
+    assert.equal(esErrorDeConexionALaBase(err), true);
+  });
+}
+
+test("un PrismaClientInitializationError (no se pudo conectar) también es la base que no responde", () => {
+  const err = new Prisma.PrismaClientInitializationError("Can't reach database server", "x");
+
+  assert.ok(traducirErrorDePrisma(err) instanceof BaseNoDisponibleError);
+  assert.equal(esErrorDeConexionALaBase(err), true);
+});
+
+test("P2024 (el pool no dio conexión a tiempo) da 503 pero NO frena a los workers", () => {
+  const err = errorDePrisma("P2024");
+
+  assert.ok(traducirErrorDePrisma(err) instanceof BaseNoDisponibleError);
+  assert.equal(esErrorDeConexionALaBase(err), false);
+});
+
+test("un error de negocio o uno cualquiera no es la base que no responde", () => {
+  assert.equal(esErrorDeConexionALaBase(errorDePrisma("P2002")), false);
+  assert.equal(esErrorDeConexionALaBase(new Error("P1001")), false);
+  assert.equal(esErrorDeConexionALaBase({ code: "P1001" }), false);
 });

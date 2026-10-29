@@ -12,6 +12,7 @@ import {
   TRIGGER_CONTACT_INQUIRY_STALLED,
   configDeConsultaSinAvanceSchema,
 } from "../services/automationTriggers";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // Worker de consultas sin avance (ítem 185 de
@@ -204,12 +205,15 @@ export function iniciarWorkerDeConsultasSinAvance(
     }
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await barrer();
         if (resumen.emitidos + resumen.fallidas > 0) {
           logger.info(resumen, "Pasada de consultas sin avance");
         }
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en la pasada de consultas sin avance");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en la pasada de consultas sin avance");
+        }
       }
     })();
     await tickEnCurso;

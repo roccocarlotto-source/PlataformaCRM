@@ -96,3 +96,31 @@ test("sin key, o con el umbral en 0, no se consulta nada", () => {
   assert.equal(crearMonitorDeLaKey({ ...BASE, umbralUsd: 0, fetch }).estado(), "no-configurada");
   assert.equal(pedidos.length, 0);
 });
+
+// Un 402 del modelo pone "sin-saldo" al instante, aunque /key diga otra cosa
+// (con la cuenta sin créditos, una key sin límite propio se lee "sin-limite"),
+// y una respuesta buena lo saca.
+test("un 402 marca sin-saldo hasta que una llamada vuelve a salir bien", async () => {
+  const { fetch } = fetchConSaldo([null, null]);
+  const monitor = crearMonitorDeLaKey({ ...BASE, fetch, ahora: () => 0 });
+  monitor.estado();
+  await monitor.enCurso();
+  assert.equal(monitor.estado(), "sin-limite");
+
+  monitor.anotarRespuesta(402);
+  assert.equal(monitor.estado(), "sin-saldo");
+  monitor.anotarRespuesta(500);
+  assert.equal(monitor.estado(), "sin-saldo", "un 5xx no dice nada del saldo");
+
+  monitor.anotarRespuesta(200);
+  assert.equal(monitor.estado(), "sin-limite");
+});
+
+test("sin-saldo se informa aunque la alerta de saldo bajo esté apagada (umbral 0)", () => {
+  const monitor = crearMonitorDeLaKey({ ...BASE, umbralUsd: 0, fetch: fetchConSaldo([]).fetch });
+  assert.equal(monitor.estado(), "no-configurada");
+
+  monitor.anotarRespuesta(402);
+
+  assert.equal(monitor.estado(), "sin-saldo");
+});

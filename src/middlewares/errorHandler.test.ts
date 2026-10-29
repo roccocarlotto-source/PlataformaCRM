@@ -329,6 +329,16 @@ test("(c) un P2003 de Prisma responde 400 — el llamador referenció un id que 
   assert.ok(!JSON.stringify(body).includes("fkey"));
 });
 
+test("(c) la base que no responde (P1001) da 503 con Retry-After, sin el detalle crudo", async () => {
+  const res = await pedir("/prisma/P1001");
+
+  assert.equal(res.status, 503);
+  assert.equal(res.headers.get("retry-after"), "30");
+  const body = await cuerpo(res);
+  assert.match(body.error.message, /no está disponible/);
+  assert.ok(!JSON.stringify(body).includes("fkey"));
+});
+
 test("(c) un P2002 que llega sin traducir por su servicio sigue siendo el 500 genérico de siempre", async () => {
   const res = await pedir("/prisma/P2002");
 

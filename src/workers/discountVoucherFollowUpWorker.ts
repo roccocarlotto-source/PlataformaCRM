@@ -31,6 +31,7 @@ import {
   type DepsDelSeguimiento,
   type ResultadoDelEnvio as ResultadoDelEnvioDelSeguimiento,
 } from "./qrFollowUpWorker";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El worker de cupones de descuento por WhatsApp (ítem 177 de
@@ -428,7 +429,9 @@ export async function drenarCupones(opciones: OpcionesDrenado = {}): Promise<Res
         excluir: pospuestos,
       });
     } catch (err) {
-      logger.error({ err }, "No se pudo reclamar un cupón de descuento de la cola");
+      if (!anotarSiLaBaseNoResponde(err)) {
+        logger.error({ err }, "No se pudo reclamar un cupón de descuento de la cola");
+      }
       break;
     }
     if (!reclamo) {
@@ -492,12 +495,15 @@ export function iniciarWorkerDeCupones(opciones: OpcionesDelWorker = {}): () => 
 
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await drenar(() => !detenido);
         if (resumen.enviados + resumen.cancelados + resumen.pospuestos + resumen.fallidos > 0) {
           logger.info(resumen, "Drenado de cupones de descuento");
         }
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en el drenado de cupones de descuento");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el drenado de cupones de descuento");
+        }
       }
     })();
 

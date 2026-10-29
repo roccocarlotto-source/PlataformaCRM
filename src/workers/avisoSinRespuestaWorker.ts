@@ -5,6 +5,7 @@ import {
   avisarSiNadieRespondio,
   type ResultadoDelAvisoAutomatico,
 } from "../services/conversationReply.service";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El aviso automático si nadie responde a una derivación.
@@ -132,6 +133,7 @@ export function iniciarWorkerDeAvisoSinRespuesta(
 
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await drenar();
         if (resumen.avisados + resumen.tardios + resumen.fallidos > 0) {
           logger.info(resumen, "Avisos automáticos de derivaciones sin respuesta");
@@ -139,7 +141,9 @@ export function iniciarWorkerDeAvisoSinRespuesta(
       } catch (err) {
         // Red de seguridad del bucle: si muere, los avisos dejan de salir en
         // silencio.
-        logger.error({ err }, "Fallo inesperado en el barrido de derivaciones sin respuesta");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el barrido de derivaciones sin respuesta");
+        }
       }
     })();
 

@@ -4,6 +4,7 @@ import {
   fetchAndStoreExchangeRates,
   type ResumenDeActualizacion,
 } from "../services/exchangeRate.service";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // Worker de cotizaciones (Fase 2c del módulo de stock de vehículos): una vez
@@ -70,6 +71,7 @@ export function iniciarWorkerDeCotizaciones(opciones: OpcionesDelWorker = {}): (
 
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await actualizar();
 
         if (resumen.actualizadas + resumen.fallidas > 0) {
@@ -80,7 +82,9 @@ export function iniciarWorkerDeCotizaciones(opciones: OpcionesDelWorker = {}): (
         // fuente y cada upsert, así que llegar acá significa que falló la
         // consulta de organizaciones. El bucle NO puede morir por eso — si
         // muere, las cotizaciones dejan de actualizarse en silencio.
-        logger.error({ err }, "Fallo inesperado en la pasada de actualización de cotizaciones");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en la pasada de actualización de cotizaciones");
+        }
       }
     })();
 
