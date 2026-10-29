@@ -255,3 +255,15 @@ no se mergeó.
 
 **Al mergear se reporta**: qué PR, qué ítems cierra, y el resultado real de
 `gh pr checks` que habilitó el merge. Después del merge se borra la rama.
+
+**master está protegida por un ruleset de GitHub** ("Proteger master",
+desde el 29/10/2026): no acepta push directo, force push ni borrado, y
+solo se cambia por PR con los 5 checks de GitHub Actions en verde. Los de
+Vercel no son requeridos a propósito: a veces no aparecen y trabarían el
+merge. El rol admin puede saltear el ruleset solo dentro de un PR, con
+`gh pr merge --admin`.
+
+**`gh pr merge --admin` se usa solo con autorización escrita de Rocco para
+ese PR puntual.** Una autorización anterior o para otro PR no cuenta. Las
+sesiones de Claude Code usan el token de Rocco, así que GitHub no las
+frena: la única barrera es esta regla.
