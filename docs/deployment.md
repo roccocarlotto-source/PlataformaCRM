@@ -12,7 +12,7 @@ Lo que sí está decidido y en el repo:
 - el backend corre en Render con el **runtime de Node**, no con el
   `Dockerfile` (sección 2.1);
 - las migraciones se aplican con **un único comando**, `npm run migrate:deploy`,
-  que corre **el build de Render antes de compilar**: un merge a `master` con
+  que corre **el build de Render al final, después de compilar**: un merge a `master` con
   una migración la aplica sola (sección 2.2);
 - el frontend es una **SPA estática** (`frontend/`, Vite) con un rewrite
   catch-all a `index.html` (`frontend/vercel.json`);
@@ -61,21 +61,30 @@ runtime de **Node**, con esta configuración (Settings del servicio, revisada el
 | Render | Valor |
 |---|---|
 | Runtime | Node (no Docker) |
-| Build Command | `npm install --include=dev && npx prisma generate && npm run migrate:deploy && npm run build` |
+| Build Command | `npm install --include=dev && npx prisma generate && npm run build && npm run migrate:deploy` |
 | Start Command | `npm start` (`node dist/server.js`; visto en el log del deploy: "Running 'npm start'") |
 
 Lo que eso implica:
 
-- **El build migra antes de compilar.** `npm install --include=dev` instala
-  `tsx` y el CLI de Prisma (son `devDependencies`), `prisma generate` arma el
-  cliente y `npm run migrate:deploy` aplica las migraciones pendientes y
-  reaplica el SQL manual (2.2), todo **antes** del `tsc`. Visto en el log del
-  build: "No pending migrations to apply" (o la migración aplicada) y
-  "apply-manual-sql: migraciones y SQL manual aplicados", y después el `tsc`.
+- **El build compila primero y migra al final.** `npm install --include=dev`
+  instala `tsx` y el CLI de Prisma (son `devDependencies`), `prisma generate`
+  arma el cliente, `npm run build` corre el `tsc` y recién después
+  `npm run migrate:deploy` aplica las migraciones pendientes y reaplica el SQL
+  manual (2.2). Visto en el log del build: el `tsc` y después "No pending
+  migrations to apply" (o la migración aplicada) y "apply-manual-sql:
+  migraciones y SQL manual aplicados". Hasta el 2026-10-29 el orden era el
+  inverso (migraba antes del `tsc`): se dio vuelta para que un build roto no
+  deje la base migrada con el código viejo corriendo.
 - **Si el build falla, sigue corriendo la versión anterior.** Render no
-  reemplaza la instancia en uso hasta que el build termina bien. Ojo: si lo
-  que falla es un paso **posterior** a `migrate:deploy` (el `tsc`), la base
-  queda migrada y la versión anterior sigue corriendo contra ella (2.2).
+  reemplaza la instancia en uso hasta que el build termina bien.
+  - Si falla la **compilación**, no se llega a migrar: la base queda como
+    estaba.
+  - Si falla la **migración**, el deploy falla y sigue la versión anterior.
+    Ojo: `migrate:deploy` aborta en el primer paso que falla, pero lo que se
+    aplicó antes queda aplicado (otra migración pendiente anterior, o todo
+    `prisma migrate deploy` si falló uno de los `.sql`). La versión anterior
+    puede quedar corriendo contra una base migrada a medias: revisar con
+    `prisma migrate status` y `npm run verify:schema` (2.2).
 - **Los archivos del repo están en el runtime**, porque Render corre sobre el
   checkout entero: `docs/guia-de-uso/` (la lee el asistente "¿Cómo se hace?")
   no necesita ningún paso propio.
@@ -124,8 +133,8 @@ Los dos `.sql` son idempotentes: correrlo cuando no cambió nada es un no-op
 seguro. **Nunca** `prisma migrate deploy` a secas: dejaría la base sin los
 objetos manuales (README, "Migraciones").
 
-**En producción lo corre el build de Render**, en cada deploy, antes de
-compilar (2.1). Mergear a `master` un PR con una migración es aplicarla: no hay
+**En producción lo corre el build de Render**, en cada deploy, como último
+paso, después de compilar (2.1). Mergear a `master` un PR con una migración es aplicarla: no hay
 un paso manual. Para confirmarla después del deploy: el log del build, o
 `prisma migrate status` contra producción (solo lee) y `npm run verify:schema`.
 
@@ -150,10 +159,12 @@ Restricciones:
   `DEV_ALLOW_REMOTE_DB=true`. En producción (`NODE_ENV=production`) la variable
   no tiene efecto y los workers arrancan siempre.
 
-**Orden: la migración siempre va primero, y no se puede elegir.** El build la
-aplica antes de que arranque la instancia nueva, así que durante el build, y
-después si el build falla, **el código en uso corre contra la base ya
-migrada**. Por eso:
+**Orden: la migración siempre va antes que el código nuevo, y no se puede
+elegir.** El build la aplica al final, pero antes de que arranque la instancia
+nueva, así que desde que termina de migrar hasta que la instancia nueva
+reemplaza a la vieja, y después si la migración falla a mitad de camino, **el
+código en uso corre contra la base ya migrada**. Que se compile primero solo
+achica esa ventana y evita migrar con un código que no compila. Por eso:
 
 - **Una migración aditiva** (columna con default, tabla o tipo nuevos) va en
   un solo PR: el código en uso la ignora. Es el caso normal.
@@ -167,7 +178,7 @@ migrada**. Por eso:
 
   En un solo PR, el código viejo falla contra la base migrada desde que el
   build aplica la migración hasta que arranca la instancia nueva, y para
-  siempre si el build falla después de migrar.
+  siempre si `migrate:deploy` falla después de aplicar una parte.
 
 Las dos notas que siguen son de antes de que el build migrara (la migración se
 corría a mano y se podía elegir el orden); quedan como historia de por qué
@@ -428,8 +439,8 @@ sección 6 cuando se hagan):
 
 1. Si el PR trae una migración que rompe el código en uso, partirla en dos
    PRs (2.2) antes de mergear.
-2. Merge a `master`. Render despliega solo: el build aplica las migraciones
-   pendientes y el SQL manual, compila, y recién entonces arranca la
+2. Merge a `master`. Render despliega solo: el build compila, aplica las
+   migraciones pendientes y el SQL manual, y recién entonces arranca la
    instancia nueva. Vercel despliega el frontend solo. Si cambió alguna
    `VITE_*`, cargarla antes del merge.
 3. Si el PR agregó una variable del grupo C, cargarla antes o junto con el
