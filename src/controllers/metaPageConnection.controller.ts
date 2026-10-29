@@ -134,7 +134,7 @@ const cuerpoDeCompletarSchema = z.object({
   state: z.string().min(1).max(4096),
 });
 
-const organizationIdParamSchema = z.string().uuid("organizationId inválido");
+const organizationIdParamSchema = z.string().guid("organizationId inválido");
 
 // La organización sobre la que actúa el platform admin: la del path, NUNCA la
 // de su sesión (req.auth.organizationId es la organización propia del platform

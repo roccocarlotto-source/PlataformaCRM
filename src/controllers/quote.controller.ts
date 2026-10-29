@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { estricto, mensajesDeTipo } from "../utils/erroresDeZod";
 import {
   createQuote,
   getQuoteById,
@@ -12,7 +13,7 @@ import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
 import { currencySchema, MAX_AMOUNT, parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // Tope de cordura para las líneas: una cotización de una automotora lleva un
 // puñado de accesorios y algún descuento, no un catálogo.
@@ -21,7 +22,7 @@ const MAX_LINES = 50;
 // z.number() y NO z.coerce.number(), mismo motivo que Opportunity.amount
 // (M-9): el body es JSON, y coerce convertiría un null en 0 sin avisar.
 const amountSchema = z
-  .number({ invalid_type_error: "amount debe ser un número" })
+  .number(mensajesDeTipo({ tipo: "amount debe ser un número" }))
   .min(0, "amount debe ser mayor o igual a 0")
   .max(MAX_AMOUNT, "amount supera el máximo permitido");
 
@@ -34,7 +35,7 @@ const lineSchema = z.object({
     .min(1, "la descripción de cada línea es requerida")
     .max(200, "la descripción de una línea no puede superar los 200 caracteres"),
   amount: z
-    .number({ invalid_type_error: "el monto de cada línea debe ser un número" })
+    .number(mensajesDeTipo({ tipo: "el monto de cada línea debe ser un número" }))
     .min(-MAX_AMOUNT, "el monto de una línea supera el máximo permitido")
     .max(MAX_AMOUNT, "el monto de una línea supera el máximo permitido"),
 });
@@ -46,12 +47,12 @@ const linesSchema = z
 // Fecha sola ("2026-09-30"). .nullable() antes de coerce para que un null
 // explícito limpie la fecha en vez de volverse 1970-01-01 — mismo bug que se
 // corrigió en Opportunity.
-const validUntilSchema = z.coerce.date({ invalid_type_error: "validUntil inválida" }).nullable();
+const validUntilSchema = z.coerce.date(mensajesDeTipo({ tipo: "validUntil inválida" })).nullable();
 
 // Exportados para fijar con tests unitarios (sin base) qué rechaza el borde:
 // ver quote.controller.test.ts.
 export const createQuoteSchema = z.object({
-  opportunityId: z.string().uuid("opportunityId inválido"),
+  opportunityId: z.string().guid("opportunityId inválido"),
   amount: amountSchema,
   currency: currencySchema,
   lines: linesSchema.default([]),
@@ -73,10 +74,10 @@ export const createQuoteSchema = z.object({
 export const updateQuoteStatusSchema = z
   .object({
     status: z.enum(["SENT", "ACCEPTED", "REJECTED"], {
-      errorMap: () => ({ message: "status debe ser SENT, ACCEPTED o REJECTED" }),
+      error: () => "status debe ser SENT, ACCEPTED o REJECTED",
     }),
   })
-  .strict("status no se combina con otros campos en el mismo PATCH");
+  .apply(estricto("status no se combina con otros campos en el mismo PATCH"));
 
 export const updateQuoteContentSchema = z
   .object({
@@ -86,7 +87,7 @@ export const updateQuoteContentSchema = z
     validUntil: validUntilSchema,
   })
   .partial()
-  .strict("campo no permitido en la cotización")
+  .apply(estricto("campo no permitido en la cotización"))
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",
   });
@@ -95,8 +96,8 @@ const listQuerySchema = z.object({
   // Obligatorio: el historial es de UNA oportunidad. No hay listado global de
   // cotizaciones.
   opportunityId: z
-    .string({ required_error: "opportunityId es requerido" })
-    .uuid("opportunityId inválido"),
+    .string(mensajesDeTipo({ requerido: "opportunityId es requerido" }))
+    .guid("opportunityId inválido"),
   // Tope de cordura, el mismo que el resto de los listados — B-21.
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(50),

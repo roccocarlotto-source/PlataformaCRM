@@ -1,6 +1,7 @@
 import type { OpportunityStatus } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { mensajesDeTipo } from "../utils/erroresDeZod";
 import { modulosDe } from "../config/ediciones";
 import {
   createOpportunity,
@@ -18,7 +19,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { currencySchema, MAX_AMOUNT, parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const statusSchema = z.enum(["OPEN", "WON", "LOST"]);
 
@@ -29,7 +30,7 @@ const statusSchema = z.enum(["OPEN", "WON", "LOST"]);
 // bug de quien llama. Exportado para probar esa frontera sin HTTP
 // (opportunity.controller.test.ts).
 export const revenueGranularitySchema = z.enum(["month", "week", "day"], {
-  errorMap: () => ({ message: "granularity debe ser month, week o day" }),
+  error: () => "granularity debe ser month, week o day",
 });
 
 // Enums de Prisma del módulo de stock de vehículos (Fase 2c), como z.enum
@@ -56,7 +57,7 @@ const MAX_INSTALLMENT_COUNT = 120;
 
 const financingAmountSchema = (campo: string) =>
   z
-    .number({ invalid_type_error: `${campo} debe ser un número` })
+    .number(mensajesDeTipo({ tipo: `${campo} debe ser un número` }))
     .min(0, `${campo} debe ser mayor o igual a 0`)
     .max(MAX_AMOUNT, `${campo} supera el máximo permitido`);
 
@@ -67,7 +68,7 @@ const financingFields = {
     .max(255, "financingLender no puede superar los 255 caracteres"),
   financingDownPayment: financingAmountSchema("financingDownPayment"),
   financingInstallmentCount: z
-    .number({ invalid_type_error: "financingInstallmentCount debe ser un número" })
+    .number(mensajesDeTipo({ tipo: "financingInstallmentCount debe ser un número" }))
     .int("financingInstallmentCount debe ser un número entero")
     .positive("financingInstallmentCount debe ser mayor a 0")
     .max(
@@ -95,15 +96,15 @@ const opportunityFields = {
   amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
   currency: currencySchema.optional(),
   status: statusSchema.optional(),
-  companyId: z.string().uuid("companyId inválido").optional(),
-  contactId: z.string().uuid("contactId inválido").optional(),
-  pipelineId: z.string().uuid("pipelineId inválido"),
-  stageId: z.string().uuid("stageId inválido"),
-  ownerId: z.string().uuid("ownerId inválido").optional(),
+  companyId: z.string().guid("companyId inválido").optional(),
+  contactId: z.string().guid("contactId inválido").optional(),
+  pipelineId: z.string().guid("pipelineId inválido"),
+  stageId: z.string().guid("stageId inválido"),
+  ownerId: z.string().guid("ownerId inválido").optional(),
   // Módulo de stock de vehículos (Fase 2c). En create vehicleId NO es
   // nullable ("crear vinculada a null" no tiene sentido); en update los tres
   // se sobreescriben como .nullable() abajo.
-  vehicleId: z.string().uuid("vehicleId inválido").optional(),
+  vehicleId: z.string().guid("vehicleId inválido").optional(),
   financingType: financingTypeSchema.optional(),
   leadSource: leadSourceSchema.optional(),
   financingLender: financingFields.financingLender.optional(),
@@ -166,7 +167,7 @@ export const updateOpportunitySchema = z
       .max(255, "lostReason no puede superar los 255 caracteres")
       .nullable()
       .optional(),
-    vehicleId: z.string().uuid("vehicleId inválido").nullable().optional(),
+    vehicleId: z.string().guid("vehicleId inválido").nullable().optional(),
     financingType: financingTypeSchema.nullable().optional(),
     leadSource: leadSourceSchema.nullable().optional(),
     financingLender: financingFields.financingLender.nullable().optional(),
@@ -184,11 +185,11 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().trim().min(1).optional(),
-  companyId: z.string().uuid("companyId inválido").optional(),
-  contactId: z.string().uuid("contactId inválido").optional(),
-  ownerId: z.string().uuid("ownerId inválido").optional(),
-  pipelineId: z.string().uuid("pipelineId inválido").optional(),
-  stageId: z.string().uuid("stageId inválido").optional(),
+  companyId: z.string().guid("companyId inválido").optional(),
+  contactId: z.string().guid("contactId inválido").optional(),
+  ownerId: z.string().guid("ownerId inválido").optional(),
+  pipelineId: z.string().guid("pipelineId inválido").optional(),
+  stageId: z.string().guid("stageId inválido").optional(),
   status: statusSchema.optional(),
   currency: currencySchema.optional(),
   minAmount: z.coerce.number().min(0).optional(),

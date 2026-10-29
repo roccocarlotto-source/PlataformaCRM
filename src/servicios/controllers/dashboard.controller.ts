@@ -10,7 +10,7 @@ import { resumenDelTaller } from "../services/dashboard.service";
 // las sucursales de cada uno.
 
 export const resumenQuerySchema = z.object({
-  branchId: z.string().uuid("branchId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
 });
 
 export const resumenDelTallerHandler = asyncHandler<AuthenticatedRequest>(

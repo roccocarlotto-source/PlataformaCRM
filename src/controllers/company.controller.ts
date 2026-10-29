@@ -11,7 +11,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // Campos compartidos entre create (todos requeridos salvo los opcionales
 // explícitos) y update (todos opcionales vía .partial() más abajo). Solo los
@@ -23,7 +23,7 @@ const companyFields = {
     .trim()
     .min(1, "name es requerido")
     .max(255, "name no puede superar los 255 caracteres"),
-  ownerId: z.string().uuid("ownerId inválido").optional(),
+  ownerId: z.string().guid("ownerId inválido").optional(),
 };
 
 // Exportados para testear la frontera del schema sin base ni HTTP
@@ -88,7 +88,7 @@ const listQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().trim().min(1).optional(),
   industry: z.string().trim().min(1).optional(),
-  ownerId: z.string().uuid("ownerId inválido").optional(),
+  ownerId: z.string().guid("ownerId inválido").optional(),
   sortBy: z.enum(["name", "createdAt", "industry"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });

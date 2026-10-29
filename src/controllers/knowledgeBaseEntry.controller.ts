@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { mensajesDeTipo } from "../utils/erroresDeZod";
 import {
   createKnowledgeBaseEntry,
   deleteKnowledgeBaseEntry,
@@ -20,13 +21,13 @@ import { AppError } from "../utils/AppError";
 // que agent.controller.ts, con cuatro campos en vez de trece.
 // ---------------------------------------------------------------------------
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // El mismo tope que Agent.name, y por el mismo motivo: es lo que se lee en una
 // tabla. Además es exactamente el VarChar(200) de la columna, así que un título
 // más largo es un 400 y no un error del motor.
 const titleSchema = z
-  .string({ required_error: "title es requerido" })
+  .string(mensajesDeTipo({ requerido: "title es requerido" }))
   .trim()
   .min(1, "title es requerido")
   .max(200, "title no puede superar los 200 caracteres");
@@ -38,16 +39,16 @@ const titleSchema = z
 // agentes, en CADA turno, y eso se paga por token. Ver el comentario del
 // modelo en schema.prisma.
 const contentSchema = z
-  .string({ required_error: "content es requerido" })
+  .string(mensajesDeTipo({ requerido: "content es requerido" }))
   .trim()
   .min(1, "content es requerido")
   .max(10_000, "content no puede superar los 10000 caracteres");
 
-const branchIdSchema = z.string().uuid("branchId inválido");
+const branchIdSchema = z.string().guid("branchId inválido");
 
 // R18 (docs/rubros.md §5.4): el tipo de la entrada, solo en una clínica.
 const kindSchema = z.enum(["GENERAL", "INDICACIONES"], {
-  errorMap: () => ({ message: "kind debe ser GENERAL o INDICACIONES" }),
+  error: () => "kind debe ser GENERAL o INDICACIONES",
 });
 
 function exigirKindDelRubro(input: { kind?: unknown }, req: AuthenticatedRequest): void {

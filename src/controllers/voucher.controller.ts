@@ -13,7 +13,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // POST /api/vouchers/:id/redeem — el canje de un cupón de descuento (ítem
 // 176): lo dispara un empleado escaneando el QR del cliente desde el CRM

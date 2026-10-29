@@ -18,7 +18,7 @@ import { parseOrThrow } from "../utils/validation";
 // token (el middleware ya exigió que coincidan).
 // ---------------------------------------------------------------------------
 
-const widgetAgentIdParamSchema = z.string().uuid("agentId inválido");
+const widgetAgentIdParamSchema = z.string().guid("agentId inválido");
 
 // El id de sesión que el navegador genera y guarda. Se acepta tal cual
 // (hasta 200 caracteres): es un identificador opaco, no se interpreta.

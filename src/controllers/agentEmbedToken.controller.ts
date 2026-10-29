@@ -9,8 +9,8 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
-const tokenIdParamSchema = z.string().uuid("tokenId inválido");
+const idParamSchema = z.string().guid("id inválido");
+const tokenIdParamSchema = z.string().guid("tokenId inválido");
 
 // La ÚNICA respuesta del sistema que contiene un token de embed en claro, en
 // el campo `token`. No se puede volver a obtener: no está persistido en

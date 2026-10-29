@@ -1,5 +1,6 @@
 import { OpportunityStatus, type Opportunity, type QrCode } from "@prisma/client";
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import { logger } from "../../lib/logger";
 import { findOpportunityById } from "../../repositories/opportunity.repository";
 import { findQrCodeById } from "../../repositories/qrCode.repository";
@@ -45,8 +46,8 @@ export const ACTION_SEND_QR_FOLLOWUP = "opportunity.send_qr_followup";
 export const configDeSeguimientoQrSchema = z
   .object({
     qrCodeId: z
-      .string({ required_error: "qrCodeId es requerido" })
-      .uuid("qrCodeId debe ser un UUID"),
+      .string(mensajesDeTipo({ requerido: "qrCodeId es requerido" }))
+      .guid("qrCodeId debe ser un UUID"),
     // delayMinutes, o delayHours en una regla vieja (demoraDelEnvio.ts).
     ...camposDeLaDemora,
     // Formato y texto del WhatsApp (mensajeDeWhatsapp.ts): la imagen es el QR

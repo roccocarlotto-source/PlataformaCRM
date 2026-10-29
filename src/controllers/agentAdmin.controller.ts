@@ -28,7 +28,7 @@ import { whatsappPhoneNumberIdSchema } from "./agent.controller";
 // organizationAdmin.controller.ts.
 // ---------------------------------------------------------------------------
 
-const agentIdParamSchema = z.string().uuid("agentId inválido");
+const agentIdParamSchema = z.string().guid("agentId inválido");
 
 // El mismo schema del CRUD del tenant (solo dígitos, ≤40, "" → null). Acá es
 // OBLIGATORIO —es nullable pero no optional—: un PUT que no dice qué número
@@ -111,7 +111,7 @@ export const asignarModeloDeAgenteHandler = asyncHandler<AuthenticatedRequest>(
   },
 );
 
-const organizationIdParamSchema = z.string().uuid("organizationId inválido");
+const organizationIdParamSchema = z.string().guid("organizationId inválido");
 
 // Los agentes de una organización, para elegir a cuál cambiarle el modelo sin
 // pegar su id a mano.

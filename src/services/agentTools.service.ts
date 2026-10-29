@@ -9,6 +9,7 @@ import {
   VehicleTransmission,
 } from "@prisma/client";
 import { z } from "zod";
+import { enumNativo, mensajesDeTipo } from "../utils/erroresDeZod";
 import { toolDelRubro } from "../config/ediciones";
 import { logger } from "../lib/logger";
 import { findManyActivities } from "../repositories/activity.repository";
@@ -298,7 +299,7 @@ export const SUFIJO_ERROR_DE_ARGUMENTOS =
 // `sufijo` existe por el agente interno (ítem 179): SUFIJO_ERROR_DE_ARGUMENTOS
 // habla de "el cliente", y del otro lado de ese agente hay un empleado.
 export function validarArgs<T>(
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  schema: z.ZodType<T, unknown>,
   args: unknown,
   sufijo: string = SUFIJO_ERROR_DE_ARGUMENTOS,
 ) {
@@ -330,7 +331,7 @@ export async function conErroresDeNegocio(
   }
 }
 
-const uuid = (campo: string) => z.string().uuid(`${campo} debe ser un UUID`);
+const uuid = (campo: string) => z.string().guid(`${campo} debe ser un UUID`);
 
 // ---------------------------------------------------------------------------
 // "NO VINO" DICHO CON UN VALOR VACÍO (ítem 86).
@@ -562,9 +563,7 @@ const createOpportunityArgs = z.object({
   // solo con iniciativa del cliente: sin un motivo de la lista, el argumento
   // no valida, y el modelo no puede inventar uno porque es un enum.
   motivo: z.enum(MOTIVOS_DE_OPORTUNIDAD, {
-    errorMap: () => ({
-      message: `motivo es requerido y tiene que ser uno de: ${MOTIVOS_DE_OPORTUNIDAD.join(", ")}`,
-    }),
+    error: () => `motivo es requerido y tiene que ser uno de: ${MOTIVOS_DE_OPORTUNIDAD.join(", ")}`,
   }),
   amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
   currency: vacioComoAusente(currencySchema),
@@ -1871,7 +1870,7 @@ const leadArgs = z
     ),
     intent: textoOpcional(200),
     serviceOfInterest: textoOpcional(200),
-    urgency: vacioComoAusente(z.nativeEnum(LeadUrgency)),
+    urgency: vacioComoAusente(enumNativo(LeadUrgency)),
     // budgetAmount y score quedan estrictos: 0 es un valor real para los dos
     // (el comentario de leadBudgetAmount en el schema: 0 no es "sin
     // presupuesto"). Solo null cuenta como ausente.
@@ -2543,10 +2542,10 @@ const searchVehiclesArgs = z
     make: textoOpcional(100),
     model: textoOpcional(100),
     year: anioOpcional,
-    bodyType: vacioComoAusente(z.nativeEnum(VehicleBodyType)),
-    condition: vacioComoAusente(z.nativeEnum(VehicleCondition)),
-    transmission: vacioComoAusente(z.nativeEnum(VehicleTransmission)),
-    fuelType: vacioComoAusente(z.nativeEnum(VehicleFuelType)),
+    bodyType: vacioComoAusente(enumNativo(VehicleBodyType)),
+    condition: vacioComoAusente(enumNativo(VehicleCondition)),
+    transmission: vacioComoAusente(enumNativo(VehicleTransmission)),
+    fuelType: vacioComoAusente(enumNativo(VehicleFuelType)),
     exteriorColor: textoOpcional(50),
     mileageMax: ceroComoAusente(
       z.number().int("mileageMax debe ser un entero").min(0, "mileageMax no puede ser negativo"),
@@ -2913,7 +2912,7 @@ export const QUE_HACER_TRAS_MARCAR_SIN_INTERES =
 const markNoInterestArgs = z
   .object({
     motivo: z
-      .string({ required_error: "motivo es requerido" })
+      .string(mensajesDeTipo({ requerido: "motivo es requerido" }))
       .trim()
       .min(1, "motivo es requerido")
       .max(200, "motivo no puede superar los 200 caracteres"),

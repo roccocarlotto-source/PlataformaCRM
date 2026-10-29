@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
 import { findQrCodeById } from "../../repositories/qrCode.repository";
@@ -41,7 +42,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export const payloadDelTurnoAtendidoSchema = z.object({
-  bookingId: z.string().uuid(),
+  bookingId: z.string().guid(),
   automatico: z.boolean().optional(),
 });
 
@@ -50,8 +51,8 @@ export const payloadDelTurnoAtendidoSchema = z.object({
 export const configDelQrDeResenaSchema = z
   .object({
     qrCodeId: z
-      .string({ required_error: "qrCodeId es requerido" })
-      .uuid("qrCodeId debe ser un UUID"),
+      .string(mensajesDeTipo({ requerido: "qrCodeId es requerido" }))
+      .guid("qrCodeId debe ser un UUID"),
     ...camposDeLaDemora,
     ...camposDelMensajeDeWhatsapp,
   })
@@ -72,10 +73,12 @@ export const configDelQrDeResenaSchema = z
 export const configDelControlSchema = z
   .object({
     messageText: z
-      .string({
-        required_error: "messageText es requerido",
-        invalid_type_error: "messageText debe ser un texto",
-      })
+      .string(
+        mensajesDeTipo({
+          requerido: "messageText es requerido",
+          tipo: "messageText debe ser un texto",
+        }),
+      )
       .trim()
       .min(1, "messageText es requerido")
       .max(LARGO_MAXIMO_DEL_CUERPO * 2, "messageText es demasiado largo"),

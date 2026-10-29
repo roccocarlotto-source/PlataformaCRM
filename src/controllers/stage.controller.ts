@@ -11,7 +11,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const notBothWonAndLost = (data: { isWon?: boolean; isLost?: boolean }) =>
   !(data.isWon && data.isLost);
@@ -29,7 +29,7 @@ const notBothWonAndLost = (data: { isWon?: boolean; isLost?: boolean }) =>
 // borde: ver stage.controller.test.ts.
 export const createStageSchema = z
   .object({
-    pipelineId: z.string().uuid("pipelineId inválido"),
+    pipelineId: z.string().guid("pipelineId inválido"),
     name: z
       .string()
       .trim()
@@ -73,7 +73,7 @@ const listQuerySchema = z.object({
   // Tope de cordura, el mismo que ingestionEvent (S2-5) — B-21.
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
-  pipelineId: z.string().uuid("pipelineId inválido").optional(),
+  pipelineId: z.string().guid("pipelineId inválido").optional(),
   search: z.string().trim().min(1).optional(),
   sortBy: z.enum(["order", "name", "createdAt"]).default("order"),
   sortOrder: z.enum(["asc", "desc"]).default("asc"),

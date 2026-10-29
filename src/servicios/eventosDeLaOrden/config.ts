@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import { ESTADOS, type ServiceOrderStatus } from "../config/estados";
 
 // ---------------------------------------------------------------------------
@@ -20,7 +21,7 @@ export const TRIGGER_ORDEN_CAMBIA_DE_ESTADO = "service_order.status_changed";
 export const TRIGGER_ORDEN_ENTREGADA = "service_order.delivered";
 
 const estadoSchema = z.enum(ESTADOS as [ServiceOrderStatus, ...ServiceOrderStatus[]], {
-  errorMap: () => ({ message: "toStatuses tiene un estado que no existe" }),
+  error: () => "toStatuses tiene un estado que no existe",
 });
 
 /** La regla de "cambia de estado" dice a qué estados (al menos uno, sin
@@ -28,10 +29,13 @@ const estadoSchema = z.enum(ESTADOS as [ServiceOrderStatus, ...ServiceOrderStatu
  *  ser una decisión, no un olvido. */
 export const configDelCambioDeEstadoSchema = z.object({
   toStatuses: z
-    .array(estadoSchema, {
-      required_error: "toStatuses es requerido",
-      invalid_type_error: "toStatuses debe ser una lista de estados",
-    })
+    .array(
+      estadoSchema,
+      mensajesDeTipo({
+        requerido: "toStatuses es requerido",
+        tipo: "toStatuses debe ser una lista de estados",
+      }),
+    )
     .min(1, "Elegí al menos un estado")
     .refine((lista) => new Set(lista).size === lista.length, "toStatuses tiene estados repetidos"),
 });
@@ -40,10 +44,10 @@ export type ConfigDelCambioDeEstado = z.infer<typeof configDelCambioDeEstadoSche
 
 /** Lo que lleva el evento (§9). `from` null: la orden nació en ese estado. */
 export const payloadDeLaOrdenSchema = z.object({
-  serviceOrderId: z.string().uuid(),
-  customerVehicleId: z.string().uuid(),
-  contactId: z.string().uuid(),
-  branchId: z.string().uuid(),
+  serviceOrderId: z.string().guid(),
+  customerVehicleId: z.string().guid(),
+  contactId: z.string().guid(),
+  branchId: z.string().guid(),
   from: estadoSchema.nullable(),
   to: estadoSchema,
   // Solo en service_order.delivered.

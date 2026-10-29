@@ -24,8 +24,8 @@ import { parseOrThrow } from "../utils/validation";
 // reorder son JSON normales.
 // ---------------------------------------------------------------------------
 
-const idParamSchema = z.string().uuid("id inválido");
-const photoIdParamSchema = z.string().uuid("photoId inválido");
+const idParamSchema = z.string().guid("id inválido");
+const photoIdParamSchema = z.string().guid("photoId inválido");
 
 // slot: el ángulo que la ficha pide ("frente", "perfil"...). VarChar(30) en
 // el schema; la lista cerrada la decide la UI. Vacío -> null, como el resto
@@ -57,7 +57,7 @@ export const updateVehiclePhotoSchema = z
 
 export const reorderVehiclePhotosSchema = z.object({
   photoIds: z
-    .array(z.string().uuid("cada photoId tiene que ser un uuid"))
+    .array(z.string().guid("cada photoId tiene que ser un uuid"))
     .min(1, "photoIds no puede estar vacío"),
 });
 

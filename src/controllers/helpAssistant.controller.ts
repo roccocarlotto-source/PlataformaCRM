@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { mensajesDeTipo } from "../utils/erroresDeZod";
 import { darFeedback, preguntarAlAsistente } from "../services/helpAssistant.service";
 import {
   DIAS_DEL_INFORME,
@@ -20,7 +21,7 @@ import { parseOrThrow } from "../utils/validation";
 const preguntaSchema = z
   .object({
     pregunta: z
-      .string({ required_error: "pregunta es requerida" })
+      .string(mensajesDeTipo({ requerido: "pregunta es requerida" }))
       .trim()
       .min(1, "pregunta es requerida")
       .max(
@@ -46,14 +47,17 @@ const preguntaSchema = z
 
 const feedbackSchema = z
   .object({
-    feedback: z.enum(["UP", "DOWN"], {
-      required_error: "feedback es requerido",
-      invalid_type_error: "feedback tiene que ser UP o DOWN",
-    }),
+    feedback: z.enum(
+      ["UP", "DOWN"],
+      mensajesDeTipo({
+        requerido: "feedback es requerido",
+        tipo: "feedback tiene que ser UP o DOWN",
+      }),
+    ),
   })
   .strict();
 
-const idSchema = z.string().uuid("id inválido");
+const idSchema = z.string().guid("id inválido");
 
 export const preguntarHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const entrada = parseOrThrow(preguntaSchema, req.body);

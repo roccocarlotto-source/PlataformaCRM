@@ -1,15 +1,16 @@
 import { IngestionStatus } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { enumNativo } from "../utils/erroresDeZod";
 import { logAccesoADatosPersonales } from "../lib/accessLog";
 import { listIngestionEvents, retryIngestionEvent } from "../services/ingestionEvent.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
-// z.nativeEnum sobre el enum real de Prisma — mismo criterio que
+// enumNativo (z.nativeEnum) sobre el enum real de Prisma — mismo criterio que
 // activity.controller.ts con ActivityType y source.controller.ts con SourceType,
 // en vez de duplicar los valores a mano.
 //
@@ -19,7 +20,7 @@ const idParamSchema = z.string().uuid("id inválido");
 // respuesta correcta — restringir el schema a los tres estados "reales" haría
 // que el contrato HTTP y el enum de la base divergieran, y eso se paga la
 // primera vez que alguien escriba DUPLICATE de verdad.
-const statusSchema = z.nativeEnum(IngestionStatus);
+const statusSchema = enumNativo(IngestionStatus);
 
 const listQuerySchema = z.object({
   // TOPE EXPLÍCITO — hallazgo S2-5 de docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). `page`
@@ -33,11 +34,11 @@ const listQuerySchema = z.object({
   // nadie. Es un techo de cordura, no una regla de negocio.
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
-  sourceId: z.string().uuid("sourceId inválido").optional(),
+  sourceId: z.string().guid("sourceId inválido").optional(),
   status: statusSchema.optional(),
   // batchId sigue soportado aunque el listado ya no lo necesite: es el caso
   // puntual de "ver este lote", y es más barato que traer todo y filtrar.
-  batchId: z.string().uuid("batchId inválido").optional(),
+  batchId: z.string().guid("batchId inválido").optional(),
   // Un solo valor de sortBy a propósito — ver IngestionEventSortBy en el
   // repositorio: (organization_id, source_id, created_at) es el único índice
   // compuesto de la tabla.

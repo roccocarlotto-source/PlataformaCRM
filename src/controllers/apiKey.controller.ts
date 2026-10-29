@@ -5,10 +5,10 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const createApiKeySchema = z.object({
-  sourceId: z.string().uuid("sourceId inválido"),
+  sourceId: z.string().guid("sourceId inválido"),
 });
 
 const listQuerySchema = z.object({
@@ -17,7 +17,7 @@ const listQuerySchema = z.object({
   // como un OFFSET gigante que igual hay que recorrer.
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
-  sourceId: z.string().uuid("sourceId inválido").optional(),
+  sourceId: z.string().guid("sourceId inválido").optional(),
   // Estado derivado de revokedAt, no una columna. Sin filtro se listan las
   // dos: una clave revocada sigue siendo información de auditoría.
   status: z.enum(["ACTIVE", "REVOKED"]).optional(),

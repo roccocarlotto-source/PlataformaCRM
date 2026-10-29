@@ -12,7 +12,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { QR_DESTINATION_URL_MAX_LENGTH } from "./qr.controller";
 import { parseOrThrow, timezoneSchema } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // Datos de cobro (ítem 74). El link de pago se valida con la MISMA forma que
 // destinationUrl de qr.controller.ts —http(s):// y el mismo tope de 2048—: es
@@ -62,7 +62,7 @@ const branchFields = {
   // `defaultOwnerId: null` es la forma explícita de decir "sin vendedor por
   // defecto", y rechazarla obligaría al formulario a omitir la clave según el
   // caso en vez de mandar siempre el mismo objeto.
-  defaultOwnerId: z.string().uuid("defaultOwnerId debe ser un UUID").nullable().optional(),
+  defaultOwnerId: z.string().guid("defaultOwnerId debe ser un UUID").nullable().optional(),
   paymentLinkUrl: paymentLinkUrlSchema.nullable().optional(),
   bankTransferDetails: bankTransferDetailsSchema.nullable().optional(),
 };

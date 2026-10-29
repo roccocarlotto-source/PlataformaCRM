@@ -22,7 +22,7 @@ import { franjaSchema } from "./workingHours.controller";
 // la sucursal vuelve al default (lunes a sábado de 9 a 20).
 // ---------------------------------------------------------------------------
 
-const branchIdParamSchema = z.string().uuid("id de sucursal inválido");
+const branchIdParamSchema = z.string().guid("id de sucursal inválido");
 
 const reemplazarHorarioDeAtencionSchema = z.object({
   businessHours: z

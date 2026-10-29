@@ -23,7 +23,7 @@ export const QR_NAME_MAX_LENGTH = 80;
 export const QR_DESTINATION_URL_MAX_LENGTH = 2048;
 export const QR_MESSAGE_MAX_LENGTH = 500;
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const nameSchema = z
   .string()
@@ -77,7 +77,7 @@ const displayNumberSchema = z
   .max(QR_DISPLAY_NUMBER_MAX, `displayNumber no puede superar ${QR_DISPLAY_NUMBER_MAX}`);
 
 const createFields = {
-  branchId: z.string().uuid("branchId inválido"),
+  branchId: z.string().guid("branchId inválido"),
   name: nameSchema,
   destinationUrl: destinationUrlSchema,
   message: messageSchema.optional().default(null),
@@ -110,7 +110,7 @@ export const listQrQuerySchema = z.object({
   // Mismo tope de cordura que el resto de los listados (B-21).
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
-  branchId: z.string().uuid("branchId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
   sortBy: z.enum(["createdAt", "displayNumber"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
@@ -119,7 +119,7 @@ export const listQrQuerySchema = z.object({
 // sucursal no hay serie que consultar, y un default silencioso sugeriría el
 // número de una sucursal que nadie eligió.
 export const nextQrDisplayNumberQuerySchema = z.object({
-  branchId: z.string().uuid("branchId inválido"),
+  branchId: z.string().guid("branchId inválido"),
 });
 
 export const nextQrDisplayNumberHandler = asyncHandler<AuthenticatedRequest>(

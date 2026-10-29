@@ -1,5 +1,8 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+// Primer módulo que valida con zod: instala los textos de error de zod 3 para
+// todo el proceso (ver utils/erroresDeZod.ts).
+import "../utils/erroresDeZod";
 import { readFileSync } from "node:fs";
 import { assertBaseLocalEnTest, correBajoTests, forzarConexionesDeTest } from "../utils/baseLocal";
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 
 // ---------------------------------------------------------------------------
 // La demora de las reglas que AGENDAN un WhatsApp (el QR de reseñas y el
@@ -30,13 +31,13 @@ const MS_POR_MINUTO = 60 * 1000;
 
 export const camposDeLaDemora = {
   delayMinutes: z
-    .number({ invalid_type_error: "delayMinutes debe ser un número entero" })
+    .number(mensajesDeTipo({ tipo: "delayMinutes debe ser un número entero" }))
     .int("delayMinutes debe ser un número entero")
     .min(0, "delayMinutes no puede ser negativo")
     .max(MAX_DELAY_MINUTES, `delayMinutes no puede superar los ${MAX_DELAY_MINUTES} minutos`)
     .optional(),
   delayHours: z
-    .number({ invalid_type_error: "delayHours debe ser un número entero" })
+    .number(mensajesDeTipo({ tipo: "delayHours debe ser un número entero" }))
     .int("delayHours debe ser un número entero")
     .min(0, "delayHours no puede ser negativo")
     .max(MAX_DELAY_HOURS, `delayHours no puede superar las ${MAX_DELAY_HOURS} horas`)

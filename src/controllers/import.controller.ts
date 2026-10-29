@@ -10,7 +10,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const batchIdParamSchema = z.string().uuid("batchId inválido");
+const batchIdParamSchema = z.string().guid("batchId inválido");
 
 // sourceId viaja como campo de texto del multipart, no en el path. La ruta es
 // plana (/api/imports) por la convención que apiKey.routes.ts documenta, y en un
@@ -18,7 +18,7 @@ const batchIdParamSchema = z.string().uuid("batchId inválido");
 // req.body una vez que terminó de procesar el cuerpo entero, así que acá ya
 // está completo sin importar en qué orden viajaron.
 const importBodySchema = z.object({
-  sourceId: z.string().uuid("sourceId inválido"),
+  sourceId: z.string().guid("sourceId inválido"),
 });
 
 // 202 ACCEPTED, igual que el webhook y por la misma razón: no se creó ningún

@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import type { AuthenticatedRequest } from "../../types/auth";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { parseOrThrow } from "../../utils/validation";
@@ -15,16 +16,16 @@ import { crearClinicaDemo } from "./clinicaDemo.service";
 export const crearClinicaDemoSchema = z
   .object({
     adminFullName: z
-      .string({ required_error: "adminFullName es requerido" })
+      .string(mensajesDeTipo({ requerido: "adminFullName es requerido" }))
       .trim()
       .min(1, "adminFullName es requerido")
       .max(255, "adminFullName no puede superar los 255 caracteres"),
     adminEmail: z
-      .string({ required_error: "adminEmail es requerido" })
+      .string(mensajesDeTipo({ requerido: "adminEmail es requerido" }))
       .trim()
       .email("adminEmail inválido"),
     sufijo: z
-      .string({ invalid_type_error: "sufijo debe ser un texto" })
+      .string(mensajesDeTipo({ tipo: "sufijo debe ser un texto" }))
       .trim()
       .max(60, "sufijo no puede superar los 60 caracteres")
       .optional(),

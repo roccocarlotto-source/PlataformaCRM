@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import { instanteSchema } from "../../controllers/booking.controller";
 import { MAX_DIAS_DE_RANGO } from "../../services/availability.service";
 import type { AuthenticatedRequest } from "../../types/auth";
@@ -49,23 +50,23 @@ import {
 // /api/bookings (ISO 8601 con zona).
 // ---------------------------------------------------------------------------
 
-const idSchema = z.string().uuid("serviceTypeId inválido");
+const idSchema = z.string().guid("serviceTypeId inválido");
 
 const listarQuerySchema = z.object({
-  branchId: z.string().uuid("branchId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
 });
 
 const profesionalesBodySchema = z
   .object({
-    resourceIds: z.array(z.string().uuid("resourceId inválido")).max(50),
+    resourceIds: z.array(z.string().guid("resourceId inválido")).max(50),
   })
   .strict();
 
 const disponibilidadQuerySchema = z
   .object({
-    serviceTypeId: z.string().uuid("serviceTypeId inválido"),
+    serviceTypeId: z.string().guid("serviceTypeId inválido"),
     // El profesional elegido; sin él, todos los de la prestación.
-    resourceId: z.string().uuid("resourceId inválido").optional(),
+    resourceId: z.string().guid("resourceId inválido").optional(),
     from: instanteSchema,
     to: instanteSchema,
     // R6: "true" suma los horarios completos que se pueden tomar como
@@ -85,11 +86,11 @@ const disponibilidadQuerySchema = z
 
 const turnoBodySchema = z
   .object({
-    serviceTypeId: z.string().uuid("serviceTypeId inválido"),
-    contactId: z.string().uuid("contactId inválido"),
+    serviceTypeId: z.string().guid("serviceTypeId inválido"),
+    contactId: z.string().guid("contactId inválido"),
     startsAt: instanteSchema,
     // Sin profesional: el primero libre.
-    resourceId: z.string().uuid("resourceId inválido").optional(),
+    resourceId: z.string().guid("resourceId inválido").optional(),
     force: z.boolean().optional(),
     // R6 (§4.4): sobreturno, con el profesional elegido.
     isOverbooking: z.boolean().optional(),
@@ -100,8 +101,8 @@ const turnoBodySchema = z
 // R6: bloqueos y sobreturnos de un profesional (§4.4, §4.5).
 // ---------------------------------------------------------------------------
 
-const resourceIdSchema = z.string().uuid("resourceId inválido");
-const bloqueoIdSchema = z.string().uuid("id inválido");
+const resourceIdSchema = z.string().guid("resourceId inválido");
+const bloqueoIdSchema = z.string().guid("id inválido");
 
 const rangoQuerySchema = z
   .object({ from: instanteSchema, to: instanteSchema })
@@ -235,7 +236,7 @@ export const configurarSobreturnosHandler = asyncHandler<AuthenticatedRequest>(
 // R8: el calendario de Google de cada profesional (docs/rubros.md §4.6).
 // ---------------------------------------------------------------------------
 
-const branchIdSchema = z.string().uuid("branchId inválido");
+const branchIdSchema = z.string().guid("branchId inválido");
 
 const calendarioBodySchema = z
   .object({
@@ -273,7 +274,7 @@ export const asignarCalendarioHandler = asyncHandler<AuthenticatedRequest>(
 const reprogramarBodySchema = z
   .object({
     startsAt: instanteSchema,
-    resourceId: z.string().uuid("resourceId inválido").optional(),
+    resourceId: z.string().guid("resourceId inválido").optional(),
     isOverbooking: z.boolean().optional(),
     force: z.boolean().optional(),
   })
@@ -281,7 +282,7 @@ const reprogramarBodySchema = z
 
 export const reprogramarTurnoHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
-    const id = parseOrThrow(z.string().uuid("id inválido"), req.params.id);
+    const id = parseOrThrow(z.string().guid("id inválido"), req.params.id);
     const input = parseOrThrow(reprogramarBodySchema, req.body);
     const booking = await reprogramarTurno(req.auth.organizationId, id, input, {
       ...req.auth,
@@ -320,7 +321,7 @@ const marcaBodySchema = z
 
 function marcarHandler(estado: EstadoDeCierre) {
   return asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-    const id = parseOrThrow(z.string().uuid("id inválido"), req.params.id);
+    const id = parseOrThrow(z.string().guid("id inválido"), req.params.id);
     const { nota } = parseOrThrow(marcaBodySchema, req.body ?? {});
     const booking = await marcarTurno(
       req.auth.organizationId,
@@ -344,7 +345,7 @@ const configuracionDeSedeBodySchema = z
   .object({
     // Entero ≥ 0, o null para "sin plazo" (D10: sin valor por defecto).
     minHoursToChangeBooking: z
-      .number({ invalid_type_error: "minHoursToChangeBooking debe ser un número" })
+      .number(mensajesDeTipo({ tipo: "minHoursToChangeBooking debe ser un número" }))
       .int("minHoursToChangeBooking debe ser un número entero")
       .min(0, "minHoursToChangeBooking no puede ser negativo")
       .max(
@@ -356,20 +357,18 @@ const configuracionDeSedeBodySchema = z
     // R13 (docs/rubros.md §6.2): el recordatorio. Los mismos rangos que los
     // CHECK de clinic_branch_settings.
     reminderHoursBefore: z
-      .number({ invalid_type_error: "reminderHoursBefore debe ser un número" })
+      .number(mensajesDeTipo({ tipo: "reminderHoursBefore debe ser un número" }))
       .int("reminderHoursBefore debe ser un número entero")
       .min(1, "reminderHoursBefore tiene que ser al menos 1")
       .max(72, "reminderHoursBefore no puede superar 72")
       .optional(),
     lateBookingReminder: z
       .enum(["NO_ENVIAR", "EN_EL_MOMENTO", "HORAS_ANTES"], {
-        errorMap: () => ({
-          message: "lateBookingReminder debe ser NO_ENVIAR, EN_EL_MOMENTO o HORAS_ANTES",
-        }),
+        error: () => "lateBookingReminder debe ser NO_ENVIAR, EN_EL_MOMENTO o HORAS_ANTES",
       })
       .optional(),
     lateBookingHoursBefore: z
-      .number({ invalid_type_error: "lateBookingHoursBefore debe ser un número" })
+      .number(mensajesDeTipo({ tipo: "lateBookingHoursBefore debe ser un número" }))
       .int("lateBookingHoursBefore debe ser un número entero")
       .min(1, "lateBookingHoursBefore tiene que ser al menos 1")
       .max(23, "lateBookingHoursBefore no puede superar 23")
@@ -380,14 +379,14 @@ const configuracionDeSedeBodySchema = z
 
 export const configuracionDeSedeHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
-    const branchId = parseOrThrow(z.string().uuid("branchId inválido"), req.params.branchId);
+    const branchId = parseOrThrow(z.string().guid("branchId inválido"), req.params.branchId);
     res.status(200).json(await configuracionDeClinicaDeLaSede(req.auth.organizationId, branchId));
   },
 );
 
 export const configurarSedeHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
-    const branchId = parseOrThrow(z.string().uuid("branchId inválido"), req.params.branchId);
+    const branchId = parseOrThrow(z.string().guid("branchId inválido"), req.params.branchId);
     const input = parseOrThrow(configuracionDeSedeBodySchema, req.body);
     res.status(200).json(await configurarClinicaDeLaSede(req.auth.organizationId, branchId, input));
   },
@@ -401,7 +400,7 @@ export const configurarSedeHandler = asyncHandler<AuthenticatedRequest>(
 const controlBodySchema = z
   .object({
     followUpAfterDays: z
-      .number({ invalid_type_error: "followUpAfterDays debe ser un número" })
+      .number(mensajesDeTipo({ tipo: "followUpAfterDays debe ser un número" }))
       .int("followUpAfterDays debe ser un número entero")
       .min(1, "followUpAfterDays tiene que ser al menos 1")
       .max(MAX_DIAS_DE_CONTROL, `followUpAfterDays no puede superar ${MAX_DIAS_DE_CONTROL}`)

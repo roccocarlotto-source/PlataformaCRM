@@ -11,5 +11,5 @@ export const acceptInvitationSchema = z.object({
     .trim()
     .min(1, "fullName es requerido")
     .max(255, "fullName no puede superar los 255 caracteres"),
-  invitationId: z.string().uuid("invitationId inválido").optional(),
+  invitationId: z.string().guid("invitationId inválido").optional(),
 });

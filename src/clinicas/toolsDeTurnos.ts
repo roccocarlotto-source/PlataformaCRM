@@ -95,7 +95,7 @@ export function mensajeFueraDePlazo(horas: number): string {
   return `Falta menos de ${horas} ${horas === 1 ? "hora" : "horas"} para ese turno: por este medio ya no se puede cambiar ni cancelar. Decíselo al paciente con claridad y derivá a una persona del equipo para que lo resuelva. No lo intentes de otra forma.`;
 }
 
-const id = (campo: string) => z.string().uuid(`${campo} debe ser un UUID`);
+const id = (campo: string) => z.string().guid(`${campo} debe ser un UUID`);
 const vacioComoAusente = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((v) => (v === "" || v === null ? undefined : v), schema.optional());
 

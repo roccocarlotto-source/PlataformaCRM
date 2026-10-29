@@ -9,12 +9,12 @@ import { MEDIOS_DE_AVISO, obtenerAvisos, registrarAviso } from "../services/avis
 // conversación de WhatsApp y los avisos de la orden; y "Marcar como avisado".
 // ADMIN y USER, con el módulo (gate en `authenticate`).
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 export const avisoSchema = z
   .object({
     medio: z.enum(MEDIOS_DE_AVISO, {
-      errorMap: () => ({ message: "medio tiene que ser TELEFONO, WHATSAPP o EN_PERSONA" }),
+      error: () => "medio tiene que ser TELEFONO, WHATSAPP o EN_PERSONA",
     }),
   })
   .strict();

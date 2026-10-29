@@ -1,6 +1,7 @@
 import { InvitationStatus } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { enumNativo } from "../utils/erroresDeZod";
 import { exigirRolDelRubro } from "../config/ediciones";
 import { acceptInvitationSchema } from "../schemas/invitation.schema";
 import {
@@ -14,15 +15,15 @@ import type { AuthenticatedRequest, InvitationAcceptRequest } from "../types/aut
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // Los tres roles que conoce el sistema; cuál admite la organización lo decide
 // su rubro (exigirRolDelRubro, docs/rubros.md §11.1).
 const roleSchema = z.enum(["ADMIN", "USER", "RECEPCION"]);
-// z.nativeEnum sobre el enum real de Prisma — mismo criterio que
+// enumNativo (z.nativeEnum) sobre el enum real de Prisma — mismo criterio que
 // activity.controller.ts con ActivityType, en vez de duplicar los valores
 // de InvitationStatus a mano.
-const statusSchema = z.nativeEnum(InvitationStatus);
+const statusSchema = enumNativo(InvitationStatus);
 
 const createInvitationSchema = z.object({
   email: z
@@ -33,7 +34,7 @@ const createInvitationSchema = z.object({
   role: roleSchema,
   // Las sedes de una Recepción de clínica (docs/rubros.md §11.5, R20):
   // obligatorias para ese rol. En una automotora se ignoran.
-  branchIds: z.array(z.string().uuid("branchId inválido")).max(100).optional(),
+  branchIds: z.array(z.string().guid("branchId inválido")).max(100).optional(),
 });
 
 const listQuerySchema = z.object({

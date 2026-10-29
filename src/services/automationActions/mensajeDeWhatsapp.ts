@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import {
   FORMATO_POR_DEFECTO,
   FORMATOS_DE_MENSAJE,
@@ -26,11 +27,11 @@ import {
 export const camposDelMensajeDeWhatsapp = {
   whatsappFormat: z
     .enum(FORMATOS_DE_MENSAJE, {
-      errorMap: () => ({ message: `whatsappFormat debe ser ${FORMATOS_DE_MENSAJE.join(", ")}` }),
+      error: () => `whatsappFormat debe ser ${FORMATOS_DE_MENSAJE.join(", ")}`,
     })
     .optional(),
   messageText: z
-    .string({ invalid_type_error: "messageText debe ser un texto" })
+    .string(mensajesDeTipo({ tipo: "messageText debe ser un texto" }))
     .trim()
     // Tope holgado del texto tal cual se escribe; el real (sobre lo que viaja
     // a Meta) lo mide validarTextoDePlantilla.

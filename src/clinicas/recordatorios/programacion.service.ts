@@ -40,7 +40,7 @@ import { cerrarTareasDelTurno } from "../postTurno/tarea";
 // ---------------------------------------------------------------------------
 
 export const payloadDelTurnoSchema = z.object({
-  bookingId: z.string().uuid(),
+  bookingId: z.string().guid(),
 });
 
 /** La regla activa del recordatorio de la organización, o null. */

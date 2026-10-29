@@ -18,7 +18,7 @@ import {
 // es de cualquiera; escribir, solo ADMIN (authorize en la ruta). Sin fila de
 // configuración, los defaults.
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // Meses: el CHECK de la base va de 1 a 60; null = no proponer / no fijar.
 const mesesSchema = z.number().int("los meses tienen que ser un entero").min(1).max(60).nullable();

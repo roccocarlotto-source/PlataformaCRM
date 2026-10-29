@@ -24,7 +24,7 @@ import {
 // módulo activado no se llega acá (403 MODULO_NO_INCLUIDO, NO_ACTIVADO).
 // ---------------------------------------------------------------------------
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const textoOpcional = (max: number, campo: string) =>
   z
@@ -56,7 +56,7 @@ const anioSchema = z
   );
 
 const camposEditables = {
-  branchId: z.string().uuid("branchId inválido").nullable().optional(),
+  branchId: z.string().guid("branchId inválido").nullable().optional(),
   make: z
     .string()
     .trim()
@@ -84,7 +84,7 @@ const camposEditables = {
 };
 
 export const crearVehiculoSchema = z.object({
-  contactId: z.string().uuid("contactId inválido"),
+  contactId: z.string().guid("contactId inválido"),
   ...camposEditables,
 });
 
@@ -98,7 +98,7 @@ export const actualizarVehiculoSchema = z
 const nota = textoOpcional(1000, "nota");
 
 export const cambiarDuenoSchema = z.union([
-  z.object({ toContactId: z.string().uuid("toContactId inválido"), nota }).strict(),
+  z.object({ toContactId: z.string().guid("toContactId inválido"), nota }).strict(),
   // PERMUTA no: la escribe el barrido de permutas (S10), nunca una persona.
   z.object({ fin: z.enum(["VENDIDO_A_TERCERO", "OTRO"]), nota }).strict(),
 ]);
@@ -112,8 +112,8 @@ export const listarVehiculosQuerySchema = z.object({
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   q: z.string().trim().min(1).max(100).optional(),
-  contactId: z.string().uuid("contactId inválido").optional(),
-  branchId: z.string().uuid("branchId inválido").optional(),
+  contactId: z.string().guid("contactId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
   incluirNoVigentes: booleanoDeQuery,
   // S13: los que no tienen fecha de compra.
   sinFechaDeCompra: booleanoDeQuery,
