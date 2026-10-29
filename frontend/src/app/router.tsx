@@ -23,6 +23,7 @@ import { OpportunityListPage } from "../features/opportunity/OpportunityListPage
 import { ActivityFormPage } from "../features/activity/ActivityFormPage";
 import { ActivityListPage } from "../features/activity/ActivityListPage";
 import { MyTasksPage } from "../features/activity/MyTasksPage";
+import { EnviosQueNoSalieronPage } from "../features/enviosQueNoSalieron/EnviosQueNoSalieronPage";
 import { UserListPage } from "../features/user/UserListPage";
 import { InvitationFormPage } from "../features/invitation/InvitationFormPage";
 import { InvitationListPage } from "../features/invitation/InvitationListPage";
@@ -186,6 +187,9 @@ export const router = createBrowserRouter([
           // así que NO va en AdminRoute. El listado completo (/activities) sí,
           // abajo.
           { path: "/tasks", element: <MyTasksPage /> },
+          // ADMIN y Recepción (la página redirige a un USER; el backend lo corta
+          // con authorize). Fuera de AdminRoute por Recepción.
+          { path: "/envios-que-no-salieron", element: <EnviosQueNoSalieronPage /> },
           // B-18: el formulario de actividad también es de los dos roles. Un
           // USER crea tareas asignadas a sí mismo (POST /api/activities ya no
           // es ADMIN-only; el service le da 403 si pide otro assignee) y edita
