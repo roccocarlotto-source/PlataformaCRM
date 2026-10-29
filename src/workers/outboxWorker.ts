@@ -5,6 +5,7 @@ import { claimNextClaimableEvent } from "../repositories/outboxEvent.repository"
 import { entregarEvento, type ResultadoDeEntrega } from "../services/outbox.service";
 import type { RegistroDeHandlers } from "../services/outboxHandlers";
 import { registroDeHandlers } from "../services/outboxHandlers";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // Worker in-process con polling del motor de eventos salientes.
@@ -113,7 +114,9 @@ export async function drenarOutbox(opciones: OpcionesDeDrenado = {}): Promise<Re
       } else {
         // Falló antes de llegar a reclamar nada. No hay fila que posponer y
         // seguir iterando solo repetiría el mismo fallo: se corta la pasada.
-        logger.error({ err }, "No se pudo reclamar un evento saliente");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "No se pudo reclamar un evento saliente");
+        }
         break;
       }
       logger.error(
@@ -179,6 +182,7 @@ export function iniciarWorkerDeOutbox(opciones: OpcionesDelWorker = {}): () => P
 
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await drenar();
         if (resumen.entregados + resumen.reprogramados + resumen.muertos + resumen.pospuestos > 0) {
           logger.info(resumen, "Drenado de eventos salientes");
@@ -196,7 +200,9 @@ export function iniciarWorkerDeOutbox(opciones: OpcionesDelWorker = {}): () => P
         // Red de seguridad del bucle: drenarOutbox ya atrapa por evento, así que
         // llegar acá significa que falló algo fuera de ese alcance. El bucle NO
         // puede morir por eso — si muere, la cola deja de drenarse en silencio.
-        logger.error({ err }, "Fallo inesperado en el drenado de eventos salientes");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el drenado de eventos salientes");
+        }
       }
     })();
 

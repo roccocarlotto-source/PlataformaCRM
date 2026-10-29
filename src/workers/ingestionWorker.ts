@@ -9,6 +9,7 @@ import {
   type EventoReclamado,
 } from "../repositories/ingestionEvent.repository";
 import { promoverEvento, type ResultadoPromocion } from "../services/promotion.service";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // Worker in-process con polling (§5 de docs/ingestion-architecture.md, "para R1
@@ -127,7 +128,9 @@ export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<
         // fila que posponer y seguir iterando solo repetiría el mismo fallo:
         // se corta la pasada y se reintenta en el próximo tick.
         resumen.pospuestos++;
-        logger.error({ err }, "No se pudo reclamar un evento de ingesta");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "No se pudo reclamar un evento de ingesta");
+        }
         break;
       }
 
@@ -254,6 +257,7 @@ export function iniciarWorkerDeIngesta(opciones: OpcionesDelWorker = {}): () => 
 
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await drenar();
         if (resumen.procesados + resumen.fallidos + resumen.pospuestos + resumen.muertos > 0) {
           logger.info(resumen, "Drenado de ingesta");
@@ -273,7 +277,9 @@ export function iniciarWorkerDeIngesta(opciones: OpcionesDelWorker = {}): () => 
         // que llegar acá significa que falló algo fuera de ese alcance. El bucle
         // NO puede morir por eso — si muere, la cola deja de drenarse en silencio
         // y nada lo avisa hasta que alguien mira la tabla.
-        logger.error({ err }, "Fallo inesperado en el drenado de ingesta");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el drenado de ingesta");
+        }
       }
     })();
 

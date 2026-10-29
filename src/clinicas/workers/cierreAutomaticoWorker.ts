@@ -1,5 +1,6 @@
 import { logger } from "../../lib/logger";
 import { cerrarTurnosVencidos } from "../services/atendido.service";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El cierre automático de los turnos de clínica (docs/rubros.md §4.8, D6, R10):
@@ -30,10 +31,13 @@ export function iniciarWorkerDeCierreAutomatico(
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const { cerrados } = await drenar();
         if (cerrados > 0) logger.info({ cerrados }, "Turnos de clínica cerrados automáticamente");
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en el cierre automático de turnos de clínica");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el cierre automático de turnos de clínica");
+        }
       }
     })();
     await tickEnCurso;

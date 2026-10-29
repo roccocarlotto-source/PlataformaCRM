@@ -7,6 +7,7 @@ import {
   fechaDeCorteDelAgenteInterno,
   purgarMensajesViejosDelAgenteInterno,
 } from "../repositories/internalAgent.repository";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // La retención de las preguntas al asistente "¿Cómo se hace?": una vez por
@@ -52,11 +53,14 @@ export function iniciarPurgaDePreguntasDeAyuda(
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const borradas = await purgar();
         if (borradas > 0) logger.info({ borradas }, "Purga de preguntas al asistente de ayuda");
       } catch (err) {
         // Falló el borrado: se reintenta en la próxima pasada.
-        logger.error({ err }, "Fallo en la purga de preguntas al asistente de ayuda");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo en la purga de preguntas al asistente de ayuda");
+        }
       }
     })();
     await tickEnCurso;

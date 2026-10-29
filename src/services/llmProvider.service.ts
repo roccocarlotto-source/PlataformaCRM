@@ -1,6 +1,7 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { AppError } from "../utils/AppError";
+import { anotarRespuestaDelLlm } from "./llmKeyBalance.service";
 
 // ---------------------------------------------------------------------------
 // Proveedor de LLM del módulo de Agentes de IA (docs/ai-agent-architecture.md,
@@ -206,6 +207,10 @@ export interface ConfiguracionOpenRouter {
   // la nota en config/env.ts.
   maxOutputTokens: number;
   fetch?: FetchLike;
+  // Recibe el status HTTP de cada respuesta del proveedor. Producción lo usa
+  // para que /health diga "sin-saldo" desde el primer 402 (ver
+  // llmKeyBalance.service.ts).
+  alResponder?: (status: number) => void;
 }
 
 // Tope por llamada. Un LLM tarda MUCHO más que Google Calendar —decenas de
@@ -602,6 +607,7 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
           continue;
         }
 
+        config.alResponder?.(res.status);
         if (res.ok) {
           break;
         }
@@ -744,12 +750,15 @@ export function getLlmProvider(): LlmProvider {
   }
 
   if (!env.OPENROUTER_API_KEY) {
-    // isOperational: false — nombra una variable de entorno; es para el log,
-    // no para el cliente (M-11 b).
-    throw new AppError(
+    // El nombre de la variable va solo al log (M-11 b). Al que llama —el
+    // probador del agente, el asistente de ayuda— le llega un 503 con un
+    // mensaje que sí puede leer, en vez de un "error interno" sin pista.
+    logger.error(
       "El proveedor de LLM no está configurado en el servidor. Falta: OPENROUTER_API_KEY",
-      500,
-      false,
+    );
+    throw new AppError(
+      "La inteligencia artificial no está disponible en este momento. Avisale al soporte de la plataforma.",
+      503,
     );
   }
 
@@ -758,6 +767,7 @@ export function getLlmProvider(): LlmProvider {
     defaultModel: env.OPENROUTER_MODEL,
     baseUrl: env.OPENROUTER_BASE_URL,
     maxOutputTokens: env.LLM_MAX_OUTPUT_TOKENS,
+    alResponder: anotarRespuestaDelLlm,
   });
 
   return proveedor;

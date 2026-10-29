@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { env } from "../config/env";
+import { AppError } from "../utils/AppError";
 import {
   leerUsage,
   LLM_PROVIDER_NAMES,
   ESPERAS_ENTRE_REINTENTOS_MS,
   LlmProviderError,
   REINTENTOS_LLM,
+  resetLlmProviderParaTests,
   crearProveedorOpenRouter,
   esTransitorio,
   formatoDeAudio,
+  getLlmProvider,
   isLlmProviderName,
   type FetchLike,
   type LlmToolDefinition,
@@ -866,6 +870,22 @@ test("un 400 NO se reintenta: es un error nuestro y reintentarlo solo demora", a
   assert.equal(llamadas.length, 1);
 });
 
+test("un 402 (sin saldo) no se reintenta y alResponder recibe el status: así /health dice sin-saldo", async () => {
+  const { fetch, llamadas } = mockearSecuencia([
+    { ok: false, status: 402, json: { error: { message: "Insufficient credits" } } },
+  ]);
+  const statuses: number[] = [];
+  const proveedor = crearProveedorOpenRouter({
+    ...CONFIG,
+    fetch,
+    alResponder: (status) => statuses.push(status),
+  });
+
+  await assert.rejects(() => proveedor.complete(PEDIDO_BASICO), LlmProviderError);
+  assert.equal(llamadas.length, 1);
+  assert.deepEqual(statuses, [402]);
+});
+
 test("el tope de espera es bajo: del otro lado hay un webhook de Meta esperando", () => {
   // Si alguien sube estos números, que sea a sabiendas: el peor caso se suma
   // entero al tiempo que Meta espera por el webhook de WhatsApp.
@@ -999,4 +1019,25 @@ test("sin señal externa, una falla de red se sigue reintentando como siempre (�
 
   assert.equal(resultado.text, "Listo.");
   assert.equal(llamadas.length, 2);
+});
+
+// Sin la clave del proveedor, el que llama (el probador del agente, el
+// asistente de ayuda) recibe un 503 con un mensaje que puede leer, no un 500
+// "error interno". El nombre de la variable no sale: queda en el log.
+test("sin OPENROUTER_API_KEY, getLlmProvider da un 503 operacional sin nombrar la variable", (t) => {
+  if (env.OPENROUTER_API_KEY) {
+    t.skip("este entorno tiene la clave configurada");
+    return;
+  }
+  resetLlmProviderParaTests();
+
+  assert.throws(
+    () => getLlmProvider(),
+    (err: unknown) =>
+      err instanceof AppError &&
+      err.statusCode === 503 &&
+      err.isOperational &&
+      /no está disponible/.test(err.message) &&
+      !err.message.includes("OPENROUTER"),
+  );
 });

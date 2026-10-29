@@ -6,6 +6,7 @@ import {
   procesarFoto,
   type Descargar,
 } from "../services/importacionFotos.service";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El worker de las fotos del stock importado (docs/importacion-de-datos.md
@@ -67,12 +68,15 @@ export function iniciarWorkerDeFotosImportadas(): () => Promise<void> {
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const r = await procesarFotosPendientes();
         if (r.bajadas + r.fallidas + r.omitidas + r.reintentos > 0) {
           logger.info(r, "Fotos importadas");
         }
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en el worker de fotos importadas");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el worker de fotos importadas");
+        }
       }
     })();
     await tickEnCurso;

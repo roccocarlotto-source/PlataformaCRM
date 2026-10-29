@@ -11,8 +11,9 @@ export interface HealthStatus {
     // FABLE-G-10 (docs-privados, local): el saldo de la key del proveedor de
     // LLM. Informativo: "saldo-bajo" NO pone /health en error ni cambia el
     // 200 —un 503 acá haría que la plataforma trate el servicio como caído
-    // cuando lo único que pasa es que hay que recargar—. Un monitor externo
-    // puede alertar buscando esa palabra en la respuesta.
+    // cuando lo único que pasa es que hay que recargar—. Lo mismo "sin-saldo"
+    // (OpenRouter ya rechazó una llamada con 402). Un monitor externo puede
+    // alertar buscando esas palabras en la respuesta.
     llmKey: EstadoDeLaKey;
   };
 }

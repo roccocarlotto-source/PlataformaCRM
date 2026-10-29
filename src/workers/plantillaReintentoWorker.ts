@@ -1,6 +1,7 @@
 import { logger } from "../lib/logger";
 import { findReglasParaReintentar, reclamarReintento } from "../repositories/automation.repository";
 import { reintentoAutomaticoDeLaPlantilla } from "../services/automationWhatsapp.service";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // H-1: reintenta mandar a Meta la plantilla de WhatsApp de las reglas cuyo
@@ -68,10 +69,13 @@ export function iniciarWorkerDeReintentoDePlantillas(
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const r = await pasada();
         if (r.reintentadas > 0) logger.info(r, "Reintento de plantillas de WhatsApp");
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en el reintento de plantillas de WhatsApp");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el reintento de plantillas de WhatsApp");
+        }
       }
     })();
     await tickEnCurso;

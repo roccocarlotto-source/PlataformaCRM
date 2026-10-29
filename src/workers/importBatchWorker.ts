@@ -14,6 +14,7 @@ import { analizarLote } from "../services/importacionAnalisis.service";
 import { deshacerLote } from "../services/importacionDeshacer.service";
 import { marcarFaltantes } from "../services/importacionSync.service";
 import { describirError } from "../utils/backoff";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El worker de los LOTES del asistente de importación
@@ -178,12 +179,15 @@ export function iniciarWorkerDeLotesDeImportacion(): () => Promise<void> {
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await procesarLotes();
         if (resumen.analizados + resumen.terminados + resumen.deshechos + resumen.conError > 0) {
           logger.info(resumen, "Lotes de importación");
         }
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en el worker de lotes de importación");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el worker de lotes de importación");
+        }
       }
     })();
     await tickEnCurso;

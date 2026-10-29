@@ -6,6 +6,7 @@ import {
   LOCK_DE_CORRIDA_MS,
   type ResultadoDeCorrida,
 } from "../services/importacionSync.service";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El worker de las sincronizaciones del stock desde Google Sheets
@@ -50,12 +51,15 @@ export function iniciarWorkerDeSincronizaciones(): () => Promise<void> {
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const r = await procesarSincronizaciones();
         if (r.LOTE_CREADO + r.FALLIDA + r.ANTERIOR_EN_CURSO > 0) {
           logger.info(r, "Sincronizaciones de stock");
         }
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en el worker de sincronizaciones");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el worker de sincronizaciones");
+        }
       }
     })();
     await tickEnCurso;

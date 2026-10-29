@@ -29,6 +29,7 @@ import {
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
 import { baseDeLaApiPublica, buildQrImageUrl, type TipoDeQr } from "../utils/qrImage";
 import { parametrosDelCuerpo } from "../utils/whatsappTemplateText";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El worker de seguimientos por WhatsApp con el QR (ítem 159 de
@@ -479,7 +480,9 @@ export async function drenarSeguimientosQr(
         excluir: pospuestos,
       });
     } catch (err) {
-      logger.error({ err }, "No se pudo reclamar un seguimiento con QR de la cola");
+      if (!anotarSiLaBaseNoResponde(err)) {
+        logger.error({ err }, "No se pudo reclamar un seguimiento con QR de la cola");
+      }
       break;
     }
     if (!reclamo) {
@@ -549,6 +552,7 @@ export function iniciarWorkerDeSeguimientosQr(
 
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await drenar(() => !detenido);
         if (resumen.enviados + resumen.cancelados + resumen.pospuestos + resumen.fallidos > 0) {
           logger.info(resumen, "Drenado de seguimientos con QR");
@@ -556,7 +560,9 @@ export function iniciarWorkerDeSeguimientosQr(
       } catch (err) {
         // Red de seguridad del bucle: si muere, los seguimientos dejan de
         // salir en silencio.
-        logger.error({ err }, "Fallo inesperado en el drenado de seguimientos con QR");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el drenado de seguimientos con QR");
+        }
       }
     })();
 

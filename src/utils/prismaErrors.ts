@@ -39,12 +39,50 @@ import { AppError } from "./AppError";
 // pide; hoy no hay motivo.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// LA BASE NO RESPONDE. No es un error del request ni un bug: la base está
+// caída, no se llega o cortó la conexión. Para el que llama es un 503 con
+// Retry-After (reintentar más tarde tiene sentido), y para los workers es la
+// señal de frenar hasta que vuelva (ver workers/esperaDeLaBase.ts).
+//
+// PrismaClientInitializationError es el cliente que no pudo conectarse al
+// primer uso. P1001 (no se llega), P1002 (se llegó pero no respondió a
+// tiempo), P1008 (la operación venció) y P1017 (el servidor cerró la
+// conexión) son los mismos casos con el cliente ya conectado.
+// ---------------------------------------------------------------------------
+const CODIGOS_DE_CONEXION = new Set(["P1001", "P1002", "P1008", "P1017"]);
+
+export function esErrorDeConexionALaBase(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientInitializationError) {
+    return true;
+  }
+  return err instanceof Prisma.PrismaClientKnownRequestError && CODIGOS_DE_CONEXION.has(err.code);
+}
+
+// Segundos que el 503 le sugiere esperar al cliente antes de reintentar.
+export const REINTENTAR_DESPUES_DE_SEGUNDOS = 30;
+
+export class BaseNoDisponibleError extends AppError {
+  constructor() {
+    super("El servicio no está disponible en este momento. Reintentá en unos segundos.", 503);
+    Object.setPrototypeOf(this, BaseNoDisponibleError.prototype);
+  }
+}
+
 export function traducirErrorDePrisma(err: unknown): AppError | undefined {
+  if (esErrorDeConexionALaBase(err)) {
+    return new BaseNoDisponibleError();
+  }
   if (!(err instanceof Prisma.PrismaClientKnownRequestError)) {
     return undefined;
   }
 
   switch (err.code) {
+    // El pool de conexiones no dio una a tiempo: la base está saturada o
+    // lenta. Para el que llama es lo mismo que la base caída (reintentar más
+    // tarde), pero NO frena a los workers: no está caída.
+    case "P2024":
+      return new BaseNoDisponibleError();
     // Deadlock / write conflict detectado por Postgres, y transacción
     // interactiva expirada: reintentar la misma operación tiene sentido real.
     // El request no está mal armado.

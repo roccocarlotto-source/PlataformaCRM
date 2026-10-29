@@ -63,6 +63,7 @@ import {
   type RecordatorioParaEnviar,
   type RecordatorioReclamado,
 } from "./repository";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El worker de los mensajes de un turno de clínica: el recordatorio
@@ -455,12 +456,15 @@ export function iniciarWorkerDeRecordatorios(
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const r = await drenarRecordatorios();
         if (r.enviados + r.cancelados + r.fallidos + r.tareas > 0) {
           logger.info(r, "Recordatorios de turno procesados");
         }
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en el worker de recordatorios de turno");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el worker de recordatorios de turno");
+        }
       }
     })();
     await tickEnCurso;

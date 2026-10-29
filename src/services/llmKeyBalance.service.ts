@@ -15,6 +15,15 @@ import { logger } from "../lib/logger";
 //
 // /health dice el ESTADO, no el monto: es un endpoint sin sesión.
 //
+// SIN SALDO. Si OpenRouter rechaza una llamada con 402 (sin créditos), el
+// estado pasa a "sin-saldo" al instante, sin esperar a la próxima lectura de
+// `/key`, y se queda así hasta que una llamada vuelva a salir bien. Mientras
+// tanto cada turno sigue saliendo con la respuesta fija y la derivación de
+// siempre: el cliente nunca queda en silencio. El log tiene UNA línea al
+// quedarse sin saldo y otra al volver, no una por mensaje. "sin-saldo" manda
+// sobre lo que diga `/key`: con la cuenta sin créditos, una key sin límite
+// propio sigue leyéndose como "sin-limite".
+//
 // NADIE ESPERA A OPENROUTER. La lectura se guarda TTL_MS y se refresca en
 // segundo plano: /health y el final de cada turno piden el estado, reciben lo
 // último que se supo al instante y, si está vencido, disparan una lectura que
@@ -26,6 +35,8 @@ export type EstadoDeLaKey =
   // Tiene límite y le queda más que el umbral.
   | "ok"
   | "saldo-bajo"
+  // OpenRouter rechazó una llamada por falta de créditos (402).
+  | "sin-saldo"
   // La key no tiene límite propio: no hay saldo que vigilar acá.
   | "sin-limite"
   // Todavía no se leyó, o la última lectura falló.
@@ -62,6 +73,9 @@ export interface ConfiguracionDelMonitor {
 export interface MonitorDeLaKey {
   // Lo último que se supo, al instante. Dispara un refresco si está vencido.
   estado(): EstadoDeLaKey;
+  // Lo que respondió OpenRouter a una llamada del modelo: un 402 marca
+  // "sin-saldo"; una respuesta buena lo saca.
+  anotarRespuesta(status: number): void;
   // La lectura en curso, si hay una. Solo para tests.
   enCurso(): Promise<void> | null;
 }
@@ -74,6 +88,7 @@ export function crearMonitorDeLaKey(config: ConfiguracionDelMonitor): MonitorDeL
   let ultimo: EstadoDeLaKey = "desconocido";
   let proximaLectura = 0;
   let lectura: Promise<void> | null = null;
+  let sinSaldo = false;
 
   async function leer(): Promise<void> {
     try {
@@ -104,6 +119,9 @@ export function crearMonitorDeLaKey(config: ConfiguracionDelMonitor): MonitorDeL
 
   return {
     estado() {
+      if (sinSaldo) {
+        return "sin-saldo";
+      }
       if (!config.apiKey || config.umbralUsd <= 0) {
         return "no-configurada";
       }
@@ -113,6 +131,17 @@ export function crearMonitorDeLaKey(config: ConfiguracionDelMonitor): MonitorDeL
         });
       }
       return ultimo;
+    },
+    anotarRespuesta(status) {
+      if (status === 402 && !sinSaldo) {
+        sinSaldo = true;
+        logger.error(
+          "El proveedor de LLM rechazó una llamada por falta de saldo (402): el agente deriva cada mensaje a una persona en todos los negocios hasta que se recargue",
+        );
+      } else if (status >= 200 && status < 300 && sinSaldo) {
+        sinSaldo = false;
+        logger.info("El proveedor de LLM volvió a responder: la key tiene saldo otra vez");
+      }
     },
     enCurso: () => lectura,
   };
@@ -128,6 +157,11 @@ function getMonitor(): MonitorDeLaKey {
     umbralUsd: env.OPENROUTER_KEY_ALERT_THRESHOLD_USD,
   });
   return monitor;
+}
+
+// Lo llama el proveedor de LLM con el status HTTP de cada respuesta del modelo.
+export function anotarRespuestaDelLlm(status: number): void {
+  getMonitor().anotarRespuesta(status);
 }
 
 export function estadoDeLaKeyDelLlm(): EstadoDeLaKey {

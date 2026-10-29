@@ -56,6 +56,7 @@ import {
   type MensajeReclamado,
 } from "./repository";
 import { crearTareaDelAviso } from "./tarea";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El envío del recordatorio del próximo service (docs/servicios.md §6.3, S7),
@@ -351,12 +352,15 @@ export function iniciarWorkerDeMensajesDelTaller(
     if (detenido) return;
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const r = await drenarMensajesDelTaller();
         if (r.enviados + r.cancelados + r.sinWhatsapp + r.fallidos > 0) {
           logger.info(r, "Recordatorios del próximo service procesados");
         }
       } catch (err) {
-        logger.error({ err }, "Fallo inesperado en el worker de mensajes del taller");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el worker de mensajes del taller");
+        }
       }
     })();
     await tickEnCurso;

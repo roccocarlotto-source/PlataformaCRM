@@ -58,6 +58,7 @@ import { cupoDeTurnosPorDefecto, maximoPorGrupoPorDefecto } from "../utils/limit
 import { resolverRespuestaDelRecordatorio } from "../clinicas/recordatorios/respuesta.service";
 import { avisosDePrivacidadSinEnviar } from "../clinicas/avisoDePrivacidad";
 import { conLeaseVigente } from "../services/leaseDelTurno";
+import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 
 // ---------------------------------------------------------------------------
 // El worker de la cola del webhook de WhatsApp (ítem 125 de
@@ -826,7 +827,9 @@ export async function drenarTurnosPendientes(
       } catch (err) {
         // No se llegó a reclamar nada (la base no responde): se corta la
         // pasada y se reintenta en el próximo tick.
-        logger.error({ err }, "No se pudo reclamar un turno del agente de la cola");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "No se pudo reclamar un turno del agente de la cola");
+        }
         cortar = true;
         return null;
       }
@@ -964,6 +967,7 @@ export function iniciarWorkerDeTurnosDeAgente(
 
     tickEnCurso = (async () => {
       try {
+        if (laBaseEstaCaida()) return;
         const resumen = await drenar(() => !detenido);
         if (resumen.respondidos + resumen.omitidos + resumen.pospuestos + resumen.fallidos > 0) {
           logger.info(resumen, "Drenado de turnos del agente");
@@ -979,7 +983,9 @@ export function iniciarWorkerDeTurnosDeAgente(
       } catch (err) {
         // Red de seguridad del bucle, mismo motivo que en la ingesta: si el
         // bucle muere, la cola deja de drenarse en silencio.
-        logger.error({ err }, "Fallo inesperado en el drenado de turnos del agente");
+        if (!anotarSiLaBaseNoResponde(err)) {
+          logger.error({ err }, "Fallo inesperado en el drenado de turnos del agente");
+        }
       }
     })();
 
