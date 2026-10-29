@@ -92,6 +92,23 @@ Si sos administrador, al tildarla queda confirmada y desaparece directamente.
   le asignó un administrador solo las puede completar. Un administrador edita
   cualquiera.
 
+### Tareas por un envío que no salió {#envio-fallido}
+
+Cuando un mensaje automático no se pudo mandar después de varios intentos,
+el sistema crea una tarea para que una persona se ocupe, que vence en el día:
+
+- **"Contactar a… : no le llegó el WhatsApp…"** cuando no salió un
+  seguimiento de consulta, el QR, el cupón de descuento o un mensaje del
+  taller. Va al vendedor de la oportunidad o, si no tiene, al del contacto;
+  en el taller, a quien atiende el vehículo. Si no hay nadie, al
+  administrador.
+- **"No se pudo ejecutar la automatización…"** cuando una automatización
+  falló varias veces seguidas. Va al administrador, relacionada con el
+  contacto o la oportunidad que la disparó.
+
+Mientras una de estas tareas siga abierta, otro envío fallido igual al mismo
+cliente no crea otra.
+
 ## Nueva actividad {#nueva-actividad}
 
 Cualquier rol llega desde **Actividades → Mis tareas → Nueva tarea**. Un

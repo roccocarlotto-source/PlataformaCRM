@@ -55,6 +55,8 @@ import {
   type ResultadoDelEnvio as ResultadoDelEnvioDelSeguimiento,
 } from "./qrFollowUpWorker";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
+import { avisarColaFallida, CUERPO_DE_WHATSAPP_FALLIDO } from "../services/tareaPorColaFallida";
+import { prisma } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
 // El worker de seguimientos de consultas por WhatsApp (ítem 185 de
@@ -369,12 +371,13 @@ async function registrarFallo(
 
   try {
     if (resolucion.estado === "FAILED") {
-      await markInquiryFollowUpFailed(reclamo, lastError);
+      const marcado = await markInquiryFollowUpFailed(reclamo, lastError);
       resumen.fallidos++;
       logger.error(
         { err, inquiryFollowUpId: reclamo.id, attempts: reclamo.attempts },
         "Seguimiento de consulta en FAILED: el cliente no recibió el WhatsApp",
       );
+      if (marcado.count > 0) await avisarSeguimientoFallido(reclamo);
       return;
     }
     await rescheduleInquiryFollowUp(reclamo, {
@@ -481,7 +484,7 @@ export async function drenarSeguimientosDeConsultas(
 
     if (reclamo.attempts > env.INQUIRY_FOLLOWUP_MAX_ATTEMPTS) {
       const agotado = reclamo;
-      await markInquiryFollowUpFailed(
+      const marcado = await markInquiryFollowUpFailed(
         agotado,
         `Agotó sus ${String(env.INQUIRY_FOLLOWUP_MAX_ATTEMPTS)} intentos sin terminar (el proceso que lo tomaba no llegó a cerrarlo)`,
       ).catch((err: unknown) => {
@@ -489,8 +492,10 @@ export async function drenarSeguimientosDeConsultas(
           { err, inquiryFollowUpId: agotado.id },
           "No se pudo marcar FAILED un seguimiento de consulta",
         );
+        return null;
       });
       resumen.fallidos++;
+      if (marcado && marcado.count > 0) await avisarSeguimientoFallido(agotado);
       continue;
     }
 
@@ -568,4 +573,23 @@ export function iniciarWorkerDeSeguimientosDeConsultas(
     }
     await tickEnCurso;
   };
+}
+
+// El cliente se quedó sin el WhatsApp de seguimiento de su consulta: una persona lo tiene que contactar
+// (ver services/tareaPorColaFallida.ts).
+function avisarSeguimientoFallido(reclamo: InquiryFollowUpReclamado): Promise<void> {
+  return avisarColaFallida("seguimiento de consulta", async () => {
+    const fila = await prisma.inquiryFollowUp.findFirst({
+      where: { id: reclamo.id, organizationId: reclamo.organizationId },
+      select: { contactId: true },
+    });
+    if (!fila) return null;
+    return {
+      organizationId: reclamo.organizationId,
+      contactId: fila.contactId,
+      asunto: (cliente) =>
+        `Contactar a ${cliente}: no le llegó el WhatsApp de seguimiento de su consulta`,
+      cuerpo: CUERPO_DE_WHATSAPP_FALLIDO,
+    };
+  });
 }

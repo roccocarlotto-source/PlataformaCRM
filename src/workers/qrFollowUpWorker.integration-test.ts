@@ -551,6 +551,21 @@ test("un 400 de Meta es permanente: FAILED al primer intento", async () => {
   assert.equal(fila.status, "FAILED");
   assert.equal(fila.attempts, 1);
   assert.match(fila.lastError ?? "", /Template name does not exist/);
+
+  // El cliente se quedó sin su QR: queda una tarea abierta para el dueño de
+  // la oportunidad (tareaPorColaFallida.ts).
+  const tareas = await prisma.activity.findMany({
+    where: {
+      organizationId: e.organizationId,
+      contactId,
+      type: "TASK",
+      completedAt: null,
+      subject: { endsWith: "no le llegó el WhatsApp con el QR" },
+    },
+  });
+  assert.equal(tareas.length, 1);
+  assert.equal(tareas[0].assigneeId, e.userId);
+  assert.equal(tareas[0].opportunityId, opp.id);
 });
 
 test("sin el token no reclama nada: la fila sigue PENDING y sin intentos gastados", async () => {
