@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import { z } from "zod";
+import { enumNativo, mensajesDeTipo } from "../utils/erroresDeZod";
 import { edicionesDisponibles, rubrosDisponibles } from "../config/ediciones";
 import { CODIGO_DE_PAIS } from "../lib/telefono";
 import { listActiveOrganizations } from "../repositories/organization.repository";
@@ -33,27 +34,28 @@ import { currencySchema, parseOrThrow, timezoneSchema } from "../utils/validatio
 // onboarding arrastra password y otp, que acá no existen.
 export const createOrganizationSchema = z.object({
   organizationName: z
-    .string({ required_error: "organizationName es requerido" })
+    .string(mensajesDeTipo({ requerido: "organizationName es requerido" }))
     .trim()
     .min(1, "organizationName es requerido")
     .max(255, "organizationName no puede superar los 255 caracteres"),
   adminFullName: z
-    .string({ required_error: "adminFullName es requerido" })
+    .string(mensajesDeTipo({ requerido: "adminFullName es requerido" }))
     .trim()
     .min(1, "adminFullName es requerido")
     .max(255, "adminFullName no puede superar los 255 caracteres"),
   adminEmail: z
-    .string({ required_error: "adminEmail es requerido" })
+    .string(mensajesDeTipo({ requerido: "adminEmail es requerido" }))
     .trim()
     .email("adminEmail inválido"),
   // docs/ediciones.md §1.1. Opcional: sin ella, COMPLETA. Si es una edición
   // que todavía no se ofrece (ESENCIAL_HABILITADA), el service responde 400.
-  edition: z.nativeEnum(OrganizationEdition, { invalid_type_error: "edition inválida" }).optional(),
+  edition: enumNativo(OrganizationEdition, mensajesDeTipo({ tipo: "edition inválida" })).optional(),
   // docs/rubros.md §1.1. Opcional: sin él, AUTOMOTORA. Si es un rubro que
   // todavía no se ofrece (CLINICA_HABILITADA), el service responde 400.
-  industry: z
-    .nativeEnum(OrganizationIndustry, { invalid_type_error: "industry inválido" })
-    .optional(),
+  industry: enumNativo(
+    OrganizationIndustry,
+    mensajesDeTipo({ tipo: "industry inválido" }),
+  ).optional(),
   // País, moneda y zona de la organización. Opcionales: sin ellos, Uruguay,
   // USD y America/Montevideo (config/organizacionNueva.ts). Mismas reglas
   // que el PATCH de /api/organization.
@@ -68,34 +70,36 @@ export const createOrganizationSchema = z.object({
   timezone: timezoneSchema.optional(),
 });
 
-const organizationIdSchema = z.string().uuid("organizationId inválido");
+const organizationIdSchema = z.string().guid("organizationId inválido");
 // El nombre del módulo: si no es activable, el service responde 400.
 const moduloSchema = z.string().min(1, "modulo es requerido").max(50, "modulo inválido");
 
 const cambiarAsistenteDeAyudaSchema = z
   .object({
-    enabled: z.boolean({
-      required_error: "enabled es requerido",
-      invalid_type_error: "enabled tiene que ser true o false",
-    }),
+    enabled: z.boolean(
+      mensajesDeTipo({
+        requerido: "enabled es requerido",
+        tipo: "enabled tiene que ser true o false",
+      }),
+    ),
   })
   .strict();
 
 const cambiarEdicionSchema = z
   .object({
-    edition: z.nativeEnum(OrganizationEdition, {
-      required_error: "edition es requerida",
-      invalid_type_error: "edition inválida",
-    }),
+    edition: enumNativo(
+      OrganizationEdition,
+      mensajesDeTipo({ requerido: "edition es requerida", tipo: "edition inválida" }),
+    ),
   })
   .strict();
 
 const cambiarRubroSchema = z
   .object({
-    industry: z.nativeEnum(OrganizationIndustry, {
-      required_error: "industry es requerido",
-      invalid_type_error: "industry inválido",
-    }),
+    industry: enumNativo(
+      OrganizationIndustry,
+      mensajesDeTipo({ requerido: "industry es requerido", tipo: "industry inválido" }),
+    ),
   })
   .strict();
 

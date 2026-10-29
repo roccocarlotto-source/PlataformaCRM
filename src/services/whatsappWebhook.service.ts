@@ -65,7 +65,7 @@ export const whatsappWebhookPayloadSchema = z.object({
       changes: z.array(
         z.object({
           field: z.string(),
-          value: z.record(z.unknown()),
+          value: z.record(z.string(), z.unknown()),
         }),
       ),
     }),

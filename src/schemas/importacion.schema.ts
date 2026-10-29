@@ -39,7 +39,7 @@ export const TIPOS_IMPORTABLES = [
 export const subirImportacionSchema = z
   .object({
     entityType: z.enum(TIPOS_IMPORTABLES),
-    sourceId: z.string().uuid("sourceId inválido").optional(),
+    sourceId: z.string().guid("sourceId inválido").optional(),
     sourceName: z.string().trim().min(1).max(255).optional(),
     separador: z.enum(SEPARADORES).optional(),
     codificacion: z.enum(CODIFICACIONES).optional(),
@@ -54,7 +54,7 @@ export const subirImportacionSchema = z
 export const subirSheetsSchema = z
   .object({
     entityType: z.enum(TIPOS_IMPORTABLES),
-    sourceId: z.string().uuid("sourceId inválido").optional(),
+    sourceId: z.string().guid("sourceId inválido").optional(),
     sourceName: z.string().trim().min(1).max(255).optional(),
     sheetUrl: z.string().trim().min(1).max(2048),
   })
@@ -99,8 +99,8 @@ const NOMBRE_DEL_TIPO: Record<TipoImportable, string> = {
 const valoresDe = <T extends readonly [string, ...string[]]>(permitidos: T) =>
   z.record(z.string().min(1).max(100), z.enum(permitidos)).default({});
 const stockSchema = z.object({
-  branchId: z.string().uuid("branchId inválido"),
-  responsableId: z.string().uuid("responsableId inválido"),
+  branchId: z.string().guid("branchId inválido"),
+  responsableId: z.string().guid("responsableId inválido"),
   condicionPorDefecto: z.enum(CONDICIONES).default("USED"),
   monedaPorDefecto: z.enum(["USD", "LOCAL"]).default("USD"),
   importarVendidas: z.boolean().default(false),
@@ -114,7 +114,7 @@ const stockSchema = z.object({
 // (decisión 5; que sea un usuario de la organización lo valida el service),
 // el tipo por defecto y qué tipo es cada valor del origen.
 const historialSchema = z.object({
-  autorId: z.string().uuid("autorId inválido"),
+  autorId: z.string().guid("autorId inválido"),
   tipoPorDefecto: z.enum(TIPOS_DE_HISTORIAL).optional(),
   tipos: z.record(z.string().min(1).max(100), z.enum(TIPOS_DE_HISTORIAL)).default({}),
 });
@@ -145,7 +145,7 @@ export function crearAjustesSchema(tipo: TipoImportable) {
             .default([...SI_NO_POR_DEFECTO.no]),
           separadorDeOpciones: z.enum(SEPARADORES_DE_OPCIONES).default(";"),
         })
-        .default({}),
+        .prefault({}),
       etapas: z.record(z.string().min(1).max(100), z.enum(LIFECYCLE_STAGES)).default({}),
       duplicados: z.enum(["FILL_EMPTY", "OVERWRITE", "SKIP"]).default("FILL_EMPTY"),
       crearEmpresas: z.boolean().default(true),
@@ -226,11 +226,11 @@ export function crearAjustesSchema(tipo: TipoImportable) {
           message: "Falta mapear el nombre de la empresa",
         });
       }
-    }) satisfies z.ZodType<AjustesDeImportacion, z.ZodTypeDef, unknown>;
+    }) satisfies z.ZodType<AjustesDeImportacion, unknown>;
 }
 
 export const decidirFilasSchema = z.object({
-  rowIds: z.array(z.string().uuid()).min(1).max(500),
+  rowIds: z.array(z.string().guid()).min(1).max(500),
   // null: volver a la política general del lote.
   decision: z.enum(["FILL_EMPTY", "OVERWRITE", "SKIP"]).nullable(),
 });

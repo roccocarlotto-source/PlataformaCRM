@@ -1,6 +1,7 @@
 import { SourceType } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { enumNativo } from "../utils/erroresDeZod";
 import {
   createSource,
   deleteSource,
@@ -13,12 +14,12 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { fieldMappingSchema } from "../schemas/fieldMapping.schema";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
-// z.nativeEnum sobre el enum real de Prisma — mismo criterio que
+// enumNativo (z.nativeEnum) sobre el enum real de Prisma — mismo criterio que
 // activity.controller.ts con ActivityType, en vez de duplicar los valores a
 // mano.
-const sourceTypeSchema = z.nativeEnum(SourceType);
+const sourceTypeSchema = enumNativo(SourceType);
 
 // fieldMapping SÍ figura acá desde el ítem 5, que es el que le dio forma
 // (schemas/fieldMapping.schema.ts) y consumidor (la traducción de una fila de

@@ -24,7 +24,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // Una automotora recibe el contacto con las claves de antes (camposDeClinica.ts).
 function paraElRubro<T extends object>(contacto: T, req: AuthenticatedRequest): T {
@@ -48,7 +48,7 @@ const contactFields = {
     .min(1, "lastName es requerido")
     .max(100, "lastName no puede superar los 100 caracteres"),
   lifecycleStage: lifecycleStageSchema.optional(),
-  ownerId: z.string().uuid("ownerId inválido").optional(),
+  ownerId: z.string().guid("ownerId inválido").optional(),
   // B6: { key: valor }. La forma de cada valor la valida el service contra
   // las definiciones de la organización (utils/camposPersonalizados.ts); acá
   // solo que sea un objeto.
@@ -68,7 +68,7 @@ export const createContactSchema = z.object({
   phone: z.string().trim().max(30, "Teléfono: no puede superar los 30 caracteres").optional(),
   jobTitle: z.string().trim().max(100, "jobTitle no puede superar los 100 caracteres").optional(),
   source: z.string().trim().max(100, "source no puede superar los 100 caracteres").optional(),
-  companyId: z.string().uuid("companyId inválido").optional(),
+  companyId: z.string().guid("companyId inválido").optional(),
 });
 
 // M-10 (auditoría 2026-08-29): email/phone/jobTitle/source/companyId son
@@ -105,9 +105,9 @@ export const updateContactSchema = z
       .max(100, "source no puede superar los 100 caracteres")
       .nullable()
       .optional(),
-    companyId: z.string().uuid("companyId inválido").nullable().optional(),
+    companyId: z.string().guid("companyId inválido").nullable().optional(),
     // El vehículo de interés, desde la ficha. null lo quita.
-    vehicleOfInterestId: z.string().uuid("vehicleOfInterestId inválido").nullable().optional(),
+    vehicleOfInterestId: z.string().guid("vehicleOfInterestId inválido").nullable().optional(),
     // La marca "sin interés" (ítem 185): true la pone, false la quita.
     noInterest: z.boolean().optional(),
     noInterestNote: z
@@ -134,8 +134,8 @@ export const listContactsQuerySchema = z.object({
   firstName: z.string().trim().min(1).optional(),
   lastName: z.string().trim().min(1).optional(),
   email: z.string().trim().min(1).optional(),
-  companyId: z.string().uuid("companyId inválido").optional(),
-  ownerId: z.string().uuid("ownerId inválido").optional(),
+  companyId: z.string().guid("companyId inválido").optional(),
+  ownerId: z.string().guid("ownerId inválido").optional(),
   lifecycleStage: lifecycleStageSchema.optional(),
   source: z.string().trim().min(1).optional(),
   // Las dos pestañas de Contactos (ítem 184). Sin `vista`, todos: es lo que
@@ -261,11 +261,11 @@ export const erasePreviewHandler = asyncHandler<AuthenticatedRequest>(
 const ladoSchema = z.enum(["kept", "absorbed"]);
 
 const mergePreviewQuerySchema = z.object({
-  with: z.string().uuid("with inválido"),
+  with: z.string().guid("with inválido"),
 });
 
 const mergeContactSchema = z.object({
-  absorbedId: z.string().uuid("absorbedId inválido"),
+  absorbedId: z.string().guid("absorbedId inválido"),
   // Qué valor queda en cada campo. Lo que no venga, el default: el más
   // reciente no vacío.
   fields: z

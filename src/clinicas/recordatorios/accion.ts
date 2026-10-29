@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import { logger } from "../../lib/logger";
 import type { AccionRegistrada } from "../../services/automationActions";
 import {
@@ -23,10 +24,12 @@ import { ACTION_BOOKING_SEND_REMINDER, TRIGGER_BOOKING_REMINDER_DUE } from "./co
 export const configDelRecordatorioSchema = z
   .object({
     messageText: z
-      .string({
-        required_error: "messageText es requerido",
-        invalid_type_error: "messageText debe ser un texto",
-      })
+      .string(
+        mensajesDeTipo({
+          requerido: "messageText es requerido",
+          tipo: "messageText debe ser un texto",
+        }),
+      )
       .trim()
       .min(1, "messageText es requerido")
       .max(LARGO_MAXIMO_DEL_CUERPO * 2, "messageText es demasiado largo"),

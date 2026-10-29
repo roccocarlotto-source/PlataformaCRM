@@ -2,6 +2,7 @@ import { registrarAvisoDesdeLaConversacion } from "../servicios/services/avisos.
 import { ConversationChannel } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { enumNativo, mensajesDeTipo } from "../utils/erroresDeZod";
 import {
   closeConversation,
   contarPendientes,
@@ -35,7 +36,7 @@ import { parseOrThrow } from "../utils/validation";
 // vive en código y por eso los valida el service.
 // ---------------------------------------------------------------------------
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const listQuerySchema = z.object({
   // Tope de cordura, el mismo que agent/automation (B-21).
@@ -45,14 +46,14 @@ const listQuerySchema = z.object({
   // mensajes — ver el comentario de buildWhere en
   // src/repositories/conversation.repository.ts.
   search: z.string().trim().min(1).optional(),
-  branchId: z.string().uuid("branchId inválido").optional(),
-  agentId: z.string().uuid("agentId inválido").optional(),
-  contactId: z.string().uuid("contactId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
+  agentId: z.string().guid("agentId inválido").optional(),
+  contactId: z.string().guid("contactId inválido").optional(),
   status: z.enum(["ACTIVE", "TRANSFERRED_TO_HUMAN", "CLOSED"]).optional(),
   // Los cuatro canales (F-01 de las auditorías del 04 y 05/10/2026,
   // docs-privados, local): con la lista escrita a mano, Messenger e Instagram
   // quedaron afuera y filtrar por ellos daba 400. Del enum, uno nuevo entra solo.
-  channel: z.nativeEnum(ConversationChannel).optional(),
+  channel: enumNativo(ConversationChannel).optional(),
   // "Mis pendientes" (UX-02): lo que lista el contador del menú. Texto
   // explícito y no z.coerce.boolean, que convierte "false" en true.
   pendientes: z
@@ -165,7 +166,7 @@ export const closeConversationHandler = asyncHandler<AuthenticatedRequest>(
 
 const replySchema = z.object({
   text: z
-    .string({ required_error: "text es requerido" })
+    .string(mensajesDeTipo({ requerido: "text es requerido" }))
     .max(
       LARGO_MAXIMO_DE_RESPUESTA,
       `El mensaje no puede superar los ${LARGO_MAXIMO_DE_RESPUESTA} caracteres`,
@@ -173,10 +174,10 @@ const replySchema = z.object({
   // S12 (docs/servicios.md §8.1): la orden de servicio desde la que se abrió
   // la conversación para avisarle al cliente. Opcional; sin él, el envío es
   // exactamente el de siempre.
-  serviceOrderId: z.string().uuid("serviceOrderId inválido").optional(),
+  serviceOrderId: z.string().guid("serviceOrderId inválido").optional(),
 });
 
-const messageIdParamSchema = z.string().uuid("messageId inválido");
+const messageIdParamSchema = z.string().guid("messageId inválido");
 
 function actorDe(req: AuthenticatedRequest) {
   return {

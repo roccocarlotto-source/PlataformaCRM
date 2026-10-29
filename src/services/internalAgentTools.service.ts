@@ -69,7 +69,7 @@ export interface ToolInterna {
 export const SUFIJO_ERROR_DE_ARGUMENTOS_INTERNO =
   " — Este es un error TUYO al armar la llamada, no una respuesta del sistema. Corregí los argumentos y volvé a llamarla; no le digas a la persona que algo no existe o no se pudo hacer por esto.";
 
-function validarArgsInternos<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, args: unknown) {
+function validarArgsInternos<T>(schema: z.ZodType<T, unknown>, args: unknown) {
   return validarArgs(schema, args, SUFIJO_ERROR_DE_ARGUMENTOS_INTERNO);
 }
 

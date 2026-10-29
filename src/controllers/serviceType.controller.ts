@@ -12,7 +12,7 @@ import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClini
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // durationMin > 0 y capacity >= 1 se validan también con un CHECK en la
 // migración. No es redundancia ociosa: Zod cubre el borde HTTP, el CHECK cubre
@@ -36,8 +36,8 @@ const capacitySchema = z.coerce
   .min(1, "capacity debe ser al menos 1");
 
 const createServiceTypeSchema = z.object({
-  branchId: z.string().uuid("branchId inválido"),
-  resourceId: z.string().uuid("resourceId inválido"),
+  branchId: z.string().guid("branchId inválido"),
+  resourceId: z.string().guid("resourceId inválido"),
   name: z
     .string()
     .trim()
@@ -53,8 +53,8 @@ const createServiceTypeSchema = z.object({
 // pipelineId/stageId.
 const updateServiceTypeSchema = z
   .object({
-    branchId: z.string().uuid("branchId inválido"),
-    resourceId: z.string().uuid("resourceId inválido"),
+    branchId: z.string().guid("branchId inválido"),
+    resourceId: z.string().guid("resourceId inválido"),
     name: z
       .string()
       .trim()
@@ -73,8 +73,8 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().trim().min(1).optional(),
-  branchId: z.string().uuid("branchId inválido").optional(),
-  resourceId: z.string().uuid("resourceId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
+  resourceId: z.string().guid("resourceId inválido").optional(),
   sortBy: z.enum(["name", "createdAt", "durationMin"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });

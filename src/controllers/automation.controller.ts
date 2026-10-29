@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { mensajesDeTipo } from "../utils/erroresDeZod";
 import { deleteAutomation } from "../services/automation.service";
 import {
   actualizarReglaConMensaje,
@@ -23,7 +24,7 @@ import { parseOrThrow } from "../utils/validation";
 // depende de registros que viven en código y no de una lista fija de zod.
 // ---------------------------------------------------------------------------
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const nameSchema = z
   .string()
@@ -48,17 +49,23 @@ const actionTypeSchema = z
 // Objeto JSON plano: z.record rechaza arrays y null. El CONTENIDO lo valida
 // el service contra el schema de la acción elegida — mismo reparto que
 // guardrails en agent.controller.ts.
-const actionConfigSchema = z.record(z.string(), z.unknown(), {
-  invalid_type_error: "actionConfig debe ser un objeto JSON",
-  required_error: "actionConfig es requerido",
-});
+const actionConfigSchema = z.record(
+  z.string(),
+  z.unknown(),
+  mensajesDeTipo({
+    requerido: "actionConfig es requerido",
+    tipo: "actionConfig debe ser un objeto JSON",
+  }),
+);
 
 // Misma forma que actionConfig, del lado del trigger (ítem 76). Opcional en el
 // alta: un trigger sin configuración (opportunity.won) no la necesita, y el
 // service valida el contenido contra el schema del trigger elegido.
-const triggerConfigSchema = z.record(z.string(), z.unknown(), {
-  invalid_type_error: "triggerConfig debe ser un objeto JSON",
-});
+const triggerConfigSchema = z.record(
+  z.string(),
+  z.unknown(),
+  mensajesDeTipo({ tipo: "triggerConfig debe ser un objeto JSON" }),
+);
 
 const createAutomationSchema = z.object({
   name: nameSchema,

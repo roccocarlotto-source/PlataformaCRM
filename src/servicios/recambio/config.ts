@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import { sumarMesesAUnaFecha } from "../proximoService";
 
 // ---------------------------------------------------------------------------
@@ -22,13 +23,13 @@ export const MARGEN_DEL_RECAMBIO = 7;
 
 export const configDelRecambioSchema = z.object({
   monthsAfterPurchase: z
-    .number({ invalid_type_error: "monthsAfterPurchase debe ser un número entero" })
+    .number(mensajesDeTipo({ tipo: "monthsAfterPurchase debe ser un número entero" }))
     .int("monthsAfterPurchase debe ser un número entero")
     .min(12, "monthsAfterPurchase no puede ser menor que 12")
     .max(120, "monthsAfterPurchase no puede superar 120")
     .default(MESES_HASTA_EL_RECAMBIO),
   daysBefore: z
-    .number({ invalid_type_error: "daysBefore debe ser un número entero" })
+    .number(mensajesDeTipo({ tipo: "daysBefore debe ser un número entero" }))
     .int("daysBefore debe ser un número entero")
     .min(0, "daysBefore no puede ser negativo")
     .max(180, "daysBefore no puede superar 180")

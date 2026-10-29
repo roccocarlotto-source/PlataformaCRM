@@ -12,7 +12,7 @@ import { parseOrThrow } from "../utils/validation";
 // recarga de los de ejemplo (src/services/reinicioDeDemo.service.ts). 202 con
 // el estado; 400 si la organización no es una demo, 409 si ya se está
 // reiniciando o algo impide la recarga.
-const organizationIdSchema = z.string().uuid("organizationId inválido");
+const organizationIdSchema = z.string().guid("organizationId inválido");
 
 export const reiniciarDemoHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {

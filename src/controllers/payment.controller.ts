@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { estricto, mensajesDeTipo } from "../utils/erroresDeZod";
 import {
   createPayment,
   deletePayment,
@@ -12,7 +13,7 @@ import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
 import { MAX_AMOUNT, parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // z.number() y NO z.coerce.number(), mismo motivo que Opportunity.amount
 // (M-9): el body es JSON, y coerce convertiría un null en 0 sin avisar.
@@ -22,15 +23,12 @@ const idParamSchema = z.string().uuid("id inválido");
 // como 0.00 y el CHECK payments_amount_positive_check lo devolvería como 500.
 // Con 0.01 el borde y la base dicen lo mismo.
 const amountSchema = z
-  .number({
-    required_error: "amount es requerido",
-    invalid_type_error: "amount debe ser un número",
-  })
+  .number(mensajesDeTipo({ requerido: "amount es requerido", tipo: "amount debe ser un número" }))
   .min(0.01, "amount debe ser mayor a 0")
   .max(MAX_AMOUNT, "amount supera el máximo permitido");
 
 const methodSchema = z.enum(["CASH", "TRANSFER", "CARD", "CHECK", "OTHER"], {
-  errorMap: () => ({ message: "method debe ser CASH, TRANSFER, CARD, CHECK u OTHER" }),
+  error: () => "method debe ser CASH, TRANSFER, CARD, CHECK u OTHER",
 });
 
 // Fecha sola ("2026-09-30"), obligatoria. No z.coerce.date() a secas:
@@ -38,10 +36,12 @@ const methodSchema = z.enum(["CASH", "TRANSFER", "CARD", "CHECK", "OTHER"], {
 // new Date("2026-02-30") no falla sino que corre al 2 de marzo. Se exige el
 // formato YYYY-MM-DD y que la fecha exista de verdad (ida y vuelta igual).
 const paidAtSchema = z
-  .string({
-    required_error: "paidAt es requerido",
-    invalid_type_error: "paidAt debe ser una fecha YYYY-MM-DD",
-  })
+  .string(
+    mensajesDeTipo({
+      requerido: "paidAt es requerido",
+      tipo: "paidAt debe ser una fecha YYYY-MM-DD",
+    }),
+  )
   .regex(/^\d{4}-\d{2}-\d{2}$/, "paidAt debe ser una fecha YYYY-MM-DD")
   .transform((value, ctx) => {
     const date = new Date(`${value}T00:00:00.000Z`);
@@ -61,13 +61,13 @@ const paidAtSchema = z
 export const createPaymentSchema = z
   .object({
     opportunityId: z
-      .string({ required_error: "opportunityId es requerido" })
-      .uuid("opportunityId inválido"),
+      .string(mensajesDeTipo({ requerido: "opportunityId es requerido" }))
+      .guid("opportunityId inválido"),
     amount: amountSchema,
     method: methodSchema,
     paidAt: paidAtSchema,
   })
-  .strict("campo no permitido en el pago");
+  .apply(estricto("campo no permitido en el pago"));
 
 // opportunityId y currency NO son editables: .strict() los rechaza con 400 en
 // vez de ignorarlos en silencio, para que nadie crea que movió un pago de
@@ -79,7 +79,7 @@ export const updatePaymentSchema = z
     paidAt: paidAtSchema,
   })
   .partial()
-  .strict("campo no permitido en el pago: solo se editan amount, method y paidAt")
+  .apply(estricto("campo no permitido en el pago: solo se editan amount, method y paidAt"))
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",
   });
@@ -88,8 +88,8 @@ const listQuerySchema = z.object({
   // Obligatorio: el historial es de UNA oportunidad. No hay listado global de
   // pagos.
   opportunityId: z
-    .string({ required_error: "opportunityId es requerido" })
-    .uuid("opportunityId inválido"),
+    .string(mensajesDeTipo({ requerido: "opportunityId es requerido" }))
+    .guid("opportunityId inválido"),
   // Tope de cordura, el mismo que el resto de los listados — B-21.
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(50),

@@ -15,7 +15,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { verificarState } from "../utils/oauthState";
 import { parseOrThrow } from "../utils/validation";
 
-const branchIdParamSchema = z.string().uuid("branchId inválido");
+const branchIdParamSchema = z.string().guid("branchId inválido");
 
 // ---------------------------------------------------------------------------
 // Los tres endpoints autenticados (ADMIN) + el callback público.

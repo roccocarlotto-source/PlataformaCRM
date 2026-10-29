@@ -1,6 +1,7 @@
 import { BookingStatus } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { enumNativo } from "../utils/erroresDeZod";
 import { obtenerDisponibilidad, MAX_DIAS_DE_RANGO } from "../services/availability.service";
 import {
   cancelBooking,
@@ -13,7 +14,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // z.coerce.date() sobre un ISO-8601. Se exige la zona (offset o Z) revisando la
 // cadena ANTES de coaccionar: `new Date("2026-09-07T09:00")` la interpreta en la
@@ -37,8 +38,8 @@ export const instanteSchema = z
 
 const disponibilidadQuerySchema = z
   .object({
-    resourceId: z.string().uuid("resourceId inválido"),
-    serviceTypeId: z.string().uuid("serviceTypeId inválido"),
+    resourceId: z.string().guid("resourceId inválido"),
+    serviceTypeId: z.string().guid("serviceTypeId inválido"),
     from: instanteSchema,
     to: instanteSchema,
   })
@@ -89,10 +90,10 @@ export const getAvailabilityHandler = asyncHandler<AuthenticatedRequest>(
 // grilla para todos los demás. Que no esté en el schema es lo que convierte esa
 // decisión en un 400 y no en un campo ignorado en silencio.
 const createBookingSchema = z.object({
-  resourceId: z.string().uuid("resourceId inválido"),
-  serviceTypeId: z.string().uuid("serviceTypeId inválido"),
-  contactId: z.string().uuid("contactId inválido"),
-  opportunityId: z.string().uuid("opportunityId inválido").optional(),
+  resourceId: z.string().guid("resourceId inválido"),
+  serviceTypeId: z.string().guid("serviceTypeId inválido"),
+  contactId: z.string().guid("contactId inválido"),
+  opportunityId: z.string().guid("opportunityId inválido").optional(),
   startsAt: instanteSchema,
   // Ítem 77: solo ADMIN. El rol se verifica en el service contra req.auth (403
   // si no es ADMIN), no acá ni en el frontend.
@@ -103,15 +104,13 @@ const listQuerySchema = z.object({
   // Tope de cordura, el mismo que ingestionEvent (S2-5) — B-21.
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
-  branchId: z.string().uuid("branchId inválido").optional(),
-  resourceId: z.string().uuid("resourceId inválido").optional(),
-  serviceTypeId: z.string().uuid("serviceTypeId inválido").optional(),
-  contactId: z.string().uuid("contactId inválido").optional(),
-  status: z
-    .nativeEnum(BookingStatus, {
-      errorMap: () => ({ message: "status debe ser CONFIRMED, CANCELLED, COMPLETED o NO_SHOW" }),
-    })
-    .optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
+  resourceId: z.string().guid("resourceId inválido").optional(),
+  serviceTypeId: z.string().guid("serviceTypeId inválido").optional(),
+  contactId: z.string().guid("contactId inválido").optional(),
+  status: enumNativo(BookingStatus, {
+    error: () => "status debe ser CONFIRMED, CANCELLED, COMPLETED o NO_SHOW",
+  }).optional(),
   from: instanteSchema.optional(),
   to: instanteSchema.optional(),
   sortBy: z.enum(["startsAt", "createdAt"]).default("startsAt"),

@@ -115,7 +115,7 @@ const emailPorRequest = new WeakMap<Request, string>();
 
 function crearKeyingPorEmail<T extends { email: string }>(
   limiterName: string,
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  schema: z.ZodType<T, unknown>,
 ) {
   return {
     skip: (req: Request): boolean => {

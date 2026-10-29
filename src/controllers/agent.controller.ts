@@ -2,6 +2,7 @@ import { LARGO_MAXIMO_DEL_AVISO } from "../services/avisoSinRespuesta.service";
 import { AgentParticipation, ConversationChannel } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { enumNativo, mensajesDeTipo } from "../utils/erroresDeZod";
 import {
   enabledToolsSchema,
   modelNameSchema,
@@ -22,16 +23,14 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { normalizeOrigin } from "../utils/origin";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
-// z.nativeEnum sobre el enum real de Prisma, no literales a mano: si
+// enumNativo (z.nativeEnum) sobre el enum real de Prisma, no literales a mano: si
 // ConversationChannel cambia en schema.prisma, este schema se actualiza solo.
 // Mismo patrón que resourceTypeSchema — y el mensaje de error también sale del
 // enum, para que no quede desactualizado (ítem 169 sumó INSTAGRAM y MESSENGER).
-const channelSchema = z.nativeEnum(ConversationChannel, {
-  errorMap: () => ({
-    message: `channels solo admite ${Object.values(ConversationChannel).join(", ")}`,
-  }),
+const channelSchema = enumNativo(ConversationChannel, {
+  error: () => `channels solo admite ${Object.values(ConversationChannel).join(", ")}`,
 });
 
 const channelsSchema = z.array(channelSchema).transform(sinDuplicados);
@@ -42,10 +41,14 @@ const channelsSchema = z.array(channelSchema).transform(sinDuplicados);
 // no impuesta —mismo criterio que Contact.customFields—, y quien la lee es
 // puedeEjecutarTool en 2b, que tiene que tolerar claves ausentes de todos
 // modos.
-const guardrailsSchema = z.record(z.string(), z.unknown(), {
-  invalid_type_error: "guardrails debe ser un objeto JSON",
-  required_error: "guardrails es requerido (puede ser {})",
-});
+const guardrailsSchema = z.record(
+  z.string(),
+  z.unknown(),
+  mensajesDeTipo({
+    requerido: "guardrails es requerido (puede ser {})",
+    tipo: "guardrails debe ser un objeto JSON",
+  }),
+);
 
 // El mismo objeto de §6, pero EN LAS PALABRAS DEL ADMIN (ítem 56). Es lo que
 // la pantalla muestra y vuelve a editar; el enforcement sigue siendo 100%
@@ -54,10 +57,12 @@ const guardrailsSchema = z.record(z.string(), z.unknown(), {
 // el mismo que el de `message` en testMessageSchema — es texto que va a viajar
 // a un LLM.
 const guardrailsTextSchema = z
-  .string({
-    invalid_type_error: "guardrailsText debe ser texto",
-    required_error: 'guardrailsText es requerido (puede ser "")',
-  })
+  .string(
+    mensajesDeTipo({
+      requerido: 'guardrailsText es requerido (puede ser "")',
+      tipo: "guardrailsText debe ser texto",
+    }),
+  )
   .trim()
   .max(4000, "guardrailsText no puede superar los 4000 caracteres");
 
@@ -122,7 +127,7 @@ const toneSchema = z.string().trim().max(100, "tone no puede superar los 100 car
 // más que eso deja de ser "nadie respondió a tiempo". Mismo rango que el CHECK
 // de la base.
 const unansweredHandoffNoticeMinutesSchema = z
-  .number({ invalid_type_error: "unansweredHandoffNoticeMinutes debe ser un número" })
+  .number(mensajesDeTipo({ tipo: "unansweredHandoffNoticeMinutes debe ser un número" }))
   .int("unansweredHandoffNoticeMinutes debe ser un número entero de minutos")
   .min(0, "unansweredHandoffNoticeMinutes no puede ser negativo")
   .max(1440, "unansweredHandoffNoticeMinutes no puede superar un día (1440 minutos)");
@@ -131,7 +136,7 @@ const unansweredHandoffNoticeMinutesSchema = z
 // siempre (null). Hasta 500 caracteres, el tope de la columna. La frase del
 // horario NO va acá: se agrega sola fuera de horario (textoDelAviso).
 const unansweredHandoffNoticeTextSchema = z
-  .string({ invalid_type_error: "unansweredHandoffNoticeText debe ser un texto" })
+  .string(mensajesDeTipo({ tipo: "unansweredHandoffNoticeText debe ser un texto" }))
   .trim()
   .max(
     LARGO_MAXIMO_DEL_AVISO,
@@ -141,15 +146,13 @@ const unansweredHandoffNoticeTextSchema = z
 
 // Los niveles que el backend sabe aplicar. BORRADOR es la fase 2 (D4): no
 // está en el enum.
-const participationSchema = z.nativeEnum(AgentParticipation, {
-  errorMap: () => ({
-    message:
-      "participation inválido: elegí AUTONOMA, PRIMER_CONTACTO o SOLO_SEGUIMIENTO (un nivel elegido no vuelve a quedar sin elegir)",
-  }),
+const participationSchema = enumNativo(AgentParticipation, {
+  error: () =>
+    "participation inválido: elegí AUTONOMA, PRIMER_CONTACTO o SOLO_SEGUIMIENTO (un nivel elegido no vuelve a quedar sin elegir)",
 });
 
 const createAgentSchema = z.object({
-  branchId: z.string().uuid("branchId inválido"),
+  branchId: z.string().guid("branchId inválido"),
   name: nameSchema,
   goal: goalSchema.nullish(),
   instructions: instructionsSchema,
@@ -218,7 +221,7 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().trim().min(1).optional(),
-  branchId: z.string().uuid("branchId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
   // Llega como string en la query; "true"/"false" y nada más.
   isActive: z
     .enum(["true", "false"])
@@ -295,7 +298,7 @@ export const deleteAgentHandler = asyncHandler<AuthenticatedRequest>(async (req,
 // conversación es un parámetro (default WEB, el primer canal real del plan).
 // ---------------------------------------------------------------------------
 const testMessageSchema = z.object({
-  contactId: z.string().uuid("contactId inválido"),
+  contactId: z.string().guid("contactId inválido"),
   message: z
     .string()
     .trim()

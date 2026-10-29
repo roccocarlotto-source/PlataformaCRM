@@ -1,5 +1,6 @@
 import { OpportunityStatus, type Branch, type Opportunity } from "@prisma/client";
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import { logger } from "../../lib/logger";
 import { findBranchById } from "../../repositories/branch.repository";
 import {
@@ -47,26 +48,25 @@ export const MAX_EXPIRES_IN_DAYS = 365;
 export const configDeCuponSchema = z
   .object({
     label: z
-      .string({
-        required_error: "label es requerido",
-        invalid_type_error: "label debe ser un texto",
-      })
+      .string(mensajesDeTipo({ requerido: "label es requerido", tipo: "label debe ser un texto" }))
       .trim()
       .min(1, "label es requerido")
       .max(MAX_LABEL_LENGTH, `label no puede superar los ${MAX_LABEL_LENGTH} caracteres`),
     // delayMinutes, o delayHours en una regla vieja (demoraDelEnvio.ts).
     ...camposDeLaDemora,
     expiresInDays: z
-      .number({
-        required_error: "expiresInDays es requerido",
-        invalid_type_error: "expiresInDays debe ser un número entero",
-      })
+      .number(
+        mensajesDeTipo({
+          requerido: "expiresInDays es requerido",
+          tipo: "expiresInDays debe ser un número entero",
+        }),
+      )
       .int("expiresInDays debe ser un número entero")
       .min(1, "expiresInDays tiene que ser al menos 1")
       .max(MAX_EXPIRES_IN_DAYS, `expiresInDays no puede superar los ${MAX_EXPIRES_IN_DAYS} días`),
     branchId: z
-      .string({ required_error: "branchId es requerido" })
-      .uuid("branchId debe ser un UUID"),
+      .string(mensajesDeTipo({ requerido: "branchId es requerido" }))
+      .guid("branchId debe ser un UUID"),
     // Formato y texto del WhatsApp (mensajeDeWhatsapp.ts). Para el cupón, la
     // imagen es el QR de ESE cupón: el que se escanea en "Canjear cupón".
     ...camposDelMensajeDeWhatsapp,

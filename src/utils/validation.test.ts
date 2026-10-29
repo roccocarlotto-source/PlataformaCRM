@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
+import { mensajesDeTipo } from "./erroresDeZod";
 import { AppError } from "./AppError";
 import { parseOrThrow } from "./validation";
 
@@ -57,7 +58,7 @@ test("largos, rangos y formatos, sin una palabra en inglés", () => {
     codigo: z.string().min(3),
     edad: z.number().min(18).max(99),
     email: z.string().email(),
-    id: z.string().uuid(),
+    id: z.string().guid(),
     items: z.array(z.number()).min(1).max(2),
   });
   const mensaje = mensajeDe(schema, {
@@ -102,7 +103,7 @@ test("un campo anidado se nombra con su ruta", () => {
 
 test("el mensaje que escribe el propio schema no se toca", () => {
   const schema = z.object({
-    branchId: z.string().uuid("branchId inválido"),
+    branchId: z.string().guid("branchId inválido"),
     nombre: z.string().min(1, "El nombre es obligatorio"),
     rango: z.number().refine((n) => n % 2 === 0, { message: "Tiene que ser par" }),
   });
@@ -114,12 +115,16 @@ test("el mensaje que escribe el propio schema no se toca", () => {
 
 test("tampoco se tocan los mensajes declarados con required_error, invalid_type_error o un errorMap del schema", () => {
   const schema = z.object({
-    guardrails: z.record(z.unknown(), {
-      required_error: "guardrails es requerido",
-      invalid_type_error: "guardrails debe ser un objeto JSON",
-    }),
+    guardrails: z.record(
+      z.string(),
+      z.unknown(),
+      mensajesDeTipo({
+        requerido: "guardrails es requerido",
+        tipo: "guardrails debe ser un objeto JSON",
+      }),
+    ),
     granularity: z.enum(["month", "week", "day"], {
-      errorMap: () => ({ message: "granularity debe ser month, week o day" }),
+      error: () => "granularity debe ser month, week o day",
     }),
   });
   assert.equal(

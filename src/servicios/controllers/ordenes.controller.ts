@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import type { AuthenticatedRequest } from "../../types/auth";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { currencySchema, MAX_AMOUNT, parseOrThrow } from "../../utils/validation";
@@ -23,7 +24,7 @@ import {
 // órdenes (D9).
 // ---------------------------------------------------------------------------
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const texto = (max: number, campo: string) =>
   z
@@ -50,7 +51,7 @@ const montoSchema = z
     "el monto admite hasta dos decimales",
   );
 
-const instanteSchema = z.coerce.date({ invalid_type_error: "fecha inválida" });
+const instanteSchema = z.coerce.date(mensajesDeTipo({ tipo: "fecha inválida" }));
 
 const fechaSchema = z
   .string()
@@ -60,30 +61,30 @@ const fechaSchema = z
     return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v;
   }, "fecha inválida");
 
-const tiposSchema = z.array(z.string().uuid("tipo inválido")).max(20);
+const tiposSchema = z.array(z.string().guid("tipo inválido")).max(20);
 
 export const crearOrdenSchema = z.object({
-  customerVehicleId: z.string().uuid("customerVehicleId inválido"),
-  contactId: z.string().uuid("contactId inválido").optional(),
-  branchId: z.string().uuid("branchId inválido").optional(),
+  customerVehicleId: z.string().guid("customerVehicleId inválido"),
+  contactId: z.string().guid("contactId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
   estado: z
     .enum(ESTADOS_INICIALES as [string, ...string[]])
     .transform((v) => v as "AGENDADO" | "RECIBIDO"),
   scheduledFor: instanteSchema.nullable().optional(),
   mileageIn: kmSchema.nullable().optional(),
-  assigneeId: z.string().uuid("assigneeId inválido").nullable().optional(),
+  assigneeId: z.string().guid("assigneeId inválido").nullable().optional(),
   jobTypeIds: tiposSchema.optional(),
   notes: texto(8000, "notes"),
   damageNotes: texto(4000, "damageNotes"),
   amount: montoSchema.nullable().optional(),
   currency: currencySchema.nullable().optional(),
   // El turno de la agenda (§4.4, S4b).
-  bookingId: z.string().uuid("bookingId inválido").optional(),
+  bookingId: z.string().guid("bookingId inválido").optional(),
 });
 
 export const actualizarOrdenSchema = z
   .object({
-    assigneeId: z.string().uuid("assigneeId inválido").nullable(),
+    assigneeId: z.string().guid("assigneeId inválido").nullable(),
     scheduledFor: instanteSchema.nullable(),
     mileageIn: kmSchema.nullable(),
     damageNotes: texto(4000, "damageNotes"),
@@ -92,7 +93,7 @@ export const actualizarOrdenSchema = z
     currency: currencySchema.nullable(),
     jobTypeIds: tiposSchema,
     // Vincular (id) o desvincular (null) el turno.
-    bookingId: z.string().uuid("bookingId inválido").nullable(),
+    bookingId: z.string().guid("bookingId inválido").nullable(),
   })
   .partial()
   .strict()
@@ -137,10 +138,10 @@ export const listarOrdenesQuerySchema = z.object({
   // El tablero pide todas las abiertas de una vez: tope 200.
   pageSize: z.coerce.number().int().positive().max(200).default(20),
   estados: listaDeEstados.optional(),
-  branchId: z.string().uuid("branchId inválido").optional(),
-  assigneeId: z.string().uuid("assigneeId inválido").optional(),
-  customerVehicleId: z.string().uuid("customerVehicleId inválido").optional(),
-  bookingId: z.string().uuid("bookingId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
+  assigneeId: z.string().guid("assigneeId inválido").optional(),
+  customerVehicleId: z.string().guid("customerVehicleId inválido").optional(),
+  bookingId: z.string().guid("bookingId inválido").optional(),
   desde: instanteSchema.optional(),
   hasta: instanteSchema.optional(),
   q: z.string().trim().min(1).max(100).optional(),
@@ -200,7 +201,7 @@ export const listarUsuariosHandler = asyncHandler<AuthenticatedRequest>(
 );
 
 const turnosQuerySchema = z.object({
-  contactId: z.string().uuid("contactId inválido"),
+  contactId: z.string().guid("contactId inválido"),
 });
 
 // GET /api/servicios/turnos?contactId=: los turnos que se pueden vincular a

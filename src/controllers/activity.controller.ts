@@ -1,6 +1,7 @@
 import { ActivityType, type OrganizationIndustry } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { enumNativo } from "../utils/erroresDeZod";
 import {
   createActivityAsActor,
   deleteActivity,
@@ -16,7 +17,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // R20 (docs/rubros.md §11.2): activities.branch_id es de las clínicas. Una
 // automotora recibe la tarea con las claves de antes (camposDeClinica.ts). Y
@@ -33,10 +34,10 @@ function paraElRubro<T extends object>(
   );
 }
 
-// z.nativeEnum sobre el enum real de Prisma: si ActivityType cambia en
+// enumNativo (z.nativeEnum) sobre el enum real de Prisma: si ActivityType cambia en
 // schema.prisma, este schema se actualiza solo, sin duplicar los valores a
 // mano (a diferencia de OpportunityStatus en opportunity.controller.ts).
-const activityTypeSchema = z.nativeEnum(ActivityType);
+const activityTypeSchema = enumNativo(ActivityType);
 
 // Campos compartidos entre create y update que nunca cambian de
 // nullability entre ambos (type nunca se limpia, subject nunca se limpia).
@@ -55,10 +56,10 @@ const createActivitySchema = z
     body: z.string().trim().min(1).optional(),
     dueDate: z.coerce.date().optional(),
     completedAt: z.coerce.date().optional(),
-    assigneeId: z.string().uuid("assigneeId inválido").optional(),
-    companyId: z.string().uuid("companyId inválido").optional(),
-    contactId: z.string().uuid("contactId inválido").optional(),
-    opportunityId: z.string().uuid("opportunityId inválido").optional(),
+    assigneeId: z.string().guid("assigneeId inválido").optional(),
+    companyId: z.string().guid("companyId inválido").optional(),
+    contactId: z.string().guid("contactId inválido").optional(),
+    opportunityId: z.string().guid("opportunityId inválido").optional(),
   })
   .refine(
     (data) => Boolean(data.companyId) || Boolean(data.contactId) || Boolean(data.opportunityId),
@@ -81,10 +82,10 @@ const updateActivitySchema = z
     body: z.string().trim().min(1).nullable().optional(),
     dueDate: z.coerce.date().nullable().optional(),
     completedAt: z.coerce.date().nullable().optional(),
-    assigneeId: z.string().uuid("assigneeId inválido").nullable().optional(),
-    companyId: z.string().uuid("companyId inválido").nullable().optional(),
-    contactId: z.string().uuid("contactId inválido").nullable().optional(),
-    opportunityId: z.string().uuid("opportunityId inválido").nullable().optional(),
+    assigneeId: z.string().guid("assigneeId inválido").nullable().optional(),
+    companyId: z.string().guid("companyId inválido").nullable().optional(),
+    contactId: z.string().guid("contactId inválido").nullable().optional(),
+    opportunityId: z.string().guid("opportunityId inválido").nullable().optional(),
     // §29: acción de Confirmar (true) / Rechazar (false), solo ADMIN. Nunca
     // confirmedAt/confirmedById: los calcula el service (ver
     // UpdateActivityInput en activity.service.ts).
@@ -102,11 +103,11 @@ const listQuerySchema = z
     pageSize: z.coerce.number().int().positive().max(100).default(20),
     search: z.string().trim().min(1).optional(),
     type: activityTypeSchema.optional(),
-    authorId: z.string().uuid("authorId inválido").optional(),
-    assigneeId: z.string().uuid("assigneeId inválido").optional(),
-    companyId: z.string().uuid("companyId inválido").optional(),
-    contactId: z.string().uuid("contactId inválido").optional(),
-    opportunityId: z.string().uuid("opportunityId inválido").optional(),
+    authorId: z.string().guid("authorId inválido").optional(),
+    assigneeId: z.string().guid("assigneeId inválido").optional(),
+    companyId: z.string().guid("companyId inválido").optional(),
+    contactId: z.string().guid("contactId inválido").optional(),
+    opportunityId: z.string().guid("opportunityId inválido").optional(),
     dueDateFrom: z.coerce.date().optional(),
     dueDateTo: z.coerce.date().optional(),
     completedAtFrom: z.coerce.date().optional(),

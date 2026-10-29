@@ -26,7 +26,7 @@ import { parseOrThrow } from "../utils/validation";
 // viven en el service; acá solo la forma del request.
 // ---------------------------------------------------------------------------
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const etiqueta = z
   .string()

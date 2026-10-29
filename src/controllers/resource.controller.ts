@@ -1,6 +1,7 @@
 import { ResourceType } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { enumNativo } from "../utils/erroresDeZod";
 import {
   createResource,
   deleteResource,
@@ -13,19 +14,19 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
-// z.nativeEnum sobre el enum real de Prisma, no literales a mano: si
+// enumNativo (z.nativeEnum) sobre el enum real de Prisma, no literales a mano: si
 // ResourceType cambia en schema.prisma, este schema se actualiza solo. Es el
 // patrón correcto que ALTO-12 señala como ya presente en activity.controller.ts
 // e invitation.controller.ts — y el que NO se aplicó a LifecycleStage ni a
 // OpportunityStatus. Esta entidad nace con él.
-const resourceTypeSchema = z.nativeEnum(ResourceType, {
-  errorMap: () => ({ message: "type debe ser PERSON, ROOM o CLASS" }),
+const resourceTypeSchema = enumNativo(ResourceType, {
+  error: () => "type debe ser PERSON, ROOM o CLASS",
 });
 
 const createResourceSchema = z.object({
-  branchId: z.string().uuid("branchId inválido"),
+  branchId: z.string().guid("branchId inválido"),
   name: z
     .string()
     .trim()
@@ -56,7 +57,7 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().trim().min(1).optional(),
-  branchId: z.string().uuid("branchId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
   type: resourceTypeSchema.optional(),
   sortBy: z.enum(["name", "createdAt", "type"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),

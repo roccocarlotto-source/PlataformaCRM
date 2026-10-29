@@ -1,21 +1,20 @@
 import { Weekday } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { enumNativo } from "../utils/erroresDeZod";
 import { getWorkingHours, replaceWorkingHoursForResource } from "../services/workingHours.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 import { minutosDesdeHoraLocal } from "../utils/workingHours";
 
-const resourceIdParamSchema = z.string().uuid("resourceId inválido");
+const resourceIdParamSchema = z.string().guid("resourceId inválido");
 
-// z.nativeEnum sobre el enum real de Prisma, no literales a mano: si Weekday
+// enumNativo (z.nativeEnum) sobre el enum real de Prisma, no literales a mano: si Weekday
 // cambia en schema.prisma este schema se actualiza solo. Es el patrón que
 // ALTO-12 señaló y que resource.controller.ts ya aplica a ResourceType.
-const weekdaySchema = z.nativeEnum(Weekday, {
-  errorMap: () => ({
-    message: "weekday debe ser MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY o SUNDAY",
-  }),
+const weekdaySchema = enumNativo(Weekday, {
+  error: () => "weekday debe ser MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY o SUNDAY",
 });
 
 // LA API HABLA "HH:MM" y la base guarda minutos. La traducción vive acá, en el

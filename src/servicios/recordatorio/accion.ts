@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import { logger } from "../../lib/logger";
 import type { AccionRegistrada } from "../../services/automationActions";
 import {
@@ -22,15 +23,17 @@ import { encolarRecordatorio } from "./repository";
 export const configDelRecordatorioDelServiceSchema = z
   .object({
     messageText: z
-      .string({
-        required_error: "messageText es requerido",
-        invalid_type_error: "messageText debe ser un texto",
-      })
+      .string(
+        mensajesDeTipo({
+          requerido: "messageText es requerido",
+          tipo: "messageText debe ser un texto",
+        }),
+      )
       .trim()
       .min(1, "messageText es requerido")
       .max(LARGO_MAXIMO_DEL_CUERPO * 2, "messageText es demasiado largo"),
     tareaSiNoTieneWhatsapp: z
-      .boolean({ invalid_type_error: "tareaSiNoTieneWhatsapp debe ser verdadero o falso" })
+      .boolean(mensajesDeTipo({ tipo: "tareaSiNoTieneWhatsapp debe ser verdadero o falso" }))
       .default(true),
   })
   .superRefine((config, ctx) => {
@@ -46,11 +49,11 @@ export type ConfigDelRecordatorioDelService = z.infer<typeof configDelRecordator
 
 /** El payload del evento service.next_service_due (barrido.ts). */
 export const payloadDelAvisoSchema = z.object({
-  automationId: z.string().uuid(),
-  noticeId: z.string().uuid(),
-  customerVehicleId: z.string().uuid(),
-  contactId: z.string().uuid(),
-  branchId: z.string().uuid().nullable(),
+  automationId: z.string().guid(),
+  noticeId: z.string().guid(),
+  customerVehicleId: z.string().guid(),
+  contactId: z.string().guid(),
+  branchId: z.string().guid().nullable(),
   nextServiceDueOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 

@@ -83,20 +83,6 @@ const EXCEPCIONES: Excepcion[] = [
       "arreglo no disruptivo — `npm audit fix --force` degradaría exceljs a 3.4.0.",
     hallazgo: "S-1, docs-privados/review-ingesta-2026-08-27.md",
   },
-  {
-    ghsa: "GHSA-mrhx-c7xc-m3w5",
-    paquete: "zod",
-    workspace: "backend",
-    motivo:
-      "El arreglo es zod 4 (versión mayor, ~85 archivos). Mientras tanto, todo cuerpo JSON pasa " +
-      "por el límite de tamaño de listas de src/middlewares/bodyParserError.ts " +
-      "(MAX_ELEMENTOS_DE_LISTA_POR_PEDIDO = 2000 elementos en total) antes de llegar a zod, en " +
-      "los cuatro parsers JSON (global, webhooks, ingesta y widget); medido, el peor caso queda " +
-      "en unos MB por pedido. Las importaciones grandes llegan como archivo. TEMPORAL: vence en " +
-      "30 días; la tarea de migrar a zod 4 está anotada.",
-    hallazgo: "docs-privados/arreglos-tanda-1/ESTADO.md (local), decisión de Rocco del 26/10",
-    vence: "2026-11-25",
-  },
 ];
 
 // Severidades que bloquean. `moderate` y por debajo se reportan en el resumen

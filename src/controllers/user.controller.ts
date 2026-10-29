@@ -7,7 +7,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // Los tres roles que conoce el sistema; cuál admite la organización lo decide
 // su rubro (exigirRolDelRubro, docs/rubros.md §11.1).
@@ -41,7 +41,7 @@ const updateUserSchema = z
     canUseInternalAgent: z.boolean(),
     // Las sedes de una Recepción de clínica (docs/rubros.md §11.5, R20). En
     // una automotora se ignora.
-    branchIds: z.array(z.string().uuid("branchId inválido")).max(100),
+    branchIds: z.array(z.string().guid("branchId inválido")).max(100),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {

@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { mensajesDeTipo } from "../utils/erroresDeZod";
 import {
   enabledToolsSchema,
   modelNameSchema,
@@ -42,7 +43,7 @@ const putInternalAgentSchema = z.object({
 // a viajar a un LLM.
 const postMessageSchema = z.object({
   content: z
-    .string({ required_error: "content es requerido" })
+    .string(mensajesDeTipo({ requerido: "content es requerido" }))
     .trim()
     .min(1, "content es requerido")
     .max(4000, "content no puede superar los 4000 caracteres"),

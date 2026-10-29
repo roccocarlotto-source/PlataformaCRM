@@ -13,18 +13,18 @@ import {
 // Recambios vencidos sin contactar (docs/servicios.md §7.4, S13). ADMIN y
 // USER, con el módulo (gate en `authenticate`).
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 const accionSchema = z.enum(ACCIONES_DEL_RECAMBIO, {
-  errorMap: () => ({ message: "accion tiene que ser TAREA o CONTACTADO" }),
+  error: () => "accion tiene que ser TAREA o CONTACTADO",
 });
 
 export const listarRecambiosQuerySchema = z.object({
   estado: z.literal("vencidos", {
-    errorMap: () => ({ message: "estado tiene que ser vencidos" }),
+    error: () => "estado tiene que ser vencidos",
   }),
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(50),
-  branchId: z.string().uuid("branchId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
 });
 
 export const listarRecambiosHandler = asyncHandler<AuthenticatedRequest>(

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mensajesDeTipo } from "../utils/erroresDeZod";
 import type { Modulo } from "../config/ediciones";
 import { TRIGGER_BOOKING_REMINDER_DUE as TRIGGER_DEL_RECORDATORIO } from "../clinicas/recordatorios/config";
 import {
@@ -120,10 +121,12 @@ export const configDeOportunidadGanadaSchema = z.object({});
 // esperar días; el tope de 365 es de cordura, igual que el de daysUntilDue.
 export const configDeOportunidadEstancadaSchema = z.object({
   daysWithoutActivity: z
-    .number({
-      required_error: "daysWithoutActivity es requerido",
-      invalid_type_error: "daysWithoutActivity debe ser un número entero",
-    })
+    .number(
+      mensajesDeTipo({
+        requerido: "daysWithoutActivity es requerido",
+        tipo: "daysWithoutActivity debe ser un número entero",
+      }),
+    )
     .int("daysWithoutActivity debe ser un número entero")
     .min(0, "daysWithoutActivity no puede ser negativo")
     .max(365, "daysWithoutActivity no puede superar los 365 días"),
@@ -143,13 +146,13 @@ export const MAX_SEGUIMIENTOS_TOPE = 20;
 
 export const configDeConsultaSinAvanceSchema = z.object({
   daysSinceLastMessage: z
-    .number({ invalid_type_error: "daysSinceLastMessage debe ser un número entero" })
+    .number(mensajesDeTipo({ tipo: "daysSinceLastMessage debe ser un número entero" }))
     .int("daysSinceLastMessage debe ser un número entero")
     .min(0, "daysSinceLastMessage no puede ser negativo")
     .max(365, "daysSinceLastMessage no puede superar los 365 días")
     .default(DIAS_SIN_RESPUESTA_POR_DEFECTO),
   maxFollowUps: z
-    .number({ invalid_type_error: "maxFollowUps debe ser un número entero" })
+    .number(mensajesDeTipo({ tipo: "maxFollowUps debe ser un número entero" }))
     .int("maxFollowUps debe ser un número entero")
     .min(1, "maxFollowUps tiene que ser al menos 1")
     .max(MAX_SEGUIMIENTOS_TOPE, `maxFollowUps no puede superar ${String(MAX_SEGUIMIENTOS_TOPE)}`)
@@ -163,10 +166,12 @@ export type ConfigDeConsultaSinAvance = z.infer<typeof configDeConsultaSinAvance
 // varias reglas (una semana antes y 15 días después de vencido).
 export const configDelProximoServiceSchema = z.object({
   offsetDays: z
-    .number({
-      required_error: "offsetDays es requerido",
-      invalid_type_error: "offsetDays debe ser un número entero",
-    })
+    .number(
+      mensajesDeTipo({
+        requerido: "offsetDays es requerido",
+        tipo: "offsetDays debe ser un número entero",
+      }),
+    )
     .int("offsetDays debe ser un número entero")
     .min(OFFSET_MINIMO, `offsetDays no puede ser menor que ${String(OFFSET_MINIMO)}`)
     .max(OFFSET_MAXIMO, `offsetDays no puede superar ${String(OFFSET_MAXIMO)}`),
@@ -174,7 +179,7 @@ export const configDelProximoServiceSchema = z.object({
 
 export type ConfigDelProximoService = z.infer<typeof configDelProximoServiceSchema>;
 
-export type EsquemaDeTrigger = z.ZodType<Record<string, unknown>, z.ZodTypeDef, unknown>;
+export type EsquemaDeTrigger = z.ZodType<Record<string, unknown>, unknown>;
 
 // Un Record sobre TriggerType y no un Map: si alguien suma un trigger a
 // TRIGGERS_CONOCIDOS sin su schema, esto deja de compilar.

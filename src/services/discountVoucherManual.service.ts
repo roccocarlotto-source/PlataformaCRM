@@ -1,6 +1,7 @@
 import type { DiscountVoucher, MessageDeliveryStatus } from "@prisma/client";
 import { DateTime } from "luxon";
 import { z } from "zod";
+import { mensajesDeTipo } from "../utils/erroresDeZod";
 import { prisma } from "../lib/prisma";
 import {
   findAgentByWhatsappPhoneNumberId,
@@ -65,22 +66,26 @@ export const MOTIVO_VENCIDO = "El cupón venció";
 
 export const crearCuponManualSchema = z
   .object({
-    contactId: z.string().uuid("contactId inválido").optional(),
-    opportunityId: z.string().uuid("opportunityId inválido").optional(),
+    contactId: z.string().guid("contactId inválido").optional(),
+    opportunityId: z.string().guid("opportunityId inválido").optional(),
     label: z
-      .string({ required_error: "El descuento es requerido" })
+      .string(mensajesDeTipo({ requerido: "El descuento es requerido" }))
       .trim()
       .min(1, "El descuento es requerido")
       .max(MAX_LABEL_LENGTH, `El descuento no puede superar los ${MAX_LABEL_LENGTH} caracteres`),
     expiresInDays: z
-      .number({
-        required_error: "Los días de vigencia son requeridos",
-        invalid_type_error: "Los días de vigencia tienen que ser un número entero",
-      })
+      .number(
+        mensajesDeTipo({
+          requerido: "Los días de vigencia son requeridos",
+          tipo: "Los días de vigencia tienen que ser un número entero",
+        }),
+      )
       .int("Los días de vigencia tienen que ser un número entero")
       .min(1, "El cupón tiene que durar al menos 1 día")
       .max(MAX_EXPIRES_IN_DAYS, `El cupón no puede durar más de ${MAX_EXPIRES_IN_DAYS} días`),
-    branchId: z.string({ required_error: "La sucursal es requerida" }).uuid("branchId inválido"),
+    branchId: z
+      .string(mensajesDeTipo({ requerido: "La sucursal es requerida" }))
+      .guid("branchId inválido"),
   })
   .refine((v) => v.contactId !== undefined || v.opportunityId !== undefined, {
     message: "Hay que indicar el contacto o la oportunidad",

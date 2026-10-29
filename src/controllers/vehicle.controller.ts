@@ -29,7 +29,7 @@ import { parseOrThrow } from "../utils/validation";
 // misma patente.
 // ---------------------------------------------------------------------------
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 const conditionSchema = z.enum(["NEW", "USED"]);
 const statusSchema = z.enum([
@@ -181,7 +181,7 @@ const vehicleFields = {
   priceOnRequest: z.boolean(),
   // Permuta (§41): la venta en la que se recibió la unidad. Que exista y sea
   // de esta organización lo decide el service; null desvincula.
-  tradeInOpportunityId: z.string().uuid("tradeInOpportunityId inválido").nullable(),
+  tradeInOpportunityId: z.string().guid("tradeInOpportunityId inválido").nullable(),
 
   // Consignación (solo con origin = CONSIGNMENT: lo decide el service)
   consignorName: nullableText(255, "consignorName"),
@@ -244,8 +244,8 @@ const vehicleFields = {
   titleReportRequested: z.boolean(),
 
   // Operativo
-  branchId: z.string().uuid("branchId inválido"),
-  assignedSalespersonId: z.string().uuid("assignedSalespersonId inválido").nullable(),
+  branchId: z.string().guid("branchId inválido"),
+  assignedSalespersonId: z.string().guid("assignedSalespersonId inválido").nullable(),
   physicalLocation: nullableText(255, "physicalLocation"),
   availableSince: nullableDate,
 
@@ -301,7 +301,7 @@ export const listVehiclesQuerySchema = z.object({
   // Mismo tope de cordura que el resto de los listados (B-21).
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
-  branchId: z.string().uuid("branchId inválido").optional(),
+  branchId: z.string().guid("branchId inválido").optional(),
   status: statusListSchema,
   condition: conditionSchema.optional(),
   make: z.string().trim().min(1).max(100).optional(),
@@ -314,7 +314,7 @@ export const listVehiclesQuerySchema = z.object({
   // los selectores (vincular una unidad a una oportunidad, permutas) siguen
   // viendo todo el stock.
   onlyVisible: queryBooleanSchema,
-  tradeInOpportunityId: z.string().uuid("tradeInOpportunityId inválido").optional(),
+  tradeInOpportunityId: z.string().guid("tradeInOpportunityId inválido").optional(),
   q: z.string().trim().min(1).max(100).optional(),
   sortBy: z.enum(["createdAt", "priceListUsd", "stockEnteredAt"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),

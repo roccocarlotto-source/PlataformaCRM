@@ -44,7 +44,7 @@ export function esIdSimulado(id: string | null | undefined): boolean {
   return typeof id === "string" && id.startsWith(PREFIJO_DEL_ID_SIMULADO);
 }
 
-const uuidSchema = z.string().uuid();
+const uuidSchema = z.string().guid();
 
 /** Si la organización es una demo. Un id que no es un UUID no es ninguna
  *  organización: false sin tocar la base (los unitarios de los workers usan

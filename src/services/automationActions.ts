@@ -58,7 +58,7 @@ export type AutomationAction = (input: AccionAEjecutar) => Promise<void>;
 // El schema es de zod y no una función genérica de validación a propósito:
 // safeParse devuelve issues legibles que el CRUD traduce a un 400 con el
 // motivo exacto ("daysUntilDue es requerido"), no un "config inválido" seco.
-export type EsquemaDeAccion = z.ZodType<Record<string, unknown>, z.ZodTypeDef, unknown>;
+export type EsquemaDeAccion = z.ZodType<Record<string, unknown>, unknown>;
 
 export interface AccionRegistrada {
   actionType: string;

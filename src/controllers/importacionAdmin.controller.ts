@@ -38,7 +38,7 @@ import { parseOrThrow } from "../utils/validation";
 // Todo lote se busca CON esa organización: uno de otra da 404.
 // ---------------------------------------------------------------------------
 
-const uuid = z.string().uuid("id inválido");
+const uuid = z.string().guid("id inválido");
 
 function organizacionDelPath(req: AuthenticatedRequest): string {
   return parseOrThrow(uuid, req.params.organizationId);

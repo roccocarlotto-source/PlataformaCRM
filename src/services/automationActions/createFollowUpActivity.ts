@@ -1,5 +1,6 @@
 import { ActivityType } from "@prisma/client";
 import { z } from "zod";
+import { mensajesDeTipo } from "../../utils/erroresDeZod";
 import { findZonaDeLaOrganizacion } from "../../repositories/organization.repository";
 import { findOpportunityById } from "../../repositories/opportunity.repository";
 import { vencimientoAlFinDelDia } from "../../utils/timezone";
@@ -47,15 +48,17 @@ export const MAX_NOTES = 5000;
 
 export const configDeSeguimientoSchema = z.object({
   subject: z
-    .string({ required_error: "subject es requerido" })
+    .string(mensajesDeTipo({ requerido: "subject es requerido" }))
     .trim()
     .min(1, "subject es requerido")
     .max(200, "subject no puede superar los 200 caracteres"),
   daysUntilDue: z
-    .number({
-      required_error: "daysUntilDue es requerido",
-      invalid_type_error: "daysUntilDue debe ser un número entero",
-    })
+    .number(
+      mensajesDeTipo({
+        requerido: "daysUntilDue es requerido",
+        tipo: "daysUntilDue debe ser un número entero",
+      }),
+    )
     .int("daysUntilDue debe ser un número entero")
     .min(0, "daysUntilDue no puede ser negativo")
     .max(365, "daysUntilDue no puede superar los 365 días"),
@@ -79,8 +82,8 @@ export type ConfigDeSeguimiento = z.infer<typeof configDeSeguimientoSchema>;
 // payload viejo o de otra forma tiene que fallar con un mensaje legible en
 // AutomationExecution.error, no con un TypeError dentro de createActivity.
 export const payloadDeOportunidadSchema = z.object({
-  opportunityId: z.string().uuid("payload.opportunityId debe ser un UUID"),
-  ownerId: z.string().uuid("payload.ownerId debe ser un UUID"),
+  opportunityId: z.string().guid("payload.opportunityId debe ser un UUID"),
+  ownerId: z.string().guid("payload.ownerId debe ser un UUID"),
 });
 
 // booking.completed (docs/rubros.md §7.3, solo clínicas): el payload del turno.
@@ -88,18 +91,18 @@ export const payloadDeOportunidadSchema = z.object({
 // bookingId sigue el camino de la oportunidad, con su mensaje de error de
 // siempre.
 const payloadDelTurnoSchema = z.object({
-  bookingId: z.string().uuid("payload.bookingId debe ser un UUID"),
+  bookingId: z.string().guid("payload.bookingId debe ser un UUID"),
 });
 
 // S13 (docs/servicios.md §7.2): el aviso de recambio.
 const payloadDelRecambioSchema = z.object({
-  noticeId: z.string().uuid("payload.noticeId debe ser un UUID"),
-  customerVehicleId: z.string().uuid("payload.customerVehicleId debe ser un UUID"),
+  noticeId: z.string().guid("payload.noticeId debe ser un UUID"),
+  customerVehicleId: z.string().guid("payload.customerVehicleId debe ser un UUID"),
 });
 
 // S7 (docs/servicios.md §6.3): el aviso del próximo service.
 const payloadDelAvisoSchema = z.object({
-  noticeId: z.string().uuid("payload.noticeId debe ser un UUID"),
+  noticeId: z.string().guid("payload.noticeId debe ser un UUID"),
 });
 
 export const accionCrearActividadDeSeguimiento: AccionRegistrada = {

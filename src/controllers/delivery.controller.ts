@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { estricto, mensajesDeTipo } from "../utils/erroresDeZod";
 import {
   confirmDelivery,
   getDeliveryById,
@@ -12,7 +13,7 @@ import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
 
-const idParamSchema = z.string().uuid("id inválido");
+const idParamSchema = z.string().guid("id inválido");
 
 // Tope de cordura: el default trae cinco ítems y cada entrega suma los suyos
 // (una patente provisoria, un accesorio), no un inventario.
@@ -21,16 +22,18 @@ const MAX_CHECKLIST_ITEMS = 50;
 const checklistItemSchema = z
   .object({
     label: z
-      .string({ invalid_type_error: "el texto de cada ítem debe ser un texto" })
+      .string(mensajesDeTipo({ tipo: "el texto de cada ítem debe ser un texto" }))
       .trim()
       .min(1, "el texto de cada ítem del checklist es requerido")
       .max(200, "el texto de un ítem del checklist no puede superar los 200 caracteres"),
-    checked: z.boolean({
-      required_error: "cada ítem del checklist necesita checked",
-      invalid_type_error: "checked debe ser true o false",
-    }),
+    checked: z.boolean(
+      mensajesDeTipo({
+        requerido: "cada ítem del checklist necesita checked",
+        tipo: "checked debe ser true o false",
+      }),
+    ),
   })
-  .strict("campo no permitido en un ítem del checklist");
+  .apply(estricto("campo no permitido en un ítem del checklist"));
 
 const checklistSchema = z
   .array(checklistItemSchema)
@@ -39,7 +42,9 @@ const checklistSchema = z
 // Fecha sola ("2026-09-30"). .nullable() antes de coerce para que un null
 // explícito limpie la fecha en vez de volverse 1970-01-01 — mismo bug que se
 // corrigió en Opportunity, mismo schema que Quote.validUntil.
-const scheduledAtSchema = z.coerce.date({ invalid_type_error: "scheduledAt inválida" }).nullable();
+const scheduledAtSchema = z.coerce
+  .date(mensajesDeTipo({ tipo: "scheduledAt inválida" }))
+  .nullable();
 
 // PATCH /deliveries/:id tiene DOS formas, y no se mezclan (mismo criterio que
 // PATCH /quotes/:id):
@@ -56,10 +61,10 @@ const scheduledAtSchema = z.coerce.date({ invalid_type_error: "scheduledAt invá
 export const deliveryStatusSchema = z
   .object({
     status: z.enum(["DELIVERED", "PENDING"], {
-      errorMap: () => ({ message: "status debe ser DELIVERED o PENDING" }),
+      error: () => "status debe ser DELIVERED o PENDING",
     }),
   })
-  .strict("status no se combina con otros campos en el mismo PATCH");
+  .apply(estricto("status no se combina con otros campos en el mismo PATCH"));
 
 export const updateDeliverySchema = z
   .object({
@@ -67,7 +72,7 @@ export const updateDeliverySchema = z
     scheduledAt: scheduledAtSchema,
   })
   .partial()
-  .strict("campo no permitido en la entrega")
+  .apply(estricto("campo no permitido en la entrega"))
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",
   });
@@ -75,8 +80,8 @@ export const updateDeliverySchema = z
 export const listDeliveriesQuerySchema = z.object({
   // Obligatorio: la entrega es de UNA oportunidad. No hay listado global.
   opportunityId: z
-    .string({ required_error: "opportunityId es requerido" })
-    .uuid("opportunityId inválido"),
+    .string(mensajesDeTipo({ requerido: "opportunityId es requerido" }))
+    .guid("opportunityId inválido"),
 });
 
 export const listDeliveriesHandler = asyncHandler<AuthenticatedRequest>(

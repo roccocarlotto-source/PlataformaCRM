@@ -6,6 +6,7 @@ import {
   InquiryFollowUpStatus,
 } from "@prisma/client";
 import { z } from "zod";
+import { enumNativo, mensajesDeTipo } from "../../utils/erroresDeZod";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
 import { createActivity as createActivityRepo } from "../../repositories/activity.repository";
@@ -74,10 +75,12 @@ function configDeSeguimiento(variables: typeof VARIABLES_DE_CONSULTA) {
   return z
     .object({
       messageText: z
-        .string({
-          required_error: "messageText es requerido",
-          invalid_type_error: "messageText debe ser un texto",
-        })
+        .string(
+          mensajesDeTipo({
+            requerido: "messageText es requerido",
+            tipo: "messageText debe ser un texto",
+          }),
+        )
         .trim()
         .min(1, "messageText es requerido")
         .max(LARGO_MAXIMO_DEL_CUERPO * 2, "messageText es demasiado largo"),
@@ -99,11 +102,11 @@ export const configDeSeguimientoDeConsultaDeClinicaSchema = configDeSeguimiento(
 // Lo que emite el barrido (inquiryStalledWorker.ts). Se valida acá, en el
 // consumidor, como el payload de las otras acciones.
 export const payloadDeConsultaSchema = z.object({
-  contactId: z.string().uuid(),
-  conversationId: z.string().uuid(),
-  channel: z.nativeEnum(ConversationChannel),
-  branchId: z.string().uuid(),
-  ownerId: z.string().uuid().nullable(),
+  contactId: z.string().guid(),
+  conversationId: z.string().guid(),
+  channel: enumNativo(ConversationChannel),
+  branchId: z.string().guid(),
+  ownerId: z.string().guid().nullable(),
   lastInboundAt: z.coerce.date(),
 });
 

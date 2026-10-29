@@ -53,9 +53,7 @@ export const fieldMappingSchema = z
         `el encabezado de origen no puede superar los ${MAX_LARGO_ENCABEZADO} caracteres`,
       ),
     z.enum(CAMPOS_DE_CONTACTO, {
-      errorMap: () => ({
-        message: `el destino de un mapeo debe ser uno de: ${CAMPOS_DE_CONTACTO.join(", ")}`,
-      }),
+      error: () => `el destino de un mapeo debe ser uno de: ${CAMPOS_DE_CONTACTO.join(", ")}`,
     }),
   )
   .superRefine((mapa, ctx) => {
