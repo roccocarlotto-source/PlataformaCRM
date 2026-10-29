@@ -9,8 +9,9 @@ En el menú, **Agenda** junta todo lo de los turnos:
 - Para administradores, la configuración: **Profesionales**, **Prestaciones**
   y **Configurar prestaciones**.
 
-El menú **Tareas** tiene **Mis tareas** (cada persona, las suyas) y, para
-administradores, **Todas las tareas**.
+El menú **Tareas** tiene **Mis tareas** (cada persona, las suyas), **Envíos
+que no salieron** (administradores y Recepción) y, para administradores,
+**Todas las tareas**.
 
 Recepción ve la agenda, los turnos, los bloqueos y los sobreturnos de **sus
 sedes**, y sus tareas. La configuración es solo de administradores (ver
@@ -455,6 +456,21 @@ Si sos administrador, al tildarla queda confirmada y desaparece directamente.
   editar las que **creó, tiene asignadas y todavía no completó**. Las que le
   asignó un administrador o el sistema solo las puede completar. Un
   administrador edita cualquiera.
+
+## Envíos que no salieron {#envios-que-no-salieron}
+
+**Tareas → Envíos que no salieron** lista los mensajes automáticos que no se
+pudieron mandar después de varios intentos (por ejemplo, un recordatorio de
+turno) y las automatizaciones que fallaron, del más reciente al más viejo. La
+ven los administradores (con filtro por **Sede**) y Recepción, solo con lo de
+**sus sedes**.
+
+Cada fila tiene la **fecha**, el **tipo de envío**, el **paciente** (tocándolo
+se abre su ficha), la **sede** y el **motivo** en palabras simples (por
+ejemplo, "WhatsApp rechazó el envío"). Lo que no tiene sede (los QR, las
+automatizaciones) lo ve solo un administrador, sin filtro.
+
+Sirve para llamar a los pacientes que se quedaron sin su recordatorio.
 
 ## Todas las tareas {#actividades}
 

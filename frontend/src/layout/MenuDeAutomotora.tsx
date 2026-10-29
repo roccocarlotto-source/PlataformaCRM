@@ -30,6 +30,7 @@ import {
   Wrench,
   Zap,
   Gauge,
+  MailWarning,
 } from "lucide-react";
 import type { MeResponse } from "../auth/AuthContext";
 import { tieneModulo } from "../auth/useModulo";
@@ -140,7 +141,15 @@ export function MenuDeAutomotora({
           que había antes; cada link conserva su propio permiso. */}
       <SidebarSection
         label="Actividades"
-        paths={["/activities", "/tasks", "/bookings", "/agenda", "/resources", "/service-types"]}
+        paths={[
+          "/activities",
+          "/tasks",
+          "/envios-que-no-salieron",
+          "/bookings",
+          "/agenda",
+          "/resources",
+          "/service-types",
+        ]}
       >
         {/* Listado completo "Actividades" (ítem 25): solo ADMIN, como
             Organización/Sucursales — /activities está dentro del AdminRoute
@@ -158,6 +167,13 @@ export function MenuDeAutomotora({
         <SidebarLink to="/tasks" icon={CheckSquare}>
           Mis tareas
         </SidebarLink>
+        {/* La lista de la tarea agrupada de envíos fallidos: solo ADMIN en una
+            automotora (un USER no la ve). */}
+        {isAdmin ? (
+          <SidebarLink to="/envios-que-no-salieron" icon={MailWarning}>
+            Envíos que no salieron
+          </SidebarLink>
+        ) : null}
         {/* Agenda (ítem 75): el módulo de reservas, que estaba completo en
             el backend sin ninguna pantalla. Reservas para ambos roles —GET
             y cancelar son `authenticate` a secas—, y Calendario (ítem 77)

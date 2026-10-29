@@ -52,6 +52,7 @@ export const AYUDA = {
 
   actividades: "actividades-y-agenda#actividades",
   misTareas: "actividades-y-agenda#mis-tareas",
+  enviosQueNoSalieron: "actividades-y-agenda#envios-que-no-salieron",
   actividadForm: "actividades-y-agenda#nueva-actividad",
   reservas: "actividades-y-agenda#reservas",
   calendario: "actividades-y-agenda#calendario",

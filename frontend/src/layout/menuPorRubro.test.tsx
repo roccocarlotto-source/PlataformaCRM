@@ -124,6 +124,7 @@ describe("automotora sin cambios: el menú de antes de R17", () => {
         "[Actividades]",
         "  Actividades -> /activities",
         "  Mis tareas -> /tasks",
+        "  Envíos que no salieron -> /envios-que-no-salieron",
         "  Reservas -> /bookings",
         "  Calendario -> /agenda",
         "  Recursos -> /resources",
@@ -188,6 +189,7 @@ describe("automotora sin cambios: el menú de antes de R17", () => {
         "[Actividades]",
         "  Actividades -> /activities",
         "  Mis tareas -> /tasks",
+        "  Envíos que no salieron -> /envios-que-no-salieron",
         "  Reservas -> /bookings",
         "  Calendario -> /agenda",
         "  Recursos -> /resources",
@@ -267,6 +269,7 @@ const MENU_DE_CLINICA_ADMIN = [
   "[Tareas]",
   "  Mis tareas -> /tasks",
   "  Todas las tareas -> /activities",
+  "  Envíos que no salieron -> /envios-que-no-salieron",
   "Agentes de IA -> /agents",
   "  Base de conocimiento -> /knowledge-base",
   "  Automatizaciones -> /automations",
@@ -293,6 +296,7 @@ const MENU_DE_CLINICA_RECEPCION = [
   "Pacientes -> /contacts",
   "[Tareas]",
   "  Mis tareas -> /tasks",
+  "  Envíos que no salieron -> /envios-que-no-salieron",
   "Ayuda -> /ayuda",
 ];
 

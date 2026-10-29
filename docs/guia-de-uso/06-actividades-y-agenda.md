@@ -92,6 +92,22 @@ Si sos administrador, al tildarla queda confirmada y desaparece directamente.
   le asignó un administrador solo las puede completar. Un administrador edita
   cualquiera.
 
+## Envíos que no salieron {#envios-que-no-salieron}
+
+**Actividades → Envíos que no salieron** lista los mensajes automáticos que no
+se pudieron mandar después de varios intentos (seguimientos de consulta, QR,
+cupones, mensajes del taller) y las automatizaciones que fallaron, del más
+reciente al más viejo. La ve solo un administrador.
+
+Cada fila tiene la **fecha**, el **tipo de envío**, el **cliente** (tocándolo
+se abre su ficha), la **sucursal** si la tiene y el **motivo** en palabras
+simples (por ejemplo, "WhatsApp rechazó el envío" o "Pasaron más de 24 horas
+desde el último mensaje del cliente"). Con más de una sucursal se puede
+filtrar por **Sede**; lo que no tiene sucursal (QR, automatizaciones) aparece
+solo sin filtro.
+
+Sirve para ponerse al día con los clientes que se quedaron sin su mensaje.
+
 ## Nueva actividad {#nueva-actividad}
 
 Cualquier rol llega desde **Actividades → Mis tareas → Nueva tarea**. Un

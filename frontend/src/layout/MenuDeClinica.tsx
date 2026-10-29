@@ -18,12 +18,14 @@ import {
   UserCog,
   Users,
   Zap,
+  MailWarning,
 } from "lucide-react";
 import type { MeResponse } from "../auth/AuthContext";
 import { tieneModulo } from "../auth/useModulo";
 import { vocabularioDe } from "../auth/vocabulario";
 import { ConversacionesLink } from "./ConversacionesLink";
 import { SidebarLink, SidebarSection } from "./Sidebar";
+import { puedeVerEnviosQueNoSalieron } from "../auth/permisos";
 
 // El menú de una clínica (docs/rubros.md §1.3 y §3.1): Agenda, Turnos,
 // Pacientes, Conversaciones, Tareas, Profesionales, Prestaciones, Base de
@@ -103,13 +105,18 @@ export function MenuDeClinica({
       <SidebarLink to="/contacts" icon={Users}>
         {v.contacto.pluralTitulo}
       </SidebarLink>
-      <SidebarSection label="Tareas" paths={["/tasks", "/activities"]}>
+      <SidebarSection label="Tareas" paths={["/tasks", "/activities", "/envios-que-no-salieron"]}>
         <SidebarLink to="/tasks" icon={CheckSquare}>
           Mis tareas
         </SidebarLink>
         {isAdmin ? (
           <SidebarLink to="/activities" icon={Activity}>
             Todas las tareas
+          </SidebarLink>
+        ) : null}
+        {puedeVerEnviosQueNoSalieron(me) ? (
+          <SidebarLink to="/envios-que-no-salieron" icon={MailWarning}>
+            Envíos que no salieron
           </SidebarLink>
         ) : null}
       </SidebarSection>
