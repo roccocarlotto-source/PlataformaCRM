@@ -35,8 +35,9 @@ import { periodWindowInZone } from "../utils/zonedWindow";
 // ahí, UNA tarea "Más … que no salieron el dd/mm: N" que se actualiza con el
 // número en vez de duplicarse. No lleva nombres (el borrado a pedido no limpia
 // el texto de las tareas): la lista con cada cliente está en la pantalla
-// "Envíos que no salieron". Va al asignado del grupo (la recepción de la sede
-// en clínicas) o al ADMIN, y se ata al primer cliente del grupo porque la base
+// "Envíos que no salieron". Va a quien puede abrir esa pantalla: la recepción
+// de la sede en clínicas o el ADMIN (nunca un USER), y se ata al primer
+// cliente del grupo porque la base
 // exige una relación. El día es el de la zona de la organización.
 //
 // SOLO FALLAS NUEVAS. La tarea nace en el momento en que la cola marca el
@@ -68,7 +69,9 @@ export interface GrupoDelAviso {
   // Cuántos envíos de esta cola (y sede) quedaron fallidos desde `desde`,
   // contando el que se está avisando.
   contarFallidosDesde: (desde: Date) => Promise<number>;
-  // A quién va la tarea agrupada antes que al ADMIN.
+  // A quién va la tarea agrupada antes que al ADMIN. Solo vale si puede abrir
+  // la pantalla "Envíos que no salieron": un ADMIN o una RECEPCION (la de la
+  // sede, en clínicas). Nunca un USER: cualquier otro termina en el ADMIN.
   asignado?: string | null;
 }
 
@@ -189,9 +192,19 @@ async function agrupar(
   const prefijo = `Más ${aviso.grupo.etiqueta} que no salieron el ${diaDelMes}/${mes}:`;
   const subject = `${prefijo} ${String(fallidosHoy - MAXIMO_INDIVIDUALES)}`.slice(0, 255);
 
-  const asignado =
-    (await primeroActivo(organizationId, [aviso.grupo.asignado ?? null], db)) ??
-    (await findOldestActiveAdmin(organizationId, db))?.id;
+  const candidato = aviso.grupo.asignado
+    ? await db.user.findFirst({
+        where: {
+          id: aviso.grupo.asignado,
+          organizationId,
+          isActive: true,
+          deletedAt: null,
+          role: { name: { in: ["ADMIN", "RECEPCION"] } },
+        },
+        select: { id: true },
+      })
+    : null;
+  const asignado = candidato?.id ?? (await findOldestActiveAdmin(organizationId, db))?.id;
   if (!asignado) {
     logger.warn({ organizationId }, "Envíos fallidos sin ADMIN activo para la tarea agrupada");
     return "SIN_ASIGNADO";

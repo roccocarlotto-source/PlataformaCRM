@@ -30,7 +30,8 @@ import {
 //   6. Contacto borrado: no se crea nada.
 //   7. avisarColaFallida no lanza aunque armar el aviso falle.
 //   9. Desde la 4.ª falla del día: UNA tarea agrupada, sin nombres, que se
-//      actualiza con el número en vez de duplicarse; va al asignado del grupo.
+//      actualiza con el número en vez de duplicarse. Va a una RECEPCION o al
+//      ADMIN, nunca a un USER (la pantalla de la lista no la ve).
 //   8. De punta a punta en el outbox: un evento con contacto que agota sus
 //      intentos deja una tarea al ADMIN, atada a ese contacto.
 // ---------------------------------------------------------------------------
@@ -43,7 +44,7 @@ let adminId: string;
 let vendedorId: string;
 let otroVendedorId: string;
 
-async function crearUsuario(rolNombre: "ADMIN" | "USER", etiqueta: string) {
+async function crearUsuario(rolNombre: "ADMIN" | "USER" | "RECEPCION", etiqueta: string) {
   const email = `tarea-cola-${etiqueta}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
   const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
     email,
@@ -262,6 +263,7 @@ test("8. outbox: un evento con contacto que agota sus intentos deja la tarea al 
 
 test("9. desde la 4.ª falla del día, una sola tarea agrupada que se actualiza", async () => {
   const etiqueta = `grupo ${randomUUID().slice(0, 6)}`;
+  const recepcionId = await crearUsuario("RECEPCION", "recepcion");
   const conFallas = (n: number, contactId: string, asignado?: string) =>
     aviso({
       contactId,
@@ -279,13 +281,13 @@ test("9. desde la 4.ª falla del día, una sola tarea agrupada que se actualiza"
     "CREADA",
   );
   assert.equal(
-    await crearTareaPorColaFallida(conFallas(MAXIMO_INDIVIDUALES + 1, segundo.id, otroVendedorId)),
+    await crearTareaPorColaFallida(conFallas(MAXIMO_INDIVIDUALES + 1, segundo.id, recepcionId)),
     "AGRUPADA",
   );
   let [grupo] = await delGrupo();
   assert.match(grupo.subject, /que no salieron el \d{2}\/\d{2}: 1$/);
   assert.equal(grupo.contactId, segundo.id, "atada al primer cliente del grupo");
-  assert.equal(grupo.assigneeId, otroVendedorId, "va al asignado del grupo");
+  assert.equal(grupo.assigneeId, recepcionId, "va a la recepción propuesta");
   assert.ok(!grupo.body?.includes(segundo.lastName), "sin nombres en el texto");
   assert.ok(grupo.body?.includes("/envios-que-no-salieron"));
   assert.equal((await tareasDe(segundo.id)).length, 1, "el 4.º no tiene tarea individual");
@@ -311,4 +313,26 @@ test("9. desde la 4.ª falla del día, una sola tarea agrupada que se actualiza"
     where: { organizationId: orgId, subject: { startsWith: `Más ${etiqueta}-b ` } },
   });
   assert.equal(deOtraCola.assigneeId, adminId);
+});
+
+test("10. la tarea agrupada nunca va a un USER: si la cola propone uno, va al ADMIN", async () => {
+  const etiqueta = `grupo-user ${randomUUID().slice(0, 6)}`;
+  const contacto = await crearContacto(vendedorId);
+
+  const resultado = await crearTareaPorColaFallida(
+    aviso({
+      contactId: contacto.id,
+      grupo: {
+        etiqueta,
+        asignado: vendedorId,
+        contarFallidosDesde: () => Promise.resolve(MAXIMO_INDIVIDUALES + 1),
+      },
+    }),
+  );
+
+  assert.equal(resultado, "AGRUPADA");
+  const [grupo] = await prisma.activity.findMany({
+    where: { organizationId: orgId, subject: { startsWith: `Más ${etiqueta} ` } },
+  });
+  assert.equal(grupo.assigneeId, adminId);
 });

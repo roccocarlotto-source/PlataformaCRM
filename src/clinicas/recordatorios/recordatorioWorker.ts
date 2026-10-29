@@ -40,6 +40,7 @@ import {
 import { ErrorPermanenteDelSeguimiento, clasificarFallo } from "../../workers/qrFollowUpWorker";
 import { leerConfiguracionDeSede } from "../repositories/clinicSettings.repository";
 import { asignadoParaLaSede } from "../services/reprogramar.service";
+import { recepcionistaParaElAviso } from "../services/sedesDeUsuarios.service";
 import {
   BOTONES_DEL_RECORDATORIO,
   MOTIVO_REGLA_INACTIVA,
@@ -497,10 +498,9 @@ function avisarRecordatorioFallido(reclamo: RecordatorioReclamado): Promise<void
     if (!fila) return null;
     const { dia, hora } = diaYHora(fila.bookingStartsAt, fila.booking.branch.timezone);
     const sede = fila.booking.branchId;
-    const recepcion = await asignadoParaLaSede(reclamo.organizationId, sede);
     return {
       organizationId: reclamo.organizationId,
-      asignado: recepcion,
+      asignado: await asignadoParaLaSede(reclamo.organizationId, sede),
       contactId: fila.contactId,
       branchId: fila.booking.branchId,
       asunto: (paciente) =>
@@ -509,7 +509,9 @@ function avisarRecordatorioFallido(reclamo: RecordatorioReclamado): Promise<void
         "El recordatorio por WhatsApp no se pudo enviar después de varios intentos. Llamalo para confirmarle el turno.",
       grupo: {
         etiqueta: "recordatorios de turno",
-        asignado: recepcion,
+        // Solo la recepción de la sede (si no tiene, el ADMIN): la tarea
+        // agrupada lleva a una pantalla que un USER no ve.
+        asignado: await recepcionistaParaElAviso(reclamo.organizationId, sede),
         contarFallidosDesde: (desde) =>
           prisma.bookingMessage.count({
             where: {
