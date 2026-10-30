@@ -22,8 +22,11 @@ const ORG_A = "22222222-2222-4222-8222-222222222222";
 const ORG_B = "33333333-3333-4333-8333-333333333333";
 const url = `${env.apiUrl}/api/admin/agents/:agentId/whatsapp-phone-number`;
 
-function renderPage() {
+function renderPage(tokenInvalidoDesde: string | null = null) {
   server.use(
+    http.get(`${env.apiUrl}/api/admin/whatsapp-token`, () =>
+      HttpResponse.json({ invalidoDesde: tokenInvalidoDesde }),
+    ),
     http.get(`${env.apiUrl}/api/admin/organizations`, () =>
       HttpResponse.json([
         { id: ORG_A, name: "Concesionaria Ejemplo", slug: "concesionaria-ejemplo" },
@@ -158,5 +161,20 @@ describe("AgentWhatsappNumberPage (ítem 127)", () => {
       await screen.findByText("Ese número de WhatsApp ya está asignado a otro agente"),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("ID del número de WhatsApp")).toHaveValue("106540352242922");
+  });
+});
+
+describe("AgentWhatsappNumberPage — token de WhatsApp (OPS-03)", () => {
+  it("si Meta rechaza el token de la plataforma, lo avisa arriba, con qué hacer", async () => {
+    renderPage("2026-10-30T15:00:00.000Z");
+    expect(
+      await screen.findByText(/Meta rechaza el token de WhatsApp de la plataforma/),
+    ).toHaveTextContent(/cargalo en Render/);
+  });
+
+  it("con el token andando, no hay aviso", async () => {
+    renderPage();
+    await screen.findByLabelText(/Organización/);
+    expect(screen.queryByText(/Meta rechaza el token/)).not.toBeInTheDocument();
   });
 });

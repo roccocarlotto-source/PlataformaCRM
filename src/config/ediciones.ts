@@ -341,6 +341,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     // Reenviar la invitación al administrador que no la aceptó.
     "POST /api/admin/organizations/:organizationId/admin-invitation/resend",
     "GET /api/admin/llm-usage",
+    "GET /api/admin/whatsapp-token",
     "PUT /api/admin/agents/:agentId/facebook-page",
     "PUT /api/admin/agents/:agentId/model",
     "PUT /api/admin/agents/:agentId/whatsapp-phone-number",

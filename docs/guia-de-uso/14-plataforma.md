@@ -589,6 +589,15 @@ formulario.
 > del cliente tiene que habilitar **WhatsApp** en los **Canales** del agente.
 > Ver [Agentes de IA](/ayuda/agentes-de-ia).
 
+**Si Meta rechaza el token de WhatsApp de la plataforma**, arriba de esta
+pantalla aparece un aviso en rojo con la fecha y hora desde la que pasa. El
+token (`WHATSAPP_ACCESS_TOKEN`) es uno solo para todas las organizaciones
+que no tienen WhatsApp propio: mientras Meta lo rechace, no sale ningún
+WhatsApp de ellas. Generá un token nuevo en Meta y cargalo en Render: el
+servidor se reinicia y el aviso se va (si el token nuevo tampoco sirve, vuelve
+con el próximo envío). También se va solo con el primer envío que Meta acepte.
+Las organizaciones afectadas ven su propio aviso en **Configuración**.
+
 ## WhatsApp de una clínica {#whatsapp-de-una-clinica}
 
 Cada clínica manda sus mensajes de WhatsApp desde **su propia cuenta de

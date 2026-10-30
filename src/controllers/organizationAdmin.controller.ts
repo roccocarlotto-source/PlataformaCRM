@@ -18,6 +18,7 @@ import {
   createOrganizationWithFoundingAdmin,
   reenviarInvitacionDelAdministrador,
 } from "../services/organizationAdmin.service";
+import { tokenDeWhatsappInvalidoDesde } from "../services/estadoDelTokenDeWhatsapp";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { currencySchema, parseOrThrow, timezoneSchema } from "../utils/validation";
@@ -212,6 +213,14 @@ export const listOrganizationsHandler = asyncHandler<AuthenticatedRequest>(
 // B4: el gasto en el modelo por organización de los últimos 30 días, para la
 // vista de plataforma (Configuración → Uso de IA). Solo platform admin: es
 // información de la plataforma sobre sus clientes, no de ningún tenant.
+// OPS-03: si Meta rechaza el token global de WhatsApp, desde cuándo. Lo
+// muestra Plataforma → Organizaciones: es quien lo puede renovar.
+export const estadoDelTokenDeWhatsappHandler = asyncHandler<AuthenticatedRequest>(
+  async (_req, res: Response) => {
+    res.status(200).json({ invalidoDesde: tokenDeWhatsappInvalidoDesde()?.toISOString() ?? null });
+  },
+);
+
 export const listLlmUsageHandler = asyncHandler<AuthenticatedRequest>(
   async (_req, res: Response) => {
     res.status(200).json({
