@@ -36,3 +36,18 @@ export function upsertExchangeRate(data: ExchangeRateUpsertData, db: Db = prisma
     update: { rate: data.rate, fetchedAt: data.fetchedAt },
   });
 }
+
+// La última cotización guardada de una moneda ANTES de `rateDate`: contra
+// ella se compara la nueva (ver desvioAbsurdo en exchangeRate.service.ts).
+export function findUltimaCotizacionAntesDe(
+  baseCurrency: string,
+  targetCurrency: string,
+  rateDate: Date,
+  db: Db = prisma,
+) {
+  return db.exchangeRate.findFirst({
+    where: { baseCurrency, targetCurrency, rateDate: { lt: rateDate } },
+    orderBy: { rateDate: "desc" },
+    select: { rate: true },
+  });
+}

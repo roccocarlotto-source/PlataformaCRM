@@ -1398,6 +1398,61 @@ describe("OpportunityFormPage", () => {
     expect(postedBody).not.toHaveProperty("currency");
   });
 
+  it("create: vincular una unidad sin precio (Consultar precio) NO borra el Monto escrito (QA-A-08)", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(vehiclesUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeVehicleListItem({
+              id: "v3",
+              make: "Ford",
+              model: "Ranger",
+              priceListUsd: null,
+              priceListLocal: null,
+              priceOnRequest: true,
+            }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${vehiclesUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeVehicleDetail({
+            id: params.id as string,
+            make: "Ford",
+            model: "Ranger",
+            status: "AVAILABLE",
+            priceListUsd: null,
+            priceListLocal: null,
+            priceOnRequest: true,
+          }),
+        ),
+      ),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new");
+
+    await user.type(screen.getByLabelText("Título"), "Ranger a consultar");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
+    await user.type(screen.getByLabelText("Monto"), "18000");
+    await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "ranger");
+    await user.click(await screen.findByRole("button", { name: /Ford Ranger .*Consultar precio/ }));
+
+    expect(screen.getByLabelText("Moneda")).toHaveValue("USD");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(postedBody).toBeDefined());
+    expect(postedBody).toMatchObject({ vehicleId: "v3", amount: 18000, currency: "USD" });
+  });
+
   it("create: tipear Monto y Moneda DESPUÉS de vincular es un override explícito — el aviso desaparece y el POST los manda", async () => {
     let postedBody: Record<string, unknown> | undefined;
     server.use(

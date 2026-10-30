@@ -320,6 +320,26 @@ export function priceFromVehicle(
   return {};
 }
 
+// MONTO Y MONEDA SON UN PAR (NEG-MON-3 de docs-privados/auditoria-2026-10-21,
+// local): salen de la misma fuente, nunca uno del body y otro de la unidad.
+//   - Con monto en el body: ese monto, con la moneda del body (o, si no vino,
+//     la de la unidad, como siempre).
+//   - Sin monto: el precio de la unidad con SU moneda, salvo que el body pida
+//     otra moneda. Ahí no hay precio en esa moneda: queda sin monto.
+// Exportada para fijarla con un test.
+export function montoYMonedaAlCrear(
+  input: { amount?: number; currency?: string },
+  precio: PriceFromVehicle,
+): { amount?: number; currency?: string } {
+  if (input.amount !== undefined) {
+    return { amount: input.amount, currency: input.currency ?? precio.currency };
+  }
+  if (input.currency === undefined || input.currency === precio.currency) {
+    return { amount: precio.amount, currency: precio.currency ?? input.currency };
+  }
+  return { currency: input.currency };
+}
+
 // Lee la organización bajo el mismo tx y calcula el precio de la unidad.
 async function priceFromVehicleInTx(
   organizationId: string,
@@ -461,8 +481,7 @@ export async function createOpportunity(
         pipelineId: input.pipelineId,
         stageId: input.stageId,
         title: input.title,
-        amount: input.amount ?? precioDeLaUnidad.amount,
-        currency: input.currency ?? precioDeLaUnidad.currency,
+        ...montoYMonedaAlCrear(input, precioDeLaUnidad),
         expectedCloseDate: input.expectedCloseDate,
         actualCloseDate: cierre.actualCloseDate ?? undefined,
         status,

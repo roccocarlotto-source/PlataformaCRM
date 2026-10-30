@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import type { Vehicle } from "../vehicle/types";
 import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -450,11 +451,16 @@ export function OpportunityFormPage() {
   // explícito y viaja tal cual — el comportamiento que el formulario ya tenía.
   //
   // No pasa nada al desvincular (null) ni al volver a la unidad con la que el
-  // formulario arrancó: ahí no hay precio nuevo que tomar.
-  function handleVehicleChange(vehicleId: string | null) {
+  // formulario arrancó: ahí no hay precio nuevo que tomar. Tampoco con una
+  // unidad "Consultar precio" (sin precio de lista): el backend no tiene qué
+  // completar y la oportunidad quedaba en 0, perdiendo el monto escrito
+  // (QA-A-08).
+  function handleVehicleChange(vehicleId: string | null, vehicle?: Vehicle) {
+    const tienePrecio =
+      vehicle === undefined || vehicle.priceListUsd !== null || vehicle.priceListLocal !== null;
     setValues((current) => {
       const next = { ...current, vehicleId: vehicleId ?? undefined };
-      if (vehicleId !== null && vehicleId !== initialVehicleId) {
+      if (vehicleId !== null && vehicleId !== initialVehicleId && tienePrecio) {
         return { ...next, amount: "", currency: "" };
       }
       return next;

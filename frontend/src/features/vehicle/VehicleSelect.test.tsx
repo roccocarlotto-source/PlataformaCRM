@@ -83,7 +83,7 @@ describe("VehicleSelect", () => {
     ).toBeInTheDocument();
   });
 
-  it("al elegir un resultado llama a onChange con el id y limpia el término", async () => {
+  it("al elegir un resultado llama a onChange con el id y la unidad, y limpia el término", async () => {
     server.use(
       searchHandler(),
       http.get(`${baseUrl}/:id`, ({ params }) =>
@@ -99,7 +99,7 @@ describe("VehicleSelect", () => {
     });
     await user.click(resultado);
 
-    expect(onChange).toHaveBeenCalledWith("v1");
+    expect(onChange).toHaveBeenCalledWith("v1", expect.objectContaining({ id: "v1" }));
     expect(screen.getByPlaceholderText(PLACEHOLDER)).toHaveValue("");
   });
 

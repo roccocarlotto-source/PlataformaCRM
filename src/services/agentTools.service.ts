@@ -51,7 +51,7 @@ import {
   FUEL_TYPE_LABELS,
   TRANSMISSION_LABELS,
 } from "../utils/vehicleLabels";
-import { currencySchema } from "../utils/validation";
+import { currencySchema, MAX_AMOUNT } from "../utils/validation";
 import { createActivity } from "./activity.service";
 import { MAX_DIAS_DE_RANGO, obtenerDisponibilidad } from "./availability.service";
 import { createBooking, relojDeReservas } from "./booking.service";
@@ -586,7 +586,11 @@ const createOpportunityArgs = z.object({
   motivo: z.enum(MOTIVOS_DE_OPORTUNIDAD, {
     error: () => `motivo es requerido y tiene que ser uno de: ${MOTIVOS_DE_OPORTUNIDAD.join(", ")}`,
   }),
-  amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
+  amount: z
+    .number()
+    .min(0, "amount debe ser mayor o igual a 0")
+    .max(MAX_AMOUNT, "amount supera el máximo permitido")
+    .optional(),
   currency: vacioComoAusente(currencySchema),
   // Ítem 107: por texto, no por id (mismo criterio que `servicio` en el 106).
   vehiculo: textoOpcional(255),
@@ -863,7 +867,9 @@ const createOpportunityTool: ToolDelAgente = {
           cambios.title = tituloConUnidad(input.title, unidadDelReuso);
           if (input.amount === undefined && resuelto.vehiculo.priceListUsd !== null) {
             cambios.amount = resuelto.vehiculo.priceListUsd;
-            cambios.currency = input.currency ?? "USD";
+            // El monto y su moneda salen de la misma fuente: el precio de la
+            // unidad está en USD aunque el modelo haya mandado otra moneda.
+            cambios.currency = "USD";
           } else if (input.amount !== undefined) {
             cambios.amount = input.amount;
             cambios.currency = input.currency ?? existente.currency;
@@ -967,7 +973,7 @@ const createOpportunityTool: ToolDelAgente = {
         title = tituloConUnidad(input.title, unidad);
         if (amount === undefined && resuelto.vehiculo.priceListUsd !== null) {
           amount = resuelto.vehiculo.priceListUsd;
-          currency = currency ?? "USD";
+          currency = "USD"; // el precio de la unidad está en USD
         }
         interes = await anotarInteresEnLaUnidad(resuelto.vehiculo, contexto);
       }
@@ -1030,7 +1036,11 @@ const updateOpportunityArgs = z
     // Ítem 112: OPCIONAL. Ver resolverOportunidad().
     opportunityId: vacioComoAusente(uuid("opportunityId")),
     title: textoOpcional(255),
-    amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
+    amount: z
+      .number()
+      .min(0, "amount debe ser mayor o igual a 0")
+      .max(MAX_AMOUNT, "amount supera el máximo permitido")
+      .optional(),
     currency: vacioComoAusente(currencySchema),
     status: vacioComoAusente(z.enum(["LOST"])),
     lostReason: textoOpcional(255),
@@ -1227,7 +1237,7 @@ const updateOpportunityTool: ToolDelAgente = {
         }
         if (cambiosConVehiculo.amount === undefined && resuelto.vehiculo.priceListUsd !== null) {
           cambiosConVehiculo.amount = resuelto.vehiculo.priceListUsd;
-          cambiosConVehiculo.currency = cambiosConVehiculo.currency ?? "USD";
+          cambiosConVehiculo.currency = "USD"; // el precio de la unidad está en USD
         }
         interes = await anotarInteresEnLaUnidad(resuelto.vehiculo, contexto);
       }
@@ -1899,7 +1909,12 @@ const leadArgs = z
     // budgetAmount y score quedan estrictos: 0 es un valor real para los dos
     // (el comentario de leadBudgetAmount en el schema: 0 no es "sin
     // presupuesto"). Solo null cuenta como ausente.
-    budgetAmount: vacioComoAusente(z.number().min(0, "budgetAmount debe ser mayor o igual a 0")),
+    budgetAmount: vacioComoAusente(
+      z
+        .number()
+        .min(0, "budgetAmount debe ser mayor o igual a 0")
+        .max(MAX_AMOUNT, "budgetAmount supera el máximo permitido"),
+    ),
     budgetCurrency: vacioComoAusente(currencySchema),
     location: textoOpcional(200),
     notes: textoOpcional(4000),

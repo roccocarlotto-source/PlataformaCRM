@@ -11,7 +11,12 @@ import {
 import type { AuthenticatedRequest } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
-import { currencySchema, MAX_AMOUNT, parseOrThrow } from "../utils/validation";
+import {
+  currencySchema,
+  MAX_AMOUNT,
+  parseOrThrow,
+  tieneComoMuchoDosDecimales,
+} from "../utils/validation";
 
 const idParamSchema = z.string().guid("id inválido");
 
@@ -24,7 +29,8 @@ const MAX_LINES = 50;
 const amountSchema = z
   .number(mensajesDeTipo({ tipo: "amount debe ser un número" }))
   .min(0, "amount debe ser mayor o igual a 0")
-  .max(MAX_AMOUNT, "amount supera el máximo permitido");
+  .max(MAX_AMOUNT, "amount supera el máximo permitido")
+  .refine(tieneComoMuchoDosDecimales, "amount admite como mucho dos decimales");
 
 // Una línea: texto libre + importe. Negativo es un descuento, positivo un
 // accesorio o recargo. Sin catálogo ni impuestos, a propósito.
@@ -37,7 +43,10 @@ const lineSchema = z.object({
   amount: z
     .number(mensajesDeTipo({ tipo: "el monto de cada línea debe ser un número" }))
     .min(-MAX_AMOUNT, "el monto de una línea supera el máximo permitido")
-    .max(MAX_AMOUNT, "el monto de una línea supera el máximo permitido"),
+    .max(MAX_AMOUNT, "el monto de una línea supera el máximo permitido")
+    // Como mucho centavos: con más decimales, toFixed(2) sobre un float
+    // redondearía distinto que el Decimal(14, 2) del monto principal.
+    .refine(tieneComoMuchoDosDecimales, "el monto de una línea admite como mucho dos decimales"),
 });
 
 const linesSchema = z

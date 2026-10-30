@@ -3,6 +3,7 @@ import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { priceCell, unitTitle } from "./format";
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "./labels";
+import type { Vehicle } from "./types";
 import { useVehicle, useVehicles } from "./queries";
 import { InlineLoading } from "../../design-system/LoadingState";
 import { SearchSelect } from "../../design-system/SearchSelect";
@@ -13,7 +14,9 @@ interface VehicleSelectProps {
   value: string | undefined;
   // null = quitar el vínculo (a diferencia de ContactSelect, que nunca limpia:
   // Opportunity.vehicleId sí admite null en update, ver opportunity/types.ts).
-  onChange: (vehicleId: string | null) => void;
+  // La unidad elegida va como segundo argumento (con su precio), para quien
+  // necesite decidir algo con ella: ver OpportunityFormPage.
+  onChange: (vehicleId: string | null, vehicle?: Vehicle) => void;
   // Lo que se muestra de la unidad seleccionada si no se puede leer por id
   // (una dada de baja: GET /vehicles/:id ya no la devuelve). Lo usa el
   // vehículo de interés del contacto, que la sigue mostrando con su estado.
@@ -117,7 +120,7 @@ export function VehicleSelect({
         </>
       )}
       onSelect={(vehicle) => {
-        onChange(vehicle.id);
+        onChange(vehicle.id, vehicle);
         setTerm("");
       }}
     />
