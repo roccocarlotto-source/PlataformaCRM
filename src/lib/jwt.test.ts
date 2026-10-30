@@ -3,12 +3,20 @@ import { mock, test } from "node:test";
 import {
   SignJWT,
   errors as joseErrors,
+  exportJWK,
   generateKeyPair,
+  type JSONWebKeySet,
   type CryptoKey,
   type JWTVerifyGetKey,
 } from "jose";
 import { AppError } from "../utils/AppError";
-import { esErrorDelToken, verifySupabaseJwtWith } from "./jwt";
+import {
+  conRespaldoDelJwksConocido,
+  esErrorDelToken,
+  RECARGA_TRAS_FALLO_MS,
+  verifySupabaseJwtWith,
+  type JwksRemoto,
+} from "./jwt";
 import { logger } from "./logger";
 
 // A-3 — la clasificación de errores de verifySupabaseJwt, sin red y sin
@@ -295,5 +303,109 @@ test("esErrorDelToken: las clases de 'token inválido' son exactamente esas, y l
   ];
   for (const err of deInfraestructura) {
     assert.equal(esErrorDelToken(err), false, err.constructor.name);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// OPS-04: Supabase Auth caído → se verifica con el JWKS que ya funcionó
+// ---------------------------------------------------------------------------
+
+// Un JWKS remoto de mentira: responde con la clave mientras `caido` es false,
+// y falla como fallaría el fetch de jose cuando es true.
+async function jwksRemotoDePrueba() {
+  const { privateKey, publicKey } = await parDeClaves();
+  const jwk = { ...(await exportJWK(publicKey)), alg: "ES256" };
+  const estado = { caido: false, llamadas: 0, error: new TypeError("fetch failed") as Error };
+  let bajado: JSONWebKeySet | undefined;
+  const remoto = Object.assign(
+    async () => {
+      estado.llamadas++;
+      if (estado.caido) throw estado.error;
+      bajado ??= { keys: [jwk] };
+      return publicKey;
+    },
+    { jwks: () => bajado },
+  ) as JwksRemoto;
+  return { privateKey, remoto, estado };
+}
+
+function espiarLoggerWarn() {
+  const espia = mock.method(logger, "warn", () => undefined);
+  return { llamadas: () => espia.mock.calls.length, restaurar: () => espia.mock.restore() };
+}
+
+test("OPS-04: con el JWKS caído, un token válido se verifica con las claves que ya se conocían (un solo warn)", async () => {
+  const { privateKey, remoto, estado } = await jwksRemotoDePrueba();
+  let ahora = 0;
+  const getKey = conRespaldoDelJwksConocido(remoto, () => ahora);
+  const token = await firmar(privateKey, { sub: USER_ID });
+  await verifySupabaseJwtWith(token, getKey);
+
+  estado.caido = true;
+  const warn = espiarLoggerWarn();
+  try {
+    for (let i = 0; i < 3; i++) {
+      const payload = await verifySupabaseJwtWith(token, getKey);
+      assert.equal(payload.sub, USER_ID);
+      ahora += 1_000;
+    }
+    assert.equal(warn.llamadas(), 1, "una línea por caída, no una por request");
+    assert.equal(estado.llamadas, 2, "durante la espera no se vuelve a pedir el JWKS");
+
+    // Pasada la espera, se vuelve a probar el remoto; si respondió, sigue por ahí.
+    ahora += RECARGA_TRAS_FALLO_MS;
+    estado.caido = false;
+    await verifySupabaseJwtWith(token, getKey);
+    assert.equal(estado.llamadas, 3);
+  } finally {
+    warn.restaurar();
+  }
+});
+
+test("OPS-04: con el JWKS caído, un token firmado con OTRA clave sigue siendo 401", async () => {
+  const { privateKey, remoto, estado } = await jwksRemotoDePrueba();
+  const getKey = conRespaldoDelJwksConocido(remoto);
+  await verifySupabaseJwtWith(await firmar(privateKey, { sub: USER_ID }), getKey);
+
+  estado.caido = true;
+  const warn = espiarLoggerWarn();
+  try {
+    const otra = await parDeClaves();
+    const err = await capturar(await firmar(otra.privateKey, { sub: USER_ID }), getKey);
+    assert.equal(err.statusCode, 401);
+  } finally {
+    warn.restaurar();
+  }
+});
+
+test("OPS-04: sin ningún JWKS conocido (primer arranque con Auth caído) sigue siendo 503", async () => {
+  const { privateKey, remoto, estado } = await jwksRemotoDePrueba();
+  estado.caido = true;
+  const espia = espiarLoggerError();
+  try {
+    const err = await capturar(
+      await firmar(privateKey, { sub: USER_ID }),
+      conRespaldoDelJwksConocido(remoto),
+    );
+    assert.equal(err.statusCode, 503);
+  } finally {
+    espia.restaurar();
+  }
+});
+
+test("OPS-04: un kid que el JWKS remoto no tiene (JWKSNoMatchingKey) no usa el respaldo: 503 como antes", async () => {
+  const { privateKey, remoto, estado } = await jwksRemotoDePrueba();
+  const getKey = conRespaldoDelJwksConocido(remoto);
+  const token = await firmar(privateKey, { sub: USER_ID });
+  await verifySupabaseJwtWith(token, getKey);
+
+  estado.caido = true;
+  estado.error = new joseErrors.JWKSNoMatchingKey();
+  const espia = espiarLoggerError();
+  try {
+    const err = await capturar(token, getKey);
+    assert.equal(err.statusCode, 503);
+  } finally {
+    espia.restaurar();
   }
 });
