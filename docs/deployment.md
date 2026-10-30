@@ -323,6 +323,20 @@ agregarle `?connection_limit=10` quedó con dos `?` y la base dejó de responder
   "el proceso está muerto": si la plataforma reinicia el proceso ante un
   503, va a reiniciarlo en bucle durante una caída de la base sin arreglar
   nada.
+- **Qué dice `/health`** (público, sin sesión; desde el 2026-10-30):
+  `{"status","version","checks":{"database","llmKey"}}`. `version` es el
+  commit desplegado, 7 caracteres (`RENDER_GIT_COMMIT`, que Render define
+  solo; `local` fuera de Render): **un deploy se confirma cuando `version`
+  pasa a ser el commit del merge**. `llmKey` vale `ok`, `saldo-bajo`,
+  `sin-saldo` o `desconocido` (los segundos después de arrancar), sin
+  montos: los monitores Keyword de UptimeRobot buscan esas palabras, así que
+  no se cambian. No expone `uptime` ni nada más (SEG-C-04).
+- **Al arrancar**, el log "Servidor escuchando" incluye la versión y, en
+  producción, una sola línea de `error` lista las variables importantes que
+  faltan (`src/config/operacion.ts`). No frena el arranque.
+- **Cada respuesta lleva `X-Request-Id`**, el mismo id que el log de esa
+  request (`req.id`). Con él se busca en los logs de Render el request exacto
+  de un error que reporta un usuario.
 - **Una sola instancia** (sección 1).
 - El **bucket de Storage** `vehicle-photos` lo crea el propio backend, de
   forma idempotente, la primera vez que lo necesita — no hay paso manual, pero

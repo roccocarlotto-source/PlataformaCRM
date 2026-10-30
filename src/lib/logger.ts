@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import pino from "pino";
 import { env } from "../config/env";
 
@@ -167,6 +169,24 @@ export function serializarRequest<T extends { url?: unknown; query?: unknown }>(
 // alguien saca el serializer de acá, el test lo ve. No se puede poner en
 // loggerOptions.serializers: pino-http reemplaza el serializer de `req` del
 // logger por el suyo (o por el que recibe en SUS opciones).
+// OPS-09: el id de cada request. pino-http usaba un contador por proceso que
+// se reinicia en cada arranque y no salía en la respuesta. Ahora es un UUID
+// (o el X-Request-Id que mande quien llama, si tiene forma de id), va en el
+// log de la request como `req.id` y vuelve en el header X-Request-Id: con
+// él se busca en los logs el request exacto de un error.
+const ID_ENTRANTE_VALIDO = /^[A-Za-z0-9._-]{8,64}$/;
+
+export function idDelRequest(entrante: string | string[] | undefined): string {
+  return typeof entrante === "string" && ID_ENTRANTE_VALIDO.test(entrante)
+    ? entrante
+    : randomUUID();
+}
+
 export const httpLoggerOptions = {
   serializers: { req: serializarRequest },
+  genReqId: (req: IncomingMessage, res: ServerResponse) => {
+    const id = idDelRequest(req.headers["x-request-id"]);
+    res.setHeader("X-Request-Id", id);
+    return id;
+  },
 };
