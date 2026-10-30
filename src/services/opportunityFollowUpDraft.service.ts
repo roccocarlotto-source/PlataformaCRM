@@ -1,4 +1,6 @@
 import { findLatestConversationByContact } from "../repositories/conversation.repository";
+import { findZonaDeLaOrganizacion } from "../repositories/organization.repository";
+import { diaEnLaZona } from "../utils/timezone";
 import { findLastMessages } from "../repositories/message.repository";
 import { findOpportunityForFollowUpDraft } from "../repositories/opportunity.repository";
 import { AppError } from "../utils/AppError";
@@ -51,10 +53,6 @@ export interface DatosDeOportunidadParaBorrador {
   updatedAt: Date;
 }
 
-function fechaIso(fecha: Date): string {
-  return fecha.toISOString().slice(0, 10);
-}
-
 // El mensaje de usuario que ve el modelo: los datos de la oportunidad y, si
 // hay, el transcript de la conversación más reciente del contacto. Pura y
 // exportada para probarla sin base.
@@ -69,6 +67,8 @@ export function armarContextoDeBorrador(
   datos: DatosDeOportunidadParaBorrador,
   transcript: string | null,
   ahora: Date,
+  // La zona de la organización: "creada el" es el día local, no el de UTC.
+  zona = "UTC",
 ): string {
   const diasQuieta = Math.max(
     0,
@@ -84,8 +84,8 @@ export function armarContextoDeBorrador(
     `- Título: ${datos.title}`,
     `- Monto: ${monto}`,
     `- Etapa: ${datos.stageName}`,
-    `- Creada el: ${fechaIso(datos.createdAt)}`,
-    `- Último movimiento: ${fechaIso(datos.updatedAt)} (hace ${String(diasQuieta)} días)`,
+    `- Creada el: ${diaEnLaZona(datos.createdAt, zona)}`,
+    `- Último movimiento: ${diaEnLaZona(datos.updatedAt, zona)} (hace ${String(diasQuieta)} días)`,
     "",
   ];
 
@@ -184,6 +184,7 @@ export async function generarBorradorDeSeguimiento(
           },
           transcript,
           opciones.ahora ?? new Date(),
+          await findZonaDeLaOrganizacion(organizationId),
         ),
       },
     ],

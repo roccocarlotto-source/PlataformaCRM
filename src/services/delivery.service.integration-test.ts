@@ -315,14 +315,14 @@ test("editar: tildar, agregar y quitar ítems y fijar/limpiar la fecha, solo sob
       { label: "Llave de repuesto", checked: false },
       { label: "Patente provisoria", checked: true },
     ],
-    scheduledAt: new Date("2026-09-30T00:00:00.000Z"),
+    scheduledAt: new Date("2099-09-30T00:00:00.000Z"),
   });
   assert.deepEqual(editada.checklist, [
     { label: "Documentación de transferencia", checked: true },
     { label: "Llave de repuesto", checked: false },
     { label: "Patente provisoria", checked: true },
   ]);
-  assert.equal(editada.scheduledAt?.toISOString(), "2026-09-30T00:00:00.000Z");
+  assert.equal(editada.scheduledAt?.toISOString(), "2099-09-30T00:00:00.000Z");
   assert.equal(editada.status, "PENDING");
 
   const sinFecha = await updateDelivery(a.organizationId, una.delivery.id, { scheduledAt: null });
@@ -782,4 +782,29 @@ test("otra organización: revertir la entrega de A desde B da 404 y no toca nada
   assert.equal((err as { statusCode?: number }).statusCode, 404);
   assert.equal((await entrega(delivery.id)).status, "DELIVERED");
   assert.equal(await estadoDeUnidad(vehicle.id), "DELIVERED");
+});
+
+// PR-13 (QA-A-06, decisión de Rocco del 30/10): una entrega no se programa en
+// el pasado; volver a mandar la fecha que ya tenía no es un cambio.
+test("programar la entrega antes de hoy: 400; la misma fecha guardada, aunque ya pasó, no es un cambio", async () => {
+  const { delivery } = await ganadaConUnidad();
+  const err = await capturar(() =>
+    updateDelivery(a.organizationId, delivery.id, {
+      scheduledAt: new Date("2020-01-01T00:00:00.000Z"),
+    }),
+  );
+  assertAppError(err, 400, "no puede ser anterior a hoy");
+  const releida = await prisma.delivery.findUniqueOrThrow({ where: { id: delivery.id } });
+  assert.equal(releida.scheduledAt, null);
+
+  // Una fecha que ya pasó y quedó guardada (se programó cuando era futura).
+  await prisma.delivery.update({
+    where: { id: delivery.id },
+    data: { scheduledAt: new Date("2020-01-01T00:00:00.000Z") },
+  });
+  const igual = await updateDelivery(a.organizationId, delivery.id, {
+    scheduledAt: new Date("2020-01-01T00:00:00.000Z"),
+    checklist: [{ label: "Documentación", checked: true }],
+  });
+  assert.deepEqual(igual.checklist, [{ label: "Documentación", checked: true }]);
 });

@@ -19,7 +19,7 @@ import {
   type UpdateQuoteContentData,
 } from "../repositories/quote.repository";
 import { AppError } from "../utils/AppError";
-import { esZonaHorariaValida } from "../utils/timezone";
+import { diaEnLaZona } from "../utils/timezone";
 
 // ---------------------------------------------------------------------------
 // Cotización (§39 de docs/frontend-cambios-pendientes.md).
@@ -81,18 +81,10 @@ export function transitionSourceStatus(target: QuoteTransitionTarget): QuoteStat
 // que la ficha de una oportunidad dé 500.
 // ---------------------------------------------------------------------------
 export function todayInTimeZone(now: Date, timeZone: string): Date {
-  const zone = esZonaHorariaValida(timeZone) ? timeZone : "UTC";
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: zone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return new Date(`${part("year")}-${part("month")}-${part("day")}T00:00:00.000Z`);
+  return new Date(`${diaEnLaZona(now, timeZone)}T00:00:00.000Z`);
 }
 
-async function todayForOrganization(organizationId: string, db: Db = prisma): Promise<Date> {
+export async function todayForOrganization(organizationId: string, db: Db = prisma): Promise<Date> {
   const organization = await findOrganizationById(organizationId, db);
   return todayInTimeZone(new Date(), organization?.timezone ?? "UTC");
 }
@@ -120,6 +112,19 @@ export function assertSendable(quote: { validUntil: Date | null }, today: Date):
       "La fecha de validez de la cotización ya pasó: corregila antes de enviarla",
       409,
     );
+  }
+}
+
+// Una cotización no puede nacer vencida, ni editarse para que quede vencida
+// (QA-A-06 de docs-privados/auditoria-2026-10-21, local; decisión de Rocco del
+// 30/10). Se mira solo cuando validUntil se carga o cambia: editar otra cosa
+// de un borrador cuya validez ya pasó no da error. "Hoy" es el día de la zona
+// de la organización. 400: es el dato que mandó el usuario.
+export const VALIDEZ_VENCIDA = "La fecha de validez no puede ser anterior a hoy";
+
+export function assertValidezNoVencida(validUntil: Date | null | undefined, today: Date): void {
+  if (validUntil !== null && validUntil !== undefined && validUntil < today) {
+    throw new AppError(VALIDEZ_VENCIDA, 400);
   }
 }
 
@@ -299,6 +304,7 @@ export async function createQuote(
     }
 
     const today = await todayForOrganization(organizationId, tx);
+    assertValidezNoVencida(input.validUntil, today);
     await expireDueQuotes({ organizationId, opportunityId: input.opportunityId }, today, tx);
 
     const active = await findActiveQuote(organizationId, input.opportunityId, tx);
@@ -385,6 +391,12 @@ export async function updateQuoteContent(
   const quote = await requireReachableQuote(organizationId, id);
   if (quote.status !== "DRAFT") {
     throw new AppError(SOLO_BORRADOR_EDITABLE, 409);
+  }
+  const cambiaLaValidez =
+    input.validUntil !== undefined &&
+    (input.validUntil?.getTime() ?? null) !== (quote.validUntil?.getTime() ?? null);
+  if (cambiaLaValidez) {
+    assertValidezNoVencida(input.validUntil, await todayForOrganization(organizationId));
   }
 
   const { lines, ...rest } = input;

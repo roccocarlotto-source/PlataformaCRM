@@ -77,3 +77,63 @@ export const timezoneSchema = z
 export function tieneComoMuchoDosDecimales(valor: number): boolean {
   return Math.abs(Math.round(valor * 100) - valor * 100) < 1e-6;
 }
+
+// ---------------------------------------------------------------------------
+// FECHAS (NEG-VAL-1, NEG-VAL-2, QA-A-06 de docs-privados/auditoria-2026-10-21,
+// local). Un solo lugar para lo que antes repetía cada controller con
+// z.coerce.date():
+//
+//   - coerce convierte null en 1970-01-01. Por eso los dos schemas aceptan
+//     null explícito (= sin fecha) en vez de coercionarlo.
+//   - una fecha SOLA (columna @db.Date: "válida hasta el 30") que llega como
+//     instante con zona se guarda un día antes o después. fechaSoloSchema
+//     exige AAAA-MM-DD y que el día exista de verdad: new Date("2026-02-30")
+//     no falla, corre al 2 de marzo.
+//   - años absurdos (0202, 1970 por un null, 9999): las dos rechazan lo que
+//     cae fuera de RANGO_DE_FECHAS.
+// ---------------------------------------------------------------------------
+export const RANGO_DE_FECHAS = {
+  desde: new Date("1900-01-01T00:00:00.000Z"),
+  hasta: new Date("2100-12-31T23:59:59.999Z"),
+} as const;
+
+function dentroDelRango(fecha: Date): boolean {
+  return fecha >= RANGO_DE_FECHAS.desde && fecha <= RANGO_DE_FECHAS.hasta;
+}
+
+const MENSAJE_FUERA_DE_RANGO = (campo: string) => `${campo} tiene que estar entre 1900 y 2100`;
+
+// Fecha sola: "AAAA-MM-DD" -> Date a la medianoche UTC de ese día. null pasa
+// tal cual (borra la fecha).
+export function fechaSoloSchema(campo: string) {
+  return z
+    .string({ error: () => `${campo} debe ser una fecha AAAA-MM-DD` })
+    .regex(/^\d{4}-\d{2}-\d{2}$/, `${campo} debe ser una fecha AAAA-MM-DD`)
+    .transform((valor, ctx) => {
+      const fecha = new Date(`${valor}T00:00:00.000Z`);
+      if (Number.isNaN(fecha.getTime()) || fecha.toISOString().slice(0, 10) !== valor) {
+        ctx.addIssue({ code: "custom", message: `${campo} no es una fecha válida` });
+        return z.NEVER;
+      }
+      if (!dentroDelRango(fecha)) {
+        ctx.addIssue({ code: "custom", message: MENSAJE_FUERA_DE_RANGO(campo) });
+        return z.NEVER;
+      }
+      return fecha;
+    })
+    .nullable();
+}
+
+// Al CREAR, null y ausente son lo mismo: sin fecha. Esto lo deja como
+// undefined, que es lo que esperan los inputs de alta de los services.
+export function sinFechaComoUndefined<T>(valor: T | null | undefined): T | undefined {
+  return valor ?? undefined;
+}
+
+// Instante (fecha con hora, ISO). null pasa tal cual (borra la fecha).
+export function instanteSchema(campo: string) {
+  return z.coerce
+    .date({ error: () => `${campo} inválida` })
+    .refine(dentroDelRango, MENSAJE_FUERA_DE_RANGO(campo))
+    .nullable();
+}

@@ -109,3 +109,19 @@ export function vencimientoAlFinDelDia(ahora: Date, zona: string, dias = 0): Dat
   const base = local.isValid ? local : DateTime.fromJSDate(ahora, { zone: "utc" });
   return base.plus({ days: dias }).endOf("day").toJSDate();
 }
+
+// El día calendario de `fecha` en `zona`, como "AAAA-MM-DD" (NEG-FEC-3 de
+// docs-privados/auditoria-2026-10-21, local). toISOString().slice(0, 10) da
+// el día en UTC: en Montevideo, entre las 21:00 y la medianoche ya es "mañana".
+// Una zona inválida cae a UTC.
+export function diaEnLaZona(fecha: Date, zona: string): string {
+  const valida = esZonaHorariaValida(zona) ? zona : "UTC";
+  const partes = new Intl.DateTimeFormat("en-US", {
+    timeZone: valida,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(fecha);
+  const parte = (tipo: string) => partes.find((p) => p.type === tipo)?.value ?? "";
+  return `${parte("year")}-${parte("month")}-${parte("day")}`;
+}

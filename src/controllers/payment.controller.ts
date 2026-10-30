@@ -11,7 +11,7 @@ import {
 import type { AuthenticatedRequest } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
-import { MAX_AMOUNT, parseOrThrow } from "../utils/validation";
+import { MAX_AMOUNT, RANGO_DE_FECHAS, parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().guid("id inválido");
 
@@ -46,7 +46,11 @@ const paidAtSchema = z
   .transform((value, ctx) => {
     const date = new Date(`${value}T00:00:00.000Z`);
     if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "paidAt no es una fecha válida" });
+      ctx.addIssue({ code: "custom", message: "paidAt no es una fecha válida" });
+      return z.NEVER;
+    }
+    if (date < RANGO_DE_FECHAS.desde || date > RANGO_DE_FECHAS.hasta) {
+      ctx.addIssue({ code: "custom", message: "paidAt tiene que estar entre 1900 y 2100" });
       return z.NEVER;
     }
     return date;

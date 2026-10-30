@@ -3,7 +3,12 @@ import { test } from "node:test";
 import { z } from "zod";
 import { mensajesDeTipo } from "./erroresDeZod";
 import { AppError } from "./AppError";
-import { parseOrThrow, tieneComoMuchoDosDecimales } from "./validation";
+import {
+  fechaSoloSchema,
+  instanteSchema,
+  parseOrThrow,
+  tieneComoMuchoDosDecimales,
+} from "./validation";
 
 // ---------------------------------------------------------------------------
 // FABLE-I-06 (docs-privados/auditoria-2026-10-05-FABLE.md, local): los errores
@@ -171,4 +176,33 @@ test("tieneComoMuchoDosDecimales: centavos sí, milésimos no, sin errores de pu
   for (const malo of [12.345, 0.001, -0.105]) {
     assert.equal(tieneComoMuchoDosDecimales(malo), false, String(malo));
   }
+});
+
+// Fechas (NEG-VAL-1, NEG-VAL-2, QA-A-06): null es "sin fecha" y nunca 1970;
+// una fecha sola exige AAAA-MM-DD de un día que existe; fuera de 1900-2100 no.
+test("fechaSoloSchema: AAAA-MM-DD a medianoche UTC, null pasa, lo demás no", () => {
+  const schema = fechaSoloSchema("validUntil");
+  assert.equal(schema.parse("2026-10-30")?.toISOString(), "2026-10-30T00:00:00.000Z");
+  assert.equal(schema.parse(null), null);
+  for (const malo of [
+    "2026-10-30T23:00:00-03:00",
+    "2026-02-30",
+    "30/10/2026",
+    "",
+    "0202-10-30",
+    "2101-01-01",
+  ]) {
+    assert.equal(schema.safeParse(malo).success, false, malo);
+  }
+  const error = schema.safeParse("2026-02-30");
+  assert.match(JSON.stringify(error.error?.issues), /validUntil no es una fecha válida/);
+  assert.match(JSON.stringify(schema.safeParse("1899-12-31").error?.issues), /entre 1900 y 2100/);
+});
+
+test("instanteSchema: null es sin fecha, no 1970; fuera de rango no", () => {
+  const schema = instanteSchema("dueDate");
+  assert.equal(schema.parse(null), null);
+  assert.equal(schema.parse("2026-10-30T15:00:00.000Z")?.toISOString(), "2026-10-30T15:00:00.000Z");
+  assert.equal(schema.safeParse("no es una fecha").success, false);
+  assert.equal(schema.safeParse("2200-01-01T00:00:00Z").success, false);
 });

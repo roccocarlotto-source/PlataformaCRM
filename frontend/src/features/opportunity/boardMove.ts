@@ -65,3 +65,12 @@ export function todayIsoDate(now: Date = new Date()): string {
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+
+// El mínimo de un <input type="date"> que no acepta fechas pasadas: hoy, o la
+// fecha ya guardada si es anterior (un registro viejo se puede seguir
+// editando sin tocar su fecha). Mismo criterio que el backend: la regla se
+// aplica solo cuando la fecha cambia.
+export function minimoDeFecha(guardada: string, now: Date = new Date()): string {
+  const hoy = todayIsoDate(now);
+  return guardada && guardada < hoy ? guardada : hoy;
+}

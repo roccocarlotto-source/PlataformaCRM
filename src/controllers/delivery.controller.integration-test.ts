@@ -213,7 +213,7 @@ test("escritura como USER: editar y confirmar son 403 y no escriben nada", async
   const delivery = await laEntrega();
 
   const editar = await send("PATCH", `/api/deliveries/${delivery.id}`, user.accessToken, {
-    scheduledAt: "2026-09-30",
+    scheduledAt: "2099-09-30",
   });
   assert.equal(editar.status, 403);
   const confirmar = await send("PATCH", `/api/deliveries/${delivery.id}`, user.accessToken, {
@@ -231,7 +231,7 @@ test("PATCH como ADMIN: mezclar las dos formas es 400; editar y confirmar por se
 
   const mezcla = await send("PATCH", `/api/deliveries/${delivery.id}`, admin.accessToken, {
     status: "DELIVERED",
-    scheduledAt: "2026-09-30",
+    scheduledAt: "2099-09-30",
   });
   assert.equal(mezcla.status, 400);
 
@@ -240,11 +240,11 @@ test("PATCH como ADMIN: mezclar las dos formas es 400; editar y confirmar por se
       { label: "Documentación de transferencia", checked: true },
       { label: "Patente provisoria", checked: false },
     ],
-    scheduledAt: "2026-09-30",
+    scheduledAt: "2099-09-30",
   });
   assert.equal(editada.status, 200);
   const editadaBody = (await editada.json()) as DeliveryBody;
-  assert.equal(editadaBody.scheduledAt, "2026-09-30T00:00:00.000Z");
+  assert.equal(editadaBody.scheduledAt, "2099-09-30T00:00:00.000Z");
   assert.equal(editadaBody.checklist.length, 2);
 
   // Un deliveredById en el body no es parte de ninguna forma: 400, y quién

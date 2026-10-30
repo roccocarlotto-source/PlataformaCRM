@@ -279,7 +279,9 @@ Cada cotización tiene un estado:
 2. Cargá el **Precio ofertado** (obligatorio) y la **Moneda**. Si ya había una
    cotización vigente, el formulario arranca con sus valores (el caso típico
    es "le bajo el precio"); si no, con el monto de la oportunidad.
-3. Si corresponde, poné **Válida hasta**: la fecha límite de la oferta.
+3. Si corresponde, poné **Válida hasta**: la fecha límite de la oferta. No
+   puede ser anterior a hoy. En un borrador viejo cuya validez ya pasó, podés
+   corregir lo demás sin tocarla.
 4. En **Accesorios y descuentos** podés agregar líneas con **Agregar línea**:
    cada una tiene **Descripción**, **Tipo** (Accesorio suma, Descuento resta)
    e **Importe**, siempre en positivo y con hasta dos decimales. **Quitar** la
@@ -369,6 +371,8 @@ La entrega tiene dos estados: **Pendiente de entrega** y **Entregada**.
 Mientras está pendiente:
 
 - **Fecha programada**: cuándo se va a entregar. Se guarda al salir del campo.
+  No puede ser anterior a hoy; si la unidad ya se entregó, usá **Confirmar
+  entrega**, que guarda cuándo.
 - **Qué se entrega**: una lista de control que arranca con cinco ítems
   (Documentación de transferencia, Manual del vehículo, Llave de repuesto, Kit
   de herramientas / gato, Service al día). Cada tilde se guarda al instante,
