@@ -180,13 +180,34 @@ export const NOTA_DATOS_RESERVADOS_EN_WEB =
 export async function bloqueoPorIdentidad(
   contexto: ContextoDeEjecucionDeTool,
   termino = "cliente",
+  mensaje: (faltan: string[], termino: string) => string = mensajeFaltanDatos,
 ): Promise<ResultadoDeTool | null> {
   const contacto = await findContactById(contexto.conversation.contactId, contexto.organizationId);
   if (!contacto) {
     return fallo("El contacto de esta conversación ya no existe");
   }
   const faltan = datosQueFaltanParaActuar(contacto, contexto.conversation.channel);
-  return faltan.length > 0 ? fallo(mensajeFaltanDatos(faltan, termino)) : null;
+  return faltan.length > 0 ? fallo(mensaje(faltan, termino)) : null;
+}
+
+// ---------------------------------------------------------------------------
+// POR EL CHAT WEB, LO QUE CIERRA O LEE ALGO INTERNO PIDE SABER QUIÉN ES.
+//
+// En el widget cualquiera puede escribir. Dar por perdida una oportunidad o
+// marcar «sin interés» (que corta los seguimientos) solo se hace con el
+// visitante identificado: nombre, apellido y un teléfono o un email, el mismo
+// candado que reservar. Por WhatsApp, Messenger e Instagram el canal ya dice
+// quién es y no cambia nada: un «no me escribas más» se respeta siempre.
+// ---------------------------------------------------------------------------
+export function mensajeCierreSinIdentidad(faltan: string[], termino = "cliente"): string {
+  return `Todavía no se puede: por el chat web, antes de dar por perdida la oportunidad o marcar al ${termino} como «sin interés» hace falta ${faltan.join(" y ")} para saber quién es. No insistas para pedírselo solo para esto: si no quiere seguir, despedite con cortesía. No le digas que quedó registrado: no se hizo nada.`;
+}
+
+export async function bloqueoDelCierrePorWeb(
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<ResultadoDeTool | null> {
+  if (contexto.conversation.channel !== ConversationChannel.WEB) return null;
+  return bloqueoPorIdentidad(contexto, "cliente", mensajeCierreSinIdentidad);
 }
 
 // ---------------------------------------------------------------------------
@@ -1183,6 +1204,10 @@ const updateOpportunityTool: ToolDelAgente = {
     }
 
     return conErroresDeNegocio(async () => {
+      if (cambios.status === "LOST") {
+        const bloqueo = await bloqueoDelCierrePorWeb(contexto);
+        if (bloqueo) return bloqueo;
+      }
       const resuelta = await resolverOportunidad(opportunityId, contexto);
       if (!resuelta.ok) {
         return resuelta.resultado;
@@ -2880,10 +2905,14 @@ const getContactActivitiesTool: ToolDelAgente = {
     // ("tenés un llamado agendado para el martes a las 10"), así que va en la
     // zona de la sucursal igual que los turnos.
     const zona = await zonaDeLaSucursal(contexto);
+    // El asunto es texto interno del equipo («llamarlo, duda por el precio»):
+    // por el chat web, a un visitante sin identificar solo le llegan el tipo y
+    // la fecha. Ver bloqueoDelCierrePorWeb.
+    const sinIdentificar = (await bloqueoDelCierrePorWeb(contexto)) !== null;
     return exito({
       zonaHoraria: zona,
       activities: actividades.map((a) => ({
-        subject: a.subject,
+        ...(sinIdentificar ? {} : { subject: a.subject }),
         type: a.type,
         dueDate: a.dueDate ? isoEnZona(a.dueDate, zona) : null,
       })),
@@ -2944,6 +2973,8 @@ const markNoInterestTool: ToolDelAgente = {
     }
     const { motivo } = validacion.value;
     return conErroresDeNegocio(async () => {
+      const bloqueo = await bloqueoDelCierrePorWeb(contexto);
+      if (bloqueo) return bloqueo;
       await marcarSinInteres(contexto.organizationId, contexto.conversation.contactId, motivo);
       return exito({ marcado: true, motivo, queHacer: QUE_HACER_TRAS_MARCAR_SIN_INTERES });
     });

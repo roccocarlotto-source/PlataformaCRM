@@ -98,6 +98,27 @@ test("(3) la comparación no distingue mayúsculas", () => {
   assert.equal(decision.allowed, false);
 });
 
+test("(3) un campo protegido anidado (los campos personalizados van en `campos`) también rechaza", () => {
+  const decision = puedeEjecutarTool(
+    agente({ guardrails: { infoNoModificable: ["Contact.dni"] } }),
+    "create_opportunity",
+    { campos: { DNI: "12345678", ciudad: "Pilar" } },
+    SIN_DATOS,
+  );
+  assert.equal(decision.allowed, false);
+  assert.match(decision.reason ?? "", /DNI/);
+});
+
+test("(3) una lista no se recorre: sus valores no son nombres de campo", () => {
+  const decision = puedeEjecutarTool(
+    agente({ guardrails: { infoNoModificable: ["Contact.dni"] } }),
+    "create_opportunity",
+    { campos: { intereses: ["dni", "otro"] } },
+    SIN_DATOS,
+  );
+  assert.equal(decision.allowed, true);
+});
+
 test("(3) un campo protegido que no aparece en los args no bloquea nada", () => {
   const decision = puedeEjecutarTool(
     agente({ guardrails: { infoNoModificable: ["Contact.email", "Contact.phone"] } }),

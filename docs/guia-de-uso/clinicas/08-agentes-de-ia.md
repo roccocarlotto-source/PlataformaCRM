@@ -271,6 +271,12 @@ ve solo cuando el paciente está identificado: con nombre y apellido y, por el
 chat del sitio web, también un teléfono o un email. Hasta entonces, si el
 paciente pregunta por ellos, primero le pide esos datos.
 
+Por el chat del sitio web, el agente tampoco marca al paciente **«sin
+interés»** hasta que esté identificado así, y de sus tareas pendientes solo
+ve el tipo y la fecha, no el asunto, que es texto interno del equipo. Por
+WhatsApp, Messenger e Instagram nada de esto cambia: un «no me escribas más»
+se respeta siempre.
+
 ## Reglas del agente {#reglas}
 
 La tarjeta **Reglas del agente** es para las prohibiciones que el sistema
