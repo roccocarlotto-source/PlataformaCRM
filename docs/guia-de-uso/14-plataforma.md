@@ -291,6 +291,10 @@ vuelve a cualquiera: a seguir una que quedó a mitad o a ver su informe.
 
 > La importación corre en segundo plano. Se puede cerrar la pantalla en
 > cualquier momento y volver más tarde desde **Importaciones anteriores**.
+> Si algo falla al terminar una importación, queda **Terminada** con el
+> motivo en rojo arriba del informe: las filas ya se cargaron, lo que no se
+> pudo completar es el cierre. Las importaciones de las demás organizaciones
+> siguen su curso.
 
 ### Orden recomendado
 

@@ -427,40 +427,48 @@ export async function confirmarImportacion(
       );
     }
   }
-  return prisma.$transaction(async (tx) => {
-    const r = await transicionarLote(
-      organizationId,
-      batchId,
-      ["READY"],
-      { status: "RUNNING", confirmedAt: new Date() },
-      tx,
-    );
-    if (r.count === 0) {
-      throw new AppError("Solo se confirma una importación con la vista previa lista", 409);
-    }
-    const filas = await confirmarFilas(organizationId, batchId, tx);
-    // "Mantener sincronizado" (§7): solo un lote de stock de Google Sheets.
-    const sync = sincronizar ? await crearSincronizacionDesdeLote(lote, sincronizar, tx) : null;
-    return { confirmadas: filas.count, syncId: sync?.id ?? null };
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      const r = await transicionarLote(
+        organizationId,
+        batchId,
+        ["READY"],
+        { status: "RUNNING", confirmedAt: new Date() },
+        tx,
+      );
+      if (r.count === 0) {
+        throw new AppError("Solo se confirma una importación con la vista previa lista", 409);
+      }
+      const filas = await confirmarFilas(organizationId, batchId, tx);
+      // "Mantener sincronizado" (§7): solo un lote de stock de Google Sheets.
+      const sync = sincronizar ? await crearSincronizacionDesdeLote(lote, sincronizar, tx) : null;
+      return { confirmadas: filas.count, syncId: sync?.id ?? null };
+      // Marca todas las filas del lote: con un archivo grande pasa los 5 s por
+      // defecto. Mismo tope que el resto del módulo.
+    },
+    { timeout: IMPORT_BATCH_TRANSACTION_TIMEOUT_MS },
+  );
 }
 
 export async function cancelarImportacion(organizationId: string, batchId: string) {
   await exigirLote(organizationId, batchId);
-  return prisma.$transaction(async (tx) => {
-    const r = await transicionarLote(
-      organizationId,
-      batchId,
-      ["STAGED", "ANALYZING", "READY"],
-      { status: "CANCELLED" },
-      tx,
-    );
-    if (r.count === 0) {
-      throw new AppError("La importación ya se confirmó: no se puede cancelar", 409);
-    }
-    const borradas = await borrarFilasSinConfirmar(organizationId, batchId, tx);
-    return { borradas: borradas.count };
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      const r = await transicionarLote(
+        organizationId,
+        batchId,
+        ["STAGED", "ANALYZING", "READY"],
+        { status: "CANCELLED" },
+        tx,
+      );
+      if (r.count === 0) {
+        throw new AppError("La importación ya se confirmó: no se puede cancelar", 409);
+      }
+      const borradas = await borrarFilasSinConfirmar(organizationId, batchId, tx);
+      return { borradas: borradas.count };
+    },
+    { timeout: IMPORT_BATCH_TRANSACTION_TIMEOUT_MS },
+  );
 }
 
 // ---------------------------------------------------------------------------

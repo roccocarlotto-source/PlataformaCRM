@@ -333,6 +333,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("purga-visitantes-{ts}-{hex8}", `${S}widgetVisitorsPurge.integration-test.ts`),
   patron("worker-{etiqueta}-{ts}-{hex8}", `${W}agentInboundWorker.integration-test.ts`),
   patron("aviso-{ts}-{hex8}", `${W}avisoSinRespuestaWorker.integration-test.ts`),
+  patron("lotes-{etiqueta}-{ts}-{hex8}", `${W}importBatchWorker.integration-test.ts`),
   patron("contador-ingesta-{ts}-{hex8}", `${S}ingestionEvent.contador.integration-test.ts`),
   patron("tarea-cola-{ts}-{hex8}", `${S}tareaPorColaFallida.integration-test.ts`),
   patron("envios-ns-{ts}-{hex8}", `${S}enviosQueNoSalieron.integration-test.ts`),

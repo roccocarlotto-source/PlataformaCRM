@@ -114,11 +114,41 @@ async function deshacerUno(resumen: ResumenDeLotes): Promise<boolean> {
   }
 }
 
+// Cerrar un lote puede fallar (marcar las unidades que faltan de una
+// sincronización, el resumen de filas). Sin este catch, el error cortaba la
+// pasada entera y, como el lote seguía RUNNING, la próxima volvía a fallar con
+// él: no se cerraba ni se deshacía ningún lote de ninguna organización
+// (NEG-02 de docs-privados/auditoria-2026-10-21, local). Ahora el lote queda
+// DONE con errorMessage, mismo criterio que deshacerUno: sus filas ya se
+// procesaron, lo que falló es el cierre, y sale de la cola.
 async function terminarUno(resumen: ResumenDeLotes): Promise<boolean> {
+  let tomado: { id: string; organizationId: string } | undefined;
+  try {
+    return await terminarUnoEnTransaccion(resumen, (lote) => {
+      tomado = lote;
+    });
+  } catch (err) {
+    if (!tomado) throw err;
+    resumen.conError++;
+    logger.error({ err, loteId: tomado.id }, "No se pudo cerrar un lote de importación");
+    await transicionarLote(tomado.organizationId, tomado.id, ["RUNNING"], {
+      status: "DONE",
+      finishedAt: new Date(),
+      errorMessage: `No se pudo cerrar el lote: ${describirError(err)}`.slice(0, 1000),
+    });
+    return true;
+  }
+}
+
+async function terminarUnoEnTransaccion(
+  resumen: ResumenDeLotes,
+  alTomar: (lote: { id: string; organizationId: string }) => void,
+): Promise<boolean> {
   return prisma.$transaction(
     async (tx) => {
       const lote = await claimLoteTerminado(tx);
       if (!lote) return false;
+      alTomar({ id: lote.id, organizationId: lote.organizationId });
       const final = await resumenDeFilas(lote.organizationId, lote.id, tx);
       // Una corrida de una sincronización: las unidades que ya no están en la
       // planilla (§7).
@@ -149,17 +179,29 @@ async function terminarUno(resumen: ResumenDeLotes): Promise<boolean> {
   );
 }
 
-// Una pasada: analiza y cierra todo lo que haya, de a un lote por vez.
+// Una pasada: analiza y cierra todo lo que haya, de a un lote por vez. Cada
+// bucle atrapa lo suyo: que falle el análisis (la base, por ejemplo) no deja
+// sin cerrar ni deshacer los lotes de las demás organizaciones.
 export async function procesarLotes(): Promise<ResumenDeLotes> {
   const resumen: ResumenDeLotes = { analizados: 0, terminados: 0, deshechos: 0, conError: 0 };
-  while (await analizarUno(resumen)) {
-    /* uno por transacción */
-  }
-  while (await terminarUno(resumen)) {
-    /* uno por transacción */
-  }
-  while (await deshacerUno(resumen)) {
-    /* uno por transacción */
+  const pasos: [string, (r: ResumenDeLotes) => Promise<boolean>][] = [
+    ["analizar", analizarUno],
+    ["cerrar", terminarUno],
+    ["deshacer", deshacerUno],
+  ];
+  for (const [paso, uno] of pasos) {
+    try {
+      while (await uno(resumen)) {
+        /* uno por transacción */
+      }
+    } catch (err) {
+      if (!anotarSiLaBaseNoResponde(err)) {
+        logger.error(
+          { err, paso },
+          "Falló un paso del worker de lotes de importación; sigue el próximo",
+        );
+      }
+    }
   }
   return resumen;
 }
