@@ -10,6 +10,7 @@ import { prisma, type Db } from "../lib/prisma";
 import { AppError } from "../utils/AppError";
 import { sqlMenciona, type CriteriosDeMencion } from "../utils/mencionDeLaPersona";
 import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
+import { despertar } from "../lib/despertador";
 
 // ---------------------------------------------------------------------------
 // El carácter NUL (U+0000) y jsonb — M-16 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
@@ -135,6 +136,7 @@ export async function insertPendingIngestionEvent(
   db: Db = prisma,
 ): Promise<InsertPendingEventResult> {
   assertSinNul(data.rawPayload);
+  despertar("ingesta");
 
   const ejecutar = async (tx: Db): Promise<InsertPendingEventResult> => {
     const insertadas = await tx.$queryRaw<FilaId[]>`
@@ -539,6 +541,7 @@ export async function insertPendingEventsBatch(
   },
   db: Db = prisma,
 ): Promise<InsertBatchResult> {
+  despertar("ingesta");
   // TODAS las filas se validan ANTES de la primera tanda, no tanda por tanda:
   // si la fila 2.900 de 3.000 trae un NUL, no tiene que haber quedado nada de
   // las 2.800 anteriores. Es la única forma de garantizar "cero filas
@@ -907,6 +910,7 @@ export function retryIngestionEventConditional(
   organizationId: string,
   db: Db = prisma,
 ) {
+  despertar("ingesta");
   return db.ingestionEvent.updateMany({
     where: { id, organizationId, status: IngestionStatus.FAILED },
     data: {

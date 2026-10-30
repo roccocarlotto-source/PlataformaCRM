@@ -1,3 +1,4 @@
+import type { VehiclePhotoImport } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { reclamarFoto } from "../repositories/vehiclePhotoImport.repository";
@@ -7,6 +8,7 @@ import {
   type Descargar,
 } from "../services/importacionFotos.service";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
+import { crearTemporizadorDeSondeo } from "./temporizadorDeSondeo";
 
 // ---------------------------------------------------------------------------
 // El worker de las fotos del stock importado (docs/importacion-de-datos.md
@@ -36,20 +38,31 @@ export async function procesarFotosPendientes(
   descargar: Descargar = descargarFotoPublica,
 ): Promise<ResumenDeFotos> {
   const resumen: ResumenDeFotos = { bajadas: 0, fallidas: 0, omitidas: 0, reintentos: 0 };
+  const primera = await reclamarFoto(LEASE_DE_FOTO_MS);
+  if (!primera) return resumen;
   let procesadas = 0;
-  const hilo = async () => {
+  const procesar = async (foto: VehiclePhotoImport) => {
+    procesadas++;
+    const r = await procesarFoto(foto, descargar);
+    if (r === "DONE") resumen.bajadas++;
+    else if (r === "FAILED") resumen.fallidas++;
+    else if (r === "SKIPPED") resumen.omitidas++;
+    else resumen.reintentos++;
+  };
+  const hilo = async (inicial?: VehiclePhotoImport) => {
+    if (inicial) await procesar(inicial);
     while (procesadas < POR_PASADA) {
       const foto = await reclamarFoto(LEASE_DE_FOTO_MS);
       if (!foto) return;
-      procesadas++;
-      const r = await procesarFoto(foto, descargar);
-      if (r === "DONE") resumen.bajadas++;
-      else if (r === "FAILED") resumen.fallidas++;
-      else if (r === "SKIPPED") resumen.omitidas++;
-      else resumen.reintentos++;
+      await procesar(foto);
     }
   };
-  await Promise.all(Array.from({ length: CONCURRENCIA_DE_FOTOS }, hilo));
+  // En reposo es UNA consulta y no una por hilo: los otros hilos arrancan
+  // recién si la primera trajo una foto (ancho de banda, 2026-10-30).
+  await Promise.all([
+    hilo(primera),
+    ...Array.from({ length: CONCURRENCIA_DE_FOTOS - 1 }, () => hilo()),
+  ]);
   return resumen;
 }
 
@@ -61,16 +74,17 @@ export function iniciarWorkerDeFotosImportadas(): () => Promise<void> {
     return () => Promise.resolve();
   }
   let detenido = false;
-  let timer: NodeJS.Timeout | undefined;
   let tickEnCurso: Promise<void> | undefined;
 
   const tick = async () => {
     if (detenido) return;
+    let huboTrabajo = false;
     tickEnCurso = (async () => {
       try {
         if (laBaseEstaCaida()) return;
         const r = await procesarFotosPendientes();
-        if (r.bajadas + r.fallidas + r.omitidas + r.reintentos > 0) {
+        huboTrabajo = r.bajadas + r.fallidas + r.omitidas + r.reintentos > 0;
+        if (huboTrabajo) {
           logger.info(r, "Fotos importadas");
         }
       } catch (err) {
@@ -81,13 +95,21 @@ export function iniciarWorkerDeFotosImportadas(): () => Promise<void> {
     })();
     await tickEnCurso;
     tickEnCurso = undefined;
-    if (!detenido) timer = setTimeout(() => void tick(), env.IMPORT_PHOTO_WORKER_POLL_MS);
+    if (!detenido) reloj.programar(huboTrabajo);
   };
 
-  timer = setTimeout(() => void tick(), env.IMPORT_PHOTO_WORKER_POLL_MS);
+  // Sin trabajo, espera cada vez más, hasta 60 s; quien encola lo despierta
+  // (workers/temporizadorDeSondeo.ts).
+  const reloj = crearTemporizadorDeSondeo({
+    cola: "fotos",
+    minimoMs: env.IMPORT_PHOTO_WORKER_POLL_MS,
+    maximoMs: 60_000,
+    pasada: () => void tick(),
+  });
+  reloj.arrancar(env.IMPORT_PHOTO_WORKER_POLL_MS);
   return async () => {
     detenido = true;
-    if (timer) clearTimeout(timer);
+    reloj.detener();
     await tickEnCurso;
   };
 }

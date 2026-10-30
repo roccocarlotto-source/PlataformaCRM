@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma, type VehiclePhotoImport, type VehiclePhotoImportStatus } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
+import { despertar } from "../lib/despertador";
 
 // ---------------------------------------------------------------------------
 // La cola de fotos del stock importado (vehicle_photo_imports,
@@ -26,6 +27,7 @@ export async function encolarFotos(
   db: Db,
 ): Promise<number> {
   if (data.fotos.length === 0) return 0;
+  despertar("fotos");
   const valores = data.fotos.map(
     (f) => Prisma.sql`(
       ${data.organizationId}::uuid, ${data.batchId}::uuid, ${data.vehicleId}::uuid,

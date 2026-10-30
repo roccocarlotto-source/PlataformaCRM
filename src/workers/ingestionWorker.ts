@@ -9,7 +9,9 @@ import {
   type EventoReclamado,
 } from "../repositories/ingestionEvent.repository";
 import { promoverEvento, type ResultadoPromocion } from "../services/promotion.service";
+import { despertar } from "../lib/despertador";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
+import { crearTemporizadorDeSondeo } from "./temporizadorDeSondeo";
 
 // ---------------------------------------------------------------------------
 // Worker in-process con polling (§5 de docs/ingestion-architecture.md, "para R1
@@ -245,7 +247,6 @@ export function iniciarWorkerDeIngesta(opciones: OpcionesDelWorker = {}): () => 
   const drenar = opciones.drenar ?? (() => drenarPendientes());
 
   let detenido = false;
-  let timer: NodeJS.Timeout | undefined;
   // La promesa del tick que está corriendo ahora mismo, si hay uno. Es lo que
   // el stop espera.
   let tickEnCurso: Promise<void> | undefined;
@@ -255,11 +256,17 @@ export function iniciarWorkerDeIngesta(opciones: OpcionesDelWorker = {}): () => 
       return;
     }
 
+    let huboTrabajo = false;
     tickEnCurso = (async () => {
       try {
         if (laBaseEstaCaida()) return;
         const resumen = await drenar();
-        if (resumen.procesados + resumen.fallidos + resumen.pospuestos + resumen.muertos > 0) {
+        huboTrabajo =
+          resumen.procesados + resumen.fallidos + resumen.pospuestos + resumen.muertos > 0;
+        // Una fila de importación promovida puede dejar su lote terminado (y la
+        // promoción encola fotos, que se despiertan solas en encolarFotos).
+        if (resumen.procesados > 0) despertar("lotes");
+        if (huboTrabajo) {
           logger.info(resumen, "Drenado de ingesta");
         }
         if (resumen.muertos > 0) {
@@ -285,9 +292,7 @@ export function iniciarWorkerDeIngesta(opciones: OpcionesDelWorker = {}): () => 
 
     await tickEnCurso;
 
-    if (!detenido) {
-      timer = setTimeout(() => void tick(), pollMs);
-    }
+    if (!detenido) reloj.programar(huboTrabajo);
   };
 
   logger.info(
@@ -298,13 +303,19 @@ export function iniciarWorkerDeIngesta(opciones: OpcionesDelWorker = {}): () => 
     "Worker de ingesta iniciado",
   );
 
-  timer = setTimeout(() => void tick(), pollMs);
+  // Sin trabajo, espera cada vez más, hasta 60 s; quien encola lo despierta
+  // (workers/temporizadorDeSondeo.ts).
+  const reloj = crearTemporizadorDeSondeo({
+    cola: "ingesta",
+    minimoMs: pollMs,
+    maximoMs: 60_000,
+    pasada: () => void tick(),
+  });
+  reloj.arrancar(pollMs);
 
   return async () => {
     detenido = true;
-    if (timer) {
-      clearTimeout(timer);
-    }
+    reloj.detener();
     // Si hay un tick corriendo AHORA MISMO, esto espera a que termine su `for`
     // completo (todas las transacciones de esta pasada) antes de resolver. Es lo
     // que cierra M-12 (c): sin esto, clearTimeout cancelaba el PRÓXIMO tick pero

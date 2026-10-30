@@ -6,6 +6,7 @@ import { entregarEvento, type ResultadoDeEntrega } from "../services/outbox.serv
 import type { RegistroDeHandlers } from "../services/outboxHandlers";
 import { registroDeHandlers } from "../services/outboxHandlers";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
+import { crearTemporizadorDeSondeo } from "./temporizadorDeSondeo";
 import { avisarColaFallida } from "../services/tareaPorColaFallida";
 import { findOldestActiveAdmin } from "../repositories/user.repository";
 
@@ -177,7 +178,6 @@ export function iniciarWorkerDeOutbox(opciones: OpcionesDelWorker = {}): () => P
   const drenar = opciones.drenar ?? (() => drenarOutbox());
 
   let detenido = false;
-  let timer: NodeJS.Timeout | undefined;
   // La promesa del tick que está corriendo ahora mismo, si hay uno. Es lo que
   // el stop espera.
   let tickEnCurso: Promise<void> | undefined;
@@ -187,11 +187,14 @@ export function iniciarWorkerDeOutbox(opciones: OpcionesDelWorker = {}): () => P
       return;
     }
 
+    let huboTrabajo = false;
     tickEnCurso = (async () => {
       try {
         if (laBaseEstaCaida()) return;
         const resumen = await drenar();
-        if (resumen.entregados + resumen.reprogramados + resumen.muertos + resumen.pospuestos > 0) {
+        huboTrabajo =
+          resumen.entregados + resumen.reprogramados + resumen.muertos + resumen.pospuestos > 0;
+        if (huboTrabajo) {
           logger.info(resumen, "Drenado de eventos salientes");
         }
         if (resumen.muertos > 0) {
@@ -215,9 +218,7 @@ export function iniciarWorkerDeOutbox(opciones: OpcionesDelWorker = {}): () => P
 
     await tickEnCurso;
 
-    if (!detenido) {
-      timer = setTimeout(() => void tick(), pollMs);
-    }
+    if (!detenido) reloj.programar(huboTrabajo);
   };
 
   logger.info(
@@ -233,13 +234,19 @@ export function iniciarWorkerDeOutbox(opciones: OpcionesDelWorker = {}): () => P
     "Worker de eventos salientes iniciado",
   );
 
-  timer = setTimeout(() => void tick(), pollMs);
+  // Sin trabajo, espera cada vez más, hasta 60 s; quien encola lo despierta
+  // (workers/temporizadorDeSondeo.ts).
+  const reloj = crearTemporizadorDeSondeo({
+    cola: "outbox",
+    minimoMs: pollMs,
+    maximoMs: 60_000,
+    pasada: () => void tick(),
+  });
+  reloj.arrancar(pollMs);
 
   return async () => {
     detenido = true;
-    if (timer) {
-      clearTimeout(timer);
-    }
+    reloj.detener();
     // Si hay un tick corriendo AHORA MISMO, esto espera a que termine su `for`
     // completo (todas las transacciones de esta pasada) antes de resolver. Es lo
     // que cierra M-12 (c): sin esto, clearTimeout cancelaba el PRÓXIMO tick pero

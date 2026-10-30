@@ -1,5 +1,6 @@
 import { AgentInboundJobStatus, Prisma, type ConversationChannel } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
+import { despertar } from "../lib/despertador";
 
 // ---------------------------------------------------------------------------
 // La cola del webhook de WhatsApp (ítem 125 de
@@ -37,6 +38,7 @@ export interface CreateAgentInboundJobData {
 }
 
 export function createAgentInboundJob(data: CreateAgentInboundJobData, db: Db = prisma) {
+  despertar("agente");
   return db.agentInboundJob.create({ data });
 }
 
