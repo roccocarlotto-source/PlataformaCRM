@@ -147,12 +147,15 @@ export function puedeEjecutarTool(
   }
 
   // (3) infoNoModificable: ningún argumento de la tool puede tocar un campo
-  // listado. Comparación por nombre de campo, sin el prefijo de entidad.
+  // listado. Comparación por nombre de campo, sin el prefijo de entidad. Mira
+  // también un nivel adentro: update_contact_custom_fields manda los campos
+  // personalizados en `campos: { dni: ... }`, y "dni" protegido tiene que
+  // cortarlo igual que si viniera suelto.
   const camposProtegidos = new Set(
     comoListaDeStrings(guardrails.infoNoModificable).map(nombreDeCampo),
   );
   if (camposProtegidos.size > 0) {
-    const tocados = Object.keys(args).filter((clave) =>
+    const tocados = clavesQueTocan(args).filter((clave) =>
       camposProtegidos.has(clave.trim().toLowerCase()),
     );
     if (tocados.length > 0) {
@@ -182,4 +185,13 @@ export function puedeEjecutarTool(
   }
 
   return { allowed: true };
+}
+
+// Las claves de los args y las de un objeto anidado un nivel (no de listas).
+export function clavesQueTocan(args: Record<string, unknown>): string[] {
+  return Object.entries(args).flatMap(([clave, valor]) =>
+    valor !== null && typeof valor === "object" && !Array.isArray(valor)
+      ? [clave, ...Object.keys(valor)]
+      : [clave],
+  );
 }
