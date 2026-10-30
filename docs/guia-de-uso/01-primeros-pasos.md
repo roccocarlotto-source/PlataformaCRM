@@ -340,7 +340,10 @@ Qué tener en cuenta:
   dónde verlo o, si lo tenés, que se lo pidas al agente interno.
 - Responde con lo que dice esta guía para tu cuenta. Si algo lo hace un
   administrador, te lo dice; si la guía no lo cubre, también.
-- No escribas datos de clientes en la pregunta: no hacen falta.
+- No escribas datos de clientes en la pregunta: no hacen falta. Si se te
+  escapa alguno, antes de mandarla se tapan los emails, los teléfonos, los
+  documentos, las patentes en mayúsculas y el nombre y apellido de tus
+  contactos.
 - Abajo de cada respuesta podés marcar si te sirvió. Eso nos ayuda a mejorar
   la guía.
 - Hay un máximo de preguntas por día. Cuando quedan pocas te lo avisa, y al

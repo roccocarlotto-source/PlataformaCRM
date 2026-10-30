@@ -17,11 +17,15 @@ export interface RespuestaDelAsistente {
   fuentes: FuenteDeLaGuia[];
   tipo: "ANSWERED" | "NOT_COVERED" | "DATA_REDIRECT" | "OFF_TOPIC";
   restantesHoy: number;
+  /** La firma del servidor sobre este par (AGE-01): vuelve con él en el
+   *  historial. null si el servidor no firma (entonces no usa historial). */
+  firma: string | null;
 }
 
 export interface ParDelHistorial {
   pregunta: string;
   respuesta: string;
+  firma: string;
 }
 
 export function preguntar(input: {

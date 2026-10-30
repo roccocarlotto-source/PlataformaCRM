@@ -18,13 +18,14 @@ let siguiente = 0;
 const nuevoId = () => `m${String(++siguiente)}`;
 
 // Los pares pregunta/respuesta anteriores, para que el modelo entienda "¿y
-// cómo la edito?". Solo los que tuvieron respuesta.
+// cómo la edito?". Solo los que tuvieron respuesta y vinieron firmados: el
+// servidor descarta los demás (AGE-01), así que no tiene sentido mandarlos.
 function historialDe(mensajes: MensajeDeLaCharla[]): ParDelHistorial[] {
   const pares: ParDelHistorial[] = [];
   mensajes.forEach((m, i) => {
     const despues = mensajes[i + 1];
-    if (m.rol === "persona" && despues?.rol === "asistente") {
-      pares.push({ pregunta: m.texto, respuesta: despues.texto });
+    if (m.rol === "persona" && despues?.rol === "asistente" && despues.firma) {
+      pares.push({ pregunta: m.texto, respuesta: despues.texto, firma: despues.firma });
     }
   });
   return pares.slice(-PARES_DE_HISTORIAL);
@@ -79,7 +80,13 @@ export function ProveedorDelAsistente({
       .then((r) => {
         setMensajes((m) => [
           ...m,
-          { id: nuevoId(), rol: "asistente", texto: r.respuesta, respuestaId: r.id },
+          {
+            id: nuevoId(),
+            rol: "asistente",
+            texto: r.respuesta,
+            respuestaId: r.id,
+            ...(r.firma ? { firma: r.firma } : {}),
+          },
         ]);
         setRestantesHoy(r.restantesHoy);
       })
