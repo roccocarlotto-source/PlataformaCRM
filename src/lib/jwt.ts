@@ -1,4 +1,11 @@
-import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
+import {
+  createLocalJWKSet,
+  createRemoteJWKSet,
+  errors as joseErrors,
+  jwtVerify,
+  type JSONWebKeySet,
+  type JWTVerifyGetKey,
+} from "jose";
 import { env } from "../config/env";
 import { AppError } from "../utils/AppError";
 import type { JwtPayload } from "../types/auth";
@@ -8,7 +15,7 @@ import { logger } from "./logger";
 // JWKS — no con un secreto compartido. `createRemoteJWKSet` cachea las
 // claves y las refresca sola cuando aparece un `kid` nuevo (rotación).
 // Se crea una sola vez (lazy) para no golpear el JWKS en cada request.
-let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
+let jwks: JWTVerifyGetKey | undefined;
 
 function getJwks() {
   if (jwks) {
@@ -20,9 +27,90 @@ function getJwks() {
     throw new AppError("SUPABASE_URL no está configurado en el servidor", 500, false);
   }
 
-  jwks = createRemoteJWKSet(new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`));
+  jwks = conRespaldoDelJwksConocido(
+    createRemoteJWKSet(new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`)),
+  );
 
   return jwks;
+}
+
+// ---------------------------------------------------------------------------
+// OPS-04 (docs-privados/auditoria-2026-10-21, local): SUPABASE AUTH CAÍDO NO
+// TIENE QUE DEJAR A TODOS AFUERA.
+//
+// jose guarda el JWKS 10 minutos y, pasado ese tiempo, la verificación
+// siguiente OBLIGA a recargarlo (remote.js: `!fresh → reload`). Si Supabase
+// Auth no responde, la recarga falla y, sin esto, toda la API autenticada
+// respondía 503 aunque las claves de firma fueran las mismas: cambian solo
+// cuando Rocco las rota.
+//
+// Ahora, si la recarga falla y hay un JWKS que ya funcionó, se verifica con
+// ese y se deja UN warn por caída. Durante RECARGA_TRAS_FALLO_MS no se vuelve
+// a intentar la recarga: sin eso, cada request esperaría el timeout de jose
+// (5 s) antes de usar el respaldo.
+//
+// Lo que NO cambia:
+//   - un token inválido sigue siendo 401 (lo decide jwtVerify con la clave);
+//   - sin ningún JWKS conocido (primer arranque con Auth caído), 503;
+//   - una clave nueva (rotación) que el respaldo no tiene: JWKSNoMatchingKey
+//     → 503, igual que antes. Si se rota con Auth caído, hay que esperar.
+// ---------------------------------------------------------------------------
+
+export const RECARGA_TRAS_FALLO_MS = 60_000;
+
+// Lo que usa de createRemoteJWKSet: resolver la clave y leer el último JWKS
+// que bajó bien. Interfaz chica para poder probarlo sin red.
+export interface JwksRemoto {
+  (...args: Parameters<JWTVerifyGetKey>): ReturnType<JWTVerifyGetKey>;
+  jwks(): JSONWebKeySet | undefined;
+}
+
+export function conRespaldoDelJwksConocido(
+  remoto: JwksRemoto,
+  ahora: () => number = Date.now,
+): JWTVerifyGetKey {
+  let conocido: JSONWebKeySet | undefined;
+  let respaldo: JWTVerifyGetKey | undefined;
+  let reintentarDesde = 0;
+  let enCaida = false;
+
+  const usarRespaldo: JWTVerifyGetKey = (header, token) => {
+    respaldo ??= createLocalJWKSet(conocido as JSONWebKeySet);
+    return respaldo(header, token);
+  };
+
+  return async (header, token) => {
+    if (conocido && ahora() < reintentarDesde) {
+      return usarRespaldo(header, token);
+    }
+    try {
+      const clave = await remoto(header, token);
+      const actual = remoto.jwks();
+      if (actual && actual !== conocido) {
+        conocido = actual;
+        respaldo = undefined;
+      }
+      if (enCaida) {
+        enCaida = false;
+        logger.info("El JWKS de Supabase volvió a responder");
+      }
+      return clave;
+    } catch (err) {
+      // Lo que dice "este token no sirve" no es una caída.
+      if (!conocido || esErrorDelToken(err) || err instanceof joseErrors.JWKSNoMatchingKey) {
+        throw err;
+      }
+      reintentarDesde = ahora() + RECARGA_TRAS_FALLO_MS;
+      if (!enCaida) {
+        enCaida = true;
+        logger.warn(
+          { err },
+          "El JWKS de Supabase no responde: se verifica con las claves que ya se conocían (se reintenta cada 60 s)",
+        );
+      }
+      return usarRespaldo(header, token);
+    }
+  };
 }
 
 // ---------------------------------------------------------------------------

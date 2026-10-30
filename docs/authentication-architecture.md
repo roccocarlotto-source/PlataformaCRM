@@ -474,7 +474,9 @@ protegida:
    proyecto de Supabase (`src/lib/jwt.ts`, sin secreto compartido). Si la
    verificación falla (firma inválida, `exp` vencido) → `401`. Este es el único
    punto del sistema que decide si una firma es válida — ninguna otra capa vuelve
-   a verificarla.
+   a verificarla. Si el JWKS no se puede bajar (Supabase Auth caído), se verifica
+   con el último que bajó bien y se reintenta la descarga cada 60 s; solo sin
+   ninguno conocido (primer arranque con Auth caído) la respuesta es `503`.
 
 3. **Extraer identidad cruda del JWT.** Únicamente `sub` (id) y `email` — nada más del
    JWT se usa para tomar decisiones de autorización.
