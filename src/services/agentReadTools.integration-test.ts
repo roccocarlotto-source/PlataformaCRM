@@ -3015,3 +3015,92 @@ test("08/10/2026: un nombre que cargó un vendedor no se pisa desde el chat; uno
   );
   assert.equal(data.motivo, INICIATIVAS_DEL_CLIENTE.PERMUTA);
 });
+
+// ---------------------------------------------------------------------------
+// Por el chat web, lo que cierra o lee algo interno pide saber quién es
+// (bloqueoDelCierrePorWeb): nombre, apellido y un teléfono o un email.
+// ---------------------------------------------------------------------------
+
+test("WEB sin teléfono ni email: no da por perdida la oportunidad ni marca «sin interés»", async () => {
+  const contacto = await nuevoContacto(a);
+  const porWhatsapp = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const porWeb = contextoDe(a.organizationId, contacto.id, a.branchId, "WEB");
+  const { opportunityId } = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { motivo: "TEST_DRIVE", title: "Hilux" },
+    porWhatsapp,
+  );
+
+  const perder = await ejecutar(
+    "update_opportunity",
+    { status: "LOST", lostReason: "Precio" },
+    porWeb,
+  );
+  assert.equal(perder.ok, false);
+  assert.match(errorDe(perder), /chat web/);
+  assert.match(errorDe(perder), /un teléfono o un email/);
+  const oportunidad = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
+  assert.equal(oportunidad.status, "OPEN");
+
+  const sinInteres = await ejecutar("mark_no_interest", { motivo: "ya compró" }, porWeb);
+  assert.equal(sinInteres.ok, false);
+  const fila = await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } });
+  assert.equal(fila.noInterestAt, null);
+
+  // Lo que no cierra nada sigue igual por WEB.
+  const cambio = await datosDe<{ title: string }>(
+    "update_opportunity",
+    { title: "Hilux SRV" },
+    porWeb,
+  );
+  assert.equal(cambio.title, "Hilux SRV");
+});
+
+test("WEB con teléfono, o por WhatsApp aunque falte: perder y «sin interés» funcionan", async () => {
+  const identificado = await nuevoContacto(a, { phone: `+5989${String(Date.now()).slice(-7)}` });
+  const porWeb = contextoDe(a.organizationId, identificado.id, a.branchId, "WEB");
+  await datosDe("create_opportunity", { motivo: "TEST_DRIVE", title: "Ranger" }, porWeb);
+  const perdida = await datosDe<{ status: string }>(
+    "update_opportunity",
+    { status: "LOST", lostReason: "Precio" },
+    porWeb,
+  );
+  assert.equal(perdida.status, "LOST");
+  await datosDe("mark_no_interest", { motivo: "ya compró" }, porWeb);
+
+  // Por WhatsApp el canal ya dice quién es: un «no me escribas más» se respeta.
+  const sinDatos = await nuevoContacto(a);
+  await datosDe(
+    "mark_no_interest",
+    { motivo: "no quiere mensajes" },
+    contextoDe(a.organizationId, sinDatos.id, a.branchId),
+  );
+  const fila = await prisma.contact.findUniqueOrThrow({ where: { id: sinDatos.id } });
+  assert.ok(fila.noInterestAt);
+});
+
+test("get_contact_activities por WEB sin identificar: tipo y fecha, sin el asunto interno", async () => {
+  const contacto = await nuevoContacto(a);
+  await actividad(a, contacto.id, "Llamarlo: duda por el precio", { dueDate: new Date() });
+
+  const anonimo = await datosDe<ResultadoActividades>(
+    "get_contact_activities",
+    {},
+    contextoDe(a.organizationId, contacto.id, a.branchId, "WEB"),
+  );
+  assert.equal(anonimo.activities.length, 1);
+  assert.equal(anonimo.activities[0].type, "CALL");
+  assert.ok(anonimo.activities[0].dueDate);
+  assert.ok(!JSON.stringify(anonimo).includes("duda por el precio"));
+
+  await prisma.contact.update({
+    where: { id: contacto.id },
+    data: { email: `act-${String(Date.now())}@example.test` },
+  });
+  const identificado = await datosDe<ResultadoActividades>(
+    "get_contact_activities",
+    {},
+    contextoDe(a.organizationId, contacto.id, a.branchId, "WEB"),
+  );
+  assert.equal(identificado.activities[0].subject, "Llamarlo: duda por el precio");
+});
