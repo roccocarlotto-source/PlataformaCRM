@@ -1,5 +1,6 @@
 import { OutboxStatus, Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
+import { despertar } from "../lib/despertador";
 
 // ---------------------------------------------------------------------------
 // Motor de eventos salientes — acceso a datos.
@@ -36,6 +37,7 @@ export interface EmitOutboxEventInput {
 }
 
 export function emitOutboxEvent(input: EmitOutboxEventInput, tx: Prisma.TransactionClient) {
+  despertar("outbox");
   return tx.outboxEvent.create({
     data: {
       organizationId: input.organizationId,
@@ -50,6 +52,7 @@ export function emitOutboxEvent(input: EmitOutboxEventInput, tx: Prisma.Transact
 /** Varios eventos del mismo cambio en UN solo INSERT (S8: la entrega emite
  *  status_changed y delivered). Mismos defaults que emitOutboxEvent. */
 export function emitOutboxEvents(inputs: EmitOutboxEventInput[], tx: Prisma.TransactionClient) {
+  despertar("outbox");
   return tx.outboxEvent.createMany({
     data: inputs.map((input) => ({
       organizationId: input.organizationId,

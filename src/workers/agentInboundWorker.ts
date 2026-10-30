@@ -59,6 +59,7 @@ import { resolverRespuestaDelRecordatorio } from "../clinicas/recordatorios/resp
 import { avisosDePrivacidadSinEnviar } from "../clinicas/avisoDePrivacidad";
 import { conLeaseVigente } from "../services/leaseDelTurno";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
+import { crearTemporizadorDeSondeo } from "./temporizadorDeSondeo";
 
 // ---------------------------------------------------------------------------
 // El worker de la cola del webhook de WhatsApp (ítem 125 de
@@ -808,10 +809,22 @@ export async function drenarTurnosPendientes(
   // del job reclamado tiene que ser un solo paso, o dos carriles tomarían a la
   // vez dos jobs de una organización que ya estaba en su tope.
   let turnoDeReclamo: Promise<unknown> = Promise.resolve();
+  // El último reclamo volvió vacío sin ningún turno tomado: la cola está vacía
+  // de verdad, y los demás carriles no vuelven a preguntar. En reposo, la
+  // pasada es UNA consulta y no una por carril (ancho de banda, 2026-10-30).
+  // Con un turno tomado, un reclamo vacío no prueba nada: pudo saltear la
+  // organización que está en su tope, o el mensaje siguiente puede llegar
+  // mientras ese turno corre. Se mira el mapa y no `enCurso` porque el mapa se
+  // anota acá mismo, en el reclamo, y `enCurso` recién cuando el carril
+  // retoma.
+  let colaVacia = false;
 
   const reclamar = (): Promise<JobReclamado | null> => {
     const intento = turnoDeReclamo.then(async () => {
       if (cortar || reclamados >= limite || (opciones.debeSeguir && !opciones.debeSeguir())) {
+        return null;
+      }
+      if (colaVacia && enCursoPorOrganizacion.size === 0) {
         return null;
       }
       const alTope = [...enCursoPorOrganizacion]
@@ -833,6 +846,7 @@ export async function drenarTurnosPendientes(
         cortar = true;
         return null;
       }
+      colaVacia = job === null && enCursoPorOrganizacion.size === 0;
       if (job) {
         reclamados++;
         enCursoPorOrganizacion.set(
@@ -957,7 +971,6 @@ export function iniciarWorkerDeTurnosDeAgente(
     opciones.drenar ?? ((debeSeguir: () => boolean) => drenarTurnosPendientes({ debeSeguir }));
 
   let detenido = false;
-  let timer: NodeJS.Timeout | undefined;
   let tickEnCurso: Promise<void> | undefined;
 
   const tick = async () => {
@@ -965,11 +978,14 @@ export function iniciarWorkerDeTurnosDeAgente(
       return;
     }
 
+    let huboTrabajo = false;
     tickEnCurso = (async () => {
       try {
         if (laBaseEstaCaida()) return;
         const resumen = await drenar(() => !detenido);
-        if (resumen.respondidos + resumen.omitidos + resumen.pospuestos + resumen.fallidos > 0) {
+        huboTrabajo =
+          resumen.respondidos + resumen.omitidos + resumen.pospuestos + resumen.fallidos > 0;
+        if (huboTrabajo) {
           logger.info(resumen, "Drenado de turnos del agente");
         }
         if (resumen.fallidos > 0) {
@@ -991,9 +1007,7 @@ export function iniciarWorkerDeTurnosDeAgente(
 
     await tickEnCurso;
 
-    if (!detenido) {
-      timer = setTimeout(() => void tick(), pollMs);
-    }
+    if (!detenido) reloj.programar(huboTrabajo);
   };
 
   logger.info(
@@ -1001,13 +1015,19 @@ export function iniciarWorkerDeTurnosDeAgente(
     "Worker de turnos del agente iniciado",
   );
 
-  timer = setTimeout(() => void tick(), pollMs);
+  // Sin trabajo, espera cada vez más, hasta 30 s; quien encola lo despierta
+  // (workers/temporizadorDeSondeo.ts).
+  const reloj = crearTemporizadorDeSondeo({
+    cola: "agente",
+    minimoMs: pollMs,
+    maximoMs: 30_000,
+    pasada: () => void tick(),
+  });
+  reloj.arrancar(pollMs);
 
   return async () => {
     detenido = true;
-    if (timer) {
-      clearTimeout(timer);
-    }
+    reloj.detener();
     // Espera al job en curso (el lote ya no toma nuevos: debeSeguir). Si el
     // turno tarda más que SHUTDOWN_TIMEOUT_MS, el shutdown sale igual y el job
     // queda en PROCESSING; sin latido, su lease vence y lo retoma el próximo

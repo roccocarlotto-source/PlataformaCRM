@@ -252,9 +252,9 @@ sepa que existen y qué tocan:
 | `LOG_LEVEL` | `info` en producción | Nivel de pino |
 | `INGEST_RATE_LIMIT_WINDOW_MS`, `INGEST_RATE_LIMIT_MAX` | 60 000 / 60 | Cupo del webhook de ingesta, por API key |
 | `WORKERS_ENABLED` | `true` | `false` apaga **todos** los workers y las automatizaciones del proceso, también en producción. Para cuando dos servidores comparten la base (una mudanza): solo uno corre los workers. Las `*_WORKER_ENABLED` de abajo no cubren todos (recordatorios, taller, plantillas no tienen) |
-| `INGEST_WORKER_ENABLED`, `INGEST_WORKER_POLL_MS`, `INGEST_WORKER_BATCH_SIZE` | `true` / 5 000 / 50 | Worker de ingesta |
+| `INGEST_WORKER_ENABLED`, `INGEST_WORKER_POLL_MS`, `INGEST_WORKER_BATCH_SIZE` | `true` / 5 000 / 50 | Worker de ingesta. `_POLL_MS` es el ritmo mínimo: ver "Workers en reposo" abajo |
 | `INGEST_MAX_ATTEMPTS`, `INGEST_BACKOFF_BASE_MS`, `INGEST_BACKOFF_MAX_MS` | 5 / 30 000 / 900 000 | Reintentos de la promoción |
-| `OUTBOX_WORKER_ENABLED`, `OUTBOX_WORKER_POLL_MS`, `OUTBOX_WORKER_BATCH_SIZE` | `true` / 5 000 / 20 | Worker de eventos salientes |
+| `OUTBOX_WORKER_ENABLED`, `OUTBOX_WORKER_POLL_MS`, `OUTBOX_WORKER_BATCH_SIZE` | `true` / 5 000 / 20 | Worker de eventos salientes. `_POLL_MS` es el ritmo mínimo: ver "Workers en reposo" abajo |
 | `OUTBOX_MAX_ATTEMPTS`, `OUTBOX_BACKOFF_BASE_MS`, `OUTBOX_BACKOFF_MAX_MS`, `OUTBOX_HANDLER_TIMEOUT_MS` | 5 / 30 000 / 900 000 / 200 000 | Reintentos y tope por entrega (ítem 166: por encima del peor caso del LLM) |
 | `GOOGLE_CHANNEL_WORKER_ENABLED`, `GOOGLE_CHANNEL_WORKER_POLL_MS`, `GOOGLE_CHANNEL_RENEW_MARGIN_MS`, `GOOGLE_CHANNEL_TTL_SECONDS` | `true` / 3 600 000 / 86 400 000 / 604 800 | Renovación de canales de Google |
 | `EXCHANGE_RATE_WORKER_ENABLED`, `EXCHANGE_RATE_WORKER_POLL_MS` | `true` / 86 400 000 | Worker de cotizaciones (open.er-api.com, sin clave) |
@@ -262,6 +262,18 @@ sepa que existen y qué tocan:
 
 Los booleanos son el string `"true"` o `"false"` literal: cualquier otro valor
 es rechazado al arrancar (no se usa `z.coerce.boolean()` a propósito).
+
+**Workers en reposo (desde el 2026-10-30).** Los workers de turnos del agente,
+ingesta, outbox, lotes de importación y fotos importadas ya no miran la base a
+ritmo fijo. Su `*_POLL_MS` es el ritmo **mínimo**, el de cuando hay trabajo. Si
+una pasada no encuentra nada, la próxima espera el doble, hasta 30 s (agente) o
+60 s (los demás). El código que encola los despierta en el acto
+(`src/lib/despertador.ts`), y quedan a ritmo mínimo 30 s. Motivo: cada mirada es
+una ida y vuelta a Supabase y, sin clientes, eso era casi todo el tráfico
+"Service-Initiated" que cobra Render (~172 MB por día). El despertador solo
+avisa en el proceso donde se encoló: con dos servidores corriendo workers, el
+otro se entera como mucho al tope de la espera. Lo mismo un reintento
+programado o un lease vencido.
 
 **`DATABASE_URL` contra el pooler: modo sesión (desde el 2026-10-18).** Va al
 puerto **5432**, el pooler en modo sesión: cada conexión de Prisma es una

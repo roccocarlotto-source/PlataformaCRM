@@ -15,6 +15,7 @@ import { deshacerLote } from "../services/importacionDeshacer.service";
 import { marcarFaltantes } from "../services/importacionSync.service";
 import { describirError } from "../utils/backoff";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
+import { crearTemporizadorDeSondeo } from "./temporizadorDeSondeo";
 
 // ---------------------------------------------------------------------------
 // El worker de los LOTES del asistente de importación
@@ -214,16 +215,18 @@ export function iniciarWorkerDeLotesDeImportacion(): () => Promise<void> {
     return () => Promise.resolve();
   }
   let detenido = false;
-  let timer: NodeJS.Timeout | undefined;
   let tickEnCurso: Promise<void> | undefined;
 
   const tick = async () => {
     if (detenido) return;
+    let huboTrabajo = false;
     tickEnCurso = (async () => {
       try {
         if (laBaseEstaCaida()) return;
         const resumen = await procesarLotes();
-        if (resumen.analizados + resumen.terminados + resumen.deshechos + resumen.conError > 0) {
+        huboTrabajo =
+          resumen.analizados + resumen.terminados + resumen.deshechos + resumen.conError > 0;
+        if (huboTrabajo) {
           logger.info(resumen, "Lotes de importación");
         }
       } catch (err) {
@@ -234,14 +237,22 @@ export function iniciarWorkerDeLotesDeImportacion(): () => Promise<void> {
     })();
     await tickEnCurso;
     tickEnCurso = undefined;
-    if (!detenido) timer = setTimeout(() => void tick(), env.IMPORT_BATCH_WORKER_POLL_MS);
+    if (!detenido) reloj.programar(huboTrabajo);
   };
 
-  timer = setTimeout(() => void tick(), env.IMPORT_BATCH_WORKER_POLL_MS);
+  // Sin trabajo, espera cada vez más, hasta 60 s; quien encola lo despierta
+  // (workers/temporizadorDeSondeo.ts).
+  const reloj = crearTemporizadorDeSondeo({
+    cola: "lotes",
+    minimoMs: env.IMPORT_BATCH_WORKER_POLL_MS,
+    maximoMs: 60_000,
+    pasada: () => void tick(),
+  });
+  reloj.arrancar(env.IMPORT_BATCH_WORKER_POLL_MS);
 
   return async () => {
     detenido = true;
-    if (timer) clearTimeout(timer);
+    reloj.detener();
     await tickEnCurso;
   };
 }

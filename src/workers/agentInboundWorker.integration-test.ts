@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomInt, randomUUID } from "node:crypto";
 import { after, before, beforeEach, test } from "node:test";
+// Antes que lib/prisma: deja el cliente que cuenta consultas.
+import { contarConsultas } from "../lib/contarConsultas.test-helper";
 import { prisma } from "../lib/prisma";
 import { createAgentInboundJob } from "../repositories/agentInboundJob.repository";
 import { registrarEntrante } from "../services/agentOrchestration.service";
@@ -223,6 +225,24 @@ test("FABLE-G-03: una organización no ocupa todos los carriles: sus turnos corr
   for (const jobId of jobs) {
     assert.equal(await estadoDe(jobId), "DONE");
   }
+});
+
+test("con la cola vacía, la pasada pregunta UNA vez aunque haya tres carriles (ancho de banda)", async () => {
+  const { resultado, consultas } = await contarConsultas(() =>
+    drenarTurnosPendientes({
+      organizationId: [a.orgId, b.orgId],
+      deps,
+      concurrencia: 3,
+    }),
+  );
+
+  assert.equal(resultado.respondidos, 0);
+  const reclamos = consultas.filter((q) => q.includes("agent_inbound_jobs"));
+  assert.equal(
+    reclamos.length,
+    1,
+    `un solo reclamo, no uno por carril: ${String(reclamos.length)}`,
+  );
 });
 
 test("con un solo carril, todo sigue como antes: de a uno y en orden de llegada", async () => {

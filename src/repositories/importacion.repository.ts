@@ -19,6 +19,7 @@ import {
   MENSAJE_NUL,
   contieneNul,
 } from "./ingestionEvent.repository";
+import { despertar } from "../lib/despertador";
 
 // ---------------------------------------------------------------------------
 // Persistencia del asistente de importación (docs/importacion-de-datos.md §2):
@@ -54,6 +55,7 @@ export function createImportBatch(
   },
   db: Db = prisma,
 ): Promise<ImportBatch> {
+  if (data.status === "ANALYZING") despertar("lotes");
   return db.importBatch.create({ data });
 }
 
@@ -91,6 +93,10 @@ export function transicionarLote(
   data: Prisma.ImportBatchUpdateManyMutationInput,
   db: Db = prisma,
 ): Promise<{ count: number }> {
+  // Los estados que el worker de lotes tiene que atender.
+  if (data.status === "ANALYZING" || data.status === "RUNNING" || data.status === "UNDOING") {
+    despertar("lotes");
+  }
   return db.importBatch.updateMany({
     where: { id, organizationId, status: { in: desde } },
     data,
@@ -296,6 +302,7 @@ export function confirmarFilas(
   batchId: string,
   db: Db,
 ): Promise<{ count: number }> {
+  despertar("ingesta");
   return db.ingestionEvent.updateMany({
     where: { organizationId, batchId, status: IngestionStatus.STAGED },
     data: { status: IngestionStatus.PENDING },
