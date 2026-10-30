@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createQuote, transitionQuote, updateQuoteContent } from "./api";
+import { createQuote, revertQuoteAcceptance, transitionQuote, updateQuoteContent } from "./api";
 import { quoteKeys } from "./queries";
 import type { CreateQuoteInput, QuoteTransition, UpdateQuoteContentInput } from "./types";
 
@@ -39,6 +39,16 @@ export function useTransitionQuote(opportunityId: string) {
     // onSettled y no onSuccess: un 409 (la cotización venció o la superaron
     // mientras la pantalla estaba abierta) también deja la vista vieja, y
     // refrescar muestra el estado real junto al mensaje de error.
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: quoteKeys.byOpportunity(opportunityId) });
+    },
+  });
+}
+
+export function useRevertQuoteAcceptance(opportunityId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => revertQuoteAcceptance(id),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: quoteKeys.byOpportunity(opportunityId) });
     },

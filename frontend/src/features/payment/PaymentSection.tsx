@@ -26,6 +26,11 @@ import { LoadingState } from "../../design-system/LoadingState";
 
 export interface PaymentSectionProps {
   opportunity: Pick<Opportunity, "id" | "amount" | "currency">;
+  // PR-17: registrar un pago es de ADMIN, o del vendedor en una oportunidad
+  // que tiene asignada. Corregir y borrar, solo ADMIN.
+  puedeAgregar: boolean;
+  puedeCorregir: boolean;
+  puedeBorrar: boolean;
 }
 
 const METHODS = Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[];
@@ -48,10 +53,16 @@ type Editing = null | { mode: "create" } | { mode: "edit"; paymentId: string };
 // window.confirm. El total "Pagado / Saldo" se calcula en el cliente
 // (totals.ts) y solo suma los pagos en la moneda ACTUAL de la oportunidad.
 //
-// Vive en OpportunityFormPage, que es ADMIN-only: no hay gating por rol acá,
-// las escrituras son authorize("ADMIN") en el backend.
+// PR-17: quién escribe lo decide OpportunityFormPage (puedeAgregar,
+// puedeCorregir, puedeBorrar), con la misma regla que el backend. Sin
+// permiso, el botón no está.
 // ---------------------------------------------------------------------------
-export function PaymentSection({ opportunity }: PaymentSectionProps) {
+export function PaymentSection({
+  opportunity,
+  puedeAgregar,
+  puedeCorregir,
+  puedeBorrar,
+}: PaymentSectionProps) {
   const confirm = useConfirm();
   const paymentsQuery = useOpportunityPayments(opportunity.id);
   const createMutation = useCreatePayment(opportunity.id);
@@ -147,24 +158,28 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
                           {PAYMENT_METHOD_LABEL[payment.method]}
                         </span>
                         <span className="ds-payment-row-actions">
-                          <Button
-                            disabled={isBusy}
-                            aria-label={`Editar el pago de ${formatMoney(payment.amount, payment.currency)} del ${formatDate(payment.paidAt)}`}
-                            onClick={() => openForm({ mode: "edit", paymentId: payment.id })}
-                          >
-                            Editar
-                          </Button>
-                          <Button
-                            variant="danger"
-                            disabled={isBusy}
-                            loading={
-                              deleteMutation.isPending && deleteMutation.variables === payment.id
-                            }
-                            aria-label={`Eliminar el pago de ${formatMoney(payment.amount, payment.currency)} del ${formatDate(payment.paidAt)}`}
-                            onClick={() => handleDelete(payment)}
-                          >
-                            Eliminar
-                          </Button>
+                          {puedeCorregir ? (
+                            <Button
+                              disabled={isBusy}
+                              aria-label={`Editar el pago de ${formatMoney(payment.amount, payment.currency)} del ${formatDate(payment.paidAt)}`}
+                              onClick={() => openForm({ mode: "edit", paymentId: payment.id })}
+                            >
+                              Editar
+                            </Button>
+                          ) : null}
+                          {puedeBorrar ? (
+                            <Button
+                              variant="danger"
+                              disabled={isBusy}
+                              loading={
+                                deleteMutation.isPending && deleteMutation.variables === payment.id
+                              }
+                              aria-label={`Eliminar el pago de ${formatMoney(payment.amount, payment.currency)} del ${formatDate(payment.paidAt)}`}
+                              onClick={() => handleDelete(payment)}
+                            >
+                              Eliminar
+                            </Button>
+                          ) : null}
                         </span>
                       </li>
                     ),
@@ -200,7 +215,7 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
               onSubmit={handleCreate}
               onCancel={() => openForm(null)}
             />
-          ) : (
+          ) : puedeAgregar ? (
             <div>
               <Button
                 variant="primary"
@@ -210,7 +225,7 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
                 Agregar pago
               </Button>
             </div>
-          )}
+          ) : null}
         </div>
         {actionError ? <ErrorState>{actionError}</ErrorState> : null}
       </Card>

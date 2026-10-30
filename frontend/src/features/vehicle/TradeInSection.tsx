@@ -9,6 +9,9 @@ import { LoadingState } from "../../design-system/LoadingState";
 
 export interface TradeInSectionProps {
   opportunity: Pick<Opportunity, "id">;
+  // PR-17: el alta de unidad (/vehicles/new) es ADMIN-only; a un vendedor el
+  // botón lo mandaba a una pantalla que lo rebota.
+  puedeAgregar: boolean;
 }
 
 // Tope del listado del backend (B-21). Una venta con más de un puñado de
@@ -31,10 +34,11 @@ const TRADE_IN_PAGE_SIZE = 100;
 // monto ni de la cotización: lo dice la propia tarjeta, para que nadie lo
 // asuma.
 //
-// Vive en OpportunityFormPage, que es ADMIN-only, igual que /vehicles/new y
-// /vehicles/:id/edit: no hay gating por rol acá.
+// /vehicles/new y /vehicles/:id/edit son ADMIN-only: desde PR-17 la ficha de
+// la oportunidad la abre también el vendedor, y "Agregar auto en permuta" se
+// muestra solo con puedeAgregar.
 // ---------------------------------------------------------------------------
-export function TradeInSection({ opportunity }: TradeInSectionProps) {
+export function TradeInSection({ opportunity, puedeAgregar }: TradeInSectionProps) {
   const vehiclesQuery = useVehicles({
     tradeInOpportunityId: opportunity.id,
     pageSize: TRADE_IN_PAGE_SIZE,
@@ -68,14 +72,16 @@ export function TradeInSection({ opportunity }: TradeInSectionProps) {
           <p className="ds-hint">
             El valor de la permuta no se descuenta solo del monto ni de la cotización.
           </p>
-          <div>
-            <Link
-              to={`/vehicles/new?tradeInOpportunityId=${encodeURIComponent(opportunity.id)}`}
-              className="ds-link-button"
-            >
-              Agregar auto en permuta
-            </Link>
-          </div>
+          {puedeAgregar ? (
+            <div>
+              <Link
+                to={`/vehicles/new?tradeInOpportunityId=${encodeURIComponent(opportunity.id)}`}
+                className="ds-link-button"
+              >
+                Agregar auto en permuta
+              </Link>
+            </div>
+          ) : null}
         </div>
       </Card>
     </div>

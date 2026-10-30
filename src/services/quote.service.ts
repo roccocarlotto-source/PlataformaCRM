@@ -33,9 +33,10 @@ import { diaEnLaZona } from "../utils/timezone";
 //     cierra la venta; volver a cotizar sobre ella es una decisión de negocio
 //     que este ítem no cubre.
 //   - Crear con la activa en REJECTED o EXPIRED, o sin ninguna: siempre.
-//   - Estado: DRAFT -> SENT -> ACCEPTED | REJECTED, solo hacia adelante y
-//     como compare-and-swap (transitionQuoteConditional), mismo criterio que
-//     Invitation. SENT -> EXPIRED es perezosa (expireDueQuotes).
+//   - Estado: DRAFT -> SENT -> ACCEPTED | REJECTED, hacia adelante y como
+//     compare-and-swap (transitionQuoteConditional), mismo criterio que
+//     Invitation. SENT -> EXPIRED es perezosa (expireDueQuotes). La única
+//     vuelta atrás es ACCEPTED -> SENT, de ADMIN (revertQuoteAcceptance).
 //   - Contenido (monto, moneda, líneas, validez): editable solo en DRAFT.
 //     Corregir el precio de una ya enviada es crear una nueva, así el
 //     historial es honesto: lo que se le mostró al cliente no cambia.
@@ -367,6 +368,41 @@ export async function updateQuoteStatus(
     if (result.count === 0) {
       const current = await requireQuote(organizationId, id, tx);
       throw transitionConflictError(target, current.status);
+    }
+  });
+
+  return requireQuote(organizationId, id);
+}
+
+export const SOLO_ACEPTADA_SE_REVIERTE = "Solo se puede revertir una cotización aceptada";
+
+// Revertir una aceptación (PR-17, decisión de Rocco del 30/10/2026): ACCEPTED
+// -> SENT, la única vuelta atrás de la máquina de estados. Existe porque el
+// vendedor ahora puede marcar aceptada, y un error suyo tiene que tener
+// arreglo; por eso es de ADMIN (lo chequea el controller). Mismo lock y
+// compare-and-swap que updateQuoteStatus.
+//
+// No deshace nada más: aceptar no tiene efectos sobre la oportunidad (ver la
+// cabecera). Si la validez ya pasó, la vuelve a SENT y la próxima lectura la
+// vence (expireDueQuotes), como a cualquier enviada vencida: sobre una
+// EXPIRED se puede cotizar de nuevo.
+export async function revertQuoteAcceptance(organizationId: string, id: string) {
+  const initial = await requireReachableQuote(organizationId, id);
+
+  await prisma.$transaction(async (tx) => {
+    const locked = await lockOpportunityForUpdate(initial.opportunityId, organizationId, tx);
+    if (!locked) {
+      throw new AppError("Cotización no encontrada", 404);
+    }
+
+    const quote = await requireQuote(organizationId, id, tx);
+    if (quote.status !== "ACCEPTED") {
+      throw new AppError(SOLO_ACEPTADA_SE_REVIERTE, 409);
+    }
+
+    const result = await transitionQuoteConditional(id, organizationId, "ACCEPTED", "SENT", tx);
+    if (result.count === 0) {
+      throw new AppError(SOLO_ACEPTADA_SE_REVIERTE, 409);
     }
   });
 

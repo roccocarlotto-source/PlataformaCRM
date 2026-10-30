@@ -35,6 +35,8 @@ let orgId: string;
 let admin: FixtureUser;
 let user: FixtureUser;
 let opportunityId: string;
+// PR-17: una oportunidad asignada al vendedor, donde sí cotiza.
+let opportunityDelVendedorId: string;
 let baseUrl: string;
 let closeApp: () => Promise<void>;
 
@@ -145,6 +147,17 @@ before(async () => {
     },
   });
   opportunityId = opportunity.id;
+  const delVendedor = await prisma.opportunity.create({
+    data: {
+      organizationId: orgId,
+      ownerId: user.id,
+      pipelineId: pipeline.id,
+      stageId: stage.id,
+      companyId: company.id,
+      title: "Hilux para Bruno",
+    },
+  });
+  opportunityDelVendedorId = delVendedor.id;
 });
 
 after(async () => {
@@ -208,7 +221,7 @@ test("GET /api/quotes?opportunityId= como USER: 200 con el historial y activeQuo
   assert.equal(sinOportunidad.status, 400);
 });
 
-test("escritura como USER: POST y PATCH son 403 y no escriben nada", async () => {
+test("escritura como USER sobre una oportunidad ajena: POST y PATCH son 403 y no escriben nada", async () => {
   const antes = await prisma.quote.count({ where: { organizationId: orgId } });
   const post = await send("POST", "/api/quotes", user.accessToken, {
     opportunityId,
@@ -262,4 +275,64 @@ test("PATCH como ADMIN: status y contenido juntos es 400; editar el borrador y e
     amount: 1,
   });
   assert.equal(tarde.status, 409);
+});
+
+// PR-17 (QA-A-09): el vendedor cotiza en lo suyo, de punta a punta.
+test("USER en su oportunidad: crea, edita el borrador, envía y marca aceptada; createdById es él", async () => {
+  const creada = await send("POST", "/api/quotes", user.accessToken, {
+    opportunityId: opportunityDelVendedorId,
+    amount: 30000,
+    currency: "USD",
+  });
+  assert.equal(creada.status, 201);
+  const quote = (await creada.json()) as QuoteBody;
+  assert.equal(quote.createdById, user.id);
+
+  const editada = await send("PATCH", `/api/quotes/${quote.id}`, user.accessToken, {
+    amount: 29500,
+  });
+  assert.equal(editada.status, 200);
+
+  const enviada = await send("PATCH", `/api/quotes/${quote.id}`, user.accessToken, {
+    status: "SENT",
+  });
+  assert.equal(enviada.status, 200);
+
+  const aceptada = await send("PATCH", `/api/quotes/${quote.id}`, user.accessToken, {
+    status: "ACCEPTED",
+  });
+  assert.equal(aceptada.status, 200);
+  assert.equal(((await aceptada.json()) as QuoteBody).status, "ACCEPTED");
+});
+
+test("revertir la aceptación: USER 403 aunque sea suya; ADMIN 200 (vuelve a SENT); otra vez 409; mezclado con status 400", async () => {
+  const aceptada = await prisma.quote.findFirstOrThrow({
+    where: { organizationId: orgId, opportunityId: opportunityDelVendedorId, status: "ACCEPTED" },
+  });
+
+  const delVendedor = await send("PATCH", `/api/quotes/${aceptada.id}`, user.accessToken, {
+    revertAcceptance: true,
+  });
+  assert.equal(delVendedor.status, 403);
+  assert.equal(
+    (await prisma.quote.findUniqueOrThrow({ where: { id: aceptada.id } })).status,
+    "ACCEPTED",
+  );
+
+  const mezcla = await send("PATCH", `/api/quotes/${aceptada.id}`, admin.accessToken, {
+    revertAcceptance: true,
+    status: "SENT",
+  });
+  assert.equal(mezcla.status, 400);
+
+  const revertida = await send("PATCH", `/api/quotes/${aceptada.id}`, admin.accessToken, {
+    revertAcceptance: true,
+  });
+  assert.equal(revertida.status, 200);
+  assert.equal(((await revertida.json()) as QuoteBody).status, "SENT");
+
+  const otraVez = await send("PATCH", `/api/quotes/${aceptada.id}`, admin.accessToken, {
+    revertAcceptance: true,
+  });
+  assert.equal(otraVez.status, 409);
 });

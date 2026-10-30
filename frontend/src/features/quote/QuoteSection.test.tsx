@@ -74,9 +74,11 @@ function fakeBackend(initial: Quote[]) {
       received.push({ method: "PATCH", url: request.url, body });
       quotes = quotes.map((quote) =>
         quote.id === params.id
-          ? typeof body.status === "string"
-            ? { ...quote, status: body.status as Quote["status"] }
-            : { ...quote, amount: Number(body.amount).toFixed(2) }
+          ? body.revertAcceptance === true
+            ? { ...quote, status: "SENT" }
+            : typeof body.status === "string"
+              ? { ...quote, status: body.status as Quote["status"] }
+              : { ...quote, amount: Number(body.amount).toFixed(2) }
           : quote,
       );
       return HttpResponse.json(quotes.find((quote) => quote.id === params.id));
@@ -86,11 +88,16 @@ function fakeBackend(initial: Quote[]) {
   return { received };
 }
 
-function renderSection() {
+// Por defecto, un ADMIN: todo habilitado. Los tests de PR-17 pasan otra cosa.
+function renderSection({ puedeCotizar = true, puedeRevertir = true } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <QuoteSection opportunity={OPPORTUNITY} />
+      <QuoteSection
+        opportunity={OPPORTUNITY}
+        puedeCotizar={puedeCotizar}
+        puedeRevertir={puedeRevertir}
+      />
     </QueryClientProvider>,
   );
 }
@@ -344,5 +351,63 @@ describe("QuoteSection", () => {
 
     await user.click(await within(quoteCard()).findByRole("button", { name: "Imprimir" }));
     expect(printSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // PR-17 (QA-A-09): sin permiso de cotizar (el vendedor en una oportunidad
+  // ajena) se ve todo y no hay botones de escritura.
+  it("sin permiso de cotizar: ve la activa y el historial, solo puede imprimir", async () => {
+    fakeBackend([makeQuote({ id: "q1", status: "SENT" })]);
+    renderSection({ puedeCotizar: false, puedeRevertir: false });
+
+    const card = quoteCard();
+    expect(await within(card).findByText("Enviada")).toBeInTheDocument();
+    const botones = within(card)
+      .getAllByRole("button")
+      .map((button) => button.textContent);
+    expect(botones).toEqual(["Imprimir"]);
+  });
+
+  it("sin permiso de cotizar y sin cotizaciones: estado vacío sin 'Nueva cotización'", async () => {
+    fakeBackend([]);
+    renderSection({ puedeCotizar: false, puedeRevertir: false });
+
+    const card = quoteCard();
+    expect(
+      await within(card).findByText("Todavía no hay cotizaciones para esta oportunidad."),
+    ).toBeInTheDocument();
+    expect(within(card).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("aceptada: el vendedor no ve 'Revertir aceptación' ni el aviso de bloqueo de su lado", async () => {
+    fakeBackend([makeQuote({ id: "q1", status: "ACCEPTED" })]);
+    renderSection({ puedeCotizar: true, puedeRevertir: false });
+
+    const card = quoteCard();
+    expect(await within(card).findByText("Aceptada")).toBeInTheDocument();
+    expect(
+      within(card).queryByRole("button", { name: "Revertir aceptación" }),
+    ).not.toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Nueva cotización" })).toBeDisabled();
+  });
+
+  it("aceptada: un ADMIN revierte con confirmación; manda solo revertAcceptance y vuelve a Enviada", async () => {
+    const user = userEvent.setup();
+    const { received } = fakeBackend([makeQuote({ id: "q1", status: "ACCEPTED" })]);
+    renderSection();
+
+    const card = quoteCard();
+    const revertir = await within(card).findByRole("button", { name: "Revertir aceptación" });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    await user.click(revertir);
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(received).toHaveLength(0);
+
+    confirmSpy.mockReturnValueOnce(true);
+    await user.click(revertir);
+    await waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0].body).toEqual({ revertAcceptance: true });
+    expect(await within(card).findByText("Enviada")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Nueva cotización" })).toBeEnabled();
   });
 });

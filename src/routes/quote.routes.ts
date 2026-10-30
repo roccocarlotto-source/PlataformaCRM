@@ -11,7 +11,10 @@ import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 
 // Cotizaciones (§39 de docs/frontend-cambios-pendientes.md). Misma forma que
 // opportunity.routes.ts, porque una cotización es parte de la oportunidad:
-// lectura para cualquier autenticado de la organización, escritura ADMIN.
+// lectura para cualquier autenticado de la organización. Escritura: ADMIN, y
+// desde PR-17 también el vendedor (USER) en las oportunidades que tiene
+// asignadas (chequeo de dueño en el controller, permisosEnLaOportunidad.ts).
+// Revertir una aceptación es solo de ADMIN (también en el controller).
 //
 // SIN DELETE, a propósito: una cotización no se borra, se supera — el
 // historial de lo que se le ofreció al cliente es el punto de la entidad.
@@ -28,7 +31,7 @@ quoteRouter.post(
   "/quotes",
   authenticate,
   businessWriteRateLimiter,
-  authorize("ADMIN"),
+  authorize("ADMIN", "USER"),
   createQuoteHandler,
 );
 // PATCH: una transición de estado o la edición de un borrador, nunca las dos
@@ -37,6 +40,6 @@ quoteRouter.patch(
   "/quotes/:id",
   authenticate,
   businessWriteRateLimiter,
-  authorize("ADMIN"),
+  authorize("ADMIN", "USER"),
   updateQuoteHandler,
 );

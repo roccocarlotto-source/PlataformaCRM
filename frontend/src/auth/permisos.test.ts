@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { puedeAtender } from "../features/conversation/permissions";
 import type { RoleName } from "./AuthContext";
-import { puedeEditarContacto, puedeEditarRegistro } from "./permisos";
+import { puedeCotizarYCobrar, puedeEditarContacto, puedeEditarRegistro } from "./permisos";
 
 // Las reglas que el frontend repite solo para decidir qué botones mostrar
 // (el backend las vuelve a decidir: src/services/permisos.ts). ADMIN y USER,
@@ -34,5 +34,15 @@ describe("permisos del frontend por rol", () => {
     expect(puedeAtender(yo("RECEPCION"), ajena)).toBe(true);
     expect(puedeAtender(yo("USER"), ajena)).toBe(false);
     expect(puedeAtender(yo("USER"), { assignedUserId: "yo" })).toBe(true);
+  });
+
+  it("cotizar y cobrar (PR-17): ADMIN siempre; USER solo en lo suyo; Recepción nunca", () => {
+    const ajena = { ownerId: "otra" };
+    const propia = { ownerId: "yo" };
+    expect(puedeCotizarYCobrar(yo("ADMIN"), ajena)).toBe(true);
+    expect(puedeCotizarYCobrar(yo("USER"), propia)).toBe(true);
+    expect(puedeCotizarYCobrar(yo("USER"), ajena)).toBe(false);
+    expect(puedeCotizarYCobrar(yo("RECEPCION"), propia)).toBe(false);
+    expect(puedeCotizarYCobrar(null, propia)).toBe(false);
   });
 });

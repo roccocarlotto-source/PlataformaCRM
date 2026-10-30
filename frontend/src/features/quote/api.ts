@@ -34,3 +34,12 @@ export function updateQuoteContent(id: string, input: UpdateQuoteContentInput): 
 export function transitionQuote(id: string, status: QuoteTransition): Promise<Quote> {
   return request<Quote>(`/quotes/${id}`, { method: "PATCH", body: { status }, getAccessToken });
 }
+
+// PR-17: aceptada -> enviada, solo ADMIN (el backend lo exige).
+export function revertQuoteAcceptance(id: string): Promise<Quote> {
+  return request<Quote>(`/quotes/${id}`, {
+    method: "PATCH",
+    body: { revertAcceptance: true },
+    getAccessToken,
+  });
+}

@@ -10,7 +10,12 @@ import type { Opportunity } from "../opportunity/types";
 import { formatMoney } from "../../design-system/currencyFormat";
 import { quoteTotal } from "./format";
 import { QUOTE_STATUS_LABEL } from "./labels";
-import { useCreateQuote, useTransitionQuote, useUpdateQuoteContent } from "./mutations";
+import {
+  useCreateQuote,
+  useRevertQuoteAcceptance,
+  useTransitionQuote,
+  useUpdateQuoteContent,
+} from "./mutations";
 import { useOpportunityQuotes } from "./queries";
 import { QuoteDetail } from "./QuoteDetail";
 import { QuoteFormPanel } from "./QuoteFormPanel";
@@ -19,18 +24,27 @@ import type { Quote, QuoteTransition } from "./types";
 
 export interface QuoteSectionProps {
   opportunity: Pick<Opportunity, "id" | "title" | "amount" | "currency">;
+  // PR-17: ADMIN, o el vendedor en una oportunidad que tiene asignada. Sin
+  // esto la sección queda en lectura (sin botones de escritura).
+  puedeCotizar: boolean;
+  // Revertir una aceptación: solo ADMIN.
+  puedeRevertir: boolean;
 }
 
 type PanelState = { mode: "create" } | { mode: "edit"; quote: Quote } | null;
 
-// Confirmación de las dos transiciones finales: no tienen vuelta atrás (y la
-// aceptada bloquea crear otra), así que un clic suelto no alcanza. Mismo
-// window.confirm que los "Eliminar" de los listados.
+// Confirmación de las dos transiciones finales: la rechazada no tiene vuelta
+// atrás, y la aceptada bloquea crear otra y solo un ADMIN la revierte, así
+// que un clic suelto no alcanza. Mismo window.confirm que los "Eliminar" de
+// los listados.
 const CONFIRM: Partial<Record<QuoteTransition, string>> = {
   ACCEPTED:
-    "¿Marcar la cotización como aceptada? No se puede deshacer, y no se van a poder crear cotizaciones nuevas para esta oportunidad.",
+    "¿Marcar la cotización como aceptada? No se van a poder crear cotizaciones nuevas para esta oportunidad, y solo un administrador puede deshacerlo.",
   REJECTED: "¿Marcar la cotización como rechazada? No se puede deshacer.",
 };
+
+const CONFIRM_REVERTIR =
+  "¿Revertir la aceptación? La cotización vuelve a quedar enviada, y se puede volver a cotizar sobre ella.";
 
 // ---------------------------------------------------------------------------
 // Sección "Cotización" de la ficha de la oportunidad (§39 de
@@ -44,19 +58,22 @@ const CONFIRM: Partial<Record<QuoteTransition, string>> = {
 //   - Enviada: Marcar aceptada, Marcar rechazada, Nueva cotización.
 //   - Rechazada / Vencida: Nueva cotización.
 //   - Aceptada: Nueva cotización deshabilitada, con el motivo a la vista (el
-//     backend la rechaza igual con 409).
+//     backend la rechaza igual con 409). Un ADMIN ve además "Revertir
+//     aceptación" (PR-17).
 // "Imprimir" siempre que haya una activa: window.print() con el CSS de
 // impresión de .ds-quote-printable, que deja en la hoja solo la cotización.
 //
-// Vive en OpportunityFormPage, que es ADMIN-only (AdminRoute), así que no
-// hay gating por rol acá: las escrituras son authorize("ADMIN") en el backend.
+// PR-17: quién escribe lo decide OpportunityFormPage (puedeCotizar,
+// puedeRevertir), con la misma regla que el backend: ADMIN, o el vendedor en
+// lo que tiene asignado. Sin permiso se ve todo y no hay botones de escritura.
 // ---------------------------------------------------------------------------
-export function QuoteSection({ opportunity }: QuoteSectionProps) {
+export function QuoteSection({ opportunity, puedeCotizar, puedeRevertir }: QuoteSectionProps) {
   const confirm = useConfirm();
   const quotesQuery = useOpportunityQuotes(opportunity.id);
   const createMutation = useCreateQuote(opportunity.id);
   const editMutation = useUpdateQuoteContent(opportunity.id);
   const transitionMutation = useTransitionQuote(opportunity.id);
+  const revertMutation = useRevertQuoteAcceptance(opportunity.id);
 
   const [panel, setPanel] = useState<PanelState>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -69,6 +86,16 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
       await transitionMutation.mutateAsync({ id: quote.id, status });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "No pudimos cambiar el estado");
+    }
+  }
+
+  async function handleRevert(quote: Quote) {
+    if (!(await confirm(CONFIRM_REVERTIR, { confirmLabel: "Revertir" }))) return;
+    setActionError(null);
+    try {
+      await revertMutation.mutateAsync(quote.id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "No pudimos revertir la aceptación");
     }
   }
 
@@ -103,7 +130,7 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
     history = data.filter((quote) => quote.id !== activeQuoteId);
   }
 
-  const isBusy = transitionMutation.isPending;
+  const isBusy = transitionMutation.isPending || revertMutation.isPending;
   const createBlocked = active?.status === "ACCEPTED";
 
   if (!body) {
@@ -119,7 +146,7 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
           <QuoteDetail quote={active} />
         </div>
         <div className="ds-quote-actions">
-          {active.status === "DRAFT" ? (
+          {puedeCotizar && active.status === "DRAFT" ? (
             <>
               <Button
                 variant="primary"
@@ -134,7 +161,7 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
               </Button>
             </>
           ) : null}
-          {active.status === "SENT" ? (
+          {puedeCotizar && active.status === "SENT" ? (
             <>
               <Button
                 variant="primary"
@@ -154,12 +181,23 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
               </Button>
             </>
           ) : null}
-          <Button disabled={isBusy || createBlocked} onClick={() => setPanel({ mode: "create" })}>
-            Nueva cotización
-          </Button>
+          {puedeRevertir && active.status === "ACCEPTED" ? (
+            <Button
+              disabled={isBusy}
+              loading={revertMutation.isPending}
+              onClick={() => handleRevert(active)}
+            >
+              Revertir aceptación
+            </Button>
+          ) : null}
+          {puedeCotizar ? (
+            <Button disabled={isBusy || createBlocked} onClick={() => setPanel({ mode: "create" })}>
+              Nueva cotización
+            </Button>
+          ) : null}
           <Button onClick={() => window.print()}>Imprimir</Button>
         </div>
-        {createBlocked ? (
+        {puedeCotizar && createBlocked ? (
           <p className="ds-hint ds-quote-blocked">
             Esta cotización fue aceptada: no se pueden crear cotizaciones nuevas para esta
             oportunidad.
@@ -169,11 +207,13 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
     ) : (
       <>
         <EmptyState>Todavía no hay cotizaciones para esta oportunidad.</EmptyState>
-        <div className="ds-quote-actions">
-          <Button variant="primary" onClick={() => setPanel({ mode: "create" })}>
-            Nueva cotización
-          </Button>
-        </div>
+        {puedeCotizar ? (
+          <div className="ds-quote-actions">
+            <Button variant="primary" onClick={() => setPanel({ mode: "create" })}>
+              Nueva cotización
+            </Button>
+          </div>
+        ) : null}
       </>
     );
   }

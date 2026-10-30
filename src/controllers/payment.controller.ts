@@ -8,6 +8,7 @@ import {
   listPaymentsByOpportunity,
   updatePayment,
 } from "../services/payment.service";
+import { assertPuedeOperarLaOportunidad } from "../services/permisosEnLaOportunidad";
 import type { AuthenticatedRequest } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -116,6 +117,9 @@ export const getPaymentHandler = asyncHandler<AuthenticatedRequest>(async (req, 
 export const createPaymentHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createPaymentSchema, req.body);
+    // PR-17: un USER registra pagos solo en las oportunidades que tiene
+    // asignadas. Corregir y borrar siguen siendo de ADMIN (payment.routes.ts).
+    await assertPuedeOperarLaOportunidad(req.auth, req.auth.organizationId, input.opportunityId);
     const payment = await createPayment(req.auth.organizationId, input);
     res.status(201).json(payment);
   },
