@@ -31,7 +31,7 @@ import {
   findEdicionYRubro,
   findZonaDeLaOrganizacion,
 } from "../../repositories/organization.repository";
-import { vencimientoAlFinDelDia } from "../../utils/timezone";
+import { diaEnLaZona, vencimientoAlFinDelDia } from "../../utils/timezone";
 import {
   MOTIVO_TURNO_DEL_PACIENTE,
   prestacionParaElMensaje,
@@ -174,6 +174,8 @@ export function tareaDeSeguimiento(
   ahora: Date,
   // R15: en una clínica, la prestación. Sin pasarlo, el vehículo de siempre.
   interes: string = vehiculoParaElMensaje(contacto),
+  // La zona de la organización: la fecha de cada mensaje es la del día local.
+  zona = "UTC",
 ): { subject: string; body: string } {
   const nombre = nombreUsableDelContacto(contacto) ?? "consulta sin identificar";
   const dias = diasSin(lastInboundAt, ahora);
@@ -186,7 +188,7 @@ export function tareaDeSeguimiento(
     lineas.push("Lo que preguntó:");
     for (const mensaje of ultimos) {
       const texto = mensaje.content.trim().slice(0, LARGO_DE_CADA_MENSAJE);
-      lineas.push(`- ${mensaje.createdAt.toISOString().slice(0, 10)}: «${texto}»`);
+      lineas.push(`- ${diaEnLaZona(mensaje.createdAt, zona)}: «${texto}»`);
     }
   }
   return {
@@ -438,6 +440,7 @@ export function crearAccionSeguimientoDeConsulta(
         consulta.lastInboundAt,
         ahora,
         clinica ? prestacionParaElMensaje(contacto) : undefined,
+        await deps.zonaDe(organizationId),
       );
       const creada = await deps.agendarYCrearTarea(
         { ...base, status: InquiryFollowUpStatus.SENT, sentAt: ahora },
