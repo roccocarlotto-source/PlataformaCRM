@@ -11,7 +11,7 @@ import {
 import type { AuthenticatedRequest } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
-import { currencySchema, MAX_AMOUNT, parseOrThrow } from "../utils/validation";
+import { MAX_AMOUNT, currencySchema, fechaSoloSchema, parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().guid("id inválido");
 
@@ -47,7 +47,7 @@ const linesSchema = z
 // Fecha sola ("2026-09-30"). .nullable() antes de coerce para que un null
 // explícito limpie la fecha en vez de volverse 1970-01-01 — mismo bug que se
 // corrigió en Opportunity.
-const validUntilSchema = z.coerce.date(mensajesDeTipo({ tipo: "validUntil inválida" })).nullable();
+const validUntilSchema = fechaSoloSchema("validUntil");
 
 // Exportados para fijar con tests unitarios (sin base) qué rechaza el borde:
 // ver quote.controller.test.ts.

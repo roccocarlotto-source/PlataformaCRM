@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { esZonaHorariaValida, isoEnZona, vencimientoAlFinDelDia } from "./timezone";
+import { diaEnLaZona, esZonaHorariaValida, isoEnZona, vencimientoAlFinDelDia } from "./timezone";
 
 // Unitario, sin base ni red. Es la validación que impide que una sucursal nazca
 // con una zona horaria que no existe — un dato que no falla al guardarse y
@@ -122,4 +122,13 @@ test("la tarea vence al final del día de la organización, nunca antes de crear
     vencimientoAlFinDelDia(mediodia, "No/Existe").toISOString(),
     "2026-10-15T23:59:59.999Z",
   );
+});
+
+// NEG-FEC-3: a las 22:30 de Montevideo (01:30 UTC del día siguiente) el día
+// local sigue siendo el 29.
+test("diaEnLaZona: el día calendario de la zona, no el de UTC", () => {
+  const instante = new Date("2026-10-30T01:30:00.000Z");
+  assert.equal(diaEnLaZona(instante, "America/Montevideo"), "2026-10-29");
+  assert.equal(diaEnLaZona(instante, "UTC"), "2026-10-30");
+  assert.equal(diaEnLaZona(instante, "no/es-una-zona"), "2026-10-30");
 });

@@ -11,7 +11,7 @@ import {
 import type { AuthenticatedRequest } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
-import { parseOrThrow } from "../utils/validation";
+import { fechaSoloSchema, parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().guid("id inválido");
 
@@ -42,9 +42,7 @@ const checklistSchema = z
 // Fecha sola ("2026-09-30"). .nullable() antes de coerce para que un null
 // explícito limpie la fecha en vez de volverse 1970-01-01 — mismo bug que se
 // corrigió en Opportunity, mismo schema que Quote.validUntil.
-const scheduledAtSchema = z.coerce
-  .date(mensajesDeTipo({ tipo: "scheduledAt inválida" }))
-  .nullable();
+const scheduledAtSchema = fechaSoloSchema("scheduledAt");
 
 // PATCH /deliveries/:id tiene DOS formas, y no se mezclan (mismo criterio que
 // PATCH /quotes/:id):

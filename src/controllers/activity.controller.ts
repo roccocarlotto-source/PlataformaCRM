@@ -15,7 +15,7 @@ import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "../clinicas/camposDeClini
 import { CAMPOS_DE_SERVICIOS, sinCamposDeServicios } from "../servicios/camposDeServicios";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
-import { parseOrThrow } from "../utils/validation";
+import { instanteSchema, sinFechaComoUndefined, parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().guid("id inválido");
 
@@ -54,8 +54,8 @@ const createActivitySchema = z
   .object({
     ...activityFields,
     body: z.string().trim().min(1).optional(),
-    dueDate: z.coerce.date().optional(),
-    completedAt: z.coerce.date().optional(),
+    dueDate: instanteSchema("dueDate").optional().transform(sinFechaComoUndefined),
+    completedAt: instanteSchema("completedAt").optional().transform(sinFechaComoUndefined),
     assigneeId: z.string().guid("assigneeId inválido").optional(),
     companyId: z.string().guid("companyId inválido").optional(),
     contactId: z.string().guid("contactId inválido").optional(),
@@ -80,8 +80,8 @@ const updateActivitySchema = z
   .object({
     ...activityFields,
     body: z.string().trim().min(1).nullable().optional(),
-    dueDate: z.coerce.date().nullable().optional(),
-    completedAt: z.coerce.date().nullable().optional(),
+    dueDate: instanteSchema("dueDate").optional(),
+    completedAt: instanteSchema("completedAt").optional(),
     assigneeId: z.string().guid("assigneeId inválido").nullable().optional(),
     companyId: z.string().guid("companyId inválido").nullable().optional(),
     contactId: z.string().guid("contactId inválido").nullable().optional(),
