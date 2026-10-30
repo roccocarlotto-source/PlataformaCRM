@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makeStage } from "../../test/stageFixtures";
-import { buildMovePatch, todayIsoDate } from "./boardMove";
+import { buildMovePatch, todayIsoDate, minimoDeFecha } from "./boardMove";
 
 // Las reglas del PATCH al soltar una tarjeta, una por una, sin simular
 // ningún arrastre: ver el encabezado de boardMove.ts.
@@ -84,5 +84,16 @@ describe("todayIsoDate", () => {
 
   it("rellena mes y día con cero a la izquierda", () => {
     expect(todayIsoDate(new Date(2026, 0, 5))).toBe("2026-01-05");
+  });
+});
+
+describe("minimoDeFecha", () => {
+  const ahora = new Date(2026, 9, 30, 12, 0, 0);
+  it("es hoy cuando no hay fecha guardada o la guardada es futura", () => {
+    expect(minimoDeFecha("", ahora)).toBe("2026-10-30");
+    expect(minimoDeFecha("2026-11-05", ahora)).toBe("2026-10-30");
+  });
+  it("una fecha ya guardada en el pasado queda como mínimo: se puede editar lo demás", () => {
+    expect(minimoDeFecha("2026-10-01", ahora)).toBe("2026-10-01");
   });
 });

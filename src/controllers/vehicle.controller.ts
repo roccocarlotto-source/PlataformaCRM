@@ -12,7 +12,7 @@ import {
 import { getVehicleCoverPhotos, getVehiclePhotos } from "../services/vehiclePhoto.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
-import { parseOrThrow } from "../utils/validation";
+import { fechaSoloSchema, parseOrThrow } from "../utils/validation";
 
 // ---------------------------------------------------------------------------
 // Frontera de validación del módulo de stock de vehículos (Fase 2a). Molde:
@@ -115,8 +115,6 @@ function nullablePositiveInt(label: string) {
     .nullable();
 }
 
-const nullableDate = z.coerce.date().nullable();
-
 const nullableHttpUrl = (label: string) =>
   z
     .string()
@@ -174,7 +172,7 @@ const vehicleFields = {
   status: statusSchema,
   visibleInListing: z.boolean(),
   origin: originSchema.nullable(),
-  stockEnteredAt: nullableDate,
+  stockEnteredAt: fechaSoloSchema("stockEnteredAt"),
   publicationCurrency: publicationCurrencySchema,
   acceptsTradeIn: z.boolean(),
   financingAvailable: z.boolean(),
@@ -199,7 +197,7 @@ const vehicleFields = {
     .min(0, "consignmentCommissionPercent debe estar entre 0 y 100")
     .max(100, "consignmentCommissionPercent debe estar entre 0 y 100")
     .nullable(),
-  consignmentAgreementExpiresAt: nullableDate,
+  consignmentAgreementExpiresAt: fechaSoloSchema("consignmentAgreementExpiresAt"),
   consignmentContractNumber: nullableText(50, "consignmentContractNumber"),
 
   // Características
@@ -236,7 +234,7 @@ const vehicleFields = {
   warranty: warrantySchema.nullable(),
   warrantyOther: nullableText(255, "warrantyOther"),
   licensePlateDebtLocal: nullableMoney("licensePlateDebtLocal"),
-  lastTechnicalInspectionAt: nullableDate,
+  lastTechnicalInspectionAt: fechaSoloSchema("lastTechnicalInspectionAt"),
   titleHolder: nullableText(255, "titleHolder"),
   singleOwner: z.boolean(),
   officialServiceUpToDate: z.boolean(),
@@ -247,7 +245,7 @@ const vehicleFields = {
   branchId: z.string().guid("branchId inválido"),
   assignedSalespersonId: z.string().guid("assignedSalespersonId inválido").nullable(),
   physicalLocation: nullableText(255, "physicalLocation"),
-  availableSince: nullableDate,
+  availableSince: fechaSoloSchema("availableSince"),
 
   // Multimedia
   videoUrl: nullableHttpUrl("videoUrl"),

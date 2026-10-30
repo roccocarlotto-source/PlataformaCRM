@@ -5,6 +5,7 @@ import type { Db } from "../lib/prisma";
 import {
   getDashboardSummary,
   getRevenueSeries,
+  montoYMonedaAlCrear,
   priceFromVehicle,
   transicionaAGanada,
   vehicleStatusForOpportunityStatus,
@@ -681,4 +682,25 @@ test("T-01 serie: en el borde el último bucket es el período en curso EN LA ZO
 
   const dias = await getRevenueSeries(ORG, "day", { now: ahora, db });
   assert.deepEqual(dias.points.at(-1), { label: "2026-09-30", value: "500.00" });
+});
+
+// NEG-MON-3: monto y moneda salen de la misma fuente.
+test("montoYMonedaAlCrear: el par nunca mezcla el monto de una fuente con la moneda de otra", () => {
+  const unidadEnUsd = { amount: 25_000, currency: "USD" };
+  // Sin monto: el precio de la unidad con su moneda.
+  assert.deepEqual(montoYMonedaAlCrear({}, unidadEnUsd), unidadEnUsd);
+  assert.deepEqual(montoYMonedaAlCrear({ currency: "USD" }, unidadEnUsd), unidadEnUsd);
+  // Sin monto y otra moneda: no hay precio en esa moneda.
+  assert.deepEqual(montoYMonedaAlCrear({ currency: "UYU" }, unidadEnUsd), { currency: "UYU" });
+  // Con monto: el del body, con su moneda o la de la unidad.
+  assert.deepEqual(montoYMonedaAlCrear({ amount: 900_000, currency: "UYU" }, unidadEnUsd), {
+    amount: 900_000,
+    currency: "UYU",
+  });
+  assert.deepEqual(montoYMonedaAlCrear({ amount: 24_000 }, unidadEnUsd), {
+    amount: 24_000,
+    currency: "USD",
+  });
+  // Sin unidad ni monto: nada (los defaults de la base).
+  assert.deepEqual(montoYMonedaAlCrear({}, {}), { amount: undefined, currency: undefined });
 });

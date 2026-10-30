@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { minimoDeFecha } from "../opportunity/boardMove";
 import { useConfirm } from "../../design-system/useConfirm";
 import { EmptyState } from "../../design-system/EmptyState";
 import { Badge } from "../../design-system/Badge";
@@ -179,6 +180,7 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
           <FormField label="Fecha programada">
             <input
               type="date"
+              min={minimoDeFecha(savedDate)}
               value={scheduledAt}
               disabled={locked}
               onChange={(event) => setScheduledAt(event.target.value)}

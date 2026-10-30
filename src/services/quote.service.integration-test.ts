@@ -220,11 +220,23 @@ test("vencimiento perezoso: una SENT con la validez pasada aparece EXPIRED al li
   assert.equal((await getActiveQuote(a.organizationId, opp.id))?.id, nueva.id);
 });
 
+// Un borrador que se venció con el tiempo (se creó vigente y pasaron los
+// días): desde PR-13 no se puede crear ni editar vencido, así que se lo corre
+// al pasado directo en la base.
+async function borradorVencido(opportunityId: string) {
+  const quote = await cotizar(opportunityId, 25_000, {
+    validUntil: new Date("2099-01-01T00:00:00.000Z"),
+  });
+  await prisma.quote.update({
+    where: { id: quote.id },
+    data: { validUntil: new Date("2020-01-01T00:00:00.000Z") },
+  });
+  return quote;
+}
+
 test("una DRAFT con la validez pasada no vence (no se le mostró a nadie), pero enviarla es 409", async () => {
   const opp = await oportunidad();
-  const quote = await cotizar(opp.id, 25_000, {
-    validUntil: new Date("2020-01-01T00:00:00.000Z"),
-  });
+  const quote = await borradorVencido(opp.id);
   assert.equal((await getQuoteById(a.organizationId, quote.id)).status, "DRAFT");
 
   const err = await capturar(() => updateQuoteStatus(a.organizationId, quote.id, "SENT"));
@@ -605,4 +617,36 @@ test("oportunidad eliminada: su historial y sus cotizaciones dejan de ser alcanz
     "no encontrada",
   );
   assertAppError(await capturar(() => cotizar(opp.id)), 400, "opportunityId");
+});
+
+// PR-13 (QA-A-06, decisión de Rocco del 30/10): una cotización no nace vencida
+// ni se edita para quedar vencida; editar otra cosa de una vencida, sí.
+test("crear con la validez antes de hoy: 400 y no se crea nada", async () => {
+  const opp = await oportunidad();
+  const ayer = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+  const err = await capturar(() =>
+    cotizar(opp.id, 25_000, {
+      validUntil: new Date(`${ayer.toISOString().slice(0, 10)}T00:00:00.000Z`),
+    }),
+  );
+  assertAppError(err, 400, "no puede ser anterior a hoy");
+  assert.equal(await prisma.quote.count({ where: { opportunityId: opp.id } }), 0);
+});
+
+test("editar una DRAFT vencida: cambiar el monto se puede; moverle la validez a otra fecha pasada, no", async () => {
+  const opp = await oportunidad();
+  const quote = await borradorVencido(opp.id);
+
+  const editada = await updateQuoteContent(a.organizationId, quote.id, {
+    amount: 30_000,
+    validUntil: new Date("2020-01-01T00:00:00.000Z"),
+  });
+  assert.equal(Number(editada.amount), 30_000);
+
+  const err = await capturar(() =>
+    updateQuoteContent(a.organizationId, quote.id, {
+      validUntil: new Date("2021-06-01T00:00:00.000Z"),
+    }),
+  );
+  assertAppError(err, 400, "no puede ser anterior a hoy");
 });
