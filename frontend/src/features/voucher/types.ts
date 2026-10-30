@@ -41,6 +41,8 @@ export interface VoucherWhatsappStatus {
   disponible: boolean;
   motivo: string | null;
   conversationId: string | null;
+  // Cuándo se mandó este cupón por última vez (ISO), o null si nunca.
+  yaEnviadoEl: string | null;
 }
 
 export interface VoucherWhatsappResult {

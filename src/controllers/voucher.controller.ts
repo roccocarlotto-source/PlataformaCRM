@@ -15,6 +15,10 @@ import { parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().guid("id inválido");
 
+// POST /vouchers/:id/whatsapp: `reenviar: true` confirma mandar un cupón que
+// ya se mandó (si no, 409 CUPON_YA_ENVIADO).
+const enviarSchema = z.object({ reenviar: z.boolean().default(false) }).strict();
+
 // POST /api/vouchers/:id/redeem — el canje de un cupón de descuento (ítem
 // 176): lo dispara un empleado escaneando el QR del cliente desde el CRM
 // (pantalla del ítem 178). 200 con la fila ya CONSUMED; 409 si ya estaba
@@ -58,11 +62,14 @@ export function createManualVoucherHandlers(deps?: DepsDeRespuestaHumana) {
     // POST /api/vouchers/:id/whatsapp — lo manda (texto libre con el link).
     sendWhatsapp: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
       const id = parseOrThrow(idParamSchema, req.params.id);
+      const { reenviar } = parseOrThrow(enviarSchema, req.body ?? {});
       const resultado = await enviarCuponPorWhatsapp(
         actorDe(req),
         req.auth.organizationId,
         id,
         deps,
+        new Date(),
+        reenviar,
       );
       res.status(200).json(resultado);
     }),
