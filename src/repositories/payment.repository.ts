@@ -75,6 +75,20 @@ export function updatePayment(
 }
 
 // DELETE físico (§43): un pago mal cargado se borra de verdad.
+// Bloquea la fila del pago hasta el fin de la transacción (PR-17b): la foto
+// "antes" del historial se lee bajo este lock, así que dos correcciones
+// concurrentes no pueden registrar el mismo "antes". false = el pago no existe.
+export async function lockPaymentForUpdate(
+  id: string,
+  organizationId: string,
+  db: Db,
+): Promise<boolean> {
+  const filas = await db.$queryRaw<
+    { id: string }[]
+  >`SELECT id FROM payments WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid FOR UPDATE`;
+  return filas.length > 0;
+}
+
 export function deletePayment(id: string, organizationId: string, db: Db = prisma) {
   return db.payment.deleteMany({ where: { id, organizationId } });
 }

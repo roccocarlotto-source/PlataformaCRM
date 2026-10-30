@@ -156,6 +156,14 @@ create policy vehicle_change_logs_isolation on public.vehicle_change_logs
   using (organization_id = public.current_organization_id())
   with check (organization_id = public.current_organization_id());
 
+-- Historial de pagos (PR-17b, 20261124120000).
+alter table public.payment_changes enable row level security;
+drop policy if exists payment_changes_isolation on public.payment_changes;
+create policy payment_changes_isolation on public.payment_changes
+  for all
+  using (organization_id = public.current_organization_id())
+  with check (organization_id = public.current_organization_id());
+
 -- exchange_rates — la única tabla de negocio SIN organization_id (una
 -- cotización USD -> moneda local es un dato público, igual para todas las
 -- cuentas; ver schema.prisma). Mismo patrón que roles: lectura para cualquier

@@ -7,6 +7,7 @@ import {
   createPayment,
   deletePayment,
   getPaymentById,
+  listPaymentChangesByOpportunity,
   listPaymentsByOpportunity,
   updatePayment,
 } from "./payment.service";
@@ -68,7 +69,9 @@ after(async () => {
   for (const e of [a, b]) {
     if (!e) continue;
     const where = { organizationId: e.organizationId };
-    // Los pagos referencian la oportunidad (RESTRICT): van primero.
+    // El historial y los pagos referencian la oportunidad (RESTRICT): van
+    // primero.
+    await prisma.paymentChange.deleteMany({ where });
     await prisma.payment.deleteMany({ where });
     await prisma.opportunity.deleteMany({ where });
     await prisma.stage.deleteMany({ where });
@@ -92,7 +95,7 @@ function oportunidad(extra: Record<string, unknown> = {}) {
 }
 
 function pagar(opportunityId: string, amount = 5_000, paidAt = "2026-09-16") {
-  return createPayment(a.organizationId, {
+  return createPayment(a.organizationId, a.userId, {
     opportunityId,
     amount,
     method: "TRANSFER",
@@ -134,7 +137,7 @@ test("el CHECK rechaza un pago de 0 y uno negativo aunque zod no esté en el cam
 
 test("crear: toma la moneda de la oportunidad, guarda método y fecha, y no toca la oportunidad", async () => {
   const opp = await oportunidad({ currency: "UYU" });
-  const payment = await createPayment(a.organizationId, {
+  const payment = await createPayment(a.organizationId, a.userId, {
     opportunityId: opp.id,
     amount: 1_500.5,
     method: "CASH",
@@ -184,7 +187,7 @@ test("editar: monto, método y fecha cambian; la moneda y la oportunidad no", as
   const opp = await oportunidad();
   const payment = await pagar(opp.id);
 
-  const editado = await updatePayment(a.organizationId, payment.id, {
+  const editado = await updatePayment(a.organizationId, a.userId, payment.id, {
     amount: 4_200,
     method: "CHECK",
     paidAt: new Date("2026-09-20T00:00:00.000Z"),
@@ -195,7 +198,9 @@ test("editar: monto, método y fecha cambian; la moneda y la oportunidad no", as
   assert.equal(editado.currency, "USD");
   assert.equal(editado.opportunityId, opp.id);
 
-  const soloMetodo = await updatePayment(a.organizationId, payment.id, { method: "CARD" });
+  const soloMetodo = await updatePayment(a.organizationId, a.userId, payment.id, {
+    method: "CARD",
+  });
   assert.equal(soloMetodo.method, "CARD");
   assert.equal(soloMetodo.amount.toString(), "4200");
 });
@@ -205,17 +210,17 @@ test("borrar: DELETE físico — la fila desaparece de la base, y borrarla otra 
   const queda = await pagar(opp.id, 1_000);
   const payment = await pagar(opp.id, 2_000);
 
-  await deletePayment(a.organizationId, payment.id);
+  await deletePayment(a.organizationId, a.userId, payment.id);
   assert.equal(await prisma.payment.findUnique({ where: { id: payment.id } }), null);
   assert.ok(await prisma.payment.findUnique({ where: { id: queda.id } }));
 
   assertAppError(
-    await capturar(() => deletePayment(a.organizationId, payment.id)),
+    await capturar(() => deletePayment(a.organizationId, a.userId, payment.id)),
     404,
     "Pago no encontrado",
   );
   assertAppError(
-    await capturar(() => updatePayment(a.organizationId, payment.id, { amount: 1 })),
+    await capturar(() => updatePayment(a.organizationId, a.userId, payment.id, { amount: 1 })),
     404,
     "Pago no encontrado",
   );
@@ -233,7 +238,7 @@ test("currency es una FOTO: cambiar la moneda de la oportunidad no toca los pago
   assert.equal(releido.currency, "USD");
 
   // Editar el pago viejo tampoco lo "actualiza" a la moneda nueva.
-  const editado = await updatePayment(a.organizationId, enDolares.id, { amount: 5_100 });
+  const editado = await updatePayment(a.organizationId, a.userId, enDolares.id, { amount: 5_100 });
   assert.equal(editado.currency, "USD");
 });
 
@@ -242,7 +247,7 @@ test("currency es una FOTO: cambiar la moneda de la oportunidad no toca los pago
 // ---------------------------------------------------------------------------
 
 test("otra organización: listar, leer, crear, editar y borrar dan 404/400 — nunca se toca la fila de B", async () => {
-  const paymentB = await createPayment(b.organizationId, {
+  const paymentB = await createPayment(b.organizationId, b.userId, {
     opportunityId: opportunityB,
     amount: 10_000,
     method: "CASH",
@@ -267,7 +272,7 @@ test("otra organización: listar, leer, crear, editar y borrar dan 404/400 — n
   );
   assertAppError(
     await capturar(() =>
-      createPayment(a.organizationId, {
+      createPayment(a.organizationId, a.userId, {
         opportunityId: opportunityB,
         amount: 1,
         method: "CASH",
@@ -278,12 +283,12 @@ test("otra organización: listar, leer, crear, editar y borrar dan 404/400 — n
     "opportunityId",
   );
   assertAppError(
-    await capturar(() => updatePayment(a.organizationId, paymentB.id, { amount: 1 })),
+    await capturar(() => updatePayment(a.organizationId, a.userId, paymentB.id, { amount: 1 })),
     404,
     "Pago no encontrado",
   );
   assertAppError(
-    await capturar(() => deletePayment(a.organizationId, paymentB.id)),
+    await capturar(() => deletePayment(a.organizationId, a.userId, paymentB.id)),
     404,
     "Pago no encontrado",
   );
@@ -323,9 +328,119 @@ test("oportunidad eliminada: su historial y sus pagos dejan de ser alcanzables (
     "Pago no encontrado",
   );
   assertAppError(
-    await capturar(() => deletePayment(a.organizationId, payment.id)),
+    await capturar(() => deletePayment(a.organizationId, a.userId, payment.id)),
     404,
     "Pago no encontrado",
   );
   assertAppError(await capturar(() => pagar(opp.id)), 400, "opportunityId");
+});
+
+// ---------------------------------------------------------------------------
+// Historial (PR-17b): cada alta, corrección y borrado deja una fila con quién,
+// cuándo y la foto de antes y después, en la misma transacción.
+// ---------------------------------------------------------------------------
+
+function historial(opportunityId: string) {
+  return listPaymentChangesByOpportunity(a.organizationId, {
+    opportunityId,
+    page: 1,
+    pageSize: 100,
+  });
+}
+
+test("historial: alta, corrección y borrado dejan su fila, más nueva primero, con quién y la foto de antes", async () => {
+  const opp = await oportunidad();
+  const payment = await pagar(opp.id, 5_000, "2026-09-16");
+  await updatePayment(a.organizationId, a.userId, payment.id, {
+    amount: 4_500,
+    method: "CASH",
+  });
+  await deletePayment(a.organizationId, a.userId, payment.id);
+
+  const { data, pagination } = await historial(opp.id);
+  assert.equal(pagination.total, 3);
+  assert.deepEqual(
+    data.map((fila) => fila.action),
+    ["DELETED", "UPDATED", "CREATED"],
+  );
+  for (const fila of data) {
+    assert.equal(fila.paymentId, payment.id);
+    assert.equal(fila.changedById, a.userId);
+    assert.equal(fila.changedBy.id, a.userId);
+  }
+  const [borrado, corregido, alta] = data;
+  const original = { amount: "5000.00", currency: "USD", method: "TRANSFER", paidAt: "2026-09-16" };
+  const corregida = { amount: "4500.00", currency: "USD", method: "CASH", paidAt: "2026-09-16" };
+  assert.equal(alta.before, null);
+  assert.deepEqual(alta.after, original);
+  assert.deepEqual(corregido.before, original);
+  assert.deepEqual(corregido.after, corregida);
+  assert.deepEqual(borrado.before, corregida);
+  assert.equal(borrado.after, null);
+});
+
+test("historial: una corrección que no cambia nada no deja fila", async () => {
+  const opp = await oportunidad();
+  const payment = await pagar(opp.id, 1_000);
+  await updatePayment(a.organizationId, a.userId, payment.id, { amount: 1_000 });
+
+  const { data } = await historial(opp.id);
+  assert.deepEqual(
+    data.map((fila) => fila.action),
+    ["CREATED"],
+  );
+});
+
+test("historial: una corrección o un borrado que fallan (pago ajeno) no dejan fila", async () => {
+  const opp = await oportunidad();
+  const antes = (await historial(opp.id)).pagination.total;
+  const ajeno = await createPayment(b.organizationId, b.userId, {
+    opportunityId: opportunityB,
+    amount: 10,
+    method: "CASH",
+    paidAt: new Date("2026-09-16T00:00:00.000Z"),
+  });
+  await capturar(() => updatePayment(a.organizationId, a.userId, ajeno.id, { amount: 1 }));
+  await capturar(() => deletePayment(a.organizationId, a.userId, ajeno.id));
+
+  assert.equal((await historial(opp.id)).pagination.total, antes);
+  const deB = await prisma.paymentChange.findMany({ where: { paymentId: ajeno.id } });
+  assert.deepEqual(
+    deB.map((fila) => [fila.action, fila.organizationId]),
+    [["CREATED", b.organizationId]],
+  );
+});
+
+test("historial: el CHECK rechaza una fila cuya foto no corresponde a la acción", async () => {
+  const opp = await oportunidad();
+  const foto = { amount: "1.00", currency: "USD", method: "CASH", paidAt: "2026-09-16" };
+  const fila = (action: "CREATED" | "UPDATED" | "DELETED", before: unknown, after: unknown) =>
+    prisma.paymentChange.create({
+      data: {
+        organizationId: a.organizationId,
+        opportunityId: opp.id,
+        paymentId: opp.id,
+        action,
+        changedById: a.userId,
+        before: before === null ? Prisma.DbNull : (before as Prisma.InputJsonValue),
+        after: after === null ? Prisma.DbNull : (after as Prisma.InputJsonValue),
+      },
+    });
+  await assert.rejects(fila("CREATED", foto, foto), /payment_changes_values_match_action_check/);
+  await assert.rejects(fila("UPDATED", null, foto), /payment_changes_values_match_action_check/);
+  await assert.rejects(fila("DELETED", foto, foto), /payment_changes_values_match_action_check/);
+});
+
+test("historial de una oportunidad de otra organización: 404", async () => {
+  assertAppError(
+    await capturar(() =>
+      listPaymentChangesByOpportunity(a.organizationId, {
+        opportunityId: opportunityB,
+        page: 1,
+        pageSize: 10,
+      }),
+    ),
+    404,
+    "Oportunidad no encontrada",
+  );
 });

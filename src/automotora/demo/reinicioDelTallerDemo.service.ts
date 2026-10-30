@@ -99,6 +99,7 @@ export interface DatosDeUsoDelTallerBorrados {
   cambiosDeDueno: number;
   vehiculosDeClientes: number;
   entregas: number;
+  historialDePagos: number;
   pagos: number;
   cotizaciones: number;
   oportunidades: number;
@@ -450,6 +451,8 @@ async function borrarDatosDeUso(
     cambiosDeDueno: await n(tx.customerVehicleOwnerChange.deleteMany({ where })),
     vehiculosDeClientes: await n(tx.customerVehicle.deleteMany({ where })),
     entregas: await n(tx.delivery.deleteMany({ where })),
+    // El historial de pagos (PR-17b) cuelga de la oportunidad: antes que ella.
+    historialDePagos: await n(tx.paymentChange.deleteMany({ where })),
     pagos: await n(tx.payment.deleteMany({ where })),
     cotizaciones: await n(tx.quote.deleteMany({ where })),
     oportunidades: await n(tx.opportunity.deleteMany({ where })),

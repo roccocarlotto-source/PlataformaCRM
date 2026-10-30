@@ -1,6 +1,12 @@
 import { getAccessToken } from "../../auth/getAccessToken";
 import { request } from "../../lib/api";
-import type { CreatePaymentInput, Payment, PaymentListResponse, UpdatePaymentInput } from "./types";
+import type {
+  CreatePaymentInput,
+  Payment,
+  PaymentChangeListResponse,
+  PaymentListResponse,
+  UpdatePaymentInput,
+} from "./types";
 
 // Reutiliza request()/getAccessToken tal cual, como el resto de las features.
 
@@ -16,6 +22,18 @@ export function listOpportunityPayments(
 ): Promise<PaymentListResponse> {
   const params = new URLSearchParams({ opportunityId, pageSize: String(PAYMENTS_PAGE_SIZE) });
   return request<PaymentListResponse>(`/payments?${params.toString()}`, {
+    getAccessToken,
+    signal,
+  });
+}
+
+// El historial de pagos (PR-17b): los 100 cambios más recientes.
+export function listOpportunityPaymentChanges(
+  opportunityId: string,
+  signal?: AbortSignal,
+): Promise<PaymentChangeListResponse> {
+  const params = new URLSearchParams({ opportunityId, pageSize: String(PAYMENTS_PAGE_SIZE) });
+  return request<PaymentChangeListResponse>(`/payments/changes?${params.toString()}`, {
     getAccessToken,
     signal,
   });

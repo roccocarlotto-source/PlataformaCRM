@@ -295,13 +295,13 @@ describe("PaymentSection", () => {
 
   // PR-17 (QA-A-09): el vendedor registra pagos en lo suyo; corregir y
   // borrar siguen siendo de ADMIN.
-  it("vendedor en su oportunidad: 'Agregar pago' sí; 'Editar' y 'Eliminar' no", async () => {
+  it("vendedor en su oportunidad (PR-17b): 'Agregar pago' y 'Editar' sí; 'Eliminar' no", async () => {
     fakeBackend([makePayment({ id: "p1" })]);
-    renderSection(OPPORTUNITY, { puedeAgregar: true, puedeCorregir: false, puedeBorrar: false });
+    renderSection(OPPORTUNITY, { puedeAgregar: true, puedeCorregir: true, puedeBorrar: false });
 
     const card = await paymentsCard();
     expect(await within(card).findByRole("button", { name: "Agregar pago" })).toBeInTheDocument();
-    expect(within(card).queryByRole("button", { name: /^Editar el pago/ })).not.toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: /^Editar el pago/ })).toBeInTheDocument();
     expect(
       within(card).queryByRole("button", { name: /^Eliminar el pago/ }),
     ).not.toBeInTheDocument();
@@ -317,5 +317,71 @@ describe("PaymentSection", () => {
     ).toBeInTheDocument();
     expect(within(card).getByText(/^Pagado:/)).toBeInTheDocument();
     expect(within(card).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  // PR-17b: el historial se pide recién al abrirlo, y dice quién hizo qué.
+  it("historial de cambios: cerrado no pide nada; al abrirlo lista quién registró y quién corrigió", async () => {
+    fakeBackend([makePayment({ id: "p1" })]);
+    const pedidos = { count: 0 };
+    server.use(
+      http.get(`${paymentsUrl}/changes`, ({ request }) => {
+        pedidos.count += 1;
+        expect(new URL(request.url).searchParams.get("opportunityId")).toBe("op1");
+        return HttpResponse.json({
+          data: [
+            {
+              id: "c2",
+              paymentId: "p1",
+              action: "UPDATED",
+              changedAt: "2026-09-17T15:00:00.000Z",
+              changedBy: { id: "u2", fullName: "Bruno Vendedor" },
+              before: {
+                amount: "5000.00",
+                currency: "USD",
+                method: "TRANSFER",
+                paidAt: "2026-09-16",
+              },
+              after: {
+                amount: "4500.00",
+                currency: "USD",
+                method: "TRANSFER",
+                paidAt: "2026-09-16",
+              },
+            },
+            {
+              id: "c1",
+              paymentId: "p1",
+              action: "CREATED",
+              changedAt: "2026-09-16T15:00:00.000Z",
+              changedBy: { id: "u1", fullName: "Ana Admin" },
+              before: null,
+              after: {
+                amount: "5000.00",
+                currency: "USD",
+                method: "TRANSFER",
+                paidAt: "2026-09-16",
+              },
+            },
+          ],
+          pagination: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderSection();
+
+    const card = await paymentsCard();
+    await within(card).findByRole("list", { name: "Pagos registrados" });
+    expect(pedidos.count).toBe(0);
+
+    await user.click(within(card).getByText("Historial de cambios"));
+    const historial = await within(card).findByRole("list", {
+      name: "Historial de cambios de los pagos",
+    });
+    const filas = within(historial).getAllByRole("listitem");
+    expect(filas).toHaveLength(2);
+    expect(filas[0]).toHaveTextContent(/Bruno Vendedor · Corrigió un pago: monto/);
+    expect(filas[1]).toHaveTextContent(/Ana Admin · Registró un pago de/);
+    expect(pedidos.count).toBe(1);
   });
 });

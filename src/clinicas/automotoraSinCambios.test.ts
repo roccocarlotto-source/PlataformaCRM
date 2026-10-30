@@ -151,10 +151,11 @@ const MODULOS_DE_HOY: Record<OrganizationEdition, readonly string[]> = {
   ],
 };
 
-// Las 30 rutas que bloquea ESENCIAL (docs/ediciones.md §5.3), con su módulo.
+// Las 31 rutas que bloquea ESENCIAL (docs/ediciones.md §5.3), con su módulo.
 // La 30.ª, GET /api/opportunities/stage-counts, es del ensayo del 2026-10-17:
 // los conteos por etapa del Dashboard en un pedido, en dashboard_comercial
-// como sus vecinas.
+// como sus vecinas. La 31.ª, GET /api/payments/changes, es el historial de
+// pagos (PR-17b), en pagos como sus vecinas.
 const BLOQUEADAS_EN_ESENCIAL: Record<string, string> = {
   "GET /api/pipelines": "procesos_de_venta",
   "POST /api/pipelines": "procesos_de_venta",
@@ -171,6 +172,7 @@ const BLOQUEADAS_EN_ESENCIAL: Record<string, string> = {
   "GET /api/quotes/:id": "cotizaciones",
   "PATCH /api/quotes/:id": "cotizaciones",
   "GET /api/payments": "pagos",
+  "GET /api/payments/changes": "pagos",
   "POST /api/payments": "pagos",
   "GET /api/payments/:id": "pagos",
   "PATCH /api/payments/:id": "pagos",
@@ -290,7 +292,7 @@ test("gate, COMPLETA: no-op total, en todas las rutas, sin clasificar y con cual
   }
 });
 
-test("gate, ESENCIAL: bloquea exactamente las 30 rutas de siempre, con el 403 de siempre más motivo EDICION", () => {
+test("gate, ESENCIAL: bloquea exactamente las 31 rutas de siempre, con el 403 de siempre más motivo EDICION", () => {
   const bloqueadas: Record<string, string> = {};
   for (const ruta of TODAS_LAS_RUTAS) {
     const [metodo, patron] = ruta.split(" ");
@@ -332,7 +334,7 @@ test("gate: las rutas de los módulos solo de clínica dan 403 con motivo RUBRO 
 // docs/servicios.md §1.4: una automotora SIN el módulo activado recibe 403
 // con motivo NO_ACTIVADO en las rutas de un activable, en las dos ediciones;
 // con el módulo activado, pasan. El resto de sus rutas ya lo fijan los dos
-// tests de arriba (no-op en COMPLETA, las 30 de siempre en ESENCIAL).
+// tests de arriba (no-op en COMPLETA, las 31 de siempre en ESENCIAL).
 test("gate: las rutas de un módulo activable dan 403 NO_ACTIVADO a una automotora sin activarlo, y pasan con el módulo activado", () => {
   assert.ok(RUTAS_ACTIVABLES.length > 0);
   for (const edition of EDICIONES) {

@@ -962,7 +962,7 @@ export function OpportunityFormPage() {
             <PaymentSection
               opportunity={opportunityQuery.data}
               puedeAgregar={puedeCotizarYCobrar(me, opportunityQuery.data)}
-              puedeCorregir={esAdmin(me)}
+              puedeCorregir={puedeCotizarYCobrar(me, opportunityQuery.data)}
               puedeBorrar={esAdmin(me)}
             />
           ) : null}

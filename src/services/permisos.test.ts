@@ -117,6 +117,8 @@ test("toda ruta con authorize deja pasar a ADMIN; las que se abren a Recepción 
     "POST /api/quotes",
     "PATCH /api/quotes/:id",
     "POST /api/payments",
+    // PR-17b: corregir un pago (queda en el historial).
+    "PATCH /api/payments/:id",
   ];
   assert.deepEqual(
     conRol

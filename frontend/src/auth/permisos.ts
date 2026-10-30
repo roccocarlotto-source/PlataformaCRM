@@ -32,8 +32,9 @@ export function puedeEditarContacto(me: Yo, contacto: { ownerId: string | null }
 // PR-17: cotizar (crear, editar, enviar, aceptar, rechazar) y registrar
 // pagos en una oportunidad. ADMIN siempre; el vendedor (USER) solo en las que
 // tiene asignadas. Recepción no: esas rutas no se le abren en el backend
-// (authorize("ADMIN", "USER")). Revertir aceptaciones, corregir y borrar
-// pagos y operar la entrega siguen siendo de ADMIN (esAdmin).
+// (authorize("ADMIN", "USER")). Desde PR-17b también corregir pagos (queda
+// en el historial). Revertir aceptaciones, borrar pagos y operar la entrega
+// siguen siendo de ADMIN (esAdmin).
 export function puedeCotizarYCobrar(me: Yo, oportunidad: { ownerId: string | null }): boolean {
   if (!me) return false;
   return me.role === "ADMIN" || (me.role === "USER" && oportunidad.ownerId === me.id);

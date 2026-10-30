@@ -2573,6 +2573,26 @@ test("H-01 VehicleChangeLog: una entrada de historial de X sobre la unidad de Y 
   );
 });
 
+// PR-17b: el historial de pagos solo se inserta (payment.service), así que se
+// cubre como VehicleChangeLog: una fila de X colgada de la oportunidad de Y la
+// rechaza la FK compuesta.
+test("H-01 PaymentChange: una entrada de historial de X sobre la oportunidad de Y la rechaza la base", async () => {
+  await assertViolaFk(
+    () =>
+      prisma.paymentChange.create({
+        data: {
+          organizationId: nx.orgX,
+          opportunityId: nx.opportunityY,
+          paymentId: randomUUID(),
+          action: "DELETED",
+          changedById: nx.userY,
+          before: { amount: "1.00", currency: "USD", method: "CASH", paidAt: "2026-09-16" },
+        },
+      }),
+    "PaymentChange de X sobre la oportunidad de Y",
+  );
+});
+
 test("H-01 KnowledgeBaseEntry: update, softDelete y la escritura de sincronización no tocan la entrada de Y", async () => {
   await assertCrossTenantWriteNoOp(
     leerY.kb,

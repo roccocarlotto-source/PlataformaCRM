@@ -213,6 +213,8 @@ from (
       ('deliveries'),
       -- Pago del cliente (§43, migración 20260920120000): ídem.
       ('payments'),
+      -- Historial de pagos (PR-17b, migración 20261124120000): ídem.
+      ('payment_changes'),
       -- Base de conocimiento por sucursal (§59, migración 20260924120000):
       -- organization_id propio y la política uniforme, la convención vigente
       -- desde M-5.
@@ -601,6 +603,11 @@ from (
     -- los dos o ninguno.
     ('contacts_personal_data_erased_check', 'contacts',
      'CHECK ((personal_data_erased_at IS NULL) = (personal_data_erased_by_id IS NULL))'),
+    -- Historial de pagos (PR-17b, migración 20261124120000): la foto que
+    -- corresponde a cada acción. Forma (A AND B AND C) OR ..., el mismo
+    -- límite conocido del normalizador que messages_sender_user_id_consistency_check.
+    ('payment_changes_values_match_action_check', 'payment_changes',
+     'CHECK (action = ''CREATED'' AND before_values IS NULL AND after_values IS NOT NULL OR action = ''UPDATED'' AND before_values IS NOT NULL AND after_values IS NOT NULL OR action = ''DELETED'' AND before_values IS NOT NULL AND after_values IS NULL)'),
     -- Módulo de Agentes de IA (migración 20260912130000): el único CHECK del
     -- módulo. sender_type y sender_user_id van juntos — HUMAN exige usuario,
     -- CONTACT/AGENT lo prohíben. Transcripto de pg_get_constraintdef: el `IN
@@ -1275,6 +1282,11 @@ from (
     -- Pago del cliente (§43, migración 20260920120000): cuelga de su
     -- oportunidad, igual que quotes/deliveries.
     ('payments_organization_id_opportunity_id_fkey|payments(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    -- Historial de pagos (PR-17b, migración 20261124120000): cuelga de la
+    -- oportunidad (no del pago, que se borra físicamente) y changed_by_id
+    -- apunta a users; una FK bien formada hacia contacts pasaría la 14.
+    ('payment_changes_organization_id_changed_by_id_fkey|payment_changes(organization_id,changed_by_id)->users(organization_id,id)'),
+    ('payment_changes_organization_id_opportunity_id_fkey|payment_changes(organization_id,opportunity_id)->opportunities(organization_id,id)'),
     -- Base de conocimiento por sucursal (§59, migración 20260924120000):
     -- cuelga de una SUCURSAL, igual que agents — no de la organización ni de
     -- un agente. Una FK bien formada hacia agents (que también tiene su
