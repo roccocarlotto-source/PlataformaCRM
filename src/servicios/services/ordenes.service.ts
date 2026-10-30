@@ -33,6 +33,7 @@ import {
   updateSiEstaEn,
   type FilaDeLaFicha,
   type FilaDeLaLista,
+  lockOrdenParaSumar,
 } from "../repositories/serviceOrder.repository";
 import {
   leerConfiguracionDelTaller,
@@ -652,7 +653,12 @@ export async function cambiarEstado(
 }
 
 /** POST /ordenes/:id/aprobaciones (§2.5): solo un registro. "Sumar al valor"
- *  suma el monto al de la orden en la misma transacción. */
+ *  suma el monto al de la orden en la misma transacción, con la orden tomada
+ *  (FOR UPDATE): dos aprobaciones a la vez suman las dos. Solo una APROBADA
+ *  suma: lo que el cliente rechazó no cambia el valor. */
+export const SOLO_APROBADA_SUMA =
+  "Solo una aprobación APROBADA puede sumar su monto al valor de la orden";
+
 export async function registrarAprobacion(
   organizationId: string,
   userId: string,
@@ -666,24 +672,32 @@ export async function registrarAprobacion(
       ? null
       : await valorDe(organizationId, input.amount, input.currency);
 
-  let nuevoValor: { amount: Prisma.Decimal; currency: string } | null = null;
+  const aSumar = input.sumarAlValor ? montoDeLaAprobacion : null;
   if (input.sumarAlValor) {
-    if (!montoDeLaAprobacion?.amount || !montoDeLaAprobacion.currency) {
+    if (input.decision !== "APROBADO") {
+      throw new AppError(SOLO_APROBADA_SUMA, 400);
+    }
+    if (!aSumar?.amount || !aSumar.currency) {
       throw new AppError("Para sumar al valor hace falta el monto de la aprobación", 400);
     }
-    if (actual.currency && actual.currency !== montoDeLaAprobacion.currency) {
-      throw new AppError(
-        `El valor de la orden está en ${actual.currency}: el monto tiene que ir en la misma moneda`,
-        400,
-      );
-    }
-    nuevoValor = {
-      amount: new Prisma.Decimal(actual.amount ?? 0).plus(montoDeLaAprobacion.amount),
-      currency: montoDeLaAprobacion.currency,
-    };
   }
 
   await prisma.$transaction(async (tx) => {
+    let nuevoValor: { amount: Prisma.Decimal; currency: string } | null = null;
+    if (aSumar?.amount && aSumar.currency) {
+      const orden = await lockOrdenParaSumar(organizationId, id, tx);
+      if (!orden || !esAbierto(orden.status)) throw new AppError(ORDEN_FINAL, 409);
+      if (orden.currency && orden.currency !== aSumar.currency) {
+        throw new AppError(
+          `El valor de la orden está en ${orden.currency}: el monto tiene que ir en la misma moneda`,
+          400,
+        );
+      }
+      nuevoValor = {
+        amount: new Prisma.Decimal(orden.amount ?? 0).plus(aSumar.amount),
+        currency: aSumar.currency,
+      };
+    }
     await createApproval(
       {
         organizationId,

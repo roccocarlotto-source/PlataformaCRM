@@ -13,6 +13,8 @@ import { createBranch } from "../services/branch.service";
 import { activarModulo } from "../services/organizationModules.service";
 import { findOrderById, findOrderByIdConPrisma } from "./repositories/serviceOrder.repository";
 import { TURNO_CON_ORDEN } from "./services/ordenes.service";
+import { cancelBooking } from "../services/booking.service";
+import { formatearNumeroDeOrden } from "./identificadores";
 
 // ---------------------------------------------------------------------------
 // S4b de docs/servicios.md (§4.4): el turno de la agenda y la orden.
@@ -292,3 +294,51 @@ async function fichaIgualAPrisma(id: string) {
   assert.ok(conPrisma?.booking, "la orden tiene turno");
   assert.deepStrictEqual(cruda, conPrisma);
 }
+
+// NEG-EST-5 (decisión de Rocco del 30/10): la orden no cambia sola; su
+// encargado recibe una tarea si el turno lo canceló otra persona (acá, el
+// agente o una automatización: cancelBooking sin actor). Si lo canceló él,
+// no.
+test("turno cancelado por otro: tarea para el encargado de la orden; cancelado por el encargado: ninguna", async () => {
+  const encargado = taller.authIds[0];
+  const tareasDe = (numero: number) =>
+    prisma.activity.findMany({
+      where: {
+        organizationId: taller.id,
+        assigneeId: encargado,
+        subject: `Turno cancelado: la orden ${formatearNumeroDeOrden(numero)} sigue agendada`,
+      },
+    });
+
+  const t1 = await turno(taller, agenda, duena, 21);
+  const r1 = await admin("POST", ORDENES, {
+    customerVehicleId: await vehiculoDe(duena),
+    estado: "AGENDADO",
+    bookingId: t1.id,
+    assigneeId: encargado,
+  });
+  assert.equal(r1.status, 201, JSON.stringify(r1.json));
+  await cancelBooking(taller.id, t1.id);
+  const orden1 = await prisma.serviceOrder.findUniqueOrThrow({
+    where: { id: r1.json.id as string },
+  });
+  assert.equal(orden1.status, "AGENDADO", "la orden no cambia sola");
+  const [tarea] = await tareasDe(orden1.number);
+  assert.ok(tarea, "el encargado recibe la tarea");
+  assert.equal(tarea.contactId, duena);
+
+  const t2 = await turno(taller, agenda, duena, 22);
+  const r2 = await admin("POST", ORDENES, {
+    customerVehicleId: await vehiculoDe(duena),
+    estado: "AGENDADO",
+    bookingId: t2.id,
+    assigneeId: encargado,
+  });
+  assert.equal(r2.status, 201, JSON.stringify(r2.json));
+  const cancelar = await admin("PATCH", `/api/bookings/${t2.id}/cancel`);
+  assert.equal(cancelar.status, 200);
+  const orden2 = await prisma.serviceOrder.findUniqueOrThrow({
+    where: { id: r2.json.id as string },
+  });
+  assert.equal((await tareasDe(orden2.number)).length, 0, "lo canceló el propio encargado");
+});

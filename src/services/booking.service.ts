@@ -44,6 +44,7 @@ import { resolverContexto } from "./availability.service";
 import type { ClienteGoogleCalendar } from "./googleCalendar.service";
 import { borrarReservaDeGoogle, reflejarReservaEnGoogle } from "./googleCalendarConnection.service";
 import { estaEnSusSedes, exigirSedeDelActor, filtroDeSedes, type ActorConSedes } from "./permisos";
+import { avisarOrdenDelTurnoCancelado } from "../servicios/services/turnoCancelado.service";
 
 // ---------------------------------------------------------------------------
 // Booking — creación y cancelación (P2.1, paso 3).
@@ -574,7 +575,9 @@ export async function cancelBooking(
   organizationId: string,
   id: string,
   cliente?: ClienteGoogleCalendar,
-  actor?: ActorConSedes,
+  // userId: quién cancela, para no avisarle al encargado de una orden del
+  // taller algo que hizo él mismo (avisarOrdenDelTurnoCancelado).
+  actor?: ActorConSedes & { userId?: string },
   // R11: lo que quien cancela suma en la misma transacción (la nota del
   // agente de una clínica). Sin pasarlo, la escritura de siempre.
   enLaTransaccion?: (tx: Prisma.TransactionClient) => Promise<void>,
@@ -609,6 +612,10 @@ export async function cancelBooking(
     }
     if (enLaTransaccion) await enLaTransaccion(tx);
   }, OPCIONES_DE_TRANSACCION_LARGA);
+
+  // Taller: una orden vinculada a este turno no cambia sola; su encargado
+  // recibe una tarea si el turno lo canceló otra persona.
+  await avisarOrdenDelTurnoCancelado(organizationId, booking, actor?.userId);
 
   if (booking.googleEventId) {
     // R8: en el calendario donde quedó el evento (el del profesional de una
