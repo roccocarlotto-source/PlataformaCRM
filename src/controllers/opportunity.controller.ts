@@ -99,7 +99,11 @@ const opportunityFields = {
   // [] y false. Ahora un null explícito es un 400. Si en algún momento se
   // decide que `amount` se pueda limpiar con null en PATCH, eso es .nullable()
   // y es la conversación de M-10, no ésta.
-  amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
+  amount: z
+    .number()
+    .min(0, "amount debe ser mayor o igual a 0")
+    .max(MAX_AMOUNT, "amount supera el máximo permitido")
+    .optional(),
   currency: currencySchema.optional(),
   status: statusSchema.optional(),
   companyId: z.string().guid("companyId inválido").optional(),

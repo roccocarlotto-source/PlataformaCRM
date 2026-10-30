@@ -3,7 +3,12 @@ import { test } from "node:test";
 import { z } from "zod";
 import { mensajesDeTipo } from "./erroresDeZod";
 import { AppError } from "./AppError";
-import { fechaSoloSchema, instanteSchema, parseOrThrow } from "./validation";
+import {
+  fechaSoloSchema,
+  instanteSchema,
+  parseOrThrow,
+  tieneComoMuchoDosDecimales,
+} from "./validation";
 
 // ---------------------------------------------------------------------------
 // FABLE-I-06 (docs-privados/auditoria-2026-10-05-FABLE.md, local): los errores
@@ -162,6 +167,15 @@ test("ningún texto por defecto de zod llega en inglés", () => {
     mensaje,
     /Invalid|Expected|Required|received|must|should|Unrecognized|Number|String/,
   );
+});
+
+test("tieneComoMuchoDosDecimales: centavos sí, milésimos no, sin errores de punto flotante", () => {
+  for (const ok of [0, 12, 12.5, 12.34, 0.1 + 0.2, -1000.01, 999_999_999_999.99]) {
+    assert.equal(tieneComoMuchoDosDecimales(ok), true, String(ok));
+  }
+  for (const malo of [12.345, 0.001, -0.105]) {
+    assert.equal(tieneComoMuchoDosDecimales(malo), false, String(malo));
+  }
 });
 
 // Fechas (NEG-VAL-1, NEG-VAL-2, QA-A-06): null es "sin fecha" y nunca 1970;

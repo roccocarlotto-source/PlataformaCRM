@@ -50,7 +50,9 @@ persona se ve en solo lectura. Eliminar y reasignar: solo un administrador.
 3. En **Contacto**, escribí parte del nombre o del email y elegilo de la lista.
    Es obligatorio.
 4. Si ya hay una unidad, elegila en **Unidad de stock**. Si dejás el **Monto**
-   vacío, la oportunidad toma el precio de la unidad.
+   vacío, la oportunidad toma el precio de la unidad. Si la unidad es
+   **Consultar precio** (sin precio de lista), el monto que ya habías escrito
+   se queda como está.
 5. Si hace falta, cargá **Monto** y **Moneda**, y un administrador puede
    elegir a quién queda **Asignado**.
 6. Tocá **Guardar**. La oportunidad nace **En curso**.
@@ -199,7 +201,8 @@ Los campos están agrupados en tarjetas:
   depende del proceso elegido; si cambiás el proceso, hay que volver a elegir
   la etapa.
 - **Monto** y **Moneda**: el valor de la venta. Si vinculás una unidad de
-  stock, se completan solos con el precio de la unidad (ver más abajo).
+  stock, se completan solos con el precio de la unidad (ver más abajo), salvo
+  que la unidad no tenga precio de lista.
 - **Fecha estimada de cierre**: cuándo creés que se va a cerrar. Si no la
   sabés, tildá **Fecha desconocida**.
 - **Asignado**: el vendedor a cargo. Solo lo ve un administrador; para un
@@ -221,9 +224,10 @@ Los campos están agrupados en tarjetas:
 - **Origen del cliente**: por dónde llegó (Portal · MercadoLibre, Sitio web,
   Showroom, Referido, WhatsApp, Messenger, Instagram).
 
-> Al vincular una unidad, **Monto** y **Moneda** se vacían y, al guardar, se
-> completan con el precio de lista de la unidad. Si querés otro monto (por
-> ejemplo, un precio negociado), escribilo antes de guardar y ese manda.
+> Al vincular una unidad con precio de lista, **Monto** y **Moneda** se vacían
+> y, al guardar, se completan con ese precio. Si querés otro monto (por
+> ejemplo, un precio negociado), escribilo antes de guardar y ese manda. Una
+> unidad **Consultar precio** no toca lo que ya escribiste.
 
 > Vincular una unidad a una oportunidad abierta la deja **Reservada** en el
 > stock: nadie más puede vincularla hasta que esta oportunidad se cierre o
@@ -280,7 +284,8 @@ Cada cotización tiene un estado:
    corregir lo demás sin tocarla.
 4. En **Accesorios y descuentos** podés agregar líneas con **Agregar línea**:
    cada una tiene **Descripción**, **Tipo** (Accesorio suma, Descuento resta)
-   e **Importe**, siempre en positivo. **Quitar** la saca.
+   e **Importe**, siempre en positivo y con hasta dos decimales. **Quitar** la
+   saca.
 5. Tocá **Guardar**. La cotización nace en **Borrador**.
 
 El total es el precio ofertado más los accesorios menos los descuentos. La

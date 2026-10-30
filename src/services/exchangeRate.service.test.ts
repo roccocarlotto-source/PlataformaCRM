@@ -4,6 +4,7 @@ import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import {
   currenciesNeedingRate,
+  desvioAbsurdo,
   dispararActualizacionDeCotizaciones,
   type ResumenDeActualizacion,
 } from "./exchangeRate.service";
@@ -104,4 +105,14 @@ test("dispararActualizacionDeCotizaciones: un rechazo de la búsqueda se loguea 
   } finally {
     errorLog.mock.restore();
   }
+});
+
+// NEG-MON-4: una cotización que se aleja más del 50% de la anterior se descarta.
+test("desvioAbsurdo: más de 50% arriba o abajo de la anterior; sin anterior, nunca", () => {
+  assert.equal(desvioAbsurdo(40, 40), false);
+  assert.equal(desvioAbsurdo(59, 40), false);
+  assert.equal(desvioAbsurdo(61, 40), true);
+  assert.equal(desvioAbsurdo(400, 40), true, "un cero de más");
+  assert.equal(desvioAbsurdo(19, 40), true);
+  assert.equal(desvioAbsurdo(40, 0), false);
 });

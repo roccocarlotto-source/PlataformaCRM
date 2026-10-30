@@ -72,6 +72,12 @@ export const timezoneSchema = z
     message: "timezone debe ser una zona horaria IANA válida (ej. America/Argentina/Buenos_Aires)",
   });
 
+// ¿Como mucho centavos? 12.5 y 12.34 sí; 12.345 no. Se compara contra el
+// redondeo a dos decimales con una tolerancia de punto flotante (0.1 + 0.2).
+export function tieneComoMuchoDosDecimales(valor: number): boolean {
+  return Math.abs(Math.round(valor * 100) - valor * 100) < 1e-6;
+}
+
 // ---------------------------------------------------------------------------
 // FECHAS (NEG-VAL-1, NEG-VAL-2, QA-A-06 de docs-privados/auditoria-2026-10-21,
 // local). Un solo lugar para lo que antes repetía cada controller con
