@@ -94,15 +94,31 @@ export function SidebarSection({
   paths,
   link,
   nested,
+  contador,
+  contadorLabel,
   children,
 }: {
   label: string;
   paths: readonly string[];
   link?: { to: string; icon: LucideIcon };
   nested?: boolean;
+  // El número de uno de sus links, para que se vea con la sección plegada
+  // (con la sección abierta ya lo muestra el link). Mismo criterio de lector
+  // de pantalla que SidebarLink.
+  contador?: number;
+  contadorLabel?: string;
   children: ReactNode;
 }) {
   const [open, toggle] = useSectionOpen(paths);
+  const contadorPlegado =
+    !open && contador ? (
+      <>
+        <Badge variant="info" className="ds-sidebar-count" aria-hidden="true">
+          {contador}
+        </Badge>{" "}
+        <span className="ds-sr-only">{contadorLabel ?? String(contador)}</span>
+      </>
+    ) : null;
   const itemsId = useId();
   const chevron = (
     <ChevronRight
@@ -126,6 +142,7 @@ export function SidebarSection({
       >
         <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
         {label}
+        {contadorPlegado}
         {chevron}
       </NavLink>
     );
@@ -139,6 +156,7 @@ export function SidebarSection({
         className="ds-sidebar-group-label ds-sidebar-group-toggle"
       >
         {label}
+        {contadorPlegado}
         {chevron}
       </button>
     );

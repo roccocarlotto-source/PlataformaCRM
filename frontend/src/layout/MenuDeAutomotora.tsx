@@ -36,6 +36,7 @@ import type { MeResponse } from "../auth/AuthContext";
 import { tieneModulo } from "../auth/useModulo";
 import { ConversacionesLink } from "./ConversacionesLink";
 import { SidebarLink, SidebarSection } from "./Sidebar";
+import { useIngestaFallidaCount } from "../features/ingestionEvent/queries";
 
 // El menú de una automotora (docs/rubros.md §1.3): el de siempre, sin ningún
 // cambio. Lo fija menuAutomotora.test.tsx (suite "automotora sin cambios",
@@ -55,6 +56,10 @@ export function MenuDeAutomotora({
   // El taller (docs/servicios.md §4.1): un módulo activable. Sin él, el menú es
   // el de siempre (lo fija menuPorRubro.test.tsx).
   const tieneServicios = tieneModulo(me, "servicios");
+  // Contactos de una fuente que no pudieron entrar en los últimos 7 días: al
+  // lado de "Eventos de ingesta" y, con la sección plegada, en Administración.
+  const ingestaFallida = useIngestaFallidaCount({ enabled: isAdmin }).data?.total ?? 0;
+  const ingestaFallidaLabel = `${String(ingestaFallida)} ${ingestaFallida === 1 ? "contacto no entró" : "contactos no entraron"} en 7 días`;
 
   return (
     <>
@@ -203,6 +208,8 @@ export function MenuDeAutomotora({
           le sacaría el QR a un USER. */}
       <SidebarSection
         label="Administración"
+        contador={ingestaFallida}
+        contadorLabel={ingestaFallidaLabel}
         paths={[
           "/qr",
           "/users",
@@ -235,7 +242,12 @@ export function MenuDeAutomotora({
             <SidebarLink to="/api-keys" icon={Key}>
               Claves de ingesta
             </SidebarLink>
-            <SidebarLink to="/ingestion-events" icon={History}>
+            <SidebarLink
+              to="/ingestion-events"
+              icon={History}
+              contador={ingestaFallida}
+              contadorLabel={ingestaFallidaLabel}
+            >
               Eventos de ingesta
             </SidebarLink>
             <SidebarLink to="/organization" icon={Coins}>

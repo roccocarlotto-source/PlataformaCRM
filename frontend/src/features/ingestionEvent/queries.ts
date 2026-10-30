@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { listIngestionEvents } from "./api";
+import { countIngestaFallida, listIngestionEvents } from "./api";
 import type { IngestionEventListQuery } from "./types";
 
 // Misma forma jerárquica que sourceKeys/apiKeyKeys.
@@ -26,5 +26,17 @@ export function useIngestionEvents(
     queryKey: ingestionEventKeys.list(query),
     queryFn: ({ signal }) => listIngestionEvents(query, signal),
     enabled: options?.enabled,
+  });
+}
+
+// Mismo ritmo que el contador de la bandeja (PENDIENTES_REFETCH_MS).
+export const INGESTA_FALLIDA_REFETCH_MS = 60_000;
+
+export function useIngestaFallidaCount(options: { enabled: boolean }) {
+  return useQuery({
+    queryKey: [...ingestionEventKeys.all, "fallidos"] as const,
+    queryFn: ({ signal }) => countIngestaFallida(signal),
+    refetchInterval: INGESTA_FALLIDA_REFETCH_MS,
+    enabled: options.enabled,
   });
 }
