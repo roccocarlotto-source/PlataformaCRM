@@ -688,3 +688,22 @@ export async function findTurnosVinculables(
     take: 50,
   });
 }
+
+/** Toma la orden (FOR UPDATE) dentro de una transacción para sumarle el monto
+ *  de una aprobación: dos aprobaciones a la vez se suman las dos, en vez de
+ *  pisarse con el valor que cada una leyó antes (NEG-TX-1). */
+export async function lockOrdenParaSumar(
+  organizationId: string,
+  id: string,
+  tx: Prisma.TransactionClient,
+) {
+  const [fila] = await tx.$queryRaw<
+    { amount: Prisma.Decimal | null; currency: string | null; status: ServiceOrderStatus }[]
+  >`
+    SELECT amount, currency, status::text AS "status"
+    FROM service_orders
+    WHERE organization_id = ${organizationId}::uuid AND id = ${id}::uuid
+    FOR UPDATE
+  `;
+  return fila ?? null;
+}

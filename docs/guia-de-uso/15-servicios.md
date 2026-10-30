@@ -170,8 +170,11 @@ El turno y la orden **no se mueven juntos**:
 
 - Si el turno se cancela en la agenda (o en Google Calendar), la orden queda
   como estaba y la ficha avisa **El turno vinculado fue cancelado**, con
-  **Vincular otro turno** y **Desvincular** (o cancelá la orden). Si el cliente
-  no vino, avisa **El cliente no vino al turno**, con los mismos botones.
+  **Vincular otro turno** y **Desvincular** (o cancelá la orden). Si el turno
+  lo canceló otra persona (el cliente por el chat, otro usuario o una
+  automatización), el encargado de la orden recibe además la tarea **Turno
+  cancelado: la orden … sigue agendada**. Si el cliente no vino, avisa **El
+  cliente no vino al turno**, con los mismos botones.
 - Si se cancela la orden, el turno sigue en la agenda: el diálogo lo recuerda,
   y se cancela desde la agenda si corresponde (cancelar un turno lo libera para
   otro cliente).
@@ -184,7 +187,8 @@ respondió se anota con **Registrar aprobación**: qué se le consultó, si apro
 o rechazó, quién respondió, por dónde y cuándo, y el monto si se habló de uno.
 
 - Con **Sumar al valor de la orden**, el monto aprobado se suma al valor, en la
-  misma moneda. La casilla se activa al cargar el monto.
+  misma moneda. La casilla se activa al cargar el monto, y solo vale para una
+  respuesta **aprobada**: lo rechazado no cambia el valor.
 - **Para pasar de Esperando aprobación a En trabajo o a Listo para retirar
   hay que registrar la respuesta.** Mientras falte, esos botones están
   apagados y el aviso de arriba de la ficha trae **Registrar aprobación**. Si
