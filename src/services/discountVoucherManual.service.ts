@@ -229,12 +229,39 @@ async function leerCupon(organizationId: string, id: string) {
   return cupon;
 }
 
-export type EstadoDelEnvio =
+// `yaEnviadoEl`: cuándo se mandó este cupón por última vez (null = nunca).
+type Disponibilidad =
   | { disponible: true; conversationId: string; motivo: null }
   | { disponible: false; conversationId: null; motivo: string };
 
-function noDisponible(motivo: string): EstadoDelEnvio {
+export type EstadoDelEnvio = Disponibilidad & { yaEnviadoEl: Date | null };
+
+function noDisponible(motivo: string): Disponibilidad {
   return { disponible: false, conversationId: null, motivo };
+}
+
+// ---------------------------------------------------------------------------
+// UN CUPÓN NO SE REENVÍA SIN QUERERLO (NEG-EST-4 de
+// docs-privados/auditoria-2026-10-21, local). El link del cupón es único, así
+// que "ya se mandó" es: hay un mensaje saliente al contacto con ese link que
+// no falló. Mandarlo otra vez pide `reenviar: true`; sin eso es 409, con la
+// fecha del envío anterior. Sin migración: no hace falta una columna sentAt.
+// ---------------------------------------------------------------------------
+export const CUPON_YA_ENVIADO = "CUPON_YA_ENVIADO";
+
+async function ultimoEnvioDelCupon(cupon: DiscountVoucher): Promise<Date | null> {
+  const mensaje = await prisma.message.findFirst({
+    where: {
+      organizationId: cupon.organizationId,
+      direction: "OUTBOUND",
+      content: { contains: buildVoucherPublicUrl(cupon.id) },
+      OR: [{ deliveryStatus: null }, { deliveryStatus: { not: "FAILED" } }],
+      conversation: { contactId: cupon.contactId },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  return mensaje?.createdAt ?? null;
 }
 
 // ¿Se puede mandar este cupón por WhatsApp ahora? Y si se puede, a qué
@@ -242,6 +269,14 @@ function noDisponible(motivo: string): EstadoDelEnvio {
 // la sucursal del cupón. La ventana de 24 h se cuenta en ESA conversación,
 // porque es por número del negocio y cliente.
 async function estadoDelEnvio(cupon: DiscountVoucher, ahora: Date): Promise<EstadoDelEnvio> {
+  const [estado, yaEnviadoEl] = await Promise.all([
+    disponibilidad(cupon, ahora),
+    ultimoEnvioDelCupon(cupon),
+  ]);
+  return { ...estado, yaEnviadoEl };
+}
+
+async function disponibilidad(cupon: DiscountVoucher, ahora: Date): Promise<Disponibilidad> {
   if (cupon.status === "CONSUMED") return noDisponible(MOTIVO_CANJEADO);
   if (estaVencido(cupon, ahora)) return noDisponible(MOTIVO_VENCIDO);
   if (!cupon.branchId) return noDisponible(MOTIVO_SIN_SUCURSAL);
@@ -303,6 +338,8 @@ export async function enviarCuponPorWhatsapp(
   id: string,
   deps: DepsDeRespuestaHumana = depsDeRespuestaHumanaReales,
   ahora: Date = new Date(),
+  // true: la persona confirmó que lo quiere mandar otra vez.
+  reenviar = false,
 ): Promise<ResultadoDelEnvio> {
   const cupon = await leerCupon(organizationId, id);
   const contacto = await leerContacto(organizationId, cupon.contactId);
@@ -316,6 +353,14 @@ export async function enviarCuponPorWhatsapp(
   const estado = await estadoDelEnvio(cupon, ahora);
   if (!estado.disponible) {
     throw new AppError(estado.motivo, 409);
+  }
+  if (estado.yaEnviadoEl && !reenviar) {
+    throw new AppError(
+      `Este cupón ya se le mandó el ${DateTime.fromJSDate(estado.yaEnviadoEl).toFormat("dd/LL/yyyy")}. Para mandarlo otra vez, confirmá el reenvío.`,
+      409,
+      true,
+      { code: CUPON_YA_ENVIADO, yaEnviadoEl: estado.yaEnviadoEl.toISOString() },
+    );
   }
   const sucursal = await findBranchById(cupon.branchId!, organizationId);
   const texto = textoDelCupon({

@@ -464,6 +464,7 @@ async function estadoDelEnvio(cuponId: string) {
     disponible: boolean;
     motivo: string | null;
     conversationId: string | null;
+    yaEnviadoEl: string | null;
   };
 }
 
@@ -473,7 +474,12 @@ test("con la ventana abierta sale texto libre con el link, queda en el hilo y no
   const cupon = (await (await crear(vendedor.accessToken, { contactId: c.id })).json()) as Cupon;
 
   const estado = await estadoDelEnvio(cupon.id);
-  assert.deepEqual(estado, { disponible: true, conversationId: conv.id, motivo: null });
+  assert.deepEqual(estado, {
+    disponible: true,
+    conversationId: conv.id,
+    motivo: null,
+    yaEnviadoEl: null,
+  });
 
   const antes = envios.length;
   const res = await call("POST", `/api/vouchers/${cupon.id}/whatsapp`, vendedor.accessToken);
@@ -508,6 +514,7 @@ test("fuera de la ventana de 24 h (o sin conversación): no disponible con la ex
     disponible: false,
     conversationId: null,
     motivo: MOTIVO_SIN_VENTANA,
+    yaEnviadoEl: null,
   });
 
   await conversacionDeWhatsapp(c.id, 25 * HORA);
@@ -549,4 +556,28 @@ test("mandar: un USER que no tiene asignado el contacto recibe 403 y no sale nad
   const res = await call("POST", `/api/vouchers/${cupon.id}/whatsapp`, vendedor.accessToken);
   assert.equal(res.status, 403);
   assert.equal(envios.length, antes);
+});
+
+// NEG-EST-4: un cupón ya mandado no sale otra vez sin confirmar el reenvío.
+test("mandar dos veces: la segunda es 409 CUPON_YA_ENVIADO y no sale nada; con reenviar: true, sale", async () => {
+  const c = await contacto(vendedor.userId);
+  await conversacionDeWhatsapp(c.id, HORA);
+  const cupon = (await (await crear(vendedor.accessToken, { contactId: c.id })).json()) as Cupon;
+  const enviar = (body?: unknown) =>
+    call("POST", `/api/vouchers/${cupon.id}/whatsapp`, vendedor.accessToken, body);
+
+  assert.equal((await enviar()).status, 200);
+  const estado = await estadoDelEnvio(cupon.id);
+  assert.ok(estado.yaEnviadoEl, "el estado dice cuándo se mandó");
+
+  const antes = envios.length;
+  const otraVez = await enviar();
+  assert.equal(otraVez.status, 409);
+  const cuerpo = (await otraVez.json()) as { error: { code?: string; message: string } };
+  assert.equal(cuerpo.error.code, "CUPON_YA_ENVIADO");
+  assert.match(cuerpo.error.message, /ya se le mandó/);
+  assert.equal(envios.length, antes, "no salió nada");
+
+  assert.equal((await enviar({ reenviar: true })).status, 200);
+  assert.equal(envios.length, antes + 1);
 });
