@@ -1,6 +1,9 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
-import { upsertExchangeRate } from "../repositories/exchangeRate.repository";
+import {
+  findUltimaCotizacionAntesDe,
+  upsertExchangeRate,
+} from "../repositories/exchangeRate.repository";
 import { findOrganizationsWithConfiguredCurrency } from "../repositories/organization.repository";
 
 // ---------------------------------------------------------------------------
@@ -88,6 +91,20 @@ export function rateDateDeHoy(now = new Date()): Date {
   return new Date(now.toISOString().slice(0, 10));
 }
 
+// UNA COTIZACIÓN ABSURDA NO SE TOMA (NEG-MON-4 de
+// docs-privados/auditoria-2026-10-21, local). La fuente puede devolver un
+// valor roto (un cero de más, una moneda cruzada). Si la nueva se aleja más
+// de MAXIMO_DESVIO de la última guardada, se descarta y se loguea. 50% deja
+// pasar una devaluación fuerte de un día (las hubo de ~54%: queda afuera y
+// se ve en el log al día siguiente) y corta los errores de un orden de
+// magnitud. Exportada para fijarla con un test.
+export const MAXIMO_DESVIO = 0.5;
+
+export function desvioAbsurdo(nueva: number, anterior: number): boolean {
+  if (!(anterior > 0)) return false;
+  return Math.abs(nueva / anterior - 1) > MAXIMO_DESVIO;
+}
+
 export async function fetchAndStoreExchangeRates(
   opciones: OpcionesDeActualizacion = {},
 ): Promise<ResumenDeActualizacion> {
@@ -131,6 +148,21 @@ export async function fetchAndStoreExchangeRates(
       continue;
     }
     try {
+      const anterior = await findUltimaCotizacionAntesDe(
+        EXCHANGE_RATE_BASE_CURRENCY,
+        targetCurrency,
+        rateDate,
+      );
+      if (anterior && desvioAbsurdo(rate, Number(anterior.rate))) {
+        // Se queda la de antes: los montos convertidos siguen con la última
+        // razonable hasta que alguien mire la fuente.
+        resumen.fallidas++;
+        logger.error(
+          { targetCurrency, rate, anterior: Number(anterior.rate) },
+          "La cotización nueva se aleja demasiado de la anterior: se descarta y queda la de antes",
+        );
+        continue;
+      }
       await upsertExchangeRate({
         baseCurrency: EXCHANGE_RATE_BASE_CURRENCY,
         targetCurrency,

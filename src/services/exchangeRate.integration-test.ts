@@ -143,3 +143,35 @@ test("si la fuente entera falla, todas las monedas cuentan como fallidas y no se
   assert.ok(resumen.fallidas >= 3);
   assert.equal((await filasDe(...Object.values(MONEDAS))).length, 0);
 });
+
+// NEG-MON-4: una cotización que se aleja más del 50% de la última guardada se
+// descarta y queda la de antes.
+test("una cotización absurda respecto de la de ayer se descarta: cuenta como fallida y no se escribe", async () => {
+  await prisma.exchangeRate.deleteMany({
+    where: { targetCurrency: { in: Object.values(MONEDAS) } },
+  });
+  const ayer = new Date(rateDateDeHoy().getTime() - 24 * 60 * 60 * 1000);
+  await prisma.exchangeRate.create({
+    data: {
+      baseCurrency: "USD",
+      targetCurrency: MONEDAS.preferida,
+      rate: 40,
+      rateDate: ayer,
+      fetchedAt: ayer,
+    },
+  });
+
+  const resumen = await fetchAndStoreExchangeRates({
+    fetchRates: async () => ({ ZZA: 400, ZZB: 40 }),
+  });
+
+  assert.ok(resumen.fallidas >= 1);
+  const deHoy = await prisma.exchangeRate.findMany({
+    where: { targetCurrency: MONEDAS.preferida, rateDate: rateDateDeHoy() },
+  });
+  assert.equal(deHoy.length, 0, "la de 400 (un cero de más) no se guarda");
+  const alternativa = await prisma.exchangeRate.findMany({
+    where: { targetCurrency: MONEDAS.alternativa, rateDate: rateDateDeHoy() },
+  });
+  assert.equal(alternativa.length, 1, "sin historial, la otra moneda se guarda igual");
+});

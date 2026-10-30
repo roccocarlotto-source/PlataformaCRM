@@ -67,7 +67,7 @@ import {
   enumerarIniciativas,
 } from "../utils/iniciativaDelCliente";
 import { esNombreProvisorio, tieneNombreCompleto } from "../utils/nombreProvisorio";
-import { isoEnZona } from "../utils/timezone";
+import { diaEnLaZona, isoEnZona } from "../utils/timezone";
 import { createActivity } from "./activity.service";
 import {
   puedeEjecutarTool,
@@ -1036,7 +1036,7 @@ export function bloqueDeContacto(
   const registro = registrado ? `\n${seccionDeLoRegistrado(registrado, zona)}` : "";
   const reservados = canal === "WEB";
   const sinInteres = contact.noInterestAt
-    ? ` Esta persona está marcada SIN INTERÉS desde el ${contact.noInterestAt.toISOString().slice(0, 10)}${contact.noInterestNote ? ` (motivo anotado: ${envolverDatosDelCrm(contact.noInterestNote)})` : ""}: no le ofrezcas nada ni insistas; si pide algo, atendelo con normalidad.`
+    ? ` Esta persona está marcada SIN INTERÉS desde el ${diaEnLaZona(contact.noInterestAt, zona)}${contact.noInterestNote ? ` (motivo anotado: ${envolverDatosDelCrm(contact.noInterestNote)})` : ""}: no le ofrezcas nada ni insistas; si pide algo, atendelo con normalidad.`
     : "";
   const nombre = nombreUsableDelContacto(contact);
   const datos: string[] = [];

@@ -72,9 +72,11 @@ import { anonimizarOrdenesDelContacto } from "../servicios/repositories/serviceO
 import {
   findDefaultPhoneCountryCode,
   findOrganizationById,
+  findZonaDeLaOrganizacion,
   lockOrganizationForUpdate,
 } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
+import { diaEnLaZona } from "../utils/timezone";
 import { exigirContactoConDatos } from "../utils/contactoBorrado";
 import {
   aplicarCambiosDeCampos,
@@ -1063,12 +1065,20 @@ export interface QualifyLeadInput {
 // vino cada una cuando el texto ya acumuló varias conversaciones. Solo la
 // fecha (no hora): es lo que un vendedor lee de un vistazo, y dos notas del
 // mismo día quedan en líneas distintas de todos modos.
-function marcarNota(nota: string, hoy: Date): string {
-  return `[${hoy.toISOString().slice(0, 10)}] ${nota.trim()}`;
+// El día es el de la zona de la organización cuando quien llama la tiene; si
+// no, UTC (la unión de contactos y las filas de una importación, donde
+// buscarla costaría una consulta más por contacto).
+function marcarNota(nota: string, hoy: Date, zona: string): string {
+  return `[${diaEnLaZona(hoy, zona)}] ${nota.trim()}`;
 }
 
-export function appendLeadNotes(actual: string | null, nueva: string, hoy = new Date()): string {
-  const marcada = marcarNota(nueva, hoy);
+export function appendLeadNotes(
+  actual: string | null,
+  nueva: string,
+  hoy = new Date(),
+  zona = "UTC",
+): string {
+  const marcada = marcarNota(nueva, hoy, zona);
   return actual && actual.trim().length > 0 ? `${actual}\n${marcada}` : marcada;
 }
 
@@ -1214,7 +1224,14 @@ export async function qualifyLead(
     ...(input.budgetCurrency !== undefined ? { leadBudgetCurrency: input.budgetCurrency } : {}),
     ...(input.location !== undefined ? { leadLocation: input.location } : {}),
     ...(input.notes !== undefined && input.notes.trim().length > 0
-      ? { leadNotes: appendLeadNotes(contacto.leadNotes, input.notes) }
+      ? {
+          leadNotes: appendLeadNotes(
+            contacto.leadNotes,
+            input.notes,
+            new Date(),
+            await findZonaDeLaOrganizacion(organizationId),
+          ),
+        }
       : {}),
     ...(input.aiData !== undefined
       ? {

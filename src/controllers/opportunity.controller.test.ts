@@ -253,3 +253,10 @@ test("§35: una granularity inválida se rechaza con el mensaje del errorMap", (
     "granularity debe ser month, week o day",
   );
 });
+
+test("create: un monto que no entra en Decimal(14, 2) es 400, no un 500 (NEG-MON-1)", () => {
+  assert.equal(
+    createOpportunitySchema.safeParse({ ...BASE_CREATE, amount: 1_000_000_000_000 }).success,
+    false,
+  );
+});
