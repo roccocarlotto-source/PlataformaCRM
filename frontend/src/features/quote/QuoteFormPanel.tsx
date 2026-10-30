@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
+import { minimoDeFecha } from "../opportunity/boardMove";
 import { EmptyState } from "../../design-system/EmptyState";
 import { Button } from "../../design-system/Button";
 import { CurrencyInput } from "../../design-system/CurrencyInput";
@@ -45,6 +46,10 @@ export function QuoteFormPanel({
 }: QuoteFormPanelProps) {
   const formId = useId();
   const [values, setValues] = useState<QuoteFormValues>(initialValues);
+  // No se puede elegir una validez ya pasada (el backend tampoco la acepta).
+  // Un borrador viejo con la validez vencida conserva la suya como mínimo:
+  // editar otra cosa no tiene que obligar a cambiarla.
+  const minimoDeValidez = minimoDeFecha(initialValues.validUntil);
   const [error, setError] = useState<string | null>(null);
 
   function updateLine(index: number, patch: Partial<QuoteLineFormValue>) {
@@ -122,6 +127,7 @@ export function QuoteFormPanel({
         <FormField label="Válida hasta">
           <input
             type="date"
+            min={minimoDeValidez}
             value={values.validUntil}
             onChange={(event) =>
               setValues((current) => ({ ...current, validUntil: event.target.value }))

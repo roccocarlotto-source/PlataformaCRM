@@ -151,7 +151,9 @@ test("cada escritura de una orden entra en su presupuesto de consultas", async (
   await medir("estado En trabajo → Esperando aprobación", 8, () =>
     estado({ desde: "EN_TRABAJO", hacia: "ESPERANDO_APROBACION", nota: "Presupuesto enviado" }),
   );
-  await medir("POST aprobación (sumar al valor)", 8, () =>
+  // 9 y no 8 desde PR-15: la orden se toma con FOR UPDATE antes de sumar, para
+  // que dos aprobaciones a la vez se sumen las dos (NEG-TX-1).
+  await medir("POST aprobación (sumar al valor)", 9, () =>
     comoAdmin("POST", `${ORDENES}/${id}/aprobaciones`, {
       description: "Pastillas",
       decision: "APROBADO",

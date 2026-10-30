@@ -567,3 +567,42 @@ test("encargados: id y nombre de los usuarios activos, para cualquier rol", asyn
   assert.equal(usuarios.length, 2);
   for (const u of usuarios) assert.deepEqual(Object.keys(u).sort(), ["fullName", "id"]);
 });
+
+// PR-15: solo una APROBADA suma (NEG-EST-2), y dos a la vez suman las dos
+// (NEG-TX-1: la orden se toma con FOR UPDATE).
+test("una aprobación RECHAZADA no puede sumar al valor: 400 y no registra nada", async () => {
+  const o = await recibida((await vehiculo()).id, { amount: 1000 });
+  const r = await comoUser("POST", `${ORDENES}/${o.id}/aprobaciones`, {
+    description: "Cambio de embrague",
+    decision: "RECHAZADO",
+    approverName: "El titular",
+    channel: "TELEFONO",
+    decidedAt: new Date().toISOString(),
+    amount: 9000,
+    sumarAlValor: true,
+  });
+  assert.equal(r.status, 400);
+  assert.match(String(r.json.error?.message), /Solo una aprobación APROBADA/);
+  assert.equal(await prisma.serviceOrderApproval.count({ where: { serviceOrderId: o.id } }), 0);
+  const fila = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } });
+  assert.equal(fila.amount?.toFixed(2), "1000.00");
+});
+
+test("dos aprobaciones a la vez que suman al valor: se suman las dos", async () => {
+  const o = await recibida((await vehiculo()).id, { amount: 1000 });
+  const aprobar = (description: string, amount: number) =>
+    comoUser("POST", `${ORDENES}/${o.id}/aprobaciones`, {
+      description,
+      decision: "APROBADO",
+      approverName: "El titular",
+      channel: "WHATSAPP",
+      decidedAt: new Date().toISOString(),
+      amount,
+      sumarAlValor: true,
+    });
+  const [a, b] = await Promise.all([aprobar("Filtro", 300), aprobar("Aceite", 200)]);
+  assert.equal(a.status, 201, JSON.stringify(a.json));
+  assert.equal(b.status, 201, JSON.stringify(b.json));
+  const fila = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } });
+  assert.equal(fila.amount?.toFixed(2), "1500.00", "1000 + 300 + 200, ninguna se pierde");
+});

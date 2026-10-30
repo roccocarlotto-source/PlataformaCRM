@@ -118,3 +118,26 @@ test("PATCH de contenido: parcial, pero no vacío ni con campos que no son de la
     false,
   );
 });
+
+test("create: monto o línea con más de dos decimales es 400 (NEG-MON-2)", () => {
+  const monto = createQuoteSchema.safeParse({
+    opportunityId: OPPORTUNITY_ID,
+    amount: 25_000.125,
+    currency: "USD",
+  });
+  assert.equal(monto.success, false);
+  const linea = createQuoteSchema.safeParse({
+    opportunityId: OPPORTUNITY_ID,
+    amount: 25_000,
+    currency: "USD",
+    lines: [{ description: "Polarizado", amount: 0.105 }],
+  });
+  assert.equal(linea.success, false);
+  const centavos = createQuoteSchema.safeParse({
+    opportunityId: OPPORTUNITY_ID,
+    amount: 25_000.1,
+    currency: "USD",
+    lines: [{ description: "Polarizado", amount: 0.3 }],
+  });
+  assert.equal(centavos.success, true, "0.1 y 0.3 no son más de dos decimales");
+});

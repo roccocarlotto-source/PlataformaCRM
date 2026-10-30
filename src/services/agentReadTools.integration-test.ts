@@ -3104,3 +3104,27 @@ test("get_contact_activities por WEB sin identificar: tipo y fecha, sin el asunt
   );
   assert.equal(identificado.activities[0].subject, "Llamarlo: duda por el precio");
 });
+
+// NEG-MON-3: el precio de la unidad viaja con SU moneda (USD), aunque el
+// modelo mande otra moneda sin monto.
+test("create_opportunity con unidad en USD y currency UYU sin monto: queda el precio en USD, no en pesos", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  await unidad(a, {
+    make: "Renault",
+    model: "Kangoo",
+    trim: `Moneda ${String(Date.now())}`,
+    year: 2021,
+    priceListUsd: 19_900,
+  });
+
+  const { opportunityId } = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { motivo: "TEST_DRIVE", title: "Kangoo", vehiculo: "Renault Kangoo", currency: "UYU" },
+    ctx,
+  );
+
+  const fila = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
+  assert.equal(Number(fila.amount), 19_900);
+  assert.equal(fila.currency, "USD");
+});

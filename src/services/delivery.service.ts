@@ -1,4 +1,5 @@
 import { Prisma, type DeliveryStatus, type VehicleStatus } from "@prisma/client";
+import { todayForOrganization } from "./quote.service";
 import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../lib/prisma";
 import {
   createDelivery,
@@ -249,6 +250,8 @@ export function getDeliveryById(organizationId: string, id: string) {
 // Escritura
 // ---------------------------------------------------------------------------
 
+export const ENTREGA_EN_EL_PASADO = "La fecha de entrega no puede ser anterior a hoy";
+
 export interface UpdateDeliveryInput {
   checklist?: DeliveryChecklistItem[];
   scheduledAt?: Date | null;
@@ -267,6 +270,15 @@ export async function updateDelivery(
 ) {
   const delivery = await requireReachableDelivery(organizationId, id);
   assertEditable(delivery);
+  // Una entrega no se programa en el pasado (QA-A-06, decisión de Rocco del
+  // 30/10): solo cuando la fecha cambia, con el "hoy" de la organización. Si
+  // ya se entregó y se carga tarde, "Confirmar entrega" guarda cuándo.
+  const nueva = input.scheduledAt;
+  if (nueva && nueva.getTime() !== delivery.scheduledAt?.getTime()) {
+    if (nueva < (await todayForOrganization(organizationId))) {
+      throw new AppError(ENTREGA_EN_EL_PASADO, 400);
+    }
+  }
 
   const { checklist, ...rest } = input;
   const data: UpdatePendingDeliveryData = {
