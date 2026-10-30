@@ -543,6 +543,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
     "POST /api/imports/preview",
     "GET /api/imports/:batchId",
     "GET /api/ingestion-events",
+    "GET /api/ingestion-events/fallidos",
     "POST /api/ingestion-events/:id/retry",
   ],
   dashboard_atencion: ["GET /api/dashboard/atencion"],

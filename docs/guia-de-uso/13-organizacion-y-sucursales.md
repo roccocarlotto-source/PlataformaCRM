@@ -395,6 +395,14 @@ contacto que intentó entrar por una fuente de ingesta, con qué pasó con él.
 Sirve para controlar que una landing está funcionando y para ver por qué
 una fila de un archivo no se convirtió en contacto.
 
+**El número del menú.** Al lado de **Eventos de ingesta** aparece cuántos
+contactos que llegaron por una fuente (por ejemplo, el formulario de una
+página web) no pudieron entrar al CRM en los **últimos 7 días**, por un dato
+inválido o por un error. Con **Administración** plegada, el número se ve al
+lado de **Administración**. Las filas de un archivo importado no se cuentan:
+se ven en el informe de la importación. Sin fallos, no hay número. Lo ve solo
+un administrador.
+
 **Las columnas.** **Fuente**, **Estado**, **Motivo**, **Creado**,
 **Actualizado** y **Acciones**.
 

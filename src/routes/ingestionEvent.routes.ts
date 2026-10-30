@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  countIngestaFallidaHandler,
   listIngestionEventsHandler,
   retryIngestionEventHandler,
 } from "../controllers/ingestionEvent.controller";
@@ -42,6 +43,14 @@ ingestionEventRouter.get(
 //
 // Es una escritura aunque el cuerpo vaya vacío: cambia el estado persistido de
 // una fila y encola trabajo para el worker.
+// El contador del menú "Eventos de ingesta": fallos de los últimos 7 días.
+ingestionEventRouter.get(
+  "/ingestion-events/fallidos",
+  authenticate,
+  authorize("ADMIN"),
+  countIngestaFallidaHandler,
+);
+
 ingestionEventRouter.post(
   "/ingestion-events/:id/retry",
   authenticate,

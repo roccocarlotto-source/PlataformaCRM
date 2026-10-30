@@ -53,6 +53,8 @@ beforeEach(() => {
     http.get(`${env.apiUrl}/api/conversations/pendientes/count`, () =>
       HttpResponse.json({ total: 0 }),
     ),
+    // Lo mismo para el contador de Eventos de ingesta (solo ADMIN).
+    http.get(`${env.apiUrl}/api/ingestion-events/fallidos`, () => HttpResponse.json({ total: 0 })),
   );
 });
 
@@ -338,6 +340,59 @@ describe("AppLayout — nav de Conversaciones (ítem 66, UX-02)", () => {
     await waitFor(() => expect(pedidos).toBe(1));
     expect(screen.getByRole("link", { name: "Conversaciones" })).toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
+});
+
+describe("AppLayout — contador de Eventos de ingesta", () => {
+  const fallidosUrl = `${env.apiUrl}/api/ingestion-events/fallidos`;
+
+  it("ADMIN: con la sección plegada el número está en Administración; abierta, en el link", async () => {
+    server.use(http.get(fallidosUrl, () => HttpResponse.json({ total: 3 })));
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const user = userEvent.setup();
+    renderLayout("/");
+
+    const seccion = await screen.findByRole("button", {
+      name: "Administración 3 contactos no entraron en 7 días",
+    });
+    await user.click(seccion);
+
+    expect(
+      await screen.findByRole("link", {
+        name: "Eventos de ingesta 3 contactos no entraron en 7 días",
+      }),
+    ).toHaveAttribute("href", "/ingestion-events");
+    expect(screen.getByRole("button", { name: "Administración" })).toBeInTheDocument();
+  });
+
+  it("USER: no se pide el número", async () => {
+    let pedidos = 0;
+    server.use(
+      http.get(fallidosUrl, () => {
+        pedidos += 1;
+        return HttpResponse.json({ total: 3 });
+      }),
+    );
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout("/");
+
+    await screen.findByRole("button", { name: "Administración" });
+    expect(pedidos).toBe(0);
+  });
+
+  it("sin fallos (0) no se muestra ningún número", async () => {
+    let pedidos = 0;
+    server.use(
+      http.get(fallidosUrl, () => {
+        pedidos += 1;
+        return HttpResponse.json({ total: 0 });
+      }),
+    );
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout("/");
+
+    await waitFor(() => expect(pedidos).toBe(1));
+    expect(screen.getByRole("button", { name: "Administración" })).toBeInTheDocument();
   });
 });
 

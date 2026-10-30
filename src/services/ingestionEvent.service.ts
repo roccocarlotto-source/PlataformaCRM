@@ -7,6 +7,7 @@ import {
   type IngestionEventSortBy,
   type SortOrder,
 } from "../repositories/ingestionEvent.repository";
+import { prisma } from "../lib/prisma";
 import { findSourceById } from "../repositories/source.repository";
 import { AppError } from "../utils/AppError";
 
@@ -132,4 +133,37 @@ export async function retryIngestionEvent(organizationId: string, id: string) {
     throw new AppError("Evento de ingesta no encontrado tras el reintento", 500);
   }
   return actualizado;
+}
+
+// ---------------------------------------------------------------------------
+// EL CONTADOR DEL MENÚ: cuántos contactos que llegaron por una fuente (el
+// formulario de una página, una base externa) no pudieron entrar al CRM en los
+// últimos DIAS_DEL_CONTADOR días, por un dato inválido (FAILED) o por un error
+// de sistema que agotó los reintentos (DEAD_LETTER).
+//
+// POR QUÉ 7 DÍAS Y NO "SIN REVISAR": un evento no tiene marca de revisado, y
+// un FAILED queda así hasta que alguien lo reintenta o lo purga la retención
+// (90 días). Contarlos todos dejaría un número que nunca baja. Con la ventana,
+// el número dice "fallaron hace poco".
+//
+// Las filas de un archivo importado no cuentan: su informe ya se las muestra a
+// quien lo subió (mismo criterio que la tarea por envío fallido).
+// ---------------------------------------------------------------------------
+export const DIAS_DEL_CONTADOR = 7;
+
+export async function contarIngestaFallida(
+  organizationId: string,
+  ahora: Date = new Date(),
+): Promise<{ total: number; desde: Date }> {
+  const desde = new Date(ahora.getTime() - DIAS_DEL_CONTADOR * 24 * 60 * 60 * 1000);
+  const total = await prisma.ingestionEvent.count({
+    where: {
+      organizationId,
+      status: { in: [IngestionStatus.FAILED, IngestionStatus.DEAD_LETTER] },
+      updatedAt: { gte: desde },
+      batchId: null,
+      source: { type: { not: "FILE_IMPORT" } },
+    },
+  });
+  return { total, desde };
 }

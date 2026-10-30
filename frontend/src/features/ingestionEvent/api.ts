@@ -40,3 +40,9 @@ export function retryIngestionEvent(id: string): Promise<IngestionEvent> {
     getAccessToken,
   });
 }
+
+// El número del menú: contactos de una fuente que no pudieron entrar al CRM en
+// los últimos 7 días (FAILED o DEAD_LETTER). Solo ADMIN.
+export function countIngestaFallida(signal?: AbortSignal): Promise<{ total: number }> {
+  return request<{ total: number }>("/ingestion-events/fallidos", { getAccessToken, signal });
+}

@@ -3,7 +3,11 @@ import type { Response } from "express";
 import { z } from "zod";
 import { enumNativo } from "../utils/erroresDeZod";
 import { logAccesoADatosPersonales } from "../lib/accessLog";
-import { listIngestionEvents, retryIngestionEvent } from "../services/ingestionEvent.service";
+import {
+  contarIngestaFallida,
+  listIngestionEvents,
+  retryIngestionEvent,
+} from "../services/ingestionEvent.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -107,5 +111,13 @@ export const retryIngestionEventHandler = asyncHandler<AuthenticatedRequest>(
 
     const evento = await retryIngestionEvent(req.auth.organizationId, id);
     res.status(200).json(evento);
+  },
+);
+
+// El número del menú (solo un conteo: no expone datos de ningún contacto).
+export const countIngestaFallidaHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const { total, desde } = await contarIngestaFallida(req.auth.organizationId);
+    res.status(200).json({ total, desde: desde.toISOString() });
   },
 );

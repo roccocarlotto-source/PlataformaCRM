@@ -7,6 +7,7 @@ import type { EventoReclamado } from "../repositories/ingestionEvent.repository"
 import type { PromotionNote } from "../types/promotion";
 import { filasParaStaging, parsearArchivo } from "../utils/spreadsheet";
 import { drenarPendientes } from "../workers/ingestionWorker";
+import { yaReclamable } from "../workers/relojDeLaBase.test-helper";
 import { promoverEvento } from "./promotion.service";
 
 // ---------------------------------------------------------------------------
@@ -28,9 +29,14 @@ let sourceId: string;
 let sourceName: string;
 let fileSourceId: string;
 
+// createdAt un minuto en el pasado (yaReclamable): el reclamo compara contra el
+// now() de Postgres, y con el reloj de Docker atrasado respecto de Windows una
+// fila recién creada todavía no es reclamable y el drenado la saltea. Así
+// fallaron 17 casos en local el 2026-10-29; en CI no pasa.
 async function crearEvento(rawPayload: unknown): Promise<string> {
   const evento = await prisma.ingestionEvent.create({
     data: {
+      createdAt: yaReclamable(),
       organizationId: orgId,
       sourceId,
       externalId: `promo-${randomUUID()}`,
@@ -587,6 +593,7 @@ test("F5-b: con país por defecto, un teléfono local se normaliza y se fusiona 
     });
     const creado = await prisma.ingestionEvent.create({
       data: {
+        createdAt: yaReclamable(),
         organizationId: org.id,
         sourceId: fuente.id,
         externalId: `f5b-${randomUUID()}`,
@@ -617,6 +624,7 @@ test("F5-a: una fila de CSV con un teléfono que no se puede leer se promueve si
   const [fila] = filasParaStaging(parseado.filas);
   const creado = await prisma.ingestionEvent.create({
     data: {
+      createdAt: yaReclamable(),
       organizationId: orgId,
       sourceId: fileSourceId,
       externalId: `f5a-${randomUUID()}`,
@@ -666,6 +674,7 @@ test("A-6: una fila de CSV con la celda de email VACÍA se promueve como contact
   for (const fila of filas) {
     const evento = await prisma.ingestionEvent.create({
       data: {
+        createdAt: yaReclamable(),
         organizationId: orgId,
         sourceId: fileSourceId,
         externalId: `a6-${randomUUID()}`,
