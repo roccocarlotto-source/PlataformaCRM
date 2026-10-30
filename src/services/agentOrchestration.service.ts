@@ -712,14 +712,14 @@ export function devuelveElMensajeDelCliente(
   respuesta: string,
   mensajeDelCliente: string | null,
 ): boolean {
-  const etiquetas = new RegExp(`</?${ETIQUETA_MENSAJE_CLIENTE}>`, "i");
+  const etiquetas = patronDeEtiqueta(ETIQUETA_MENSAJE_CLIENTE, "i");
   if (etiquetas.test(respuesta)) {
     return true;
   }
   if (mensajeDelCliente === null) {
     return false;
   }
-  const sinEtiquetas = respuesta.replace(new RegExp(`</?${ETIQUETA_MENSAJE_CLIENTE}>`, "gi"), " ");
+  const sinEtiquetas = respuesta.replace(patronDeEtiqueta(ETIQUETA_MENSAJE_CLIENTE, "gi"), " ");
   const limpia = normalizarParaComparar(sinEtiquetas);
   return limpia.length > 0 && limpia === normalizarParaComparar(mensajeDelCliente);
 }
@@ -1036,7 +1036,7 @@ export function bloqueDeContacto(
   const registro = registrado ? `\n${seccionDeLoRegistrado(registrado, zona)}` : "";
   const reservados = canal === "WEB";
   const sinInteres = contact.noInterestAt
-    ? ` Esta persona está marcada SIN INTERÉS desde el ${contact.noInterestAt.toISOString().slice(0, 10)}${contact.noInterestNote ? ` (dijo: «${contact.noInterestNote}»)` : ""}: no le ofrezcas nada ni insistas; si pide algo, atendelo con normalidad.`
+    ? ` Esta persona está marcada SIN INTERÉS desde el ${contact.noInterestAt.toISOString().slice(0, 10)}${contact.noInterestNote ? ` (motivo anotado: ${envolverDatosDelCrm(contact.noInterestNote)})` : ""}: no le ofrezcas nada ni insistas; si pide algo, atendelo con normalidad.`
     : "";
   const nombre = nombreUsableDelContacto(contact);
   const datos: string[] = [];
@@ -1522,11 +1522,20 @@ export function envolverMensajeDelCliente(contenido: string): string {
   return envolverEnEtiqueta(contenido, ETIQUETA_MENSAJE_CLIENTE);
 }
 
+// La etiqueta, abierta o cerrada, como la escribiría alguien que quiere
+// cerrar el bloque a mano: con espacios adentro o atributos
+// ("</mensaje_del_cliente >", "< /datos_del_crm>", "<datos_del_crm x=1>").
+// Un modelo las lee como la etiqueta real; la neutralización tiene que verlas
+// igual. Exportada para fijarla con un test.
+export function patronDeEtiqueta(etiqueta: string, flags: string): RegExp {
+  return new RegExp(String.raw`<\s*\/?\s*${etiqueta}\b[^>]*>`, flags);
+}
+
 // Compartida con envolverDatosDelCrm (ítem 134): la neutralización es la
 // misma para cualquier etiqueta de desconfianza, y tenerla dos veces sería
 // arriesgar que una de las dos quede con el agujero arreglado y la otra no.
 function envolverEnEtiqueta(contenido: string, etiqueta: string): string {
-  const neutralizado = contenido.replace(new RegExp(`</?${etiqueta}>`, "gi"), (m) =>
+  const neutralizado = contenido.replace(patronDeEtiqueta(etiqueta, "gi"), (m) =>
     m.replace(/[<>]/g, ""),
   );
   return `<${etiqueta}>\n${neutralizado}\n</${etiqueta}>`;
