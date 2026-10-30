@@ -12,7 +12,10 @@ import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 
 // Pagos del cliente (§43 de docs/frontend-cambios-pendientes.md). Misma forma
 // que quote.routes.ts, porque un pago también es parte de la oportunidad:
-// lectura para cualquier autenticado de la organización, escritura ADMIN.
+// lectura para cualquier autenticado de la organización. Registrar un pago:
+// ADMIN, y desde PR-17 también el vendedor (USER) en las oportunidades que
+// tiene asignadas (chequeo de dueño en el controller). Corregir y borrar:
+// solo ADMIN.
 //
 // CON DELETE, a diferencia de quotes y deliveries: un pago es un dato cargado
 // a mano que se corrige o se borra si está mal, no el registro de una oferta
@@ -30,7 +33,7 @@ paymentRouter.post(
   "/payments",
   authenticate,
   businessWriteRateLimiter,
-  authorize("ADMIN"),
+  authorize("ADMIN", "USER"),
   createPaymentHandler,
 );
 paymentRouter.patch(

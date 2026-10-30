@@ -34,6 +34,8 @@ let orgId: string;
 let admin: FixtureUser;
 let user: FixtureUser;
 let opportunityId: string;
+// PR-17: una oportunidad asignada al vendedor, donde sí registra pagos.
+let opportunityDelVendedorId: string;
 let baseUrl: string;
 let closeApp: () => Promise<void>;
 
@@ -146,6 +148,19 @@ before(async () => {
     },
   });
   opportunityId = opportunity.id;
+  const delVendedor = await prisma.opportunity.create({
+    data: {
+      organizationId: orgId,
+      ownerId: user.id,
+      pipelineId: pipeline.id,
+      stageId: stage.id,
+      companyId: company.id,
+      title: "Hilux para Bruno",
+      amount: 40_000,
+      currency: "UYU",
+    },
+  });
+  opportunityDelVendedorId = delVendedor.id;
 });
 
 after(async () => {
@@ -201,7 +216,7 @@ test("GET /api/payments?opportunityId= como USER: 200 con el historial; sin oppo
   assert.equal(sinOportunidad.status, 400);
 });
 
-test("escritura como USER: POST, PATCH y DELETE son 403 y el pago no cambia", async () => {
+test("escritura como USER sobre una oportunidad ajena: POST, PATCH y DELETE son 403 y el pago no cambia", async () => {
   const creado = await send("POST", "/api/payments", admin.accessToken, {
     opportunityId,
     amount: 100,
@@ -256,4 +271,28 @@ test("PATCH y DELETE como ADMIN: editar devuelve el pago, opportunityId es 400, 
   assert.equal(del.status, 204);
   const leer = await send("GET", `/api/payments/${payment.id}`, admin.accessToken);
   assert.equal(leer.status, 404);
+});
+
+// PR-17 (QA-A-09): el vendedor registra pagos en lo suyo; corregir y borrar
+// siguen siendo de ADMIN, también en su propia oportunidad.
+test("USER en su oportunidad: registrar un pago es 201; corregirlo y borrarlo siguen siendo 403", async () => {
+  const creado = await send("POST", "/api/payments", user.accessToken, {
+    opportunityId: opportunityDelVendedorId,
+    amount: 500,
+    method: "CASH",
+    paidAt: "2026-09-03",
+  });
+  assert.equal(creado.status, 201);
+  const payment = (await creado.json()) as PaymentBody;
+  assert.equal(payment.opportunityId, opportunityDelVendedorId);
+
+  const patch = await send("PATCH", `/api/payments/${payment.id}`, user.accessToken, {
+    amount: 1,
+  });
+  assert.equal(patch.status, 403);
+  const del = await send("DELETE", `/api/payments/${payment.id}`, user.accessToken);
+  assert.equal(del.status, 403);
+
+  const releido = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+  assert.equal(releido.amount.toString(), "500");
 });

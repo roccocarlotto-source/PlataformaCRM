@@ -18,6 +18,9 @@ import type { Delivery, UpdateDeliveryInput } from "./types";
 
 export interface DeliverySectionProps {
   opportunity: Pick<Opportunity, "id" | "status">;
+  // PR-17: la entrega la opera solo ADMIN. Sin esto la tarjeta se ve
+  // completa (estado, fecha, checklist) pero sin controles.
+  puedeOperar: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,10 +45,11 @@ export interface DeliverySectionProps {
 // que queda es "Revertir entrega", para una confirmada por error: vuelve a
 // pendiente y la unidad a Vendido, y queda en el historial de la unidad.
 //
-// Vive en OpportunityFormPage, que es ADMIN-only (AdminRoute), así que no hay
-// gating por rol acá: las escrituras son authorize("ADMIN") en el backend.
+// PR-17: el vendedor la ve en lectura (puedeOperar = false): sin Quitar,
+// Agregar, Confirmar ni Revertir, y la fecha y los tildes deshabilitados. Las
+// escrituras siguen siendo authorize("ADMIN") en el backend.
 // ---------------------------------------------------------------------------
-export function DeliverySection({ opportunity }: DeliverySectionProps) {
+export function DeliverySection({ opportunity, puedeOperar }: DeliverySectionProps) {
   const isWon = opportunity.status === "WON";
   const deliveryQuery = useOpportunityDelivery(opportunity.id, { enabled: isWon });
 
@@ -69,15 +73,23 @@ export function DeliverySection({ opportunity }: DeliverySectionProps) {
 
   // key: si la entrega cambia de id (no debería), el estado local de la fecha
   // y del ítem nuevo arranca de cero.
-  return <DeliveryCard key={delivery.id} opportunityId={opportunity.id} delivery={delivery} />;
+  return (
+    <DeliveryCard
+      key={delivery.id}
+      opportunityId={opportunity.id}
+      delivery={delivery}
+      puedeOperar={puedeOperar}
+    />
+  );
 }
 
 interface DeliveryCardProps {
   opportunityId: string;
   delivery: Delivery;
+  puedeOperar: boolean;
 }
 
-function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
+function DeliveryCard({ opportunityId, delivery, puedeOperar }: DeliveryCardProps) {
   const confirm = useConfirm();
   const updateMutation = useUpdateDelivery(opportunityId);
   const confirmMutation = useConfirmDelivery(opportunityId);
@@ -88,9 +100,11 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
   const [newItem, setNewItem] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const isPending = delivery.status === "PENDING";
+  // Editable = pendiente y con permiso. Sin permiso, todo como si estuviera
+  // entregada: se ve, no se toca.
+  const editable = delivery.status === "PENDING" && puedeOperar;
   const isBusy = updateMutation.isPending || confirmMutation.isPending || revertMutation.isPending;
-  const locked = !isPending || isBusy;
+  const locked = !editable || isBusy;
 
   async function save(input: UpdateDeliveryInput) {
     setActionError(null);
@@ -206,7 +220,7 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
                       onChange={() => toggle(index)}
                     />
                   </FormField>
-                  {isPending ? (
+                  {editable ? (
                     <Button
                       disabled={isBusy}
                       aria-label={`Quitar: ${item.label}`}
@@ -220,7 +234,7 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
             </ul>
           )}
 
-          {isPending ? (
+          {editable ? (
             // <form> propio para que Enter agregue el ítem. No está anidado:
             // la sección vive fuera del <form> de la oportunidad.
             <form className="ds-delivery-add" onSubmit={add}>
@@ -240,21 +254,23 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
           ) : null}
         </div>
 
-        <div className="ds-delivery-actions">
-          <Button
-            variant="primary"
-            disabled={locked}
-            loading={confirmMutation.isPending}
-            onClick={handleConfirm}
-          >
-            Confirmar entrega
-          </Button>
-          {delivery.status === "DELIVERED" ? (
-            <Button disabled={isBusy} loading={revertMutation.isPending} onClick={handleRevert}>
-              Revertir entrega
+        {puedeOperar ? (
+          <div className="ds-delivery-actions">
+            <Button
+              variant="primary"
+              disabled={locked}
+              loading={confirmMutation.isPending}
+              onClick={handleConfirm}
+            >
+              Confirmar entrega
             </Button>
-          ) : null}
-        </div>
+            {delivery.status === "DELIVERED" ? (
+              <Button disabled={isBusy} loading={revertMutation.isPending} onClick={handleRevert}>
+                Revertir entrega
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         {actionError ? <ErrorState>{actionError}</ErrorState> : null}
       </Card>
     </div>

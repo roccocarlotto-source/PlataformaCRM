@@ -81,7 +81,7 @@ test("el recorrido encuentra las rutas con authorize (si da pocas, el recorrido 
   assert.ok(conRol.some((r) => r.ruta === "POST /api/invitations"));
 });
 
-test("toda ruta con authorize deja pasar a ADMIN, y ninguna se le abre a Recepción ni a USER", () => {
+test("toda ruta con authorize deja pasar a ADMIN; las que se abren a Recepción o a USER son las de la lista", () => {
   const conRol = montadas.filter((r) => r.roles !== null);
   assert.deepEqual(
     conRol.filter((r) => !r.roles?.includes("ADMIN")).map((r) => r.ruta),
@@ -108,10 +108,22 @@ test("toda ruta con authorize deja pasar a ADMIN, y ninguna se le abre a Recepci
     conRol.filter((r) => r.roles?.includes("RECEPCION")).map((r) => r.ruta),
     abiertasARecepcion,
   );
+  // La mayoría de las rutas de USER no llevan authorize (el límite lo pone el
+  // service o el controller). PR-17: cotizar y registrar pagos llevan
+  // authorize("ADMIN", "USER") para dejar afuera a Recepción de forma
+  // explícita; el chequeo de dueño está en el controller
+  // (permisosEnLaOportunidad.ts). Si un PR abre otra, la suma acá a propósito.
+  const conAuthorizeParaUser: string[] = [
+    "POST /api/quotes",
+    "PATCH /api/quotes/:id",
+    "POST /api/payments",
+  ];
   assert.deepEqual(
-    conRol.filter((r) => r.roles?.includes("USER")).map((r) => r.ruta),
-    [],
-    "hoy ninguna ruta tiene authorize con USER: las de USER no llevan authorize",
+    conRol
+      .filter((r) => r.roles?.includes("USER"))
+      .map((r) => r.ruta)
+      .sort(),
+    [...conAuthorizeParaUser].sort(),
   );
 });
 

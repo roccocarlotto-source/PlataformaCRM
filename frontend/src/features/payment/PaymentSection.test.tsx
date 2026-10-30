@@ -99,11 +99,20 @@ function fakeBackend(initial: Payment[]) {
   return { received };
 }
 
-function renderSection(opportunity = OPPORTUNITY) {
+// Por defecto, un ADMIN: todo habilitado. Los tests de PR-17 pasan otra cosa.
+function renderSection(
+  opportunity = OPPORTUNITY,
+  { puedeAgregar = true, puedeCorregir = true, puedeBorrar = true } = {},
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <PaymentSection opportunity={opportunity} />
+      <PaymentSection
+        opportunity={opportunity}
+        puedeAgregar={puedeAgregar}
+        puedeCorregir={puedeCorregir}
+        puedeBorrar={puedeBorrar}
+      />
     </QueryClientProvider>,
   );
 }
@@ -282,5 +291,31 @@ describe("PaymentSection", () => {
     renderSection();
     const card = await paymentsCard();
     expect(await within(card).findByText(/No pudimos cargar los pagos/)).toBeInTheDocument();
+  });
+
+  // PR-17 (QA-A-09): el vendedor registra pagos en lo suyo; corregir y
+  // borrar siguen siendo de ADMIN.
+  it("vendedor en su oportunidad: 'Agregar pago' sí; 'Editar' y 'Eliminar' no", async () => {
+    fakeBackend([makePayment({ id: "p1" })]);
+    renderSection(OPPORTUNITY, { puedeAgregar: true, puedeCorregir: false, puedeBorrar: false });
+
+    const card = await paymentsCard();
+    expect(await within(card).findByRole("button", { name: "Agregar pago" })).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /^Editar el pago/ })).not.toBeInTheDocument();
+    expect(
+      within(card).queryByRole("button", { name: /^Eliminar el pago/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("sin permisos: la lista y el total se ven, sin ningún botón", async () => {
+    fakeBackend([makePayment({ id: "p1" })]);
+    renderSection(OPPORTUNITY, { puedeAgregar: false, puedeCorregir: false, puedeBorrar: false });
+
+    const card = await paymentsCard();
+    expect(
+      await within(card).findByRole("list", { name: "Pagos registrados" }),
+    ).toBeInTheDocument();
+    expect(within(card).getByText(/^Pagado:/)).toBeInTheDocument();
+    expect(within(card).queryByRole("button")).not.toBeInTheDocument();
   });
 });

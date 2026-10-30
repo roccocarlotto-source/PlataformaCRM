@@ -252,10 +252,16 @@ Una oportunidad abierta se cierra eligiendo una etapa marcada como ganada o
 perdida, o moviéndola en el embudo. Cuando está cerrada aparece la tarjeta **Estado y cierre** (ver
 [Cerrar una oportunidad](#cerrar)).
 
-> Las secciones de cotización, entrega, permuta y pagos las puede **modificar
-> solo un administrador**. Un usuario que tiene la oportunidad asignada las ve
-> y edita el resto de la ficha, pero si intenta crear una cotización, registrar
-> un pago o confirmar una entrega, el sistema lo rechaza.
+> Quién puede hacer qué en estas secciones:
+>
+> - **Cotización**: quien tiene la oportunidad asignada o un administrador.
+>   Revertir una aceptación: solo un administrador.
+> - **Pagos**: registrar un pago, quien tiene la oportunidad asignada o un
+>   administrador. Editar y eliminar pagos: solo un administrador.
+> - **Entrega** y **Permuta**: solo un administrador.
+>
+> En una oportunidad de otra persona, o en lo que no te toca, ves todo pero
+> sin los botones.
 
 ## Cotizaciones {#cotizaciones}
 
@@ -268,7 +274,7 @@ Cada cotización tiene un estado:
 |---|---|
 | Borrador | Se está armando; todavía se puede editar. |
 | Enviada | Se le presentó al cliente. |
-| Aceptada | El cliente la aceptó. No se puede deshacer. |
+| Aceptada | El cliente la aceptó. Solo un administrador puede revertirla. |
 | Rechazada | El cliente la rechazó. No se puede deshacer. |
 | Vencida | Estaba enviada y pasó su fecha de validez. |
 | Reemplazada | Se creó una más nueva y esta pasó al historial. |
@@ -301,15 +307,20 @@ le cambian la unidad a la oportunidad, la cotización no cambia.
   o crear una **Nueva cotización**. No se puede enviar una cotización cuya
   fecha de validez ya pasó.
 - En **Enviada**: **Marcar aceptada** o **Marcar rechazada**. Las dos piden
-  confirmación porque no tienen vuelta atrás.
+  confirmación: la rechazada no tiene vuelta atrás, y la aceptada solo la
+  revierte un administrador.
 - En **Rechazada** o **Vencida**: solo crear una **Nueva cotización**.
 - En **Aceptada**: no se pueden crear cotizaciones nuevas para esta
-  oportunidad. Es la cotización con la que se cierra la venta.
+  oportunidad. Es la cotización con la que se cierra la venta. Si se marcó
+  por error, un administrador puede tocar **Revertir aceptación**: pide
+  confirmación y la cotización vuelve a **Enviada**. Si su fecha de validez ya
+  pasó, queda **Vencida** y se puede crear una nueva.
 - **Imprimir**: siempre que haya una vigente. Imprime solo la cotización
   (título de la oportunidad, estado, unidad, desglose, total y validez).
 
-> **Marcar aceptada** bloquea para siempre la creación de cotizaciones nuevas
-> en esta oportunidad. Marcala solo cuando el cliente la aceptó de verdad.
+> **Marcar aceptada** bloquea la creación de cotizaciones nuevas en esta
+> oportunidad hasta que un administrador la revierta. Marcala solo cuando el
+> cliente la aceptó de verdad.
 
 En el historial, cada cotización anterior se abre tocándola para ver su
 desglose completo.
@@ -338,8 +349,8 @@ de la oportunidad. Tené en cuenta:
    u Otro) y la **Fecha**. Los tres son obligatorios.
 3. Tocá **Agregar**.
 
-La moneda del pago es la de la oportunidad en ese momento. Cada pago se puede
-**Editar** o **Eliminar** (pide confirmación).
+La moneda del pago es la de la oportunidad en ese momento. Un administrador
+puede **Editar** o **Eliminar** cada pago (eliminar pide confirmación).
 
 ## Permuta {#permuta}
 
@@ -366,6 +377,9 @@ Para cargar uno:
 Cuando una oportunidad con unidad vinculada pasa a **Ganada**, el sistema
 crea sola la **Entrega** y la tarjeta aparece en la ficha. Mientras no esté
 ganada (o no tenga unidad), la tarjeta no existe.
+
+La entrega la opera un administrador. Un usuario la ve completa (estado,
+fecha, lista de control) pero sin poder cambiarla.
 
 La entrega tiene dos estados: **Pendiente de entrega** y **Entregada**.
 Mientras está pendiente:

@@ -5,9 +5,11 @@ import {
   createQuote,
   getQuoteById,
   listQuotesByOpportunity,
+  revertQuoteAcceptance,
   updateQuoteContent,
   updateQuoteStatus,
 } from "../services/quote.service";
+import { assertPuedeOperarLaOportunidad } from "../services/permisosEnLaOportunidad";
 import type { AuthenticatedRequest } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -69,12 +71,16 @@ export const createQuoteSchema = z.object({
   validUntil: validUntilSchema.optional(),
 });
 
-// PATCH /quotes/:id tiene DOS formas, y no se mezclan:
+// PATCH /quotes/:id tiene TRES formas, y no se mezclan:
 //
 //   1. { status }: una transición (Enviar, Marcar aceptada, Marcar
 //      rechazada). Solo los tres destinos a los que se llega a mano.
 //   2. { amount?, currency?, lines?, validUntil? }: editar el contenido de un
 //      borrador.
+//   3. { revertAcceptance: true }: volver una aceptada a enviada (PR-17),
+//      solo ADMIN. Es una forma aparte y no { status: "SENT" } sobre una
+//      aceptada: un "Enviar" viejo sobre un borrador que otro ya mandó y
+//      aceptó no puede deshacer la aceptación por accidente.
 //
 // El ítem pedía "PATCH solo status", pero también "una DRAFT se edita
 // libremente" — y sin esta segunda forma no habría con qué. Juntar status y
@@ -88,6 +94,15 @@ export const updateQuoteStatusSchema = z
     }),
   })
   .apply(estricto("status no se combina con otros campos en el mismo PATCH"));
+
+export const revertQuoteAcceptanceSchema = z
+  .object({
+    revertAcceptance: z.literal(true, { error: () => "revertAcceptance debe ser true" }),
+  })
+  .apply(estricto("revertAcceptance no se combina con otros campos en el mismo PATCH"));
+
+export const MENSAJE_SOLO_ADMIN_REVIERTE =
+  "Solo un administrador puede revertir la aceptación de una cotización";
 
 export const updateQuoteContentSchema = z
   .object({
@@ -127,6 +142,8 @@ export const getQuoteHandler = asyncHandler<AuthenticatedRequest>(async (req, re
 
 export const createQuoteHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const input = parseOrThrow(createQuoteSchema, req.body);
+  // PR-17: un USER cotiza solo en las oportunidades que tiene asignadas.
+  await assertPuedeOperarLaOportunidad(req.auth, req.auth.organizationId, input.opportunityId);
   const quote = await createQuote(req.auth.organizationId, req.auth.userId, input);
   res.status(201).json(quote);
 });
@@ -139,6 +156,24 @@ export const updateQuoteHandler = asyncHandler<AuthenticatedRequest>(async (req,
   const id = parseOrThrow(idParamSchema, req.params.id);
   if (!isObject(req.body)) {
     throw new AppError("Debe enviar al menos un campo para actualizar", 400);
+  }
+
+  // Revertir es de ADMIN, sin importar de quién sea la oportunidad.
+  if ("revertAcceptance" in req.body) {
+    parseOrThrow(revertQuoteAcceptanceSchema, req.body);
+    if (req.auth.role !== "ADMIN") {
+      throw new AppError(MENSAJE_SOLO_ADMIN_REVIERTE, 403);
+    }
+    const quote = await revertQuoteAcceptance(req.auth.organizationId, id);
+    res.status(200).json(quote);
+    return;
+  }
+
+  // PR-17: un USER edita, envía, acepta y rechaza solo las cotizaciones de
+  // las oportunidades que tiene asignadas.
+  if (req.auth.role !== "ADMIN") {
+    const actual = await getQuoteById(req.auth.organizationId, id);
+    await assertPuedeOperarLaOportunidad(req.auth, req.auth.organizationId, actual.opportunityId);
   }
 
   // La presencia de `status` decide la forma; cada schema es .strict(), así

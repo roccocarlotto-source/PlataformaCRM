@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createQuoteSchema,
+  revertQuoteAcceptanceSchema,
   updateQuoteContentSchema,
   updateQuoteStatusSchema,
 } from "./quote.controller";
@@ -140,4 +141,16 @@ test("create: monto o línea con más de dos decimales es 400 (NEG-MON-2)", () =
     lines: [{ description: "Polarizado", amount: 0.3 }],
   });
   assert.equal(centavos.success, true, "0.1 y 0.3 no son más de dos decimales");
+});
+
+test("revertir la aceptación (PR-17): solo { revertAcceptance: true }, sin otros campos", () => {
+  assert.equal(revertQuoteAcceptanceSchema.safeParse({ revertAcceptance: true }).success, true);
+  for (const malo of [
+    { revertAcceptance: false },
+    { revertAcceptance: "true" },
+    { revertAcceptance: true, status: "SENT" },
+    { revertAcceptance: true, amount: 1 },
+  ]) {
+    assert.equal(revertQuoteAcceptanceSchema.safeParse(malo).success, false, JSON.stringify(malo));
+  }
 });

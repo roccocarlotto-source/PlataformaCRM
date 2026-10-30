@@ -76,11 +76,12 @@ function fakeBackend(initial: Delivery | null) {
   return { received, gets };
 }
 
-function renderSection(status: "OPEN" | "WON" | "LOST" = "WON") {
+// Por defecto, un ADMIN. PR-17: el vendedor la ve con puedeOperar = false.
+function renderSection(status: "OPEN" | "WON" | "LOST" = "WON", puedeOperar = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <DeliverySection opportunity={{ id: "op1", status }} />
+      <DeliverySection opportunity={{ id: "op1", status }} puedeOperar={puedeOperar} />
     </QueryClientProvider>,
   );
 }
@@ -95,7 +96,7 @@ describe("DeliverySection", () => {
     const { container, rerender } = renderSection("OPEN");
     rerender(
       <QueryClientProvider client={new QueryClient()}>
-        <DeliverySection opportunity={{ id: "op1", status: "LOST" }} />
+        <DeliverySection opportunity={{ id: "op1", status: "LOST" }} puedeOperar />
       </QueryClientProvider>,
     );
 
@@ -336,5 +337,24 @@ describe("DeliverySection", () => {
 
     const card = await deliveryCard();
     expect(within(card).getByText(/No pudimos cargar la entrega/)).toBeInTheDocument();
+  });
+
+  // PR-17 (QA-A-09): el vendedor ve la entrega, sin poder tocarla.
+  it("vendedor (sin permiso): ve estado, unidad y checklist, todo deshabilitado y sin botones", async () => {
+    const { received } = fakeBackend(makeDelivery());
+    renderSection("WON", false);
+
+    const card = await deliveryCard();
+    expect(within(card).getByText("Pendiente de entrega")).toBeInTheDocument();
+    expect(
+      within(card).getByText("Unidad: Toyota Corolla XEI 2022 · STK-000006"),
+    ).toBeInTheDocument();
+    within(card)
+      .getAllByRole("checkbox")
+      .forEach((checkbox) => expect(checkbox).toBeDisabled());
+    expect(within(card).getByLabelText("Fecha programada")).toBeDisabled();
+    expect(within(card).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(card).queryByLabelText("Agregar ítem")).not.toBeInTheDocument();
+    expect(received).toHaveLength(0);
   });
 });

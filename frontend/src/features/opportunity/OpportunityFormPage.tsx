@@ -4,7 +4,12 @@ import { CreateVoucherDialog } from "../voucher/CreateVoucherDialog";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { useModulo } from "../../auth/useModulo";
-import { AVISO_SOLO_LECTURA, esAdmin, puedeEditarRegistro } from "../../auth/permisos";
+import {
+  AVISO_SOLO_LECTURA,
+  esAdmin,
+  puedeCotizarYCobrar,
+  puedeEditarRegistro,
+} from "../../auth/permisos";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
@@ -940,10 +945,27 @@ export function OpportunityFormPage() {
       </form>
       {isEditMode && opportunityQuery.data ? (
         <>
-          {tieneCotizaciones ? <QuoteSection opportunity={opportunityQuery.data} /> : null}
-          {tieneEntregas ? <DeliverySection opportunity={opportunityQuery.data} /> : null}
-          {tienePermutas ? <TradeInSection opportunity={opportunityQuery.data} /> : null}
-          {tienePagos ? <PaymentSection opportunity={opportunityQuery.data} /> : null}
+          {tieneCotizaciones ? (
+            <QuoteSection
+              opportunity={opportunityQuery.data}
+              puedeCotizar={puedeCotizarYCobrar(me, opportunityQuery.data)}
+              puedeRevertir={esAdmin(me)}
+            />
+          ) : null}
+          {tieneEntregas ? (
+            <DeliverySection opportunity={opportunityQuery.data} puedeOperar={esAdmin(me)} />
+          ) : null}
+          {tienePermutas ? (
+            <TradeInSection opportunity={opportunityQuery.data} puedeAgregar={esAdmin(me)} />
+          ) : null}
+          {tienePagos ? (
+            <PaymentSection
+              opportunity={opportunityQuery.data}
+              puedeAgregar={puedeCotizarYCobrar(me, opportunityQuery.data)}
+              puedeCorregir={esAdmin(me)}
+              puedeBorrar={esAdmin(me)}
+            />
+          ) : null}
         </>
       ) : null}
       {creandoCupon && opportunityQuery.data ? (
