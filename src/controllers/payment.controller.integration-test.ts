@@ -167,6 +167,7 @@ after(async () => {
   if (closeApp) await closeApp();
   if (!orgId) return;
   const where = { organizationId: orgId };
+  await prisma.paymentChange.deleteMany({ where });
   await prisma.payment.deleteMany({ where });
   await prisma.opportunity.deleteMany({ where });
   await prisma.company.deleteMany({ where });
@@ -275,7 +276,7 @@ test("PATCH y DELETE como ADMIN: editar devuelve el pago, opportunityId es 400, 
 
 // PR-17 (QA-A-09): el vendedor registra pagos en lo suyo; corregir y borrar
 // siguen siendo de ADMIN, también en su propia oportunidad.
-test("USER en su oportunidad: registrar un pago es 201; corregirlo y borrarlo siguen siendo 403", async () => {
+test("USER en su oportunidad: registrar es 201 y corregir 200 (PR-17b); borrar sigue siendo 403", async () => {
   const creado = await send("POST", "/api/payments", user.accessToken, {
     opportunityId: opportunityDelVendedorId,
     amount: 500,
@@ -287,12 +288,58 @@ test("USER en su oportunidad: registrar un pago es 201; corregirlo y borrarlo si
   assert.equal(payment.opportunityId, opportunityDelVendedorId);
 
   const patch = await send("PATCH", `/api/payments/${payment.id}`, user.accessToken, {
-    amount: 1,
+    amount: 450,
   });
-  assert.equal(patch.status, 403);
+  assert.equal(patch.status, 200);
+  assert.equal(Number(((await patch.json()) as PaymentBody).amount), 450);
+
   const del = await send("DELETE", `/api/payments/${payment.id}`, user.accessToken);
   assert.equal(del.status, 403);
+  assert.ok(await prisma.payment.findUnique({ where: { id: payment.id } }));
+});
 
-  const releido = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
-  assert.equal(releido.amount.toString(), "500");
+// PR-17b: el historial, por HTTP. Lo puede leer cualquiera de la organización
+// (como la lista de pagos), y dice quién hizo cada cosa.
+test("GET /api/payments/changes: alta y corrección del vendedor, borrado del ADMIN, con nombre y foto de antes", async () => {
+  const creado = await send("POST", "/api/payments", user.accessToken, {
+    opportunityId: opportunityDelVendedorId,
+    amount: 900,
+    method: "TRANSFER",
+    paidAt: "2026-09-04",
+  });
+  const payment = (await creado.json()) as PaymentBody;
+  await send("PATCH", `/api/payments/${payment.id}`, user.accessToken, { method: "CASH" });
+  const del = await send("DELETE", `/api/payments/${payment.id}`, admin.accessToken);
+  assert.equal(del.status, 204);
+
+  const res = await send(
+    "GET",
+    `/api/payments/changes?opportunityId=${opportunityDelVendedorId}`,
+    user.accessToken,
+  );
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    data: {
+      paymentId: string;
+      action: string;
+      changedBy: { id: string; fullName: string };
+      before: Record<string, string> | null;
+      after: Record<string, string> | null;
+    }[];
+  };
+  const deEstePago = body.data.filter((fila) => fila.paymentId === payment.id);
+  assert.deepEqual(
+    deEstePago.map((fila) => [fila.action, fila.changedBy.id]),
+    [
+      ["DELETED", admin.id],
+      ["UPDATED", user.id],
+      ["CREATED", user.id],
+    ],
+  );
+  assert.equal(deEstePago[1].before?.method, "TRANSFER");
+  assert.equal(deEstePago[1].after?.method, "CASH");
+  assert.equal(deEstePago[0].before?.amount, "900.00");
+
+  const sinOportunidad = await send("GET", "/api/payments/changes", user.accessToken);
+  assert.equal(sinOportunidad.status, 400);
 });

@@ -567,6 +567,7 @@ export const RUTAS_POR_MODULO: Readonly<Record<Modulo, readonly string[]>> = {
   ],
   pagos: [
     "GET /api/payments",
+    "GET /api/payments/changes",
     "POST /api/payments",
     "GET /api/payments/:id",
     "PATCH /api/payments/:id",

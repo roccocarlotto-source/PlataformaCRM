@@ -5,6 +5,7 @@ import {
   createPayment,
   deletePayment,
   getPaymentById,
+  listPaymentChangesByOpportunity,
   listPaymentsByOpportunity,
   updatePayment,
 } from "../services/payment.service";
@@ -108,6 +109,17 @@ export const listPaymentsHandler = asyncHandler<AuthenticatedRequest>(
   },
 );
 
+// GET /payments/changes?opportunityId= — el historial de pagos (PR-17b):
+// altas, correcciones y borrados, con quién y cuándo. Misma query que el
+// listado de pagos.
+export const listPaymentChangesHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const query = parseOrThrow(listQuerySchema, req.query);
+    const result = await listPaymentChangesByOpportunity(req.auth.organizationId, query);
+    res.status(200).json(result);
+  },
+);
+
 export const getPaymentHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
   const payment = await getPaymentById(req.auth.organizationId, id);
@@ -118,9 +130,9 @@ export const createPaymentHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createPaymentSchema, req.body);
     // PR-17: un USER registra pagos solo en las oportunidades que tiene
-    // asignadas. Corregir y borrar siguen siendo de ADMIN (payment.routes.ts).
+    // asignadas. Borrar sigue siendo de ADMIN (payment.routes.ts).
     await assertPuedeOperarLaOportunidad(req.auth, req.auth.organizationId, input.opportunityId);
-    const payment = await createPayment(req.auth.organizationId, input);
+    const payment = await createPayment(req.auth.organizationId, req.auth.userId, input);
     res.status(201).json(payment);
   },
 );
@@ -132,7 +144,13 @@ export const updatePaymentHandler = asyncHandler<AuthenticatedRequest>(
       throw new AppError("Debe enviar al menos un campo para actualizar", 400);
     }
     const input = parseOrThrow(updatePaymentSchema, req.body);
-    const payment = await updatePayment(req.auth.organizationId, id, input);
+    // PR-17b: un USER corrige pagos de las oportunidades que tiene asignadas;
+    // cada corrección queda en el historial con el valor de antes.
+    if (req.auth.role !== "ADMIN") {
+      const actual = await getPaymentById(req.auth.organizationId, id);
+      await assertPuedeOperarLaOportunidad(req.auth, req.auth.organizationId, actual.opportunityId);
+    }
+    const payment = await updatePayment(req.auth.organizationId, req.auth.userId, id, input);
     res.status(200).json(payment);
   },
 );
@@ -140,7 +158,7 @@ export const updatePaymentHandler = asyncHandler<AuthenticatedRequest>(
 export const deletePaymentHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    await deletePayment(req.auth.organizationId, id);
+    await deletePayment(req.auth.organizationId, req.auth.userId, id);
     res.status(204).send();
   },
 );

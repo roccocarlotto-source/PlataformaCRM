@@ -256,8 +256,9 @@ perdida, o moviéndola en el embudo. Cuando está cerrada aparece la tarjeta **E
 >
 > - **Cotización**: quien tiene la oportunidad asignada o un administrador.
 >   Revertir una aceptación: solo un administrador.
-> - **Pagos**: registrar un pago, quien tiene la oportunidad asignada o un
->   administrador. Editar y eliminar pagos: solo un administrador.
+> - **Pagos**: registrar y editar pagos, quien tiene la oportunidad asignada
+>   o un administrador. Eliminar pagos: solo un administrador. Todo queda en
+>   el [historial de cambios](#historial-de-pagos).
 > - **Entrega** y **Permuta**: solo un administrador.
 >
 > En una oportunidad de otra persona, o en lo que no te toca, ves todo pero
@@ -349,8 +350,21 @@ de la oportunidad. Tené en cuenta:
    u Otro) y la **Fecha**. Los tres son obligatorios.
 3. Tocá **Agregar**.
 
-La moneda del pago es la de la oportunidad en ese momento. Un administrador
-puede **Editar** o **Eliminar** cada pago (eliminar pide confirmación).
+La moneda del pago es la de la oportunidad en ese momento. Quien tiene la
+oportunidad asignada o un administrador puede **Editar** cada pago; solo un
+administrador puede **Eliminarlo** (pide confirmación).
+
+### Historial de cambios {#historial-de-pagos}
+
+Al pie de la tarjeta **Pagos**, tocá **Historial de cambios** para ver cada
+pago que se registró, se editó o se eliminó, con la fecha y hora, quién lo
+hizo y, en una edición, qué cambió con el valor de antes y el de ahora (por
+ejemplo, "monto 5.000 USD → 4.500 USD"). Un pago eliminado sigue apareciendo
+en el historial con lo que valía.
+
+El historial no se puede editar ni borrar. Los pagos cargados antes de que
+existiera el historial no tienen su fila de alta: aparecen recién cuando
+alguien los edita o los elimina.
 
 ## Permuta {#permuta}
 

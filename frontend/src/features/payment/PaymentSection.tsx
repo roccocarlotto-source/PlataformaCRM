@@ -19,15 +19,18 @@ import {
   validatePaymentForm,
   type PaymentFormValues,
 } from "./paymentForm";
-import { useOpportunityPayments } from "./queries";
+import { describirCambio } from "./historial";
+import { useOpportunityPaymentChanges, useOpportunityPayments } from "./queries";
 import { paymentTotals } from "./totals";
 import type { Payment, PaymentMethod } from "./types";
 import { LoadingState } from "../../design-system/LoadingState";
+import { formatDateTime } from "../../design-system/detailFormat";
 
 export interface PaymentSectionProps {
   opportunity: Pick<Opportunity, "id" | "amount" | "currency">;
-  // PR-17: registrar un pago es de ADMIN, o del vendedor en una oportunidad
-  // que tiene asignada. Corregir y borrar, solo ADMIN.
+  // PR-17: registrar y corregir un pago es de ADMIN, o del vendedor en una
+  // oportunidad que tiene asignada (PR-17b: cada corrección queda en el
+  // historial). Borrar, solo ADMIN.
   puedeAgregar: boolean;
   puedeCorregir: boolean;
   puedeBorrar: boolean;
@@ -228,8 +231,43 @@ export function PaymentSection({
           ) : null}
         </div>
         {actionError ? <ErrorState>{actionError}</ErrorState> : null}
+        <PaymentHistory opportunityId={opportunity.id} />
       </Card>
     </div>
+  );
+}
+
+// Historial de pagos (PR-17b): quién registró, corrigió o eliminó cada pago,
+// cuándo, y el valor de antes. <details> nativo, como el historial de
+// cotizaciones: cerrado no pide nada al backend.
+function PaymentHistory({ opportunityId }: { opportunityId: string }) {
+  const [abierto, setAbierto] = useState(false);
+  const changesQuery = useOpportunityPaymentChanges(opportunityId, abierto);
+  const changes = changesQuery.data?.data ?? [];
+
+  return (
+    <details onToggle={(event) => setAbierto(event.currentTarget.open)}>
+      <summary>Historial de cambios</summary>
+      {changesQuery.isError ? (
+        <ErrorState>
+          No pudimos cargar el historial
+          {changesQuery.error instanceof Error ? `: ${changesQuery.error.message}` : "."}
+        </ErrorState>
+      ) : changesQuery.isLoading ? (
+        <LoadingState variant="lines" count={2} />
+      ) : changes.length === 0 ? (
+        <p className="ds-hint">Todavía no hay cambios registrados.</p>
+      ) : (
+        <ul aria-label="Historial de cambios de los pagos">
+          {changes.map((change) => (
+            <li key={change.id}>
+              {formatDateTime(change.changedAt)} · {change.changedBy.fullName} ·{" "}
+              {describirCambio(change)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
   );
 }
 

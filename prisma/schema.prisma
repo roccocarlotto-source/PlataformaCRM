@@ -614,6 +614,13 @@ enum PaymentMethod {
   OTHER
 }
 
+// Qué le pasó a un pago, en el historial de pagos (PaymentChange, PR-17b).
+enum PaymentChangeAction {
+  CREATED
+  UPDATED
+  DELETED
+}
+
 // Cómo entró la unidad al stock. CONSIGNMENT es el único valor con campos
 // propios (consignor* / consignment* en Vehicle) y el CHECK de la migración
 // solo los admite con este origen.
@@ -885,9 +892,10 @@ model Organization {
   vehiclePhotos     VehiclePhoto[]
   vehicleChangeLogs VehicleChangeLog[]
 
-  quotes     Quote[]
-  deliveries Delivery[]
-  payments   Payment[]
+  quotes         Quote[]
+  deliveries     Delivery[]
+  payments       Payment[]
+  paymentChanges PaymentChange[]
 
   // Módulo Servicios (docs/servicios.md).
   organizationModules         OrganizationModule[]
@@ -977,6 +985,8 @@ model User {
   // asignadas y los cambios de ficha que registró.
   assignedVehicles Vehicle[]          @relation("VehicleAssignedSalesperson")
   vehicleChanges   VehicleChangeLog[] @relation("VehicleChangeLogChangedBy")
+  // Historial de pagos (PR-17b): las altas, correcciones y borrados que hizo.
+  paymentChanges   PaymentChange[]    @relation("PaymentChangeChangedBy")
 
   // Módulo de Agentes de IA: las conversaciones que este usuario tomó tras un
   // handoff y los mensajes que escribió como HUMAN en ellas.
@@ -1443,6 +1453,8 @@ model Opportunity {
   tradeInVehicles          Vehicle[]                 @relation("VehicleTradeInOpportunity")
   // Pagos del cliente (§43): cero o más, historial editable.
   payments                 Payment[]
+  // Historial de pagos (PR-17b): sobrevive al borrado de cada pago.
+  paymentChanges           PaymentChange[]
   // Seguimientos por WhatsApp agendados al ganarla (ítem 159).
   qrFollowUps              QrFollowUp[]
   // Cupones de descuento emitidos por haberla ganado (ítem 176) y los
@@ -4681,6 +4693,50 @@ model Payment {
   // @@unique([organizationId, id]): nada referencia a un pago.
   @@index([organizationId, opportunityId, paidAt])
   @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// PaymentChange — historial de los pagos de una oportunidad (PR-17b, decisión
+// de Rocco del 30/10/2026). Desde PR-17 el vendedor registra y corrige pagos:
+// cada alta, corrección y borrado, de quien sea, deja una fila con quién,
+// cuándo y el valor de antes. Solo se escribe desde payment.service, en la
+// misma transacción que el cambio; nunca se edita ni se borra desde la API.
+//
+// UNA FILA POR EVENTO, con la foto del pago antes y después
+// ({ amount, currency, method, paidAt }, como strings), y no una fila por
+// campo como VehicleChangeLog: un alta y un borrado no son "un campo que
+// cambió", y la foto entera es lo que sirve para reconstruir un pago borrado.
+// before es null en CREATED; after, en DELETED (lo afirma un CHECK de la
+// migración).
+//
+// paymentId SIN FK, a propósito: el borrado de un pago es físico (§43) y su
+// registro de borrado tiene que sobrevivirle. La oportunidad sí tiene FK: el
+// historial es de ella, y la oportunidad se borra con soft delete.
+//
+// Los pagos cargados antes de esta tabla no tienen fila de alta: el
+// historial empieza el día del deploy.
+// ---------------------------------------------------------------------------
+model PaymentChange {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  opportunityId  String              @map("opportunity_id") @db.Uuid
+  paymentId      String              @map("payment_id") @db.Uuid
+  action         PaymentChangeAction
+  changedById    String              @map("changed_by_id") @db.Uuid
+  before         Json?               @map("before_values")
+  after          Json?               @map("after_values")
+  changedAt      DateTime            @default(now()) @map("changed_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  opportunity  Opportunity  @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
+  changedBy    User         @relation("PaymentChangeChangedBy", fields: [organizationId, changedById], references: [organizationId, id])
+
+  // "El historial de esta oportunidad, más reciente primero": la única
+  // consulta prevista. Cubre además el lado referenciante de la FK a
+  // opportunities. Sin índice sobre payment_id ni changed_by_id: no hay vista
+  // "historial de un pago" ni "lo que cambió este usuario".
+  @@index([organizationId, opportunityId, changedAt])
+  @@map("payment_changes")
 }
 
 // ---------------------------------------------------------------------------
