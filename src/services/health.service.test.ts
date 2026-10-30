@@ -65,8 +65,11 @@ test("B-19: con la base sana, /health está ok y NO se loguea ningún error", as
 
     assert.equal(salud.status, "ok");
     assert.equal(salud.checks.database, "ok");
-    assert.ok(salud.uptime >= 0);
-    assert.ok(!Number.isNaN(Date.parse(salud.timestamp)));
+    // Lo público es exactamente esto (decisión de Rocco del 2026-10-30): sin
+    // uptime ni timestamp. Un campo nuevo acá es una decisión, no un descuido.
+    assert.deepEqual(Object.keys(salud).sort(), ["checks", "status", "version"]);
+    assert.deepEqual(Object.keys(salud.checks).sort(), ["database", "llmKey"]);
+    assert.match(salud.version, /^([0-9a-f]{7}|local)$/);
     assert.equal(espias.error.mock.callCount(), 0);
   } finally {
     espias.restaurar();

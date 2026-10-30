@@ -1,11 +1,20 @@
+import { env } from "../config/env";
+import { versionDesplegada } from "../config/operacion";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { estadoDeLaKeyDelLlm, type EstadoDeLaKey } from "./llmKeyBalance.service";
 
+// /health es PÚBLICO, y esto es todo lo que dice (decisión de Rocco del
+// 2026-10-30, SEG-C-04 y OPS-08 de docs-privados/auditoria-2026-10-21, local):
+// estado, versión desplegada y los dos chequeos. Sin `uptime` (le decía a
+// cualquiera cuándo se reinició el proceso) ni montos de saldo. Las palabras
+// de `llmKey` no se cambian: los monitores de UptimeRobot buscan "saldo-bajo"
+// y "sin-saldo" en esta respuesta.
 export interface HealthStatus {
   status: "ok" | "error";
-  uptime: number;
-  timestamp: string;
+  // El commit desplegado, 7 caracteres ("local" fuera de Render). Es como se
+  // confirma desde afuera que un deploy entró.
+  version: string;
   checks: {
     database: "ok" | "error";
     // FABLE-G-10 (docs-privados, local): el saldo de la key del proveedor de
@@ -50,8 +59,7 @@ export async function checkHealth(
 
   return {
     status: database === "ok" ? "ok" : "error",
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
+    version: versionDesplegada(env.RENDER_GIT_COMMIT),
     checks: { database, llmKey: estadoDeLaKey() },
   };
 }

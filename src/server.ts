@@ -28,10 +28,24 @@ import { iniciarBarridoDeVehiculosVendidos } from "./servicios/vehiculosVendidos
 import { iniciarWorkerDeSincronizaciones } from "./workers/importSyncWorker";
 import { iniciarWorkerDeReintentoDePlantillas } from "./workers/plantillaReintentoWorker";
 import { iniciarPurgaDePreguntasDeAyuda } from "./workers/helpAssistantPurgeWorker";
+import { variablesQueFaltan, versionDesplegada } from "./config/operacion";
 
 const server = app.listen(env.PORT, () => {
-  logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
+  logger.info(
+    { version: versionDesplegada(env.RENDER_GIT_COMMIT) },
+    `Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`,
+  );
 });
+
+// OPS-10: en producción, las variables importantes que faltan, en UNA línea de
+// error. No frena el arranque (un deploy de emergencia tiene que poder entrar),
+// pero deja de pasar en silencio.
+if (env.isProduction) {
+  const faltan = variablesQueFaltan(process.env);
+  if (faltan.length > 0) {
+    logger.error({ faltan }, `Faltan variables de entorno: ${faltan.join("; ")}`);
+  }
+}
 
 // La URL de la base contra el pooler (utils/urlDeLaBase.ts; incidente del
 // 2026-10-12): sin pgbouncer=true en el 6543, los workers fallan con
