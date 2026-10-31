@@ -4,6 +4,8 @@ import { parsearSeccion } from "../compartido/guia/guia";
 import {
   armarPrompt,
   enmascarar,
+  enmascararNombres,
+  palabrasDe,
   procesarRespuesta,
   repiteLasReglas,
   RESPUESTA_FUERA_DE_TEMA,
@@ -200,4 +202,36 @@ test("procesarRespuesta: el pie no repite un tema que la respuesta ya linkeó", 
   assert.match(r.respuesta, /Más en la guía: \[Unir contactos\]/);
   // Las fuentes (para el registro) siguen siendo las dos.
   assert.equal(r.fuentes.length, 2);
+});
+
+test("AGE-04: patentes en mayúsculas (Uruguay, Argentina vieja y Mercosur, Brasil); en minúsculas o texto común, no", () => {
+  assert.equal(
+    enmascarar("SBA 1234, SBA-1234, ABC 123, AB 123 CD, AB123CD y ABC1D23"),
+    "[patente], [patente], [patente], [patente], [patente] y [patente]",
+  );
+  assert.equal(
+    enmascarar("año 2026, los 100 autos, de 100 km, iso 9001"),
+    "año 2026, los 100 autos, de 100 km, iso 9001",
+  );
+  assert.equal(enmascarar("la ABCD 1234 no"), "la ABCD 1234 no");
+});
+
+test("AGE-04: un contacto se tapa solo con nombre Y apellido juntos, como palabras enteras", () => {
+  const sol = [{ firstName: "Sol", lastName: "Pérez" }];
+  assert.equal(enmascararNombres("Llamé a Sol Pérez ayer", sol), "Llamé a [nombre] ayer");
+  assert.equal(enmascararNombres("llamé a sol   pérez", sol), "llamé a [nombre]");
+  // Un nombre solo, o el apellido solo, no: "Sol" taparía "el sol".
+  assert.equal(enmascararNombres("Hace sol y Pérez no vino", sol), "Hace sol y Pérez no vino");
+  // Límite de palabra: "Marisol Pérez" es otra persona.
+  assert.equal(enmascararNombres("Marisol Pérez", sol), "Marisol Pérez");
+});
+
+test("AGE-04: nombre y apellido compuestos: el completo y la forma corta", () => {
+  const juan = [{ firstName: "Juan Carlos", lastName: "Pérez García" }];
+  assert.equal(enmascararNombres("Juan Carlos Pérez García compró", juan), "[nombre] compró");
+  assert.equal(enmascararNombres("Juan Pérez compró", juan), "[nombre] compró");
+});
+
+test("palabrasDe: en minúscula, sin repetir, con tildes", () => {
+  assert.deepEqual(palabrasDe("Sol PÉREZ y sol, a"), ["sol", "pérez"]);
 });

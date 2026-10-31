@@ -31,7 +31,11 @@ const toolNameSchema = z
     "cada tool de enabledTools debe ser snake_case (ej. create_opportunity)",
   );
 
-export const enabledToolsSchema = z.array(toolNameSchema).transform(sinDuplicados);
+// .max(): ver channelsSchema en agent.controller.ts. Hay unas decenas de tools.
+export const enabledToolsSchema = z
+  .array(toolNameSchema)
+  .max(100, "enabledTools no puede tener más de 100 elementos")
+  .transform(sinDuplicados);
 
 // Agent.modelProvider es VarChar libre en la base; el borde valida contra los
 // adaptadores que existen (LLM_PROVIDER_NAMES). Ver la nota en

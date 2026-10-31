@@ -218,7 +218,7 @@ retención, así que se suman acá con el mismo criterio.
 | `Delivery.checklist` | **Internal por diseño, Regulated por contenido** | JSON; los ítems propios de cada entrega son texto libre |
 | `DiscountVoucher.label` | **Internal por diseño, Regulated por contenido** | |
 | `KnowledgeBaseEntry.title`, `.content` | **Internal** | Contenido del negocio (horarios, stock sincronizado) que el agente usa para responder. Por contenido, si alguien escribe ahí datos de una persona |
-| `HelpAssistantQuestion.question` | **Internal por diseño, Regulated por contenido** | Lo que un usuario le pregunta al asistente "¿Cómo se hace?". Se guarda con emails y números de 7 o más dígitos enmascarados, pero no los nombres. Se purga a los 90 días (`helpAssistantPurgeWorker.ts`) |
+| `HelpAssistantQuestion.question` | **Internal por diseño, Regulated por contenido** | Lo que un usuario le pregunta al asistente "¿Cómo se hace?". Se guarda **ya enmascarada** (lo crudo no se guarda en ningún lado): emails, números de 7 o más dígitos, patentes en mayúsculas y el nombre completo de los contactos de la organización que aparezcan (nombre y apellido juntos, como en el borrado de §5.2; nunca un nombre solo). Un nombre que no es de un contacto, un apodo o una patente en minúsculas no se tapan. Lo mismo va al modelo (§4.1). Se purga a los 90 días (`helpAssistantPurgeWorker.ts`) *(enmascarado ampliado 2026-10-30, AGE-04)* |
 | `InternalAgentMessage.content`, `.toolCalls` | **Internal por diseño, Regulated por contenido** | La conversación de un usuario con el agente interno, que lee datos del CRM y puede citarlos. Se purga a los 90 días, en el mismo worker que las preguntas al asistente *(2026-10-26)* |
 | `Vehicle.consignorName`, `.consignorDocument`, `.consignorPhone`, `.consignorEmail` | **Regulated** | El dueño que dejó la unidad en consignación: un tercero que no es un `Contact` (no está en el pipeline a propósito, ver `schema.prisma`). Se vacían al cambiar el origen de la unidad, pero **el borrado a pedido no los alcanza** (§5.2, "Qué NO alcanza") *(2026-10-28)* |
 | `Vehicle.titleHolder` | **Regulated** | El titular de la unidad según los papeles: el nombre de una persona. Mismo límite que el consignante |
@@ -525,11 +525,12 @@ organización del contacto** (`src/utils/mencionDeLaPersona.ts`):
   el mismo número) y sin otro dígito a la derecha. A la izquierda solo se
   aceptan los dígitos que el número guardado tiene antes de esos 8 (país, 9 o
   1 de celular, área), agrupados como sea: con "+" o "00", el código de país y
-  lo que siga. El 9 o el 1 se pueden omitir en el texto **solo si el número
-  guardado los tiene**: para un contacto guardado como +5491123456789 valen
-  "+54 9 11 2345-6789" y "+54 11 2345-6789", pero para uno guardado como
-  +541123456789 (sin el 9) no vale "+54 9 11 2345-6789". Sin "+", el final,
-  como el área ("11 2345-6789", "011 2345-6789"). Así "+54 99 000 111" (otro
+  lo que siga. El 9 de Argentina y el 1 de México se encuentran **estén o no**
+  en el número guardado y en el texto: para +5491123456789 y para
+  +541123456789 valen "+54 9 11 2345-6789" y "+54 11 2345-6789"
+  *(2026-10-31)*. Sin "+", el final, como el área ("11 2345-6789",
+  "011 2345-6789"), con el 15 del celular argentino ("011 15 2345-6789",
+  "0351 15 123-4567") o el 044/045 de México ("044 55 1234 5678"). Así "+54 99 000 111" (otro
   país, mismos dígitos) no se toca para un contacto de Uruguay; escrito sin
   nada delante no se puede distinguir. Las formas que no se encuentran, en el
   punto 7 de la lista de abajo.
@@ -574,20 +575,13 @@ agente interno se va igual con su purga de 90 días.
    número hay un separador que no es espacio, guion, punto ni paréntesis (una
    barra, un salto de línea) o más de dos seguidos: "+54 11 / 99000111" se
    toma como el +59899000111 de un contacto de Uruguay. *(2026-10-28)*
-8. **Formas de escribir un teléfono de Argentina o México que no se
-   encuentran** *(2026-10-28, revisión de #585)*:
-   - el 9 o el 1 de celular escritos en el texto cuando el número guardado no
-     los tiene (un alta por formulario de Argentina queda +5411…): "+54 9 11
-     2345-6789" para un +541123456789, "+52 1 55 1234 5678" para un
-     +525512345678;
-   - el 15 del celular argentino en formato local ("15 2345-6789", "011 15
-     2345-6789") y el 044 de México;
-   - un número escrito sin "+" y sin el 9 o el 1 de celular ("54 11
-     2345-6789").
+8. **Una forma de escribir un teléfono de Argentina o México que no se
+   encuentra**: el código de país escrito sin "+" ni "00" y sin el 9 o el 1
+   ("54 11 2345-6789"). El 9, el 1, el 15 y el 044/045 en los dos sentidos se
+   encuentran desde el 2026-10-31.
 
    Lo que no se encuentra en las preguntas al asistente, en el agente interno y
    en los eventos de ingesta no promovidos se va igual con su purga de 90 días.
-   Hacer opcionales el 9, el 1 y el 15 en los dos sentidos queda pendiente.
 
 Las de la base están escritas también en el código que las deja afuera.
 **`promotionNotes` salió de esta lista el 2026-08-28**, y el **2026-10-26**

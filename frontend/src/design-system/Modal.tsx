@@ -37,12 +37,21 @@ import { Button } from "./Button";
 // no una confirmación. El default sigue siendo el seguro ("panel"): ningún
 // consumidor existente cambia de comportamiento.
 //
-// ACCESIBILIDAD: role="dialog" + aria-modal, título asociado por aria-labelledby,
-// y el foco se lleva al diálogo al montarlo para que el teclado entre adentro.
-// No hay trap de foco: sería una pieza bastante más grande (ciclo de tabulación,
-// restauración del foco previo, manejo de portales) y los consumidores —un
-// panel con un puñado de controles, un detalle de solo lectura— no la
-// necesitan todavía.
+// ACCESIBILIDAD (UX-07 de docs-privados/auditoria-2026-10-21, local; decisión
+// de Rocco del 2026-10-30): el overlay y la caja van dentro de un <dialog>
+// NATIVO abierto con showModal(). El navegador encierra el foco adentro, deja
+// inerte la página de atrás (antes se podía tabular hasta ella con una
+// confirmación de "Eliminar" abierta) y devuelve el foco a quien lo abrió al
+// cerrarse. El <dialog> es solo el anfitrión, transparente y a pantalla
+// completa: el aspecto sigue siendo el de .ds-modal-overlay y .ds-modal.
+//
+// Escape: el navegador lo convierte en el evento "cancel". En el panel se
+// cancela (la decisión de arriba no cambia); en el diálogo descartable cierra.
+//
+// Lo que se abre adentro (los menús de Select, SearchSelect, MultiSelect y
+// ActionsMenu) es hijo del <dialog>, así que queda en la misma capa, encima de
+// la página. Los avisos (Toast.tsx) no son hijos: van como popover para quedar
+// encima del diálogo abierto.
 // ---------------------------------------------------------------------------
 
 export interface ModalPrimaryAction {
@@ -92,24 +101,48 @@ export function Modal(props: ModalProps) {
   const primaryAction = props.primaryAction;
 
   const titleId = useId();
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLDialogElement>(null);
 
-  // Llevar el foco al diálogo al montarlo. Sin esto, quien navega con teclado
-  // seguiría parado en el botón que abrió el panel, detrás del overlay.
+  // Abrir como modal y llevar el foco al diálogo (sin esto, showModal lo
+  // pondría en el "×", el primer control). Sin showModal (jsdom, un
+  // navegador viejo) queda abierto como diálogo común. Al desmontar se cierra
+  // con close(): es lo que devuelve el foco a quien lo abrió.
   useEffect(() => {
-    dialogRef.current?.focus();
+    const host = hostRef.current;
+    if (!host) return;
+    if (typeof host.showModal === "function") {
+      if (!host.open) host.showModal();
+    } else {
+      host.setAttribute("open", "");
+    }
+    host.focus();
+    return () => {
+      if (typeof host.close === "function" && host.open) host.close();
+    };
   }, []);
 
-  // Escape cierra SOLO el diálogo descartable: ver el bloque de arriba. En el
-  // documento y no en el div, para que funcione aunque el foco haya salido de
-  // la caja (el foco no está atrapado).
+  // Escape llega como "cancel". Cierra SOLO el diálogo descartable: ver el
+  // bloque de arriba. En los dos casos se cancela el cierre nativo: quien
+  // desmonta el diálogo es el consumidor, vía onClose.
   useEffect(() => {
-    if (!isDialog) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+    const host = hostRef.current;
+    if (!host) return;
+    function handleCancel(event: Event) {
+      event.preventDefault();
+      if (isDialog) onClose();
     }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    host.addEventListener("cancel", handleCancel);
+    // Sin <dialog> nativo (jsdom, un navegador viejo) no hay "cancel": Escape
+    // se escucha en el documento, como antes.
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && isDialog) onClose();
+    }
+    const sinNativo = typeof host.showModal !== "function";
+    if (sinNativo) document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      host.removeEventListener("cancel", handleCancel);
+      if (sinNativo) document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [isDialog, onClose]);
 
   // Click en el overlay: solo cuando el click nació en el propio overlay. Un
@@ -119,63 +152,63 @@ export function Modal(props: ModalProps) {
   }
 
   return (
-    // En el panel el overlay NO tiene onClick: ver el bloque de arriba. Es
-    // solo el fondo. En el diálogo sí, y es uno de sus dos gestos de cierre.
-    <div
-      className={isDialog ? "ds-modal-overlay ds-modal-overlay--dialog" : "ds-modal-overlay"}
-      onClick={isDialog ? handleOverlayClick : undefined}
+    <dialog
+      ref={hostRef}
+      className="ds-modal-host"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      // tabIndex -1: enfocable por código sin entrar en el orden de tabulación.
+      tabIndex={-1}
     >
+      {/* En el panel el overlay NO tiene onClick: ver el bloque de arriba. Es
+          solo el fondo. En el diálogo sí, y es uno de sus dos gestos de cierre. */}
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        // tabIndex -1 lo hace enfocable por código sin meterlo en el orden de
-        // tabulación natural.
-        tabIndex={-1}
-        className={isDialog ? "ds-modal ds-modal--dialog" : "ds-modal"}
+        className={isDialog ? "ds-modal-overlay ds-modal-overlay--dialog" : "ds-modal-overlay"}
+        onClick={isDialog ? handleOverlayClick : undefined}
       >
-        <div className="ds-modal-header">
-          <h2 id={titleId} className="ds-modal-title">
-            {title}
-          </h2>
-          {/* El "×" es un cierre explícito más, no un gesto: mismo onClose que
+        <div className={isDialog ? "ds-modal ds-modal--dialog" : "ds-modal"}>
+          <div className="ds-modal-header">
+            <h2 id={titleId} className="ds-modal-title">
+              {title}
+            </h2>
+            {/* El "×" es un cierre explícito más, no un gesto: mismo onClose que
               el botón del pie. aria-label porque "×" solo no es un nombre, y
               distinto por variante para que en el diálogo no se llame igual
               que el botón "Cerrar" del pie (dos controles con el mismo nombre
               accesible serían indistinguibles). */}
-          <button
-            type="button"
-            className="ds-modal-close"
-            onClick={onClose}
-            aria-label={isDialog ? "Cerrar diálogo" : "Cerrar panel"}
-          >
-            ×
-          </button>
-        </div>
-        {/* Sin contenido (una confirmación que es solo la pregunta del título)
+            <button
+              type="button"
+              className="ds-modal-close"
+              onClick={onClose}
+              aria-label={isDialog ? "Cerrar diálogo" : "Cerrar panel"}
+            >
+              ×
+            </button>
+          </div>
+          {/* Sin contenido (una confirmación que es solo la pregunta del título)
             no se dibuja el cuerpo: quedaría una franja vacía entre el título y
             los botones. */}
-        {children ? <div className="ds-modal-body">{children}</div> : null}
-        <div className="ds-modal-actions">
-          <Button onClick={onClose}>{closeLabel}</Button>
-          {primaryAction ? (
-            // Con formId el botón es un submit asociado por el atributo nativo
-            // form= al <form> que vive en el cuerpo: dispara su onSubmit (y
-            // respeta su noValidate) aunque esté afuera del <form> en el DOM.
-            <Button
-              variant={primaryAction.variant ?? "primary"}
-              type={primaryAction.formId ? "submit" : "button"}
-              form={primaryAction.formId}
-              onClick={primaryAction.onClick}
-              disabled={primaryAction.disabled}
-              loading={primaryAction.loading}
-            >
-              {primaryAction.label}
-            </Button>
-          ) : null}
+          {children ? <div className="ds-modal-body">{children}</div> : null}
+          <div className="ds-modal-actions">
+            <Button onClick={onClose}>{closeLabel}</Button>
+            {primaryAction ? (
+              // Con formId el botón es un submit asociado por el atributo nativo
+              // form= al <form> que vive en el cuerpo: dispara su onSubmit (y
+              // respeta su noValidate) aunque esté afuera del <form> en el DOM.
+              <Button
+                variant={primaryAction.variant ?? "primary"}
+                type={primaryAction.formId ? "submit" : "button"}
+                form={primaryAction.formId}
+                onClick={primaryAction.onClick}
+                disabled={primaryAction.disabled}
+                loading={primaryAction.loading}
+              >
+                {primaryAction.label}
+              </Button>
+            ) : null}
+          </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

@@ -1280,3 +1280,24 @@ export function findContactsMatchingAllWords(
     take,
   });
 }
+
+// AGE-04 (asistente de ayuda): los contactos de la organización cuyo primer
+// nombre Y primer apellido están entre las palabras de un texto. Son
+// candidatos; quien llama confirma con nombre y apellido juntos
+// (enmascararNombres). Tope de 50: una pregunta tiene pocas palabras.
+export function contactosConNombreEntre(
+  organizationId: string,
+  palabras: string[],
+  db: Db = prisma,
+): Promise<{ firstName: string; lastName: string }[]> {
+  if (palabras.length === 0) return Promise.resolve([]);
+  return db.$queryRaw<{ firstName: string; lastName: string }[]>`
+    SELECT DISTINCT first_name AS "firstName", last_name AS "lastName"
+    FROM contacts
+    WHERE organization_id = ${organizationId}::uuid
+      AND deleted_at IS NULL
+      AND lower(split_part(btrim(first_name), ' ', 1)) = ANY(${palabras})
+      AND lower(split_part(btrim(last_name), ' ', 1)) = ANY(${palabras})
+    LIMIT 50
+  `;
+}

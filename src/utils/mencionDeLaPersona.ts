@@ -32,14 +32,12 @@ import { Prisma } from "@prisma/client";
 //     +59899000111) no es este. Si el texto no trae nada delante, no hay forma
 //     de distinguirlo, y se toma como este.
 //
-// LÍMITES CONOCIDOS (revisión de #585, 28/10; data-classification.md §5.2).
-// Se aceptaron así; arreglar los teléfonos queda para la tanda 2:
-//   - el 9 de Argentina y el 1 de México se pueden OMITIR en el texto si el
-//     número guardado los tiene, pero no al revés: guardado +541123456789 (sin
-//     el 9, como queda un alta por formulario), "+54 9 11 2345-6789" no se
-//     encuentra; guardado +525512345678, tampoco "+52 1 55 1234 5678";
-//   - el 15 del celular argentino escrito en local ("15 2345-6789",
-//     "011 15 2345-6789") y el 044 de México no se encuentran;
+// ARGENTINA Y MÉXICO (tanda 2, 2026-10-31): el 9 y el 1 de celular se
+// encuentran estén o no en el número guardado y en el texto; el 15 del celular
+// argentino escrito en local ("15 2345-6789", "011 15 2345-6789") y el 044/045
+// de México también (ver patronDeTelefono).
+//
+// LÍMITES CONOCIDOS (revisión de #585, 28/10; data-classification.md §5.2):
 //   - un nombre completo que sigue o precede a otras palabras sí coincide:
 //     borrar a "Ana López" toca lo que dice "Ana López Fernández", "Ana
 //     López-García" o "María Ana López" (otra persona, o la misma: el texto no
@@ -119,19 +117,40 @@ export function patronDeTelefono(phone: string | null): string | null {
   //     el 0 de larga distancia opcional ("011 2345-6789"). Sin un "+" justo
   //     antes: "+1 55 …" es otro país aunque "1 55" sea un final de 52155.
   // Los lookbehind impiden que haya otros dígitos antes.
-  const prefijo = digitos.slice(0, -DIGITOS_DEL_TELEFONO).replace(/^0+/, "");
+  //
+  // Argentina y México (tanda 2): el prefijo se completa con el 9 (AR) o el 1
+  // (MX) de celular si el número guardado no lo tiene (un alta por formulario
+  // queda +5411…), y como ese dígito es opcional, se encuentra con y sin él.
+  // Además, en AR el 15 del celular escrito en local va entre el área y el
+  // número local, que tiene 8, 7 o 6 dígitos según el área (2, 3 o 4): puede
+  // caer en las tres primeras posiciones de los últimos 8. En MX, el 044 o
+  // 045 de celular va donde el 0 de larga distancia.
+  const crudo = digitos.slice(0, -DIGITOS_DEL_TELEFONO).replace(/^0+/, "");
+  const prefijo =
+    crudo.startsWith("54") && crudo.length > 2 && crudo[2] !== "9"
+      ? `549${crudo.slice(2)}`
+      : crudo.startsWith("52") && crudo.length > 2 && crudo[2] !== "1"
+        ? `521${crudo.slice(2)}`
+        : crudo;
   const d = (digito: string) => `${digito}${SEPARADOR}`;
-  const cero = `(?:${d("0")})?`;
+  const esMexico = prefijo.startsWith("52");
+  const cero = esMexico ? `(?:${d("0")}(?:${d("4")}(?:${d("4")}|${d("5")}))?)?` : `(?:${d("0")})?`;
+  const ultimos = digitos.slice(-DIGITOS_DEL_TELEFONO);
+  const claveCon15 = prefijo.startsWith("54")
+    ? `(?:${[0, 1, 2]
+        .map((i) => [...ultimos.slice(0, i), "1", "5", ...ultimos.slice(i)].join(SEPARADOR))
+        .join("|")}|${clave})`
+    : clave;
   const sinNadaAntes = (antes: string) => `(?<![0-9${antes}]${SEPARADOR})`;
   const sinPais = prefijo
     ? `${cero}(?:(?:${[...prefijo].map((_, i) => prefijo.slice(i).split("").join(SEPARADOR)).join("|")})${SEPARADOR})?`
     : "";
-  const formas = [`${sinNadaAntes("+")}${sinPais}${cero}${clave}`];
+  const formas = [`${sinNadaAntes("+")}${sinPais}${cero}${claveCon15}`];
   if (prefijo) {
     const obligatorios = prefijo.slice(0, 2).split("").map(d).join("");
     const opcionales = [...prefijo.slice(2)].map((digito) => `(?:${d(digito)})?`).join("");
     formas.push(
-      `${sinNadaAntes("")}(?:\\+|00)${SEPARADOR}${obligatorios}${opcionales}${cero}${clave}`,
+      `${sinNadaAntes("")}(?:\\+|00)${SEPARADOR}${obligatorios}${cero}${opcionales}${cero}${claveCon15}`,
     );
   }
   return `(?:${formas.join("|")})(?![0-9])`;

@@ -23,6 +23,8 @@ export interface MensajeDeLaCharla {
   texto: string;
   /** El id de la respuesta en el backend, para el 👍/👎. */
   respuestaId?: string;
+  /** La firma del servidor sobre la pregunta y esta respuesta (AGE-01). */
+  firma?: string;
   feedback?: "UP" | "DOWN";
 }
 
