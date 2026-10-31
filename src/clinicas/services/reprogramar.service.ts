@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { logger } from "../../lib/logger";
 import { prisma, type Db, OPCIONES_DE_TRANSACCION_LARGA } from "../../lib/prisma";
@@ -92,6 +93,14 @@ export async function reprogramarTurno(
   input: ReprogramacionInput,
   quien: QuienReprograma,
   cliente?: Cliente,
+  // Lo que suma quien llama, en la MISMA transacción, después de la nota (la
+  // tool del agente de una automotora: la tarea para el vendedor). Recibe la
+  // fila actualizada y el nombre del recurso de destino.
+  enLaTransaccion?: (
+    tx: Prisma.TransactionClient,
+    fila: { id: string; contactId: string; branchId: string; startsAt: Date },
+    recurso: string,
+  ) => Promise<void>,
 ) {
   const original = await findBookingById(bookingId, organizationId);
   if (!original) throw new AppError("Reserva no encontrada", 404);
@@ -254,16 +263,20 @@ export async function reprogramarTurno(
       },
       tx,
     );
-    // R10: booking.rescheduled (reprogramar es solo de clínicas), con el
-    // horario y el profesional de antes.
-    await emitirEventoDeTurno(tx, EVENTO_TURNO_REPROGRAMADO, fila, {
-      anterior: {
-        startsAt: original.startsAt.toISOString(),
-        endsAt: original.endsAt.toISOString(),
-        resourceId: original.resourceId,
-      },
-      isOverbooking: fila.isOverbooking,
-    });
+    if (enLaTransaccion) await enLaTransaccion(tx, fila, destinoActual.name);
+    // R10: booking.rescheduled, con el horario y el profesional de antes. Solo
+    // en una clínica: una automotora (que reprograma solo por su agente) no
+    // emite eventos de turno, igual que al agendar y cancelar.
+    if (quien.industry !== "AUTOMOTORA") {
+      await emitirEventoDeTurno(tx, EVENTO_TURNO_REPROGRAMADO, fila, {
+        anterior: {
+          startsAt: original.startsAt.toISOString(),
+          endsAt: original.endsAt.toISOString(),
+          resourceId: original.resourceId,
+        },
+        isOverbooking: fila.isOverbooking,
+      });
+    }
     return fila;
   }, OPCIONES_DE_TRANSACCION_LARGA);
 

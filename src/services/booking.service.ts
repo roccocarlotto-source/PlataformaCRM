@@ -49,11 +49,12 @@ import { avisarOrdenDelTurnoCancelado } from "../servicios/services/turnoCancela
 // ---------------------------------------------------------------------------
 // Booking — creación y cancelación (P2.1, paso 3).
 //
-// FUERA DE ALCANCE A PROPÓSITO: REPROGRAMAR. Cambiar startsAt/endsAt de una
-// reserva existente exige revalidar el horario de trabajo, la capacidad en el
-// horario nuevo Y mover el evento en Google, o sea que es la creación completa
-// otra vez más el manejo del estado anterior. Queda para después; hoy el camino
-// es cancelar y crear.
+// REPROGRAMAR NO VIVE ACÁ. Cambiar startsAt/endsAt de una reserva existente
+// exige revalidar el horario de trabajo, la capacidad en el horario nuevo Y
+// mover el evento en Google. Lo hace reprogramarTurno
+// (src/clinicas/services/reprogramar.service.ts): en una clínica, desde la
+// agenda y el agente; en una automotora, solo desde el agente
+// (src/automotora/toolsDeTurnos.ts, 2026-10-31).
 //
 // TAMPOCO SE EMITE NINGÚN EVENTO AL OUTBOX. El registro de handlers está vacío
 // (nadie lo consume todavía), así que un evento emitido acá iría derecho a

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_TOOL_OPTIONS,
+  AGENT_TOOL_OPTIONS_DE_TURNOS_DE_AUTOMOTORA,
   agentToolOptions,
   avisoDeAccionesSinGuardarElNombre,
   toolLabel,
@@ -46,10 +47,17 @@ describe("agentToolOptions por rubro", () => {
     "get_payment_info",
   ];
 
-  it("una automotora ve el catálogo de siempre, con sus textos, sin las tools de turnos", () => {
-    expect(agentToolOptions([])).toEqual(AGENT_TOOL_OPTIONS);
-    const valores = agentToolOptions([]).map((o) => o.value);
-    for (const nombre of TURNOS) expect(valores).not.toContain(nombre);
+  it("una automotora ve el catálogo de siempre y, al final, las tres tools de turnos con sus textos", () => {
+    expect(agentToolOptions([])).toEqual([
+      ...AGENT_TOOL_OPTIONS,
+      ...AGENT_TOOL_OPTIONS_DE_TURNOS_DE_AUTOMOTORA,
+    ]);
+    expect(AGENT_TOOL_OPTIONS_DE_TURNOS_DE_AUTOMOTORA.map((o) => o.value)).toEqual(TURNOS);
+    for (const o of AGENT_TOOL_OPTIONS_DE_TURNOS_DE_AUTOMOTORA) {
+      expect(`${o.label} ${o.subtitle ?? ""}`).not.toMatch(
+        /\b(pacientes?|profesional(es)?|sede)\b/i,
+      );
+    }
   });
 
   it("una clínica ve las tres tools de turnos y no las de stock, oportunidades ni cobro (R17b)", () => {

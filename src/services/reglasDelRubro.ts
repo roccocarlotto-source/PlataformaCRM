@@ -1,4 +1,5 @@
 import type { OrganizationIndustry } from "@prisma/client";
+import { TOOLS_DE_TURNOS_DE_AUTOMOTORA } from "../automotora/toolsDeTurnos";
 import { REGLAS_DE_CLINICA } from "../clinicas/reglasDeClinica";
 import type { SaludDeLaClinica } from "../clinicas/repositories/clinicSettings.repository";
 import type {
@@ -155,8 +156,17 @@ export const SIN_REGLAS: ReglasDelRubro = {
   contextoDeLaOrganizacion: null,
 };
 
+/** AUTOMOTORA: ninguna regla propia, salvo las tools de turnos (ver, reprogramar
+ *  y cancelar; src/automotora/toolsDeTurnos.ts, decisión de Rocco del
+ *  2026-10-31). Sus textos del prompt son las constantes de siempre
+ *  (textosDeAutomotora), con el de gestión de turnos solo si se ofrecen. */
+export const REGLAS_DE_AUTOMOTORA: ReglasDelRubro = {
+  ...SIN_REGLAS,
+  toolsExclusivas: TOOLS_DE_TURNOS_DE_AUTOMOTORA,
+};
+
 const REGLAS_POR_RUBRO: Readonly<Record<OrganizationIndustry, ReglasDelRubro>> = {
-  AUTOMOTORA: SIN_REGLAS,
+  AUTOMOTORA: REGLAS_DE_AUTOMOTORA,
   CLINICA: REGLAS_DE_CLINICA,
 };
 

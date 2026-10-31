@@ -14,6 +14,7 @@ import { replaceWorkingHoursForResource } from "../services/workingHours.service
 import { cerrarTurnosVencidos } from "./services/atendido.service";
 import { createAutomation } from "../services/automation.service";
 import {
+  INSTRUCCION_GESTION_DE_TURNOS_DE_AUTOMOTORA,
   INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
   runAgentTurn,
 } from "../services/agentOrchestration.service";
@@ -619,7 +620,7 @@ test("R10: agendar y cancelar en una automotora no emiten eventos, y el cierre a
   assert.equal(marcar.json.error?.motivo, "RUBRO");
 });
 
-test("R11: el agente de una automotora no recibe las tools de turnos ni su texto, aunque enabledTools las nombre, y no puede ejecutarlas", async () => {
+test("R11 (2026-10-31): el agente de una automotora recibe las tools de turnos con sus textos y las puede ejecutar", async () => {
   const sucursal = await prisma.branch.findFirstOrThrow({
     where: { organizationId: conSucursales.id, deletedAt: null },
   });
@@ -689,13 +690,22 @@ test("R11: el agente de una automotora no recibe las tools de turnos ni su texto
   } finally {
     resetLlmProviderParaTests();
   }
+  // Desde el 2026-10-31 (decisión de Rocco) una automotora SÍ tiene las tools
+  // de turnos, con sus textos y la instrucción de gestión de turnos.
   assert.deepEqual(
     requests[0].tools.map((t) => t.name),
-    ["get_availability", "request_human_handoff"],
+    [
+      "get_availability",
+      "get_contact_bookings",
+      "reschedule_booking",
+      "cancel_booking",
+      "request_human_handoff",
+    ],
   );
+  assert.ok(requests[0].systemPrompt.includes(INSTRUCCION_GESTION_DE_TURNOS_DE_AUTOMOTORA));
   assert.doesNotMatch(
-    requests[0].systemPrompt,
-    /get_contact_bookings|reschedule_booking|cancel_booking/,
+    requests[0].tools.map((t) => t.description).join(" "),
+    /\b(pacientes?|profesional(es)?|sede)\b/i,
   );
   assert.ok(requests[0].systemPrompt.includes(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA));
   const saliente = await prisma.message.findFirstOrThrow({
@@ -705,10 +715,11 @@ test("R11: el agente de una automotora no recibe las tools de turnos ni su texto
       toolCalls: { not: Prisma.DbNull },
     },
   });
-  const llamada = (saliente.toolCalls as { name: string; allowed?: boolean }[]).find(
-    (t) => t.name === "cancel_booking",
-  );
-  assert.equal(llamada?.allowed, false, "una tool que no se ofreció no se ejecuta");
+  const llamada = (
+    saliente.toolCalls as { name: string; allowed?: boolean; result?: { ok: boolean } }[]
+  ).find((t) => t.name === "cancel_booking");
+  assert.equal(llamada?.allowed, true, "se ofreció, así que se ejecuta");
+  assert.equal(llamada?.result?.ok, false, "un id que no es de este cliente: no encontrado");
 });
 
 test("hallazgos de la demo: el agente de una automotora contesta como antes (sin corrección, sin retoques, sin tool de indicaciones) y una derivación sin vendedor sigue siendo silenciosa", async () => {

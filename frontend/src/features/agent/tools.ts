@@ -108,9 +108,10 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
   },
 ];
 
-// R11 (docs/rubros.md §5.1): las tools que solo tiene una clínica
-// (MODULO_DE_LA_TOOL_DE_CLINICA en src/config/ediciones.ts, ESPEJO A MANO). No
-// están en AGENT_TOOL_OPTIONS: una automotora no las ve en el selector.
+// R11 (docs/rubros.md §5.1): las tools de turnos de una clínica
+// (MODULO_DE_LA_TOOL_DE_CLINICA en src/config/ediciones.ts, ESPEJO A MANO), con
+// los textos de la clínica. No están en AGENT_TOOL_OPTIONS: una automotora ve
+// las suyas (AGENT_TOOL_OPTIONS_DE_TURNOS_DE_AUTOMOTORA).
 export const AGENT_TOOL_OPTIONS_DE_CLINICA: MultiSelectOption<string>[] = [
   {
     value: "get_contact_bookings",
@@ -126,6 +127,27 @@ export const AGENT_TOOL_OPTIONS_DE_CLINICA: MultiSelectOption<string>[] = [
     value: "cancel_booking",
     label: "Cancelar turno",
     subtitle: "Cancela un turno del paciente, con la anticipación mínima de la sede.",
+  },
+];
+
+// Las mismas tres tools de turnos en una automotora (decisión de Rocco,
+// 2026-10-31; src/automotora/toolsDeTurnos.ts). Al reprogramar o cancelar,
+// además de la nota, el vendedor del cliente recibe una tarea.
+export const AGENT_TOOL_OPTIONS_DE_TURNOS_DE_AUTOMOTORA: MultiSelectOption<string>[] = [
+  {
+    value: "get_contact_bookings",
+    label: "Ver turnos del cliente",
+    subtitle: "Lista los próximos turnos del cliente de la conversación.",
+  },
+  {
+    value: "reschedule_booking",
+    label: "Reprogramar turno",
+    subtitle: "Cambia el día o la hora de un turno del cliente y le avisa a su vendedor.",
+  },
+  {
+    value: "cancel_booking",
+    label: "Cancelar turno",
+    subtitle: "Cancela un turno del cliente, con su confirmación, y le avisa a su vendedor.",
   },
 ];
 
@@ -272,7 +294,7 @@ export function agentToolOptions(
         ),
         ...AGENT_TOOL_OPTIONS_DE_CLINICA.map((option) => conTextosDeClinica(option, vocabulario)),
       ]
-    : AGENT_TOOL_OPTIONS;
+    : [...AGENT_TOOL_OPTIONS, ...AGENT_TOOL_OPTIONS_DE_TURNOS_DE_AUTOMOTORA];
   const conocidas = new Set(base.map((option) => option.value));
   const extras = selected
     .filter((value) => !conocidas.has(value))

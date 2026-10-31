@@ -187,6 +187,10 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
     "tools-de-turnos-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/toolsDeTurnos.integration-test.ts",
   ),
+  patron(
+    "turnos-automotora-{etiqueta}-{ts}-{hex8}",
+    "src/automotora/toolsDeTurnos.integration-test.ts",
+  ),
   patron("waba-clinica-{etiqueta}-{ts}-{hex8}", `${S}whatsappWabaPorClinica.integration-test.ts`),
   patron("aviso-wa-{etiqueta}-{ts}-{hex8}", `${S}avisoDelTokenDeWhatsapp.integration-test.ts`),
   patron(
