@@ -286,6 +286,28 @@ describe("AcceptInvitationPage", () => {
     expect(acceptCalls).toBe(0);
   });
 
+  it("password: 8 o más caracteres sin números (la política de Supabase pide letras y números) bloquea el submit y lo dice", async () => {
+    let acceptCalls = 0;
+    server.use(
+      meHandler(),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await act(async () => mock.emit("SIGNED_IN", invitedSession()));
+    await waitFor(() => expect(screen.getByLabelText("Nombre completo")).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Nombre completo"), "Nueva Persona");
+    await user.type(screen.getByLabelText("Contraseña"), "solamenteletras");
+    await user.type(screen.getByLabelText("Confirmar contraseña"), "solamenteletras");
+    await user.click(screen.getByRole("button", { name: /completar registro/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "La contraseña tiene que tener al menos 8 caracteres, con letras y números",
+    );
+    expect(acceptCalls).toBe(0);
+  });
+
   it("confirmación: passwords que no coinciden bloquean el submit", async () => {
     let acceptCalls = 0;
     server.use(
