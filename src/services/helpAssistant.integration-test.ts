@@ -183,9 +183,23 @@ test("informe de Plataforma: solo el platform admin; agrupa, filtra y nunca dice
   const [token0, token1] = org.tokens;
   // Una pantalla propia del test: la tabla es de todas las organizaciones.
   const pantalla = `informe-${org.id.slice(0, 8)}`;
-  await registrarPregunta(fila(u0, { screen: pantalla, question: "¿Cómo invito a un vendedor?" }));
-  await registrarPregunta(fila(u1, { screen: pantalla, question: "como invito a un vendedor" }));
-  await registrarPregunta(fila(u0, { screen: pantalla, question: "Cómo  invito a un VENDEDOR!!" }));
+  // Las tres formas de la misma pregunta, con instantes separados a mano: el
+  // informe muestra "la última escrita" (ORDER BY created_at DESC), y tres
+  // inserts seguidos pueden caer en el mismo instante. Con un empate, cuál es
+  // "la última" lo decidía la base al azar: era el rojo intermitente de este
+  // test (tanda 2, 2026-10-31).
+  const formas = [
+    fila(u0, { screen: pantalla, question: "¿Cómo invito a un vendedor?" }),
+    fila(u1, { screen: pantalla, question: "como invito a un vendedor" }),
+    fila(u0, { screen: pantalla, question: "Cómo  invito a un VENDEDOR!!" }),
+  ];
+  for (const [i, forma] of formas.entries()) {
+    const id = await registrarPregunta(forma);
+    await prisma.helpAssistantQuestion.update({
+      where: { id },
+      data: { createdAt: new Date(Date.now() - (formas.length - i) * 1000) },
+    });
+  }
   const hueco = await registrarPregunta(
     fila(u1, {
       screen: pantalla,
