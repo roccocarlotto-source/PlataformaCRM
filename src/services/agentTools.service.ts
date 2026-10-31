@@ -23,7 +23,8 @@ import {
 import { findManyOpportunities, findOpportunityById } from "../repositories/opportunity.repository";
 import { findDefaultPipeline } from "../repositories/pipeline.repository";
 import { findResourceById } from "../repositories/resource.repository";
-import { findManyServiceTypes, findServiceTypeById } from "../repositories/serviceType.repository";
+import { findManyServiceTypes } from "../repositories/serviceType.repository";
+import { enParalelo } from "../utils/enParalelo";
 import { findStageById, findStagesByPipeline } from "../repositories/stage.repository";
 import {
   countVehicles,
@@ -1544,7 +1545,12 @@ export async function resolverServicio(
   args: { serviceTypeId?: string; servicio?: string },
   contexto: ContextoDeEjecucionDeTool,
   textos: TextosDeResolverServicio = TEXTOS_DE_RESOLVER_SERVICIO,
-): Promise<{ ok: true; serviceTypeId: string } | { ok: false; resultado: ResultadoDeTool }> {
+): Promise<
+  // resourceId: el recurso principal del servicio, ya leído con la lista (así
+  // quien deduce el recurso no vuelve a leer el servicio).
+  | { ok: true; serviceTypeId: string; resourceId: string }
+  | { ok: false; resultado: ResultadoDeTool }
+> {
   const tipos = await findManyServiceTypes(
     contexto.organizationId,
     { branchId: contexto.conversation.branchId },
@@ -1553,8 +1559,9 @@ export async function resolverServicio(
   );
 
   if (args.serviceTypeId !== undefined) {
-    if (tipos.some((t) => t.id === args.serviceTypeId)) {
-      return { ok: true, serviceTypeId: args.serviceTypeId };
+    const elegido = tipos.find((t) => t.id === args.serviceTypeId);
+    if (elegido) {
+      return { ok: true, serviceTypeId: elegido.id, resourceId: elegido.resourceId };
     }
     return {
       ok: false,
@@ -1569,7 +1576,7 @@ export async function resolverServicio(
   // que preguntarle al cliente algo que el backend sabe.
   if (args.servicio === undefined) {
     if (tipos.length === 1) {
-      return { ok: true, serviceTypeId: tipos[0].id };
+      return { ok: true, serviceTypeId: tipos[0].id, resourceId: tipos[0].resourceId };
     }
     return {
       ok: false,
@@ -1583,7 +1590,11 @@ export async function resolverServicio(
   const coincidencias = tipos.filter((t) => normalizarNombre(t.name) === buscado);
 
   if (coincidencias.length === 1) {
-    return { ok: true, serviceTypeId: coincidencias[0].id };
+    return {
+      ok: true,
+      serviceTypeId: coincidencias[0].id,
+      resourceId: coincidencias[0].resourceId,
+    };
   }
   const disponibles = nombresDe(tipos);
   if (coincidencias.length === 0) {
@@ -1600,33 +1611,19 @@ export async function resolverServicio(
   };
 }
 
+// El servicio ya viene resuelto por resolverServicio, con su recurso principal:
+// no se vuelve a leer (PR "menos viajes en la agenda del agente", 2026-10-31).
 async function resolverRecursoDelServicio(
-  serviceTypeId: string,
+  servicio: { serviceTypeId: string; resourceId: string },
   resourceIdExplicito: string | undefined,
   contexto: ContextoDeEjecucionDeTool,
 ): Promise<{ ok: true; resourceId: string } | { ok: false; resultado: ResultadoDeTool }> {
-  if (resourceIdExplicito !== undefined) {
-    const rechazo = await resolverRecursoDeLaSucursal(resourceIdExplicito, contexto);
-    return rechazo
-      ? { ok: false, resultado: rechazo }
-      : { ok: true, resourceId: resourceIdExplicito };
-  }
-
-  const serviceType = await findServiceTypeById(serviceTypeId, contexto.organizationId);
-  if (!serviceType) {
-    return {
-      ok: false,
-      resultado: fallo(
-        "El tipo de servicio indicado no existe. Los serviceTypeId salen de la tool que lista los servicios: no los inventes.",
-      ),
-    };
-  }
-  // La misma comprobación de sucursal que el camino explícito: deducir el
+  // Con el recurso explícito, se valida ese; si no, el principal del
+  // servicio. La misma comprobación de sucursal en los dos caminos: deducir el
   // recurso no puede ser una puerta para agendar en otra sucursal.
-  const rechazo = await resolverRecursoDeLaSucursal(serviceType.resourceId, contexto);
-  return rechazo
-    ? { ok: false, resultado: rechazo }
-    : { ok: true, resourceId: serviceType.resourceId };
+  const resourceId = resourceIdExplicito ?? servicio.resourceId;
+  const rechazo = await resolverRecursoDeLaSucursal(resourceId, contexto);
+  return rechazo ? { ok: false, resultado: rechazo } : { ok: true, resourceId };
 }
 
 // Ítem 103: "el miércoles a las 11" es un INSTANTE para el cliente, no un
@@ -1714,15 +1711,16 @@ const getAvailabilityTool: ToolDelAgente = {
     const params = validacion.value;
 
     return conErroresDeNegocio(async () => {
-      const servicio = await resolverServicio(params, contexto);
+      // La zona (ítem 104: en la de la sucursal, no en UTC) no depende del
+      // servicio: se lee junto con la lista de servicios, no al final.
+      const [servicio, zona] = await enParalelo([
+        resolverServicio(params, contexto),
+        zonaDeLaSucursal(contexto),
+      ] as const);
       if (!servicio.ok) {
         return servicio.resultado;
       }
-      const recurso = await resolverRecursoDelServicio(
-        servicio.serviceTypeId,
-        params.resourceId,
-        contexto,
-      );
+      const recurso = await resolverRecursoDelServicio(servicio, params.resourceId, contexto);
       if (!recurso.ok) {
         return recurso.resultado;
       }
@@ -1732,9 +1730,6 @@ const getAvailabilityTool: ToolDelAgente = {
         serviceTypeId: servicio.serviceTypeId,
         resourceId: recurso.resourceId,
       });
-
-      // Ítem 104: en la zona de la sucursal, no en UTC.
-      const zona = await zonaDeLaSucursal(contexto);
       return exito({
         // Taller Demo, 2026-10-18: con las 10 en esta lista, el modelo le dijo
         // al cliente "a las 10 ya no tengo disponibilidad" en 5 de 6 charlas.
@@ -1802,34 +1797,39 @@ const createBookingTool: ToolDelAgente = {
     const input = validacion.value;
 
     return conErroresDeNegocio(async () => {
-      // Primero la identidad: nombre y apellido en todos los canales, y por
-      // WEB además un teléfono o un email (D3). Ver datosQueFaltanParaActuar.
-      const bloqueo = await bloqueoPorIdentidad(contexto);
+      // Las lecturas previas no dependen entre sí: van JUNTAS (enParalelo), y
+      // las respuestas se miran en el orden de siempre, así que el cliente ve
+      // el mismo rechazo que antes (PR "menos viajes en la agenda del agente",
+      // 2026-10-31). Son solo lecturas: lo que se lee de más cuando la
+      // primera regla corta, se descarta.
+      const [bloqueo, futuras, servicio, oportunidad, zona] = await enParalelo([
+        // Primero la identidad: nombre y apellido en todos los canales, y por
+        // WEB además un teléfono o un email (D3). Ver datosQueFaltanParaActuar.
+        bloqueoPorIdentidad(contexto),
+        // D4: el tope de reservas futuras del contacto. Bajo el lock de la
+        // conversación (un turno a la vez por contacto y canal), así que dos
+        // reservas de la misma ronda se cuentan una después de la otra.
+        countFutureConfirmedBookingsOfContact(
+          contexto.conversation.contactId,
+          contexto.organizationId,
+          // El mismo reloj con el que createBooking decide qué es pasado.
+          relojDeReservas.ahora(),
+        ),
+        resolverServicio(input, contexto),
+        // F3 (ver abajo): la oportunidad abierta a la que se vincula.
+        oportunidadAbiertaDelContacto(contexto.organizationId, contexto.conversation.contactId),
+        zonaDeLaSucursal(contexto),
+      ] as const);
       if (bloqueo) {
         return bloqueo;
       }
-      // D4: el tope de reservas futuras del contacto. Bajo el lock de la
-      // conversación (un turno a la vez por contacto y canal), así que dos
-      // reservas de la misma ronda se cuentan una después de la otra.
-      const futuras = await countFutureConfirmedBookingsOfContact(
-        contexto.conversation.contactId,
-        contexto.organizationId,
-        // El mismo reloj con el que createBooking decide qué es pasado.
-        relojDeReservas.ahora(),
-      );
       if (futuras >= MAX_RESERVAS_FUTURAS_POR_CONTACTO) {
         return fallo(MENSAJE_TOPE_DE_RESERVAS);
       }
-
-      const servicio = await resolverServicio(input, contexto);
       if (!servicio.ok) {
         return servicio.resultado;
       }
-      const recurso = await resolverRecursoDelServicio(
-        servicio.serviceTypeId,
-        input.resourceId,
-        contexto,
-      );
+      const recurso = await resolverRecursoDelServicio(servicio, input.resourceId, contexto);
       if (!recurso.ok) {
         return recurso.resultado;
       }
@@ -1840,11 +1840,7 @@ const createBookingTool: ToolDelAgente = {
       // la prueba en vivo el agente creó la oportunidad y la reserva en la
       // misma conversación y la reserva quedó con opportunityId null. Sin
       // oportunidad abierta queda sin vínculo, como antes: no se crea una solo
-      // para colgarle un turno.
-      const oportunidad = await oportunidadAbiertaDelContacto(
-        contexto.organizationId,
-        contexto.conversation.contactId,
-      );
+      // para colgarle un turno. (Se leyó arriba, con las demás lecturas.)
 
       const booking = await createBooking(contexto.organizationId, {
         resourceId: recurso.resourceId,
@@ -1855,7 +1851,6 @@ const createBookingTool: ToolDelAgente = {
         startsAt: input.startsAt,
       });
 
-      const zona = await zonaDeLaSucursal(contexto);
       return exito({
         bookingId: booking.id,
         zonaHoraria: zona,

@@ -205,38 +205,23 @@ export async function obtenerDisponibilidad(
   // ve; devolver un 500 deja la agenda entera inutilizable. Queda registrado en
   // el log para que no sea invisible.
   // ---------------------------------------------------------------------------
-  let ocupadosEnGoogle: Intervalo[] = [];
   const calendarioPropio = resource.googleCalendarId ?? undefined;
   const consultarGoogle = !params.googlePorProfesional || calendarioPropio !== undefined;
 
-  try {
-    const intervalos = consultarGoogle
-      ? await consultarDisponibilidad(
+  // Google y las dos lecturas locales no dependen entre sí: van JUNTAS, no una
+  // detrás de otra (PR "menos viajes en la agenda del agente", 2026-10-31).
+  // ocupadosEnGoogleOVacio nunca rechaza (ver arriba), así que no cambia qué
+  // error ve nadie.
+  const [ocupadosEnGoogle, reservas, bloqueos] = await Promise.all([
+    consultarGoogle
+      ? ocupadosEnGoogleOVacio(
           organizationId,
           serviceType.branchId,
-          { timeMin: params.desde.toISOString(), timeMax: params.hasta.toISOString() },
+          params,
           cliente,
-          params.googlePorProfesional ? calendarioPropio : undefined,
+          calendarioPropio,
         )
-      : [];
-
-    ocupadosEnGoogle = intervalos.map((intervalo) => ({
-      inicio: new Date(intervalo.inicio),
-      fin: new Date(intervalo.fin),
-    }));
-  } catch (err) {
-    const esSinConexion =
-      err instanceof AppError && (err.statusCode === 404 || err.statusCode === 409);
-
-    if (!esSinConexion) {
-      logger.warn(
-        { err, organizationId, branchId: serviceType.branchId },
-        "No se pudo consultar la disponibilidad en Google; se calcula solo con el horario de trabajo y las reservas locales",
-      );
-    }
-  }
-
-  const [reservas, bloqueos] = await Promise.all([
+      : Promise.resolve<Intervalo[]>([]),
     findConfirmedBookingsInRange(organizationId, params.resourceId, params.desde, params.hasta),
     findBloqueosQueSeSuperponen(organizationId, params.resourceId, params.desde, params.hasta),
   ]);
@@ -252,6 +237,41 @@ export async function obtenerDisponibilidad(
     // borde de la franja (resolverContexto la expande entera).
     desde: params.desde,
   });
+}
+
+/** Lo ocupado en el calendario de Google de la sucursal (o el del profesional),
+ *  o [] si no hay Google conectado o Google falla: ver GOOGLE ES OPCIONAL arriba.
+ *  Nunca rechaza. */
+async function ocupadosEnGoogleOVacio(
+  organizationId: string,
+  branchId: string,
+  params: ParametrosDeDisponibilidad,
+  cliente: ClienteGoogleCalendar | undefined,
+  calendarioPropio: string | undefined,
+): Promise<Intervalo[]> {
+  try {
+    const intervalos = await consultarDisponibilidad(
+      organizationId,
+      branchId,
+      { timeMin: params.desde.toISOString(), timeMax: params.hasta.toISOString() },
+      cliente,
+      params.googlePorProfesional ? calendarioPropio : undefined,
+    );
+    return intervalos.map((intervalo) => ({
+      inicio: new Date(intervalo.inicio),
+      fin: new Date(intervalo.fin),
+    }));
+  } catch (err) {
+    const esSinConexion =
+      err instanceof AppError && (err.statusCode === 404 || err.statusCode === 409);
+    if (!esSinConexion) {
+      logger.warn(
+        { err, organizationId, branchId },
+        "No se pudo consultar la disponibilidad en Google; se calcula solo con el horario de trabajo y las reservas locales",
+      );
+    }
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -236,7 +236,7 @@ export async function createBooking(
   // se leen EN PARALELO, en vez de uno detrás de otro. enParalelo relanza el
   // primer error en el orden de abajo —el de siempre—: por eso el "no existe"
   // del contacto y de la oportunidad se lanza dentro de su propia promesa.
-  const [contact, , contexto] = await enParalelo([
+  const [contact, , contexto, emiteEventos] = await enParalelo([
     findContactById(input.contactId, organizationId).then((encontrado) => {
       if (!encontrado) {
         throw new AppError("El contacto indicado no existe o no pertenece a tu organización", 400);
@@ -270,6 +270,11 @@ export async function createBooking(
       // franja llega entera y la contención es real.
       hasta: new Date(startsAt.getTime() + 24 * 60 * 60 * 1000),
     }),
+    // R10: si es una clínica (emite booking.created). Se lee acá, con las
+    // demás, y no dentro de la transacción: es una ida y vuelta menos con los
+    // locks tomados, y el rubro de una organización no cambia entre una
+    // lectura y la otra (PR "menos viajes en la agenda del agente").
+    esClinica(organizationId, prisma),
   ] as const);
   const { serviceType, resource, branch, franjasDeTrabajo } = contexto;
 
@@ -415,7 +420,7 @@ export async function createBooking(
     );
     // R10 (docs/rubros.md §4.8): en una clínica, booking.created en la misma
     // transacción. Una automotora no emite nada, como siempre.
-    if (await esClinica(organizationId, tx)) {
+    if (emiteEventos) {
       await emitirEventoDeTurno(tx, EVENTO_TURNO_CREADO, creada, {
         isOverbooking: creada.isOverbooking,
       });
