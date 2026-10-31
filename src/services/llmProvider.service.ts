@@ -151,11 +151,36 @@ export interface LlmCompletionResult {
   cortadaPorLargo?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// STREAMING, OPCIONAL Y APAGADO POR DEFECTO
+// ---------------------------------------------------------------------------
+// Para el canal de voz: ahí importa el tiempo hasta la primera palabra, no el
+// de la respuesta entera, así que el texto se va entregando a medida que el
+// modelo lo escribe. Solo se activa si quien llama pasa `alEscribir`. Sin él
+// (WhatsApp, web, resúmenes, asistente: hoy todos), la llamada sale y se
+// interpreta EXACTAMENTE como siempre: el cuerpo no lleva `stream`.
+//
+// Con `alEscribir`, el resultado final es el mismo que sin streaming (texto
+// completo, tool calls con sus argumentos ya parseados, consumo, corte por
+// largo), armado por el mismo código. Lo que cambia es que el texto llega
+// antes, por pedazos. Dos consecuencias para quien lo use:
+//   - los reintentos (ítem 114) solo cubren hasta que OpenRouter contesta: una
+//     vez que empezó a llegar texto, una falla corta la llamada (no se puede
+//     "desdecir" lo que ya se entregó);
+//   - si la respuesta se corta por largo, el texto ya entregado queda dicho:
+//     el resultado lo marca igual con cortadaPorLargo.
+export interface OpcionesDeCompletado {
+  alEscribir?: (fragmento: string) => void;
+}
+
 export interface LlmProvider {
   // Identificador estable del adaptador ("openrouter"). Es lo que
   // Agent.modelProvider guarda y lo que valida el CRUD de agentes.
   readonly name: string;
-  complete(request: LlmCompletionRequest): Promise<LlmCompletionResult>;
+  complete(
+    request: LlmCompletionRequest,
+    opciones?: OpcionesDeCompletado,
+  ): Promise<LlmCompletionResult>;
 }
 
 // Los adaptadores que existen. Agent.modelProvider es VarChar libre en la base
@@ -500,6 +525,203 @@ export function leerUsage(crudo: unknown): LlmUsage | null {
   };
 }
 
+// Lo que se saca de una respuesta de OpenRouter antes de interpretarla: lo
+// mismo venga entera (JSON) o en streaming (SSE). De acá para abajo, el código
+// que arma el resultado es UNO solo.
+interface RespuestaCruda {
+  content: unknown;
+  toolCallsCrudos: unknown;
+  finishReason: unknown;
+  usageCrudo: unknown;
+}
+
+// La respuesta entera, como siempre.
+async function leerRespuestaCompleta(res: Response): Promise<RespuestaCruda> {
+  let datos: {
+    choices?: unknown;
+    error?: unknown;
+    usage?: unknown;
+  };
+  try {
+    datos = (await res.json()) as typeof datos;
+  } catch {
+    throw new LlmProviderError("OpenRouter respondió 200 con un cuerpo que no es JSON");
+  }
+
+  // OpenRouter puede responder 200 con { error } cuando el fallo es del
+  // proveedor de más abajo y no de su propio borde. Un 200 con error no
+  // es un éxito.
+  if (datos.error && typeof datos.error === "object") {
+    const mensaje = (datos.error as { message?: unknown }).message;
+    throw new LlmProviderError(
+      `OpenRouter devolvió un error: ${typeof mensaje === "string" ? mensaje : "sin detalle"}`,
+    );
+  }
+
+  // Un 200 sin choices no es un fallo del modelo: es el proveedor
+  // devolviendo algo que no entendemos, o un intermediario respondiendo
+  // por él.
+  if (!Array.isArray(datos.choices) || datos.choices.length === 0) {
+    throw new LlmProviderError("OpenRouter respondió sin choices");
+  }
+
+  const primera = datos.choices[0] as { message?: unknown; finish_reason?: unknown };
+  const mensaje = primera?.message;
+  if (!mensaje || typeof mensaje !== "object") {
+    throw new LlmProviderError("OpenRouter respondió sin message en el primer choice");
+  }
+
+  const { content, tool_calls: toolCallsCrudos } = mensaje as {
+    content?: unknown;
+    tool_calls?: unknown;
+  };
+  return { content, toolCallsCrudos, finishReason: primera.finish_reason, usageCrudo: datos.usage };
+}
+
+// La respuesta en streaming (Server-Sent Events con el formato de OpenAI):
+// líneas `data: {json}` separadas por líneas en blanco, comentarios que
+// empiezan con ":" (OpenRouter manda ": OPENROUTER PROCESSING" mientras
+// espera) y un `data: [DONE]` al final. Cada evento trae un pedazo:
+//   - choices[0].delta.content: texto, que se entrega en el acto;
+//   - choices[0].delta.tool_calls: pedazos de tool calls, por `index`; el id y
+//     el nombre llegan una vez y los argumentos se van concatenando;
+//   - choices[0].finish_reason: en el último con choices;
+//   - usage: en un evento final (con usage.include), a veces sin choices;
+//   - error: una falla del proveedor de más abajo, a mitad de la respuesta.
+// Devuelve lo mismo que leerRespuestaCompleta, con los pedazos ya juntados.
+async function leerRespuestaEnStreaming(
+  res: Response,
+  alEscribir: (fragmento: string) => void,
+  signal: AbortSignal | undefined,
+): Promise<RespuestaCruda> {
+  if (!res.body) {
+    throw new LlmProviderError("OpenRouter respondió 200 sin cuerpo en streaming");
+  }
+  const lector = res.body.getReader();
+  const decodificador = new TextDecoder();
+
+  let texto = "";
+  const tools = new Map<number, { id?: string; name?: string; args: string }>();
+  let finishReason: unknown;
+  let usageCrudo: unknown;
+  let conChoices = false;
+  let terminado = false;
+
+  const procesarLinea = (crudo: string) => {
+    const linea = crudo.endsWith("\r") ? crudo.slice(0, -1) : crudo;
+    // Comentarios (":"), líneas en blanco y otros campos de SSE: nada que leer.
+    if (!linea.startsWith("data:")) return;
+    const dato = linea.slice("data:".length).trim();
+    if (dato === "[DONE]") {
+      terminado = true;
+      return;
+    }
+    let evento: {
+      choices?: unknown;
+      error?: unknown;
+      usage?: unknown;
+    };
+    try {
+      evento = JSON.parse(dato) as typeof evento;
+    } catch {
+      throw new LlmProviderError("OpenRouter mandó un evento de streaming que no es JSON");
+    }
+    if (evento.error && typeof evento.error === "object") {
+      const mensaje = (evento.error as { message?: unknown }).message;
+      throw new LlmProviderError(
+        `OpenRouter devolvió un error: ${typeof mensaje === "string" ? mensaje : "sin detalle"}`,
+      );
+    }
+    if (evento.usage) usageCrudo = evento.usage;
+    if (!Array.isArray(evento.choices) || evento.choices.length === 0) return;
+    conChoices = true;
+
+    const eleccion = evento.choices[0] as { delta?: unknown; finish_reason?: unknown };
+    if (eleccion.finish_reason) finishReason = eleccion.finish_reason;
+    if (!eleccion.delta || typeof eleccion.delta !== "object") return;
+    const { content, tool_calls: pedazos } = eleccion.delta as {
+      content?: unknown;
+      tool_calls?: unknown;
+    };
+
+    if (typeof content === "string" && content.length > 0) {
+      texto += content;
+      alEscribir(content);
+    }
+
+    if (Array.isArray(pedazos)) {
+      for (const pedazo of pedazos) {
+        if (!pedazo || typeof pedazo !== "object") continue;
+        const {
+          index,
+          id,
+          function: fn,
+        } = pedazo as {
+          index?: unknown;
+          id?: unknown;
+          function?: unknown;
+        };
+        const posicion = typeof index === "number" ? index : 0;
+        const acumulada = tools.get(posicion) ?? { args: "" };
+        if (typeof id === "string" && id.length > 0) acumulada.id = id;
+        if (fn && typeof fn === "object") {
+          const { name, arguments: args } = fn as { name?: unknown; arguments?: unknown };
+          if (typeof name === "string" && name.length > 0 && !acumulada.name) {
+            acumulada.name = name;
+          }
+          if (typeof args === "string") acumulada.args += args;
+        }
+        tools.set(posicion, acumulada);
+      }
+    }
+  };
+
+  let pendiente = "";
+  try {
+    while (!terminado) {
+      const { done, value } = await lector.read();
+      if (done) break;
+      pendiente += decodificador.decode(value, { stream: true });
+      let corte: number;
+      while (!terminado && (corte = pendiente.indexOf("\n")) >= 0) {
+        procesarLinea(pendiente.slice(0, corte));
+        pendiente = pendiente.slice(corte + 1);
+      }
+    }
+    if (!terminado) {
+      pendiente += decodificador.decode();
+      if (pendiente.length > 0) procesarLinea(pendiente);
+    }
+  } catch (err) {
+    if (err instanceof LlmProviderError) throw err;
+    // Si fue la señal externa, con su motivo; si no, la conexión se cortó a
+    // mitad de la respuesta (red o el tope por intento). No se reintenta: el
+    // texto ya entregado no se puede desdecir.
+    lanzarSiSeCancelo(signal);
+    const detalle = err instanceof Error ? err.message : String(err);
+    throw new LlmProviderError(`Se cortó la respuesta en streaming de OpenRouter: ${detalle}`);
+  } finally {
+    if (terminado) {
+      // Después de [DONE] no se lee más: se suelta la conexión.
+      lector.cancel().catch(() => undefined);
+    }
+  }
+
+  if (!conChoices) {
+    throw new LlmProviderError("OpenRouter respondió sin choices");
+  }
+
+  const toolCallsCrudos = [...tools.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, t]) => ({ id: t.id, function: { name: t.name, arguments: t.args } }));
+  return {
+    content: texto,
+    toolCallsCrudos: toolCallsCrudos.length > 0 ? toolCallsCrudos : undefined,
+    finishReason,
+    usageCrudo,
+  };
+}
+
 // FACTORY, mismo patrón que crearClienteGoogleCalendar(): recibe su
 // configuración y su fetch en vez de leerlos de un singleton. Es lo que hace
 // que el test unitario exista.
@@ -510,15 +732,11 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
   return {
     name: OPENROUTER_PROVIDER_NAME,
 
-    async complete({
-      systemPrompt,
-      systemPromptCacheable,
-      messages,
-      tools,
-      model,
-      signal,
-      toolChoice,
-    }) {
+    async complete(
+      { systemPrompt, systemPromptCacheable, messages, tools, model, signal, toolChoice },
+      opciones,
+    ) {
+      const alEscribir = opciones?.alEscribir;
       const cuerpo: Record<string, unknown> = {
         model: model ?? config.defaultModel,
         messages: aMensajesDeOpenAi(systemPrompt, messages, systemPromptCacheable),
@@ -566,6 +784,12 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
         // una tool ("required") sería decisión del loop, no del adaptador.
         // "none" lo pide el loop para el cierre de un turno sin rondas.
         cuerpo.tool_choice = toolChoice ?? "auto";
+      }
+
+      // STREAMING (ver arriba de LlmProvider): solo con alEscribir. Sin él, el
+      // cuerpo es el de siempre, sin esta clave.
+      if (alEscribir) {
+        cuerpo.stream = true;
       }
 
       // Ítem 114: hasta REINTENTOS_LLM reintentos ante fallas transitorias.
@@ -625,65 +849,12 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
         throw new LlmProviderError(ultimoError);
       }
 
-      let datos: {
-        choices?: unknown;
-        error?: unknown;
-        usage?: unknown;
-      };
-      try {
-        datos = (await res.json()) as typeof datos;
-      } catch {
-        throw new LlmProviderError("OpenRouter respondió 200 con un cuerpo que no es JSON");
-      }
+      const { content, toolCallsCrudos, finishReason, usageCrudo } = alEscribir
+        ? await leerRespuestaEnStreaming(res, alEscribir, signal)
+        : await leerRespuestaCompleta(res);
 
-      // OpenRouter puede responder 200 con { error } cuando el fallo es del
-      // proveedor de más abajo y no de su propio borde. Un 200 con error no
-      // es un éxito.
-      if (datos.error && typeof datos.error === "object") {
-        const mensaje = (datos.error as { message?: unknown }).message;
-        throw new LlmProviderError(
-          `OpenRouter devolvió un error: ${typeof mensaje === "string" ? mensaje : "sin detalle"}`,
-        );
-      }
-
-      // Un 200 sin choices no es un fallo del modelo: es el proveedor
-      // devolviendo algo que no entendemos, o un intermediario respondiendo
-      // por él.
-      if (!Array.isArray(datos.choices) || datos.choices.length === 0) {
-        throw new LlmProviderError("OpenRouter respondió sin choices");
-      }
-
-      const primera = datos.choices[0] as { message?: unknown; finish_reason?: unknown };
-      const mensaje = primera?.message;
-      if (!mensaje || typeof mensaje !== "object") {
-        throw new LlmProviderError("OpenRouter respondió sin message en el primer choice");
-      }
-
-      const { content, tool_calls: toolCallsCrudos } = mensaje as {
-        content?: unknown;
-        tool_calls?: unknown;
-      };
-
-      // RESPUESTA CORTADA POR LARGO (Taller Demo, 2026-10-18). El tope de
-      // salida cuenta también el razonamiento interno del modelo, que no se ve:
-      // Haiku 5.5 razonó hasta 862 tokens antes de contestar dos líneas, y con
-      // el tope en 1000 la respuesta se cortó. Antes esto no se miraba, y el
-      // corte terminaba de tres formas, ninguna buena: el texto cortado le
-      // llegaba al cliente como respuesta; una tool con los argumentos vacíos
-      // se ejecutaba como {} (search_vehicles sin filtros); o unos argumentos
-      // cortados a mitad del JSON tiraban LlmProviderError y el turno se
-      // derivaba como "el proveedor no respondió".
-      //
-      // Una tool call de una respuesta cortada NO se devuelve: sus argumentos
-      // pueden estar truncados sin que se note (un JSON que cierra antes de
-      // tiempo es válido), y ejecutarla sería actuar con datos que el modelo
-      // no terminó de escribir. El texto sí, marcado: qué hacer con él lo
-      // decide quien llama (el loop del agente reintenta una vez; ver
-      // INSTRUCCION_DE_RESPUESTA_CORTA en agentOrchestration.service.ts). El
-      // aviso va acá para que también quede registrado en los resúmenes y los
-      // borradores, que usan este mismo proveedor.
-      const usage = leerUsage(datos.usage);
-      if (primera.finish_reason === "length") {
+      const usage = leerUsage(usageCrudo);
+      if (finishReason === "length") {
         logger.warn(
           {
             modelo: cuerpo.model,

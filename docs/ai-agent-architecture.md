@@ -194,6 +194,18 @@ model Message {
 
 **Este loop es el mismo para Web y para WhatsApp.** Lo único que cambia entre canales es cómo entra el mensaje y cómo sale la respuesta (sección 5) — la orquestación, la capa de permisos y el registro de auditoría son una sola implementación. Es la razón por la que conviene probar todo esto primero por Web (sección 9): el canal más simple de construir, ninguna aprobación externa de por medio, y si el loop tiene un problema de diseño es mucho más barato encontrarlo ahí que en producción sobre WhatsApp real.
 
+> **Streaming opcional (2026-10-31).** El adaptador de OpenRouter
+> (`llmProvider.service.ts`) puede entregar el texto a medida que el modelo lo
+> escribe: `complete(request, { alEscribir })` pide `stream: true` y llama a
+> `alEscribir` con cada pedazo. Al final devuelve el mismo
+> `LlmCompletionResult` que sin streaming, armado por el mismo código (texto,
+> tool calls, consumo, `cortadaPorLargo`). Está apagado por defecto: sin
+> `alEscribir`, el cuerpo de la llamada es el de siempre, y hoy ningún canal lo
+> pasa. Es para el futuro canal de voz, donde importa el tiempo hasta la
+> primera palabra. Los reintentos ante fallas transitorias cubren solo hasta
+> que OpenRouter contesta. Una vez que empezó a llegar texto, una falla corta
+> la llamada: lo que ya se dijo no se puede desdecir.
+
 ## 5. API interna
 
 - **Canal Web**: `POST /api/public/agents/:branchId/web/messages` — recibe un mensaje del widget embebido en la web del negocio. **Sin `authenticate`**, porque quien escribe es un visitante anónimo del sitio del negocio, no un usuario de este CRM — mismo problema de fondo que ya resolvieron `qrPublic.service.ts` y la capa de ingesta (`ApiKey`) para otros casos de escritura pública. La identidad que hay que validar acá no es "quién es la persona", es "este widget pertenece de verdad a esta sucursal" — probablemente un token de embed por sucursal, análogo a `ApiKey` pero de menor privilegio (solo puede escribir mensajes, no leer nada del CRM). **Diseño exacto pendiente** (sección 10): cómo se identifica/crea el `Contact` de un visitante que todavía no dio ningún dato de contacto real.
