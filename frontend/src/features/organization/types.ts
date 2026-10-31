@@ -44,6 +44,10 @@ export interface OrganizationSettings {
   // clínica; null = sin cargar.
   privacyNoticeText?: string | null;
   privacyPolicyUrl?: string | null;
+  // OPS-03: desde cuándo Meta rechaza el token de WhatsApp de la plataforma.
+  // Solo llega con fecha en una organización que usa la conexión global (no
+  // en una con número propio, como las clínicas); null = nada que avisar.
+  whatsappTokenInvalidoDesde: string | null;
 }
 
 export type OrganizationEdition = "COMPLETA" | "ESENCIAL";

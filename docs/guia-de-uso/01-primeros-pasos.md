@@ -68,7 +68,7 @@ Si no te acordás la contraseña, podés elegir una nueva desde tu email:
    Si no te llega en unos minutos, revisá la carpeta de correo no deseado.
 4. Abrí el enlace. Vas a ver la pantalla **Elegí una nueva contraseña**.
 5. Completá **Contraseña** y **Confirmar contraseña**. Tienen que coincidir y
-   tener al menos 8 caracteres.
+   tener al menos 8 caracteres, con letras y números.
 6. Tocá **Guardar contraseña**.
 7. Volvés a la pantalla de inicio de sesión: ingresá con la contraseña nueva.
 
@@ -91,7 +91,7 @@ un email con un enlace. Para crear tu cuenta:
    equipo (por ejemplo, "Ana Pérez"). Es el nombre que aparece en el menú,
    en las tareas y como vendedor asignado.
 3. Elegí una **Contraseña** y repetila en **Confirmar contraseña** (al menos
-   8 caracteres).
+   8 caracteres, con letras y números).
 4. Tocá **Completar registro**.
 5. Entrás directo al [Dashboard](#dashboard), ya con tu cuenta creada.
 
