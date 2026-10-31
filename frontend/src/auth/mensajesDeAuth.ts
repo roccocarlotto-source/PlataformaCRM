@@ -19,7 +19,7 @@ const DEMASIADOS_INTENTOS = "Demasiados intentos. Probá de nuevo en unos minuto
 const ENLACE_VENCIDO = "Este enlace no es válido o expiró. Pedí uno nuevo.";
 const SESION_VENCIDA = "Tu sesión expiró. Volvé a iniciar sesión o abrí de nuevo el enlace.";
 const CONTRASENA_DEBIL =
-  "La contraseña es demasiado débil. Elegí una más larga, que combine letras y números.";
+  "La contraseña es demasiado débil. Usá al menos 8 caracteres, con letras y números.";
 
 const POR_CODIGO: Record<string, string> = {
   invalid_credentials: "El email o la contraseña no son correctos.",

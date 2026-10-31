@@ -13,6 +13,7 @@ import { useToast } from "../../design-system/useToast";
 import { CURRENCY_OPTIONS, isKnownCurrency } from "../../lib/currencies";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { ORGANIZATION_TIMEZONE_OPTIONS, isKnownOrganizationTimezone } from "../branch/timezones";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { formatDate } from "../opportunity/format";
 import { formatExchangeRate } from "./format";
 import { MensajesDeSaludSection } from "./MensajesDeSaludSection";
@@ -358,6 +359,16 @@ export function OrganizationSettingsPage() {
             </ul>
           )}
         </Card>
+
+        {settings.whatsappTokenInvalidoDesde ? (
+          <Card heading="WhatsApp">
+            <ErrorState>
+              Desde el {formatDateTime(settings.whatsappTokenInvalidoDesde)}, los mensajes de
+              WhatsApp no están saliendo: Meta rechazó la conexión de la plataforma. El equipo de la
+              plataforma ya está avisado y lo está resolviendo.
+            </ErrorState>
+          </Card>
+        ) : null}
 
         <MetaConnectionSection />
 

@@ -51,8 +51,16 @@
   --color-surface-muted: #f0efeb;
   --color-border: #e6e5e0;
   --color-border-strong: #dfddd4;
+  /* UX-05 (docs-privados/auditoria-2026-10-21, local; decisión de Rocco del
+     2026-10-30): el borde de los CAMPOS de formulario, 3,3:1 sobre la
+     superficie (#e6e5e0 era 1,3:1 y casi no se veía). Tarjetas y separadores
+     siguen con --color-border. */
+  --color-border-control: #8f8e85;
   --color-text: #1b1b18;
   --color-text-muted: #57564d;
+  /* UX-04: faint NO es para texto (3,3:1, por debajo del mínimo): solo para
+     íconos, adornos, bordes y estados deshabilitados. El texto secundario va
+     con --color-text-muted (7,4:1). */
   --color-text-faint: #8f8e85;
 
   /* Acción primaria (monocromática) */
@@ -143,6 +151,8 @@
   --color-surface-muted: #262623;
   --color-border: #33332e;
   --color-border-strong: #44443e;
+  /* UX-05: ~4,1:1 sobre --color-surface oscuro. */
+  --color-border-control: #7f7e74;
   --color-text: #f0efe9;
   --color-text-muted: #b1b0a5;
   --color-text-faint: #7f7e74;

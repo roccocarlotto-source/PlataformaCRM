@@ -9,6 +9,11 @@ import { PasswordField } from "../../design-system/PasswordField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { supabase } from "../../lib/supabase";
 import { acceptInvitation } from "./acceptInvitationApi";
+import {
+  cumpleLaPoliticaDeContrasena,
+  LARGO_MINIMO_DE_CONTRASENA,
+  MENSAJE_DE_POLITICA_DE_CONTRASENA,
+} from "../../auth/politicaDeContrasena";
 import { AuthShell } from "./AuthShell";
 
 // Misma regla real que existe hoy en el proyecto para "elegir una
@@ -17,7 +22,6 @@ import { AuthShell } from "./AuthShell";
 // por nuestro backend, se setea directo contra Supabase). La autoridad real
 // sigue siendo la política de contraseña configurada en el proyecto de
 // Supabase — esto es una validación de cortesía, no la defensa real.
-const MIN_PASSWORD_LENGTH = 8;
 
 // Bookkeeping puramente local: recuerda, DENTRO de esta pestaña, que la
 // aceptación backend ya tuvo éxito para un email — nunca una suposición
@@ -164,9 +168,7 @@ export function AcceptInvitationPage() {
 
   function validatePasswords(): string | null {
     if (password !== confirmPassword) return "Las contraseñas no coinciden";
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      return `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`;
-    }
+    if (!cumpleLaPoliticaDeContrasena(password)) return MENSAJE_DE_POLITICA_DE_CONTRASENA;
     return null;
   }
 
@@ -328,7 +330,7 @@ export function AcceptInvitationPage() {
               value={password}
               onChange={setPassword}
               required
-              minLength={MIN_PASSWORD_LENGTH}
+              minLength={LARGO_MINIMO_DE_CONTRASENA}
               autoComplete="new-password"
             />
             <PasswordField
@@ -397,7 +399,7 @@ export function AcceptInvitationPage() {
             value={password}
             onChange={setPassword}
             required
-            minLength={MIN_PASSWORD_LENGTH}
+            minLength={LARGO_MINIMO_DE_CONTRASENA}
             autoComplete="new-password"
           />
           <PasswordField
@@ -462,7 +464,7 @@ export function AcceptInvitationPage() {
           value={password}
           onChange={setPassword}
           required
-          minLength={MIN_PASSWORD_LENGTH}
+          minLength={LARGO_MINIMO_DE_CONTRASENA}
           autoComplete="new-password"
         />
         <PasswordField

@@ -54,12 +54,29 @@ export function contarPreguntasDesde(userId: string, desde: Date, db: Db = prism
 
 /** Lo que costaron todas las preguntas de la plataforma desde `desde`, en
  *  dólares. Las que no informaron costo cuentan 0. */
-export async function gastoDesde(desde: Date, db: Db = prisma): Promise<number> {
-  const { _sum } = await db.helpAssistantQuestion.aggregate({
-    where: { createdAt: { gte: desde } },
-    _sum: { costUsd: true },
-  });
-  return Number(_sum.costUsd ?? 0);
+// AGE-05: lo que se gastó desde `desde`. Una llamada al modelo que no informó
+// su costo (costUsd null, pero con tokens: el modelo respondió) cuenta como
+// `costoSupuestoUsd`; antes sumaba 0 y el freno en dólares no frenaba. Una
+// pregunta que falló antes de llegar al modelo (sin tokens) no cuenta.
+export async function gastoDesde(
+  desde: Date,
+  costoSupuestoUsd: number,
+  db: Db = prisma,
+): Promise<number> {
+  const [{ _sum }, sinCosto] = await Promise.all([
+    db.helpAssistantQuestion.aggregate({
+      where: { createdAt: { gte: desde } },
+      _sum: { costUsd: true },
+    }),
+    db.helpAssistantQuestion.count({
+      where: {
+        createdAt: { gte: desde },
+        costUsd: null,
+        OR: [{ promptTokens: { gt: 0 } }, { completionTokens: { gt: 0 } }],
+      },
+    }),
+  ]);
+  return Number(_sum.costUsd ?? 0) + sinCosto * costoSupuestoUsd;
 }
 
 /** El 👍/👎 de una respuesta, solo de quien preguntó. Devuelve cuántas filas

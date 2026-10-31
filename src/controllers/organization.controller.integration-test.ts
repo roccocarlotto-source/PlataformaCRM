@@ -258,6 +258,7 @@ test("GET /api/organization — sin moneda configurada: las dos en null, sin cot
     edition: "COMPLETA",
     industry: "AUTOMOTORA",
     contactTerm: null,
+    whatsappTokenInvalidoDesde: null,
   });
   for (const interno of ["nextVehicleStockNumber", "slug"]) {
     assert.ok(!crudo.includes(interno), `${interno} no debe salir por la API`);
@@ -331,6 +332,7 @@ test("PATCH /api/organization — null limpia una moneda y USD no pide cotizaci�
     edition: "COMPLETA",
     industry: "AUTOMOTORA",
     contactTerm: null,
+    whatsappTokenInvalidoDesde: null,
   });
 });
 

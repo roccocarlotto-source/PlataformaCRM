@@ -17,6 +17,7 @@ import {
 } from "../routes/gateDeModulos.test-helper";
 import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { contactosConNombreEntre } from "../repositories/contact.repository";
 import { depsDelAsistente, preguntarAlAsistente } from "./helpAssistant.service";
 
 // ---------------------------------------------------------------------------
@@ -89,7 +90,20 @@ test("el registro, el tope sin las que fallaron y el gasto del día", async () =
   await registrarPregunta(fila(u0, { outcome: "NOT_COVERED", costUsd: 0.002 }));
 
   assert.equal(await contarPreguntasDesde(u0, desde), 2, "la que falló no cuenta");
-  assert.ok((await gastoDesde(desde)) >= 0.003 - 1e-9, "suma el costo; la sin costo cuenta 0");
+  assert.ok((await gastoDesde(desde, 0)) >= 0.003 - 1e-9, "suma el costo");
+  // AGE-05: una llamada sin costo informado pero con tokens (el modelo
+  // respondió) suma el supuesto; una sin tokens (no llegó al modelo), no.
+  const extra = async () => (await gastoDesde(desde, 0.5)) - (await gastoDesde(desde, 0));
+  const antes = await extra();
+  await registrarPregunta(fila(u0, { outcome: "ANSWERED", costUsd: null }));
+  assert.ok(
+    Math.abs((await extra()) - antes - 0.5) < 1e-9,
+    "con tokens y sin costo: suma el supuesto",
+  );
+  await registrarPregunta(
+    fila(u0, { outcome: "ERROR", costUsd: null, promptTokens: 0, completionTokens: 0 }),
+  );
+  assert.ok(Math.abs((await extra()) - antes - 0.5) < 1e-9, "sin tokens: no suma");
 
   const guardada = await prisma.helpAssistantQuestion.findFirstOrThrow({
     where: { userId: u0, outcome: "NOT_COVERED" },
@@ -237,5 +251,35 @@ test("informe de Plataforma: solo el platform admin; agrupa, filtra y nunca dice
     assert.equal((await informe(token1, "")).status, 403);
   } finally {
     await prisma.platformAdmin.delete({ where: { userId: u0 } });
+  }
+});
+
+// AGE-04: los candidatos salen de la base por primer nombre Y primer apellido,
+// solo de esta organización y sin los borrados.
+test("AGE-04: contactosConNombreEntre trae a quien tiene nombre y apellido entre las palabras", async () => {
+  const crear = (firstName: string, lastName: string, deletedAt: Date | null = null) =>
+    prisma.contact.create({ data: { organizationId: org.id, firstName, lastName, deletedAt } });
+  const creados = await Promise.all([
+    crear("Sol", "Pérez"),
+    crear("Juan Carlos", "Gómez Ruiz"),
+    crear("Sol", "Martínez"),
+    crear("Ana", "Pérez", new Date()),
+  ]);
+  try {
+    const encontrados = await contactosConNombreEntre(org.id, [
+      "sol",
+      "pérez",
+      "juan",
+      "gómez",
+      "ana",
+    ]);
+    assert.deepEqual(
+      encontrados.map((c) => `${c.firstName} ${c.lastName}`).sort(),
+      ["Juan Carlos Gómez Ruiz", "Sol Pérez"],
+      "Sol Martínez no (falta su apellido) y Ana Pérez no (borrada)",
+    );
+    assert.deepEqual(await contactosConNombreEntre(org.id, []), []);
+  } finally {
+    await prisma.contact.deleteMany({ where: { id: { in: creados.map((c) => c.id) } } });
   }
 });

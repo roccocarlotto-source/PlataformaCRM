@@ -37,6 +37,9 @@ const preguntaSchema = z
           .object({
             pregunta: z.string().max(LARGO_MAXIMO_DE_LA_PREGUNTA),
             respuesta: z.string().max(4000),
+            // AGE-01: opcional para no romper un navegador con la versión
+            // anterior de la app; sin firma válida, el par se descarta.
+            firma: z.string().max(100).optional(),
           })
           .strict(),
       )
