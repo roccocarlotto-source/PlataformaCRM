@@ -6,6 +6,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import type { Agent } from "../agent/types";
+import { AvisoDelTokenDeWhatsapp } from "./AvisoDelTokenDeWhatsapp";
 import { useAssignWhatsappNumber } from "./mutations";
 import { AgenteSelect, OrganizacionSelect } from "./SelectoresDeAgente";
 
@@ -98,6 +99,7 @@ export function AgentWhatsappNumberPage() {
   return (
     <form onSubmit={handleSubmit} className="ds-form">
       <PageHeader help={AYUDA.numeroDeWhatsapp} title="Número de WhatsApp de un agente" />
+      <AvisoDelTokenDeWhatsapp />
       <div className="ds-stack">
         <Card heading="Asignación">
           <div className="ds-field-grid">

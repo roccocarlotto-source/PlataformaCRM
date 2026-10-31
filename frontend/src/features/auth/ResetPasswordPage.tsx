@@ -7,6 +7,11 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { PasswordField } from "../../design-system/PasswordField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { supabase } from "../../lib/supabase";
+import {
+  cumpleLaPoliticaDeContrasena,
+  LARGO_MINIMO_DE_CONTRASENA,
+  MENSAJE_DE_POLITICA_DE_CONTRASENA,
+} from "../../auth/politicaDeContrasena";
 import { AuthShell } from "./AuthShell";
 
 // Misma regla real que AcceptInvitationPage.tsx (password mínimo 8) — sin
@@ -14,7 +19,6 @@ import { AuthShell } from "./AuthShell";
 // se setea directo contra Supabase. Redeclarada acá en vez de importada:
 // mismo criterio que onboarding.schema.ts, cada punto de "elegir password"
 // es dueño de su propia constante hasta que exista una política compartida.
-const MIN_PASSWORD_LENGTH = 8;
 
 // R1.3 — el link de recuperación (redirectTo de ForgotPasswordPage) trae un
 // token que supabase-js ya consume solo (detectSessionInUrl: true, ver
@@ -38,9 +42,7 @@ export function ResetPasswordPage() {
 
   function validatePasswords(): string | null {
     if (password !== confirmPassword) return "Las contraseñas no coinciden";
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      return `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`;
-    }
+    if (!cumpleLaPoliticaDeContrasena(password)) return MENSAJE_DE_POLITICA_DE_CONTRASENA;
     return null;
   }
 
@@ -123,7 +125,7 @@ export function ResetPasswordPage() {
           value={password}
           onChange={setPassword}
           required
-          minLength={MIN_PASSWORD_LENGTH}
+          minLength={LARGO_MINIMO_DE_CONTRASENA}
           autoComplete="new-password"
         />
         <PasswordField

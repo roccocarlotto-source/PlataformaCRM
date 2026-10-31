@@ -68,7 +68,7 @@ Si no te acordás la contraseña, podés elegir una nueva desde tu email:
    Si no te llega en unos minutos, revisá la carpeta de correo no deseado.
 4. Abrí el enlace. Vas a ver la pantalla **Elegí una nueva contraseña**.
 5. Completá **Contraseña** y **Confirmar contraseña**. Tienen que coincidir y
-   tener al menos 8 caracteres.
+   tener al menos 8 caracteres, con letras y números.
 6. Tocá **Guardar contraseña**.
 7. Volvés a la pantalla de inicio de sesión: ingresá con la contraseña nueva.
 
@@ -91,7 +91,7 @@ un email con un enlace. Para crear tu cuenta:
    equipo (por ejemplo, "Ana Pérez"). Es el nombre que aparece en el menú,
    en las tareas y como vendedor asignado.
 3. Elegí una **Contraseña** y repetila en **Confirmar contraseña** (al menos
-   8 caracteres).
+   8 caracteres, con letras y números).
 4. Tocá **Completar registro**.
 5. Entrás directo al [Dashboard](#dashboard), ya con tu cuenta creada.
 
@@ -340,7 +340,10 @@ Qué tener en cuenta:
   dónde verlo o, si lo tenés, que se lo pidas al agente interno.
 - Responde con lo que dice esta guía para tu cuenta. Si algo lo hace un
   administrador, te lo dice; si la guía no lo cubre, también.
-- No escribas datos de clientes en la pregunta: no hacen falta.
+- No escribas datos de clientes en la pregunta: no hacen falta. Si se te
+  escapa alguno, antes de mandarla se tapan los emails, los teléfonos, los
+  documentos, las patentes en mayúsculas y el nombre y apellido de tus
+  contactos.
 - Abajo de cada respuesta podés marcar si te sirvió. Eso nos ayuda a mejorar
   la guía.
 - Hay un máximo de preguntas por día. Cuando quedan pocas te lo avisa, y al
