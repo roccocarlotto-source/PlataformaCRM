@@ -559,3 +559,15 @@ test("el agente interno (ítem 179): el chat y la configuración están montados
     assert.equal(res.status, 401, `${method} ${path} no está montado`);
   }
 });
+
+// OPS-09: el id del request vuelve en la respuesta, también cuando el request
+// muere en authenticate o en notFound (pino-http lo asigna antes que todo).
+test("OPS-09: toda respuesta lleva X-Request-Id, y uno entrante con forma de id se devuelve igual", async () => {
+  const noAutorizado = await fetch(`${baseUrl}/api/contacts`);
+  assert.match(noAutorizado.headers.get("x-request-id") ?? "", /^[0-9a-f-]{36}$/);
+
+  const conId = await fetch(`${baseUrl}/api/esta-ruta-no-existe`, {
+    headers: { "X-Request-Id": "pedido-de-prueba-123" },
+  });
+  assert.equal(conId.headers.get("x-request-id"), "pedido-de-prueba-123");
+});

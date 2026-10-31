@@ -786,6 +786,9 @@ const envSchema = z.object({
   RENDER_EXTERNAL_URL: z
     .preprocess((valor) => (valor === "" ? undefined : valor), z.string().url().optional())
     .transform((valor) => valor?.replace(/\/+$/, "")),
+  // El commit desplegado, que Render define solo en cada deploy (OPS-08). Sale
+  // en /health y en el log de arranque, recortado (config/operacion.ts).
+  RENDER_GIT_COMMIT: z.string().optional(),
 
   // -------------------------------------------------------------------------
   // Proveedor de LLM — módulo de Agentes de IA (docs/ai-agent-architecture.md,
