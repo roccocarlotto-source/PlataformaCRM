@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { CATALOGO_DE_TOOLS } from "../services/agentTools.service";
 import { SIN_REGLAS, reglasDelRubro } from "../services/reglasDelRubro";
 import { ordenParaElPrimeroLibre } from "./services/agendaClinica.service";
+import { TOOLS_DE_TURNOS_DE_AUTOMOTORA } from "../automotora/toolsDeTurnos";
 import { TOOLS_DE_AGENDA_DE_CLINICA } from "./toolsDeAgenda";
 
 // ---------------------------------------------------------------------------
@@ -59,8 +60,11 @@ test("las tools de agenda de una clínica reemplazan a las del catálogo con el 
   }
 });
 
-test("solo CLINICA tiene tools propias; una automotora, ninguna", () => {
+test("solo CLINICA tiene tools propias; una automotora, ninguna (solo sus tools de turnos)", () => {
   assert.equal(reglasDelRubro("CLINICA").toolsPropias, TOOLS_DE_AGENDA_DE_CLINICA);
   assert.deepEqual(reglasDelRubro("AUTOMOTORA").toolsPropias, {});
-  assert.equal(reglasDelRubro("AUTOMOTORA"), SIN_REGLAS);
+  // Desde el 2026-10-31, lo único que una automotora suma: ver, reprogramar y
+  // cancelar turnos (src/automotora/toolsDeTurnos.ts).
+  assert.equal(reglasDelRubro("AUTOMOTORA").toolsExclusivas, TOOLS_DE_TURNOS_DE_AUTOMOTORA);
+  assert.deepEqual({ ...reglasDelRubro("AUTOMOTORA"), toolsExclusivas: {} }, SIN_REGLAS);
 });

@@ -539,13 +539,24 @@ export interface TextosDelPrompt {
   cierrePorTope: string;
 }
 
+// Ver, reprogramar y cancelar turnos en una automotora (decisión de Rocco,
+// 2026-10-31): va solo si este turno se le ofrece al modelo alguna de las tools
+// de turnos (src/automotora/toolsDeTurnos.ts). Sin ellas, el prompt de siempre.
+export const INSTRUCCION_GESTION_DE_TURNOS_DE_AUTOMOTORA =
+  "Si el cliente quiere ver, cambiar o cancelar un turno suyo (una prueba de manejo, una visita), primero usá get_contact_bookings para ver sus turnos: nunca supongas cuál es. " +
+  "Antes de reprogramar (reschedule_booking), confirmá con el cliente qué turno es y el día y la hora nuevos; recién con su confirmación usá la herramienta. " +
+  "Cancelar va en dos pasos: primero llamá a cancel_booking sin confirmado y te devuelve un resumen del turno; mostráselo al cliente y preguntale si confirma que lo quiere cancelar. Recién cuando te conteste que sí, en su mensaje siguiente, volvé a llamarla con confirmado: true. Hasta entonces el turno NO está cancelado: no le digas que lo cancelaste. " +
+  "Para un horario nuevo, ofrecé solo los que te devuelve get_availability. " +
+  "Si la herramienta dice que no se puede, o si tenés dudas, no insistas ni busques otra vía: decíselo con claridad y derivá a una persona del equipo.";
+
 // Función y no constante: MENSAJE_DE_FUGA_BLOQUEADA se declara más abajo.
-export function textosDeAutomotora(): TextosDelPrompt {
+// conGestionDeTurnos: si este turno se ofrece alguna tool de turnos.
+export function textosDeAutomotora(conGestionDeTurnos = false): TextosDelPrompt {
   return {
     sinAutoridadComercial: INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
     soloLoQueTeConsta: INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
     iniciativa: INSTRUCCION_OPORTUNIDAD_CON_INICIATIVA,
-    gestionDeTurnos: null,
+    gestionDeTurnos: conGestionDeTurnos ? INSTRUCCION_GESTION_DE_TURNOS_DE_AUTOMOTORA : null,
     mensajeDeFugaBloqueada: MENSAJE_DE_FUGA_BLOQUEADA,
     cierrePorTope: INSTRUCCION_DE_CIERRE_POR_TOPE,
   };
@@ -2848,12 +2859,12 @@ async function responderSinMedir(
     ? reglas.toolsDelSistema(knowledgeBaseEntries)
     : [];
   // §3.2 (R11): los textos del rubro. En AUTOMOTORA, las constantes de siempre.
+  const conGestionDeTurnos = tools.some((t) =>
+    Object.hasOwn(reglas.toolsExclusivas, t.definition.name),
+  );
   const textos = reglas.textosDelPrompt
-    ? await reglas.textosDelPrompt(
-        organizationId,
-        tools.some((t) => Object.hasOwn(reglas.toolsExclusivas, t.definition.name)),
-      )
-    : textosDeAutomotora();
+    ? await reglas.textosDelPrompt(organizationId, conGestionDeTurnos)
+    : textosDeAutomotora(conGestionDeTurnos);
   const systemPrompt = armarSystemPrompt(
     agent,
     knowledgeBaseEntries,

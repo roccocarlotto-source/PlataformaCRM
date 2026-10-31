@@ -276,7 +276,7 @@ test("toolDelRubro en CLINICA coincide con la tabla de §5.1", () => {
   ]);
 });
 
-test("R11: las tools de turnos son solo de clínica, por su módulo agenda_clinica", () => {
+test("R11: las tools de turnos dependen del módulo agenda_clinica en una clínica; una automotora las tiene siempre (2026-10-31)", () => {
   for (const edition of EDICIONES) {
     for (const [nombre, modulo] of Object.entries(MODULO_DE_LA_TOOL_DE_CLINICA)) {
       assert.equal(modulo, "agenda_clinica");
@@ -284,8 +284,8 @@ test("R11: las tools de turnos son solo de clínica, por su módulo agenda_clini
         toolDelRubro(nombre, edition, "CLINICA"),
         modulosDe(edition, "CLINICA").has(modulo),
       );
-      assert.equal(toolDelRubro(nombre, edition, "AUTOMOTORA"), false);
-      // No están en el catálogo común: el de una automotora no cambia.
+      assert.equal(toolDelRubro(nombre, edition, "AUTOMOTORA"), true);
+      // No están en el catálogo común: entran por las tools exclusivas del rubro.
       assert.equal(CATALOGO_DE_TOOLS.has(nombre), false);
     }
   }

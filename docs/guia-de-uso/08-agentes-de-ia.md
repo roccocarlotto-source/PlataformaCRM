@@ -206,6 +206,18 @@ antes de reservar un turno.
 servicio, en uno de los horarios que encontró libres. La duración la define
 el tipo de servicio.
 
+**Ver turnos del cliente.** Lista los próximos turnos del cliente de la
+conversación en esa sucursal (pruebas de manejo, visitas). La usa antes de
+reprogramar o cancelar, para saber de qué turno se trata.
+
+**Reprogramar turno.** Cambia el día o la hora de un turno del cliente, con
+las mismas reglas que al reservar. Le avisa a su vendedor. Ver
+[Cambiar o cancelar turnos por chat](#cambiar-o-cancelar-turnos).
+
+**Cancelar turno.** Cancela un turno del cliente, siempre con su
+confirmación. Le avisa a su vendedor. Ver
+[Cambiar o cancelar turnos por chat](#cambiar-o-cancelar-turnos).
+
 **Ver tipos de servicio.** Lista los servicios que ofrece la sucursal, con su
 duración y el recurso al que pertenecen. La usa antes de consultar
 disponibilidad, para saber qué servicio pide el cliente.
@@ -281,6 +293,33 @@ oportunidad** ni marca al contacto **«sin interés»** hasta que esté
 identificado así, y de sus tareas pendientes solo ve el tipo y la fecha, no
 el asunto, que es texto interno del equipo. Por WhatsApp, Messenger e
 Instagram nada de esto cambia: un «no me escribas más» se respeta siempre.
+
+## Cambiar o cancelar turnos por chat {#cambiar-o-cancelar-turnos}
+
+Si el agente está en el nivel **Responde sola**, puede ver, reprogramar y
+cancelar los turnos del cliente con el que está hablando (por ejemplo, mover
+una prueba de manejo al jueves). Para eso, en **Acciones habilitadas** activá
+**Ver turnos del cliente**, **Reprogramar turno** y **Cancelar turno**, junto
+con **Consultar disponibilidad** para que pueda ofrecer horarios. En el nivel
+**Primer contacto** el agente no cambia turnos: toma los datos y lo hace una
+persona.
+
+- Antes de reprogramar, el agente le confirma al cliente qué turno es y el día
+  y la hora nuevos. Es el mismo turno, movido: no crea uno nuevo.
+- **Cancelar va en dos pasos.** Primero el agente le muestra al cliente el
+  turno y le pregunta si confirma que lo quiere cancelar. Recién cuando el
+  cliente contesta que sí, en su mensaje siguiente, el turno se cancela.
+- Solo ofrece horarios libres del calendario y solo toca turnos de ese cliente
+  y de la sucursal de la conversación. Un turno que ya empezó o ya pasó no lo
+  cambia.
+- **Tu vendedor se entera.** Cada cambio deja una nota en la ficha del cliente
+  y una **tarea** para su vendedor (o, si no tiene, para el vendedor por
+  defecto de la sucursal), con el horario de antes y el de ahora. La tarea
+  vence en el momento, así aparece arriba en **Mis tareas**. Si no hay
+  ninguno de los dos, queda solo la nota.
+- Si tenés Google Calendar conectado, el evento se mueve o se borra solo.
+- Si algo no se puede (no hay horarios, el turno ya pasó, hay dudas), el
+  agente se lo dice al cliente y te pasa la conversación.
 
 ## Reglas del agente {#reglas}
 

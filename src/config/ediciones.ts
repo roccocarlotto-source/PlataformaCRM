@@ -777,10 +777,11 @@ export const MODULO_DE_LA_TOOL: Readonly<Record<string, Modulo>> = {
   get_payment_info: "sucursales",
 };
 
-/** Tools que existen solo en una clínica (R11, docs/rubros.md §5.1): no están
- *  en CATALOGO_DE_TOOLS (el de una automotora no cambia) sino en
- *  ReglasDelRubro.toolsExclusivas, con su módulo acá. Una automotora no las
- *  tiene aunque enabledTools las nombre. */
+/** Las tools de turnos (R11, docs/rubros.md §5.1): no están en
+ *  CATALOGO_DE_TOOLS sino en ReglasDelRubro.toolsExclusivas de cada rubro.
+ *  Acá, su módulo en una clínica. Desde el 2026-10-31 una automotora también
+ *  las tiene (src/automotora/toolsDeTurnos.ts): como todas sus tools, sin
+ *  módulo que las condicione. */
 export const MODULO_DE_LA_TOOL_DE_CLINICA: Readonly<Record<string, Modulo>> = {
   get_contact_bookings: "agenda_clinica",
   reschedule_booking: "agenda_clinica",
@@ -802,7 +803,7 @@ export function toolDelRubro(
   edition: OrganizationEdition,
   industry: OrganizationIndustry,
 ): boolean {
-  if (industry === "AUTOMOTORA") return !Object.hasOwn(MODULO_DE_LA_TOOL_DE_CLINICA, nombre);
+  if (industry === "AUTOMOTORA") return true;
   if (TOOLS_FUERA_DEL_RUBRO[industry].has(nombre)) return false;
   const modulo = Object.hasOwn(MODULO_DE_LA_TOOL, nombre)
     ? MODULO_DE_LA_TOOL[nombre]

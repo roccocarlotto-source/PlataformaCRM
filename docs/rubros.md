@@ -490,7 +490,7 @@ fijos, es idéntico byte a byte antes y después del cambio.
 | `force` (solo ADMIN): saltea horario y grilla, **no** la capacidad | ✅ | `booking.service.ts:92-97`, `157-164` |
 | Cancelar | ✅ | `booking.service.ts:415-454` |
 | Google Calendar: una conexión y **un calendario** por sucursal | ✅ | booking-architecture §4 |
-| Reprogramar | ❌ a propósito | `booking.service.ts:33-37` |
+| Reprogramar | ❌ a propósito (desde el 2026-10-31, solo por el agente: ver la actualización de R11 en §5.1) | `booking.service.ts:33-37` |
 | Pasar a `COMPLETED` / `NO_SHOW` | ❌ | ningún código lo hace |
 | Eventos de turno (outbox) | ❌ | `booking.service.ts:39-42` |
 | Bloqueos puntuales | ❌ | booking-architecture §3 |
@@ -1133,6 +1133,35 @@ En los mismos dos lugares: `toolsHabilitadas` (`agentTools.service.ts:2913`) y
 >   por chat", solo ADMIN: `GET`/`PUT /api/clinica/sedes/:branchId/configuracion`
 >   (módulo `agenda_clinica`), entero de 0 a 8760 o `null`. Sin valor por
 >   defecto: una sede nueva no tiene plazo.
+>
+> **Actualización 2026-10-31 — también en AUTOMOTORA** (decisión de Rocco, para
+> el agente de voz y para WhatsApp/web). Una automotora tiene las mismas tres
+> tools, con una sola implementación:
+>
+> - `src/clinicas/toolsDeTurnos.ts` las arma con `crearToolsDeTurnos(textos,
+>   opciones)`; los textos de clínica no cambiaron.
+>   `src/automotora/toolsDeTurnos.ts` pasa los de automotora ("cliente",
+>   "servicio", "recurso", "sucursal") y entran por
+>   `REGLAS_DE_AUTOMOTORA.toolsExclusivas`. `toolDelRubro(AUTOMOTORA)` da
+>   `true` para ellas, como para todas las de una automotora.
+> - **Aviso al vendedor** (solo automotora): además de la nota, una **tarea**
+>   para el vendedor del cliente (si no, el vendedor por defecto de la
+>   sucursal; sin ninguno, solo la nota), con el horario de antes y el de
+>   ahora, que vence en el momento. En la misma transacción que el cambio
+>   (`reprogramarTurno` y `cancelBooking` aceptan un gancho `enLaTransaccion`).
+> - **Sin eventos de turno** (R10): `reprogramarTurno` emite
+>   `booking.rescheduled` solo si quien reprograma no es de una automotora,
+>   igual que agendar y cancelar.
+> - **Prompt:** con alguna de las tres ofrecida, la automotora suma
+>   `INSTRUCCION_GESTION_DE_TURNOS_DE_AUTOMOTORA` (`textosDeAutomotora(true)`).
+>   Sin ellas, el prompt de siempre (el snapshot no cambia).
+> - **Plazo mínimo:** se lee el mismo `minHoursToChangeBooking` por sucursal;
+>   una automotora no tiene la fila de configuración, así que no hay plazo.
+>   **Pendiente:** hacerlo editable en una automotora (pantalla y endpoint).
+> - La ruta HTTP de reprogramar (`/api/clinica/...`) sigue siendo solo de
+>   clínica (403 RUBRO en una automotora): en una automotora reprograma solo
+>   el agente.
+>
 > - **Detector de salud:** "costra*" con un error de tipeo agarraba "contraoferta",
 >   "contrato" o "en contra" (la raíz con tolerancia se comparaba contra el
 >   comienzo de cualquier palabra). Ahora, con un error de tipeo, lo que sigue a

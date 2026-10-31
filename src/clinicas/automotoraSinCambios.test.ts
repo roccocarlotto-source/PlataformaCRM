@@ -593,8 +593,16 @@ test("el alta de una automotora no crea nada de clínica, aunque CLINICA se habi
 // base, en src/clinicas/guardrailsDeSalud.integration-test.ts).
 // ---------------------------------------------------------------------------
 
-test("las reglas del rubro de una automotora están vacías: ningún verificador, instrucción ni campo recortado", () => {
-  assert.deepEqual(reglasDelRubro("AUTOMOTORA"), SIN_REGLAS);
+const TOOLS_DE_TURNOS = ["get_contact_bookings", "reschedule_booking", "cancel_booking"];
+
+test("las reglas del rubro de una automotora están vacías: ningún verificador, instrucción ni campo recortado (salvo sus tools de turnos)", () => {
+  // Desde el 2026-10-31 una automotora tiene las tools de turnos (ver, reprogramar,
+  // cancelar; decisión de Rocco). Todo lo demás, vacío como siempre.
+  assert.deepEqual(
+    Object.keys(reglasDelRubro("AUTOMOTORA").toolsExclusivas).sort(),
+    TOOLS_DE_TURNOS.slice().sort(),
+  );
+  assert.deepEqual({ ...reglasDelRubro("AUTOMOTORA"), toolsExclusivas: {} }, SIN_REGLAS);
   assert.deepEqual(SIN_REGLAS, {
     entradaPrioritaria: [],
     entrada: [],
@@ -628,12 +636,11 @@ test("D11 revisada: el contexto de las reglas de una automotora es solo el nombr
 });
 
 // ---------------------------------------------------------------------------
-// R11: las tools de turnos y los textos del rubro (§3.2) son solo de clínica.
+// R11: los textos del rubro (§3.2) son solo de clínica. Las tools de turnos,
+// desde el 2026-10-31, también de una automotora (con sus textos).
 // ---------------------------------------------------------------------------
 
-const TOOLS_DE_TURNOS = ["get_contact_bookings", "reschedule_booking", "cancel_booking"];
-
-test("R11: una automotora no ve ni ejecuta las tools de turnos aunque enabledTools las nombre", () => {
+test("R11: el catálogo de una automotora no cambia; las tools de turnos entran aparte y se pueden ejecutar si enabledTools las nombra", () => {
   for (const edition of EDICIONES) {
     const organizacion: OrganizacionDelAgente = { edition, industry: "AUTOMOTORA" };
     assert.deepEqual(
@@ -643,11 +650,11 @@ test("R11: una automotora no ve ni ejecuta las tools de turnos aunque enabledToo
       TOOLS_DE_HOY,
     );
     for (const nombre of TOOLS_DE_TURNOS) {
-      assert.equal(toolDelRubro(nombre, edition, "AUTOMOTORA"), false, nombre);
+      assert.equal(toolDelRubro(nombre, edition, "AUTOMOTORA"), true, nombre);
       assert.equal(
         puedeEjecutarTool({ enabledTools: [nombre], guardrails: {}, organizacion }, nombre, {}, {})
           .allowed,
-        false,
+        true,
         `${edition}: ${nombre}`,
       );
     }
