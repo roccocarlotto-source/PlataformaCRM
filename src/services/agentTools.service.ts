@@ -66,6 +66,7 @@ import type { OrganizacionDelAgente } from "./agentPermissions.service";
 import type { LlmToolDefinition } from "./llmProvider.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
 import { resolverOwnerDelContacto } from "./ownership.service";
+import { MAX_OPCIONES } from "../utils/camposPersonalizados";
 
 // ---------------------------------------------------------------------------
 // Catálogo de tools del agente de IA (docs/ai-agent-architecture.md §7) y sus
@@ -2180,7 +2181,14 @@ const customFieldsArgs = z
     campos: z.record(
       z.string().min(1).max(60),
       // El arreglo es el valor COMPLETO de una selección múltiple.
-      z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()]),
+      z.union([
+        z.string(),
+        z.number(),
+        z.boolean(),
+        // Una selección múltiple no puede tener más opciones que su lista.
+        z.array(z.string()).max(MAX_OPCIONES),
+        z.null(),
+      ]),
     ),
   })
   .strict()

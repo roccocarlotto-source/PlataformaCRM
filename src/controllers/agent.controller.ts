@@ -33,7 +33,12 @@ const channelSchema = enumNativo(ConversationChannel, {
   error: () => `channels solo admite ${Object.values(ConversationChannel).join(", ")}`,
 });
 
-const channelsSchema = z.array(channelSchema).transform(sinDuplicados);
+// .max(): sin tope, zod 4 valida todos los elementos de una lista enorme
+// antes de rechazarla (un error por elemento). Hay cuatro canales.
+const channelsSchema = z
+  .array(channelSchema)
+  .max(20, "channels no puede tener más de 20 elementos")
+  .transform(sinDuplicados);
 
 // Objeto JSON plano. z.record rechaza arrays y null (parsedType distinto de
 // "object"), que es exactamente la forma que §6 documenta para guardrails.
