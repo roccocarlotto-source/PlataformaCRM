@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { PageHeader } from "./PageHeader";
+import { OrganizacionDeLaPestana } from "./tituloDeLaPestana";
 
 function renderHeader(ui: ReactNode) {
   return render(<MemoryRouter>{ui}</MemoryRouter>);
@@ -40,5 +41,33 @@ describe("PageHeader", () => {
     );
     expect(screen.getByText("Actividades asignadas a vos.")).toHaveClass("ds-page-subtitle");
     expect(screen.getByRole("button", { name: "Nueva tarea" })).toBeInTheDocument();
+  });
+});
+
+// UX-08: la pestaña dice qué pantalla es y de qué organización.
+describe("PageHeader — título de la pestaña", () => {
+  it("'<pantalla> · <organización>' dentro de AppLayout, y vuelve al genérico al salir", () => {
+    const { unmount } = renderHeader(
+      <OrganizacionDeLaPestana.Provider value="Automotora Centro">
+        <PageHeader title="Contactos" />
+      </OrganizacionDeLaPestana.Provider>,
+    );
+    expect(document.title).toBe("Contactos · Automotora Centro");
+    unmount();
+    expect(document.title).toBe("Plataforma CRM");
+  });
+
+  it("sin organización (fuera de AppLayout): '<pantalla> · Plataforma CRM'", () => {
+    renderHeader(<PageHeader title="Ayuda" />);
+    expect(document.title).toBe("Ayuda · Plataforma CRM");
+  });
+
+  it("con tituloDePestana, la pestaña no repite el encabezado (que puede llevar datos de alguien)", () => {
+    renderHeader(
+      <OrganizacionDeLaPestana.Provider value="Taller Ficticio">
+        <PageHeader title="OS-0042 · Gol ABC 1234" tituloDePestana="Orden de servicio" />
+      </OrganizacionDeLaPestana.Provider>,
+    );
+    expect(document.title).toBe("Orden de servicio · Taller Ficticio");
   });
 });

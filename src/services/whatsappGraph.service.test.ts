@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { afterEach, mock, test } from "node:test";
+import { logger } from "../lib/logger";
+import { tokenDeWhatsappInvalidoDesde } from "./estadoDelTokenDeWhatsapp";
 import {
   buildDeleteTemplateUrl,
   buildMediaUrl,
@@ -518,4 +520,48 @@ test("uploadTemplateSampleReal: un 4xx al subir es un WhatsappGraphError; un 2xx
   await assert.rejects(uploadTemplateSampleReal(entrada), (err) => {
     return err instanceof WhatsappGraphError && err.status === 502;
   });
+});
+
+// OPS-03: el token es uno para toda la plataforma. Un 190 lo marca inválido
+// (una sola línea de error) y la próxima respuesta buena lo da por bueno.
+test("OPS-03: un 190 de Meta marca el token global inválido, una sola vez; una respuesta buena lo limpia", async () => {
+  const errores = mock.method(logger, "error", () => undefined);
+  const infos = mock.method(logger, "info", () => undefined);
+  try {
+    const rechazo = () =>
+      new Response(
+        JSON.stringify({ error: { message: "Error validating access token", code: 190 } }),
+        { status: 401 },
+      );
+    doblarFetch(rechazo());
+    await assert.rejects(sendWhatsappTemplateReal(PLANTILLA));
+    const desde = tokenDeWhatsappInvalidoDesde();
+    assert.ok(desde, "queda marcado");
+
+    doblarFetch(rechazo());
+    await assert.rejects(sendWhatsappTemplateReal(PLANTILLA));
+    assert.equal(tokenDeWhatsappInvalidoDesde(), desde, "el 'desde' es el del primer rechazo");
+    assert.equal(errores.mock.callCount(), 1, "una línea por caída, no una por envío");
+
+    doblarFetch(new Response("{}", { status: 200 }));
+    await sendWhatsappTemplateReal(PLANTILLA);
+    assert.equal(tokenDeWhatsappInvalidoDesde(), null);
+    assert.equal(infos.mock.callCount(), 1);
+  } finally {
+    errores.mock.restore();
+    infos.mock.restore();
+  }
+});
+
+test("OPS-03: otro 4xx de Meta (no 190) no toca el estado del token", async () => {
+  doblarFetch(
+    new Response(
+      JSON.stringify({ error: { message: "Template name does not exist", code: 132001 } }),
+      {
+        status: 404,
+      },
+    ),
+  );
+  await assert.rejects(sendWhatsappTemplateReal(PLANTILLA));
+  assert.equal(tokenDeWhatsappInvalidoDesde(), null);
 });

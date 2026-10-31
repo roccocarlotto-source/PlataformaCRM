@@ -8,6 +8,7 @@ import {
   desactivarModuloHandler,
   listEditionsHandler,
   listIndustriesHandler,
+  estadoDelTokenDeWhatsappHandler,
   listLlmUsageHandler,
   listOrganizationsHandler,
   previaDeActivacionHandler,
@@ -175,6 +176,15 @@ organizationAdminRouter.post(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   reenviarInvitacionDelAdministradorHandler,
+);
+
+// OPS-03: el estado del token global de WhatsApp, misma cadena.
+organizationAdminRouter.get(
+  "/admin/whatsapp-token",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  estadoDelTokenDeWhatsappHandler,
 );
 
 // B4: el gasto en el modelo por organización (últimos 30 días), misma cadena.

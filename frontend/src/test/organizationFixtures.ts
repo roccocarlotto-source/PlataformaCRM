@@ -36,6 +36,7 @@ export function makeOrganizationSettings(
     edition: "COMPLETA",
     industry: "AUTOMOTORA",
     contactTerm: null,
+    whatsappTokenInvalidoDesde: null,
     ...overrides,
   };
 }

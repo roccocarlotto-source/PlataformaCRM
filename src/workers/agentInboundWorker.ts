@@ -52,6 +52,7 @@ import {
   RESPUESTA_TIPO_NO_SOPORTADO,
   esEntranteNoSoportado,
 } from "../services/whatsappWebhook.service";
+import { esAdjuntoDeMeta } from "../services/metaWebhook.service";
 import { AppError } from "../utils/AppError";
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
 import { cupoDeTurnosPorDefecto, maximoPorGrupoPorDefecto } from "../utils/limitadorDeTurnos";
@@ -579,7 +580,12 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
       // por el modelo. El cliente recibe la respuesta fija y las dos cosas
       // quedan en la conversación. Si una persona atiende el hilo, tampoco
       // esto: el agente no habla.
-      if (job.channel === ConversationChannel.WHATSAPP && esEntranteNoSoportado(entrante.content)) {
+      // PR-6: por Messenger e Instagram, lo mismo con una foto, un audio o un
+      // sticker sin texto (todavía no se le pasan al agente).
+      const conRespuestaFija =
+        (job.channel === ConversationChannel.WHATSAPP && esEntranteNoSoportado(entrante.content)) ||
+        (esCanalDeMeta(job.channel) && esAdjuntoDeMeta(entrante.content));
+      if (conRespuestaFija) {
         if (await humanoAtiendeLaConversacion(conversacionActual)) {
           await markAgentInboundJobDone(job);
           return "respondido";

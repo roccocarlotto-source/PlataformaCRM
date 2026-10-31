@@ -1,3 +1,8 @@
+import {
+  anotarTokenDeWhatsappAceptado,
+  anotarTokenDeWhatsappRechazado,
+  CODIGO_DE_TOKEN_INVALIDO,
+} from "./estadoDelTokenDeWhatsapp";
 import { esTransitorio } from "./llmProvider.service";
 // ---------------------------------------------------------------------------
 // Cliente mínimo de la Graph API de Meta para el canal WhatsApp: mandar UNA
@@ -137,8 +142,12 @@ async function llamarGraph(
     // ventana de 24 h, plantilla inexistente...). Se incluye recortado; nunca
     // lleva el token.
     const detalle = (await res.text().catch(() => "")).slice(0, 500);
-    throw new WhatsappGraphError(res.status, detalle);
+    const error = new WhatsappGraphError(res.status, detalle);
+    // OPS-03: el token es uno para toda la plataforma (services/estadoDelTokenDeWhatsapp.ts).
+    if (error.codigo === CODIGO_DE_TOKEN_INVALIDO) anotarTokenDeWhatsappRechazado(detalle);
+    throw error;
   }
+  anotarTokenDeWhatsappAceptado();
   const texto = await res.text().catch(() => "");
   try {
     return texto === "" ? {} : (JSON.parse(texto) as unknown);

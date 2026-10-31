@@ -471,3 +471,21 @@ describe("OrganizationSettingsPage — mensajes de salud", () => {
     expect(screen.getByRole("button", { name: "Guardar" })).toBeInTheDocument();
   });
 });
+
+describe("OrganizationSettingsPage — aviso de WhatsApp (OPS-03)", () => {
+  it("con el token de la plataforma rechazado, muestra la tarjeta WhatsApp con el aviso", async () => {
+    mockSettings(
+      makeOrganizationSettings({ whatsappTokenInvalidoDesde: "2026-10-30T15:00:00.000Z" }),
+    );
+    renderPage();
+    expect(await screen.findByRole("heading", { name: "WhatsApp" })).toBeInTheDocument();
+    expect(screen.getByText(/los mensajes de WhatsApp\s+no están saliendo/)).toBeInTheDocument();
+  });
+
+  it("sin nada que avisar (o en una organización con número propio), no hay tarjeta WhatsApp", async () => {
+    mockSettings(makeOrganizationSettings());
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Moneda de preferencia")).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "WhatsApp" })).not.toBeInTheDocument();
+  });
+});

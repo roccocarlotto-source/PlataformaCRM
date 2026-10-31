@@ -119,6 +119,9 @@ export function MultiSelect<T extends string>({
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "Escape" || !open) return;
+    // Que cierre la lista y no también el diálogo que la contenga (UX-07).
+    event.preventDefault();
+    event.stopPropagation();
     close();
     // Devolver el foco al botón: si estaba en un checkbox de la lista, esa
     // lista deja de existir y el foco caería al body.

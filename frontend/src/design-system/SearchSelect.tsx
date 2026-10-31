@@ -134,6 +134,15 @@ export function SearchSelect<T>({
         type="text"
         value={term}
         onChange={(event) => onTermChange(event.target.value)}
+        // Con resultados abiertos, Escape borra la búsqueda (y así cierra la
+        // lista) sin cerrar el diálogo que contenga el selector (UX-07: el
+        // <dialog> nativo convierte Escape en "cancel").
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !open) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onTermChange("");
+        }}
         placeholder={placeholder}
       />
       {open ? (

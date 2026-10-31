@@ -17,6 +17,7 @@ import { obtenerTokenParaEnviar } from "../services/metaPageConnection.service";
 import type { NombreDelPerfil, ObtenerPerfilDeMetaInput } from "../services/metaProfile.service";
 import { depsDelWebhookMetaReales, procesarWebhookDeMeta } from "../services/metaWebhook.service";
 import { MetaSendError, type SendMetaTextInput } from "../services/metaSend.service";
+import { RESPUESTA_TIPO_NO_SOPORTADO } from "../services/whatsappWebhook.service";
 import { getCifrador } from "../utils/encryption";
 import { hmacSha256Hex } from "../utils/hmac";
 import { drenarTurnosPendientes, type DepsDeEnvio } from "../workers/agentInboundWorker";
@@ -464,7 +465,7 @@ test("Instagram: entry.id es el IGID, la página sale de la conexión, y el job 
   assert.equal(job.externalUserId, igsid);
 });
 
-test("echo, adjunto sin texto y el mismo mid dos veces -> nada nuevo", async () => {
+test("echo y el mismo mid dos veces -> nada nuevo; un adjunto sin texto entra con su marcador", async () => {
   const psid = idAlAzar("4");
 
   const echo = `m_${randomUUID()}`;
@@ -473,23 +474,27 @@ test("echo, adjunto sin texto y el mismo mid dos veces -> nada nuevo", async () 
   );
   assert.equal((await mensajesCon(echo)).length, 0, "el echo no es un entrante");
 
+  assert.equal(
+    await prisma.contactChannelIdentity.count({ where: { externalId: psid } }),
+    0,
+    "el echo no crea contacto",
+  );
+
+  // PR-6 (AGE-14): antes se descartaba sin rastro. Ahora queda en la
+  // conversación como "[imagen]" (la respuesta fija la manda el worker).
   const adjunto = `m_${randomUUID()}`;
   const resAdjunto = await enviar(
     payload({
       object: "instagram",
       cuentaId: negocioA.igId,
-      senderId: psid,
+      senderId: idAlAzar("4"),
       mid: adjunto,
       soloAdjunto: true,
     }),
   );
-  assert.equal(resAdjunto.status, 200, "un adjunto no rompe el lote");
-  assert.equal((await mensajesCon(adjunto)).length, 0);
-  assert.equal(
-    await prisma.contactChannelIdentity.count({ where: { externalId: psid } }),
-    0,
-    "ni echo ni adjunto crean contacto",
-  );
+  assert.equal(resAdjunto.status, 200);
+  const [delAdjunto] = await mensajesCon(adjunto);
+  assert.equal(delAdjunto?.content, "[imagen]");
 
   const repetido = `m_${randomUUID()}`;
   const cuerpo = payload({
@@ -660,6 +665,32 @@ for (const canal of ["MESSENGER", "INSTAGRAM"] as const) {
     assert.equal(saliente.deliveryStatus, "SENT");
   });
 }
+
+test("PR-6: una foto sola por Messenger -> queda como '[imagen]' y el cliente recibe la respuesta fija, sin el modelo", async () => {
+  reiniciarDobles();
+  const remitente = idAlAzar("2");
+  const mid = `m_${randomUUID()}`;
+  const res = await enviar(
+    payload({
+      object: "page",
+      cuentaId: negocioC.pageId,
+      senderId: remitente,
+      mid,
+      soloAdjunto: true,
+    }),
+  );
+  assert.equal(res.status, 200);
+
+  const resumen = await drenarC();
+  assert.equal(resumen.respondidos, 1);
+  assert.equal(llamadasAlLlm, 0, "no se llamó al modelo");
+  assert.deepEqual(enviadosAMeta, [
+    { pageAccessToken: TOKEN_DE_PAGINA, recipientId: remitente, text: RESPUESTA_TIPO_NO_SOPORTADO },
+  ]);
+  const { entrante, job } = await jobDe(mid);
+  assert.equal(entrante.content, "[imagen]");
+  assert.equal(job.status, "DONE");
+});
 
 test("rate limit de Meta con HTTP 400 (código 613) -> reintento con backoff que REENVÍA sin otro turno", async () => {
   reiniciarDobles();

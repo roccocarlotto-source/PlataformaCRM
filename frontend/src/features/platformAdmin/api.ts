@@ -232,6 +232,16 @@ export function listAgentesDeOrganizacion(
 }
 
 // B4: el gasto en el modelo por organización de los últimos 30 días.
+// OPS-03: si Meta rechaza el token global de WhatsApp, desde cuándo.
+export function getEstadoDelTokenDeWhatsapp(
+  signal?: AbortSignal,
+): Promise<{ invalidoDesde: string | null }> {
+  return request<{ invalidoDesde: string | null }>("/admin/whatsapp-token", {
+    getAccessToken,
+    signal,
+  });
+}
+
 export function getLlmUsage(signal?: AbortSignal): Promise<LlmUsageSummary> {
   return request<LlmUsageSummary>("/admin/llm-usage", { getAccessToken, signal });
 }

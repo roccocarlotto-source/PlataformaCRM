@@ -109,6 +109,13 @@ El hilo completo, en orden. Cada mensaje dice quién lo escribió y cuándo:
   **Automatización** (un mensaje que mandó una regla, por ejemplo un cupón o
   un seguimiento).
 
+Si el cliente manda por Messenger o Instagram solo una foto, un audio, un
+sticker o un archivo, sin texto, el mensaje aparece como **[imagen]**,
+**[audio]**, **[sticker]** o el tipo que corresponda, y el agente le contesta
+que todavía no puede abrir ese tipo de archivo y que lo escriba. Para ver la
+foto o escuchar el audio, abrilo en Meta Business Suite o en la app de
+Instagram.
+
 Si un vendedor respondió desde Meta Business Suite o desde la app de
 Instagram en vez de desde acá, el mensaje aparece igual, con la aclaración
 "desde la bandeja de Meta". Como Meta no dice quién lo escribió, se le

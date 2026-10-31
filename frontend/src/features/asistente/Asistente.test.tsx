@@ -49,6 +49,7 @@ const RESPUESTA = {
   fuentes: [{ titulo: "Nuevo contacto", href: "/ayuda/contactos-y-consultas#nuevo-contacto" }],
   tipo: "ANSWERED",
   restantesHoy: 19,
+  firma: "firma-del-servidor",
 };
 
 afterEach(() => {
@@ -102,7 +103,7 @@ describe("el asistente ¿Cómo se hace?", () => {
     await waitFor(() => expect(feedbacks).toEqual([{ feedback: "UP" }]));
   });
 
-  it("la segunda pregunta lleva la primera como historial", async () => {
+  it("la segunda pregunta lleva la primera como historial, con la firma del servidor", async () => {
     const cuerpos: { historial?: unknown }[] = [];
     server.use(
       http.post(preguntasUrl, async ({ request }) => {
@@ -117,7 +118,27 @@ describe("el asistente ¿Cómo se hace?", () => {
     await screen.findAllByRole("button", { name: "Me sirvió" });
     await user.type(screen.getByLabelText("Tu pregunta"), "Segunda{Enter}");
     await waitFor(() => expect(cuerpos).toHaveLength(2));
-    expect(cuerpos[1].historial).toEqual([{ pregunta: "Primera", respuesta: RESPUESTA.respuesta }]);
+    expect(cuerpos[1].historial).toEqual([
+      { pregunta: "Primera", respuesta: RESPUESTA.respuesta, firma: "firma-del-servidor" },
+    ]);
+  });
+
+  it("AGE-01: una respuesta sin firma (el servidor no firma) no se manda como historial", async () => {
+    const cuerpos: { historial?: unknown }[] = [];
+    server.use(
+      http.post(preguntasUrl, async ({ request }) => {
+        cuerpos.push((await request.json()) as { historial?: unknown });
+        return HttpResponse.json({ ...RESPUESTA, firma: null });
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(screen.getByRole("button", { name: /¿Cómo se hace?/ }));
+    await user.type(screen.getByLabelText("Tu pregunta"), "Primera{Enter}");
+    await screen.findAllByRole("button", { name: "Me sirvió" });
+    await user.type(screen.getByLabelText("Tu pregunta"), "Segunda{Enter}");
+    await waitFor(() => expect(cuerpos).toHaveLength(2));
+    expect(cuerpos[1].historial).toBeUndefined();
   });
 
   it("al llegar al tope del día: el aviso con el link a Ayuda y la caja deshabilitada", async () => {

@@ -57,6 +57,8 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     email,
     fullName,
     organizationId,
+    // UX-08: el título de la pestaña ("Contactos · <organización>").
+    organizationName: req.auth.organizationName ?? null,
     role,
     isPlatformAdmin: platformAdmin !== null,
     canUseInternalAgent,

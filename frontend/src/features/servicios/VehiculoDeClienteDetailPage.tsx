@@ -71,6 +71,7 @@ function Ficha({ vehiculo }: { vehiculo: FichaDeVehiculo }) {
       <PageHeader
         help={AYUDA.fichaDeVehiculoDeCliente}
         title={titulo}
+        tituloDePestana="Vehículo de cliente"
         actions={
           <>
             <Link to={`/taller/vehiculos/${vehiculo.id}/editar`} className="ds-link-button">
