@@ -184,6 +184,10 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   ),
   patron("recordatorios-{etiqueta}-{ts}-{hex8}", "src/clinicas/recordatorios.integration-test.ts"),
   patron(
+    "agenda-consultas-{etiqueta}-{ts}-{hex8}",
+    "src/services/agendaDelAgente.consultas.integration-test.ts",
+  ),
+  patron(
     "tools-de-turnos-{etiqueta}-{ts}-{hex8}",
     "src/clinicas/toolsDeTurnos.integration-test.ts",
   ),
