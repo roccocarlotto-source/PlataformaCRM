@@ -286,7 +286,7 @@ const statusListSchema = z.preprocess((value) => {
   }
   const items = Array.isArray(value) ? value : [value];
   return items.flatMap((item) => (typeof item === "string" ? item.split(",") : [item]));
-}, z.array(statusSchema).min(1).optional());
+}, z.array(statusSchema).min(1).max(20).optional());
 
 // "true"/"false" explícitos, NO z.coerce.boolean() (Boolean("false") es true)
 // — mismo criterio que activity/source.
