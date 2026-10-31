@@ -14,6 +14,7 @@ import {
   procesarWebhookDeMeta,
   type DepsDelWebhookMeta,
   type MetaWebhookPayload,
+  esAdjuntoDeMeta,
 } from "./metaWebhook.service";
 
 // ---------------------------------------------------------------------------
@@ -204,8 +205,7 @@ test("leerMensaje: un echo (el negocio escribiendo) se ignora aunque traiga text
   assert.equal(leerMensaje(evento({ text: "Gracias por escribir", isEcho: true })), null);
 });
 
-test("leerMensaje: solo adjunto, texto vacío, postback, lectura o basura -> null sin error", () => {
-  assert.equal(leerMensaje(evento({ adjunto: true })), null);
+test("leerMensaje: texto vacío, postback, lectura o basura -> null sin error", () => {
   assert.equal(leerMensaje(evento({ text: "   " })), null);
   assert.equal(
     leerMensaje({ sender: { id: "p" }, recipient: { id: PAGE_ID }, postback: { payload: "X" } }),
@@ -214,6 +214,48 @@ test("leerMensaje: solo adjunto, texto vacío, postback, lectura o basura -> nul
   assert.equal(leerMensaje({ sender: { id: "p" }, read: { watermark: 1 } }), null);
   assert.equal(leerMensaje(null), null);
   assert.equal(leerMensaje("hola"), null);
+});
+
+// PR-6 (AGE-14): un adjunto sin texto ya no se descarta: entra con su marcador
+// y el worker contesta la respuesta fija.
+test("leerMensaje: un adjunto SIN texto entra con el marcador de su tipo", () => {
+  const conAdjunto = (adjunto: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    sender: { id: "psid-1" },
+    recipient: { id: PAGE_ID },
+    message: { mid: "m_a", attachments: [adjunto], ...extra },
+  });
+  assert.equal(leerMensaje(evento({ adjunto: true }))?.texto, "[imagen]");
+  assert.equal(leerMensaje(conAdjunto({ type: "audio", payload: { url: "u" } }))?.texto, "[audio]");
+  assert.equal(leerMensaje(conAdjunto({ type: "video", payload: { url: "u" } }))?.texto, "[video]");
+  assert.equal(
+    leerMensaje(conAdjunto({ type: "file", payload: { url: "u" } }))?.texto,
+    "[documento]",
+  );
+  assert.equal(
+    leerMensaje(conAdjunto({ type: "image", payload: { url: "u", sticker_id: 369239263222822 } }))
+      ?.texto,
+    "[sticker]",
+  );
+  assert.equal(leerMensaje(conAdjunto({ type: "ig_reel", payload: {} }))?.texto, "[adjunto]");
+  // Instagram: lo que la API no puede mostrar, y lo borrado.
+  assert.equal(
+    leerMensaje({ sender: { id: "p" }, message: { mid: "m_u", is_unsupported: true } })?.texto,
+    "[mensaje no soportado]",
+  );
+  assert.equal(
+    leerMensaje(conAdjunto({ type: "image", payload: { url: "u" } }, { is_deleted: true })),
+    null,
+  );
+  for (const marcador of [
+    "[imagen]",
+    "[audio]",
+    "[sticker]",
+    "[adjunto]",
+    "[mensaje no soportado]",
+  ]) {
+    assert.equal(esAdjuntoDeMeta(marcador), true, marcador);
+  }
+  assert.equal(esAdjuntoDeMeta("[imagen] y algo más"), false);
 });
 
 test("leerMensaje: un adjunto CON texto se procesa como texto (el adjunto no se usa)", () => {
@@ -289,13 +331,13 @@ test("Instagram sin página conectada para ese IGID: ignorado, sin buscar agente
   assert.equal(estado.jobs.length, 0);
 });
 
-test("echo y mensaje sin texto: ignorados sin tocar agente, contacto ni cola", async () => {
+test("echo y mensaje sin texto ni adjunto: ignorados sin tocar agente, contacto ni cola", async () => {
   const { deps, estado } = dobles();
   const resumen = await procesarWebhookDeMeta(
     lote("page", PAGE_ID, [
       // El eco de algo que mandó este CRM: trae el app_id de esta app.
       evento({ text: "respuesta", isEcho: true, appId: APP_DEL_CRM }),
-      evento({ adjunto: true }),
+      evento({ text: "   " }),
     ]),
     deps,
   );
@@ -802,4 +844,14 @@ test("con el agente apagado el contacto nuevo también pide su nombre (lo va a a
   );
   assert.equal(resumen.derivado, 1);
   assert.equal(estado.nombresPedidos.length, 1);
+});
+
+test("PR-6: una foto sola por Messenger se encola como '[imagen]', como cualquier entrante", async () => {
+  const { deps, estado } = dobles();
+  const resumen = await procesarWebhookDeMeta(
+    lote("page", PAGE_ID, [evento({ mid: "m_foto", adjunto: true })]),
+    deps,
+  );
+  assert.equal(resumen.encolado, 1);
+  assert.equal(estado.jobs.length, 1);
 });
