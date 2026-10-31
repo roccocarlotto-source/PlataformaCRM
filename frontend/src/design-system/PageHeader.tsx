@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
+import { useContext, useEffect, useRef, type ReactNode } from "react";
 import { ChevronLeft, CircleQuestionMark } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAsistente, useEsCelular, useRegistrarPantalla } from "../asistente/contexto";
+import { OrganizacionDeLaPestana, TITULO_BASE, tituloDeLaPestana } from "./tituloDeLaPestana";
 
 export interface PageHeaderBack {
   to: string;
@@ -23,6 +24,10 @@ export interface PageHeaderProps {
    *  `<sección>#<ancla>`, siempre un valor de features/guia/anclas.ts
    *  (AYUDA), nunca un string suelto — anclas.test.ts verifica que existan. */
   help?: string;
+  /** El título de la pestaña del navegador, si no tiene que ser el mismo del
+   *  encabezado: cuando el encabezado lleva datos de una persona (ver
+   *  tituloDeLaPestana.ts). Sin pasarlo, el texto del encabezado. */
+  tituloDePestana?: string;
 }
 
 // El encabezado de toda pantalla dentro del shell. Hasta acá se armaba a mano
@@ -36,8 +41,26 @@ export interface PageHeaderProps {
 // (useRegistrarPantalla) y, en el celular, abre la hoja con "Preguntale a la
 // guía" y "Ver la guía de esta pantalla" en vez de ir directo a la guía. Sin el
 // asistente (o fuera de AppLayout), el "?" es el link de siempre.
-export function PageHeader({ title, subtitle, back, actions, help }: PageHeaderProps) {
+export function PageHeader({
+  title,
+  subtitle,
+  back,
+  actions,
+  help,
+  tituloDePestana,
+}: PageHeaderProps) {
   useRegistrarPantalla(help);
+  // UX-08: "<pantalla> · <organización>" en la pestaña. El texto sale del h1
+  // ya dibujado, así sirve también cuando el título no es un string.
+  const organizacion = useContext(OrganizacionDeLaPestana);
+  const tituloRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const pantalla = tituloDePestana ?? tituloRef.current?.textContent ?? "";
+    document.title = tituloDeLaPestana(pantalla, organizacion);
+    return () => {
+      document.title = TITULO_BASE;
+    };
+  }, [title, tituloDePestana, organizacion]);
   const asistente = useAsistente();
   const esCelular = useEsCelular();
   const conHoja = help !== undefined && esCelular && asistente?.disponible === true;
@@ -51,7 +74,7 @@ export function PageHeader({ title, subtitle, back, actions, help }: PageHeaderP
           </Link>
         ) : null}
         <div className="ds-page-title">
-          <h1>{title}</h1>
+          <h1 ref={tituloRef}>{title}</h1>
           {help && conHoja ? (
             <button
               type="button"

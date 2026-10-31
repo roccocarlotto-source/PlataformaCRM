@@ -47,6 +47,10 @@ export interface AuthContext {
   // (organizations.help_assistant_enabled), por el mismo JOIN. Opcional por el
   // mismo motivo que isDemo: ausente vale true, el default de la columna.
   helpAssistantEnabled?: boolean;
+  // El nombre de la organización, por el mismo JOIN. Solo para mostrar (el
+  // título de la pestaña, UX-08): nunca decide nada. Opcional por el mismo
+  // motivo que isDemo.
+  organizationName?: string;
   // Las sedes de una Recepción de clínica (docs/rubros.md §11.5, R20), sin las
   // borradas. SOLO existe para Recepción en una CLINICA: para cualquier otro
   // usuario la clave no está, y el contexto de una automotora es el mismo de

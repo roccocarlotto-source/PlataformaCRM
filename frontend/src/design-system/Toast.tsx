@@ -95,6 +95,10 @@ interface ActiveToast {
   message: string;
 }
 
+// Sin la API de popover (jsdom), el atributo solo la escondería.
+const SOPORTA_POPOVER =
+  typeof HTMLElement !== "undefined" && typeof HTMLElement.prototype.showPopover === "function";
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<ActiveToast | null>(null);
   // Contador y no Date.now(): dos show() en el mismo milisegundo tienen que
@@ -108,13 +112,31 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const dismiss = useCallback(() => setActive(null), []);
 
+  // UX-07: los diálogos (Modal.tsx) se abren con showModal() y quedan en la
+  // capa superior del navegador, por encima de cualquier z-index. La región va
+  // como popover para estar en esa misma capa, y se vuelve a mostrar con cada
+  // aviso para quedar encima del último diálogo abierto. Sin la API de popover
+  // (jsdom, un navegador viejo) queda como siempre.
+  const regionRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const region = regionRef.current;
+    if (!region || typeof region.showPopover !== "function") return;
+    if (region.matches(":popover-open")) region.hidePopover();
+    region.showPopover();
+  }, [active]);
+
   const value = useMemo<ToastContextValue>(() => ({ show }), [show]);
 
   return (
     <ToastContext.Provider value={value}>
       {children}
       {/* La región existe siempre, ver ACCESIBILIDAD arriba. */}
-      <div className="ds-toast-region" role="status">
+      <div
+        ref={regionRef}
+        className="ds-toast-region"
+        role="status"
+        popover={SOPORTA_POPOVER ? "manual" : undefined}
+      >
         {active ? <Toast key={active.id} message={active.message} onDismiss={dismiss} /> : null}
       </div>
     </ToastContext.Provider>

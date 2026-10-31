@@ -122,6 +122,21 @@ describe("MultiSelect", () => {
     expect(boton()).toHaveTextContent("2 seleccionados");
   });
 
+  it("UX-07: el Escape que cierra la lista no llega al diálogo que la contenga", async () => {
+    const user = userEvent.setup();
+    const enElDocumento = vi.fn();
+    document.addEventListener("keydown", enElDocumento);
+    try {
+      render(<Controlado />);
+      await user.click(boton());
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+      expect(enElDocumento).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", enElDocumento);
+    }
+  });
+
   it("un click afuera cierra; un click adentro (en una opción) no", async () => {
     const user = userEvent.setup();
     render(
