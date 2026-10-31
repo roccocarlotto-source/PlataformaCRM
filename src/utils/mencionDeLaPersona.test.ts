@@ -174,3 +174,59 @@ test("nombre COMPLETO; nunca el de pila solo", () => {
   assert.equal(soloNombre.nombreCompleto, null);
   assert.equal(hayCriterios(soloNombre), false, "sin apellido, email ni teléfono no se busca nada");
 });
+
+// Tanda 2 (2026-10-31): los casos de Argentina y México que la revisión de
+// #585 dejó como límite conocido.
+test("Argentina: guardado SIN el 9, el texto con el 9 también se encuentra", () => {
+  const patron = patronDeTelefono("+541123456789");
+  for (const texto of [
+    "+54 9 11 2345-6789",
+    "+54 11 2345-6789",
+    "11 2345-6789",
+    "+54 (011) 2345-6789",
+  ]) {
+    assert.ok(coincide(patron, texto), texto);
+  }
+});
+
+test("Argentina: el 15 del celular escrito en local, en áreas de 2, 3 y 4 dígitos", () => {
+  const buenosAires = patronDeTelefono("+5491123456789");
+  for (const texto of [
+    "15 2345-6789",
+    "011 15 2345-6789",
+    "11 15 2345 6789",
+    "+54 (011) 2345-6789",
+  ]) {
+    assert.ok(coincide(buenosAires, texto), texto);
+  }
+  // Córdoba: área 351, número local de 7.
+  const cordoba = patronDeTelefono("+5493511234567");
+  for (const texto of ["0351 15 123-4567", "351 15 1234567", "+54 9 351 123-4567"]) {
+    assert.ok(coincide(cordoba, texto), texto);
+  }
+  // Otros números con los mismos últimos dígitos, no.
+  for (const texto of ["14 2345-6789", "+598 2345 6789", "+52 1 55 2345 6789", "12 2345-6789"]) {
+    assert.ok(!coincide(buenosAires, texto), texto);
+  }
+});
+
+test("México: guardado SIN el 1, con el 1 y con el 044/045 también se encuentra", () => {
+  const patron = patronDeTelefono("+525512345678");
+  for (const texto of [
+    "+52 1 55 1234 5678",
+    "+52 55 1234 5678",
+    "044 55 1234 5678",
+    "045 55 1234 5678",
+    "55 1234 5678",
+  ]) {
+    assert.ok(coincide(patron, texto), texto);
+  }
+  for (const texto of [
+    "+54 9 11 1234 5678",
+    "+1 55 1234 5678",
+    "33 1234 5678",
+    "046 55 1234 5678",
+  ]) {
+    assert.ok(!coincide(patron, texto), texto);
+  }
+});
