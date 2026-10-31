@@ -32,7 +32,7 @@ import { variablesQueFaltan, versionDesplegada } from "./config/operacion";
 
 const server = app.listen(env.PORT, () => {
   logger.info(
-    { version: versionDesplegada(env.RENDER_GIT_COMMIT) },
+    { version: versionDesplegada(env) },
     `Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`,
   );
 });

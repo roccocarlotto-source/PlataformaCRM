@@ -4,12 +4,20 @@
 // puras sobre el entorno, para probarlas sin arrancar nada.
 // ---------------------------------------------------------------------------
 
-// OPS-08: el commit desplegado. Render define RENDER_GIT_COMMIT en cada deploy;
-// en local no existe y la versión es "local". Siete caracteres, como los
-// muestra GitHub: alcanza para buscar el commit y no dice nada más.
-export function versionDesplegada(commit: string | undefined): string {
-  const limpio = commit?.trim();
-  return limpio ? limpio.slice(0, 7) : "local";
+// OPS-08: el commit desplegado. Render define RENDER_GIT_COMMIT en cada deploy.
+// Fuera de Render (la imagen Docker, la de Lightsail) lo trae GIT_COMMIT, que el
+// Dockerfile guarda en la imagen desde el build-arg del mismo nombre: así la
+// imagen dice siempre qué código tiene adentro. Gana la primera con valor; sin
+// ninguna (en local) la versión es "local". Siete caracteres, como los muestra
+// GitHub: alcanza para buscar el commit y no dice nada más.
+export function versionDesplegada(fuente: {
+  RENDER_GIT_COMMIT?: string;
+  GIT_COMMIT?: string;
+}): string {
+  const commit = [fuente.RENDER_GIT_COMMIT, fuente.GIT_COMMIT]
+    .map((valor) => valor?.trim())
+    .find((valor) => valor);
+  return commit ? commit.slice(0, 7) : "local";
 }
 
 // OPS-10: las variables sin las que el backend arranca "verde" pero algo

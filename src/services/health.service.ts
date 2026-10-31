@@ -12,8 +12,8 @@ import { estadoDeLaKeyDelLlm, type EstadoDeLaKey } from "./llmKeyBalance.service
 // y "sin-saldo" en esta respuesta.
 export interface HealthStatus {
   status: "ok" | "error";
-  // El commit desplegado, 7 caracteres ("local" fuera de Render). Es como se
-  // confirma desde afuera que un deploy entró.
+  // El commit desplegado, 7 caracteres ("local" sin RENDER_GIT_COMMIT ni
+  // GIT_COMMIT). Es como se confirma desde afuera que un deploy entró.
   version: string;
   checks: {
     database: "ok" | "error";
@@ -59,7 +59,7 @@ export async function checkHealth(
 
   return {
     status: database === "ok" ? "ok" : "error",
-    version: versionDesplegada(env.RENDER_GIT_COMMIT),
+    version: versionDesplegada(env),
     checks: { database, llmKey: estadoDeLaKey() },
   };
 }

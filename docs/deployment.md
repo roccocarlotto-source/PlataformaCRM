@@ -108,10 +108,13 @@ usuario `node`.
 
 Dos cosas que conviene saber antes de apretar "deploy":
 
-- **Nadie construye la imagen hoy.** `ci.yml` corre `npm run build` (tsc) y
-  descarta el artefacto; `docker build` no aparece en ningún job, y Render no
-  la usa. Si se quiere usar, se construye a mano con
-  `docker build -t plataforma-crm-backend .`.
+- **El CI la construye y la arranca en cada PR** (job `docker` de `ci.yml`,
+  ARQ-01): build con `GIT_COMMIT` del commit, arranque en modo producción
+  contra la base del Supabase local con los workers apagados, `/health` 200
+  con `"database":"ok"` y `version` igual al commit, y apagado con `SIGTERM`
+  que sale con 0. Render no la usa. A mano:
+  `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t plataforma-crm-backend .`
+  (sin el build-arg, `/health` dice `version: "local"`).
 - **`SHUTDOWN_TIMEOUT_MS` tiene que ser menor que el grace period de la
   plataforma** (el tiempo entre `SIGTERM` y `SIGKILL`). El default de 8 s está
   pensado para los 10 s de Docker; si la plataforma da más, se puede subir; si
@@ -326,7 +329,8 @@ agregarle `?connection_limit=10` quedó con dos `?` y la base dejó de responder
 - **Qué dice `/health`** (público, sin sesión; desde el 2026-10-30):
   `{"status","version","checks":{"database","llmKey"}}`. `version` es el
   commit desplegado, 7 caracteres (`RENDER_GIT_COMMIT`, que Render define
-  solo; `local` fuera de Render): **un deploy se confirma cuando `version`
+  solo; en la imagen Docker, `GIT_COMMIT`, que viene guardada en la imagen
+  desde el build-arg del mismo nombre; `local` si no hay ninguna): **un deploy se confirma cuando `version`
   pasa a ser el commit del merge**. `llmKey` vale `ok`, `saldo-bajo`,
   `sin-saldo` o `desconocido` (los segundos después de arrancar), sin
   montos: los monitores Keyword de UptimeRobot buscan esas palabras, así que
