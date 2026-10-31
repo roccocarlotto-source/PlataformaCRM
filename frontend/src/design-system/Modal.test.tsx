@@ -221,7 +221,7 @@ describe("Modal", () => {
         </Modal>,
       );
 
-      expect(screen.getByRole("dialog")).toHaveClass("ds-modal--dialog");
+      expect(screen.getByRole("dialog").querySelector(".ds-modal")).toHaveClass("ds-modal--dialog");
       const botones = pie(container).getAllByRole("button");
       expect(botones.map((boton) => boton.textContent)).toEqual(["Cerrar"]);
 

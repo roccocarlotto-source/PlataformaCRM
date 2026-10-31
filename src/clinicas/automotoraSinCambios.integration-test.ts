@@ -167,7 +167,14 @@ test("/api/me de una automotora: las claves de antes más industry, vocabulario 
     assert.equal(me.status, 200);
     assert.deepEqual(
       Object.keys(me.json).sort(),
-      [...CLAVES_DE_ME_DE_HOY, "industry", "vocabulario", "rolesAsignables"].sort(),
+      [
+        ...CLAVES_DE_ME_DE_HOY,
+        "industry",
+        "vocabulario",
+        "rolesAsignables",
+        // UX-08 (2026-10-30): el título de la pestaña.
+        "organizationName",
+      ].sort(),
     );
     // R12: los dos roles de siempre; Recepción no es de una automotora.
     assert.deepEqual(me.json.rolesAsignables, ["ADMIN", "USER"]);
@@ -331,7 +338,14 @@ test("R20: una automotora con dos sucursales ve lo de antes, con las claves de a
     const me = await pedir(conSucursales, "GET", "/api/me", undefined, token);
     assert.deepEqual(
       Object.keys(me.json).sort(),
-      [...CLAVES_DE_ME_DE_HOY, "industry", "vocabulario", "rolesAsignables"].sort(),
+      [
+        ...CLAVES_DE_ME_DE_HOY,
+        "industry",
+        "vocabulario",
+        "rolesAsignables",
+        // UX-08 (2026-10-30): el título de la pestaña.
+        "organizationName",
+      ].sort(),
     );
     // Turnos y conversaciones: de las dos sucursales, para los dos roles.
     const turnos = await pedir(conSucursales, "GET", "/api/bookings", undefined, token);

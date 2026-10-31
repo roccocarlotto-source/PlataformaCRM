@@ -190,6 +190,8 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
         "isPlatformAdmin",
         "modulos",
         "organizationId",
+        // UX-08: el nombre de la organización, para el título de la pestaña.
+        "organizationName",
         "role",
         // R12 (docs/rubros.md §11.1): los roles que el ADMIN puede asignar.
         "rolesAsignables",

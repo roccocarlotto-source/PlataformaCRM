@@ -104,6 +104,9 @@ export function Select<T extends string>({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
+  // UX-06: la fila resaltada lleva el anillo de foco solo si se llegó con el
+  // teclado; con el mouse alcanza el fondo del hover.
+  const [conTeclado, setConTeclado] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -123,6 +126,7 @@ export function Select<T extends string>({
     if (open || disabled) return;
     setOpen(true);
     setQuery("");
+    setConTeclado(false);
     // Al abrir se resalta lo ya elegido (flecha abajo sigue desde ahí, como en
     // un <select>) o, sin elección, la primera fila.
     const selectedIndex = allRows.findIndex((row) => row.value === currentValue);
@@ -169,8 +173,10 @@ export function Select<T extends string>({
       case "ArrowDown":
       case "ArrowUp": {
         event.preventDefault();
+        setConTeclado(true);
         if (!open) {
           openPanel();
+          setConTeclado(true);
           return;
         }
         if (rows.length === 0) return;
@@ -269,6 +275,7 @@ export function Select<T extends string>({
               const className = [
                 "ds-select-option",
                 index === active ? "ds-select-option-active" : "",
+                index === active && conTeclado ? "ds-select-option-active--teclado" : "",
                 selected ? "ds-select-option-selected" : "",
               ]
                 .filter(Boolean)
@@ -286,6 +293,7 @@ export function Select<T extends string>({
                   // flechas bajo un mouse quieto, el resaltado no salta a la
                   // fila que quedó debajo del puntero.
                   onMouseMove={() => {
+                    setConTeclado(false);
                     if (index !== active) setActiveIndex(index);
                   }}
                   onClick={() => choose(row)}
