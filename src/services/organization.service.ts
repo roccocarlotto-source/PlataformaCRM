@@ -9,7 +9,10 @@ import {
   findOrganizationById,
   updateOrganizationSettings as updateOrganizationSettingsRepo,
 } from "../repositories/organization.repository";
+import { prisma } from "../lib/prisma";
+import { findWabaPropio } from "../repositories/whatsappBusinessConnection.repository";
 import { AppError } from "../utils/AppError";
+import { tokenDeWhatsappInvalidoDesde } from "./estadoDelTokenDeWhatsapp";
 import {
   currenciesNeedingRate,
   dispararActualizacionDeCotizaciones,
@@ -58,6 +61,23 @@ export interface OrganizationSettings {
   // R16: solo en una clínica (una automotora recibe las claves de antes).
   privacyNoticeText?: string | null;
   privacyPolicyUrl?: string | null;
+  // OPS-03: desde cuándo Meta rechaza el token GLOBAL de WhatsApp, solo si
+  // esta organización lo usa (tiene un número de WhatsApp en un agente y no
+  // tiene WABA propio, como las clínicas). null = nada que avisar.
+  whatsappTokenInvalidoDesde: string | null;
+}
+
+async function avisoDelTokenDeWhatsapp(organizationId: string): Promise<string | null> {
+  const desde = tokenDeWhatsappInvalidoDesde();
+  // Con el token andando, ni una consulta.
+  if (!desde) return null;
+  const [propio, conNumero] = await Promise.all([
+    findWabaPropio(organizationId),
+    prisma.agent.count({
+      where: { organizationId, whatsappPhoneNumberId: { not: null } },
+    }),
+  ]);
+  return propio === null && conNumero > 0 ? desde.toISOString() : null;
 }
 
 export async function getOrganizationSettings(
@@ -67,13 +87,14 @@ export async function getOrganizationSettings(
   if (!organization) {
     throw new AppError("Organización no encontrada", 404);
   }
-  const [rates, clinica] = await Promise.all([
+  const [rates, clinica, whatsappTokenInvalidoDesde] = await Promise.all([
     findLatestExchangeRates(
       currenciesNeedingRate([organization.preferredCurrency, organization.alternateCurrency]),
     ),
     organization.industry === "CLINICA"
       ? leerConfiguracionDeClinica(organizationId)
       : Promise.resolve(null),
+    avisoDelTokenDeWhatsapp(organizationId),
   ]);
   return {
     id: organization.id,
@@ -90,6 +111,7 @@ export async function getOrganizationSettings(
     edition: organization.edition,
     industry: organization.industry,
     contactTerm: clinica?.contactTerm ?? null,
+    whatsappTokenInvalidoDesde,
     ...(clinica
       ? {
           privacyNoticeText: clinica.privacyNoticeText,

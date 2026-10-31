@@ -1,4 +1,5 @@
 import { AVISO_DE_ADMIN, type Seccion } from "../compartido/guia/guia";
+import { patronDeNombre } from "../utils/mencionDeLaPersona";
 import { indiceDe, textoDeLosBloques, type Bloque } from "./helpAssistantBusqueda";
 
 // ---------------------------------------------------------------------------
@@ -30,14 +31,57 @@ const EMAIL = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu;
 // precio de pocos dígitos no llega a siete.
 const NUMERO_LARGO = /\+?\d(?:[\d .\-()]*\d){6,}/g;
 
-/** La pregunta sin emails ni números largos (teléfonos, documentos). Se aplica
- *  ANTES de mandarla al modelo y antes de guardarla. */
+// AGE-04: patentes, SOLO en mayúsculas (como se escriben en la chapa). En
+// minúsculas chocarían con texto común ("año 2026", "los 100", "de 100 km").
+//   - Uruguay y el formato viejo argentino: ABC 1234, ABC-1234, ABC 123;
+//   - Mercosur argentino: AB 123 CD; Mercosur brasileño: ABC1D23.
+const PATENTE =
+  /(?<![\p{L}\p{N}])(?:[A-Z]{3}[ -]?\d{3,4}|[A-Z]{2}[ -]?\d{3}[ -]?[A-Z]{2}|[A-Z]{3}\d[A-Z]\d{2})(?![\p{L}\p{N}])/gu;
+
+/** La pregunta sin emails, números largos (teléfonos, documentos) ni
+ *  patentes. Se aplica ANTES de mandarla al modelo y antes de guardarla. Los
+ *  nombres de los contactos van aparte (enmascararNombres): necesitan la base. */
 export function enmascarar(texto: string): string {
   return texto
     .replace(EMAIL, "[email]")
     .replace(NUMERO_LARGO, (numero) =>
       numero.replace(/\D/g, "").length >= 7 ? "[número]" : numero,
-    );
+    )
+    .replace(PATENTE, "[patente]");
+}
+
+// AGE-04: los nombres de contactos de la organización que aparecen en el
+// texto. Mismas reglas que el borrado (utils/mencionDeLaPersona.ts, decisión de
+// Rocco del 26/10 y del 30/10): NOMBRE Y APELLIDO juntos y como palabras
+// enteras, nunca uno solo. Un contacto "Sol Pérez" tapa "Sol Pérez", pero no
+// "el sol" ni "Pérez" sueltos.
+export interface NombreDeContacto {
+  firstName: string;
+  lastName: string;
+}
+
+/** Las palabras del texto en minúscula, para buscar candidatos en la base. */
+export function palabrasDe(texto: string): string[] {
+  return [...new Set(texto.toLowerCase().match(/[\p{L}]{2,}/gu) ?? [])].slice(0, 80);
+}
+
+export function enmascararNombres(texto: string, nombres: NombreDeContacto[]): string {
+  let resultado = texto;
+  for (const { firstName, lastName } of nombres) {
+    const nombre = firstName.trim();
+    const apellido = lastName.trim();
+    if (!nombre || !apellido) continue;
+    const variantes = new Set([
+      `${nombre} ${apellido}`,
+      // "Juan Pérez" para un contacto "Juan Carlos Pérez García".
+      `${nombre.split(/\s+/)[0]} ${apellido.split(/\s+/)[0]}`,
+    ]);
+    // La más larga primero, así no queda "[nombre] García".
+    for (const variante of [...variantes].sort((a, b) => b.length - a.length)) {
+      resultado = resultado.replace(new RegExp(patronDeNombre(variante), "giu"), "[nombre]");
+    }
+  }
+  return resultado;
 }
 
 // ---------------------------------------------------------------------------

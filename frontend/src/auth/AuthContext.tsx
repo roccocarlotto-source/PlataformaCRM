@@ -25,6 +25,8 @@ export interface MeResponse {
   email: string;
   fullName: string;
   organizationId: string;
+  /** El nombre de la organización: solo para el título de la pestaña (UX-08). */
+  organizationName?: string | null;
   role: RoleName;
   // Fase 4a del módulo SaaS: si el usuario está en la allowlist global de
   // platform_admins. Independiente de `role` (que es el rol DENTRO de su

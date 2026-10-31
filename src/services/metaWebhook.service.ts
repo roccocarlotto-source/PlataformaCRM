@@ -89,9 +89,15 @@ import {
 // 5. Adjuntos: message.attachments[] con { type, payload: { url } } y, si es
 //    solo un adjunto, SIN `text` (ni campo `type` a nivel mensaje, a
 //    diferencia de WhatsApp). Instagram suma además message.is_deleted y
-//    message.is_unsupported, también sin text. Todo eso cae en "sin texto" y
-//    se ignora. Eventos que no son un mensaje (read, postback, reaction,
-//    referral) vienen en el mismo messaging[] sin `message`: ignorados igual.
+//    message.is_unsupported, también sin text. Desde PR-6 (AGE-14 de
+//    docs-privados/auditoria-2026-10-21, local; decisión de Rocco del
+//    2026-10-30) un adjunto sin texto ya no se descarta: entra con un
+//    marcador ("[imagen]", "[audio]"...) y el worker contesta la respuesta
+//    fija de B-09, sin el modelo, igual que WhatsApp con lo que no interpreta.
+//    Bajar el adjunto y pasárselo al agente (como el ítem 162 en WhatsApp)
+//    queda pendiente. Un mensaje borrado (is_deleted) se sigue ignorando.
+//    Eventos que no son un mensaje (read, postback, reaction, referral)
+//    vienen en el mismo messaging[] sin `message`: ignorados igual.
 // ---------------------------------------------------------------------------
 
 // Forma mínima para contestar 200; todo lo demás se lee con tolerancia, mismo
@@ -128,8 +134,43 @@ const eventoDeMensajeSchema = z.object({
     is_echo: z.boolean().optional(),
     // La app que mandó el mensaje, en un eco. Meta lo manda como número.
     app_id: z.union([z.number(), z.string()]).optional(),
+    attachments: z
+      .array(
+        z.object({
+          type: z.string().optional(),
+          // Messenger manda un sticker como "image" con sticker_id.
+          payload: z.object({ sticker_id: z.unknown().optional() }).passthrough().nullish(),
+        }),
+      )
+      .optional(),
+    is_deleted: z.boolean().optional(),
+    is_unsupported: z.boolean().optional(),
   }),
 });
+
+// PR-6: el contenido con el que entra un mensaje sin texto, según el primer
+// adjunto. Todos se contestan con la respuesta fija (esAdjuntoDeMeta).
+const MARCADOR_POR_TIPO: Record<string, string> = {
+  image: "[imagen]",
+  audio: "[audio]",
+  video: "[video]",
+  file: "[documento]",
+};
+const MARCADOR_STICKER = "[sticker]";
+const MARCADOR_ADJUNTO = "[adjunto]";
+const MARCADOR_NO_SOPORTADO = "[mensaje no soportado]";
+const MARCADORES_DE_META = new Set([
+  ...Object.values(MARCADOR_POR_TIPO),
+  MARCADOR_STICKER,
+  MARCADOR_ADJUNTO,
+  MARCADOR_NO_SOPORTADO,
+]);
+
+/** ¿Este entrante de Messenger o Instagram es un adjunto sin texto? Lo usa el
+ *  worker para contestar la respuesta fija en vez de llamar al modelo. */
+export function esAdjuntoDeMeta(contenido: string): boolean {
+  return MARCADORES_DE_META.has(contenido.trim());
+}
 
 export interface MensajeLeido {
   mid: string;
@@ -138,15 +179,28 @@ export interface MensajeLeido {
   texto: string;
 }
 
-// Pura, para probar sin base qué se procesa. null = no es un mensaje de texto
-// entrante (echo, adjunto, postback, lectura...): se ignora sin error.
+// Pura, para probar sin base qué se procesa. null = no es un mensaje
+// entrante (echo, borrado, postback, lectura...): se ignora sin error. Un
+// adjunto sin texto entra con su marcador (ver el punto 5 de arriba).
 export function leerMensaje(crudo: unknown): MensajeLeido | null {
   const parsed = eventoDeMensajeSchema.safeParse(crudo);
   if (!parsed.success) return null;
   const { sender, message } = parsed.data;
-  if (message.is_echo === true) return null;
-  if (message.text === undefined || message.text.trim().length === 0) return null;
-  return { mid: message.mid, senderId: sender.id, texto: message.text.trim() };
+  if (message.is_echo === true || message.is_deleted === true) return null;
+  const texto = message.text?.trim() ?? "";
+  if (texto.length > 0) return { mid: message.mid, senderId: sender.id, texto };
+  const adjunto = message.attachments?.[0];
+  if (adjunto) {
+    const marcador =
+      adjunto.payload?.sticker_id !== undefined
+        ? MARCADOR_STICKER
+        : (MARCADOR_POR_TIPO[adjunto.type ?? ""] ?? MARCADOR_ADJUNTO);
+    return { mid: message.mid, senderId: sender.id, texto: marcador };
+  }
+  if (message.is_unsupported === true) {
+    return { mid: message.mid, senderId: sender.id, texto: MARCADOR_NO_SOPORTADO };
+  }
+  return null;
 }
 
 export interface EcoLeido {

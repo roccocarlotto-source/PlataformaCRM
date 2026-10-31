@@ -4,6 +4,7 @@ import type { Seccion } from "../compartido/guia/guia";
 import { modulosDe } from "../config/ediciones";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
+import { contactosConNombreEntre } from "../repositories/contact.repository";
 import { findInternalAgentByOrganization } from "../repositories/internalAgent.repository";
 import {
   contarPreguntasDesde,
@@ -20,16 +21,20 @@ import { AppError } from "../utils/AppError";
 import { periodWindowInZone } from "../utils/zonedWindow";
 import { guiaVisible } from "./guiaDeUso.service";
 import { bloquesDe, elegirBloques } from "./helpAssistantBusqueda";
+import { getFirmanteDelHistorial, type Firmante } from "./helpAssistantFirma";
 import {
   armarPrompt,
   enmascarar,
+  enmascararNombres,
   LARGO_MAXIMO_DE_LA_PREGUNTA,
   LARGO_MAXIMO_DE_UNA_RESPUESTA_PREVIA,
   MODULOS_CON_NOMBRE,
+  palabrasDe,
   PARES_DE_HISTORIAL,
   preguntaDelimitada,
   procesarRespuesta,
   type Fuente,
+  type NombreDeContacto,
   type TipoDeRespuesta,
 } from "./helpAssistantPrompt";
 import {
@@ -69,8 +74,9 @@ export interface PreguntaEntrante {
   pregunta: string;
   /** La clave de AYUDA de la pantalla; si no es una clave conocida, se ignora. */
   pantalla?: string;
-  /** Los pares anteriores de esta charla (los guarda el navegador). */
-  historial?: { pregunta: string; respuesta: string }[];
+  /** Los pares anteriores de esta charla (los guarda el navegador), cada uno
+   *  con la firma que le dio el servidor. Uno sin firma válida se descarta. */
+  historial?: { pregunta: string; respuesta: string; firma?: string }[];
 }
 
 export interface RespuestaDelAsistente {
@@ -79,6 +85,9 @@ export interface RespuestaDelAsistente {
   fuentes: Fuente[];
   tipo: TipoDeRespuesta;
   restantesHoy: number;
+  /** AGE-01: el navegador la devuelve con este par en el historial. null sin
+   *  SECRET_ENCRYPTION_KEY: el asistente anda, sin historial. */
+  firma: string | null;
 }
 
 export interface DepsDelAsistente {
@@ -95,6 +104,10 @@ export interface DepsDelAsistente {
   tieneAgenteInterno: (auth: AuthContext, modulos: ReadonlySet<string>) => Promise<boolean>;
   completar: (pedido: LlmCompletionRequest) => Promise<LlmCompletionResult>;
   registrar: (datos: PreguntaARegistrar) => Promise<string>;
+  firmante: Firmante;
+  /** AGE-04: los contactos de la organización cuyo nombre y apellido pueden
+   *  estar entre estas palabras. */
+  contactosEntre: (organizationId: string, palabras: string[]) => Promise<NombreDeContacto[]>;
 }
 
 async function tieneAgenteInterno(
@@ -122,11 +135,16 @@ export const depsDelAsistente: DepsDelAsistente = {
   presupuestoDiarioUsd: env.HELP_ASSISTANT_DAILY_BUDGET_USD,
   zonaDeLaOrganizacion: (organizationId) => findZonaDeLaOrganizacion(organizationId),
   preguntasDesde: (userId, desde) => contarPreguntasDesde(userId, desde),
-  gastoDesde: (desde) => gastoDesde(desde),
+  // AGE-05: una llamada sin costo informado cuenta como el costo supuesto.
+  gastoDesde: (desde) => gastoDesde(desde, env.HELP_ASSISTANT_COSTO_SUPUESTO_USD),
   esPlatformAdmin: async (userId) => (await findPlatformAdminByUserId(userId)) !== null,
   tieneAgenteInterno,
   completar: (pedido) => getLlmProvider().complete(pedido),
   registrar: (datos) => registrarPregunta(datos),
+  get firmante() {
+    return getFirmanteDelHistorial();
+  },
+  contactosEntre: (organizationId, palabras) => contactosConNombreEntre(organizationId, palabras),
 };
 
 /** El asistente está disponible para esta persona (lo que muestra /api/me). */
@@ -182,10 +200,28 @@ export async function preguntarAlAsistente(
     auth.industry,
     auth.modulosActivados,
   );
-  const [esPlatformAdmin, conAgenteInterno] = await Promise.all([
+  // AGE-01: del historial que manda el navegador, solo los pares que este
+  // servidor firmó para esta persona. Los demás se descartan sin error.
+  const delPar = (pregunta: string, respuesta: string) => ({
+    organizationId: auth.organizationId,
+    userId: auth.userId,
+    pregunta,
+    respuesta,
+  });
+  const historial = (entrada.historial ?? [])
+    .filter((par) => deps.firmante.verificar(delPar(par.pregunta, par.respuesta), par.firma))
+    .slice(-PARES_DE_HISTORIAL);
+  const preguntaCruda = entrada.pregunta.trim().slice(0, LARGO_MAXIMO_DE_LA_PREGUNTA);
+  const [esPlatformAdmin, conAgenteInterno, contactos] = await Promise.all([
     deps.esPlatformAdmin(auth.userId),
     deps.tieneAgenteInterno(auth, modulos),
+    deps.contactosEntre(
+      auth.organizationId,
+      palabrasDe([preguntaCruda, ...historial.map((p) => p.pregunta)].join(" ")),
+    ),
   ]);
+  // AGE-04: emails, teléfonos, documentos, patentes y nombres de contactos.
+  const tapar = (texto: string) => enmascarar(enmascararNombres(texto, contactos));
   // La sección Plataforma (la ve solo el platform admin) entra solo si pregunta
   // desde una pantalla de Plataforma: suma ~17k tokens, y con ella la vista más
   // grande pasaría los 100k, donde Haiku 5.5 cobra el prompt 5 veces más.
@@ -203,14 +239,14 @@ export async function preguntarAlAsistente(
     { conAvisosDeAdmin: true },
   );
   const esClinica = auth.industry === "CLINICA";
-  const pregunta = enmascarar(entrada.pregunta.trim().slice(0, LARGO_MAXIMO_DE_LA_PREGUNTA));
+  const pregunta = tapar(preguntaCruda);
   const pantalla = pantallaDe(entrada.pantalla, secciones);
   // La búsqueda mira la pregunta y, en una charla, la anterior: "¿y cómo la
   // edito?" sola no dice de qué habla.
-  const anterior = entrada.historial?.at(-1)?.pregunta ?? "";
+  const anterior = historial.at(-1)?.pregunta ?? "";
   const elegidos = elegirBloques(
     bloquesDe(secciones),
-    `${pregunta} ${enmascarar(anterior)}`,
+    `${pregunta} ${tapar(anterior)}`,
     pantalla?.destino ?? null,
   );
   const prompt = armarPrompt(secciones, elegidos, {
@@ -227,12 +263,12 @@ export async function preguntarAlAsistente(
   });
 
   const mensajes: LlmMessage[] = [];
-  for (const previo of (entrada.historial ?? []).slice(-PARES_DE_HISTORIAL)) {
+  for (const previo of historial) {
     mensajes.push(
-      { role: "user", content: preguntaDelimitada(enmascarar(previo.pregunta)) },
+      { role: "user", content: preguntaDelimitada(tapar(previo.pregunta)) },
       {
         role: "assistant",
-        content: enmascarar(previo.respuesta.slice(0, LARGO_MAXIMO_DE_UNA_RESPUESTA_PREVIA)),
+        content: tapar(previo.respuesta.slice(0, LARGO_MAXIMO_DE_UNA_RESPUESTA_PREVIA)),
       },
     );
   }
@@ -307,6 +343,7 @@ export async function preguntarAlAsistente(
     fuentes: procesada.fuentes,
     tipo: procesada.tipo,
     restantesHoy: Math.max(0, deps.topeDiario - hechas - 1),
+    firma: deps.firmante.firmar(delPar(preguntaCruda, procesada.respuesta)),
   };
 }
 

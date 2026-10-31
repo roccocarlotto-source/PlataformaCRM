@@ -867,6 +867,9 @@ const envSchema = z.object({
   // llegar, el asistente se apaga para todos hasta el día siguiente. 0 lo
   // apaga del todo.
   HELP_ASSISTANT_DAILY_BUDGET_USD: z.coerce.number().min(0).default(5),
+  // AGE-05: lo que cuenta para ese freno una llamada en la que el proveedor no
+  // informó el costo. Conservador: una pregunta real cuesta USD 0,005-0,009.
+  HELP_ASSISTANT_COSTO_SUPUESTO_USD: z.coerce.number().min(0).default(0.02),
 });
 
 function parseEnv() {

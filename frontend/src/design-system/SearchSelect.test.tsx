@@ -115,3 +115,25 @@ describe("SearchSelect", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });
+
+// UX-07: dentro de un <dialog> nativo, Escape es el "cancel" del diálogo. Con
+// resultados abiertos tiene que cerrar la lista y nada más.
+describe("SearchSelect — Escape", () => {
+  it("con resultados abiertos, borra la búsqueda y no deja pasar el Escape", async () => {
+    const enElDocumento = vi.fn();
+    document.addEventListener("keydown", enElDocumento);
+    try {
+      const { onTermChange } = renderSelect({
+        term: "ac",
+        open: true,
+        results: [{ id: "1", name: "Acme" }],
+      });
+      screen.getByLabelText("Empresa").focus();
+      await userEvent.keyboard("{Escape}");
+      expect(onTermChange).toHaveBeenCalledWith("");
+      expect(enElDocumento).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", enElDocumento);
+    }
+  });
+});

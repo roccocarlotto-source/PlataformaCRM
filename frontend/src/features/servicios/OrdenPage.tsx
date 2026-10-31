@@ -79,6 +79,7 @@ function Ficha({ orden }: { orden: FichaDeOrden }) {
       <PageHeader
         help={AYUDA.fichaDeOrden}
         title={`${orden.numero} · ${vehiculo}`}
+        tituloDePestana="Orden de servicio"
         actions={
           <>
             {TRANSICIONES[orden.status].map((destino) => {
