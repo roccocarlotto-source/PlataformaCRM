@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   getEstadoDelReinicioDeLaDemo,
   getInformeDePreguntas,
+  getEstadoDelTokenDeWhatsapp,
   getLlmUsage,
   getOrganizationMetaConnection,
   listAgentesDeOrganizacion,
@@ -23,6 +24,7 @@ export const platformAdminKeys = {
   agentesDeOrganizacion: (organizationId: string) =>
     [...platformAdminKeys.agentesDeOrganizaciones(), organizationId] as const,
   llmUsage: () => [...platformAdminKeys.all, "llm-usage"] as const,
+  whatsappToken: () => [...platformAdminKeys.all, "whatsapp-token"] as const,
   informeDePreguntas: (filtros: FiltrosDelInforme) =>
     [...platformAdminKeys.all, "help-assistant-questions", filtros] as const,
   editions: () => [...platformAdminKeys.all, "editions"] as const,
@@ -75,6 +77,14 @@ export function useEsencialOfrecida(options: { enabled?: boolean } = {}) {
     ofrecida: (query.data?.editions ?? []).includes("ESENCIAL"),
     isLoading: query.isLoading,
   };
+}
+
+// OPS-03: el estado del token global de WhatsApp.
+export function useEstadoDelTokenDeWhatsapp() {
+  return useQuery({
+    queryKey: platformAdminKeys.whatsappToken(),
+    queryFn: ({ signal }) => getEstadoDelTokenDeWhatsapp(signal),
+  });
 }
 
 // B4: el gasto en el modelo por organización de los últimos 30 días.

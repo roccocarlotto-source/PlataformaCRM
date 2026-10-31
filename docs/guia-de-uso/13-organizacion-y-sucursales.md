@@ -66,6 +66,14 @@ por día, siempre que haya una moneda distinta de USD configurada; hasta que
 eso pase, la tarjeta dice que todavía no hay cotización cargada. Con esta
 cotización se calculan los precios del stock en la otra moneda.
 
+### WhatsApp
+
+Esta tarjeta aparece **solo si hay un problema**: cuando Meta dejó de aceptar
+la conexión de WhatsApp de la plataforma, dice desde cuándo y que los
+mensajes de WhatsApp no están saliendo. No tenés que hacer nada: el equipo de
+la plataforma ya está avisado y lo resuelve. Cuando vuelve a funcionar, la
+tarjeta desaparece.
+
 ### Facebook e Instagram
 
 Solo informativa. Con la página de Facebook de la organización conectada,
