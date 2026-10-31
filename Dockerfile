@@ -13,7 +13,7 @@
 # NODE 22 — leído de .github/workflows/ci.yml, no elegido
 # ---------------------------------------------------------------------------
 #
-# Los cuatro jobs del CI declaran `node-version: 22`. La imagen tiene que correr
+# Los jobs del CI declaran `node-version: 22`. La imagen tiene que correr
 # lo mismo que valida el pipeline: un runtime distinto del que se testea
 # convierte el CI verde en una afirmación sobre otra cosa.
 #
@@ -91,6 +91,16 @@ COPY --from=build /app/dist ./dist
 # niveles de dist/services/, o sea en /app/docs). Va directo del contexto: no
 # se compila. Ver la excepción en .dockerignore.
 COPY docs/guia-de-uso ./docs/guia-de-uso
+
+# El commit que contiene la imagen, para que /health lo muestre en "version"
+# (config/operacion.ts, OPS-08). Se pasa al construir:
+#   docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) …
+# Va dentro de la imagen y no en las variables del deploy para que no pueda
+# desincronizarse: la imagen dice siempre qué código tiene. Sin el build-arg
+# queda vacía y /health dice "local". Va después del `npm ci` para que cambiar
+# de commit no invalide el caché de las dependencias. No es un secreto.
+ARG GIT_COMMIT=""
+ENV GIT_COMMIT=$GIT_COMMIT
 
 # Usuario sin privilegios. Las imágenes oficiales de Node ya traen el usuario
 # `node` (uid 1000); no hace falta crearlo.
