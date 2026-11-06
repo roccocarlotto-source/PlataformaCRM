@@ -803,7 +803,11 @@ export function OpportunityFormPage() {
                 <Select
                   label="Origen del cliente"
                   value={values.leadSource}
-                  options={LEAD_SOURCE_OPTIONS.map((leadSource) => ({
+                  // PHONE lo pone el agente de voz: no se ofrece a mano, pero una
+                  // oportunidad que ya lo tiene lo sigue mostrando.
+                  options={LEAD_SOURCE_OPTIONS.filter(
+                    (leadSource) => leadSource !== "PHONE" || values.leadSource === "PHONE",
+                  ).map((leadSource) => ({
                     value: leadSource,
                     label: LEAD_SOURCE_LABELS[leadSource],
                   }))}

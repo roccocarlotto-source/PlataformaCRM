@@ -9,6 +9,9 @@ import type { ConversationChannel } from "./types";
 // Canales del enum ConversationChannel. Están fijos en el schema de Prisma
 // (Messenger e Instagram se sumaron en el ítem 169): acá no hay riesgo de
 // desincronización como en tools.ts, un canal nuevo es una migración.
+//
+// Son los canales que se OFRECEN en filtros y formularios: VOICE no está porque
+// todavía no se configura desde la app. Sí tiene rótulo, abajo.
 export const CHANNEL_OPTIONS: MultiSelectOption<ConversationChannel>[] = [
   { value: "WHATSAPP", label: "WhatsApp" },
   { value: "WEB", label: "Web" },
@@ -18,9 +21,10 @@ export const CHANNEL_OPTIONS: MultiSelectOption<ConversationChannel>[] = [
 
 // Derivado de la lista de arriba, no escrito de nuevo: un rótulo que cambie se
 // cambia en un solo lugar.
-export const CHANNEL_LABEL = Object.fromEntries(
-  CHANNEL_OPTIONS.map((option) => [option.value, option.label]),
-) as Record<ConversationChannel, string>;
+export const CHANNEL_LABEL = {
+  ...Object.fromEntries(CHANNEL_OPTIONS.map((option) => [option.value, option.label])),
+  VOICE: "Teléfono",
+} as Record<ConversationChannel, string>;
 
 // ---------------------------------------------------------------------------
 // Proveedores de LLM: espejo chico de LLM_PROVIDER_NAMES

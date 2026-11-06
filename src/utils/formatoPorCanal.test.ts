@@ -5,8 +5,8 @@ import { formatearParaElCanal } from "./formatoPorCanal";
 // Los casos vistos en producción el 05/10/2026: el agente mandó
 // "*Renault Kwid Zen (2021)*" por Messenger y el cliente vio los asteriscos.
 
-test("Messenger e Instagram: la negrita simple y la doble salen sin asteriscos", () => {
-  for (const canal of ["MESSENGER", "INSTAGRAM"] as const) {
+test("Messenger, Instagram y voz: la negrita simple y la doble salen sin asteriscos", () => {
+  for (const canal of ["MESSENGER", "INSTAGRAM", "VOICE"] as const) {
     assert.equal(
       formatearParaElCanal("Tenemos el *Renault Kwid Zen (2021)* disponible.", canal),
       "Tenemos el Renault Kwid Zen (2021) disponible.",

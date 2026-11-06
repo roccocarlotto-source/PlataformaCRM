@@ -9,8 +9,9 @@
 // createAgentSchema/updateAgentSchema del controller.
 
 // Espejo del enum ConversationChannel de Prisma. MESSENGER e INSTAGRAM desde
-// el ítem 169 (el frontend los suma en el 173).
-export type ConversationChannel = "WHATSAPP" | "WEB" | "MESSENGER" | "INSTAGRAM";
+// el ítem 169 (el frontend los suma en el 173). VOICE: llamadas del agente de
+// voz.
+export type ConversationChannel = "WHATSAPP" | "WEB" | "MESSENGER" | "INSTAGRAM" | "VOICE";
 
 // Espejo del enum ConversationStatus de Prisma. Lo devuelve el turno de
 // prueba (ítem 65) y es el estado de la conversación DESPUÉS del turno.

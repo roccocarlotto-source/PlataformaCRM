@@ -223,12 +223,13 @@ export const MENSAJE_TOPE_DE_RESERVAS = `Este cliente ya tiene ${String(MAX_RESE
 
 // FABLE-I-06 / B-15 (docs-privados, local): de dónde vino la oportunidad que
 // crea el agente. Desde B2 (migración 20261022120000) el enum tiene valor para
-// los cuatro canales. Exportado para fijarlo con un test.
+// todos los canales. Exportado para fijarlo con un test.
 export const ORIGEN_POR_CANAL: Record<ConversationChannel, OpportunityLeadSource> = {
   WEB: "WEBSITE",
   WHATSAPP: "WHATSAPP",
   MESSENGER: "MESSENGER",
   INSTAGRAM: "INSTAGRAM",
+  VOICE: "PHONE",
 };
 
 // Serializable: va a Message.toolCalls y, como string JSON, de vuelta al
@@ -612,6 +613,7 @@ const CANAL_EN_PROSA: Record<ConversationChannel, string> = {
   WHATSAPP: "WhatsApp",
   MESSENGER: "Messenger",
   INSTAGRAM: "Instagram",
+  VOICE: "teléfono",
 };
 
 async function anotarMotivoEnLaOportunidad(

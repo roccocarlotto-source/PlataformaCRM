@@ -161,6 +161,7 @@ const NOMBRE_DEL_CANAL: Record<ConversationChannel, string> = {
   MESSENGER: "Messenger",
   INSTAGRAM: "Instagram",
   WEB: "el sitio web",
+  VOICE: "teléfono",
 };
 
 // Pura: el asunto y el cuerpo de la tarea para el vendedor. El resumen son

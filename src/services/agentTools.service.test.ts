@@ -33,12 +33,13 @@ const AUTOMOTORA: OrganizacionDelAgente = { edition: "COMPLETA", industry: "AUTO
 // B2 (migración 20261022120000): todo canal tiene su origen de oportunidad.
 // Antes Messenger e Instagram no estaban en el mapa y la oportunidad que el
 // agente creaba por esos canales quedaba sin origen.
-test("B2: ORIGEN_POR_CANAL cubre los cuatro canales, con Messenger e Instagram", () => {
+test("ORIGEN_POR_CANAL cubre todos los canales, con Messenger, Instagram y teléfono", () => {
   assert.deepEqual(ORIGEN_POR_CANAL, {
     WEB: "WEBSITE",
     WHATSAPP: "WHATSAPP",
     MESSENGER: "MESSENGER",
     INSTAGRAM: "INSTAGRAM",
+    VOICE: "PHONE",
   });
 });
 
