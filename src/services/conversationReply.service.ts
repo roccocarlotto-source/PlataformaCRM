@@ -90,6 +90,8 @@ export const LARGO_MAXIMO_DE_RESPUESTA = 4096;
 export const MENSAJE_SIN_PERMISO =
   "Solo el vendedor asignado a la conversación o un administrador pueden atenderla";
 export const MENSAJE_CERRADA = "La conversación está cerrada";
+export const MENSAJE_LLAMADA =
+  "Esta conversación fue una llamada: no se le puede escribir desde acá. Llamá al cliente.";
 export const MENSAJE_VENTANA_VENCIDA =
   "Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp solo permite plantillas aprobadas";
 export const MENSAJE_VENTANA_VENCIDA_META =
@@ -151,6 +153,9 @@ export function motivoParaNoResponder(
 ): string | null {
   if (conversation.status === "CLOSED") {
     return MENSAJE_CERRADA;
+  }
+  if (conversation.channel === "VOICE") {
+    return MENSAJE_LLAMADA;
   }
   if (conversation.channel === "WEB") {
     return null;
@@ -236,6 +241,9 @@ async function validarQueSePuedeEscribir(conversation: Conversation) {
 async function destinoDeLaConversacion(
   conversation: Conversation,
 ): Promise<Destino | { motivo: string }> {
+  if (conversation.channel === "VOICE") {
+    return { motivo: MENSAJE_LLAMADA };
+  }
   if (conversation.channel === "WEB") {
     return { canal: "WEB" };
   }

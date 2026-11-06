@@ -29,6 +29,9 @@ export interface CreateMessageData {
   deliveryError?: string;
   // Qué aviso automático es (solo AUTOMATION): lo que lo reconoce en el hilo.
   noticeType?: MessageNoticeType;
+  // Por defecto, ahora. Una llamada guarda lo que dijo el cliente al final del
+  // turno, con la hora en que lo dijo: así queda antes de la respuesta.
+  createdAt?: Date;
 }
 
 export function createMessage(data: CreateMessageData, db: Db = prisma) {

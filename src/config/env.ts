@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+import { leerAccesosDeVoz } from "../voz/accesos";
 // Primer módulo que valida con zod: instala los textos de error de zod 3 para
 // todo el proceso (ver utils/erroresDeZod.ts).
 import "../utils/erroresDeZod";
@@ -477,6 +478,27 @@ const envSchema = z.object({
   // está, es 2 (cupoDeTurnosPorDefecto) — un default conservador; el valor de
   // producción se fija acá.
   AGENT_TURN_MAX_CONCURRENT: z.coerce.number().int().positive().optional(),
+
+  // -------------------------------------------------------------------------
+  // Canal de voz (src/voz). APAGADO por defecto: sin VOZ_HABILITADA=true la ruta
+  // no existe. VOZ_ACCESOS es un JSON con una entrada por número:
+  // [{ "hash": sha256 del secreto, "organizationId", "agentId", "numero" }].
+  // Un JSON roto frena el arranque, igual que cualquier otra variable mal puesta.
+  VOZ_HABILITADA: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((valor) => valor === "true"),
+  VOZ_ACCESOS: z
+    .string()
+    .default("[]")
+    .transform((texto, ctx) => {
+      try {
+        return leerAccesosDeVoz(texto);
+      } catch {
+        ctx.addIssue({ code: "custom", message: "VOZ_ACCESOS no es una lista de accesos válida" });
+        return z.NEVER;
+      }
+    }),
 
   // AUTH_CONTEXT_CACHE_TTL_MS: cuántos milisegundos se recuerda el usuario,
   // la organización y el rol que resuelve el middleware de autenticación

@@ -61,6 +61,10 @@ const REDACT_PATHS = [
   // El token del canal de push de Google Calendar
   // (googleCalendarWebhook.controller.ts): con él se falsifican notificaciones.
   'req.headers["x-goog-channel-token"]',
+  // El número desde el que llaman y el que atiende, en cada turno de voz: son
+  // datos personales, no credenciales. Mismo tratamiento que x-external-id.
+  'req.headers["x-voz-llamante"]',
+  'req.headers["x-voz-numero"]',
   'res.headers["set-cookie"]',
 ];
 const REDACT_CENSOR = "[REDACTED]";

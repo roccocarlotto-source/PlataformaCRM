@@ -12,6 +12,7 @@ import { routes } from "./routes";
 import { ingestRouter } from "./routes/ingest.routes";
 import { metaWebhookRouter } from "./routes/metaWebhook.routes";
 import { publicWidgetRouter } from "./routes/publicWidget.routes";
+import { crearRouterDeVoz } from "./routes/voz.routes";
 import { whatsappWebhookRouter } from "./routes/whatsappWebhook.routes";
 
 // Arma la instancia de Express (middlewares + rutas) sin escuchar ningún
@@ -80,6 +81,12 @@ app.use(pinoHttp({ logger, ...httpLoggerOptions }));
 // cadena y docs/ai-agent-architecture.md (nota del paso 5b bajo §6) para el
 // diseño.
 app.use("/api/public", publicWidgetRouter);
+
+// EL CANAL DE VOZ VA ANTES DE compression() Y DEL PARSER GLOBAL. Responde por
+// streaming: comprimido, el texto se juntaría en un buffer y la plataforma de
+// voz recibiría todo junto al final. Trae su propio parser, con su tope. Lo
+// llama un servidor, así que CORS no interviene. Ver routes/voz.routes.ts.
+app.use("/api/voz", crearRouterDeVoz());
 
 // LA POLÍTICA CORS DE /api/ingest ES UNA DECISIÓN PENDIENTE, NO UN OLVIDO.
 //

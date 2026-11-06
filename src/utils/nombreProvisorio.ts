@@ -9,6 +9,7 @@
 //   - Messenger e Instagram mientras no se pudo leer el perfil: el canal como
 //     nombre y "…" + el final del id de la persona ("Messenger …08366039").
 //     Y un Instagram sin nombre cargado: solo su usuario, "@usuario".
+//   - Una llamada: "Llamada" + el número.
 //
 // Un nombre provisorio NO es un nombre:
 //   - el chat puede reemplazarlo cuando la persona dice cómo se llama (un
@@ -26,6 +27,8 @@
 
 export const WHATSAPP_CONTACT_FALLBACK_FIRST_NAME = "WhatsApp";
 export const WIDGET_CONTACT_FIRST_NAME = "Visitante";
+export const LLAMADA_CONTACT_FIRST_NAME = "Llamada";
+export const LLAMADA_CONTACT_SOURCE = "Llamada telefónica";
 
 // El apellido que el widget le pone a su visitante: los primeros 8 caracteres
 // en hexadecimal del hash de la sesión (widgetContactLastName). Se exige esa
@@ -51,6 +54,9 @@ export function esNombreProvisorio(contacto: {
   const nombre = contacto.firstName.trim();
   const apellido = contacto.lastName ?? "";
   if (nombre.length === 0 || nombre === WHATSAPP_CONTACT_FALLBACK_FIRST_NAME) {
+    return true;
+  }
+  if (nombre === LLAMADA_CONTACT_FIRST_NAME && apellido.startsWith("+")) {
     return true;
   }
   if (NOMBRES_DE_META.includes(nombre) && apellido.startsWith(PREFIJO_DEL_APELLIDO_DE_META)) {

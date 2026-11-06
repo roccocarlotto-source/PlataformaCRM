@@ -140,6 +140,7 @@ export const PATRONES_DE_SLUG_DE_PRUEBA: readonly PatronDeSlug[] = [
   patron("permisos-{etiqueta}-{ts}-{hex8}", `${C}permisosDelVendedor.integration-test.ts`),
   patron("merge-b-{ts}-{hex8}", `${C}contactMerge.integration-test.ts`),
   patron("widget-thread-{ts}-{hex8}", `${C}publicWidgetThread.integration-test.ts`),
+  patron("voz-test-{ts}-{hex8}", "src/voz/voz.integration-test.ts"),
   patron("cupon-manual-{ts}-{hex8}", `${C}voucherManual.integration-test.ts`),
   patron("cupon-manual-b-{ts}-{hex8}", `${C}voucherManual.integration-test.ts`),
   patron("qr-pub-{etiqueta}-{ts}-{hex8}", `${C}qrPublic.controller.integration-test.ts`),

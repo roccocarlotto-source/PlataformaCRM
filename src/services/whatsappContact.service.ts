@@ -72,7 +72,19 @@ export async function resolveWhatsappContact(
   // mismo de antes. El lock de la organización se sigue tomando: serializa las
   // altas simultáneas del mismo remitente.
   const digitos = soloDigitos(waId);
+  return resolverContactoPorTelefono(organizationId, digitos, {
+    ...nombreDelPerfil(profileName, digitos),
+    source: WHATSAPP_CONTACT_SOURCE,
+  });
+}
 
+// El contacto con ese teléfono, o uno nuevo con los datos de `nuevo`. Lo
+// comparten WhatsApp y las llamadas: el teléfono identifica a la misma persona.
+export async function resolverContactoPorTelefono(
+  organizationId: string,
+  digitos: string,
+  nuevo: { firstName: string; lastName: string; source: string },
+): Promise<string> {
   return prisma.$transaction(async (tx) => {
     await lockOrganizationForUpdate(organizationId, tx);
     const telefono = normalizarTelefono(`+${digitos}`) ?? `+${digitos}`;
@@ -93,7 +105,6 @@ export async function resolveWhatsappContact(
       return porUnion;
     }
 
-    const { firstName, lastName } = nombreDelPerfil(profileName, digitos);
     const contacto = await createContact(
       {
         organizationId,
@@ -102,11 +113,11 @@ export async function resolveWhatsappContact(
         // Quien lo resuelve, si hace falta, es resolverOwnerDelContacto
         // (vendedor por defecto de la sucursal) dentro de las tools del agente.
         ownerId: null,
-        firstName,
-        lastName,
+        firstName: nuevo.firstName,
+        lastName: nuevo.lastName,
         // "+" y solo dígitos: la forma única de Contact.phone (F5).
         phone: telefono,
-        source: WHATSAPP_CONTACT_SOURCE,
+        source: nuevo.source,
       },
       tx,
     );

@@ -51,6 +51,7 @@ import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
 import { describirValor, type DefinicionDeCampo } from "../utils/camposPersonalizados";
 import { formatearParaElCanal } from "../utils/formatoPorCanal";
+import { INSTRUCCION_CANAL_DE_VOZ } from "../voz/instrucciones";
 import { definicionesParaValidar } from "./contactCustomFieldDefinition.service";
 import { DateTime } from "luxon";
 import {
@@ -95,6 +96,7 @@ import {
   datosQueFaltanParaActuar,
   toolsHabilitadas,
   toolsSinCampos,
+  TOOLS_FUERA_DE_VOZ,
   type ContextoDeEjecucionDeTool,
   type ResultadoDeTool,
   type ToolDelAgente,
@@ -373,8 +375,8 @@ export interface RunAgentTurnInput {
 
 export interface RunAgentTurnOptions {
   llmProvider?: LlmProvider;
-  // B-08: el presupuesto del turno. SOLO PARA TESTS; en producción es
-  // PRESUPUESTO_DEL_TURNO_MS.
+  // B-08: el presupuesto del turno. Por defecto, PRESUPUESTO_DEL_TURNO_MS; lo
+  // cambian los tests y el canal de voz.
   presupuestoMs?: number;
 }
 
@@ -389,6 +391,22 @@ export interface OpcionesDeRespuesta extends RunAgentTurnOptions {
   // marcador ("[audio]") y el adjunto viaja junto a ese marcador solo en ESTE
   // turno: no se guarda en ningún lado. Lo pasa solo el worker de WhatsApp.
   adjuntos?: ReadonlyMap<string, LlmContentPart>;
+  // Solo el canal de voz (src/voz). Sin esto, el turno es el de siempre.
+  voz?: SalidaDeVoz;
+}
+
+// Cómo se engancha una llamada al turno. El turno es el mismo; cambia que lo que
+// dice sale mientras se escribe, y que lo que dijo el cliente todavía no está
+// guardado (`entrante` viaja en memoria hasta que el turno termina).
+export interface SalidaDeVoz {
+  entrante: Pick<Message, "id" | "direction" | "content">;
+  empezarRonda(revisar: (acumulado: string) => boolean): void;
+  alEscribir(fragmento: string): void;
+  empezoHerramienta(nombre: string): void;
+  terminoHerramienta(): void;
+  // Recibe la respuesta ya revisada y devuelve lo que se dijo, que es lo que se
+  // guarda. Puede incluir texto de rondas anteriores.
+  cerrar(respuesta: string): string;
 }
 
 // Auditoría de una tool call del turno: lo que va a Message.toolCalls (§6) y
@@ -1491,6 +1509,9 @@ export function armarSystemPrompt(
   // desactiva con un "ignorá tus instrucciones anteriores" del cliente. Va al
   // final a propósito — es lo último que el modelo lee antes del historial, y
   // el cierre del prompt es la posición de más peso.
+  if (canal === "VOICE") {
+    partes.push(INSTRUCCION_CANAL_DE_VOZ);
+  }
   partes.push(...instruccionesDelRubro);
   partes.push(INSTRUCCION_IDENTIDAD_INMUTABLE);
 
@@ -2663,7 +2684,7 @@ async function responderSinMedir(
     entradasDeLaSucursal,
     sucursal,
     franjasDeLaSucursal,
-    ultimosMensajes,
+    mensajesGuardados,
     cuponesDelContacto,
     camposPersonalizados,
     organizacion,
@@ -2696,6 +2717,11 @@ async function responderSinMedir(
       ? []
       : findOpenOpportunitiesOfContact(contact.id, organizationId, MAX_REGISTROS_EN_EL_PROMPT),
   ]);
+
+  // En una llamada, lo último que dijo el cliente todavía no está en la base.
+  const ultimosMensajes: Pick<Message, "id" | "direction" | "content">[] = options.voz
+    ? [...mensajesGuardados.slice(1 - VENTANA_DE_MENSAJES), options.voz.entrante]
+    : mensajesGuardados;
 
   // PUNTO DE EXTENSIÓN DE ENTRADA (docs/rubros.md §5.3): las reglas del rubro
   // sobre lo que escribió el contacto, antes del modelo. En AUTOMOTORA no hay
@@ -2849,6 +2875,9 @@ async function responderSinMedir(
     [...toolsHabilitadas(agent.enabledTools, organizacion), ...exclusivas]
       // Paso D: las tools que permite el nivel (AUTONOMA: todas).
       .filter((tool) => toolDelNivel(tool.definition.name, nivelDelTurno))
+      .filter(
+        (tool) => conversation.channel !== "VOICE" || !TOOLS_FUERA_DE_VOZ.has(tool.definition.name),
+      )
       .map((tool) => reglas.toolsPropias[tool.definition.name] ?? tool),
     reglas.camposFueraDeLasTools,
   );
@@ -2957,8 +2986,47 @@ async function responderSinMedir(
   let promptDeLaLlamada = systemPrompt;
   let yaSeCortoPorLargo = false;
 
+  const secretosDelPrompt = [
+    INSTRUCCION_USAR_HERRAMIENTAS,
+    textos.sinAutoridadComercial,
+    INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
+    INSTRUCCION_DE_RESPUESTA_CORTA,
+    textos.soloLoQueTeConsta,
+    textos.gestionDeTurnos ?? "",
+    INSTRUCCION_IDENTIDAD_INMUTABLE,
+    ...reglas.instruccionesDelPrompt,
+    ...instruccionesDelNivel(nivelDelTurno),
+    agent.instructions,
+    typeof agent.guardrailsText === "string" ? agent.guardrailsText : "",
+    ...(conversation.channel === "VOICE" ? [INSTRUCCION_CANAL_DE_VOZ] : []),
+  ];
+
+  // Las mismas guardas del cierre del turno (más abajo), sobre lo que se lleva
+  // escrito. Si algo no pasa, no se dice y lo resuelve ese cierre.
+  const seguroParaDecir = (escrito: string): boolean =>
+    !revelaInstrucciones(escrito, secretosDelPrompt) &&
+    !mencionaUnaTool(
+      escrito,
+      definiciones.map((d) => d.name),
+    ) &&
+    primeraDecisionDeSalida(reglas.salida, escrito, contextoDeLaRegla) === null &&
+    primeraCorreccionDeSalida(
+      reglas.correccionesDeSalida,
+      escrito,
+      auditoria,
+      contextoDeLaRegla,
+    ) === null &&
+    !devuelveElMensajeDelCliente(escrito, texto);
+  // Un rubro con retoques de forma no suelta texto a medida que se escribe: los
+  // retoques se aplican al texto entero, en el cierre.
+  const opcionesDelModelo =
+    options.voz && reglas.retoquesDeSalida.length === 0
+      ? { alEscribir: options.voz.alEscribir }
+      : undefined;
+
   // Pasos 3 a 6 de §4: el loop de tool-calling.
   for (let ronda = 0; ronda < MAX_TOOL_ROUNDS_PER_TURN; ronda++) {
+    options.voz?.empezarRonda(seguroParaDecir);
     // ÍTEM 120 — el proveedor puede caerse, y el contacto no puede pagarlo.
     //
     // El ítem 114 puso reintentos ante fallas transitorias y dejó anotado lo
@@ -2991,13 +3059,16 @@ async function responderSinMedir(
         throw new LlmProviderError("Se agotó el presupuesto de tiempo del turno");
       }
       resultado = await medirModelo(() =>
-        llm.complete({
-          systemPrompt: promptDeLaLlamada,
-          messages: historial,
-          tools: definiciones,
-          model: agent.modelName,
-          signal: presupuesto,
-        }),
+        llm.complete(
+          {
+            systemPrompt: promptDeLaLlamada,
+            messages: historial,
+            tools: definiciones,
+            model: agent.modelName,
+            signal: presupuesto,
+          },
+          opcionesDelModelo,
+        ),
       );
       sumarUso(uso, resultado.usage);
     } catch (err) {
@@ -3100,15 +3171,16 @@ async function responderSinMedir(
       // formato exige un resultado por cada tool call del asistente.
       const entrada: ToolCallDelTurno =
         indice < MAX_TOOL_CALLS_PER_ROUND
-          ? await medirHerramienta(() =>
-              resolverToolCall(llamada, {
+          ? await medirHerramienta(() => {
+              options.voz?.empezoHerramienta(llamada.name);
+              return resolverToolCall(llamada, {
                 agent: { ...agent, organizacion, nivel: nivelDelTurno },
                 toolsPorNombre,
                 datosDisponibles,
                 contextoDeTools,
                 toolsDelSistema: toolsDelSistemaPorNombre,
-              }),
-            )
+              });
+            })
           : {
               id: llamada.id,
               name: llamada.name,
@@ -3116,6 +3188,7 @@ async function responderSinMedir(
               allowed: false,
               reason: MOTIVO_TOPE_DE_TOOLS_POR_RONDA,
             };
+      options.voz?.terminoHerramienta();
       auditoria.push(entrada);
       entradasDeLaRonda.push(entrada);
       historial.push({
@@ -3273,21 +3346,7 @@ async function responderSinMedir(
         );
   if (respuestaFija) {
     // Ver arriba: sale tal cual.
-  } else if (
-    revelaInstrucciones(respuestaFinal, [
-      INSTRUCCION_USAR_HERRAMIENTAS,
-      textos.sinAutoridadComercial,
-      INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
-      INSTRUCCION_DE_RESPUESTA_CORTA,
-      textos.soloLoQueTeConsta,
-      textos.gestionDeTurnos ?? "",
-      INSTRUCCION_IDENTIDAD_INMUTABLE,
-      ...reglas.instruccionesDelPrompt,
-      ...instruccionesDelNivel(nivelDelTurno),
-      agent.instructions,
-      typeof agent.guardrailsText === "string" ? agent.guardrailsText : "",
-    ])
-  ) {
+  } else if (revelaInstrucciones(respuestaFinal, secretosDelPrompt)) {
     logger.warn(
       { organizationId, agentId, conversationId: conversation.id },
       "La respuesta del modelo repetía las instrucciones del sistema: se reemplazó antes de enviarla",
@@ -3423,6 +3482,10 @@ async function responderSinMedir(
   // En el formato del canal (utils/formatoPorCanal.ts): lo que se guarda es lo
   // que el cliente ve. Va antes de partir por largo, que ocurre al mandar.
   respuestaFinal = formatearParaElCanal(respuestaFinal, conversation.channel);
+  // Por teléfono ya se dijo: lo que se guarda es lo que el cliente escuchó.
+  if (options.voz) {
+    respuestaFinal = options.voz.cerrar(respuestaFinal);
+  }
 
   // Una derivación que pidió el modelo con un motivo que las reglas de entrada
   // del rubro reconocen (en una clínica, "consulta clínica" o un síntoma en el

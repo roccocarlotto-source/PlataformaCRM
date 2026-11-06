@@ -156,7 +156,10 @@ export function datosQueFaltanParaActuar(
     faltan.push("el apellido");
   }
   const tiene = (valor: string | null) => valor !== null && valor.trim().length > 0;
-  if (canal === ConversationChannel.WEB && !tiene(contacto.email) && !tiene(contacto.phone)) {
+  // Una llamada trae el teléfono, salvo que venga oculto: ahí es como la web.
+  const canalSinDatoPropio =
+    canal === ConversationChannel.WEB || canal === ConversationChannel.VOICE;
+  if (canalSinDatoPropio && !tiene(contacto.email) && !tiene(contacto.phone)) {
     faltan.push("un teléfono o un email");
   }
   return faltan;
@@ -2270,6 +2273,14 @@ const updateContactCustomFieldsTool: ToolDelAgente = {
 // ---------------------------------------------------------------------------
 
 export const NOMBRE_TOOL_PAGO = "get_payment_info";
+
+// Lo que no se hace por teléfono: los datos para pagar no se dictan, y los campos
+// personalizados son una planilla, no una charla. Se saca de las tools del turno,
+// así que el modelo ni las ve. Se resuelve en el turno: acá solo está la lista.
+export const TOOLS_FUERA_DE_VOZ: ReadonlySet<string> = new Set([
+  NOMBRE_TOOL_PAGO,
+  "update_contact_custom_fields",
+]);
 
 const getPaymentInfoTool: ToolDelAgente = {
   definition: {

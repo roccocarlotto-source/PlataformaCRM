@@ -131,6 +131,9 @@ export async function resolveWidgetContact(
   // Ítem 138: el token por el que entró el mensaje, para el tope de
   // contactos nuevos por hora.
   embedTokenId: string,
+  // Lo que queda en Contact.source. Una llamada con número oculto usa este mismo
+  // camino: no tiene otro dato que la identifique.
+  source: string = WIDGET_CONTACT_SOURCE,
 ): Promise<string> {
   // El atajo del caso común (una sesión que ya escribió antes), sin lock.
   const previa = await findConversationByExternalThreadId(
@@ -174,7 +177,7 @@ export async function resolveWidgetContact(
         ownerId: null,
         firstName: WIDGET_CONTACT_FIRST_NAME,
         lastName: widgetContactLastName(sessionId),
-        source: WIDGET_CONTACT_SOURCE,
+        source,
       },
       tx,
     );
