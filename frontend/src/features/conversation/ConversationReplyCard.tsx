@@ -80,7 +80,9 @@ export function ConversationReplyCard({
     : null;
   const ventanaAbierta = !tieneVentana || (finDeVentana !== null && ahora() < finDeVentana);
   const enCurso = responder.isPending || devolver.isPending;
-  const puedeEscribir = atiende && ventanaAbierta;
+  // Una llamada no tiene por dónde recibir un mensaje escrito.
+  const esLlamada = conversation.channel === "VOICE";
+  const puedeEscribir = atiende && ventanaAbierta && !esLlamada;
 
   function enviar() {
     const limpio = texto.trim();
@@ -112,6 +114,9 @@ export function ConversationReplyCard({
   function aviso(): string | null {
     if (!atiende) {
       return `Solo el ${vocabulario.responsable.singular} asignado a esta conversación o un administrador pueden responderla.`;
+    }
+    if (esLlamada) {
+      return "Esta conversación fue una llamada: no se le puede escribir desde acá. Llamá al cliente.";
     }
     if (!ventanaAbierta) {
       return conversation.channel === "WHATSAPP"

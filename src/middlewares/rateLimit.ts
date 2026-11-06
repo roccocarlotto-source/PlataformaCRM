@@ -1,3 +1,4 @@
+import type { VozRequest } from "../types/vozAuth";
 import type { NextFunction, Request, Response } from "express";
 import { rateLimit, type RateLimitInfo } from "express-rate-limit";
 import type { z } from "zod";
@@ -661,6 +662,24 @@ export function createWidgetRateLimiter(overrides?: { windowMs?: number; max?: n
 }
 
 export const widgetRateLimiter = createWidgetRateLimiter();
+
+// ---------------------------------------------------------------------------
+// Canal de voz: cupo por agente. La plataforma de voz manda un pedido por turno,
+// así que esto solo frena un secreto filtrado o un bucle: cada turno gasta modelo.
+// ---------------------------------------------------------------------------
+export const VOZ_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+export const VOZ_RATE_LIMIT_MAX = 120;
+
+export function createVozRateLimiter(overrides?: { max?: number }) {
+  return rateLimit({
+    windowMs: VOZ_RATE_LIMIT_WINDOW_MS,
+    max: overrides?.max ?? VOZ_RATE_LIMIT_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    keyGenerator: (req) => (req as VozRequest).vozAcceso.agentId,
+    handler: buildRateLimitHandler("Demasiados pedidos seguidos. Probá de nuevo en un momento."),
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Ítem 138 (B-10/F-05 de docs/auditoria-2026-09-24-punta-a-punta.md) — el

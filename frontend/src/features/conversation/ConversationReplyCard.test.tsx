@@ -151,6 +151,12 @@ describe("ConversationReplyCard", () => {
     expect(screen.queryByText(/Podés escribir texto libre hasta/)).toBeNull();
   });
 
+  it("una llamada no se responde por escrito: deshabilitado, con el motivo", () => {
+    renderCard(makeConversationDetail({ channel: "VOICE", ...ABIERTA }));
+    expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeDisabled();
+    expect(screen.getByText(/fue una llamada/)).toBeInTheDocument();
+  });
+
   it("un vendedor que no tiene asignada la conversación no puede responder", () => {
     renderCard(makeConversationDetail({ ...ABIERTA, assignedUserId: "otro" }), "USER");
     expect(screen.queryByRole("textbox")).toBeNull();
