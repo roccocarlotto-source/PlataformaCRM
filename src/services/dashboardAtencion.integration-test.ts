@@ -244,7 +244,7 @@ test("cada métrica cuenta lo que tiene que contar, en el período de la zona de
   assert.equal(r.periodo.start, "2026-10-01T03:00:00.000Z");
   assert.deepEqual(r.conversacionesNuevas, {
     total: 3,
-    porCanal: { WHATSAPP: 2, WEB: 1, INSTAGRAM: 0, MESSENGER: 0 },
+    porCanal: { WHATSAPP: 2, WEB: 1, INSTAGRAM: 0, MESSENGER: 0, VOICE: 0 },
   });
   assert.equal(r.derivaciones, 2);
   assert.equal(r.derivacionesSinRespuesta, 1);

@@ -8,7 +8,7 @@ export interface DashboardDeAtencion {
   periodo: { label: string; start: string; end: string };
   conversacionesNuevas: {
     total: number;
-    porCanal: Record<"WHATSAPP" | "WEB" | "INSTAGRAM" | "MESSENGER", number>;
+    porCanal: Record<"WHATSAPP" | "WEB" | "INSTAGRAM" | "MESSENGER" | "VOICE", number>;
   };
   derivaciones: number;
   derivacionesSinRespuesta: number;
@@ -37,6 +37,7 @@ const CANALES: {
   { key: "WEB", label: "Web" },
   { key: "INSTAGRAM", label: "Instagram" },
   { key: "MESSENGER", label: "Messenger" },
+  { key: "VOICE", label: "Teléfono" },
 ];
 
 /** "WhatsApp 2 · Web 1": solo los canales con conversaciones. */

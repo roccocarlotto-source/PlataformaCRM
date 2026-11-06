@@ -142,7 +142,7 @@ export const listContactsQuerySchema = z.object({
   // siguen pidiendo el selector de contacto y la unión.
   vista: z.enum(["clientes", "consultas"]).optional(),
   // Solo tiene efecto con vista=consultas: el canal de la última conversación.
-  channel: z.enum(["WHATSAPP", "WEB", "INSTAGRAM", "MESSENGER"]).optional(),
+  channel: z.enum(["WHATSAPP", "WEB", "INSTAGRAM", "MESSENGER", "VOICE"]).optional(),
   sortBy: z.enum(["firstName", "lastName", "createdAt", "lifecycleStage"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });

@@ -19,7 +19,13 @@ import { periodWindowInZone, type PeriodUnit } from "../utils/zonedWindow";
 // T-01), igual que el dashboard comercial. Sin oportunidades ni montos.
 // ---------------------------------------------------------------------------
 
-const CANALES: readonly ConversationChannel[] = ["WHATSAPP", "WEB", "INSTAGRAM", "MESSENGER"];
+const CANALES: readonly ConversationChannel[] = [
+  "WHATSAPP",
+  "WEB",
+  "INSTAGRAM",
+  "MESSENGER",
+  "VOICE",
+];
 
 export interface DashboardDeAtencion {
   periodo: { label: string; start: string; end: string };

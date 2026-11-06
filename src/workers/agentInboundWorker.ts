@@ -123,6 +123,7 @@ const NOMBRE_DEL_CANAL: Record<ConversationChannel, string> = {
   MESSENGER: "Messenger",
   INSTAGRAM: "Instagram",
   WEB: "la web",
+  VOICE: "teléfono",
 };
 
 // Un fallo que no se arregla reintentando, sin ser un AppError: un job que

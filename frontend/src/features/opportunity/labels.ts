@@ -62,4 +62,5 @@ export const LEAD_SOURCE_LABELS: Record<OpportunityLeadSource, string> = {
   WHATSAPP: "WhatsApp",
   MESSENGER: "Messenger",
   INSTAGRAM: "Instagram",
+  PHONE: "Teléfono",
 };

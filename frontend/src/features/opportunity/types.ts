@@ -18,7 +18,9 @@ export type OpportunityLeadSource =
   | "WHATSAPP"
   // B2: los canales de Meta (migración 20261022120000).
   | "MESSENGER"
-  | "INSTAGRAM";
+  | "INSTAGRAM"
+  // La oportunidad que crea el agente durante una llamada.
+  | "PHONE";
 
 // ⚠️ amount es Decimal(14,2) en Prisma — mismo caso verificado empíricamente
 // que Stage.probability (M4): Prisma.Decimal.toJSON() devuelve STRING. La

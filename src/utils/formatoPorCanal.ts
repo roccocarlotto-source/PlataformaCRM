@@ -72,6 +72,7 @@ export function formatearParaElCanal(texto: string, canal: ConversationChannel):
     case "MESSENGER":
     case "INSTAGRAM":
     case "WEB":
+    case "VOICE":
       return porTramos(texto, aTextoPlano);
   }
 }

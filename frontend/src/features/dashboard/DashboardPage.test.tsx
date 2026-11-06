@@ -620,7 +620,7 @@ describe("DashboardPage — dashboard de atención (ESENCIAL)", () => {
           periodo: { label: "octubre 2026", start: "", end: "" },
           conversacionesNuevas: {
             total: 3,
-            porCanal: { WHATSAPP: 2, WEB: 1, INSTAGRAM: 0, MESSENGER: 0 },
+            porCanal: { WHATSAPP: 2, WEB: 1, INSTAGRAM: 0, MESSENGER: 0, VOICE: 0 },
           },
           derivaciones: 2,
           derivacionesSinRespuesta: 1,
@@ -677,7 +677,7 @@ describe("DashboardPage — dashboard de atención (ESENCIAL)", () => {
           periodo: { label: "octubre 2026", start: "", end: "" },
           conversacionesNuevas: {
             total: 0,
-            porCanal: { WHATSAPP: 0, WEB: 0, INSTAGRAM: 0, MESSENGER: 0 },
+            porCanal: { WHATSAPP: 0, WEB: 0, INSTAGRAM: 0, MESSENGER: 0, VOICE: 0 },
           },
           derivaciones: 0,
           derivacionesSinRespuesta: 0,
@@ -766,7 +766,7 @@ describe("DashboardPage — clínica", () => {
             periodo: { label: "octubre 2026", start: "", end: "" },
             conversacionesNuevas: {
               total: 0,
-              porCanal: { WHATSAPP: 0, WEB: 0, INSTAGRAM: 0, MESSENGER: 0 },
+              porCanal: { WHATSAPP: 0, WEB: 0, INSTAGRAM: 0, MESSENGER: 0, VOICE: 0 },
             },
             derivaciones: 0,
             derivacionesSinRespuesta: 0,

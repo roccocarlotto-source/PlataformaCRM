@@ -18,7 +18,8 @@ import type { ConversationChannel } from "@prisma/client";
 //     "á" ocupa dos y un emoji cuatro, así que ahí se mide en bytes.
 // Messenger e Instagram llevan margen: quedarse 100 por debajo no le cambia
 // nada al cliente y evita depender de cómo cuenta Meta un caso borde.
-// Web no tiene tope: el widget lee el hilo de la base.
+// Web no tiene tope: el widget lee el hilo de la base. Voz tampoco: lo que se
+// guarda es lo que se dijo en la llamada, y no se manda por ninguna API.
 // ---------------------------------------------------------------------------
 
 interface Tope {
@@ -31,6 +32,7 @@ export const TOPE_DE_LARGO_POR_CANAL: Record<ConversationChannel, Tope | null> =
   MESSENGER: { maximo: 1900, unidad: "caracteres" },
   INSTAGRAM: { maximo: 950, unidad: "bytes" },
   WEB: null,
+  VOICE: null,
 };
 
 function medir(texto: string, unidad: Tope["unidad"]): number {

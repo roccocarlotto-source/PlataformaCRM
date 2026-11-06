@@ -76,6 +76,7 @@ function sucursal(): Branch {
     defaultOwnerId: null,
     paymentLinkUrl: null,
     bankTransferDetails: null,
+    transferPhone: null,
     createdAt: AHORA,
     updatedAt: AHORA,
     deletedAt: null,

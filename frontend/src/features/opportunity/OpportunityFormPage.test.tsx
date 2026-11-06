@@ -1540,6 +1540,38 @@ describe("OpportunityFormPage", () => {
     });
   });
 
+  it("el origen Teléfono no se ofrece a mano, pero una oportunidad que ya lo tiene lo muestra", async () => {
+    server.use(
+      ...baseHandlers(),
+      ...vehicleHandlers("RESERVED"),
+      http.get(`${opportunitiesUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeOpportunity({
+            id: String(params.id),
+            pipelineId: "pl1",
+            stageId: "st1",
+            leadSource: params.id === "conLlamada" ? "PHONE" : "SHOWROOM",
+          }),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+
+    const sinLlamada = renderForm("/opportunities/op1/edit");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Origen del cliente")).toHaveValue("Showroom"),
+    );
+    expect(
+      await listSelectOptions(user, screen.getByLabelText("Origen del cliente")),
+    ).not.toContain("Teléfono");
+    sinLlamada.unmount();
+
+    renderForm("/opportunities/conLlamada/edit");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Origen del cliente")).toHaveValue("Teléfono"),
+    );
+  });
+
   it("edit: cambiar de unidad vacía Monto/Moneda y el PATCH manda el vehicleId nuevo sin amount ni currency; financiación y origen vacíos van como null", async () => {
     const patched: Record<string, unknown>[] = [];
     server.use(

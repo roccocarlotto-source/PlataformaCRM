@@ -258,6 +258,8 @@ enum ConversationChannel {
   WEB
   INSTAGRAM
   MESSENGER
+  // Llamadas telefónicas atendidas por el agente (migración 20261125120000).
+  VOICE
 }
 
 // Ciclo de vida de una Conversation. Es la fuente de verdad (no hay
@@ -718,6 +720,9 @@ enum OpportunityLeadSource {
   // origen (hasta acá quedaba sin él).
   MESSENGER
   INSTAGRAM
+  // La oportunidad que crea el agente durante una llamada (migración
+  // 20261125120000).
+  PHONE
 }
 
 // ---------------------------------------------------------------------------
@@ -2092,6 +2097,13 @@ model Branch {
   // tope de 2000 caracteres (branch.controller.ts); la columna es Text.
   paymentLinkUrl      String? @map("payment_link_url") @db.VarChar(2048)
   bankTransferDetails String? @map("bank_transfer_details") @db.Text
+
+  // A qué número pasa el agente de voz una llamada cuando el cliente pide una
+  // persona. Es por sucursal y tiene que ser una línea distinta del número
+  // desviado al agente: si fuera el mismo, la llamada volvería al agente.
+  // OPCIONAL, mismo criterio que los campos de arriba: NULL es "no configurado",
+  // sin default ni backfill. Mismo largo que Contact.phone.
+  transferPhone String? @map("transfer_phone") @db.VarChar(30)
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
