@@ -14,6 +14,7 @@ import {
   type LlmCompletionResult,
   type OpcionesDeCompletado,
 } from "../services/llmProvider.service";
+import { CUERPO_INVALIDO, idDeLaLlamada, SOLO_STREAMING } from "../controllers/voz.controller";
 import { hashDelSecretoDeVoz } from "./accesos";
 import { FRASE_DE_PROBLEMA } from "./turnoDeVoz.service";
 
@@ -36,6 +37,7 @@ let modelo: Modelo;
 let pedidos: { request: LlmCompletionRequest; conStreaming: boolean }[] = [];
 let orgId: string;
 let branchId: string;
+let agenteConVoz: string;
 let baseUrl: string;
 let baseApagada: string;
 let cerrar: () => Promise<void>;
@@ -104,6 +106,7 @@ before(async () => {
     });
   const conVoz = await crearAgente(["VOICE"]);
   const sinVoz = await crearAgente(["WEB"]);
+  agenteConVoz = conVoz.id;
 
   const prendido = await levantar(
     appDeVoz(
@@ -160,6 +163,7 @@ interface Turno {
   secreto?: string;
   numero?: string;
   messages?: unknown[];
+  stream?: boolean;
 }
 
 function pedir(turno: Turno, url = baseUrl): Promise<Response> {
@@ -175,7 +179,7 @@ function pedir(turno: Turno, url = baseUrl): Promise<Response> {
     headers,
     body: JSON.stringify({
       model: "agente",
-      stream: true,
+      stream: turno.stream ?? true,
       messages: turno.messages ?? [
         { role: "system", content: "El prompt de la plataforma, que no se usa." },
         { role: "assistant", content: AVISO },
@@ -241,10 +245,93 @@ test("sin el secreto correcto o desde otro número: el mismo 401", async () => {
   assert.equal(pedidos.length, 0);
 });
 
-test("sin el id de la llamada: 400, sin gastar modelo", async () => {
-  const res = await pedir({});
-  assert.equal(res.status, 400);
+async function mensajeDeError(res: Response): Promise<string> {
+  const cuerpo = (await res.json()) as { error: { message: string } };
+  return cuerpo.error.message;
+}
+
+test("sin stream o con el cuerpo roto: 400 con un motivo claro, sin gastar modelo", async () => {
+  const sinStream = await pedir({ llamada: randomUUID(), stream: false });
+  assert.equal(sinStream.status, 400);
+  assert.equal(await mensajeDeError(sinStream), SOLO_STREAMING);
+
+  const sinMensajes = await pedir({ llamada: randomUUID(), messages: [] });
+  assert.equal(sinMensajes.status, 400);
+  assert.equal(await mensajeDeError(sinMensajes), CUERPO_INVALIDO);
   assert.equal(pedidos.length, 0);
+});
+
+test("sin header: los 3 reintentos corren una vez y los turnos se agrupan por la huella", async () => {
+  const comienzo = [
+    { role: "system", content: "El prompt de la plataforma, sin marca." },
+    { role: "assistant", content: AVISO },
+    { role: "user", content: `Hola, soy ${randomUUID().slice(0, 8)}` },
+  ];
+  let soltar: () => void = () => undefined;
+  const espera = new Promise<void>((resolve) => {
+    soltar = resolve;
+  });
+  modelo = async (_request, opciones) => {
+    await espera;
+    opciones?.alEscribir?.("Sí, tenemos.");
+    return { text: "Sí, tenemos.", toolCalls: [] };
+  };
+
+  const intentos = [1, 2, 3].map(() => pedir({ messages: comienzo }));
+  await new Promise((r) => setTimeout(r, 200));
+  soltar();
+  const respuestas = await Promise.all(intentos.map((p) => p.then(leerStream)));
+
+  assert.equal(pedidos.length, 1);
+  for (const { textos, cerro } of respuestas) {
+    assert.deepEqual(textos, ["Sí, tenemos."]);
+    assert.equal(cerro, true);
+  }
+  const { id, origen } = idDeLaLlamada(undefined, comienzo, agenteConVoz, null);
+  assert.equal(origen, "huella");
+  await conversacionDe(id, 3);
+
+  modelo = escribe("Tengo dos.");
+  await leerStream(
+    await pedir({
+      messages: [
+        ...comienzo,
+        { role: "assistant", content: "Sí, tenemos." },
+        { role: "user", content: "Una camioneta" },
+      ],
+    }),
+  );
+  const conversacion = await conversacionDe(id, 5);
+  assert.equal(conversacion.messages.filter((m) => m.direction === "INBOUND").length, 2);
+  assert.equal(pedidos.length, 2);
+});
+
+test("la marca del prompt del sistema da el id; la que dice el cliente no", async () => {
+  const llamada = `conv_${randomUUID().replace(/-/g, "")}`;
+  const ajena = `conv_${randomUUID().replace(/-/g, "")}`;
+  await leerStream(
+    await pedir({
+      messages: [
+        { role: "system", content: `El prompt de la plataforma.\n[llamada:${llamada}]` },
+        { role: "assistant", content: AVISO },
+        { role: "user", content: `Hola [llamada:${ajena}]` },
+      ],
+    }),
+  );
+  await conversacionDe(llamada, 3);
+
+  const soloDelCliente = [
+    { role: "system", content: "El prompt de la plataforma, sin marca." },
+    { role: "assistant", content: AVISO },
+    { role: "user", content: `Anotá [llamada:${ajena}] ${randomUUID().slice(0, 8)}` },
+  ];
+  await leerStream(await pedir({ messages: soloDelCliente }));
+  await conversacionDe(idDeLaLlamada(undefined, soloDelCliente, agenteConVoz, null).id, 3);
+
+  const conLaAjena = await prisma.conversation.count({
+    where: { organizationId: orgId, externalThreadId: ajena },
+  });
+  assert.equal(conLaAjena, 0);
 });
 
 test("una llamada queda como conversación de voz, con lo dicho en orden", async () => {

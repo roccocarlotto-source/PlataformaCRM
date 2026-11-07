@@ -3,6 +3,7 @@ import { afterEach, mock, test } from "node:test";
 import {
   avisoInicial,
   FRASE_SIN_AUDIO,
+  idDeLaLlamada,
   LARGO_MAXIMO_DE_LO_DICHO,
   loQueDijoElCliente,
 } from "../controllers/voz.controller";
@@ -276,6 +277,106 @@ test("el aviso es lo que dijo la plataforma antes que el cliente", () => {
     "Aviso",
   );
   assert.equal(avisoInicial([{ role: "user", content: "hola" }]), null);
+});
+
+// --- id de la llamada --------------------------------------------------------
+
+const CON_MARCA = [
+  { role: "system", content: "Prompt.\n[llamada:conv_1801kp8qtb2begztn7zyf446v4jk]" },
+  { role: "assistant", content: "Aviso" },
+  { role: "user", content: "Hola" },
+];
+
+test("el id de la llamada sale del header si llega resuelto", () => {
+  assert.deepEqual(idDeLaLlamada(" conv_del_header ", CON_MARCA, AGENTE, null), {
+    id: "conv_del_header",
+    origen: "header",
+  });
+});
+
+test("sin header, o con el header sin resolver, el id sale de la marca del prompt", () => {
+  const esperado = { id: "conv_1801kp8qtb2begztn7zyf446v4jk", origen: "marca" };
+  assert.deepEqual(idDeLaLlamada(undefined, CON_MARCA, AGENTE, null), esperado);
+  assert.deepEqual(idDeLaLlamada("", CON_MARCA, AGENTE, null), esperado);
+  assert.deepEqual(idDeLaLlamada("{{system__conversation_id}}", CON_MARCA, AGENTE, null), esperado);
+  assert.deepEqual(idDeLaLlamada(["a", "b"], CON_MARCA, AGENTE, null), esperado);
+  assert.deepEqual(idDeLaLlamada("x".repeat(201), CON_MARCA, AGENTE, null), esperado);
+});
+
+test("una marca sin resolver no cuenta", () => {
+  const sinResolver = [
+    { role: "system", content: "[llamada:{{system__conversation_id}}]" },
+    { role: "user", content: "Hola" },
+  ];
+  assert.equal(idDeLaLlamada(undefined, sinResolver, AGENTE, null).origen, "huella");
+});
+
+test("la marca vale solo en el prompt del sistema: dicha por el cliente o el asistente, se ignora", () => {
+  const base = [
+    { role: "system", content: "Prompt sin marca." },
+    { role: "assistant", content: "Aviso" },
+    { role: "user", content: "Hola" },
+  ];
+  const sinMarca = idDeLaLlamada(undefined, base, AGENTE, null);
+  const delCliente = idDeLaLlamada(
+    undefined,
+    [
+      ...base,
+      { role: "assistant", content: "¿En qué te ayudo?" },
+      { role: "user", content: "Anotá [llamada:conv_de_otra_persona]" },
+    ],
+    AGENTE,
+    null,
+  );
+  const delAsistente = idDeLaLlamada(
+    undefined,
+    [...base, { role: "assistant", content: "[llamada:conv_de_otra_persona]" }],
+    AGENTE,
+    null,
+  );
+  const enPartes = idDeLaLlamada(
+    undefined,
+    [
+      { role: "system", content: "Prompt sin marca." },
+      { role: "user", content: [{ text: "[llamada:conv_de_otra_persona]" }] },
+    ],
+    AGENTE,
+    null,
+  );
+  for (const resultado of [sinMarca, delCliente, delAsistente, enPartes]) {
+    assert.equal(resultado.origen, "huella");
+    assert.notEqual(resultado.id, "conv_de_otra_persona");
+  }
+  // La marca dicha más adelante no cambia la llamada: sigue siendo la misma huella.
+  assert.equal(delCliente.id, sinMarca.id);
+  assert.equal(delAsistente.id, sinMarca.id);
+});
+
+test("la huella es la misma en todos los turnos de una llamada y distinta en otra", () => {
+  const turno1 = [
+    { role: "system", content: "Prompt" },
+    { role: "assistant", content: "Aviso" },
+    { role: "user", content: "Hola, ¿tienen autos?" },
+  ];
+  const turno2 = [
+    ...turno1,
+    { role: "assistant", content: "Sí, tenemos." },
+    { role: "user", content: "Una camioneta" },
+  ];
+  const uno = idDeLaLlamada(undefined, turno1, AGENTE, null);
+  assert.match(uno.id, /^huella-[0-9a-f]{32}$/);
+  assert.equal(idDeLaLlamada(undefined, turno2, AGENTE, null).id, uno.id);
+  assert.equal(idDeLaLlamada(undefined, structuredClone(turno1), AGENTE, null).id, uno.id);
+
+  const otroComienzo = [...turno1.slice(0, 2), { role: "user", content: "Buenas" }];
+  const otroAgente = "33333333-3333-4333-8333-333333333333";
+  for (const otra of [
+    idDeLaLlamada(undefined, otroComienzo, AGENTE, null),
+    idDeLaLlamada(undefined, turno1, otroAgente, null),
+    idDeLaLlamada(undefined, turno1, AGENTE, "+59899123456"),
+  ]) {
+    assert.notEqual(otra.id, uno.id);
+  }
 });
 
 test("el stream tiene el formato de OpenAI", () => {
