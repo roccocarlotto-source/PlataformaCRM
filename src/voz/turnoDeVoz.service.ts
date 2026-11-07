@@ -64,7 +64,8 @@ export interface PedidoDeTurnoDeVoz {
 // conversación se releen en cada turno: un agente apagado o un nombre recién
 // anotado tienen que valer en la misma llamada.
 interface Llamada {
-  frasesUsadas: Set<string>;
+  // Las frases de espera del último turno: el siguiente no las repite.
+  frasesDelTurnoAnterior: ReadonlySet<string>;
   datos: { contactId: string; branchId: string } | null;
   avisoGuardado: boolean;
   ultimaVez: number;
@@ -82,7 +83,7 @@ function laLlamada(pedido: PedidoDeTurnoDeVoz): Llamada {
   }
   const clave = `${pedido.acceso.organizationId}:${pedido.callId}`;
   const llamada = llamadas.get(clave) ?? {
-    frasesUsadas: new Set<string>(),
+    frasesDelTurnoAnterior: new Set<string>(),
     datos: null,
     avisoGuardado: false,
     ultimaVez: ahora,
@@ -196,8 +197,8 @@ async function correrElTurno(
 ): Promise<void> {
   const { organizationId, agentId } = pedido.acceso;
   const espera = crearEsperaDeVoz({
-    decir: (frase) => turno.decir(frase),
-    usadas: llamada.frasesUsadas,
+    decir: (frase) => turno.decir(frase, true),
+    delTurnoAnterior: llamada.frasesDelTurnoAnterior,
   });
   const salida = crearSalidaPorOraciones({
     decir: (texto) => {
@@ -210,6 +211,9 @@ async function correrElTurno(
     const dicho = salida.cerrar(texto);
     // Lo que falta (derivar, guardar) no necesita a la llamada esperando.
     espera.parar();
+    // Acá y no solo al final: el turno siguiente puede arrancar mientras este
+    // todavía guarda.
+    llamada.frasesDelTurnoAnterior = new Set(espera.dichas());
     turno.terminar();
     return dicho;
   };
@@ -268,6 +272,7 @@ async function correrElTurno(
     }
   } finally {
     espera.parar();
+    llamada.frasesDelTurnoAnterior = new Set(espera.dichas());
     turno.terminar();
   }
 }

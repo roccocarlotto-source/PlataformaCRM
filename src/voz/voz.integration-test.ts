@@ -427,7 +427,7 @@ test("un reintento se engancha al turno: el modelo corre una sola vez", async ()
 test("si el modelo tarda, sale una frase de espera y no se guarda", async () => {
   const llamada = randomUUID();
   modelo = async (_request, opciones) => {
-    await new Promise((r) => setTimeout(r, 1400));
+    await new Promise((r) => setTimeout(r, 1700));
     opciones?.alEscribir?.("Listo, ya está.");
     return { text: "Listo, ya está.", toolCalls: [] };
   };
