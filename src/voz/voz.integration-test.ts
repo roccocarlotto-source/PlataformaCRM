@@ -424,6 +424,62 @@ test("un reintento se engancha al turno: el modelo corre una sola vez", async ()
   assert.equal(pedidos.length, 1);
 });
 
+test("una continuación se engancha al turno y dice solo lo que falta, sin repetir el modelo", async () => {
+  const llamada = randomUUID();
+  const llamante = telefonoNuevo();
+  let soltar: () => void = () => undefined;
+  const espera = new Promise<void>((resolve) => {
+    soltar = resolve;
+  });
+  modelo = async (_request, opciones) => {
+    opciones?.alEscribir?.("Tenemos dos. ");
+    await espera;
+    opciones?.alEscribir?.("Uno es rojo.");
+    return { text: "Tenemos dos. Uno es rojo.", toolCalls: [] };
+  };
+  const delCliente = [
+    { role: "system", content: "El prompt de la plataforma, que no se usa." },
+    { role: "assistant", content: AVISO },
+    { role: "user", content: "Hola, ¿tienen autos?" },
+  ];
+
+  const primero = pedir({ llamada, llamante, messages: delCliente });
+  await new Promise((r) => setTimeout(r, 200));
+  // La plataforma dejó de esperar: vuelve con lo que alcanzó a decir.
+  const continuacion = pedir({
+    llamada,
+    llamante,
+    messages: [...delCliente, { role: "assistant", content: "Tenemos dos." }],
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  soltar();
+  const [uno, dos] = await Promise.all([primero.then(leerStream), continuacion.then(leerStream)]);
+
+  assert.equal(pedidos.length, 1);
+  assert.deepEqual(uno.textos, ["Tenemos dos. ", "Uno es rojo."]);
+  assert.deepEqual(dos.textos, ["Uno es rojo."]);
+  assert.equal(dos.cerro, true);
+  const conversacion = await conversacionDe(llamada, 3);
+  assert.equal(conversacion.messages.filter((m) => m.direction === "INBOUND").length, 1);
+});
+
+test("una continuación sin turno que seguir pide repetir y no corre el modelo", async () => {
+  const { textos, cerro } = await leerStream(
+    await pedir({
+      llamada: randomUUID(),
+      llamante: telefonoNuevo(),
+      messages: [
+        { role: "assistant", content: AVISO },
+        { role: "user", content: "Quiero reservar." },
+        { role: "assistant", content: "Dale, ya" },
+      ],
+    }),
+  );
+  assert.deepEqual(textos, [FRASE_DE_PROBLEMA]);
+  assert.equal(cerro, true);
+  assert.equal(pedidos.length, 0);
+});
+
 test("si el modelo tarda, sale una frase de espera y no se guarda", async () => {
   const llamada = randomUUID();
   modelo = async (_request, opciones) => {

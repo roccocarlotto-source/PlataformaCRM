@@ -9,7 +9,7 @@
 //
 // LAS REGLAS (pedido de Rocco tras la primera llamada, que repetía "sigo con
 // esto, sigo con esto"):
-//   - Como máximo dos por turno: la primera a los 1,5 s y la segunda a los 5 s
+//   - Dos por turno: la primera a los 1,5 s y la segunda a los 5 s
 //     del comienzo del turno. Ninguna sale con menos de 3,5 s de silencio desde
 //     lo último que se dijo, sea texto real o una frase.
 //   - Si en ese momento corre una herramienta, se dice la suya ("Me fijo en el
@@ -18,15 +18,22 @@
 //     anterior de la llamada. Si no queda ninguna, el turno se queda callado:
 //     callar es mejor que repetir.
 //
+//   - Una tercera a los 8 s, solo si el turno todavía no dijo nada real
+//     (pedido de Rocco tras la llamada del 2026-11-08): la plataforma dejaba
+//     de esperar unos 4 s después de la segunda frase, y el cliente escuchaba
+//     un error en vez de la respuesta. Para llegar a los 8 s, a esta le alcanza
+//     con 3 s de silencio.
+//
 // No hay corte por tiempo acá: abortar a los pocos segundos podría dejar una
 // reserva por la mitad. El tope es el presupuesto del turno.
 // ---------------------------------------------------------------------------
 
 // Cuándo puede salir cada frase, desde el comienzo del turno.
-export const MOMENTOS_DE_LAS_FRASES_MS = [1_500, 5_000] as const;
+export const MOMENTOS_DE_LAS_FRASES_MS = [1_500, 5_000, 8_000] as const;
 export const MAXIMO_DE_FRASES_POR_TURNO = MOMENTOS_DE_LAS_FRASES_MS.length;
 // Silencio mínimo desde lo último que se dijo antes de agregar una frase.
 export const SILENCIO_ANTES_DE_UNA_FRASE_MS = 3_500;
+export const SILENCIO_ANTES_DE_LA_TERCERA_MS = 3_000;
 
 export const FRASES_GENERICAS = [
   "Dame un segundo... ",
@@ -79,12 +86,13 @@ export function crearEsperaDeVoz(opciones: {
   let herramienta: string | null = null;
   let temporizador: NodeJS.Timeout | null = null;
   let parada = false;
+  let huboTextoReal = false;
 
   function cuandoToca(): number {
     const momento = inicio + MOMENTOS_DE_LAS_FRASES_MS[dichas.length];
-    return ultimaVez === null
-      ? momento
-      : Math.max(momento, ultimaVez + SILENCIO_ANTES_DE_UNA_FRASE_MS);
+    const silencio =
+      dichas.length === 2 ? SILENCIO_ANTES_DE_LA_TERCERA_MS : SILENCIO_ANTES_DE_UNA_FRASE_MS;
+    return ultimaVez === null ? momento : Math.max(momento, ultimaVez + silencio);
   }
 
   function programar(): void {
@@ -93,6 +101,10 @@ export function crearEsperaDeVoz(opciones: {
       temporizador = null;
     }
     if (parada || dichas.length >= MAXIMO_DE_FRASES_POR_TURNO) {
+      return;
+    }
+    // La tercera es solo para un turno que todavía no dijo nada real.
+    if (dichas.length === 2 && huboTextoReal) {
       return;
     }
     temporizador = setTimeout(
@@ -115,6 +127,7 @@ export function crearEsperaDeVoz(opciones: {
 
   return {
     huboTexto() {
+      huboTextoReal = true;
       ultimaVez = Date.now();
       programar();
     },

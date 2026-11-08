@@ -6,6 +6,7 @@ import {
   idDeLaLlamada,
   LARGO_MAXIMO_DE_LO_DICHO,
   loQueDijoElCliente,
+  loQueYaEscucho,
 } from "../controllers/voz.controller";
 import { motivoParaNoResponder, MENSAJE_LLAMADA } from "../services/conversationReply.service";
 import { armarSystemPrompt } from "../services/agentOrchestration.service";
@@ -24,7 +25,7 @@ import {
 import { INSTRUCCION_CANAL_DE_VOZ } from "./instrucciones";
 import { crearSalidaPorOraciones, finDelProximoTramo, restoDespuesDe } from "./salidaPorOraciones";
 import { chunkDeCierre, chunkDeTexto } from "./sse";
-import { digitosDelLlamante } from "./turnoDeVoz.service";
+import { digitosDelLlamante, FRASE_DE_PROBLEMA } from "./turnoDeVoz.service";
 import { crearRegistroDeTurnos, TurnoEnCurso } from "./turnosEnCurso";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -148,7 +149,7 @@ test("cerrar dos veces no vuelve a decir nada", () => {
 
 // --- frases de espera ------------------------------------------------------
 
-const [PRIMERA_MS, SEGUNDA_MS] = MOMENTOS_DE_LAS_FRASES_MS;
+const [PRIMERA_MS, SEGUNDA_MS, TERCERA_MS] = MOMENTOS_DE_LAS_FRASES_MS;
 
 function esperaDePrueba(delTurnoAnterior: ReadonlySet<string> = new Set()) {
   mock.timers.enable({ apis: ["setTimeout", "Date"] });
@@ -164,9 +165,9 @@ function hastaLaSegunda(): void {
   mock.timers.tick(SEGUNDA_MS - PRIMERA_MS);
 }
 
-test("sin texto: la primera frase a los 1,5 s, la segunda a los 5 s y ninguna más", () => {
-  assert.deepEqual(MOMENTOS_DE_LAS_FRASES_MS, [1_500, 5_000]);
-  assert.equal(MAXIMO_DE_FRASES_POR_TURNO, 2);
+test("sin texto: la primera frase a los 1,5 s, la segunda a los 5 s, la tercera a los 8 s y ninguna más", () => {
+  assert.deepEqual(MOMENTOS_DE_LAS_FRASES_MS, [1_500, 5_000, 8_000]);
+  assert.equal(MAXIMO_DE_FRASES_POR_TURNO, 3);
   const { dichas, espera } = esperaDePrueba();
   mock.timers.tick(PRIMERA_MS - 1);
   assert.deepEqual(dichas, []);
@@ -176,10 +177,47 @@ test("sin texto: la primera frase a los 1,5 s, la segunda a los 5 s y ninguna m�
   assert.equal(dichas.length, 1);
   mock.timers.tick(1);
   assert.deepEqual(dichas, [FRASES_GENERICAS[0], FRASES_GENERICAS[1]]);
-  mock.timers.tick(60_000);
+  mock.timers.tick(TERCERA_MS - SEGUNDA_MS - 1);
   assert.equal(dichas.length, 2);
+  mock.timers.tick(1);
+  assert.deepEqual(dichas, FRASES_GENERICAS.slice(0, 3));
+  mock.timers.tick(60_000);
+  assert.equal(dichas.length, 3);
   assert.deepEqual(espera.dichas(), dichas);
   espera.parar();
+});
+
+test("la tercera frase no sale si el turno ya dijo algo real", () => {
+  const { dichas, espera } = esperaDePrueba();
+  hastaLaSegunda();
+  assert.equal(dichas.length, 2);
+  mock.timers.tick(1_000);
+  espera.huboTexto();
+  mock.timers.tick(60_000);
+  assert.equal(dichas.length, 2);
+  espera.parar();
+});
+
+test("la tercera frase tampoco repite: ni del turno ni del anterior, y sin libre se calla", () => {
+  // Con una herramienta corriendo: la suya, y después genéricas sin repetir.
+  const uno = esperaDePrueba(new Set([FRASES_GENERICAS[0]]));
+  uno.espera.empezoHerramienta("create_booking");
+  hastaLaSegunda();
+  mock.timers.tick(TERCERA_MS - SEGUNDA_MS);
+  assert.deepEqual(uno.dichas, [
+    FRASES_POR_HERRAMIENTA.create_booking,
+    FRASES_GENERICAS[1],
+    FRASES_GENERICAS[2],
+  ]);
+  assert.equal(new Set(uno.dichas).size, 3);
+  uno.espera.parar();
+  mock.timers.reset();
+
+  const dos = esperaDePrueba(new Set(FRASES_GENERICAS.slice(0, 2)));
+  hastaLaSegunda();
+  mock.timers.tick(TERCERA_MS - SEGUNDA_MS);
+  assert.deepEqual(dos.dichas, FRASES_GENERICAS.slice(2));
+  dos.espera.parar();
 });
 
 test("con una herramienta corriendo se dice la suya, una sola vez por turno", () => {
@@ -331,6 +369,48 @@ test("la misma clave no arranca dos veces, y un turno viejo se olvida", () => {
   assert.equal(arranques, 2);
 });
 
+test("una continuación no repite lo que el cliente ya escuchó, aunque cambien espacios y signos", () => {
+  const turno = new TurnoEnCurso();
+  turno.decir("Tenemos dos Corolla.");
+  turno.decir("Sigo con esto... ", true);
+  turno.decir("Uno es dos mil veinte.");
+  turno.decir("El otro, dos mil veintidós.");
+  const oido: (string | null)[] = [];
+  turno.escuchar(
+    (parte) => oido.push(parte),
+    "tenemos dos corolla  Sigo con esto... uno es dos mil veinte",
+  );
+  turno.decir("¿Te interesa alguno?");
+  turno.terminar();
+  assert.deepEqual(oido, ["El otro, dos mil veintidós.", "¿Te interesa alguno?", null]);
+});
+
+test("desde la primera parte que no escuchó, a una continuación le sale todo", () => {
+  const turno = new TurnoEnCurso();
+  turno.decir("Tenemos dos.");
+  turno.decir("Uno es rojo.");
+  turno.decir("El otro es azul.");
+  turno.terminar();
+  const oido: (string | null)[] = [];
+  // La plataforma cortó a mitad de la segunda: la segunda se dice entera.
+  turno.escuchar((parte) => oido.push(parte), "Tenemos dos. Uno es ro");
+  assert.deepEqual(oido, ["Uno es rojo.", "El otro es azul.", null]);
+  const sinNada: (string | null)[] = [];
+  turno.escuchar((parte) => sinNada.push(parte), "Tenemos dos. Uno es rojo. El otro es azul.");
+  assert.deepEqual(sinNada, [null]);
+});
+
+test("buscar el turno de una continuación no arranca ninguno", () => {
+  mock.timers.enable({ apis: ["Date"] });
+  const registro = crearRegistroDeTurnos(1000);
+  assert.equal(registro.obtener("a"), null);
+  const turno = registro.obtenerOArrancar("a", () => undefined);
+  assert.equal(registro.obtener("a"), turno);
+  turno.terminar();
+  mock.timers.tick(1000);
+  assert.equal(registro.obtener("a"), null);
+});
+
 // --- el pedido -------------------------------------------------------------
 
 test("lo que dijo el cliente es el último mensaje, si es suyo", () => {
@@ -346,6 +426,31 @@ test("lo que dijo el cliente es el último mensaje, si es suyo", () => {
     LARGO_MAXIMO_DE_LO_DICHO,
   );
   assert.ok(FRASE_SIN_AUDIO.length > 0);
+});
+
+test("si el último mensaje es del asistente, es una continuación del turno del cliente", () => {
+  const normal = [
+    { role: "assistant", content: "Aviso" },
+    { role: "user", content: "¿Tienen Corolla?" },
+  ];
+  assert.equal(loQueYaEscucho(normal), null);
+  const continuacion = [
+    ...normal,
+    { role: "assistant", content: "Sigo con esto..." },
+    { role: "assistant", content: [{ text: "Tenemos dos." }] },
+  ];
+  assert.equal(loQueDijoElCliente(continuacion), "¿Tienen Corolla?");
+  assert.equal(loQueYaEscucho(continuacion), "Sigo con esto... Tenemos dos.");
+  // Sin nada del cliente no hay turno que seguir.
+  assert.equal(loQueYaEscucho([{ role: "assistant", content: "Aviso" }]), null);
+});
+
+test("un problema nuestro no se disfraza de audio que no se escuchó", () => {
+  assert.equal(
+    FRASE_DE_PROBLEMA,
+    "Perdón, se me trabó el sistema un segundo, ¿me repetís el dato?",
+  );
+  assert.notEqual(FRASE_DE_PROBLEMA, FRASE_SIN_AUDIO);
 });
 
 test("el aviso es lo que dijo la plataforma antes que el cliente", () => {
@@ -494,6 +599,17 @@ test("el bloque de voz va solo en las llamadas", () => {
   assert.ok(conCanal("VOICE").includes(INSTRUCCION_CANAL_DE_VOZ));
   assert.equal(conCanal("WHATSAPP").includes(INSTRUCCION_CANAL_DE_VOZ), false);
   assert.equal(conCanal("WEB").includes(INSTRUCCION_CANAL_DE_VOZ), false);
+});
+
+test("por teléfono cada dato se repite para confirmarlo, y un turno se resume antes de reservarlo", () => {
+  assert.match(
+    INSTRUCCION_CANAL_DE_VOZ,
+    /teléfono, nombre, email, fecha u horario\), repetilo enseguida/,
+  );
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /Si te corrige, repetí el dato corregido/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /de a grupos de tres cifras/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /con el día de la semana/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /Antes de reservar o cambiar un turno, resumí de corrido/);
 });
 
 test("por teléfono no se cobra ni se llenan campos personalizados", () => {
