@@ -3,8 +3,9 @@
 // tiempo, vuelve a mandar el mismo pedido. Correrlo de nuevo podría duplicar lo
 // que hagan las herramientas, por ejemplo una reserva. Por eso el segundo pedido
 // se engancha al turno que ya corre, o repite lo que ese turno dijo.
-// También si trae otro texto para el mismo turno (la clave es el número de
-// turno, ver claveDelTurno en turnoDeVoz.service.ts): gana el primero.
+// Si trae otro texto para el mismo turno (la clave es el número de turno, ver
+// claveDelTurno en turnoDeVoz.service.ts) y el turno todavía no hizo nada, se
+// reemplaza (reemplazar, pasarOyentesA); si ya hizo algo, gana el primero.
 //
 // LO QUE SE REPITE ES SOLO EL TEXTO REAL. Las frases de espera le llegan a quien
 // está escuchando en ese momento, pero no se le repiten a quien llega tarde: si
@@ -23,10 +24,17 @@
 
 type Oyente = (texto: string | null) => void;
 
+// Quién escucha y a qué turno: si el turno se reemplaza, la suscripción pasa
+// al nuevo y dejar de escuchar sigue andando.
+interface Suscripcion {
+  oyente: Oyente;
+  turno: TurnoEnCurso;
+}
+
 // Para comparar lo dicho con lo que la plataforma dice que se dijo: solo letras
 // y números, sin mayúsculas, espacios ni signos (la plataforma junta los
 // pedazos a su manera).
-function comparable(texto: string): string {
+export function comparable(texto: string): string {
   return texto
     .normalize("NFC")
     .toLowerCase()
@@ -35,11 +43,26 @@ function comparable(texto: string): string {
 
 export class TurnoEnCurso {
   private readonly partes: string[] = [];
-  private readonly oyentes = new Set<Oyente>();
+  private readonly suscripciones = new Set<Suscripcion>();
   private terminadoEn: number | null = null;
 
   get momentoDeFin(): number | null {
     return this.terminadoEn;
+  }
+
+  // Si ya le dijo algo real al cliente (las frases de espera no cuentan).
+  get dijoAlgo(): boolean {
+    return this.partes.length > 0;
+  }
+
+  // Los que escuchan este turno pasan a escuchar `otro`. Para un turno que se
+  // reemplaza antes de decir nada real: no hay nada que repetirles.
+  pasarOyentesA(otro: TurnoEnCurso): void {
+    for (const suscripcion of this.suscripciones) {
+      suscripcion.turno = otro;
+      otro.suscripciones.add(suscripcion);
+    }
+    this.suscripciones.clear();
   }
 
   // `esEspera`: una frase de espera, que no se repite a quien llega tarde.
@@ -50,7 +73,7 @@ export class TurnoEnCurso {
     if (!esEspera) {
       this.partes.push(texto);
     }
-    for (const oyente of this.oyentes) {
+    for (const { oyente } of this.suscripciones) {
       oyente(texto);
     }
   }
@@ -60,10 +83,10 @@ export class TurnoEnCurso {
       return;
     }
     this.terminadoEn = Date.now();
-    for (const oyente of this.oyentes) {
+    for (const { oyente } of this.suscripciones) {
       oyente(null);
     }
-    this.oyentes.clear();
+    this.suscripciones.clear();
   }
 
   // Repite el texto real ya dicho y sigue con lo que venga. `null` avisa el final.
@@ -91,9 +114,10 @@ export class TurnoEnCurso {
       oyente(null);
       return () => undefined;
     }
-    this.oyentes.add(oyente);
+    const suscripcion: Suscripcion = { oyente, turno: this };
+    this.suscripciones.add(suscripcion);
     return () => {
-      this.oyentes.delete(oyente);
+      suscripcion.turno.suscripciones.delete(suscripcion);
     };
   }
 }
@@ -120,6 +144,13 @@ export function crearRegistroDeTurnos(vidaMs = VIDA_DE_UN_TURNO_TERMINADO_MS) {
       if (existente) {
         return existente;
       }
+      const turno = new TurnoEnCurso();
+      turnos.set(clave, turno);
+      arrancar(turno);
+      return turno;
+    },
+    // Arranca otro turno con esa clave en lugar del que había (que se canceló).
+    reemplazar(clave: string, arrancar: (turno: TurnoEnCurso) => void): TurnoEnCurso {
       const turno = new TurnoEnCurso();
       turnos.set(clave, turno);
       arrancar(turno);

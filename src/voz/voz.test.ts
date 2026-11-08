@@ -320,6 +320,40 @@ test("ninguna frase de espera afirma un resultado ni promete cuánto falta", () 
 
 // --- turnos en curso -------------------------------------------------------
 
+test("un turno reemplazado le pasa sus oyentes al nuevo, y dejar de escuchar sigue andando", () => {
+  const viejo = new TurnoEnCurso();
+  const nuevo = new TurnoEnCurso();
+  const uno: (string | null)[] = [];
+  const dos: (string | null)[] = [];
+  viejo.escuchar((t) => uno.push(t));
+  const dejarDos = viejo.escuchar((t) => dos.push(t));
+  viejo.decir("Dame un segundo... ", true);
+  assert.equal(viejo.dijoAlgo, false);
+
+  viejo.pasarOyentesA(nuevo);
+  viejo.decir("Esto ya no lo escucha nadie.");
+  viejo.terminar();
+  dejarDos();
+  nuevo.decir("La respuesta.");
+  nuevo.terminar();
+
+  assert.deepEqual(uno, ["Dame un segundo... ", "La respuesta.", null]);
+  assert.deepEqual(dos, ["Dame un segundo... "]);
+  assert.equal(nuevo.dijoAlgo, true);
+});
+
+test("el registro reemplaza el turno de una clave", () => {
+  const registro = crearRegistroDeTurnos();
+  const primero = registro.obtenerOArrancar("clave", () => undefined);
+  let arrancados = 0;
+  const segundo = registro.reemplazar("clave", () => {
+    arrancados += 1;
+  });
+  assert.notEqual(primero, segundo);
+  assert.equal(arrancados, 1);
+  assert.equal(registro.obtener("clave"), segundo);
+});
+
 test("quien llega tarde escucha lo dicho y lo que sigue", () => {
   const turno = new TurnoEnCurso();
   const oido: (string | null)[] = [];

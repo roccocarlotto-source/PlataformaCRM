@@ -463,7 +463,7 @@ test("una continuación se engancha al turno y dice solo lo que falta, sin repet
   assert.equal(conversacion.messages.filter((m) => m.direction === "INBOUND").length, 1);
 });
 
-test("dos pedidos del mismo turno con textos distintos corren una vez: gana el primero", async () => {
+test("dos pedidos del mismo turno con textos distintos corren una vez: si el turno ya dijo algo, gana el primero", async () => {
   const llamada = randomUUID();
   const llamante = telefonoNuevo();
   let soltar: () => void = () => undefined;
@@ -487,6 +487,9 @@ test("dos pedidos del mismo turno con textos distintos corren una vez: gana el p
   // Se espera a que el primero abra el stream para que llegue primero: el turno
   // ya arrancó cuando el stream se abre.
   const aMedias = await pedir({ llamada, llamante, messages: hasta("Quiero probarlo el martes") });
+  // Hasta que el turno ya dijo algo real: desde ahí no se reemplaza.
+  await hastaQue(() => pedidos.length === 1);
+  await new Promise((r) => setTimeout(r, 50));
   const completa = pedir({
     llamada,
     llamante,
@@ -520,6 +523,112 @@ test("dos pedidos del mismo turno con textos distintos corren una vez: gana el p
   assert.deepEqual(
     entrantes.map((m) => m.content),
     ["Quiero probarlo el martes"],
+  );
+});
+
+async function hastaQue(condicion: () => boolean): Promise<void> {
+  for (let i = 0; i < 200 && !condicion(); i++) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.equal(condicion(), true);
+}
+
+// Lo dicho hasta un turno, con el mismo comienzo de llamada.
+function hastaElTurno(dicho: string) {
+  return [
+    { role: "system", content: "El prompt de la plataforma, que no se usa." },
+    { role: "assistant", content: AVISO },
+    { role: "user", content: dicho },
+  ];
+}
+
+test("la frase más larga reemplaza al turno que no hizo nada, y el cancelado no deja rastro", async () => {
+  const llamada = randomUUID();
+  const llamante = telefonoNuevo();
+  let soltar: () => void = () => undefined;
+  const espera = new Promise<void>((resolve) => {
+    soltar = resolve;
+  });
+  modelo = async (request, opciones) => {
+    if (!JSON.stringify(request.messages.at(-1)).includes("mail")) {
+      // El turno de la frase a medias: cuando vuelve, ya lo cancelaron.
+      await espera;
+      opciones?.alEscribir?.("El martes hay lugar.");
+      return { text: "El martes hay lugar.", toolCalls: [] };
+    }
+    opciones?.alEscribir?.("Anotado tu mail, ¿algo más?");
+    return { text: "Anotado tu mail, ¿algo más?", toolCalls: [] };
+  };
+
+  const aMedias = await pedir({ llamada, llamante, messages: hastaElTurno("Sí,") });
+  // El turno de la frase a medias ya está esperando al modelo.
+  await hastaQue(() => pedidos.length === 1);
+  const completa = await pedir({
+    llamada,
+    llamante,
+    messages: hastaElTurno("Sí, y mi mail es persona arroba example punto com"),
+  });
+  soltar();
+  const [uno, dos] = await Promise.all([leerStream(aMedias), leerStream(completa)]);
+
+  // Los dos pedidos escuchan la respuesta a la frase entera.
+  assert.deepEqual(uno.textos, ["Anotado tu mail, ¿algo más?"]);
+  assert.deepEqual(dos.textos, ["Anotado tu mail, ¿algo más?"]);
+  assert.equal(uno.cerro, true);
+  assert.equal(pedidos.length, 2);
+  // Del cancelado no queda nada: ni lo que dijo el cliente, ni una respuesta,
+  // ni su uso del modelo.
+  const conversacion = await conversacionDe(llamada, 3);
+  assert.deepEqual(
+    conversacion.messages.filter((m) => m.direction === "INBOUND").map((m) => m.content),
+    ["Sí, y mi mail es persona arroba example punto com"],
+  );
+  assert.deepEqual(
+    conversacion.messages.filter((m) => m.senderType === "AGENT").map((m) => m.content),
+    [AVISO, "Anotado tu mail, ¿algo más?"],
+  );
+  assert.equal(await prisma.llmTurnUsage.count({ where: { conversationId: conversacion.id } }), 1);
+});
+
+test("si el turno ya corrió una herramienta, la frase más larga se engancha y no lo cancela", async () => {
+  const llamada = randomUUID();
+  const llamante = telefonoNuevo();
+  let soltar: () => void = () => undefined;
+  const espera = new Promise<void>((resolve) => {
+    soltar = resolve;
+  });
+  let llamadas = 0;
+  modelo = async (_request, opciones) => {
+    llamadas += 1;
+    if (llamadas === 1) {
+      return {
+        text: null,
+        toolCalls: [{ id: "c1", name: "get_payment_info", arguments: {} }],
+      };
+    }
+    await espera;
+    opciones?.alEscribir?.("Te paso los datos por mensaje.");
+    return { text: "Te paso los datos por mensaje.", toolCalls: [] };
+  };
+
+  const aMedias = await pedir({ llamada, llamante, messages: hastaElTurno("¿Cómo pago") });
+  // Hasta que el turno llega a la segunda llamada al modelo: ya corrió la herramienta.
+  await hastaQue(() => llamadas === 2);
+  const completa = await pedir({
+    llamada,
+    llamante,
+    messages: hastaElTurno("¿Cómo pago la seña del auto?"),
+  });
+  soltar();
+  const [uno, dos] = await Promise.all([leerStream(aMedias), leerStream(completa)]);
+
+  assert.deepEqual(uno.textos, ["Te paso los datos por mensaje."]);
+  assert.deepEqual(dos.textos, ["Te paso los datos por mensaje."]);
+  assert.equal(pedidos.length, 2);
+  const conversacion = await conversacionDe(llamada, 3);
+  assert.deepEqual(
+    conversacion.messages.filter((m) => m.direction === "INBOUND").map((m) => m.content),
+    ["¿Cómo pago"],
   );
 });
 
