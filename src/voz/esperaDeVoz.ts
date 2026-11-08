@@ -7,15 +7,26 @@
 // terminados en "... " porque así la plataforma sigue esperando lo que viene en
 // vez de cerrar la frase con una entonación de final.
 //
+// LAS REGLAS (pedido de Rocco tras la primera llamada, que repetía "sigo con
+// esto, sigo con esto"):
+//   - Como máximo dos por turno: la primera a los 1,5 s y la segunda a los 5 s
+//     del comienzo del turno. Ninguna sale con menos de 3,5 s de silencio desde
+//     lo último que se dijo, sea texto real o una frase.
+//   - Si en ese momento corre una herramienta, se dice la suya ("Me fijo en el
+//     stock..."); si no, una genérica.
+//   - Nunca la misma dos veces en un turno ni una que se dijo en el turno
+//     anterior de la llamada. Si no queda ninguna, el turno se queda callado:
+//     callar es mejor que repetir.
+//
 // No hay corte por tiempo acá: abortar a los pocos segundos podría dejar una
 // reserva por la mitad. El tope es el presupuesto del turno.
 // ---------------------------------------------------------------------------
 
-export const DEMORA_DE_LA_PRIMERA_FRASE_MS = 1_200;
-export const DEMORA_POR_HERRAMIENTA_MS = 600;
-export const SILENCIO_ENTRE_FRASES_MS = 3_000;
-// Una frase de herramienta no sale pegada a lo último que se dijo.
-export const SEPARACION_MINIMA_MS = 1_500;
+// Cuándo puede salir cada frase, desde el comienzo del turno.
+export const MOMENTOS_DE_LAS_FRASES_MS = [1_500, 5_000] as const;
+export const MAXIMO_DE_FRASES_POR_TURNO = MOMENTOS_DE_LAS_FRASES_MS.length;
+// Silencio mínimo desde lo último que se dijo antes de agregar una frase.
+export const SILENCIO_ANTES_DE_UNA_FRASE_MS = 3_500;
 
 export const FRASES_GENERICAS = [
   "Dame un segundo... ",
@@ -40,60 +51,59 @@ export interface EsperaDeVoz {
   empezoHerramienta(nombre: string): void;
   terminoHerramienta(): void;
   parar(): void;
+  // Las frases que se dijeron en este turno, en orden.
+  dichas(): readonly string[];
 }
 
-// `usadas` es de la llamada: una frase no se repite mientras queden otras.
+// La próxima frase, o null si no queda ninguna que se pueda decir.
+export function elegirFrase(
+  herramienta: string | null,
+  prohibidas: ReadonlySet<string>,
+): string | null {
+  const propia = herramienta ? FRASES_POR_HERRAMIENTA[herramienta] : undefined;
+  if (propia && !prohibidas.has(propia)) {
+    return propia;
+  }
+  return FRASES_GENERICAS.find((frase) => !prohibidas.has(frase)) ?? null;
+}
+
+// `delTurnoAnterior`: las frases del turno anterior de la misma llamada.
 export function crearEsperaDeVoz(opciones: {
   decir: (frase: string) => void;
-  usadas: Set<string>;
+  delTurnoAnterior: ReadonlySet<string>;
 }): EsperaDeVoz {
-  const { decir, usadas } = opciones;
+  const { decir, delTurnoAnterior } = opciones;
   const inicio = Date.now();
+  const dichas: string[] = [];
   let ultimaVez: number | null = null;
-  let herramienta: { nombre: string; desde: number } | null = null;
+  let herramienta: string | null = null;
   let temporizador: NodeJS.Timeout | null = null;
   let parada = false;
 
-  function elegirFrase(): string {
-    const propia = herramienta ? FRASES_POR_HERRAMIENTA[herramienta.nombre] : undefined;
-    if (propia && !usadas.has(propia)) {
-      return propia;
-    }
-    const libre = FRASES_GENERICAS.find((frase) => !usadas.has(frase));
-    if (libre) {
-      return libre;
-    }
-    // Se usaron todas: se vuelve a empezar, sin repetir la última.
-    const ultima = [...usadas].at(-1);
-    usadas.clear();
-    return FRASES_GENERICAS.find((frase) => frase !== ultima) ?? FRASES_GENERICAS[0];
-  }
-
   function cuandoToca(): number {
-    if (herramienta) {
-      const porHerramienta = herramienta.desde + DEMORA_POR_HERRAMIENTA_MS;
-      return ultimaVez === null
-        ? porHerramienta
-        : Math.max(porHerramienta, ultimaVez + SEPARACION_MINIMA_MS);
-    }
+    const momento = inicio + MOMENTOS_DE_LAS_FRASES_MS[dichas.length];
     return ultimaVez === null
-      ? inicio + DEMORA_DE_LA_PRIMERA_FRASE_MS
-      : ultimaVez + SILENCIO_ENTRE_FRASES_MS;
+      ? momento
+      : Math.max(momento, ultimaVez + SILENCIO_ANTES_DE_UNA_FRASE_MS);
   }
 
   function programar(): void {
     if (temporizador) {
       clearTimeout(temporizador);
+      temporizador = null;
     }
-    if (parada) {
+    if (parada || dichas.length >= MAXIMO_DE_FRASES_POR_TURNO) {
       return;
     }
     temporizador = setTimeout(
       () => {
-        const frase = elegirFrase();
-        usadas.add(frase);
+        temporizador = null;
+        const frase = elegirFrase(herramienta, new Set([...delTurnoAnterior, ...dichas]));
+        if (frase === null) {
+          return;
+        }
+        dichas.push(frase);
         ultimaVez = Date.now();
-        herramienta = null;
         decir(frase);
         programar();
       },
@@ -109,18 +119,20 @@ export function crearEsperaDeVoz(opciones: {
       programar();
     },
     empezoHerramienta(nombre) {
-      herramienta = { nombre, desde: Date.now() };
-      programar();
+      herramienta = nombre;
     },
     terminoHerramienta() {
       herramienta = null;
-      programar();
     },
     parar() {
       parada = true;
       if (temporizador) {
         clearTimeout(temporizador);
+        temporizador = null;
       }
+    },
+    dichas() {
+      return dichas;
     },
   };
 }

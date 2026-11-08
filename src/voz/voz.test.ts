@@ -14,11 +14,12 @@ import { esNombreProvisorio } from "../utils/nombreProvisorio";
 import { buscarAccesoDeVoz, hashDelSecretoDeVoz, leerAccesosDeVoz } from "./accesos";
 import {
   crearEsperaDeVoz,
-  DEMORA_DE_LA_PRIMERA_FRASE_MS,
-  DEMORA_POR_HERRAMIENTA_MS,
+  elegirFrase,
   FRASES_GENERICAS,
   FRASES_POR_HERRAMIENTA,
-  SILENCIO_ENTRE_FRASES_MS,
+  MAXIMO_DE_FRASES_POR_TURNO,
+  MOMENTOS_DE_LAS_FRASES_MS,
+  SILENCIO_ANTES_DE_UNA_FRASE_MS,
 } from "./esperaDeVoz";
 import { INSTRUCCION_CANAL_DE_VOZ } from "./instrucciones";
 import { crearSalidaPorOraciones, finDelProximoTramo, restoDespuesDe } from "./salidaPorOraciones";
@@ -147,62 +148,125 @@ test("cerrar dos veces no vuelve a decir nada", () => {
 
 // --- frases de espera ------------------------------------------------------
 
-function esperaDePrueba() {
+const [PRIMERA_MS, SEGUNDA_MS] = MOMENTOS_DE_LAS_FRASES_MS;
+
+function esperaDePrueba(delTurnoAnterior: ReadonlySet<string> = new Set()) {
   mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const dichas: string[] = [];
-  const espera = crearEsperaDeVoz({ decir: (f) => dichas.push(f), usadas: new Set() });
+  const espera = crearEsperaDeVoz({ decir: (f) => dichas.push(f), delTurnoAnterior });
   return { dichas, espera };
 }
 
-test("sin texto, una frase genérica a tiempo y otra por cada silencio largo", () => {
+// De a un momento por vez: el reloj simulado no dispara una espera que se
+// programa dentro del mismo tick.
+function hastaLaSegunda(): void {
+  mock.timers.tick(PRIMERA_MS);
+  mock.timers.tick(SEGUNDA_MS - PRIMERA_MS);
+}
+
+test("sin texto: la primera frase a los 1,5 s, la segunda a los 5 s y ninguna más", () => {
+  assert.deepEqual(MOMENTOS_DE_LAS_FRASES_MS, [1_500, 5_000]);
+  assert.equal(MAXIMO_DE_FRASES_POR_TURNO, 2);
   const { dichas, espera } = esperaDePrueba();
-  mock.timers.tick(DEMORA_DE_LA_PRIMERA_FRASE_MS - 1);
+  mock.timers.tick(PRIMERA_MS - 1);
   assert.deepEqual(dichas, []);
   mock.timers.tick(1);
   assert.deepEqual(dichas, [FRASES_GENERICAS[0]]);
-  mock.timers.tick(SILENCIO_ENTRE_FRASES_MS);
+  mock.timers.tick(SEGUNDA_MS - PRIMERA_MS - 1);
+  assert.equal(dichas.length, 1);
+  mock.timers.tick(1);
   assert.deepEqual(dichas, [FRASES_GENERICAS[0], FRASES_GENERICAS[1]]);
-  espera.parar();
-  mock.timers.tick(10 * SILENCIO_ENTRE_FRASES_MS);
+  mock.timers.tick(60_000);
   assert.equal(dichas.length, 2);
-});
-
-test("una herramienta lenta avisa qué está haciendo", () => {
-  const { dichas, espera } = esperaDePrueba();
-  espera.empezoHerramienta("search_vehicles");
-  mock.timers.tick(DEMORA_POR_HERRAMIENTA_MS);
-  assert.deepEqual(dichas, [FRASES_POR_HERRAMIENTA.search_vehicles]);
+  assert.deepEqual(espera.dichas(), dichas);
   espera.parar();
 });
 
-test("una herramienta rápida no dice nada", () => {
+test("con una herramienta corriendo se dice la suya, una sola vez por turno", () => {
   const { dichas, espera } = esperaDePrueba();
   espera.empezoHerramienta("search_vehicles");
-  mock.timers.tick(DEMORA_POR_HERRAMIENTA_MS - 1);
+  hastaLaSegunda();
+  assert.deepEqual(dichas, [FRASES_POR_HERRAMIENTA.search_vehicles, FRASES_GENERICAS[0]]);
+  espera.parar();
+});
+
+test("una herramienta que termina antes de la frase no la cambia", () => {
+  const { dichas, espera } = esperaDePrueba();
+  espera.empezoHerramienta("search_vehicles");
+  mock.timers.tick(PRIMERA_MS - 1);
   espera.terminoHerramienta();
+  mock.timers.tick(1);
+  assert.deepEqual(dichas, [FRASES_GENERICAS[0]]);
+  espera.parar();
+});
+
+test("ninguna frase sale con menos de 3,5 s de silencio desde lo último dicho", () => {
+  const { dichas, espera } = esperaDePrueba();
+  mock.timers.tick(1_000);
   espera.huboTexto();
-  mock.timers.tick(SILENCIO_ENTRE_FRASES_MS - 1);
+  mock.timers.tick(SILENCIO_ANTES_DE_UNA_FRASE_MS - 1);
   assert.deepEqual(dichas, []);
+  mock.timers.tick(1);
+  assert.deepEqual(dichas, [FRASES_GENERICAS[0]]);
+  // La segunda: no antes de los 5 s del turno ni de 3,5 s después de la primera.
+  mock.timers.tick(SILENCIO_ANTES_DE_UNA_FRASE_MS - 1);
+  assert.equal(dichas.length, 1);
+  mock.timers.tick(1);
+  assert.equal(dichas.length, 2);
+  espera.parar();
+});
+
+test("si el texto no para, no hay frases", () => {
+  const { dichas, espera } = esperaDePrueba();
+  for (let i = 0; i < 20; i++) {
+    mock.timers.tick(1_000);
+    espera.huboTexto();
+  }
+  assert.deepEqual(dichas, []);
+  espera.parar();
+  mock.timers.tick(60_000);
+  assert.deepEqual(dichas, []);
+});
+
+test("no repite una frase del turno anterior; sin ninguna libre, se queda callado", () => {
+  const anterior = new Set([FRASES_GENERICAS[0], FRASES_GENERICAS[1]]);
+  const uno = esperaDePrueba(anterior);
+  hastaLaSegunda();
+  assert.deepEqual(uno.dichas, [FRASES_GENERICAS[2], FRASES_GENERICAS[3]]);
+  uno.espera.parar();
+  mock.timers.reset();
+
+  // Turno siguiente: las del anterior quedan prohibidas, y vuelven las primeras.
+  const dos = esperaDePrueba(new Set(uno.espera.dichas()));
+  hastaLaSegunda();
+  assert.deepEqual(dos.dichas, [FRASES_GENERICAS[0], FRASES_GENERICAS[1]]);
+  dos.espera.parar();
+  mock.timers.reset();
+
+  const todas = new Set(FRASES_GENERICAS.slice(1));
+  const tres = esperaDePrueba(todas);
+  hastaLaSegunda();
+  assert.deepEqual(tres.dichas, [FRASES_GENERICAS[0]]);
+  tres.espera.parar();
+
+  assert.equal(elegirFrase(null, new Set(FRASES_GENERICAS)), null);
+  assert.equal(
+    elegirFrase("search_vehicles", new Set([FRASES_POR_HERRAMIENTA.search_vehicles])),
+    FRASES_GENERICAS[0],
+  );
+});
+
+test("una frase de herramienta del turno anterior tampoco se repite", () => {
+  const { dichas, espera } = esperaDePrueba(new Set([FRASES_POR_HERRAMIENTA.search_vehicles]));
+  espera.empezoHerramienta("search_vehicles");
+  mock.timers.tick(PRIMERA_MS);
+  assert.deepEqual(dichas, [FRASES_GENERICAS[0]]);
   espera.parar();
 });
 
 test("todas las frases terminan como espera la plataforma", () => {
   for (const frase of [...FRASES_GENERICAS, ...Object.values(FRASES_POR_HERRAMIENTA)]) {
     assert.match(frase, /\.\.\. $/);
-  }
-});
-
-test("las frases no se repiten hasta agotarse, y nunca dos iguales seguidas", () => {
-  const { dichas, espera } = esperaDePrueba();
-  mock.timers.tick(DEMORA_DE_LA_PRIMERA_FRASE_MS);
-  for (let i = 0; i < 12; i++) {
-    mock.timers.tick(SILENCIO_ENTRE_FRASES_MS);
-  }
-  espera.parar();
-  assert.equal(dichas.length, 13);
-  assert.equal(new Set(dichas.slice(0, FRASES_GENERICAS.length)).size, FRASES_GENERICAS.length);
-  for (let i = 1; i < dichas.length; i++) {
-    assert.notEqual(dichas[i], dichas[i - 1]);
   }
 });
 
@@ -217,6 +281,23 @@ test("quien llega tarde escucha lo dicho y lo que sigue", () => {
   turno.terminar();
   turno.decir("tres");
   assert.deepEqual(oido, ["uno", "dos", null]);
+});
+
+test("a quien llega tarde no se le repiten las frases de espera, solo el texto real", () => {
+  const turno = new TurnoEnCurso();
+  const enVivo: (string | null)[] = [];
+  turno.escuchar((parte) => enVivo.push(parte));
+  turno.decir("Sigo con esto... ", true);
+  turno.decir("Tenemos dos.");
+  const tarde: (string | null)[] = [];
+  turno.escuchar((parte) => tarde.push(parte));
+  turno.decir("Un momento más... ", true);
+  turno.terminar();
+  assert.deepEqual(enVivo, ["Sigo con esto... ", "Tenemos dos.", "Un momento más... ", null]);
+  assert.deepEqual(tarde, ["Tenemos dos.", "Un momento más... ", null]);
+  const despues: (string | null)[] = [];
+  turno.escuchar((parte) => despues.push(parte));
+  assert.deepEqual(despues, ["Tenemos dos.", null]);
 });
 
 test("dejar de escuchar no frena el turno", () => {

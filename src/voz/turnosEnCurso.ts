@@ -4,6 +4,10 @@
 // que hagan las herramientas, por ejemplo una reserva. Por eso el segundo pedido
 // se engancha al turno que ya corre, o repite lo que ese turno dijo.
 //
+// LO QUE SE REPITE ES SOLO EL TEXTO REAL. Las frases de espera le llegan a quien
+// está escuchando en ese momento, pero no se le repiten a quien llega tarde: si
+// no, un reintento decía "Sigo con esto..." otra vez.
+//
 // EN MEMORIA, por proceso: alcanza con una instancia, que es lo que hay. Si el
 // proceso se reinicia en medio de un turno, un reintento lo corre de nuevo y lo
 // que queda de defensa son las reglas de las herramientas (no dos reservas en el
@@ -21,11 +25,14 @@ export class TurnoEnCurso {
     return this.terminadoEn;
   }
 
-  decir(texto: string): void {
+  // `esEspera`: una frase de espera, que no se repite a quien llega tarde.
+  decir(texto: string, esEspera = false): void {
     if (this.terminadoEn !== null) {
       return;
     }
-    this.partes.push(texto);
+    if (!esEspera) {
+      this.partes.push(texto);
+    }
     for (const oyente of this.oyentes) {
       oyente(texto);
     }
@@ -42,7 +49,7 @@ export class TurnoEnCurso {
     this.oyentes.clear();
   }
 
-  // Repite lo ya dicho y sigue con lo que venga. `null` avisa el final.
+  // Repite el texto real ya dicho y sigue con lo que venga. `null` avisa el final.
   // Devuelve cómo dejar de escuchar: el turno sigue aunque nadie escuche.
   escuchar(oyente: Oyente): () => void {
     for (const parte of this.partes) {
