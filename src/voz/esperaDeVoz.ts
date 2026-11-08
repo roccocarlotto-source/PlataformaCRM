@@ -14,6 +14,9 @@
 //     lo último que se dijo, sea texto real o una frase.
 //   - Si en ese momento corre una herramienta, se dice la suya ("Me fijo en el
 //     stock..."); si no, una genérica.
+//   - Ninguna afirma un resultado ni promete cuánto falta ("te lo dejo
+//     anotado", "ya casi lo tengo"): sale mientras la herramienta corre, y la
+//     herramienta puede fallar o el dato puede no estar confirmado todavía.
 //   - Nunca la misma dos veces en un turno ni una que se dijo en el turno
 //     anterior de la llamada. Si no queda ninguna, el turno se queda callado:
 //     callar es mejor que repetir.
@@ -37,7 +40,7 @@ export const SILENCIO_ANTES_DE_LA_TERCERA_MS = 3_000;
 
 export const FRASES_GENERICAS = [
   "Dame un segundo... ",
-  "Ya casi lo tengo... ",
+  "Estoy en eso... ",
   "Un momento más... ",
   "Sigo con esto... ",
 ];
@@ -45,12 +48,12 @@ export const FRASES_GENERICAS = [
 export const FRASES_POR_HERRAMIENTA: Readonly<Record<string, string>> = {
   search_vehicles: "Me fijo en el stock... ",
   get_availability: "Miro la agenda... ",
-  create_booking: "Te lo dejo agendado... ",
-  reschedule_booking: "Te lo cambio en la agenda... ",
-  cancel_booking: "Lo cancelo en la agenda... ",
+  create_booking: "Estoy con la agenda... ",
+  reschedule_booking: "Estoy con la agenda... ",
+  cancel_booking: "Estoy con la agenda... ",
   get_contact_activities: "Reviso lo que tenemos... ",
-  update_lead: "Te lo dejo anotado... ",
-  create_opportunity: "Te lo dejo anotado... ",
+  update_lead: "Estoy con tus datos... ",
+  create_opportunity: "Estoy con tus datos... ",
 };
 
 export interface EsperaDeVoz {

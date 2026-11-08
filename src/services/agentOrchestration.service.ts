@@ -3171,7 +3171,7 @@ async function responderSinMedir(
       // formato exige un resultado por cada tool call del asistente.
       const entrada: ToolCallDelTurno =
         indice < MAX_TOOL_CALLS_PER_ROUND
-          ? await medirHerramienta(() => {
+          ? await medirHerramienta(llamada.name, () => {
               options.voz?.empezoHerramienta(llamada.name);
               return resolverToolCall(llamada, {
                 agent: { ...agent, organizacion, nivel: nivelDelTurno },

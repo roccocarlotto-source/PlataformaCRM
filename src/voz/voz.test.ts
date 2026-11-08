@@ -308,6 +308,16 @@ test("todas las frases terminan como espera la plataforma", () => {
   }
 });
 
+test("ninguna frase de espera afirma un resultado ni promete cuánto falta", () => {
+  for (const frase of [...FRASES_GENERICAS, ...Object.values(FRASES_POR_HERRAMIENTA)]) {
+    assert.doesNotMatch(
+      frase,
+      /anotad|agendad|guardad|reservad|cancel|cambi|listo|hecho|casi|ya est/i,
+      frase,
+    );
+  }
+});
+
 // --- turnos en curso -------------------------------------------------------
 
 test("quien llega tarde escucha lo dicho y lo que sigue", () => {
@@ -626,6 +636,10 @@ test("por teléfono cada dato se repite para confirmarlo, y un turno se resume a
   );
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /Si te corrige, repetí el dato corregido/);
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /de a grupos de tres cifras/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /recién cuando te dice que sí lo guardás con update_lead/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /En el mismo turno en que te da el dato no lo guardes/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /El email pedilo deletreado, letra por letra/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /Antes de guardarlo, repetilo letra por letra/);
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /con el día de la semana/);
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /Antes de reservar o cambiar un turno, resumí de corrido/);
 });
