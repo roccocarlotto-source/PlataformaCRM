@@ -45,7 +45,8 @@ import { crearRegistroDeTurnos, type TurnoEnCurso } from "./turnosEnCurso";
 export const PRESUPUESTO_DEL_TURNO_DE_VOZ_MS = 30_000;
 
 export const FRASE_SIN_RESPUESTA = "Un compañero del equipo está viendo tu caso.";
-export const FRASE_DE_PROBLEMA = "Disculpa, tuve un problema con eso. ¿Me lo repites?";
+// Un problema nuestro, no del cliente: no se le dice que no se lo escuchó.
+export const FRASE_DE_PROBLEMA = "Perdón, se me trabó el sistema un segundo, ¿me repetís el dato?";
 const LARGO_MAXIMO_DEL_AVISO = 1000;
 const VIDA_DE_UNA_LLAMADA_MS = 60 * 60 * 1000;
 
@@ -280,10 +281,20 @@ async function correrElTurno(
 // Arranca el turno, o devuelve el que ya corre si es un reintento. El turno no
 // depende de quién escuche: si la plataforma corta, sigue hasta terminar.
 export function pedirTurnoDeVoz(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso {
-  const huella = createHash("sha256").update(pedido.texto, "utf8").digest("hex").slice(0, 16);
-  const clave = `${pedido.acceso.organizationId}:${pedido.callId}:${pedido.numeroDeTurno}:${huella}`;
   const llegada = new Date();
-  return registro.obtenerOArrancar(clave, (turno) => {
+  return registro.obtenerOArrancar(claveDelTurno(pedido), (turno) => {
     void correrElTurno(pedido, laLlamada(pedido), turno, llegada);
   });
+}
+
+// El turno que sigue una continuación (la plataforma dejó de esperar y vuelve a
+// pedir con lo ya dicho). Nunca arranca uno: correrlo de nuevo repetiría las
+// herramientas. null si ya no está (pasó mucho o el proceso se reinició).
+export function turnoQueSigue(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso | null {
+  return registro.obtener(claveDelTurno(pedido));
+}
+
+function claveDelTurno(pedido: PedidoDeTurnoDeVoz): string {
+  const huella = createHash("sha256").update(pedido.texto, "utf8").digest("hex").slice(0, 16);
+  return `${pedido.acceso.organizationId}:${pedido.callId}:${pedido.numeroDeTurno}:${huella}`;
 }

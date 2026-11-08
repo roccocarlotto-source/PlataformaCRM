@@ -12,7 +12,7 @@ import {
   FIN_DEL_STREAM,
   type DatosDelStream,
 } from "../voz/sse";
-import { pedirTurnoDeVoz } from "../voz/turnoDeVoz.service";
+import { FRASE_DE_PROBLEMA, pedirTurnoDeVoz, turnoQueSigue } from "../voz/turnoDeVoz.service";
 
 // ---------------------------------------------------------------------------
 // El turno de voz, en el formato de OpenAI. La plataforma manda la conversación
@@ -68,10 +68,36 @@ function textoDelMensaje(mensaje: Mensaje): string {
     .trim();
 }
 
-// Lo que dijo el cliente en este turno: el último mensaje, si es suyo.
+function indiceDelUltimoDelCliente(mensajes: Mensaje[]): number {
+  for (let i = mensajes.length - 1; i >= 0; i--) {
+    if (mensajes[i].role === "user") return i;
+  }
+  return -1;
+}
+
+// Lo último que dijo el cliente: su último mensaje, aunque después venga lo que
+// la plataforma ya dijo de este turno (ver loQueYaEscucho).
 export function loQueDijoElCliente(mensajes: Mensaje[]): string {
-  const ultimo = mensajes.at(-1);
-  return ultimo?.role === "user" ? textoDelMensaje(ultimo).slice(0, LARGO_MAXIMO_DE_LO_DICHO) : "";
+  const indice = indiceDelUltimoDelCliente(mensajes);
+  return indice === -1 ? "" : textoDelMensaje(mensajes[indice]).slice(0, LARGO_MAXIMO_DE_LO_DICHO);
+}
+
+// UNA CONTINUACIÓN. Si un turno tarda, la plataforma deja de esperar y vuelve a
+// pedir con lo que alcanzó a decir como último mensaje del asistente (visto en
+// la llamada del 2026-11-08: unos 9 s después de empezar un turno largo). No es
+// un turno nuevo: es el mismo, y le falta el resto. Devuelve lo que el cliente
+// ya escuchó de este turno, o null si el último mensaje es del cliente (lo
+// normal) o el cliente todavía no habló.
+export function loQueYaEscucho(mensajes: Mensaje[]): string | null {
+  const indice = indiceDelUltimoDelCliente(mensajes);
+  if (indice === -1 || indice === mensajes.length - 1) {
+    return null;
+  }
+  return mensajes
+    .slice(indice + 1)
+    .filter((m) => m.role === "assistant")
+    .map(textoDelMensaje)
+    .join(" ");
 }
 
 // El saludo fijo de la plataforma (el aviso legal), si vino antes del cliente.
@@ -186,7 +212,14 @@ export const pedirTurnoDeVozHandler = asyncHandler<VozRequest>(async (req, res: 
     llamante,
   );
   // Sin texto: ni lo dicho ni el id; solo de dónde salió el id y la forma.
-  const datosDelLog = { agentId, origenDelId: origen, stream, mensajes: messages.length };
+  const yaEscucho = loQueYaEscucho(messages);
+  const datosDelLog = {
+    agentId,
+    origenDelId: origen,
+    stream,
+    mensajes: messages.length,
+    continuacion: yaEscucho !== null,
+  };
   if (origen === "huella") {
     logger.warn(
       datosDelLog,
@@ -210,22 +243,33 @@ export const pedirTurnoDeVozHandler = asyncHandler<VozRequest>(async (req, res: 
     return;
   }
 
-  const turno = pedirTurnoDeVoz({
+  const pedido = {
     acceso: req.vozAcceso,
     callId,
     llamante,
     texto,
     numeroDeTurno: messages.filter((m) => m.role === "user").length,
     avisoInicial: avisoInicial(messages),
-  });
+  };
+  const turno = yaEscucho === null ? pedirTurnoDeVoz(pedido) : turnoQueSigue(pedido);
+  if (turno === null) {
+    logger.warn(
+      datosDelLog,
+      "Continuación de un turno de voz que ya no está: se pide repetir, sin correrlo de nuevo",
+    );
+    res.write(chunkDeTexto(datos, FRASE_DE_PROBLEMA));
+    cerrarStream(res, datos);
+    return;
+  }
 
-  // Si la plataforma corta, se deja de escribir pero el turno sigue.
+  // Si la plataforma corta, se deja de escribir pero el turno sigue. A una
+  // continuación no se le repite lo que el cliente ya escuchó.
   const dejarDeEscuchar = turno.escuchar((parte) => {
     if (parte === null) {
       cerrarStream(res, datos);
     } else {
       res.write(chunkDeTexto(datos, parte));
     }
-  });
+  }, yaEscucho ?? "");
   res.on("close", dejarDeEscuchar);
 });
