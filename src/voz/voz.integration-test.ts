@@ -463,6 +463,66 @@ test("una continuación se engancha al turno y dice solo lo que falta, sin repet
   assert.equal(conversacion.messages.filter((m) => m.direction === "INBOUND").length, 1);
 });
 
+test("dos pedidos del mismo turno con textos distintos corren una vez: gana el primero", async () => {
+  const llamada = randomUUID();
+  const llamante = telefonoNuevo();
+  let soltar: () => void = () => undefined;
+  const espera = new Promise<void>((resolve) => {
+    soltar = resolve;
+  });
+  modelo = async (_request, opciones) => {
+    opciones?.alEscribir?.("El martes hay lugar. ");
+    await espera;
+    opciones?.alEscribir?.("¿A qué hora?");
+    return { text: "El martes hay lugar. ¿A qué hora?", toolCalls: [] };
+  };
+  const hasta = (dicho: string) => [
+    { role: "system", content: "El prompt de la plataforma, que no se usa." },
+    { role: "assistant", content: AVISO },
+    { role: "user", content: dicho },
+  ];
+
+  // Uno durante una pausa, con la frase a medias, y otro casi enseguida con la
+  // frase completa: el mismo turno (la misma cantidad de mensajes del cliente).
+  // Se espera a que el primero abra el stream para que llegue primero: el turno
+  // ya arrancó cuando el stream se abre.
+  const aMedias = await pedir({ llamada, llamante, messages: hasta("Quiero probarlo el martes") });
+  const completa = pedir({
+    llamada,
+    llamante,
+    messages: hasta("Quiero probarlo el martes de tarde"),
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  // La continuación trae la frase completa: se engancha al mismo turno.
+  const continuacion = pedir({
+    llamada,
+    llamante,
+    messages: [
+      ...hasta("Quiero probarlo el martes de tarde"),
+      { role: "assistant", content: "El martes hay lugar." },
+    ],
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  soltar();
+  const [uno, dos, tres] = await Promise.all([
+    leerStream(aMedias),
+    completa.then(leerStream),
+    continuacion.then(leerStream),
+  ]);
+
+  assert.equal(pedidos.length, 1);
+  assert.deepEqual(uno.textos, ["El martes hay lugar. ", "¿A qué hora?"]);
+  assert.deepEqual(dos.textos, ["El martes hay lugar. ", "¿A qué hora?"]);
+  assert.deepEqual(tres.textos, ["¿A qué hora?"]);
+  assert.equal(tres.cerro, true);
+  const conversacion = await conversacionDe(llamada, 3);
+  const entrantes = conversacion.messages.filter((m) => m.direction === "INBOUND");
+  assert.deepEqual(
+    entrantes.map((m) => m.content),
+    ["Quiero probarlo el martes"],
+  );
+});
+
 test("una continuación sin turno que seguir pide repetir y no corre el modelo", async () => {
   const { textos, cerro } = await leerStream(
     await pedir({

@@ -25,7 +25,7 @@ import {
 import { INSTRUCCION_CANAL_DE_VOZ } from "./instrucciones";
 import { crearSalidaPorOraciones, finDelProximoTramo, restoDespuesDe } from "./salidaPorOraciones";
 import { chunkDeCierre, chunkDeTexto } from "./sse";
-import { digitosDelLlamante, FRASE_DE_PROBLEMA } from "./turnoDeVoz.service";
+import { claveDelTurno, digitosDelLlamante, FRASE_DE_PROBLEMA } from "./turnoDeVoz.service";
 import { crearRegistroDeTurnos, TurnoEnCurso } from "./turnosEnCurso";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -443,6 +443,24 @@ test("si el último mensaje es del asistente, es una continuación del turno del
   assert.equal(loQueYaEscucho(continuacion), "Sigo con esto... Tenemos dos.");
   // Sin nada del cliente no hay turno que seguir.
   assert.equal(loQueYaEscucho([{ role: "assistant", content: "Aviso" }]), null);
+});
+
+test("la clave del turno es el número de turno de la llamada, sin el texto", () => {
+  const acceso = { organizationId: "org", agentId: "agente" } as Parameters<
+    typeof claveDelTurno
+  >[0]["acceso"];
+  const pedido = {
+    acceso,
+    callId: "llamada",
+    llamante: null,
+    texto: "Quiero probarlo el martes",
+    numeroDeTurno: 2,
+    avisoInicial: null,
+  };
+  const completa = { ...pedido, texto: "Quiero probarlo el martes de tarde" };
+  assert.equal(claveDelTurno(pedido), claveDelTurno(completa));
+  assert.notEqual(claveDelTurno(pedido), claveDelTurno({ ...pedido, numeroDeTurno: 3 }));
+  assert.notEqual(claveDelTurno(pedido), claveDelTurno({ ...pedido, callId: "otra" }));
 });
 
 test("un problema nuestro no se disfraza de audio que no se escuchó", () => {
