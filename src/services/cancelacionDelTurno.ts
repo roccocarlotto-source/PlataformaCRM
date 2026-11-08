@@ -58,4 +58,15 @@ export class CancelacionDelTurno {
     this.comprobar();
     this.cancelable = false;
   }
+
+  // Lo mismo sin lanzar, para un camino que igual tiene que terminar (por
+  // ejemplo, después de un error): true si sigue y ya no se puede cancelar,
+  // false si se canceló.
+  seguirSinVuelta(): boolean {
+    if (this.cancelado) {
+      return false;
+    }
+    this.cancelable = false;
+    return true;
+  }
 }

@@ -248,6 +248,8 @@ async function correrElTurno(
 
   try {
     const { contactId, branchId } = await resolverLaLlamada(pedido, llamada);
+    // Cancelado antes del lock: ni lo pide.
+    cancelacion.comprobar();
     await conLockDeConversacion(
       { agentId, contactId, channel: "VOICE", organizationId },
       async () => {
@@ -274,8 +276,11 @@ async function correrElTurno(
           salienteId = turnoDelAgente.salienteId;
           respuesta = turnoDelAgente.resultado.respuesta;
         } finally {
-          // Un turno cancelado no deja rastro: ni lo que dijo el cliente.
-          if (!cancelacion.fueCancelado) {
+          // Un turno cancelado no deja rastro: ni lo que dijo el cliente. Si
+          // sigue (también después de un error), desde acá ya no se cancela:
+          // si no, otro pedido podía cancelarlo mientras guarda y el mismo
+          // turno quedaba guardado dos veces.
+          if (cancelacion.seguirSinVuelta()) {
             await guardarLoDelCliente(pedido, llamada, conversation, llegada, salienteId);
           }
         }
@@ -287,7 +292,8 @@ async function correrElTurno(
       },
     );
   } catch (err) {
-    if (err instanceof TurnoCancelado) {
+    // También un cancelado que, antes de enterarse, chocó con otro error.
+    if (err instanceof TurnoCancelado || cancelacion.fueCancelado) {
       // Lo reemplazó otro pedido del mismo turno, que ya tiene a los oyentes.
       logger.info(
         { organizationId, agentId, numeroDeTurno: pedido.numeroDeTurno },

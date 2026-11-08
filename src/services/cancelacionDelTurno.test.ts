@@ -26,6 +26,17 @@ test("pasado un punto sin vuelta, cancelar no hace nada", () => {
   assert.doesNotThrow(() => cancelacion.comprobar());
 });
 
+test("seguir sin vuelta: false si ya se canceló; si no, desde ahí no se cancela", () => {
+  const cancelada = new CancelacionDelTurno();
+  cancelada.intentarCancelar();
+  assert.equal(cancelada.seguirSinVuelta(), false);
+
+  const sigue = new CancelacionDelTurno();
+  assert.equal(sigue.seguirSinVuelta(), true);
+  assert.equal(sigue.intentarCancelar(), false);
+  assert.equal(sigue.fueCancelado, false);
+});
+
 test("solo una llamada se puede cancelar: WhatsApp, Messenger, Instagram y la web siguen igual", () => {
   const cancelacion = new CancelacionDelTurno();
   const voz = { cancelacion } as unknown as SalidaDeVoz;
