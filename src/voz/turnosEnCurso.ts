@@ -3,6 +3,8 @@
 // tiempo, vuelve a mandar el mismo pedido. Correrlo de nuevo podría duplicar lo
 // que hagan las herramientas, por ejemplo una reserva. Por eso el segundo pedido
 // se engancha al turno que ya corre, o repite lo que ese turno dijo.
+// También si trae otro texto para el mismo turno (la clave es el número de
+// turno, ver claveDelTurno en turnoDeVoz.service.ts): gana el primero.
 //
 // LO QUE SE REPITE ES SOLO EL TEXTO REAL. Las frases de espera le llegan a quien
 // está escuchando en ese momento, pero no se le repiten a quien llega tarde: si

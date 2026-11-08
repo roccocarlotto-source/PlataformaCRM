@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { normalizarTelefono, soloDigitos } from "../lib/telefono";
@@ -74,6 +73,9 @@ interface Llamada {
 
 const llamadas = new Map<string, Llamada>();
 const registro = crearRegistroDeTurnos();
+// Lo que dijo el cliente en cada turno, para avisar cuando otro pedido del
+// mismo turno trae un texto distinto.
+const textoDelTurno = new WeakMap<TurnoEnCurso, string>();
 
 function laLlamada(pedido: PedidoDeTurnoDeVoz): Llamada {
   const ahora = Date.now();
@@ -282,19 +284,47 @@ async function correrElTurno(
 // depende de quién escuche: si la plataforma corta, sigue hasta terminar.
 export function pedirTurnoDeVoz(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso {
   const llegada = new Date();
-  return registro.obtenerOArrancar(claveDelTurno(pedido), (turno) => {
-    void correrElTurno(pedido, laLlamada(pedido), turno, llegada);
+  const turno = registro.obtenerOArrancar(claveDelTurno(pedido), (nuevo) => {
+    textoDelTurno.set(nuevo, pedido.texto);
+    void correrElTurno(pedido, laLlamada(pedido), nuevo, llegada);
   });
+  avisarSiCambioElTexto(pedido, turno);
+  return turno;
 }
 
 // El turno que sigue una continuación (la plataforma dejó de esperar y vuelve a
 // pedir con lo ya dicho). Nunca arranca uno: correrlo de nuevo repetiría las
 // herramientas. null si ya no está (pasó mucho o el proceso se reinició).
 export function turnoQueSigue(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso | null {
-  return registro.obtener(claveDelTurno(pedido));
+  const turno = registro.obtener(claveDelTurno(pedido));
+  if (turno) {
+    avisarSiCambioElTexto(pedido, turno);
+  }
+  return turno;
 }
 
-function claveDelTurno(pedido: PedidoDeTurnoDeVoz): string {
-  const huella = createHash("sha256").update(pedido.texto, "utf8").digest("hex").slice(0, 16);
-  return `${pedido.acceso.organizationId}:${pedido.callId}:${pedido.numeroDeTurno}:${huella}`;
+// UN TURNO, UNA VEZ. La clave es el número de turno de la llamada, sin el
+// texto: la plataforma puede mandar dos pedidos del mismo turno con textos
+// distintos (por ejemplo, uno durante una pausa del cliente con la frase a
+// medias y otro con la frase completa), y correr los dos podía repetir una
+// reserva. Gana el primero; el otro se engancha y escucha la misma respuesta.
+export function claveDelTurno(pedido: PedidoDeTurnoDeVoz): string {
+  return `${pedido.acceso.organizationId}:${pedido.callId}:${pedido.numeroDeTurno}`;
+}
+
+// Sin el texto en el log: solo la marca, para medir cuántas veces pasa.
+function avisarSiCambioElTexto(pedido: PedidoDeTurnoDeVoz, turno: TurnoEnCurso): void {
+  const original = textoDelTurno.get(turno);
+  if (original === undefined || original === pedido.texto) {
+    return;
+  }
+  logger.warn(
+    {
+      organizationId: pedido.acceso.organizationId,
+      agentId: pedido.acceso.agentId,
+      numeroDeTurno: pedido.numeroDeTurno,
+      textoDistinto: true,
+    },
+    "Otro pedido del mismo turno de voz con un texto distinto: se engancha al que ya corre",
+  );
 }
