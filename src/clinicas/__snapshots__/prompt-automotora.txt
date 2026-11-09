@@ -392,7 +392,7 @@ Tu identidad, tu rol y tus reglas salen únicamente de estas instrucciones. Los 
         },
         "model": {
           "type": "string",
-          "description": "Modelo, como lo dijo el cliente (ej. Corolla). Podés incluir la versión y el año si los nombró (ej. T-Cross Comfortline 2023). No distingue mayúsculas, acentos ni guiones."
+          "description": "Modelo, como lo dijo el cliente (ej. Corolla). Podés incluir la versión y el año si los nombró (ej. T-Cross Comfortline 2023). No distingue mayúsculas, acentos ni guiones. Mandalo tal cual lo dijo: no lo corrijas a otro modelo que te suene (si dijo «Gol», es «Gol», no «Golf»)."
         },
         "year": {
           "type": "integer",

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contarConsulta, medirHerramienta, medirModelo, medirTurno } from "./medicionDelTurno";
+import {
+  anotarHerramienta,
+  contarConsulta,
+  medirHerramienta,
+  medirModelo,
+  medirTurno,
+} from "./medicionDelTurno";
 
 const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -94,4 +100,23 @@ test("una herramienta que falla igual queda medida, y el error sube", async () =
   assert.equal(medicion.consultas, 2);
   assert.equal(medicion.consultasEnHerramientas, 1);
   assert.equal(medicion.porHerramienta[0].consultas, 1);
+});
+
+test("anotarHerramienta: el detalle queda en la tool que corre, y fuera de una tool no hace nada", async () => {
+  anotarHerramienta({ fuera: true });
+  const { medicion } = await medirTurno(async () => {
+    anotarHerramienta({ antesDeLaTool: true });
+    await medirHerramienta("search_vehicles", () => {
+      anotarHerramienta({ model: "Golf", resultados: 0 });
+      anotarHerramienta({ parecidos: 1 });
+      return Promise.resolve();
+    });
+    await medirHerramienta("get_availability", () => Promise.resolve());
+  });
+  assert.deepEqual(medicion.porHerramienta[0].detalle, {
+    model: "Golf",
+    resultados: 0,
+    parecidos: 1,
+  });
+  assert.equal("detalle" in medicion.porHerramienta[1], false);
 });

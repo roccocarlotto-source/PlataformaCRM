@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buscarPorMarcaYModelo,
+  distanciaDeEdicion,
+  idsConNombreParecido,
   idsDelMismoModelo,
   palabrasDeBusqueda,
   type VehiculoBuscable,
@@ -108,4 +110,59 @@ test("mismo modelo exige el modelo como palabra entera: un Up no aparece por un 
 test("sin marca ni modelo, o con texto sin palabras, no hay nada que filtrar", () => {
   assert.equal(buscar({}), null);
   assert.equal(buscar({ make: " ", model: "--" }), null);
+});
+
+// ---------------------------------------------------------------------------
+// Nombres parecidos (2026-11-09): "Golf" con un Gol Trend en stock.
+// ---------------------------------------------------------------------------
+
+const STOCK_PARECIDOS: VehiculoBuscable[] = [
+  { id: "gol-trend", make: "Volkswagen", model: "Gol", trim: "Trend", year: 2019 },
+  { id: "308", make: "Peugeot", model: "308", trim: "Allure", year: 2021 },
+  { id: "corolla", make: "Toyota", model: "Corolla", trim: "XEi", year: 2020 },
+  { id: "onix", make: "Chevrolet", model: "Onix", trim: "LT", year: 2022 },
+  { id: "c4", make: "Citroën", model: "C4", trim: null, year: 2018 },
+];
+
+const parecidos = (pedido: { make?: string; model?: string }) =>
+  idsConNombreParecido(STOCK_PARECIDOS, pedido);
+
+test("distanciaDeEdicion: letras agregadas, quitadas o cambiadas", () => {
+  assert.equal(distanciaDeEdicion("golf", "gol"), 1);
+  assert.equal(distanciaDeEdicion("208", "308"), 1);
+  assert.equal(distanciaDeEdicion("corola", "corolla"), 1);
+  assert.equal(distanciaDeEdicion("hilux", "corolla"), 6);
+  assert.equal(distanciaDeEdicion("", "abc"), 3);
+});
+
+test("el caso de la llamada: «Golf» no encuentra nada, pero el Gol Trend es parecido", () => {
+  assert.equal(buscarPorMarcaYModelo(STOCK_PARECIDOS, { model: "Golf" })?.nivel, "ninguna");
+  assert.deepEqual(parecidos({ model: "Golf" }), ["gol-trend"]);
+  assert.deepEqual(parecidos({ make: "Volkswagen", model: "Golf" }), ["gol-trend"]);
+  assert.deepEqual(parecidos({ model: "Volkswagen Golf 2015" }), ["gol-trend"]);
+});
+
+test("un número de diferencia: «208» con un 308 en stock es parecido", () => {
+  assert.equal(buscarPorMarcaYModelo(STOCK_PARECIDOS, { model: "208" })?.nivel, "ninguna");
+  assert.deepEqual(parecidos({ model: "208" }), ["308"]);
+  assert.deepEqual(parecidos({ make: "Peugeot", model: "208" }), ["308"]);
+  assert.deepEqual(parecidos({ make: "Peugot", model: "208" }), ["308"]);
+});
+
+test("errores de escritura o de oído: Corola, Onyx", () => {
+  assert.deepEqual(parecidos({ model: "Corola" }), ["corolla"]);
+  assert.deepEqual(parecidos({ model: "Onyx" }), ["onix"]);
+});
+
+test("no sugiere cualquier cosa", () => {
+  // Otra marca: «Toyota Golf» no es el Volkswagen Gol.
+  assert.deepEqual(parecidos({ make: "Toyota", model: "Golf" }), []);
+  // Palabras de menos de 3 letras no cuentan.
+  assert.deepEqual(parecidos({ model: "C3" }), []);
+  // Un año al lado de un modelo no se compara con modelos que son números.
+  assert.deepEqual(parecidos({ model: "Corolla 2018" }), []);
+  // Lo que no se parece a nada sigue sin parecidos.
+  assert.deepEqual(parecidos({ make: "Ford", model: "Ranger XLT 2022" }), []);
+  assert.deepEqual(parecidos({ make: "Ferrari" }), []);
+  assert.deepEqual(parecidos({}), []);
 });

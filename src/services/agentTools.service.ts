@@ -34,7 +34,12 @@ import {
   type VehicleFilters,
 } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
-import { buscarPorMarcaYModelo, idsDelMismoModelo } from "../utils/busquedaDeVehiculo";
+import {
+  buscarPorMarcaYModelo,
+  idsConNombreParecido,
+  idsDelMismoModelo,
+} from "../utils/busquedaDeVehiculo";
+import { anotarHerramienta } from "../utils/medicionDelTurno";
 import {
   asuntoDeLaNotaDeMotivo,
   CONSULTAS_QUE_NO_SON_INICIATIVA,
@@ -2621,6 +2626,22 @@ const searchVehiclesArgs = z
 export const NOTA_DE_COINCIDENCIA_PARCIAL =
   "No hay ninguna unidad que coincida con TODO lo que pidió el cliente (la versión o el año). Estas son las unidades del MISMO MODELO que sí están disponibles. Mostráselas y aclarale en qué se diferencian de lo que pidió. NO le digas que el modelo no está disponible: sí lo está.";
 
+// Cuando el nombre que mandó el modelo no coincide con nada pero hay modelos
+// de nombre parecido ("Golf" con un Gol Trend en stock): se pregunta, no se
+// niega. Ver idsConNombreParecido en utils/busquedaDeVehiculo.ts.
+export const QUE_HACER_CON_PARECIDOS =
+  "No hay ninguna unidad con el nombre exacto que mandaste, pero en «parecidos» hay modelos del stock con un nombre casi igual: puede que el cliente se refiera a uno de esos o que el nombre se haya entendido o escrito mal. NO le digas que no hay. Preguntale si se refiere a ese, nombrándolo (por ejemplo: «¿Te referís al Gol Trend?»). Si dice que sí, volvé a buscar con ese nombre tal cual figura en «parecidos» para darle los detalles. Si dice que no, recién ahí decile que ese modelo no está disponible.";
+
+// Máximo de nombres parecidos que se le ofrecen al modelo.
+const MAX_PARECIDOS = 5;
+
+// Lo que search_vehicles anota en el log del turno: los filtros de stock que
+// usó y lo que encontró. Nada del contacto; marca y modelo con un tope de
+// largo porque los escribe el modelo de lenguaje.
+function textoParaElLog(texto: string | undefined): string | undefined {
+  return texto === undefined ? undefined : texto.slice(0, 60);
+}
+
 const searchVehiclesTool: ToolDelAgente = {
   definition: {
     name: "search_vehicles",
@@ -2639,7 +2660,7 @@ const searchVehiclesTool: ToolDelAgente = {
         model: {
           type: "string",
           description:
-            "Modelo, como lo dijo el cliente (ej. Corolla). Podés incluir la versión y el año si los nombró (ej. T-Cross Comfortline 2023). No distingue mayúsculas, acentos ni guiones.",
+            "Modelo, como lo dijo el cliente (ej. Corolla). Podés incluir la versión y el año si los nombró (ej. T-Cross Comfortline 2023). No distingue mayúsculas, acentos ni guiones. Mandalo tal cual lo dijo: no lo corrijas a otro modelo que te suene (si dijo «Gol», es «Gol», no «Golf»).",
         },
         year: { type: "integer", description: "Año del modelo." },
         bodyType: {
@@ -2785,6 +2806,40 @@ const searchVehiclesTool: ToolDelAgente = {
         recordatorioDePresupuesto(contexto, input.priceMaxUsd),
         guardarIntencionDeBusqueda(contexto, input, total > 0),
       ]);
+
+      // Sin ninguna coincidencia por nombre: los modelos de nombre parecido,
+      // para preguntar en vez de negar. Solo nombres (sin precios ni ids):
+      // si el cliente confirma, se vuelve a buscar con ese nombre.
+      const parecidos =
+        total === 0 && porNombre?.nivel === "ninguna"
+          ? [
+              ...new Set(
+                idsConNombreParecido(nombres, pedido).flatMap((id) => {
+                  const v = nombres.find((n) => n.id === id);
+                  return v ? [`${v.make} ${v.model}${v.trim ? ` ${v.trim}` : ""}`] : [];
+                }),
+              ),
+            ].slice(0, MAX_PARECIDOS)
+          : [];
+
+      anotarHerramienta({
+        make: textoParaElLog(input.make),
+        model: textoParaElLog(input.model),
+        year: input.year,
+        priceMinUsd: input.priceMinUsd,
+        priceMaxUsd: input.priceMaxUsd,
+        resultados: total,
+        coincidencia: coincidenciaParcial ? "mismo-modelo" : (porNombre?.nivel ?? "sin-nombre"),
+        parecidos: parecidos.length,
+      });
+
+      if (parecidos.length > 0) {
+        return exitoVacio({ total: 0, vehiculos: [] }, QUE_HACER_CON_PARECIDOS, {
+          parecidos,
+          ...recordatorio,
+          ...intencion,
+        });
+      }
 
       if (total === 0) {
         return exitoVacio(
