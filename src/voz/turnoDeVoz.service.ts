@@ -22,7 +22,7 @@ import { LLAMADA_CONTACT_FIRST_NAME, LLAMADA_CONTACT_SOURCE } from "../utils/nom
 import type { AccesoDeVoz } from "./accesos";
 import { crearEsperaDeVoz, type EsperaDeVoz, type EstadoDeLaEspera } from "./esperaDeVoz";
 import { crearSalidaPorOraciones } from "./salidaPorOraciones";
-import { comparable, crearRegistroDeTurnos, type TurnoEnCurso } from "./turnosEnCurso";
+import { comparable, crearRegistroDeTurnos, loQueFalta, type TurnoEnCurso } from "./turnosEnCurso";
 
 // ---------------------------------------------------------------------------
 // UN TURNO DE UNA LLAMADA. Es el turno de siempre (responderEnLaConversacion:
@@ -207,7 +207,10 @@ async function correrElTurno(
   pedido: PedidoDeTurnoDeVoz,
   llamada: Llamada,
   turno: TurnoEnCurso,
-  llegada: Date,
+  // null: un turno de seguimiento, que se guarda con la hora en que arranca de
+  // verdad (después de esperar al anterior), para quedar después de su
+  // respuesta en el hilo.
+  llegada: Date | null,
   datos: DatosDelTurno,
   // Dónde quedaron las frases de espera del turno que este reemplaza: se
   // sigue su reloj y su cuenta, y lo que dijo no se repite.
@@ -261,6 +264,7 @@ async function correrElTurno(
       async () => {
         // Si se canceló mientras esperaba el lock, ni siquiera arranca.
         cancelacion.comprobar();
+        const horaDelCliente = llegada ?? new Date();
         const [{ agent, contact }, conversation] = await Promise.all([
           cargarAgenteYContacto(organizationId, agentId, contactId, "VOICE"),
           findOrCreateOpenConversation({
@@ -287,7 +291,7 @@ async function correrElTurno(
           // si no, otro pedido podía cancelarlo mientras guarda y el mismo
           // turno quedaba guardado dos veces.
           if (cancelacion.seguirSinVuelta()) {
-            await guardarLoDelCliente(pedido, llamada, conversation, llegada, salienteId);
+            await guardarLoDelCliente(pedido, llamada, conversation, horaDelCliente, salienteId);
           }
         }
         // Las salidas tempranas del turno (una regla, el nivel de IA, una
@@ -335,18 +339,40 @@ async function correrElTurno(
 // los que escuchaban. Si ya hizo algo, el pedido se engancha al que corre.
 // Solo con una frase más larga: un reintento atrasado de la frase corta no
 // reemplaza a la larga.
+//
+// SI YA HIZO ALGO, UN TURNO DE SEGUIMIENTO. Si el turno ya dijo algo real,
+// corrió una herramienta o terminó, la frase más larga no se descarta: arranca
+// otro turno, que espera al anterior (los turnos de una conversación van de a
+// uno) y contesta lo que falta. Al modelo y al historial les llega solo lo que
+// agrega la frase ("096468788" después de "Te paso mi teléfono"), así el hilo
+// queda como fue. Como mucho MAXIMO_DE_SEGUIMIENTOS por número de turno.
 export function pedirTurnoDeVoz(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso {
   const llegada = new Date();
   const clave = claveDelTurno(pedido);
-  const arrancar = (continuarDe?: EstadoDeLaEspera) => (nuevo: TurnoEnCurso) => {
-    const datos: DatosDelTurno = {
-      texto: pedido.texto,
-      cancelacion: new CancelacionDelTurno(),
-      espera: null,
+  // `paraElModelo`: lo que corre el turno; `datos.texto` es siempre la frase
+  // entera, la que se compara con los pedidos que lleguen después.
+  const arrancar =
+    (
+      continuarDe?: EstadoDeLaEspera,
+      paraElModelo: PedidoDeTurnoDeVoz = pedido,
+      seguimiento = false,
+    ) =>
+    (nuevo: TurnoEnCurso) => {
+      const datos: DatosDelTurno = {
+        texto: pedido.texto,
+        cancelacion: new CancelacionDelTurno(),
+        espera: null,
+      };
+      datosDelTurno.set(nuevo, datos);
+      void correrElTurno(
+        paraElModelo,
+        laLlamada(pedido),
+        nuevo,
+        seguimiento ? null : llegada,
+        datos,
+        continuarDe,
+      );
     };
-    datosDelTurno.set(nuevo, datos);
-    void correrElTurno(pedido, laLlamada(pedido), nuevo, llegada, datos, continuarDe);
-  };
 
   const existente = registro.obtener(clave);
   const datos = existente ? datosDelTurno.get(existente) : undefined;
@@ -374,16 +400,52 @@ export function pedirTurnoDeVoz(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso {
     return nuevo;
   }
 
+  if (
+    existente &&
+    datos &&
+    comparable(pedido.texto).length > comparable(datos.texto).length &&
+    registro.todos(clave).length <= MAXIMO_DE_SEGUIMIENTOS
+  ) {
+    const falta = loQueFalta(datos.texto, pedido.texto);
+    const nuevo = registro.agregar(clave, arrancar(undefined, { ...pedido, texto: falta }, true));
+    logger.info(
+      {
+        organizationId: pedido.acceso.organizationId,
+        agentId: pedido.acceso.agentId,
+        numeroDeTurno: pedido.numeroDeTurno,
+        turnoDeSeguimiento: true,
+        soloLoQueFalta: falta !== pedido.texto.trim(),
+      },
+      "Otro pedido del mismo turno de voz con la frase más larga, después de que el turno ya hizo algo: va en un turno de seguimiento",
+    );
+    return nuevo;
+  }
+
   const turno = registro.obtenerOArrancar(clave, arrancar());
   avisarSiCambioElTexto(pedido, turno);
   return turno;
 }
 
+// Turnos de seguimiento por número de turno: una cadena de reenvíos no termina
+// en un bucle de turnos.
+export const MAXIMO_DE_SEGUIMIENTOS = 2;
+
 // El turno que sigue una continuación (la plataforma dejó de esperar y vuelve a
 // pedir con lo ya dicho). Nunca arranca uno: correrlo de nuevo repetiría las
 // herramientas. null si ya no está (pasó mucho o el proceso se reinició).
+//
+// Con un turno de seguimiento hay más de uno: la continuación va con el turno
+// cuya frase es la suya, y si no coincide ninguno, con el vigente. Así una
+// continuación atrasada del primero no se mezcla con el de seguimiento.
 export function turnoQueSigue(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso | null {
-  const turno = registro.obtener(claveDelTurno(pedido));
+  const clave = claveDelTurno(pedido);
+  const suyo = [...registro.todos(clave)]
+    .reverse()
+    .find((t) => comparable(datosDelTurno.get(t)?.texto ?? "") === comparable(pedido.texto));
+  if (suyo) {
+    return suyo;
+  }
+  const turno = registro.obtener(clave);
   if (turno) {
     avisarSiCambioElTexto(pedido, turno);
   }
@@ -394,8 +456,9 @@ export function turnoQueSigue(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso | null {
 // texto: la plataforma puede mandar dos pedidos del mismo turno con textos
 // distintos (por ejemplo, uno durante una pausa del cliente con la frase a
 // medias y otro con la frase completa), y correr los dos podía repetir una
-// reserva. Nunca corren dos: o el nuevo reemplaza al que no hizo nada
-// (pedirTurnoDeVoz), o se engancha y escucha la misma respuesta.
+// reserva. Nunca corren dos con la misma frase: el nuevo reemplaza al que no
+// hizo nada, va en un turno de seguimiento con lo que falta, o se engancha y
+// escucha la misma respuesta (pedirTurnoDeVoz).
 export function claveDelTurno(pedido: PedidoDeTurnoDeVoz): string {
   return `${pedido.acceso.organizationId}:${pedido.callId}:${pedido.numeroDeTurno}`;
 }

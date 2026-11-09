@@ -31,7 +31,7 @@ import {
 import { crearSalidaPorOraciones, finDelProximoTramo, restoDespuesDe } from "./salidaPorOraciones";
 import { chunkDeCierre, chunkDeTexto } from "./sse";
 import { claveDelTurno, digitosDelLlamante, FRASE_DE_PROBLEMA } from "./turnoDeVoz.service";
-import { crearRegistroDeTurnos, TurnoEnCurso } from "./turnosEnCurso";
+import { crearRegistroDeTurnos, loQueFalta, TurnoEnCurso } from "./turnosEnCurso";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const AGENTE = "22222222-2222-4222-8222-222222222222";
@@ -377,6 +377,41 @@ test("el registro reemplaza el turno de una clave", () => {
   assert.notEqual(primero, segundo);
   assert.equal(arrancados, 1);
   assert.equal(registro.obtener("clave"), segundo);
+  // Reemplazar no suma: el cancelado sale de la lista.
+  assert.deepEqual(registro.todos("clave"), [segundo]);
+});
+
+test("un turno de seguimiento se suma después del vigente, que sigue en la lista", () => {
+  const registro = crearRegistroDeTurnos();
+  const primero = registro.obtenerOArrancar("clave", () => undefined);
+  const seguimiento = registro.agregar("clave", () => undefined);
+  assert.equal(registro.obtener("clave"), seguimiento);
+  assert.deepEqual(registro.todos("clave"), [primero, seguimiento]);
+  assert.deepEqual(registro.todos("otra"), []);
+});
+
+test("lo que falta: solo lo que agrega la frase más larga, aunque cambien signos y mayúsculas", () => {
+  assert.equal(loQueFalta("Te paso mi teléfono", "Te paso mi teléfono: 096468788"), "096468788");
+  assert.equal(
+    loQueFalta("te paso mi telefono", "Te paso mi teléfono, 096 468 788."),
+    "096 468 788.",
+  );
+  assert.equal(
+    loQueFalta("Quiero probarlo el martes", "Quiero probarlo el martes de tarde"),
+    "de tarde",
+  );
+  // Si no empieza igual (el reconocimiento cambió una palabra), la frase entera.
+  assert.equal(
+    loQueFalta("Quiero probarlo el martes", "Quisiera probarlo el martes de tarde"),
+    "Quisiera probarlo el martes de tarde",
+  );
+  // Si no agrega nada, la frase entera.
+  assert.equal(loQueFalta("Hola", "Hola."), "Hola.");
+});
+
+test("por teléfono, un saludo se contesta con un saludo, sin herramientas", () => {
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /Si el cliente solo saluda/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /sin herramientas y sin ofrecer el stock todavía/);
 });
 
 test("quien llega tarde escucha lo dicho y lo que sigue", () => {

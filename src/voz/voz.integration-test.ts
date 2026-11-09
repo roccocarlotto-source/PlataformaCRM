@@ -463,45 +463,44 @@ test("una continuación se engancha al turno y dice solo lo que falta, sin repet
   assert.equal(conversacion.messages.filter((m) => m.direction === "INBOUND").length, 1);
 });
 
-test("dos pedidos del mismo turno con textos distintos corren una vez: si el turno ya dijo algo, gana el primero", async () => {
+test("si el turno ya dijo algo, la frase más larga va en un turno de seguimiento con lo que falta", async () => {
   const llamada = randomUUID();
   const llamante = telefonoNuevo();
   let soltar: () => void = () => undefined;
   const espera = new Promise<void>((resolve) => {
     soltar = resolve;
   });
-  modelo = async (_request, opciones) => {
+  modelo = async (request, opciones) => {
+    if (JSON.stringify(request.messages.at(-1)).includes("de tarde")) {
+      opciones?.alEscribir?.("Perfecto, a la tarde. ¿A qué hora te queda bien?");
+      return { text: "Perfecto, a la tarde. ¿A qué hora te queda bien?", toolCalls: [] };
+    }
     opciones?.alEscribir?.("El martes hay lugar. ");
     await espera;
     opciones?.alEscribir?.("¿A qué hora?");
     return { text: "El martes hay lugar. ¿A qué hora?", toolCalls: [] };
   };
-  const hasta = (dicho: string) => [
-    { role: "system", content: "El prompt de la plataforma, que no se usa." },
-    { role: "assistant", content: AVISO },
-    { role: "user", content: dicho },
-  ];
 
-  // Uno durante una pausa, con la frase a medias, y otro casi enseguida con la
-  // frase completa: el mismo turno (la misma cantidad de mensajes del cliente).
-  // Se espera a que el primero abra el stream para que llegue primero: el turno
-  // ya arrancó cuando el stream se abre.
-  const aMedias = await pedir({ llamada, llamante, messages: hasta("Quiero probarlo el martes") });
+  const aMedias = await pedir({
+    llamada,
+    llamante,
+    messages: hastaElTurno("Quiero probarlo el martes"),
+  });
   // Hasta que el turno ya dijo algo real: desde ahí no se reemplaza.
   await hastaQue(() => pedidos.length === 1);
   await new Promise((r) => setTimeout(r, 50));
   const completa = pedir({
     llamada,
     llamante,
-    messages: hasta("Quiero probarlo el martes de tarde"),
+    messages: hastaElTurno("Quiero probarlo el martes de tarde"),
   });
   await new Promise((r) => setTimeout(r, 200));
-  // La continuación trae la frase completa: se engancha al mismo turno.
+  // Una continuación atrasada del primero va con el primero, no con el nuevo.
   const continuacion = pedir({
     llamada,
     llamante,
     messages: [
-      ...hasta("Quiero probarlo el martes de tarde"),
+      ...hastaElTurno("Quiero probarlo el martes"),
       { role: "assistant", content: "El martes hay lugar." },
     ],
   });
@@ -513,17 +512,83 @@ test("dos pedidos del mismo turno con textos distintos corren una vez: si el tur
     continuacion.then(leerStream),
   ]);
 
-  assert.equal(pedidos.length, 1);
+  assert.equal(pedidos.length, 2);
   assert.deepEqual(uno.textos, ["El martes hay lugar. ", "¿A qué hora?"]);
-  assert.deepEqual(dos.textos, ["El martes hay lugar. ", "¿A qué hora?"]);
+  assert.deepEqual(dos.textos, ["Perfecto, a la tarde. ", "¿A qué hora te queda bien?"]);
   assert.deepEqual(tres.textos, ["¿A qué hora?"]);
   assert.equal(tres.cerro, true);
-  const conversacion = await conversacionDe(llamada, 3);
-  const entrantes = conversacion.messages.filter((m) => m.direction === "INBOUND");
+  // Al modelo le llega solo lo que falta, después de lo que ya se dijo.
+  const ultimo = JSON.stringify(pedidos[1].request.messages.at(-1));
+  assert.equal(ultimo.includes("de tarde"), true);
+  assert.equal(ultimo.includes("Quiero probarlo"), false);
+  const conversacion = await conversacionDe(llamada, 5);
   assert.deepEqual(
-    entrantes.map((m) => m.content),
-    ["Quiero probarlo el martes"],
+    conversacion.messages.map((m) => m.content),
+    [
+      AVISO,
+      "Quiero probarlo el martes",
+      "El martes hay lugar. ¿A qué hora?",
+      "de tarde",
+      "Perfecto, a la tarde. ¿A qué hora te queda bien?",
+    ],
   );
+});
+
+test("si el turno ya terminó, el número que llegó después se confirma en un turno de seguimiento, con tope", async () => {
+  const llamada = randomUUID();
+  const llamante = telefonoNuevo();
+  modelo = (request, opciones) => {
+    const ultimo = JSON.stringify(request.messages.at(-1));
+    const texto = ultimo.includes("096468788")
+      ? "Tu teléfono es 096 468 788. ¿Es correcto?"
+      : "Dale, decime el número.";
+    opciones?.alEscribir?.(texto);
+    return Promise.resolve({ text: texto, toolCalls: [] });
+  };
+
+  const primero = await leerStream(
+    await pedir({ llamada, llamante, messages: hastaElTurno("Te paso mi teléfono") }),
+  );
+  assert.deepEqual(primero.textos, ["Dale, decime el número."]);
+  await conversacionDe(llamada, 3);
+
+  const conElNumero = await leerStream(
+    await pedir({ llamada, llamante, messages: hastaElTurno("Te paso mi teléfono: 096468788") }),
+  );
+  assert.deepEqual(conElNumero.textos, [
+    "Tu teléfono es cero noventa y seis, cuatro seis ocho, siete ocho ocho. ",
+    "¿Es correcto?",
+  ]);
+  assert.equal(pedidos.length, 2);
+  const conversacion = await conversacionDe(llamada, 5);
+  assert.deepEqual(
+    conversacion.messages.filter((m) => m.direction === "INBOUND").map((m) => m.content),
+    ["Te paso mi teléfono", "096468788"],
+  );
+
+  // Un reintento de la misma frase se engancha: no corre otro turno.
+  await leerStream(
+    await pedir({ llamada, llamante, messages: hastaElTurno("Te paso mi teléfono: 096468788") }),
+  );
+  assert.equal(pedidos.length, 2);
+
+  // Como mucho dos turnos de seguimiento por número de turno.
+  await leerStream(
+    await pedir({
+      llamada,
+      llamante,
+      messages: hastaElTurno("Te paso mi teléfono: 096468788, gracias"),
+    }),
+  );
+  assert.equal(pedidos.length, 3);
+  await leerStream(
+    await pedir({
+      llamada,
+      llamante,
+      messages: hastaElTurno("Te paso mi teléfono: 096468788, gracias che"),
+    }),
+  );
+  assert.equal(pedidos.length, 3);
 });
 
 async function hastaQue(condicion: () => boolean): Promise<void> {
@@ -590,7 +655,7 @@ test("la frase más larga reemplaza al turno que no hizo nada, y el cancelado no
   assert.equal(await prisma.llmTurnUsage.count({ where: { conversationId: conversacion.id } }), 1);
 });
 
-test("si el turno ya corrió una herramienta, la frase más larga se engancha y no lo cancela", async () => {
+test("si el turno ya corrió una herramienta, no se cancela: la frase más larga va en un turno de seguimiento", async () => {
   const llamada = randomUUID();
   const llamante = telefonoNuevo();
   let soltar: () => void = () => undefined;
@@ -622,13 +687,14 @@ test("si el turno ya corrió una herramienta, la frase más larga se engancha y 
   soltar();
   const [uno, dos] = await Promise.all([leerStream(aMedias), leerStream(completa)]);
 
+  // El primero terminó con su herramienta; el de seguimiento corrió después.
   assert.deepEqual(uno.textos, ["Te paso los datos por mensaje."]);
   assert.deepEqual(dos.textos, ["Te paso los datos por mensaje."]);
-  assert.equal(pedidos.length, 2);
-  const conversacion = await conversacionDe(llamada, 3);
+  assert.equal(pedidos.length, 3);
+  const conversacion = await conversacionDe(llamada, 5);
   assert.deepEqual(
     conversacion.messages.filter((m) => m.direction === "INBOUND").map((m) => m.content),
-    ["¿Cómo pago"],
+    ["¿Cómo pago", "la seña del auto?"],
   );
 });
 

@@ -32,11 +32,12 @@ interface Suscripcion {
 }
 
 // Para comparar lo dicho con lo que la plataforma dice que se dijo: solo letras
-// y números, sin mayúsculas, espacios ni signos (la plataforma junta los
-// pedazos a su manera).
+// y números, sin mayúsculas, acentos, espacios ni signos (la plataforma junta
+// los pedazos a su manera, y el reconocimiento de voz pone o saca acentos).
 export function comparable(texto: string): string {
   return texto
-    .normalize("NFC")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
@@ -124,42 +125,95 @@ export class TurnoEnCurso {
 
 export const VIDA_DE_UN_TURNO_TERMINADO_MS = 2 * 60 * 1000;
 
+// Los turnos de una clave (un número de turno de una llamada), en orden: el
+// último es el vigente. Hay más de uno cuando llegó la frase más larga después
+// de que el primero ya había hecho algo (un turno de seguimiento,
+// turnoDeVoz.service.ts).
 export function crearRegistroDeTurnos(vidaMs = VIDA_DE_UN_TURNO_TERMINADO_MS) {
-  const turnos = new Map<string, TurnoEnCurso>();
+  const turnos = new Map<string, TurnoEnCurso[]>();
 
   function limpiar(): void {
     const ahora = Date.now();
-    for (const [clave, turno] of turnos) {
-      if (turno.momentoDeFin !== null && ahora - turno.momentoDeFin >= vidaMs) {
+    for (const [clave, lista] of turnos) {
+      const fin = lista.at(-1)?.momentoDeFin ?? null;
+      if (fin !== null && ahora - fin >= vidaMs) {
         turnos.delete(clave);
       }
     }
+  }
+
+  function nuevo(arrancar: (turno: TurnoEnCurso) => void, lista: TurnoEnCurso[]): TurnoEnCurso {
+    const turno = new TurnoEnCurso();
+    lista.push(turno);
+    arrancar(turno);
+    return turno;
   }
 
   return {
     // `arrancar` corre solo si no había un turno con esa clave.
     obtenerOArrancar(clave: string, arrancar: (turno: TurnoEnCurso) => void): TurnoEnCurso {
       limpiar();
-      const existente = turnos.get(clave);
+      const existente = turnos.get(clave)?.at(-1);
       if (existente) {
         return existente;
       }
-      const turno = new TurnoEnCurso();
-      turnos.set(clave, turno);
-      arrancar(turno);
-      return turno;
+      const lista: TurnoEnCurso[] = [];
+      turnos.set(clave, lista);
+      return nuevo(arrancar, lista);
     },
-    // Arranca otro turno con esa clave en lugar del que había (que se canceló).
+    // Arranca otro turno con esa clave en lugar del vigente (que se canceló).
     reemplazar(clave: string, arrancar: (turno: TurnoEnCurso) => void): TurnoEnCurso {
-      const turno = new TurnoEnCurso();
-      turnos.set(clave, turno);
-      arrancar(turno);
-      return turno;
+      const lista = turnos.get(clave) ?? [];
+      lista.pop();
+      turnos.set(clave, lista);
+      return nuevo(arrancar, lista);
     },
-    // El turno con esa clave, sin arrancar ninguno: para una continuación.
+    // Arranca otro turno con esa clave después del vigente, que sigue el suyo.
+    agregar(clave: string, arrancar: (turno: TurnoEnCurso) => void): TurnoEnCurso {
+      const lista = turnos.get(clave) ?? [];
+      turnos.set(clave, lista);
+      return nuevo(arrancar, lista);
+    },
+    // El turno vigente de esa clave, sin arrancar ninguno: para una continuación.
     obtener(clave: string): TurnoEnCurso | null {
       limpiar();
-      return turnos.get(clave) ?? null;
+      return turnos.get(clave)?.at(-1) ?? null;
+    },
+    // Todos los turnos de esa clave, del primero al vigente.
+    todos(clave: string): readonly TurnoEnCurso[] {
+      limpiar();
+      return turnos.get(clave) ?? [];
     },
   };
+}
+
+// Lo que `completo` agrega a `dicho`, si empieza igual (comparando solo letras
+// y números: el reconocimiento de voz cambia signos y mayúsculas entre un
+// pedido y otro). Si no empieza igual o no agrega nada, `completo` entero.
+// "Te paso mi teléfono" + "Te paso mi teléfono: 096468788" → "096468788".
+export function loQueFalta(dicho: string, completo: string): string {
+  const buscado = comparable(dicho);
+  let i = 0;
+  let corte = -1;
+  for (let j = 0; j < completo.length && i < buscado.length; j++) {
+    const caracter = comparable(completo[j]);
+    if (caracter.length === 0) {
+      continue;
+    }
+    if (!buscado.startsWith(caracter, i)) {
+      return completo.trim();
+    }
+    i += caracter.length;
+    if (i === buscado.length) {
+      corte = j + 1;
+    }
+  }
+  if (corte === -1) {
+    return completo.trim();
+  }
+  const resto = completo
+    .slice(corte)
+    .replace(/^[\s\p{P}]+/u, "")
+    .trim();
+  return resto.length > 0 ? resto : completo.trim();
 }
