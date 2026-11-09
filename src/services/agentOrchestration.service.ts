@@ -51,7 +51,7 @@ import { findOldestActiveAdmin } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
 import { describirValor, type DefinicionDeCampo } from "../utils/camposPersonalizados";
 import { formatearParaElCanal } from "../utils/formatoPorCanal";
-import { INSTRUCCION_CANAL_DE_VOZ } from "../voz/instrucciones";
+import { conNotaDeVoz, INSTRUCCION_CANAL_DE_VOZ } from "../voz/instrucciones";
 import { definicionesParaValidar } from "./contactCustomFieldDefinition.service";
 import { DateTime } from "luxon";
 import {
@@ -2899,7 +2899,9 @@ async function responderSinMedir(
       .filter(
         (tool) => conversation.channel !== "VOICE" || !TOOLS_FUERA_DE_VOZ.has(tool.definition.name),
       )
-      .map((tool) => reglas.toolsPropias[tool.definition.name] ?? tool),
+      .map((tool) => reglas.toolsPropias[tool.definition.name] ?? tool)
+      // Por teléfono, las que guardan datos del contacto piden confirmarlos antes.
+      .map((tool) => (conversation.channel === "VOICE" ? conNotaDeVoz(tool) : tool)),
     reglas.camposFueraDeLasTools,
   );
   // Las tools del sistema del rubro (en una clínica, mandar una indicación tal

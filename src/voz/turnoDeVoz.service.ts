@@ -20,7 +20,7 @@ import { AppError } from "../utils/AppError";
 import { formatearParaElCanal } from "../utils/formatoPorCanal";
 import { LLAMADA_CONTACT_FIRST_NAME, LLAMADA_CONTACT_SOURCE } from "../utils/nombreProvisorio";
 import type { AccesoDeVoz } from "./accesos";
-import { crearEsperaDeVoz, type EsperaDeVoz } from "./esperaDeVoz";
+import { crearEsperaDeVoz, type EsperaDeVoz, type EstadoDeLaEspera } from "./esperaDeVoz";
 import { crearSalidaPorOraciones } from "./salidaPorOraciones";
 import { comparable, crearRegistroDeTurnos, type TurnoEnCurso } from "./turnosEnCurso";
 
@@ -209,14 +209,16 @@ async function correrElTurno(
   turno: TurnoEnCurso,
   llegada: Date,
   datos: DatosDelTurno,
-  // Las frases que ya dijo el turno que este reemplaza: no se repiten.
-  yaDichas: readonly string[] = [],
+  // Dónde quedaron las frases de espera del turno que este reemplaza: se
+  // sigue su reloj y su cuenta, y lo que dijo no se repite.
+  continuarDe?: EstadoDeLaEspera,
 ): Promise<void> {
   const { organizationId, agentId } = pedido.acceso;
   const { cancelacion } = datos;
   const espera = crearEsperaDeVoz({
     decir: (frase) => turno.decir(frase, true),
-    delTurnoAnterior: new Set([...llamada.frasesDelTurnoAnterior, ...yaDichas]),
+    delTurnoAnterior: llamada.frasesDelTurnoAnterior,
+    continuarDe,
   });
   datos.espera = espera;
   const salida = crearSalidaPorOraciones({
@@ -239,7 +241,11 @@ async function correrElTurno(
   const voz: SalidaDeVoz = {
     entrante: { id: `voz-${pedido.numeroDeTurno}`, direction: "INBOUND", content: pedido.texto },
     empezarRonda: (revisar) => salida.empezarRonda(revisar),
-    alEscribir: (fragmento) => salida.agregar(fragmento),
+    alEscribir: (fragmento) => {
+      // El modelo ya está escribiendo: no es momento de una frase de espera.
+      espera.escribiendo();
+      salida.agregar(fragmento);
+    },
     empezoHerramienta: (nombre) => espera.empezoHerramienta(nombre),
     terminoHerramienta: () => espera.terminoHerramienta(),
     cerrar,
@@ -332,17 +338,15 @@ async function correrElTurno(
 export function pedirTurnoDeVoz(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso {
   const llegada = new Date();
   const clave = claveDelTurno(pedido);
-  const arrancar =
-    (yaDichas: readonly string[] = []) =>
-    (nuevo: TurnoEnCurso) => {
-      const datos: DatosDelTurno = {
-        texto: pedido.texto,
-        cancelacion: new CancelacionDelTurno(),
-        espera: null,
-      };
-      datosDelTurno.set(nuevo, datos);
-      void correrElTurno(pedido, laLlamada(pedido), nuevo, llegada, datos, yaDichas);
+  const arrancar = (continuarDe?: EstadoDeLaEspera) => (nuevo: TurnoEnCurso) => {
+    const datos: DatosDelTurno = {
+      texto: pedido.texto,
+      cancelacion: new CancelacionDelTurno(),
+      espera: null,
     };
+    datosDelTurno.set(nuevo, datos);
+    void correrElTurno(pedido, laLlamada(pedido), nuevo, llegada, datos, continuarDe);
+  };
 
   const existente = registro.obtener(clave);
   const datos = existente ? datosDelTurno.get(existente) : undefined;
@@ -354,7 +358,9 @@ export function pedirTurnoDeVoz(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso {
     comparable(pedido.texto).length > comparable(datos.texto).length &&
     datos.cancelacion.intentarCancelar()
   ) {
-    const nuevo = registro.reemplazar(clave, arrancar(datos.espera?.dichas() ?? []));
+    // El cancelado no dice más frases: sigue el nuevo, desde donde quedó.
+    datos.espera?.parar();
+    const nuevo = registro.reemplazar(clave, arrancar(datos.espera?.estado()));
     existente.pasarOyentesA(nuevo);
     logger.info(
       {
