@@ -15,13 +15,14 @@ import {
 } from "../services/agentOrchestration.service";
 import { resolverContactoPorTelefono } from "../services/whatsappContact.service";
 import { resolveWidgetContact } from "../services/widgetContact.service";
+import { CancelacionDelTurno, TurnoCancelado } from "../services/cancelacionDelTurno";
 import { AppError } from "../utils/AppError";
 import { formatearParaElCanal } from "../utils/formatoPorCanal";
 import { LLAMADA_CONTACT_FIRST_NAME, LLAMADA_CONTACT_SOURCE } from "../utils/nombreProvisorio";
 import type { AccesoDeVoz } from "./accesos";
-import { crearEsperaDeVoz } from "./esperaDeVoz";
+import { crearEsperaDeVoz, type EsperaDeVoz } from "./esperaDeVoz";
 import { crearSalidaPorOraciones } from "./salidaPorOraciones";
-import { crearRegistroDeTurnos, type TurnoEnCurso } from "./turnosEnCurso";
+import { comparable, crearRegistroDeTurnos, type TurnoEnCurso } from "./turnosEnCurso";
 
 // ---------------------------------------------------------------------------
 // UN TURNO DE UNA LLAMADA. Es el turno de siempre (responderEnLaConversacion:
@@ -66,16 +67,23 @@ export interface PedidoDeTurnoDeVoz {
 interface Llamada {
   // Las frases de espera del último turno: el siguiente no las repite.
   frasesDelTurnoAnterior: ReadonlySet<string>;
-  datos: { contactId: string; branchId: string } | null;
+  // Una promesa: dos turnos a la vez (uno que reemplaza a otro) esperan la
+  // misma, y el contacto de la llamada se busca o se crea una sola vez.
+  datos: Promise<{ contactId: string; branchId: string }> | null;
   avisoGuardado: boolean;
   ultimaVez: number;
 }
 
 const llamadas = new Map<string, Llamada>();
 const registro = crearRegistroDeTurnos();
-// Lo que dijo el cliente en cada turno, para avisar cuando otro pedido del
-// mismo turno trae un texto distinto.
-const textoDelTurno = new WeakMap<TurnoEnCurso, string>();
+// Lo que dijo el cliente en cada turno, cómo cancelarlo y sus frases de espera:
+// para reemplazarlo si llega otro pedido del mismo turno con la frase más larga.
+interface DatosDelTurno {
+  texto: string;
+  cancelacion: CancelacionDelTurno;
+  espera: EsperaDeVoz | null;
+}
+const datosDelTurno = new WeakMap<TurnoEnCurso, DatosDelTurno>();
 
 function laLlamada(pedido: PedidoDeTurnoDeVoz): Llamada {
   const ahora = Date.now();
@@ -106,13 +114,17 @@ export function digitosDelLlamante(valor: string | null): string | null {
   return normalizado === null ? null : soloDigitos(normalizado);
 }
 
-async function resolverLaLlamada(
+function resolverLaLlamada(
   pedido: PedidoDeTurnoDeVoz,
   llamada: Llamada,
 ): Promise<{ contactId: string; branchId: string }> {
-  if (llamada.datos) {
-    return llamada.datos;
-  }
+  llamada.datos ??= buscarLaLlamada(pedido);
+  return llamada.datos;
+}
+
+async function buscarLaLlamada(
+  pedido: PedidoDeTurnoDeVoz,
+): Promise<{ contactId: string; branchId: string }> {
   const { organizationId, agentId } = pedido.acceso;
   const agente = await findAgentById(agentId, organizationId);
   if (!agente) {
@@ -137,8 +149,7 @@ async function resolverLaLlamada(
           agentId,
           LLAMADA_CONTACT_SOURCE,
         );
-  llamada.datos = { contactId, branchId: agente.branchId };
-  return llamada.datos;
+  return { contactId, branchId: agente.branchId };
 }
 
 // Se guarda al final, con la hora de llegada: así queda antes de la respuesta
@@ -197,12 +208,17 @@ async function correrElTurno(
   llamada: Llamada,
   turno: TurnoEnCurso,
   llegada: Date,
+  datos: DatosDelTurno,
+  // Las frases que ya dijo el turno que este reemplaza: no se repiten.
+  yaDichas: readonly string[] = [],
 ): Promise<void> {
   const { organizationId, agentId } = pedido.acceso;
+  const { cancelacion } = datos;
   const espera = crearEsperaDeVoz({
     decir: (frase) => turno.decir(frase, true),
-    delTurnoAnterior: llamada.frasesDelTurnoAnterior,
+    delTurnoAnterior: new Set([...llamada.frasesDelTurnoAnterior, ...yaDichas]),
   });
+  datos.espera = espera;
   const salida = crearSalidaPorOraciones({
     decir: (texto) => {
       espera.huboTexto();
@@ -227,13 +243,18 @@ async function correrElTurno(
     empezoHerramienta: (nombre) => espera.empezoHerramienta(nombre),
     terminoHerramienta: () => espera.terminoHerramienta(),
     cerrar,
+    cancelacion,
   };
 
   try {
     const { contactId, branchId } = await resolverLaLlamada(pedido, llamada);
+    // Cancelado antes del lock: ni lo pide.
+    cancelacion.comprobar();
     await conLockDeConversacion(
       { agentId, contactId, channel: "VOICE", organizationId },
       async () => {
+        // Si se canceló mientras esperaba el lock, ni siquiera arranca.
+        cancelacion.comprobar();
         const [{ agent, contact }, conversation] = await Promise.all([
           cargarAgenteYContacto(organizationId, agentId, contactId, "VOICE"),
           findOrCreateOpenConversation({
@@ -255,7 +276,13 @@ async function correrElTurno(
           salienteId = turnoDelAgente.salienteId;
           respuesta = turnoDelAgente.resultado.respuesta;
         } finally {
-          await guardarLoDelCliente(pedido, llamada, conversation, llegada, salienteId);
+          // Un turno cancelado no deja rastro: ni lo que dijo el cliente. Si
+          // sigue (también después de un error), desde acá ya no se cancela:
+          // si no, otro pedido podía cancelarlo mientras guarda y el mismo
+          // turno quedaba guardado dos veces.
+          if (cancelacion.seguirSinVuelta()) {
+            await guardarLoDelCliente(pedido, llamada, conversation, llegada, salienteId);
+          }
         }
         // Las salidas tempranas del turno (una regla, el nivel de IA, una
         // persona atendiendo) no pasan por el cierre del texto.
@@ -265,6 +292,15 @@ async function correrElTurno(
       },
     );
   } catch (err) {
+    // También un cancelado que, antes de enterarse, chocó con otro error.
+    if (err instanceof TurnoCancelado || cancelacion.fueCancelado) {
+      // Lo reemplazó otro pedido del mismo turno, que ya tiene a los oyentes.
+      logger.info(
+        { organizationId, agentId, numeroDeTurno: pedido.numeroDeTurno },
+        "Turno de voz cancelado sin dejar rastro: lo reemplazó el pedido con la frase más larga",
+      );
+      return;
+    }
     llamada.datos = null;
     logger.error(
       { err, organizationId, agentId, callId: pedido.callId },
@@ -275,19 +311,64 @@ async function correrElTurno(
     }
   } finally {
     espera.parar();
-    llamada.frasesDelTurnoAnterior = new Set(espera.dichas());
+    if (!cancelacion.fueCancelado) {
+      llamada.frasesDelTurnoAnterior = new Set(espera.dichas());
+    }
     turno.terminar();
   }
 }
 
 // Arranca el turno, o devuelve el que ya corre si es un reintento. El turno no
 // depende de quién escuche: si la plataforma corta, sigue hasta terminar.
+//
+// GANA LA FRASE MÁS LARGA MIENTRAS EL TURNO NO HIZO NADA. Si el cliente siguió
+// hablando después de una pausa, la plataforma manda otro pedido del mismo
+// turno con la frase más larga. Si el turno que corre todavía no dijo nada
+// real ni pasó un punto sin vuelta (guardar algo, correr una herramienta), se
+// cancela sin dejar rastro y arranca otro con la frase nueva, que se queda con
+// los que escuchaban. Si ya hizo algo, el pedido se engancha al que corre.
+// Solo con una frase más larga: un reintento atrasado de la frase corta no
+// reemplaza a la larga.
 export function pedirTurnoDeVoz(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso {
   const llegada = new Date();
-  const turno = registro.obtenerOArrancar(claveDelTurno(pedido), (nuevo) => {
-    textoDelTurno.set(nuevo, pedido.texto);
-    void correrElTurno(pedido, laLlamada(pedido), nuevo, llegada);
-  });
+  const clave = claveDelTurno(pedido);
+  const arrancar =
+    (yaDichas: readonly string[] = []) =>
+    (nuevo: TurnoEnCurso) => {
+      const datos: DatosDelTurno = {
+        texto: pedido.texto,
+        cancelacion: new CancelacionDelTurno(),
+        espera: null,
+      };
+      datosDelTurno.set(nuevo, datos);
+      void correrElTurno(pedido, laLlamada(pedido), nuevo, llegada, datos, yaDichas);
+    };
+
+  const existente = registro.obtener(clave);
+  const datos = existente ? datosDelTurno.get(existente) : undefined;
+  if (
+    existente &&
+    datos &&
+    existente.momentoDeFin === null &&
+    !existente.dijoAlgo &&
+    comparable(pedido.texto).length > comparable(datos.texto).length &&
+    datos.cancelacion.intentarCancelar()
+  ) {
+    const nuevo = registro.reemplazar(clave, arrancar(datos.espera?.dichas() ?? []));
+    existente.pasarOyentesA(nuevo);
+    logger.info(
+      {
+        organizationId: pedido.acceso.organizationId,
+        agentId: pedido.acceso.agentId,
+        numeroDeTurno: pedido.numeroDeTurno,
+        turnoReemplazado: true,
+      },
+      "Otro pedido del mismo turno de voz con la frase más larga: reemplaza al que no había hecho nada",
+    );
+    return nuevo;
+  }
+
+  const turno = registro.obtenerOArrancar(clave, arrancar());
   avisarSiCambioElTexto(pedido, turno);
   return turno;
 }
@@ -307,14 +388,15 @@ export function turnoQueSigue(pedido: PedidoDeTurnoDeVoz): TurnoEnCurso | null {
 // texto: la plataforma puede mandar dos pedidos del mismo turno con textos
 // distintos (por ejemplo, uno durante una pausa del cliente con la frase a
 // medias y otro con la frase completa), y correr los dos podía repetir una
-// reserva. Gana el primero; el otro se engancha y escucha la misma respuesta.
+// reserva. Nunca corren dos: o el nuevo reemplaza al que no hizo nada
+// (pedirTurnoDeVoz), o se engancha y escucha la misma respuesta.
 export function claveDelTurno(pedido: PedidoDeTurnoDeVoz): string {
   return `${pedido.acceso.organizationId}:${pedido.callId}:${pedido.numeroDeTurno}`;
 }
 
 // Sin el texto en el log: solo la marca, para medir cuántas veces pasa.
 function avisarSiCambioElTexto(pedido: PedidoDeTurnoDeVoz, turno: TurnoEnCurso): void {
-  const original = textoDelTurno.get(turno);
+  const original = datosDelTurno.get(turno)?.texto;
   if (original === undefined || original === pedido.texto) {
     return;
   }

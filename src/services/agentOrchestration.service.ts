@@ -62,6 +62,7 @@ import {
 } from "../utils/fueraDeHorario";
 import { crearLimitadorDeTurnos, cupoDeTurnosPorDefecto } from "../utils/limitadorDeTurnos";
 import { medirHerramienta, medirModelo, medirTurno } from "../utils/medicionDelTurno";
+import { CancelacionDelTurno } from "./cancelacionDelTurno";
 import { conLeaseDelTurno, conLeaseVigente } from "./leaseDelTurno";
 import {
   CONSULTAS_QUE_NO_SON_INICIATIVA,
@@ -407,6 +408,17 @@ export interface SalidaDeVoz {
   // Recibe la respuesta ya revisada y devuelve lo que se dijo, que es lo que se
   // guarda. Puede incluir texto de rondas anteriores.
   cerrar(respuesta: string): string;
+  // Para cancelar el turno mientras no hizo nada (cancelacionDelTurno.ts).
+  cancelacion?: CancelacionDelTurno;
+}
+
+// La cancelación del turno, si la hay: solo una llamada. Cualquier otro canal
+// sigue exactamente como siempre, aunque alguien le pase una.
+export function cancelacionDelTurno(
+  options: OpcionesDeRespuesta,
+  canal: ConversationChannel,
+): CancelacionDelTurno | null {
+  return canal === "VOICE" ? (options.voz?.cancelacion ?? null) : null;
 }
 
 // Auditoría de una tool call del turno: lo que va a Message.toolCalls (§6) y
@@ -2628,6 +2640,10 @@ async function responderSinMedir(
   options: OpcionesDeRespuesta,
 ): Promise<RespuestaEnLaConversacion> {
   const { agent, contact, conversation, texto } = entrada;
+  // Solo voz. Cada salida que guarda algo, corre una herramienta o cierra la
+  // respuesta pasa antes por cancelacion?.sinVuelta(): si el turno se canceló,
+  // corta ahí sin dejar rastro.
+  const cancelacion = cancelacionDelTurno(options, conversation.channel);
   const organizationId = conversation.organizationId;
   const agentId = agent.id;
   // Desde cuándo cuenta "una persona escribió mientras el agente pensaba":
@@ -2752,6 +2768,7 @@ async function responderSinMedir(
     contextoDeLaRegla,
   );
   if (prioritaria) {
+    cancelacion?.sinVuelta();
     return responderConDecisionDelRubro({
       decision: prioritaria,
       capa: "entrada",
@@ -2763,12 +2780,14 @@ async function responderSinMedir(
   }
 
   if (hayHumano) {
+    cancelacion?.sinVuelta();
     return sinRespuesta;
   }
 
   // Después de una derivación por una regla que calla al agente, el agente
   // calla hasta que una persona devuelva la conversación.
   if (reglas.callaDespuesDeDerivar && (await calladoPorUnaReglaDelRubro(conversation))) {
+    cancelacion?.sinVuelta();
     return sinRespuesta;
   }
 
@@ -2797,6 +2816,7 @@ async function responderSinMedir(
           : 0,
     });
     if (!decision.atiende) {
+      cancelacion?.sinVuelta();
       if (!decision.deriva) return sinRespuesta;
       return derivarPorElNivel({
         motivo: decision.motivo,
@@ -2812,6 +2832,7 @@ async function responderSinMedir(
 
   const deEntrada = primeraDecisionDeEntrada(reglas.entrada, entrantesDelTurno, contextoDeLaRegla);
   if (deEntrada) {
+    cancelacion?.sinVuelta();
     return responderConDecisionDelRubro({
       decision: deEntrada,
       capa: "entrada",
@@ -2965,6 +2986,10 @@ async function responderSinMedir(
   // B-08: una sola señal para todas las llamadas al modelo del turno. Ver
   // PRESUPUESTO_DEL_TURNO_MS.
   const presupuesto = AbortSignal.timeout(options.presupuestoMs ?? PRESUPUESTO_DEL_TURNO_MS);
+  // Una cancelación también corta la llamada al modelo en curso.
+  const senalDelModelo = cancelacion
+    ? AbortSignal.any([presupuesto, cancelacion.senal])
+    : presupuesto;
   const auditoria: ToolCallDelTurno[] = [];
   // El cierre fijo se calcula al usarlo: depende de lo que el turno ya hizo.
   const cierreFijo = () => cierreFijoDelTurno(auditoria, fueraDeHorario);
@@ -3065,13 +3090,15 @@ async function responderSinMedir(
             messages: historial,
             tools: definiciones,
             model: agent.modelName,
-            signal: presupuesto,
+            signal: senalDelModelo,
           },
           opcionesDelModelo,
         ),
       );
       sumarUso(uso, resultado.usage);
     } catch (err) {
+      // Cancelado: no es una falla del proveedor ni se deriva.
+      cancelacion?.comprobar();
       if (!(err instanceof LlmProviderError)) {
         throw err;
       }
@@ -3165,6 +3192,8 @@ async function responderSinMedir(
       toolCalls: llamadas,
     });
 
+    // Correr una herramienta no tiene vuelta.
+    cancelacion?.sinVuelta();
     const entradasDeLaRonda: ToolCallDelTurno[] = [];
     for (const [indice, llamada] of llamadas.entries()) {
       // Pasado el tope de la ronda no se ejecuta, pero SÍ se le contesta: el
@@ -3266,6 +3295,9 @@ async function responderSinMedir(
     // se le manda al cliente. El tope de MAX_TOOL_ROUNDS_PER_TURN sigue siendo
     // la red de seguridad si nunca llega una ronda de solo texto.
   }
+
+  // Cerrar la respuesta (decirla y guardarla) tampoco.
+  cancelacion?.sinVuelta();
 
   // Paso 7 de §4, con la red de seguridad de la nota bajo §6: sin respuesta
   // final tras el tope de rondas, se deriva con el motivo fijo.
