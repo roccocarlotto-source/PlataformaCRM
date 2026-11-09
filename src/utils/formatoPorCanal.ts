@@ -1,4 +1,5 @@
 import type { ConversationChannel } from "@prisma/client";
+import { leerDatosEnVoz } from "./lecturaEnVoz";
 
 // ---------------------------------------------------------------------------
 // El texto del agente, en el formato que entiende cada canal.
@@ -72,7 +73,9 @@ export function formatearParaElCanal(texto: string, canal: ConversationChannel):
     case "MESSENGER":
     case "INSTAGRAM":
     case "WEB":
-    case "VOICE":
       return porTramos(texto, aTextoPlano);
+    // Por teléfono, además, los teléfonos y los mails como se dicen (lecturaEnVoz.ts).
+    case "VOICE":
+      return porTramos(texto, (tramo) => leerDatosEnVoz(aTextoPlano(tramo)));
   }
 }

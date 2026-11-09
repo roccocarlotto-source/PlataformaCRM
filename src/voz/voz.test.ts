@@ -20,9 +20,14 @@ import {
   FRASES_POR_HERRAMIENTA,
   MAXIMO_DE_FRASES_POR_TURNO,
   MOMENTOS_DE_LAS_FRASES_MS,
+  type EstadoDeLaEspera,
   SILENCIO_ANTES_DE_UNA_FRASE_MS,
 } from "./esperaDeVoz";
-import { INSTRUCCION_CANAL_DE_VOZ } from "./instrucciones";
+import {
+  conNotaDeVoz,
+  INSTRUCCION_CANAL_DE_VOZ,
+  NOTA_DE_VOZ_PARA_GUARDAR_DATOS,
+} from "./instrucciones";
 import { crearSalidaPorOraciones, finDelProximoTramo, restoDespuesDe } from "./salidaPorOraciones";
 import { chunkDeCierre, chunkDeTexto } from "./sse";
 import { claveDelTurno, digitosDelLlamante, FRASE_DE_PROBLEMA } from "./turnoDeVoz.service";
@@ -149,12 +154,20 @@ test("cerrar dos veces no vuelve a decir nada", () => {
 
 // --- frases de espera ------------------------------------------------------
 
-const [PRIMERA_MS, SEGUNDA_MS, TERCERA_MS] = MOMENTOS_DE_LAS_FRASES_MS;
+const [PRIMERA_MS, SEGUNDA_MS] = MOMENTOS_DE_LAS_FRASES_MS;
 
-function esperaDePrueba(delTurnoAnterior: ReadonlySet<string> = new Set()) {
-  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+function esperaDePrueba(
+  delTurnoAnterior: ReadonlySet<string> = new Set(),
+  continuarDe?: EstadoDeLaEspera,
+  conReloj = true,
+) {
+  if (conReloj) mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const dichas: string[] = [];
-  const espera = crearEsperaDeVoz({ decir: (f) => dichas.push(f), delTurnoAnterior });
+  const espera = crearEsperaDeVoz({
+    decir: (f) => dichas.push(f),
+    delTurnoAnterior,
+    continuarDe,
+  });
   return { dichas, espera };
 }
 
@@ -165,9 +178,9 @@ function hastaLaSegunda(): void {
   mock.timers.tick(SEGUNDA_MS - PRIMERA_MS);
 }
 
-test("sin texto: la primera frase a los 1,5 s, la segunda a los 5 s, la tercera a los 8 s y ninguna más", () => {
-  assert.deepEqual(MOMENTOS_DE_LAS_FRASES_MS, [1_500, 5_000, 8_000]);
-  assert.equal(MAXIMO_DE_FRASES_POR_TURNO, 3);
+test("sin texto: la primera frase a los 1,5 s, la segunda a los 5 s y ninguna más", () => {
+  assert.deepEqual(MOMENTOS_DE_LAS_FRASES_MS, [1_500, 5_000]);
+  assert.equal(MAXIMO_DE_FRASES_POR_TURNO, 2);
   const { dichas, espera } = esperaDePrueba();
   mock.timers.tick(PRIMERA_MS - 1);
   assert.deepEqual(dichas, []);
@@ -177,46 +190,58 @@ test("sin texto: la primera frase a los 1,5 s, la segunda a los 5 s, la tercera 
   assert.equal(dichas.length, 1);
   mock.timers.tick(1);
   assert.deepEqual(dichas, [FRASES_GENERICAS[0], FRASES_GENERICAS[1]]);
-  mock.timers.tick(TERCERA_MS - SEGUNDA_MS - 1);
+  for (let i = 0; i < 20; i++) mock.timers.tick(3_000);
   assert.equal(dichas.length, 2);
-  mock.timers.tick(1);
-  assert.deepEqual(dichas, FRASES_GENERICAS.slice(0, 3));
-  mock.timers.tick(60_000);
-  assert.equal(dichas.length, 3);
   assert.deepEqual(espera.dichas(), dichas);
   espera.parar();
 });
 
-test("la tercera frase no sale si el turno ya dijo algo real", () => {
+test("si el modelo ya está escribiendo, la frase no sale: el silencio cuenta desde lo último que escribió", () => {
   const { dichas, espera } = esperaDePrueba();
-  hastaLaSegunda();
-  assert.equal(dichas.length, 2);
   mock.timers.tick(1_000);
-  espera.huboTexto();
-  mock.timers.tick(60_000);
-  assert.equal(dichas.length, 2);
+  espera.escribiendo();
+  mock.timers.tick(PRIMERA_MS - 1_000);
+  assert.deepEqual(dichas, []);
+  // Mientras sigue escribiendo, nada.
+  mock.timers.tick(2_000);
+  espera.escribiendo();
+  mock.timers.tick(SILENCIO_ANTES_DE_UNA_FRASE_MS - 1);
+  assert.deepEqual(dichas, []);
+  // Si deja de escribir (por ejemplo, para correr una herramienta), recién ahí.
+  mock.timers.tick(1);
+  assert.deepEqual(dichas, [FRASES_GENERICAS[0]]);
   espera.parar();
 });
 
-test("la tercera frase tampoco repite: ni del turno ni del anterior, y sin libre se calla", () => {
-  // Con una herramienta corriendo: la suya, y después genéricas sin repetir.
+test("un turno que reemplaza a otro sigue su reloj y su cuenta: entre los dos, dos frases y sin repetir", () => {
+  const viejo = esperaDePrueba();
+  mock.timers.tick(PRIMERA_MS);
+  assert.deepEqual(viejo.dichas, [FRASES_GENERICAS[0]]);
+  mock.timers.tick(500);
+  viejo.espera.parar();
+  const nuevo = esperaDePrueba(new Set(), viejo.espera.estado(), false);
+  // No arranca de cero: la segunda sale a los 5 s del turno viejo.
+  mock.timers.tick(SEGUNDA_MS - PRIMERA_MS - 500 - 1);
+  assert.deepEqual(nuevo.dichas, []);
+  mock.timers.tick(1);
+  assert.deepEqual(nuevo.dichas, [FRASES_GENERICAS[1]]);
+  for (let i = 0; i < 20; i++) mock.timers.tick(3_000);
+  assert.deepEqual(nuevo.espera.dichas(), [FRASES_GENERICAS[0], FRASES_GENERICAS[1]]);
+  nuevo.espera.parar();
+});
+
+test("no repite ni las del turno ni las del anterior, y sin una libre se calla", () => {
+  // Con una herramienta corriendo: la suya, y después una genérica sin repetir.
   const uno = esperaDePrueba(new Set([FRASES_GENERICAS[0]]));
   uno.espera.empezoHerramienta("create_booking");
   hastaLaSegunda();
-  mock.timers.tick(TERCERA_MS - SEGUNDA_MS);
-  assert.deepEqual(uno.dichas, [
-    FRASES_POR_HERRAMIENTA.create_booking,
-    FRASES_GENERICAS[1],
-    FRASES_GENERICAS[2],
-  ]);
-  assert.equal(new Set(uno.dichas).size, 3);
+  assert.deepEqual(uno.dichas, [FRASES_POR_HERRAMIENTA.create_booking, FRASES_GENERICAS[1]]);
   uno.espera.parar();
   mock.timers.reset();
 
-  const dos = esperaDePrueba(new Set(FRASES_GENERICAS.slice(0, 2)));
+  const dos = esperaDePrueba(new Set(FRASES_GENERICAS.slice(0, 3)));
   hastaLaSegunda();
-  mock.timers.tick(TERCERA_MS - SEGUNDA_MS);
-  assert.deepEqual(dos.dichas, FRASES_GENERICAS.slice(2));
+  assert.deepEqual(dos.dichas, [FRASES_GENERICAS[3]]);
   dos.espera.parar();
 });
 
@@ -669,13 +694,42 @@ test("por teléfono cada dato se repite para confirmarlo, y un turno se resume a
     /teléfono, nombre, email, fecha u horario\), repetilo enseguida/,
   );
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /Si te corrige, repetí el dato corregido/);
-  assert.match(INSTRUCCION_CANAL_DE_VOZ, /de a grupos de tres cifras/);
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /recién cuando te dice que sí lo guardás con update_lead/);
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /En el mismo turno en que te da el dato no lo guardes/);
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /El email pedilo deletreado, letra por letra/);
-  assert.match(INSTRUCCION_CANAL_DE_VOZ, /Antes de guardarlo, repetilo letra por letra/);
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /con el día de la semana/);
   assert.match(INSTRUCCION_CANAL_DE_VOZ, /Antes de reservar o cambiar un turno, resumí de corrido/);
+});
+
+test("por teléfono: teléfonos y mails tal cual, varios datos juntos, correcciones, un solo dato de contacto", () => {
+  // La lectura la hace el código (utils/lecturaEnVoz.ts): el modelo no convierte.
+  assert.match(
+    INSTRUCCION_CANAL_DE_VOZ,
+    /Los teléfonos y los mails, en cambio, escribilos tal cual/,
+  );
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /Si te da varios datos juntos/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /tomá ese valor y confirmalo: no le pidas que lo repita/);
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /un teléfono O un mail/);
+});
+
+test("por teléfono no se afirma lo que no se hizo ni se cuenta una falla interna", () => {
+  assert.match(
+    INSTRUCCION_CANAL_DE_VOZ,
+    /Nunca digas que algo quedó anotado, registrado, reservado o agendado antes de que la herramienta te lo confirme/,
+  );
+  assert.match(INSTRUCCION_CANAL_DE_VOZ, /Nunca le cuentes al cliente una falla interna/);
+});
+
+test("por teléfono, solo las herramientas que guardan datos del contacto piden confirmarlos antes", () => {
+  const herramienta = (name: string) => ({ definition: { name, description: "Guarda." } });
+  for (const nombre of ["update_lead", "create_lead"]) {
+    assert.equal(
+      conNotaDeVoz(herramienta(nombre)).definition.description,
+      `Guarda. ${NOTA_DE_VOZ_PARA_GUARDAR_DATOS}`,
+    );
+  }
+  const otra = herramienta("search_vehicles");
+  assert.equal(conNotaDeVoz(otra), otra);
 });
 
 test("por teléfono no se cobra ni se llenan campos personalizados", () => {
