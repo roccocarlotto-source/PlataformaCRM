@@ -149,6 +149,18 @@ opcionales e independientes:
 > Lo que escribas acá se lo manda el agente al cliente tal cual. Revisá que
 > los datos de la cuenta estén bien antes de guardar.
 
+### Llamadas
+
+- **Teléfono para transferir llamadas** (opcional): si el agente atiende
+  llamadas y alguien pide hablar con una persona, en el horario de atención
+  de la sucursal le pasa la llamada a este número. Fuera de horario, o si
+  dejás el campo vacío, no transfiere: le dice al cliente que lo van a
+  llamar y deja la tarea, como en cualquier derivación.
+- Podés escribirlo con el código de país (`+598 99 123 456`) o como número
+  local (`099 123 456`): se guarda con el código de país de la organización.
+- Tiene que ser **otra línea**, no la que atiende el agente: si no, la
+  llamada vuelve al agente.
+
 ### Después de crearla
 
 Las tarjetas **Horario de atención** y **Google Calendar** aparecen solo al

@@ -65,6 +65,8 @@ export interface CreateBranchData {
   // Datos de cobro (ítem 74). `null`/`undefined` = no configurado.
   paymentLinkUrl?: string | null;
   bankTransferDetails?: string | null;
+  // Teléfono de transferencia de la voz, ya normalizado (+598...).
+  transferPhone?: string | null;
 }
 
 export function createBranch(data: CreateBranchData, db: Db = prisma) {
@@ -79,6 +81,7 @@ export interface UpdateBranchData {
   // Datos de cobro (ítem 74): `null` vacía la columna, `undefined` no la toca.
   paymentLinkUrl?: string | null;
   bankTransferDetails?: string | null;
+  transferPhone?: string | null;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

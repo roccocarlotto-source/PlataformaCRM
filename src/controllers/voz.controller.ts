@@ -6,7 +6,13 @@ import type { VozRequest } from "../types/vozAuth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
 import {
+  argumentosDeLaAccion,
+  leerHerramientasDeLaPlataforma,
+  type AccionDeLaLlamada,
+} from "../voz/accionesDeLaLlamada";
+import {
   chunkDeCierre,
+  chunkDeHerramienta,
   chunkDeInicio,
   chunkDeTexto,
   FIN_DEL_STREAM,
@@ -23,6 +29,10 @@ import { FRASE_DE_PROBLEMA, pedirTurnoDeVoz, turnoQueSigue } from "../voz/turnoD
 // Los datos de la llamada llegan en headers que se cargan en la plataforma con
 // sus variables dinámicas. Ninguno decide de qué organización es la llamada:
 // eso sale del secreto (authenticateVoz).
+//
+// De sus herramientas se usan solo dos de sistema, transferir y colgar
+// (voz/accionesDeLaLlamada.ts): si el turno termina en una, va al final del
+// stream como una llamada a herramienta.
 // ---------------------------------------------------------------------------
 
 export const HEADER_LLAMADA = "x-voz-conversacion";
@@ -195,8 +205,16 @@ function abrirStream(res: Response, datos: DatosDelStream): void {
   res.write(chunkDeInicio(datos));
 }
 
-function cerrarStream(res: Response, datos: DatosDelStream): void {
-  res.write(chunkDeCierre(datos));
+function cerrarStream(
+  res: Response,
+  datos: DatosDelStream,
+  accion: AccionDeLaLlamada | null = null,
+): void {
+  if (accion !== null) {
+    const { nombre, argumentos } = argumentosDeLaAccion(accion);
+    res.write(chunkDeHerramienta(datos, { id: `call_${randomUUID()}`, nombre, argumentos }));
+  }
+  res.write(chunkDeCierre(datos, accion !== null ? "tool_calls" : "stop"));
   res.write(FIN_DEL_STREAM);
   res.end();
 }
@@ -213,12 +231,18 @@ export const pedirTurnoDeVozHandler = asyncHandler<VozRequest>(async (req, res: 
   );
   // Sin texto: ni lo dicho ni el id; solo de dónde salió el id y la forma.
   const yaEscucho = loQueYaEscucho(messages);
+  const plataforma = leerHerramientasDeLaPlataforma(
+    (req.body as { tools?: unknown } | undefined)?.tools,
+  );
   const datosDelLog = {
     agentId,
     origenDelId: origen,
     stream,
     mensajes: messages.length,
     continuacion: yaEscucho !== null,
+    // Solo los nombres: para confirmar qué manda la plataforma.
+    herramientasDeLaPlataforma: plataforma.nombres,
+    destinosDeTransferencia: plataforma.transferir?.numeros?.length ?? null,
   };
   if (origen === "huella") {
     logger.warn(
@@ -250,6 +274,7 @@ export const pedirTurnoDeVozHandler = asyncHandler<VozRequest>(async (req, res: 
     texto,
     numeroDeTurno: messages.filter((m) => m.role === "user").length,
     avisoInicial: avisoInicial(messages),
+    plataforma,
   };
   const turno = yaEscucho === null ? pedirTurnoDeVoz(pedido) : turnoQueSigue(pedido);
   if (turno === null) {
@@ -264,9 +289,9 @@ export const pedirTurnoDeVozHandler = asyncHandler<VozRequest>(async (req, res: 
 
   // Si la plataforma corta, se deja de escribir pero el turno sigue. A una
   // continuación no se le repite lo que el cliente ya escuchó.
-  const dejarDeEscuchar = turno.escuchar((parte) => {
+  const dejarDeEscuchar = turno.escuchar((parte, accion) => {
     if (parte === null) {
-      cerrarStream(res, datos);
+      cerrarStream(res, datos, accion ?? null);
     } else {
       res.write(chunkDeTexto(datos, parte));
     }

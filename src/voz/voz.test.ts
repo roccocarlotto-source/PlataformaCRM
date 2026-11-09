@@ -29,6 +29,7 @@ import {
   NOTA_DE_VOZ_PARA_GUARDAR_DATOS,
 } from "./instrucciones";
 import { crearSalidaPorOraciones, finDelProximoTramo, restoDespuesDe } from "./salidaPorOraciones";
+import { SIN_HERRAMIENTAS_DE_LA_PLATAFORMA } from "./accionesDeLaLlamada";
 import { chunkDeCierre, chunkDeTexto } from "./sse";
 import { claveDelTurno, digitosDelLlamante, FRASE_DE_PROBLEMA } from "./turnoDeVoz.service";
 import { crearRegistroDeTurnos, loQueFalta, TurnoEnCurso } from "./turnosEnCurso";
@@ -560,6 +561,7 @@ test("la clave del turno es el número de turno de la llamada, sin el texto", ()
     texto: "Quiero probarlo el martes",
     numeroDeTurno: 2,
     avisoInicial: null,
+    plataforma: SIN_HERRAMIENTAS_DE_LA_PLATAFORMA,
   };
   const completa = { ...pedido, texto: "Quiero probarlo el martes de tarde" };
   assert.equal(claveDelTurno(pedido), claveDelTurno(completa));

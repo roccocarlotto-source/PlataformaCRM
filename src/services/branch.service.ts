@@ -25,6 +25,7 @@ import { countActiveQrCodesByBranch } from "../repositories/qrCode.repository";
 import { countActiveResourcesByBranch } from "../repositories/resource.repository";
 import { countActiveServiceTypesByBranch } from "../repositories/serviceType.repository";
 import { countVehiclesInStockByBranch } from "../repositories/vehicle.repository";
+import { normalizarTelefono } from "../lib/telefono";
 import { AppError } from "../utils/AppError";
 import { validarUsuarioAsignable } from "./ownership.service";
 
@@ -86,6 +87,9 @@ export interface CreateBranchInput {
   // guardan tal cual vienen del controller: no hay relación que validar.
   paymentLinkUrl?: string | null;
   bankTransferDetails?: string | null;
+  // Teléfono al que el agente de voz transfiere una llamada. Se guarda
+  // normalizado (resolverTransferPhone).
+  transferPhone?: string | null;
 }
 
 // industry: el rubro de la organización (req.auth.industry). Una sede de una
@@ -102,6 +106,7 @@ export async function createBranch(
   // rethrowAsConflict que escribir — a diferencia de Pipeline, que sí tiene un
   // único (organizationId, name).
   const defaultOwnerId = await resolverDefaultOwnerId(organizationId, input.defaultOwnerId);
+  const transferPhone = await resolverTransferPhone(organizationId, input.transferPhone);
   return prisma.$transaction(async (tx) => {
     const otrasSucursales = await countBranches(organizationId, {}, tx);
     const branch = await createBranchRepo(
@@ -112,6 +117,7 @@ export async function createBranch(
         defaultOwnerId,
         paymentLinkUrl: input.paymentLinkUrl,
         bankTransferDetails: input.bankTransferDetails,
+        transferPhone,
       },
       tx,
     );
@@ -170,6 +176,28 @@ async function resolverDefaultOwnerId(
   return validarUsuarioAsignable(organizationId, defaultOwnerId, "defaultOwnerId");
 }
 
+// El teléfono de transferencia, en formato internacional (+598...), con el
+// país por defecto de la organización para un número local ("099 123 456").
+// Mismo contrato undefined/null que defaultOwnerId. Un número que no se puede
+// normalizar sin adivinar es un 400 con el nombre del campo.
+async function resolverTransferPhone(
+  organizationId: string,
+  transferPhone: string | null | undefined,
+): Promise<string | null | undefined> {
+  if (transferPhone === undefined || transferPhone === null) {
+    return transferPhone;
+  }
+  const organizacion = await findOrganizationById(organizationId);
+  const normalizado = normalizarTelefono(transferPhone, organizacion?.defaultPhoneCountryCode);
+  if (normalizado === null) {
+    throw new AppError(
+      "transferPhone no es un teléfono válido: escribilo con el código de país (+598 99 123 456) o como número local",
+      400,
+    );
+  }
+  return normalizado;
+}
+
 export interface UpdateBranchInput {
   name?: string;
   timezone?: string;
@@ -182,6 +210,7 @@ export interface UpdateBranchInput {
   // spread de abajo ya conserva un `null` explícito y omite lo que no vino.
   paymentLinkUrl?: string | null;
   bankTransferDetails?: string | null;
+  transferPhone?: string | null;
 }
 
 export async function updateBranch(organizationId: string, id: string, input: UpdateBranchInput) {
@@ -193,6 +222,9 @@ export async function updateBranch(organizationId: string, id: string, input: Up
   const data: UpdateBranchInput = { ...input };
   if ("defaultOwnerId" in input) {
     data.defaultOwnerId = await resolverDefaultOwnerId(organizationId, input.defaultOwnerId);
+  }
+  if ("transferPhone" in input) {
+    data.transferPhone = await resolverTransferPhone(organizationId, input.transferPhone);
   }
 
   const result = await updateBranchRepo(id, organizationId, data);

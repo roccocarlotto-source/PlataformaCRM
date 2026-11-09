@@ -30,6 +30,33 @@ export function chunkDeTexto(datos: DatosDelStream, texto: string): string {
   return chunk(datos, { content: texto }, null);
 }
 
-export function chunkDeCierre(datos: DatosDelStream): string {
-  return chunk(datos, {}, "stop");
+// "tool_calls" cuando el turno termina pidiendo una herramienta de la
+// plataforma (transferir o colgar).
+export function chunkDeCierre(
+  datos: DatosDelStream,
+  motivo: "stop" | "tool_calls" = "stop",
+): string {
+  return chunk(datos, {}, motivo);
+}
+
+// Una llamada a una herramienta de la plataforma, entera en un solo trozo:
+// `arguments` es el JSON como texto, igual que en OpenAI.
+export function chunkDeHerramienta(
+  datos: DatosDelStream,
+  herramienta: { id: string; nombre: string; argumentos: string },
+): string {
+  return chunk(
+    datos,
+    {
+      tool_calls: [
+        {
+          index: 0,
+          id: herramienta.id,
+          type: "function",
+          function: { name: herramienta.nombre, arguments: herramienta.argumentos },
+        },
+      ],
+    },
+    null,
+  );
 }

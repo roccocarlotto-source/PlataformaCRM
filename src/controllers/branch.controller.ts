@@ -47,6 +47,20 @@ const bankTransferDetailsSchema = z
     `bankTransferDetails no puede superar los ${BRANCH_BANK_TRANSFER_DETAILS_MAX_LENGTH} caracteres`,
   );
 
+// Teléfono al que el agente de voz transfiere una llamada (PR 7). Acá solo la
+// forma de cordura; el service lo normaliza a formato internacional (+598...)
+// con el país por defecto de la organización, o lo rechaza con un 400.
+export const BRANCH_TRANSFER_PHONE_MAX_LENGTH = 30;
+
+const transferPhoneSchema = z
+  .string()
+  .trim()
+  .min(1, "transferPhone no puede estar vacío (mandá null para no configurarlo)")
+  .max(
+    BRANCH_TRANSFER_PHONE_MAX_LENGTH,
+    `transferPhone no puede superar los ${BRANCH_TRANSFER_PHONE_MAX_LENGTH} caracteres`,
+  );
+
 const branchFields = {
   name: z
     .string()
@@ -65,6 +79,7 @@ const branchFields = {
   defaultOwnerId: z.string().guid("defaultOwnerId debe ser un UUID").nullable().optional(),
   paymentLinkUrl: paymentLinkUrlSchema.nullable().optional(),
   bankTransferDetails: bankTransferDetailsSchema.nullable().optional(),
+  transferPhone: transferPhoneSchema.nullable().optional(),
 };
 
 // timezone es REQUERIDA al crear, aunque la columna tenga default 'UTC'. El

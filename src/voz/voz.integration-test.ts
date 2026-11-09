@@ -164,6 +164,8 @@ interface Turno {
   numero?: string;
   messages?: unknown[];
   stream?: boolean;
+  // Las herramientas de sistema de la plataforma (transferir, colgar).
+  tools?: unknown[];
 }
 
 function pedir(turno: Turno, url = baseUrl): Promise<Response> {
@@ -180,6 +182,7 @@ function pedir(turno: Turno, url = baseUrl): Promise<Response> {
     body: JSON.stringify({
       model: "agente",
       stream: turno.stream ?? true,
+      ...(turno.tools ? { tools: turno.tools } : {}),
       messages: turno.messages ?? [
         { role: "system", content: "El prompt de la plataforma, que no se usa." },
         { role: "assistant", content: AVISO },
@@ -790,4 +793,204 @@ test("un agente sin el canal contesta con una frase, no con un error", async () 
   assert.deepEqual(textos, [FRASE_DE_PROBLEMA]);
   assert.equal(cerro, true);
   assert.equal(pedidos.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// PR 7: transferir y colgar. La plataforma manda sus herramientas de sistema en
+// `tools`; si el turno termina en una, va al final del stream como una llamada
+// a herramienta y el cierre dice "tool_calls".
+// ---------------------------------------------------------------------------
+
+const TELEFONO_DE_LA_SUCURSAL = "+59899123456";
+
+const TRANSFERIR = (numeros?: string[]) => ({
+  type: "function",
+  function: {
+    name: "transfer_to_number",
+    parameters: {
+      type: "object",
+      properties: {
+        transfer_number: numeros ? { type: "string", enum: numeros } : { type: "string" },
+        client_message: { type: "string" },
+        agent_message: { type: "string" },
+      },
+    },
+  },
+});
+const COLGAR = { type: "function", function: { name: "end_call", parameters: {} } };
+
+interface StreamConHerramienta {
+  textos: string[];
+  herramienta: { name: string; arguments: Record<string, unknown> } | null;
+  finishReason: string | null;
+}
+
+async function leerStreamConHerramienta(res: Response): Promise<StreamConHerramienta> {
+  assert.equal(res.status, 200);
+  const lineas = (await res.text()).split("\n\n").filter((l) => l.startsWith("data: "));
+  assert.equal(lineas.at(-1), "data: [DONE]");
+  const trozos = lineas.slice(0, -1).map(
+    (l) =>
+      JSON.parse(l.slice(6)) as {
+        choices: {
+          delta: {
+            content?: string;
+            tool_calls?: { function: { name: string; arguments: string } }[];
+          };
+          finish_reason: string | null;
+        }[];
+      },
+  );
+  const conHerramienta = trozos.filter((t) => t.choices[0].delta.tool_calls);
+  assert.ok(conHerramienta.length <= 1, "como mucho una herramienta por turno");
+  const llamada = conHerramienta[0]?.choices[0].delta.tool_calls?.[0];
+  return {
+    textos: trozos.map((t) => t.choices[0].delta.content ?? "").filter((t) => t.length > 0),
+    herramienta: llamada
+      ? {
+          name: llamada.function.name,
+          arguments: JSON.parse(llamada.function.arguments) as Record<string, unknown>,
+        }
+      : null,
+    finishReason: trozos.at(-1)?.choices[0].finish_reason ?? null,
+  };
+}
+
+// Un turno con las herramientas de la plataforma, esperando a que se guarde
+// (el turno sigue guardando después de cerrar el stream).
+async function turnoConHerramientas(tools?: unknown[]): Promise<StreamConHerramienta> {
+  const llamada = randomUUID();
+  const stream = await leerStreamConHerramienta(
+    await pedir({ llamada, llamante: telefonoNuevo(), ...(tools ? { tools } : {}) }),
+  );
+  await conversacionDe(llamada, 3);
+  return stream;
+}
+
+const pideDerivar: Modelo = () =>
+  Promise.resolve({
+    text: null,
+    toolCalls: [
+      {
+        id: "c1",
+        name: "request_human_handoff",
+        arguments: {
+          reason: "Pidió una persona",
+          mensajeAlCliente: "Te paso con alguien del equipo.",
+        },
+      },
+    ],
+  });
+
+async function conTelefonoDeTransferencia(fn: () => Promise<void>): Promise<void> {
+  await prisma.branch.update({
+    where: { id: branchId },
+    data: { transferPhone: TELEFONO_DE_LA_SUCURSAL },
+  });
+  try {
+    await fn();
+  } finally {
+    await prisma.branch.update({ where: { id: branchId }, data: { transferPhone: null } });
+    await prisma.branchBusinessHours.deleteMany({ where: { branchId } });
+  }
+}
+
+test("derivar con la sucursal abierta: transfiere al número de la sucursal y la derivación queda igual", async () => {
+  await conTelefonoDeTransferencia(async () => {
+    const llamada = randomUUID();
+    modelo = pideDerivar;
+    const stream = await leerStreamConHerramienta(
+      await pedir({ llamada, llamante: telefonoNuevo(), tools: [COLGAR, TRANSFERIR()] }),
+    );
+
+    assert.deepEqual(stream.textos, ["Te paso con alguien del equipo."]);
+    assert.equal(stream.herramienta?.name, "transfer_to_number");
+    assert.equal(stream.herramienta?.arguments.transfer_number, TELEFONO_DE_LA_SUCURSAL);
+    assert.equal(stream.finishReason, "tool_calls");
+    // El modelo sabe que la llamada pasa a una persona.
+    assert.match(pedidos[0].request.systemPrompt, /la llamada pasa en ese momento a una persona/);
+    const conversacion = await conversacionDe(llamada, 3);
+    assert.equal(conversacion.status, "TRANSFERRED_TO_HUMAN");
+  });
+});
+
+test("el número de la lista de la plataforma se manda tal cual lo tiene cargado", async () => {
+  await conTelefonoDeTransferencia(async () => {
+    modelo = pideDerivar;
+    const stream = await turnoConHerramientas([TRANSFERIR(["+598 99 123 456"])]);
+    assert.equal(stream.herramienta?.arguments.transfer_number, "+598 99 123 456");
+  });
+});
+
+// El día de hoy en la zona de la sucursal, para cargar un horario que no lo incluya.
+function diaDeHoyEnMontevideo(): string {
+  return new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "America/Montevideo" })
+    .format(new Date())
+    .toUpperCase();
+}
+
+test("sin transferencia: fuera de horario, número no cargado en la plataforma o plataforma sin la herramienta", async () => {
+  await conTelefonoDeTransferencia(async () => {
+    modelo = pideDerivar;
+    const sinTransferir = async (tools: unknown[]) => {
+      const stream = await turnoConHerramientas(tools);
+      assert.equal(stream.herramienta, null);
+      assert.equal(stream.finishReason, "stop");
+      // La derivación ocurre igual.
+      assert.deepEqual(stream.textos, ["Te paso con alguien del equipo."]);
+    };
+
+    await sinTransferir([TRANSFERIR(["+59899000000"])]);
+    await sinTransferir([COLGAR]);
+    // Sin la herramienta de la plataforma, el prompt no promete la transferencia.
+    assert.doesNotMatch(pedidos.at(-1)!.request.systemPrompt, /la llamada pasa en ese momento/);
+
+    // Cerrada: un horario solo para otro día de la semana.
+    const otroDia = diaDeHoyEnMontevideo() === "MONDAY" ? "TUESDAY" : "MONDAY";
+    await prisma.branchBusinessHours.create({
+      data: {
+        organizationId: orgId,
+        branchId,
+        weekday: otroDia,
+        startMinute: 9 * 60,
+        endMinute: 18 * 60,
+      },
+    });
+    await sinTransferir([TRANSFERIR()]);
+  });
+});
+
+test("colgar: con la despedida la llamada se corta; con una pregunta, no", async () => {
+  const pideColgar =
+    (texto: string): Modelo =>
+    (_request, opciones) => {
+      opciones?.alEscribir?.(texto);
+      return Promise.resolve({
+        text: texto,
+        toolCalls: [{ id: "c1", name: "end_call", arguments: {} }],
+      });
+    };
+
+  modelo = pideColgar("Gracias por llamar, que tengas un buen día.");
+  const despedida = await turnoConHerramientas([COLGAR]);
+  assert.deepEqual(despedida.textos, ["Gracias por llamar, que tengas un buen día."]);
+  assert.equal(despedida.herramienta?.name, "end_call");
+  assert.equal(despedida.finishReason, "tool_calls");
+  // Se le ofreció al modelo, y no se le volvió a preguntar después de pedirlo.
+  assert.equal(pedidos.length, 1);
+  assert.ok((pedidos[0].request.tools ?? []).some((t) => t.name === "end_call"));
+
+  pedidos = [];
+  modelo = pideColgar("Listo. ¿Te ayudo con algo más?");
+  const pregunta = await turnoConHerramientas([COLGAR]);
+  assert.equal(pregunta.herramienta, null);
+  assert.equal(pregunta.finishReason, "stop");
+});
+
+test("sin la herramienta de colgar de la plataforma, al modelo no se le ofrece", async () => {
+  await turnoConHerramientas();
+  assert.equal(
+    (pedidos[0].request.tools ?? []).some((t) => t.name === "end_call"),
+    false,
+  );
 });

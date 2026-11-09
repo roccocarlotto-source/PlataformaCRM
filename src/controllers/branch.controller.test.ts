@@ -148,3 +148,22 @@ test("update: null en los dos llega al service como clave presente — es como s
   const parsed = updateBranchSchema.parse({ paymentLinkUrl: null, bankTransferDetails: null });
   assert.deepEqual(parsed, { paymentLinkUrl: null, bankTransferDetails: null });
 });
+
+// ---------------------------------------------------------------------------
+// Teléfono de transferencia de la voz (PR 7): opcional y nullable. Acá solo la
+// forma; el service lo normaliza o lo rechaza
+// (branchTransferPhone.integration-test.ts).
+// ---------------------------------------------------------------------------
+
+test("transferPhone: opcional, nullable, se trimea, y vacío o demasiado largo no pasa", () => {
+  assert.equal("transferPhone" in createBranchSchema.parse(valido), false);
+  assert.equal(
+    updateBranchSchema.parse({ transferPhone: " +598 99 123 456 " }).transferPhone,
+    "+598 99 123 456",
+  );
+  assert.equal(updateBranchSchema.parse({ transferPhone: null }).transferPhone, null);
+  const vacio = updateBranchSchema.safeParse({ transferPhone: "  " });
+  assert.equal(vacio.success, false);
+  assert.match(vacio.error!.issues[0].message, /transferPhone/);
+  assert.equal(updateBranchSchema.safeParse({ transferPhone: "1".repeat(31) }).success, false);
+});
