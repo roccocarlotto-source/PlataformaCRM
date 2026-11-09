@@ -101,3 +101,88 @@ export function idsDelMismoModelo(
   const palabras = palabrasDeBusqueda(`${pedido.make ?? ""} ${pedido.model ?? ""}`);
   return vehiculos.filter((v) => nombraElModelo(v, palabras)).map((v) => v.id);
 }
+
+// ---------------------------------------------------------------------------
+// Nombres parecidos (2026-11-09).
+//
+// En una llamada el cliente pidió un "Gol", el modelo de lenguaje buscó
+// "Golf", la búsqueda dio "ninguna" y el agente dijo que no había, con un Gol
+// Trend en stock. Lo mismo pasa por escrito ("Corola", "Onyx") o con un número
+// mal dicho o mal entendido ("208" con un 308 en stock).
+//
+// Cuando la búsqueda por nombre no encuentra nada, esto devuelve las unidades
+// cuyo modelo (o versión) se escribe casi igual que alguna palabra del pedido:
+// una letra o un número de diferencia, dos en palabras de 6 o más letras.
+// No reemplaza al resultado: quien llama se las ofrece al modelo para que le
+// PREGUNTE al cliente si se refiere a esa, en vez de decir que no hay.
+//
+// Para no sugerir cualquier cosa:
+//   - Palabras de menos de 3 caracteres no cuentan ("C3" y "C4", "Up").
+//   - Si el pedido trae marca, la unidad tiene que ser de esa marca (o una
+//     escrita casi igual): "Toyota Golf" no sugiere un Volkswagen Gol.
+//   - Un año ("2018") solo cuenta si es lo único que nombró además de la
+//     marca: "Corolla 2018" no sugiere un Peugeot 2008, "Peugeot 2008" sí
+//     sugiere un Peugeot 208.
+// ---------------------------------------------------------------------------
+
+const PARECIDA_LARGO_MINIMO = 3;
+
+function pareceAnio(palabra: string): boolean {
+  return /^(19|20)\d\d$/.test(palabra);
+}
+
+// Distancia de edición (Levenshtein): cuántas letras hay que agregar, quitar o
+// cambiar para pasar de una palabra a la otra. Palabras cortas: alcanza con
+// la versión de dos filas.
+export function distanciaDeEdicion(a: string, b: string): number {
+  let anterior = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const actual = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cambio = a[i - 1] === b[j - 1] ? 0 : 1;
+      actual[j] = Math.min(anterior[j] + 1, actual[j - 1] + 1, anterior[j - 1] + cambio);
+    }
+    anterior = actual;
+  }
+  return anterior[b.length];
+}
+
+// Distintas pero casi iguales: 1 de diferencia, 2 si la más corta tiene 6 o más.
+function seParecen(a: string, b: string): boolean {
+  if (a === b || Math.min(a.length, b.length) < PARECIDA_LARGO_MINIMO) {
+    return false;
+  }
+  const tope = Math.min(a.length, b.length) >= 6 ? 2 : 1;
+  return distanciaDeEdicion(a, b) <= tope;
+}
+
+function igualOParecida(a: string, b: string): boolean {
+  return a === b || seParecen(a, b);
+}
+
+/** Las unidades con un modelo o versión de nombre parecido al pedido. Vacío si el pedido no nombra nada. */
+export function idsConNombreParecido(
+  vehiculos: VehiculoBuscable[],
+  pedido: { make?: string; model?: string },
+): string[] {
+  const deLaMarca = palabrasDeBusqueda(pedido.make ?? "");
+  const todas = palabrasDeBusqueda(`${pedido.make ?? ""} ${pedido.model ?? ""}`);
+  if (todas.length === 0) {
+    return [];
+  }
+  return vehiculos
+    .filter((v) => {
+      const marca = palabrasDeBusqueda(v.make);
+      const esDeLaMarca = (p: string) => marca.some((m) => igualOParecida(p, m));
+      if (deLaMarca.length > 0 && !deLaMarca.every(esDeLaMarca)) {
+        return false;
+      }
+      // Lo que nombra al modelo: el pedido sin las palabras de la marca.
+      const delModelo = todas.filter((p) => !esDeLaMarca(p));
+      const sinAnios = delModelo.filter((p) => !pareceAnio(p));
+      const candidatas = sinAnios.length > 0 ? sinAnios : delModelo;
+      const propias = palabrasDeBusqueda(`${v.model} ${v.trim ?? ""}`);
+      return candidatas.some((p) => propias.some((m) => seParecen(p, m)));
+    })
+    .map((v) => v.id);
+}

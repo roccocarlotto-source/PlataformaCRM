@@ -17,6 +17,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 //     tardó y sus consultas (2026-11-08: una reserva por teléfono se fue a
 //     39 consultas en tres tools y no se sabía cuál). Solo el nombre de la
 //     tool: nada de lo que dijo el cliente.
+//   - porHerramienta[].detalle (2026-11-09): lo que una tool decide anotar de
+//     sí misma con anotarHerramienta(). Hoy solo search_vehicles: los filtros
+//     de stock que usó (marca, modelo, año, precio), cuántas unidades
+//     encontró y si hubo nombres parecidos. Nunca datos del contacto.
 //     Son OPERACIONES, no idas y vueltas: con pgbouncer=true cada una son
 //     varias (docs-privados/latencia-y-mudanza-2026-10-15.md, local).
 //
@@ -28,6 +32,7 @@ export interface MedicionDeUnaHerramienta {
   nombre: string;
   ms: number;
   consultas: number;
+  detalle?: Record<string, unknown>;
 }
 
 export interface MedicionDelTurno {
@@ -119,4 +124,15 @@ export async function medirHerramienta<T>(nombre: string, fn: () => Promise<T>):
     estado.herramientasMs += herramienta.ms;
     estado.llamadasAHerramientas += 1;
   }
+}
+
+/**
+ * Anota un detalle en la tool que está corriendo (la de más adentro), para el
+ * log del turno. Fuera de un turno o de una tool no hace nada. Solo datos de
+ * la búsqueda o del negocio: nunca nada del contacto.
+ */
+export function anotarHerramienta(detalle: Record<string, unknown>): void {
+  const herramienta = turnoEnCurso.getStore()?.enCurso.at(-1);
+  if (!herramienta) return;
+  herramienta.detalle = { ...herramienta.detalle, ...detalle };
 }

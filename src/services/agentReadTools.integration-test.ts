@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma";
 import { findManyVehicles } from "../repositories/vehicle.repository";
 import {
   NOTA_DE_COINCIDENCIA_PARCIAL,
+  QUE_HACER_CON_PARECIDOS,
   AVISO_DE_INTENCION_GUARDADA,
   SUFIJO_ERROR_DE_ARGUMENTOS,
   CATALOGO_DE_TOOLS,
@@ -626,6 +627,52 @@ test("FABLE-B-09: una versión o un año que no hay devuelve las unidades del mi
   assert.equal(noHay.total, 0);
   assert.equal(noHay.sinResultados, true);
   assert.equal(noHay.coincidenciaParcial, undefined);
+});
+
+// Nombres parecidos (2026-11-09): en una llamada el cliente pidió un "Gol", se
+// buscó "Golf" y el agente dijo que no había, con un Gol Trend en stock. Un
+// número de diferencia (208 contra 308) es el mismo caso. Organización propia:
+// estas unidades no pueden mezclarse con los totales de los demás tests.
+test("nombres parecidos: «Golf» o «208» sin coincidencia no es un 'no hay' — se ofrece el parecido para preguntar", async () => {
+  const e = await montar("agent-read-tools-parecidos");
+  try {
+    await unidad(e, { make: "Volkswagen", model: "Gol", trim: "Trend", year: 2019 });
+    await unidad(e, { make: "Peugeot", model: "308", trim: "Allure", year: 2021 });
+    const ctx = contextoDe(e.organizationId, "00000000-0000-4000-8000-000000000003", e.branchId);
+    type Resultado = ResultadoBusqueda & {
+      sinResultados?: boolean;
+      queHacer?: string;
+      parecidos?: string[];
+    };
+    const buscar = (args: Record<string, unknown>) =>
+      datosDe<Resultado>("search_vehicles", args, ctx);
+
+    const golf = await buscar({ model: "Golf" });
+    assert.equal(golf.total, 0);
+    assert.deepEqual(golf.vehiculos, []);
+    assert.deepEqual(golf.parecidos, ["Volkswagen Gol Trend"]);
+    assert.equal(golf.queHacer, QUE_HACER_CON_PARECIDOS);
+    assert.match(golf.queHacer ?? "", /NO le digas que no hay/);
+
+    const dosCeroOcho = await buscar({ make: "Peugeot", model: "208" });
+    assert.equal(dosCeroOcho.total, 0);
+    assert.deepEqual(dosCeroOcho.parecidos, ["Peugeot 308 Allure"]);
+    assert.equal(dosCeroOcho.queHacer, QUE_HACER_CON_PARECIDOS);
+
+    // Si confirma, la búsqueda con el nombre del parecido lo encuentra.
+    const gol = await buscar({ model: "Gol Trend" });
+    assert.equal(gol.total, 1);
+    assert.equal(gol.parecidos, undefined);
+
+    // Lo que no se parece a nada sigue siendo el vacío de siempre, sin parecidos.
+    const ferrari = await buscar({ make: "Ferrari" });
+    assert.equal(ferrari.total, 0);
+    assert.equal(ferrari.parecidos, undefined);
+    assert.match(ferrari.queHacer ?? "", /NO inventes/);
+  } finally {
+    await prisma.contact.deleteMany({ where: { organizationId: e.organizationId } });
+    await desmontar(e);
+  }
 });
 
 // ---------------------------------------------------------------------------
