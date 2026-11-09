@@ -52,6 +52,13 @@ import { AppError } from "../utils/AppError";
 import { describirValor, type DefinicionDeCampo } from "../utils/camposPersonalizados";
 import { formatearParaElCanal } from "../utils/formatoPorCanal";
 import { conNotaDeVoz, INSTRUCCION_CANAL_DE_VOZ } from "../voz/instrucciones";
+import {
+  COLGAR_CON_OTRA_HERRAMIENTA,
+  DESPEDIDA_FIJA,
+  END_CALL_TOOL,
+  END_CALL_TOOL_NAME,
+  type DesenlaceDelTurno,
+} from "../voz/accionesDeLaLlamada";
 import { definicionesParaValidar } from "./contactCustomFieldDefinition.service";
 import { DateTime } from "luxon";
 import {
@@ -406,8 +413,15 @@ export interface SalidaDeVoz {
   empezoHerramienta(nombre: string): void;
   terminoHerramienta(): void;
   // Recibe la respuesta ya revisada y devuelve lo que se dijo, que es lo que se
-  // guarda. Puede incluir texto de rondas anteriores.
-  cerrar(respuesta: string): string;
+  // guarda. Puede incluir texto de rondas anteriores. `desenlace`: si el turno
+  // deriva (y si la sucursal está cerrada) o pidió colgar, para que la llamada
+  // decida si transfiere o corta (voz/accionesDeLaLlamada.ts).
+  cerrar(respuesta: string, desenlace?: DesenlaceDelTurno): string;
+  // Si se le ofrece al modelo cortar la llamada (END_CALL_TOOL): solo cuando la
+  // plataforma ofrece colgar.
+  puedeColgar?: boolean;
+  // Instrucciones de esta llamada, después del bloque de voz del prompt.
+  instrucciones?: readonly string[];
   // Para cancelar el turno mientras no hizo nada (cancelacionDelTurno.ts).
   cancelacion?: CancelacionDelTurno;
 }
@@ -2933,7 +2947,11 @@ async function responderSinMedir(
     conversation.channel,
     camposPersonalizados,
     contact.customFields,
-    [...reglas.instruccionesDelPrompt, ...instruccionesDelNivel(nivelDelTurno)],
+    [
+      ...reglas.instruccionesDelPrompt,
+      ...instruccionesDelNivel(nivelDelTurno),
+      ...(conversation.channel === "VOICE" ? (options.voz?.instrucciones ?? []) : []),
+    ],
     toolDelNivel("create_opportunity", nivelDelTurno),
     textos,
     faltanDatos.length > 0
@@ -2958,10 +2976,13 @@ async function responderSinMedir(
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));
   // El catálogo filtrado por enabledTools + la tool del sistema, SIEMPRE (y
   // las del sistema del rubro, si tiene).
+  // Cortar la llamada: solo por teléfono y si la plataforma lo ofrece.
+  const puedeColgar = conversation.channel === "VOICE" && options.voz?.puedeColgar === true;
   const definiciones = [
     ...tools.map((t) => t.definition),
     ...toolsDelSistema.map((t) => t.definition),
     REQUEST_HUMAN_HANDOFF_TOOL,
+    ...(puedeColgar ? [END_CALL_TOOL] : []),
   ];
   const toolsDelSistemaPorNombre = new Map<string, ToolDelAgente>(
     toolsDelSistema.map((t) => [t.definition.name, t]),
@@ -3008,6 +3029,9 @@ async function responderSinMedir(
   // (desenlaceDeLasTools): un texto fijo que no escribió el modelo, así que no
   // pasa por las guardas de salida del modelo.
   let respuestaFija = false;
+  // Por teléfono: el modelo pidió cortar la llamada (END_CALL_TOOL), sola en
+  // su ronda. Lo que se dice es la despedida que escribió.
+  let pidioColgar = false;
   // El prompt de cada llamada: el del turno, y desde que una respuesta se
   // cortó por largo, con INSTRUCCION_DE_RESPUESTA_CORTA al final (ver abajo).
   let promptDeLaLlamada = systemPrompt;
@@ -3025,7 +3049,9 @@ async function responderSinMedir(
     ...instruccionesDelNivel(nivelDelTurno),
     agent.instructions,
     typeof agent.guardrailsText === "string" ? agent.guardrailsText : "",
-    ...(conversation.channel === "VOICE" ? [INSTRUCCION_CANAL_DE_VOZ] : []),
+    ...(conversation.channel === "VOICE"
+      ? [INSTRUCCION_CANAL_DE_VOZ, ...(options.voz?.instrucciones ?? [])]
+      : []),
   ];
 
   // Las mismas guardas del cierre del turno (más abajo), sobre lo que se lleva
@@ -3200,8 +3226,27 @@ async function responderSinMedir(
     for (const [indice, llamada] of llamadas.entries()) {
       // Pasado el tope de la ronda no se ejecuta, pero SÍ se le contesta: el
       // formato exige un resultado por cada tool call del asistente.
-      const entrada: ToolCallDelTurno =
-        indice < MAX_TOOL_CALLS_PER_ROUND
+      // Cortar la llamada no es una tool del catálogo: se registra el pedido y
+      // la ejecuta la plataforma de voz al terminar el turno. Solo sola en la
+      // ronda: después de otra herramienta, el cliente tiene algo que escuchar.
+      const esColgar = puedeColgar && llamada.name === END_CALL_TOOL_NAME;
+      const entrada: ToolCallDelTurno = esColgar
+        ? llamadas.length === 1
+          ? {
+              id: llamada.id,
+              name: llamada.name,
+              arguments: llamada.arguments,
+              allowed: true,
+              result: { ok: true, data: { colgar: true } },
+            }
+          : {
+              id: llamada.id,
+              name: llamada.name,
+              arguments: llamada.arguments,
+              allowed: false,
+              reason: COLGAR_CON_OTRA_HERRAMIENTA,
+            }
+        : indice < MAX_TOOL_CALLS_PER_ROUND
           ? await medirHerramienta(llamada.name, () => {
               options.voz?.empezoHerramienta(llamada.name);
               return resolverToolCall(llamada, {
@@ -3230,6 +3275,9 @@ async function responderSinMedir(
         ),
       });
 
+      if (esColgar && entrada.allowed) {
+        pidioColgar = true;
+      }
       if (llamada.name === REQUEST_HUMAN_HANDOFF_TOOL_NAME && motivoDeHandoff === null) {
         motivoDeHandoff = motivoDeLaLlamada(llamada);
         mensajeDeHandoffDelModelo = mensajeAlClienteDeLaLlamada(llamada);
@@ -3281,6 +3329,13 @@ async function responderSinMedir(
     // acaba de denunciar una estafa.
     if (motivoDeHandoff !== null) {
       respuestaFinal = resultado.text ?? mensajeDeHandoffDelModelo ?? cierreFijo();
+      break;
+    }
+
+    // Por teléfono, el modelo pidió cortar: tampoco se le vuelve a preguntar.
+    // Se dice la despedida que escribió junto al pedido.
+    if (pidioColgar) {
+      respuestaFinal = resultado.text ?? DESPEDIDA_FIJA;
       break;
     }
 
@@ -3518,7 +3573,12 @@ async function responderSinMedir(
   respuestaFinal = formatearParaElCanal(respuestaFinal, conversation.channel);
   // Por teléfono ya se dijo: lo que se guarda es lo que el cliente escuchó.
   if (options.voz) {
-    respuestaFinal = options.voz.cerrar(respuestaFinal);
+    respuestaFinal = options.voz.cerrar(respuestaFinal, {
+      derivar: motivoDeHandoff !== null,
+      fueraDeHorario: fueraDeHorario !== null,
+      // Si una guarda de salida derivó, gana la derivación.
+      colgar: pidioColgar && motivoDeHandoff === null,
+    });
   }
 
   // Una derivación que pidió el modelo con un motivo que las reglas de entrada

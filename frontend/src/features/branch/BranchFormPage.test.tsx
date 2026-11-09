@@ -180,6 +180,7 @@ describe("BranchFormPage — creación", () => {
       defaultOwnerId: null,
       paymentLinkUrl: null,
       bankTransferDetails: null,
+      transferPhone: null,
     });
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
   });
@@ -211,6 +212,7 @@ describe("BranchFormPage — creación", () => {
       defaultOwnerId: null,
       paymentLinkUrl: null,
       bankTransferDetails: null,
+      transferPhone: null,
     });
   });
 
@@ -275,6 +277,7 @@ describe("BranchFormPage — edición", () => {
       defaultOwnerId: null,
       paymentLinkUrl: null,
       bankTransferDetails: null,
+      transferPhone: null,
     });
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
   });
@@ -482,6 +485,7 @@ describe("BranchFormPage — vendedor por defecto", () => {
       defaultOwnerId: "u2",
       paymentLinkUrl: null,
       bankTransferDetails: null,
+      transferPhone: null,
     });
   });
 
@@ -601,6 +605,7 @@ describe("BranchFormPage — cobro", () => {
       defaultOwnerId: null,
       paymentLinkUrl: LINK,
       bankTransferDetails: "Alias: casa.central",
+      transferPhone: null,
     });
   });
 
@@ -701,6 +706,81 @@ describe("BranchFormPage — cobro", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/paymentLinkUrl/);
     expect(screen.getByLabelText("Link de pago")).toHaveValue("https://ok.example");
+  });
+});
+
+// PR 7 de la voz: el teléfono al que el agente transfiere una llamada.
+describe("BranchFormPage — teléfono para transferir llamadas", () => {
+  const TELEFONO = "+59899123456";
+
+  it("en edición hidrata el número, y lo que se escribe viaja recortado", async () => {
+    let body: unknown;
+    server.use(
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(makeBranch({ id: "b1", transferPhone: TELEFONO })),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch({ id: "b1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/b1/edit");
+
+    const campo = await screen.findByLabelText("Teléfono para transferir llamadas");
+    await waitFor(() => expect(campo).toHaveValue(TELEFONO));
+    await user.clear(campo);
+    await user.type(campo, " 099 123 456 ");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toMatchObject({ transferPhone: "099 123 456" });
+  });
+
+  it("vaciarlo manda null — es como se saca la transferencia", async () => {
+    let body: unknown;
+    server.use(
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(makeBranch({ id: "b1", transferPhone: TELEFONO })),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch({ id: "b1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/b1/edit");
+
+    const campo = await screen.findByLabelText("Teléfono para transferir llamadas");
+    await waitFor(() => expect(campo).toHaveValue(TELEFONO));
+    await user.clear(campo);
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toMatchObject({ transferPhone: null });
+  });
+
+  it("un número rechazado por el backend se muestra sin perder lo cargado", async () => {
+    server.use(
+      http.post(baseUrl, () =>
+        HttpResponse.json(
+          { error: { message: "transferPhone no es un teléfono válido" } },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Casa Central");
+    await user.type(screen.getByLabelText("Teléfono para transferir llamadas"), "12");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/transferPhone/);
+    expect(screen.getByLabelText("Teléfono para transferir llamadas")).toHaveValue("12");
   });
 });
 

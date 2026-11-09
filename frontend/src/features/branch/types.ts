@@ -19,6 +19,9 @@ export interface Branch {
   // Independientes: cada uno en `null` = no configurado.
   paymentLinkUrl: string | null;
   bankTransferDetails: string | null;
+  // Teléfono al que el agente de voz transfiere una llamada, en formato
+  // internacional (+598...). `null` = sin transferencia.
+  transferPhone: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -70,6 +73,9 @@ export interface CreateBranchInput {
   // destinationUrl del QR); bankTransferDetails es texto libre hasta 2000.
   paymentLinkUrl?: string | null;
   bankTransferDetails?: string | null;
+  // Opcional y nullable, mismo contrato. El backend lo normaliza a formato
+  // internacional con el país de la organización, o responde 400.
+  transferPhone?: string | null;
 }
 
 // updateBranchSchema: los mismos campos, parciales, al menos uno. No hay

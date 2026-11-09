@@ -30,7 +30,12 @@ interface BranchFormValues {
   // texto, y "" es "no configurado". La conversión a null va en el submit.
   paymentLinkUrl: string;
   bankTransferDetails: string;
+  // Teléfono de transferencia de las llamadas: mismo criterio, "" = sin número.
+  transferPhone: string;
 }
+
+// Tope de branch.controller.ts (BRANCH_TRANSFER_PHONE_MAX_LENGTH).
+const TRANSFER_PHONE_MAX_LENGTH = 30;
 
 // Tope de branch.controller.ts (BRANCH_BANK_TRANSFER_DETAILS_MAX_LENGTH). El
 // backend sigue siendo quien valida; esto solo evita tipear de más.
@@ -45,6 +50,7 @@ const EMPTY_FORM: BranchFormValues = {
   defaultOwnerId: null,
   paymentLinkUrl: "",
   bankTransferDetails: "",
+  transferPhone: "",
 };
 
 // "" o solo espacios -> null: el backend no acepta el string vacío como
@@ -61,6 +67,7 @@ function toFormValues(branch: Branch): BranchFormValues {
     defaultOwnerId: branch.defaultOwnerId,
     paymentLinkUrl: branch.paymentLinkUrl ?? "",
     bankTransferDetails: branch.bankTransferDetails ?? "",
+    transferPhone: branch.transferPhone ?? "",
   };
 }
 
@@ -122,6 +129,7 @@ export function BranchFormPage() {
       // sucursal que lo tenía tiene que llegar como un PATCH de verdad.
       paymentLinkUrl: textoONull(values.paymentLinkUrl),
       bankTransferDetails: textoONull(values.bankTransferDetails),
+      transferPhone: textoONull(values.transferPhone),
     };
 
     try {
@@ -249,6 +257,27 @@ export function BranchFormPage() {
             </div>
           </Card>
         )}
+
+        {/* PR 7 de la voz. Opcional, sin asterisco: sin número, una llamada
+            que pide una persona deja la tarea como cualquier derivación. */}
+        <Card heading="Llamadas">
+          <div className="ds-field-grid">
+            <FormField label="Teléfono para transferir llamadas">
+              <input
+                type="tel"
+                value={values.transferPhone}
+                placeholder="+598 99 123 456"
+                maxLength={TRANSFER_PHONE_MAX_LENGTH}
+                onChange={(event) => setValues({ ...values, transferPhone: event.target.value })}
+              />
+            </FormField>
+            <p className="ds-hint ds-field-grid--full">
+              Si el agente atiende llamadas y alguien pide hablar con una persona, en el horario de
+              atención se la pasa a este número. Tiene que ser otra línea, no la que atiende el
+              agente.
+            </p>
+          </div>
+        </Card>
 
         {/* Ítem 75. Solo en edición: la conexión cuelga del id de la
             sucursal, que en el alta todavía no existe. Adentro del <form>

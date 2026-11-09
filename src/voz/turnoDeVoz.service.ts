@@ -2,6 +2,7 @@ import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { normalizarTelefono, soloDigitos } from "../lib/telefono";
 import { findAgentById } from "../repositories/agent.repository";
+import { findBranchById } from "../repositories/branch.repository";
 import {
   findOrCreateOpenConversation,
   updateConversation,
@@ -20,6 +21,12 @@ import { AppError } from "../utils/AppError";
 import { formatearParaElCanal } from "../utils/formatoPorCanal";
 import { LLAMADA_CONTACT_FIRST_NAME, LLAMADA_CONTACT_SOURCE } from "../utils/nombreProvisorio";
 import type { AccesoDeVoz } from "./accesos";
+import {
+  decidirAccion,
+  INSTRUCCION_DE_TRANSFERENCIA,
+  type DesenlaceDelTurno,
+  type HerramientasDeLaPlataforma,
+} from "./accionesDeLaLlamada";
 import { crearEsperaDeVoz, type EsperaDeVoz, type EstadoDeLaEspera } from "./esperaDeVoz";
 import { crearSalidaPorOraciones } from "./salidaPorOraciones";
 import { comparable, crearRegistroDeTurnos, loQueFalta, type TurnoEnCurso } from "./turnosEnCurso";
@@ -59,6 +66,8 @@ export interface PedidoDeTurnoDeVoz {
   numeroDeTurno: number;
   // Lo primero que dijo la plataforma (el aviso legal fijo), si vino.
   avisoInicial: string | null;
+  // Lo que la plataforma ofrece para transferir y colgar en este pedido.
+  plataforma: HerramientasDeLaPlataforma;
 }
 
 // Lo que se recuerda de una llamada entre turnos. El agente, el contacto y la
@@ -231,14 +240,36 @@ async function correrElTurno(
     },
     formatear: (texto) => formatearParaElCanal(texto, "VOICE"),
   });
-  const cerrar = (texto: string): string => {
+  // El teléfono de transferencia de la sucursal, leído en cada turno (un
+  // ADMIN lo puede cambiar con la llamada en curso).
+  let transferPhone: string | null = null;
+  const cerrar = (texto: string, desenlace?: DesenlaceDelTurno): string => {
     const dicho = salida.cerrar(texto);
     // Lo que falta (derivar, guardar) no necesita a la llamada esperando.
     espera.parar();
     // Acá y no solo al final: el turno siguiente puede arrancar mientras este
     // todavía guarda.
     llamada.frasesDelTurnoAnterior = new Set(espera.dichas());
-    turno.terminar();
+    // Transferir o colgar: lo hace la plataforma después de decir el texto. La
+    // tarea de una derivación se crea igual, haya o no transferencia.
+    const decision = desenlace
+      ? decidirAccion(desenlace, dicho, transferPhone, pedido.plataforma)
+      : { accion: null };
+    if (desenlace && (desenlace.derivar || desenlace.colgar)) {
+      logger.info(
+        {
+          organizationId,
+          agentId,
+          numeroDeTurno: pedido.numeroDeTurno,
+          derivar: desenlace.derivar,
+          colgar: desenlace.colgar,
+          accion: decision.accion?.tipo ?? null,
+          sinTransferencia: decision.sinTransferencia ?? null,
+        },
+        "Fin de un turno de voz que deriva o corta",
+      );
+    }
+    turno.terminar(decision.accion);
     return dicho;
   };
   const voz: SalidaDeVoz = {
@@ -253,6 +284,8 @@ async function correrElTurno(
     terminoHerramienta: () => espera.terminoHerramienta(),
     cerrar,
     cancelacion,
+    puedeColgar: pedido.plataforma.colgar,
+    instrucciones: [],
   };
 
   try {
@@ -265,7 +298,7 @@ async function correrElTurno(
         // Si se canceló mientras esperaba el lock, ni siquiera arranca.
         cancelacion.comprobar();
         const horaDelCliente = llegada ?? new Date();
-        const [{ agent, contact }, conversation] = await Promise.all([
+        const [{ agent, contact }, conversation, sucursal] = await Promise.all([
           cargarAgenteYContacto(organizationId, agentId, contactId, "VOICE"),
           findOrCreateOpenConversation({
             organizationId,
@@ -275,7 +308,15 @@ async function correrElTurno(
             channel: "VOICE",
             externalThreadId: pedido.callId,
           }),
+          findBranchById(branchId, organizationId),
         ]);
+        transferPhone = sucursal?.transferPhone ?? null;
+        // Solo si de verdad se puede transferir: si no, el modelo sigue
+        // diciendo que lo van a contactar, como en cualquier canal.
+        voz.instrucciones =
+          transferPhone !== null && pedido.plataforma.transferir !== null
+            ? [INSTRUCCION_DE_TRANSFERENCIA]
+            : [];
         let salienteId: string | null = null;
         let respuesta: string | null;
         try {

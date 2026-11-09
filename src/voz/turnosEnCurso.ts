@@ -22,7 +22,11 @@
 // mismo horario).
 // ---------------------------------------------------------------------------
 
-type Oyente = (texto: string | null) => void;
+import type { AccionDeLaLlamada } from "./accionesDeLaLlamada";
+
+// `texto` null avisa el final; con él puede venir la acción de la plataforma
+// (transferir o colgar) con la que termina el turno.
+type Oyente = (texto: string | null, accion?: AccionDeLaLlamada | null) => void;
 
 // Quién escucha y a qué turno: si el turno se reemplaza, la suscripción pasa
 // al nuevo y dejar de escuchar sigue andando.
@@ -46,6 +50,7 @@ export class TurnoEnCurso {
   private readonly partes: string[] = [];
   private readonly suscripciones = new Set<Suscripcion>();
   private terminadoEn: number | null = null;
+  private accionFinal: AccionDeLaLlamada | null = null;
 
   get momentoDeFin(): number | null {
     return this.terminadoEn;
@@ -79,13 +84,17 @@ export class TurnoEnCurso {
     }
   }
 
-  terminar(): void {
+  // `accion`: lo que la plataforma tiene que hacer después de decir el texto.
+  // También le llega a quien se enganche después (un reintento, una
+  // continuación): si la plataforma cortó antes de recibirla, la recibe ahí.
+  terminar(accion: AccionDeLaLlamada | null = null): void {
     if (this.terminadoEn !== null) {
       return;
     }
     this.terminadoEn = Date.now();
+    this.accionFinal = accion;
     for (const { oyente } of this.suscripciones) {
-      oyente(null);
+      oyente(null, accion);
     }
     this.suscripciones.clear();
   }
@@ -112,7 +121,7 @@ export class TurnoEnCurso {
       oyente(parte);
     }
     if (this.terminadoEn !== null) {
-      oyente(null);
+      oyente(null, this.accionFinal);
       return () => undefined;
     }
     const suscripcion: Suscripcion = { oyente, turno: this };
