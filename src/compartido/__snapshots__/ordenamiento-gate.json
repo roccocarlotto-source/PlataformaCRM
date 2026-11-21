@@ -1,0 +1,1135 @@
+{
+  "modulos": [
+    "agenda",
+    "agenda_clinica",
+    "agente_interno",
+    "agentes",
+    "automatizaciones",
+    "base_de_conocimiento",
+    "campos_personalizados",
+    "canales",
+    "comun",
+    "contactos",
+    "conversaciones",
+    "cotizaciones",
+    "cupones_y_qr",
+    "dashboard_atencion",
+    "dashboard_comercial",
+    "empresas",
+    "entregas",
+    "financiacion",
+    "ingesta",
+    "oportunidades",
+    "pagos",
+    "permutas",
+    "plataforma",
+    "post_turno",
+    "procesos_de_venta",
+    "recordatorios_de_turno",
+    "servicios",
+    "stock",
+    "sucursales",
+    "tareas",
+    "usuarios"
+  ],
+  "modulosPorEdicion": {
+    "COMPLETA": [
+      "agenda",
+      "agenda_clinica",
+      "agente_interno",
+      "agentes",
+      "automatizaciones",
+      "base_de_conocimiento",
+      "campos_personalizados",
+      "canales",
+      "comun",
+      "contactos",
+      "conversaciones",
+      "cotizaciones",
+      "cupones_y_qr",
+      "dashboard_atencion",
+      "dashboard_comercial",
+      "empresas",
+      "entregas",
+      "financiacion",
+      "ingesta",
+      "oportunidades",
+      "pagos",
+      "permutas",
+      "plataforma",
+      "post_turno",
+      "procesos_de_venta",
+      "recordatorios_de_turno",
+      "servicios",
+      "stock",
+      "sucursales",
+      "tareas",
+      "usuarios"
+    ],
+    "ESENCIAL": [
+      "agenda",
+      "agenda_clinica",
+      "agente_interno",
+      "agentes",
+      "automatizaciones",
+      "base_de_conocimiento",
+      "campos_personalizados",
+      "canales",
+      "comun",
+      "contactos",
+      "conversaciones",
+      "cupones_y_qr",
+      "dashboard_atencion",
+      "ingesta",
+      "oportunidades",
+      "plataforma",
+      "post_turno",
+      "recordatorios_de_turno",
+      "servicios",
+      "stock",
+      "sucursales",
+      "tareas",
+      "usuarios"
+    ]
+  },
+  "modulosPorRubro": {
+    "AUTOMOTORA": [
+      "agenda",
+      "agente_interno",
+      "agentes",
+      "automatizaciones",
+      "base_de_conocimiento",
+      "campos_personalizados",
+      "canales",
+      "comun",
+      "contactos",
+      "conversaciones",
+      "cotizaciones",
+      "cupones_y_qr",
+      "dashboard_atencion",
+      "dashboard_comercial",
+      "empresas",
+      "entregas",
+      "financiacion",
+      "ingesta",
+      "oportunidades",
+      "pagos",
+      "permutas",
+      "plataforma",
+      "procesos_de_venta",
+      "servicios",
+      "stock",
+      "sucursales",
+      "tareas",
+      "usuarios"
+    ],
+    "CLINICA": [
+      "agenda",
+      "agenda_clinica",
+      "agente_interno",
+      "agentes",
+      "automatizaciones",
+      "base_de_conocimiento",
+      "campos_personalizados",
+      "canales",
+      "comun",
+      "contactos",
+      "conversaciones",
+      "cupones_y_qr",
+      "dashboard_atencion",
+      "ingesta",
+      "plataforma",
+      "post_turno",
+      "recordatorios_de_turno",
+      "sucursales",
+      "tareas",
+      "usuarios"
+    ]
+  },
+  "soloClinica": [
+    "agenda_clinica",
+    "post_turno",
+    "recordatorios_de_turno"
+  ],
+  "activables": [
+    "servicios"
+  ],
+  "sinRutas": [
+    "financiacion",
+    "permutas",
+    "recordatorios_de_turno"
+  ],
+  "combinaciones": [
+    {
+      "edicion": "COMPLETA",
+      "rubro": "AUTOMOTORA",
+      "activados": [],
+      "modulos": [
+        "agenda",
+        "agente_interno",
+        "agentes",
+        "automatizaciones",
+        "base_de_conocimiento",
+        "campos_personalizados",
+        "canales",
+        "comun",
+        "contactos",
+        "conversaciones",
+        "cotizaciones",
+        "cupones_y_qr",
+        "dashboard_atencion",
+        "dashboard_comercial",
+        "empresas",
+        "entregas",
+        "financiacion",
+        "ingesta",
+        "oportunidades",
+        "pagos",
+        "permutas",
+        "plataforma",
+        "procesos_de_venta",
+        "stock",
+        "sucursales",
+        "tareas",
+        "usuarios"
+      ]
+    },
+    {
+      "edicion": "COMPLETA",
+      "rubro": "AUTOMOTORA",
+      "activados": [
+        "servicios"
+      ],
+      "modulos": [
+        "agenda",
+        "agente_interno",
+        "agentes",
+        "automatizaciones",
+        "base_de_conocimiento",
+        "campos_personalizados",
+        "canales",
+        "comun",
+        "contactos",
+        "conversaciones",
+        "cotizaciones",
+        "cupones_y_qr",
+        "dashboard_atencion",
+        "dashboard_comercial",
+        "empresas",
+        "entregas",
+        "financiacion",
+        "ingesta",
+        "oportunidades",
+        "pagos",
+        "permutas",
+        "plataforma",
+        "procesos_de_venta",
+        "servicios",
+        "stock",
+        "sucursales",
+        "tareas",
+        "usuarios"
+      ]
+    },
+    {
+      "edicion": "COMPLETA",
+      "rubro": "CLINICA",
+      "activados": [],
+      "modulos": [
+        "agenda",
+        "agenda_clinica",
+        "agente_interno",
+        "agentes",
+        "automatizaciones",
+        "base_de_conocimiento",
+        "campos_personalizados",
+        "canales",
+        "comun",
+        "contactos",
+        "conversaciones",
+        "cupones_y_qr",
+        "dashboard_atencion",
+        "ingesta",
+        "plataforma",
+        "post_turno",
+        "recordatorios_de_turno",
+        "sucursales",
+        "tareas",
+        "usuarios"
+      ]
+    },
+    {
+      "edicion": "COMPLETA",
+      "rubro": "CLINICA",
+      "activados": [
+        "servicios"
+      ],
+      "modulos": [
+        "agenda",
+        "agenda_clinica",
+        "agente_interno",
+        "agentes",
+        "automatizaciones",
+        "base_de_conocimiento",
+        "campos_personalizados",
+        "canales",
+        "comun",
+        "contactos",
+        "conversaciones",
+        "cupones_y_qr",
+        "dashboard_atencion",
+        "ingesta",
+        "plataforma",
+        "post_turno",
+        "recordatorios_de_turno",
+        "sucursales",
+        "tareas",
+        "usuarios"
+      ]
+    },
+    {
+      "edicion": "ESENCIAL",
+      "rubro": "AUTOMOTORA",
+      "activados": [],
+      "modulos": [
+        "agenda",
+        "agente_interno",
+        "agentes",
+        "automatizaciones",
+        "base_de_conocimiento",
+        "campos_personalizados",
+        "canales",
+        "comun",
+        "contactos",
+        "conversaciones",
+        "cupones_y_qr",
+        "dashboard_atencion",
+        "ingesta",
+        "oportunidades",
+        "plataforma",
+        "stock",
+        "sucursales",
+        "tareas",
+        "usuarios"
+      ]
+    },
+    {
+      "edicion": "ESENCIAL",
+      "rubro": "AUTOMOTORA",
+      "activados": [
+        "servicios"
+      ],
+      "modulos": [
+        "agenda",
+        "agente_interno",
+        "agentes",
+        "automatizaciones",
+        "base_de_conocimiento",
+        "campos_personalizados",
+        "canales",
+        "comun",
+        "contactos",
+        "conversaciones",
+        "cupones_y_qr",
+        "dashboard_atencion",
+        "ingesta",
+        "oportunidades",
+        "plataforma",
+        "servicios",
+        "stock",
+        "sucursales",
+        "tareas",
+        "usuarios"
+      ]
+    },
+    {
+      "edicion": "ESENCIAL",
+      "rubro": "CLINICA",
+      "activados": [],
+      "modulos": [
+        "agenda",
+        "agenda_clinica",
+        "agente_interno",
+        "agentes",
+        "automatizaciones",
+        "base_de_conocimiento",
+        "campos_personalizados",
+        "canales",
+        "comun",
+        "contactos",
+        "conversaciones",
+        "cupones_y_qr",
+        "dashboard_atencion",
+        "ingesta",
+        "plataforma",
+        "post_turno",
+        "recordatorios_de_turno",
+        "sucursales",
+        "tareas",
+        "usuarios"
+      ]
+    },
+    {
+      "edicion": "ESENCIAL",
+      "rubro": "CLINICA",
+      "activados": [
+        "servicios"
+      ],
+      "modulos": [
+        "agenda",
+        "agenda_clinica",
+        "agente_interno",
+        "agentes",
+        "automatizaciones",
+        "base_de_conocimiento",
+        "campos_personalizados",
+        "canales",
+        "comun",
+        "contactos",
+        "conversaciones",
+        "cupones_y_qr",
+        "dashboard_atencion",
+        "ingesta",
+        "plataforma",
+        "post_turno",
+        "recordatorios_de_turno",
+        "sucursales",
+        "tareas",
+        "usuarios"
+      ]
+    }
+  ],
+  "motivoDeExclusion": {
+    "agenda": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "agenda_clinica": {
+      "AUTOMOTORA": "RUBRO",
+      "CLINICA": "EDICION"
+    },
+    "agente_interno": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "agentes": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "automatizaciones": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "base_de_conocimiento": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "campos_personalizados": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "canales": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "comun": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "contactos": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "conversaciones": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "cotizaciones": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "cupones_y_qr": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "dashboard_atencion": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "dashboard_comercial": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "empresas": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "entregas": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "financiacion": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "ingesta": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "oportunidades": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "pagos": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "permutas": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "plataforma": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "post_turno": {
+      "AUTOMOTORA": "RUBRO",
+      "CLINICA": "EDICION"
+    },
+    "procesos_de_venta": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "recordatorios_de_turno": {
+      "AUTOMOTORA": "RUBRO",
+      "CLINICA": "EDICION"
+    },
+    "servicios": {
+      "AUTOMOTORA": "NO_ACTIVADO",
+      "CLINICA": "RUBRO"
+    },
+    "stock": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "RUBRO"
+    },
+    "sucursales": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "tareas": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    },
+    "usuarios": {
+      "AUTOMOTORA": "EDICION",
+      "CLINICA": "EDICION"
+    }
+  },
+  "rutasPorModulo": {
+    "agenda": [
+      "GET /api/integrations/google-calendar/estado",
+      "GET /api/branches/:branchId/google-calendar",
+      "POST /api/branches/:branchId/google-calendar/connect",
+      "DELETE /api/branches/:branchId/google-calendar",
+      "GET /api/resources",
+      "POST /api/resources",
+      "GET /api/resources/:id",
+      "PATCH /api/resources/:id",
+      "DELETE /api/resources/:id",
+      "GET /api/resources/:resourceId/working-hours",
+      "PUT /api/resources/:resourceId/working-hours",
+      "GET /api/service-types",
+      "POST /api/service-types",
+      "GET /api/service-types/:id",
+      "PATCH /api/service-types/:id",
+      "DELETE /api/service-types/:id",
+      "GET /api/availability",
+      "GET /api/bookings",
+      "POST /api/bookings",
+      "GET /api/bookings/:id",
+      "PATCH /api/bookings/:id/cancel"
+    ],
+    "agenda_clinica": [
+      "GET /api/clinica/prestaciones",
+      "GET /api/clinica/prestaciones/:serviceTypeId/profesionales",
+      "PUT /api/clinica/prestaciones/:serviceTypeId/profesionales",
+      "GET /api/clinica/disponibilidad",
+      "POST /api/clinica/turnos",
+      "GET /api/clinica/profesionales/:resourceId/bloqueos",
+      "POST /api/clinica/profesionales/:resourceId/bloqueos",
+      "DELETE /api/clinica/bloqueos/:id",
+      "PUT /api/clinica/profesionales/:resourceId/sobreturnos",
+      "GET /api/branches/:branchId/google-calendar/calendars",
+      "PUT /api/clinica/profesionales/:resourceId/google-calendar",
+      "PATCH /api/bookings/:id/reschedule",
+      "GET /api/clinica/profesionales/:resourceId/turnos-futuros",
+      "PATCH /api/bookings/:id/attended",
+      "PATCH /api/bookings/:id/no-show",
+      "GET /api/clinica/sedes/:branchId/configuracion",
+      "PUT /api/clinica/sedes/:branchId/configuracion",
+      "GET /api/clinica/mensajes-de-salud",
+      "PUT /api/clinica/mensajes-de-salud",
+      "GET /api/clinica/mensajes-de-salud/historial"
+    ],
+    "agente_interno": [
+      "GET /api/internal-agent",
+      "PUT /api/internal-agent",
+      "GET /api/internal-agent/messages",
+      "POST /api/internal-agent/messages"
+    ],
+    "agentes": [
+      "GET /api/agents",
+      "POST /api/agents",
+      "POST /api/agents/guardrails/translate",
+      "GET /api/agents/:id",
+      "PATCH /api/agents/:id",
+      "DELETE /api/agents/:id",
+      "POST /api/agents/:id/test-message",
+      "GET /api/agents/:id/embed-tokens",
+      "POST /api/agents/:id/embed-tokens",
+      "DELETE /api/agents/:id/embed-tokens/:tokenId"
+    ],
+    "automatizaciones": [
+      "GET /api/automations",
+      "POST /api/automations",
+      "GET /api/automations/:id",
+      "PATCH /api/automations/:id",
+      "DELETE /api/automations/:id",
+      "POST /api/automations/:id/whatsapp-approval/refresh",
+      "POST /api/automations/:id/whatsapp-approval/retry"
+    ],
+    "base_de_conocimiento": [
+      "GET /api/knowledge-base",
+      "POST /api/knowledge-base",
+      "POST /api/knowledge-base/extract-text",
+      "GET /api/knowledge-base/:id",
+      "PATCH /api/knowledge-base/:id",
+      "DELETE /api/knowledge-base/:id"
+    ],
+    "campos_personalizados": [
+      "GET /api/contact-custom-fields",
+      "POST /api/contact-custom-fields",
+      "GET /api/contact-custom-fields/:id",
+      "PATCH /api/contact-custom-fields/:id",
+      "DELETE /api/contact-custom-fields/:id",
+      "GET /api/contact-custom-fields/:id/option-usage"
+    ],
+    "canales": [
+      "GET /api/integrations/meta"
+    ],
+    "comun": [
+      "GET /api/me",
+      "GET /api/organization",
+      "PATCH /api/organization",
+      "POST /api/help-assistant/questions",
+      "PATCH /api/help-assistant/questions/:id/feedback"
+    ],
+    "contactos": [
+      "GET /api/contacts",
+      "POST /api/contacts",
+      "GET /api/contacts/:id",
+      "PATCH /api/contacts/:id",
+      "DELETE /api/contacts/:id",
+      "POST /api/contacts/:id/descartar",
+      "POST /api/contacts/:id/erase-personal-data",
+      "GET /api/contacts/:id/erase-preview",
+      "GET /api/contacts/:id/merge-preview",
+      "POST /api/contacts/:id/merge"
+    ],
+    "conversaciones": [
+      "GET /api/conversations",
+      "GET /api/conversations/pendientes/count",
+      "GET /api/conversations/:id",
+      "PATCH /api/conversations/:id",
+      "POST /api/conversations/:id/close",
+      "POST /api/conversations/:id/generate-brief",
+      "POST /api/conversations/:id/messages",
+      "POST /api/conversations/:id/messages/:messageId/retry",
+      "POST /api/conversations/:id/return-to-agent"
+    ],
+    "cotizaciones": [
+      "GET /api/quotes",
+      "POST /api/quotes",
+      "GET /api/quotes/:id",
+      "PATCH /api/quotes/:id"
+    ],
+    "cupones_y_qr": [
+      "GET /api/qr",
+      "POST /api/qr/digital",
+      "GET /api/qr/next-display-number",
+      "PATCH /api/qr/:id",
+      "DELETE /api/qr/:id",
+      "POST /api/vouchers",
+      "POST /api/vouchers/:id/redeem",
+      "GET /api/vouchers/:id/whatsapp",
+      "POST /api/vouchers/:id/whatsapp",
+      "GET /api/contacts/:id/vouchers"
+    ],
+    "dashboard_atencion": [
+      "GET /api/dashboard/atencion"
+    ],
+    "dashboard_comercial": [
+      "GET /api/opportunities/dashboard-summary",
+      "GET /api/opportunities/revenue-series",
+      "GET /api/opportunities/stage-counts"
+    ],
+    "empresas": [
+      "GET /api/companies",
+      "POST /api/companies",
+      "GET /api/companies/:id",
+      "PATCH /api/companies/:id",
+      "DELETE /api/companies/:id"
+    ],
+    "entregas": [
+      "GET /api/deliveries",
+      "GET /api/deliveries/:id",
+      "PATCH /api/deliveries/:id"
+    ],
+    "financiacion": [],
+    "ingesta": [
+      "GET /api/sources",
+      "POST /api/sources",
+      "GET /api/sources/:id",
+      "PATCH /api/sources/:id",
+      "DELETE /api/sources/:id",
+      "GET /api/api-keys",
+      "POST /api/api-keys",
+      "DELETE /api/api-keys/:id",
+      "POST /api/imports",
+      "POST /api/imports/preview",
+      "GET /api/imports/:batchId",
+      "GET /api/ingestion-events",
+      "GET /api/ingestion-events/fallidos",
+      "POST /api/ingestion-events/:id/retry"
+    ],
+    "oportunidades": [
+      "GET /api/opportunities",
+      "POST /api/opportunities",
+      "GET /api/opportunities/:id",
+      "PATCH /api/opportunities/:id",
+      "DELETE /api/opportunities/:id"
+    ],
+    "pagos": [
+      "GET /api/payments",
+      "GET /api/payments/changes",
+      "POST /api/payments",
+      "GET /api/payments/:id",
+      "PATCH /api/payments/:id",
+      "DELETE /api/payments/:id"
+    ],
+    "permutas": [],
+    "plataforma": [
+      "GET /api/admin/organizations",
+      "POST /api/admin/organizations",
+      "GET /api/admin/organizations/editions",
+      "PATCH /api/admin/organizations/:organizationId/edition",
+      "PATCH /api/admin/organizations/:organizationId/help-assistant",
+      "GET /api/admin/help-assistant/questions",
+      "GET /api/admin/organizations/industries",
+      "PATCH /api/admin/organizations/:organizationId/industry",
+      "PUT /api/admin/organizations/:organizationId/modulos/:modulo",
+      "DELETE /api/admin/organizations/:organizationId/modulos/:modulo",
+      "GET /api/admin/organizations/:organizationId/modulos/:modulo/previa",
+      "POST /api/admin/organizations/clinica-demo",
+      "POST /api/admin/organizations/taller-demo",
+      "POST /api/admin/organizations/:organizationId/demo/reiniciar",
+      "GET /api/admin/organizations/:organizationId/demo/reinicio",
+      "POST /api/admin/organizations/:organizationId/admin-invitation/resend",
+      "GET /api/admin/llm-usage",
+      "GET /api/admin/whatsapp-token",
+      "PUT /api/admin/agents/:agentId/facebook-page",
+      "PUT /api/admin/agents/:agentId/model",
+      "PUT /api/admin/agents/:agentId/whatsapp-phone-number",
+      "PUT /api/admin/organizations/:organizationId/internal-agent/model",
+      "GET /api/admin/organizations/:organizationId/agents",
+      "GET /api/admin/organizations/:organizationId/whatsapp-business",
+      "PUT /api/admin/organizations/:organizationId/whatsapp-business",
+      "DELETE /api/admin/organizations/:organizationId/whatsapp-business",
+      "GET /api/admin/organizations/:organizationId/integrations/meta",
+      "DELETE /api/admin/organizations/:organizationId/integrations/meta",
+      "POST /api/admin/organizations/:organizationId/integrations/meta/connect",
+      "POST /api/admin/organizations/:organizationId/integrations/meta/complete",
+      "GET /api/admin/organizations/:organizationId/imports",
+      "POST /api/admin/organizations/:organizationId/imports",
+      "GET /api/admin/organizations/:organizationId/imports/options",
+      "POST /api/admin/organizations/:organizationId/imports/sheets",
+      "GET /api/admin/organizations/:organizationId/imports/syncs",
+      "DELETE /api/admin/organizations/:organizationId/imports/syncs/:syncId",
+      "POST /api/admin/organizations/:organizationId/imports/syncs/:syncId/pause",
+      "POST /api/admin/organizations/:organizationId/imports/syncs/:syncId/resume",
+      "GET /api/admin/organizations/:organizationId/imports/:batchId",
+      "POST /api/admin/organizations/:organizationId/imports/:batchId/cancel",
+      "GET /api/admin/organizations/:organizationId/imports/:batchId/changes.csv",
+      "PUT /api/admin/organizations/:organizationId/imports/:batchId/config",
+      "POST /api/admin/organizations/:organizationId/imports/:batchId/confirm",
+      "GET /api/admin/organizations/:organizationId/imports/:batchId/failed.csv",
+      "GET /api/admin/organizations/:organizationId/imports/:batchId/photos.csv",
+      "GET /api/admin/organizations/:organizationId/imports/:batchId/rows",
+      "PATCH /api/admin/organizations/:organizationId/imports/:batchId/rows",
+      "POST /api/admin/organizations/:organizationId/imports/:batchId/undo"
+    ],
+    "post_turno": [
+      "PUT /api/clinica/prestaciones/:serviceTypeId/control"
+    ],
+    "procesos_de_venta": [
+      "GET /api/pipelines",
+      "POST /api/pipelines",
+      "GET /api/pipelines/:id",
+      "PATCH /api/pipelines/:id",
+      "DELETE /api/pipelines/:id",
+      "GET /api/stages",
+      "POST /api/stages",
+      "GET /api/stages/:id",
+      "PATCH /api/stages/:id",
+      "DELETE /api/stages/:id"
+    ],
+    "recordatorios_de_turno": [],
+    "servicios": [
+      "GET /api/servicios/configuracion",
+      "GET /api/servicios/dashboard",
+      "GET /api/servicios/recambios",
+      "POST /api/servicios/recambios/avisos",
+      "POST /api/servicios/vehiculos/:id/avisos",
+      "GET /api/servicios/vehiculos",
+      "POST /api/servicios/vehiculos",
+      "GET /api/servicios/vehiculos/:id",
+      "PATCH /api/servicios/vehiculos/:id",
+      "DELETE /api/servicios/vehiculos/:id",
+      "GET /api/servicios/vehiculos/:id/ordenes",
+      "POST /api/servicios/vehiculos/:id/dueno",
+      "PUT /api/servicios/configuracion",
+      "GET /api/servicios/tipos",
+      "POST /api/servicios/tipos",
+      "PATCH /api/servicios/tipos/:id",
+      "DELETE /api/servicios/tipos/:id",
+      "GET /api/servicios/ordenes",
+      "POST /api/servicios/ordenes",
+      "GET /api/servicios/ordenes/:id",
+      "PATCH /api/servicios/ordenes/:id",
+      "POST /api/servicios/ordenes/:id/estado",
+      "POST /api/servicios/ordenes/:id/aprobaciones",
+      "GET /api/servicios/ordenes/:id/avisos",
+      "POST /api/servicios/ordenes/:id/avisos",
+      "GET /api/servicios/usuarios",
+      "GET /api/servicios/turnos"
+    ],
+    "stock": [
+      "POST /api/knowledge-base/sync-vehicles",
+      "GET /api/vehicles",
+      "GET /api/vehicles/summary",
+      "POST /api/vehicles",
+      "GET /api/vehicles/:id",
+      "PATCH /api/vehicles/:id",
+      "DELETE /api/vehicles/:id",
+      "GET /api/vehicles/:id/change-log",
+      "POST /api/vehicles/:id/photos",
+      "PUT /api/vehicles/:id/photos/reorder",
+      "PATCH /api/vehicles/:id/photos/:photoId",
+      "DELETE /api/vehicles/:id/photos/:photoId"
+    ],
+    "sucursales": [
+      "GET /api/branches",
+      "POST /api/branches",
+      "GET /api/branches/:id",
+      "PATCH /api/branches/:id",
+      "DELETE /api/branches/:id",
+      "GET /api/branches/:id/business-hours",
+      "PATCH /api/branches/:id/business-hours"
+    ],
+    "tareas": [
+      "GET /api/activities",
+      "POST /api/activities",
+      "GET /api/activities/:id",
+      "PATCH /api/activities/:id",
+      "DELETE /api/activities/:id",
+      "GET /api/envios-que-no-salieron"
+    ],
+    "usuarios": [
+      "GET /api/users",
+      "PATCH /api/users/:id",
+      "DELETE /api/users/:id",
+      "GET /api/invitations",
+      "POST /api/invitations",
+      "DELETE /api/invitations/:id",
+      "POST /api/invitations/:id/resend"
+    ]
+  },
+  "rutasPublicas": [
+    "GET /health",
+    "GET /webhooks/whatsapp",
+    "POST /webhooks/whatsapp",
+    "GET /webhooks/meta",
+    "POST /webhooks/meta",
+    "POST /api/webhooks/google-calendar",
+    "POST /api/ingest",
+    "POST /api/public/agents/:agentId/web/messages",
+    "POST /api/public/agents/:agentId/web/thread",
+    "GET /api/integrations/google-calendar/callback",
+    "GET /api/integrations/meta/callback",
+    "GET /qr/resolve/:qrId",
+    "GET /qr-images/:tipo/:archivo",
+    "GET /vouchers/resolve/:id",
+    "POST /api/onboarding",
+    "POST /api/onboarding/otp",
+    "POST /api/invitations/accept"
+  ],
+  "camposPorRuta": {
+    "PATCH /api/activities/:id": [
+      {
+        "campo": "companyId",
+        "modulo": "empresas"
+      },
+      {
+        "campo": "opportunityId",
+        "modulo": "oportunidades"
+      }
+    ],
+    "PATCH /api/contacts/:id": [
+      {
+        "campo": "companyId",
+        "modulo": "empresas"
+      },
+      {
+        "campo": "vehicleOfInterestId",
+        "modulo": "stock"
+      }
+    ],
+    "PATCH /api/opportunities/:id": [
+      {
+        "campo": "companyId",
+        "modulo": "empresas"
+      },
+      {
+        "campo": "financingType",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "financingLender",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "financingDownPayment",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "financingInstallmentCount",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "financingInstallmentAmount",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "pipelineId",
+        "modulo": "procesos_de_venta"
+      },
+      {
+        "campo": "stageId",
+        "modulo": "procesos_de_venta"
+      }
+    ],
+    "PATCH /api/vehicles/:id": [
+      {
+        "campo": "tradeInOpportunityId",
+        "modulo": "permutas"
+      }
+    ],
+    "POST /api/activities": [
+      {
+        "campo": "companyId",
+        "modulo": "empresas"
+      },
+      {
+        "campo": "opportunityId",
+        "modulo": "oportunidades"
+      }
+    ],
+    "POST /api/bookings": [
+      {
+        "campo": "opportunityId",
+        "modulo": "oportunidades"
+      }
+    ],
+    "POST /api/contacts": [
+      {
+        "campo": "companyId",
+        "modulo": "empresas"
+      }
+    ],
+    "POST /api/opportunities": [
+      {
+        "campo": "companyId",
+        "modulo": "empresas"
+      },
+      {
+        "campo": "financingType",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "financingLender",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "financingDownPayment",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "financingInstallmentCount",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "financingInstallmentAmount",
+        "modulo": "financiacion"
+      },
+      {
+        "campo": "pipelineId",
+        "modulo": "procesos_de_venta"
+      },
+      {
+        "campo": "stageId",
+        "modulo": "procesos_de_venta"
+      }
+    ],
+    "POST /api/vehicles": [
+      {
+        "campo": "tradeInOpportunityId",
+        "modulo": "permutas"
+      }
+    ]
+  },
+  "moduloDeLaTool": {
+    "create_booking": "agenda",
+    "create_lead": "contactos",
+    "create_opportunity": "oportunidades",
+    "get_availability": "agenda",
+    "get_contact_activities": "tareas",
+    "get_contact_info": "contactos",
+    "get_payment_info": "sucursales",
+    "get_service_types": "agenda",
+    "mark_no_interest": "contactos",
+    "reserve_vehicle": "stock",
+    "search_vehicles": "stock",
+    "update_contact_custom_fields": "campos_personalizados",
+    "update_lead": "contactos",
+    "update_opportunity": "oportunidades"
+  },
+  "moduloDeLaToolDeClinica": {
+    "cancel_booking": "agenda_clinica",
+    "get_contact_bookings": "agenda_clinica",
+    "reschedule_booking": "agenda_clinica"
+  },
+  "toolsPorRubro": {
+    "cancel_booking": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "create_booking": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "create_lead": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "create_opportunity": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": false,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": false
+    },
+    "get_availability": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "get_contact_activities": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "get_contact_bookings": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "get_contact_info": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "get_payment_info": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": false,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": false
+    },
+    "get_service_types": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "mark_no_interest": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "reschedule_booking": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "reserve_vehicle": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": false,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": false
+    },
+    "search_vehicles": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": false,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": false
+    },
+    "update_contact_custom_fields": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "update_lead": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": true,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": true
+    },
+    "update_opportunity": {
+      "COMPLETA/AUTOMOTORA": true,
+      "COMPLETA/CLINICA": false,
+      "ESENCIAL/AUTOMOTORA": true,
+      "ESENCIAL/CLINICA": false
+    }
+  },
+  "rolesPorRubro": {
+    "AUTOMOTORA": [
+      "ADMIN",
+      "USER"
+    ],
+    "CLINICA": [
+      "ADMIN",
+      "RECEPCION"
+    ]
+  }
+}

@@ -1,0 +1,1670 @@
+[
+  {
+    "ruta": "POST /api/public/agents/:agentId/web/messages",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/public/agents/:agentId/web/thread",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/ingest",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "GET /webhooks/whatsapp",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "POST /webhooks/whatsapp",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "GET /webhooks/meta",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "POST /webhooks/meta",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "GET /health",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/onboarding/otp",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/onboarding",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/me",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/companies",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/companies/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/companies",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/companies/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/companies/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/contacts",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/contacts/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/contacts",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/contacts/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "DELETE /api/contacts/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/contacts/:id/descartar",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/contacts/:id/erase-personal-data",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/contacts/:id/erase-preview",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/contacts/:id/merge-preview",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/contacts/:id/merge",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/pipelines",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/pipelines/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/pipelines",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/pipelines/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/pipelines/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/stages",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/stages/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/stages",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/stages/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/stages/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/opportunities",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/opportunities/dashboard-summary",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/opportunities/revenue-series",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/opportunities/stage-counts",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/opportunities/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/opportunities",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/opportunities/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "DELETE /api/opportunities/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/dashboard/atencion",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/quotes",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/quotes/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/quotes",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "USER"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/quotes/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "USER"
+    ]
+  },
+  {
+    "ruta": "GET /api/deliveries",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/deliveries/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/deliveries/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/payments",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/payments/changes",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/payments/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/payments",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "USER"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/payments/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "USER"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/payments/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/activities",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/activities/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/activities",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/activities/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "DELETE /api/activities/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/invitations",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/invitations",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/invitations/:id/resend",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/invitations/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/invitations/accept",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/users",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/users/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/users/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/sources",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/sources/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/sources",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/sources/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/sources/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/api-keys",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/api-keys",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/api-keys/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/imports",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/imports/preview",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/imports/:batchId",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/branches",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/branches/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/branches",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/branches/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/branches/:id/business-hours",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/branches/:id/business-hours",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/branches/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/resources",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/resources/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/resources",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/resources/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/resources/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/service-types",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/service-types/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/service-types",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/service-types/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/service-types/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/clinica/prestaciones",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/clinica/prestaciones/:serviceTypeId/profesionales",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/clinica/prestaciones/:serviceTypeId/profesionales",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/clinica/disponibilidad",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/clinica/turnos",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/clinica/profesionales/:resourceId/bloqueos",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "RECEPCION"
+    ]
+  },
+  {
+    "ruta": "POST /api/clinica/profesionales/:resourceId/bloqueos",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "RECEPCION"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/clinica/bloqueos/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "RECEPCION"
+    ]
+  },
+  {
+    "ruta": "PUT /api/clinica/profesionales/:resourceId/sobreturnos",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/branches/:branchId/google-calendar/calendars",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PUT /api/clinica/profesionales/:resourceId/google-calendar",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/bookings/:id/reschedule",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "RECEPCION"
+    ]
+  },
+  {
+    "ruta": "GET /api/clinica/profesionales/:resourceId/turnos-futuros",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/bookings/:id/attended",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "RECEPCION"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/bookings/:id/no-show",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "RECEPCION"
+    ]
+  },
+  {
+    "ruta": "GET /api/clinica/sedes/:branchId/configuracion",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PUT /api/clinica/sedes/:branchId/configuracion",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PUT /api/clinica/prestaciones/:serviceTypeId/control",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/clinica/mensajes-de-salud",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PUT /api/clinica/mensajes-de-salud",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/clinica/mensajes-de-salud/historial",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/servicios/configuracion",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/servicios/configuracion",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/servicios/tipos",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/servicios/tipos",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/servicios/tipos/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/servicios/tipos/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/servicios/ordenes",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/servicios/turnos",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/servicios/ordenes",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/servicios/ordenes/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/servicios/ordenes/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/servicios/ordenes/:id/estado",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/servicios/ordenes/:id/aprobaciones",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/servicios/ordenes/:id/avisos",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/servicios/ordenes/:id/avisos",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/servicios/usuarios",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/servicios/recambios",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/servicios/recambios/avisos",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/servicios/vehiculos/:id/avisos",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/servicios/dashboard",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/servicios/vehiculos",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/servicios/vehiculos",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/servicios/vehiculos/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/servicios/vehiculos/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "DELETE /api/servicios/vehiculos/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/servicios/vehiculos/:id/ordenes",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/servicios/vehiculos/:id/dueno",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/contact-custom-fields",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/contact-custom-fields/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/contact-custom-fields/:id/option-usage",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/contact-custom-fields",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/contact-custom-fields/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/contact-custom-fields/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/agents",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/agents/guardrails/translate",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/agents/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/agents",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/agents/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/agents/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/agents/:id/test-message",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/agents/:id/embed-tokens",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/agents/:id/embed-tokens",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/agents/:id/embed-tokens/:tokenId",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/knowledge-base",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/knowledge-base/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/knowledge-base",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/knowledge-base/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/knowledge-base/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/knowledge-base/extract-text",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/knowledge-base/sync-vehicles",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/conversations",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/conversations/pendientes/count",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/conversations/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/conversations/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/conversations/:id/generate-brief",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/conversations/:id/close",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/conversations/:id/messages",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/conversations/:id/messages/:messageId/retry",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/conversations/:id/return-to-agent",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/internal-agent/messages",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/internal-agent/messages",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/internal-agent",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PUT /api/internal-agent",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/help-assistant/questions",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/help-assistant/questions/:id/feedback",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/help-assistant/questions",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/automations",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/automations/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/automations",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/automations/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/automations/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/automations/:id/whatsapp-approval/refresh",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/automations/:id/whatsapp-approval/retry",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/integrations/google-calendar/estado",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/branches/:branchId/google-calendar",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/branches/:branchId/google-calendar/connect",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/branches/:branchId/google-calendar",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/integrations/google-calendar/callback",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/webhooks/google-calendar",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/integrations/meta",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/integrations/meta",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/integrations/meta/connect",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/integrations/meta/complete",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "DELETE /api/admin/organizations/:organizationId/integrations/meta",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/integrations/meta/callback",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/resources/:resourceId/working-hours",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/resources/:resourceId/working-hours",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/availability",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/bookings",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/bookings/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/bookings",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/bookings/:id/cancel",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/ingestion-events",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/ingestion-events/fallidos",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/ingestion-events/:id/retry",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/envios-que-no-salieron",
+    "autenticada": true,
+    "roles": [
+      "ADMIN",
+      "RECEPCION"
+    ]
+  },
+  {
+    "ruta": "GET /qr/resolve/:qrId",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/qr",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/qr/next-display-number",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/qr/digital",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/qr/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/qr/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /qr-images/:tipo/:archivo",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "GET /vouchers/resolve/:id",
+    "autenticada": false,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/vouchers/:id/redeem",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/vouchers",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/contacts/:id/vouchers",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/vouchers/:id/whatsapp",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/vouchers/:id/whatsapp",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/vehicles",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/vehicles/summary",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/vehicles/:id",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/vehicles/:id/change-log",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/vehicles",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/vehicles/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/vehicles/:id",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/vehicles/:id/photos",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PUT /api/vehicles/:id/photos/reorder",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "PATCH /api/vehicles/:id/photos/:photoId",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "DELETE /api/vehicles/:id/photos/:photoId",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "GET /api/organization",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/organization",
+    "autenticada": true,
+    "roles": [
+      "ADMIN"
+    ]
+  },
+  {
+    "ruta": "POST /api/admin/organizations",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/clinica-demo",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/taller-demo",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/demo/reiniciar",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/demo/reinicio",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/editions",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/admin/organizations/:organizationId/edition",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/admin/organizations/:organizationId/help-assistant",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/admin/organizations/:organizationId/modulos/:modulo",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "DELETE /api/admin/organizations/:organizationId/modulos/:modulo",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/modulos/:modulo/previa",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/industries",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/admin/organizations/:organizationId/industry",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/admin-invitation/resend",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/whatsapp-token",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/llm-usage",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/admin/agents/:agentId/whatsapp-phone-number",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/admin/agents/:agentId/facebook-page",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/admin/agents/:agentId/model",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/admin/organizations/:organizationId/internal-agent/model",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/agents",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/whatsapp-business",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/admin/organizations/:organizationId/whatsapp-business",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "DELETE /api/admin/organizations/:organizationId/whatsapp-business",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/imports/options",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/imports",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/imports/sheets",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/imports",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/imports/syncs",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/imports/syncs/:syncId/pause",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/imports/syncs/:syncId/resume",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "DELETE /api/admin/organizations/:organizationId/imports/syncs/:syncId",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/imports/:batchId",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PUT /api/admin/organizations/:organizationId/imports/:batchId/config",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/imports/:batchId/rows",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "PATCH /api/admin/organizations/:organizationId/imports/:batchId/rows",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/imports/:batchId/confirm",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/imports/:batchId/cancel",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "POST /api/admin/organizations/:organizationId/imports/:batchId/undo",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/imports/:batchId/failed.csv",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/imports/:batchId/changes.csv",
+    "autenticada": true,
+    "roles": null
+  },
+  {
+    "ruta": "GET /api/admin/organizations/:organizationId/imports/:batchId/photos.csv",
+    "autenticada": true,
+    "roles": null
+  }
+]
