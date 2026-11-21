@@ -185,7 +185,9 @@ export function leerRecordatorioParaEnviar(id: string, organizationId: string, d
           branch: { select: { name: true, timezone: true, deletedAt: true } },
         },
       },
-      organization: { select: { name: true } },
+      organization: {
+        select: { name: true, clinicSettings: { select: { contactTerm: true } } },
+      },
     },
   });
 }

@@ -38,6 +38,7 @@ import {
   parametrosDePlantilla,
 } from "../../utils/whatsappTemplateText";
 import { ErrorPermanenteDelSeguimiento, clasificarFallo } from "../../workers/qrFollowUpWorker";
+import { TERMINO_DEL_CONTACTO } from "../config/rubro";
 import { leerConfiguracionDeSede } from "../repositories/clinicSettings.repository";
 import { asignadoParaLaSede } from "../services/reprogramar.service";
 import { recepcionistaParaElAviso } from "../services/sedesDeUsuarios.service";
@@ -185,7 +186,11 @@ export async function motivoParaNoMandar(
 export function valoresDelRecordatorio(fila: RecordatorioParaEnviar, sedes: number) {
   const { dia, hora } = diaYHora(fila.booking.startsAt, fila.booking.branch.timezone);
   return {
-    [TOKEN_NOMBRE]: fila.contact.firstName.trim() || "paciente",
+    // Sin nombre, el término de la organización ("Hola cliente"); sin fila de
+    // configuración, el de siempre.
+    [TOKEN_NOMBRE]:
+      fila.contact.firstName.trim() ||
+      TERMINO_DEL_CONTACTO[fila.organization.clinicSettings?.contactTerm ?? "PACIENTE"].singular,
     [TOKEN_LUGAR]: lugarDelTurno(fila.organization.name, fila.booking.branch.name, sedes),
     [TOKEN_DIA]: dia,
     [TOKEN_HORA]: hora,
