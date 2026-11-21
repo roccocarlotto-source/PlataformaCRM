@@ -128,11 +128,30 @@ const TERMINACIONES_CON_TOLERANCIA: ReadonlySet<string> = new Set([
   "icas",
 ]);
 
+// Palabras del mensaje que nunca coinciden POR TOLERANCIA: son palabras
+// comunes que quedan a una letra de un término y no tienen nada que ver con él
+// (docs/primera-clinica.md §4). Si el término aparece tal cual, igual coincide.
+// Mismo formato que los términos: "quimic*" es cualquier palabra que empiece
+// así.
+//   - "quimic*": químico, química, químicos ("alisado sin químicos") quedaban
+//     a una de "quimio*".
+//   - "cortarle": cortarle el pelo o las uñas a otro quedaba a una de
+//     "cortarme". "cortarse" sigue coincidiendo a propósito: "quiere cortarse"
+//     puede ser una autolesión contada por otra persona.
+const PALABRAS_SIN_TOLERANCIA: readonly string[] = ["quimic*", "cortarle"];
+
+function esPalabraSinTolerancia(palabra: string): boolean {
+  return PALABRAS_SIN_TOLERANCIA.some((p) =>
+    p.endsWith("*") ? palabra.startsWith(p.slice(0, -1)) : p === palabra,
+  );
+}
+
 function coincidePalabra(patron: string, palabra: string): boolean {
   if (patron.endsWith("*")) {
     const raiz = patron.slice(0, -1);
     if (palabra.startsWith(raiz)) return true;
     if (raiz.length < LARGO_MINIMO_DE_RAIZ_CON_TOLERANCIA) return false;
+    if (esPalabraSinTolerancia(palabra)) return false;
     return [raiz.length - 1, raiz.length, raiz.length + 1].some((largo) => {
       const comienzo = palabra.slice(0, largo);
       if (distanciaDeEdicion(raiz, comienzo) > 1) return false;
@@ -145,6 +164,7 @@ function coincidePalabra(patron: string, palabra: string): boolean {
     });
   }
   if (patron === palabra) return true;
+  if (esPalabraSinTolerancia(palabra)) return false;
   return patron.length >= LARGO_MINIMO_CON_TOLERANCIA && distanciaDeEdicion(patron, palabra) <= 1;
 }
 

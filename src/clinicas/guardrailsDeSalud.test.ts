@@ -169,6 +169,51 @@ test("la tolerancia a un error de tipeo sigue agarrando síntomas y urgencias co
   }
 });
 
+test("las palabras sin tolerancia no coinciden por un error de tipeo, y el término exacto sigue disparando", () => {
+  for (const [frase, esperado] of [
+    // "quimic*" a una de "quimio*".
+    ["Hacen alisado sin químicos?", "NINGUNO"],
+    ["¿Usan productos con química?", "NINGUNO"],
+    ["estoy con quimio", "CLINICA"],
+    ["estoy haciendo quimioterapia", "CLINICA"],
+    // "cortarle" a una de "cortarme".
+    ["Quería cortarle el pelo a mi hijo", "NINGUNO"],
+    ["¿Le pueden cortarle las uñas a mi mamá?", "NINGUNO"],
+    ["me quiero cortarme", "URGENCIA"],
+    ["mi hija dice que quiere cortarse", "URGENCIA"],
+  ] as const) {
+    assert.equal(clasificarMensajeDeSalud(frase), esperado, frase);
+  }
+});
+
+// Frases de un centro de belleza (docs/primera-clinica.md §4) con lo que hace
+// HOY el detector, el de una clínica médica. Las que siguen disparando son
+// términos de la lista, no errores de tipeo: en un salón las resuelve el
+// perfil de salud ESTETICA (PR2 del plan), no esta lista. Si una cambia acá,
+// cambió el comportamiento de las clínicas médicas.
+test("frases de un salón: lo que hace hoy el detector de una clínica médica", () => {
+  for (const [frase, esperado] of [
+    ["Quiero una limpieza de piel", "NINGUNO"],
+    ["Quiero hacerme las uñas", "NINGUNO"],
+    ["Quiero sacar turno para depilación", "NINGUNO"],
+    ["¿Hacen color? Quiero una transformación", "NINGUNO"],
+    ["Se me cae mucho el pelo, ¿qué me sirve?", "NINGUNO"],
+    ["Hacen alisado sin químicos?", "NINGUNO"],
+    ["Quería cortarle el pelo a mi hijo", "NINGUNO"],
+    // Términos de la lista: siguen en una clínica médica.
+    ["Hola, quiero cortarme el pelo el sábado", "URGENCIA"],
+    ["¿Tienen shock de keratina?", "URGENCIA"],
+    ["Me quedaron los ojos hinchados después del lifting de pestañas", "URGENCIA"],
+    ["Quiero un masaje, tengo dolor de espalda", "CLINICA"],
+    ["¿Hacen masajes para embarazadas?", "CLINICA"],
+    ["Perdón la molestia, ¿tienen turno mañana?", "CLINICA"],
+    ["Soy alérgica a la tintura, ¿qué me recomiendan?", "CLINICA"],
+    ["Tengo manchas en la cara, ¿qué tratamiento hacen?", "CLINICA"],
+  ] as const) {
+    assert.equal(clasificarMensajeDeSalud(frase), esperado, frase);
+  }
+});
+
 test("un pedido de reprogramar con un síntoma o una urgencia adentro sigue disparando", () => {
   assert.equal(
     clasificarMensajeDeSalud(
