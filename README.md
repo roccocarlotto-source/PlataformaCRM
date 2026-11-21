@@ -34,6 +34,7 @@ En producción (backend en Render, frontend en Vercel, base y autenticación en 
 | [`docs/automations-architecture.md`](./docs/automations-architecture.md) | Motor de automatizaciones. |
 | [`docs/booking-architecture.md`](./docs/booking-architecture.md) | Agenda, turnos y Google Calendar. |
 | [`docs/rubros.md`](./docs/rubros.md) · [`docs/ediciones.md`](./docs/ediciones.md) · [`docs/servicios.md`](./docs/servicios.md) | Rubros, ediciones y módulo de taller. |
+| [`docs/ordenamiento-productos.md`](./docs/ordenamiento-productos.md) | Plan para ordenar el repo en un núcleo y dos productos (automotoras y clínicas). |
 | [`docs/data-classification.md`](./docs/data-classification.md) | Datos personales, terceros y retención. |
 | [`docs/deployment.md`](./docs/deployment.md) · [`docs/supabase-setup.md`](./docs/supabase-setup.md) | Despliegue y configuración de Supabase. |
 | [`docs/guia-de-uso/`](./docs/guia-de-uso/) | Guía de uso que se muestra dentro de la app. |
