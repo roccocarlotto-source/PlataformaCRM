@@ -9,6 +9,7 @@ import {
 import {
   TERMINOS_CLINICOS,
   TERMINOS_DE_URGENCIA,
+  TERMINOS_CLINICOS_DE_ESTETICA,
   TERMINOS_DE_URGENCIA_DE_ESTETICA,
   describirTermino,
   esTerminoDelCodigo,
@@ -26,13 +27,13 @@ import {
 } from "../repositories/clinicSettings.repository";
 
 /** Las listas del código según el perfil de salud (docs/primera-clinica.md
- *  §4): en ESTETICA, la urgencia acotada y ninguna clínica. */
+ *  §4): en ESTETICA, la urgencia acotada y la derivación de un salón. */
 function listasDelCodigo(perfil: PerfilDeSalud): {
   urgencia: readonly Termino[];
   clinicos: readonly Termino[];
 } {
   return perfil === "ESTETICA"
-    ? { urgencia: TERMINOS_DE_URGENCIA_DE_ESTETICA, clinicos: [] }
+    ? { urgencia: TERMINOS_DE_URGENCIA_DE_ESTETICA, clinicos: TERMINOS_CLINICOS_DE_ESTETICA }
     : { urgencia: TERMINOS_DE_URGENCIA, clinicos: TERMINOS_CLINICOS };
 }
 

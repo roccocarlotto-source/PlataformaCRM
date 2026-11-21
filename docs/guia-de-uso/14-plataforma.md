@@ -52,9 +52,11 @@ como urgencia o como consulta de salud:
 
 - **Clínica médica o de estética médica**: el asistente deriva cualquier
   síntoma, medicación o consulta clínica, y no da indicaciones de cuidado.
-- **Centro de belleza (peluquería, spa, estética no médica)**: solo deriva
-  las urgencias reales (no puede respirar, se desmayó, se le hinchó la cara)
-  y lo que la clínica agregue a mano. Puede dar consejos generales de
+- **Centro de belleza (peluquería, spa, estética no médica)**: trata como
+  urgencia solo las reales (no puede respirar, se desmayó, se le hinchó la
+  cara). Deriva a una persona, sin el mensaje de emergencias, la hinchazón de
+  ojos o párpados y una alergia a la tintura, el tinte, el pegamento o las
+  pestañas. Más lo que la clínica agregue a mano. Puede dar consejos generales de
   cuidado del pelo, la piel y las uñas, pero nunca medicamentos, dosis ni
   diagnósticos. Así, "quiero cortarme el pelo" o "tengo dolor de espalda"
   (para un masaje) son pedidos comunes y no una consulta de salud.

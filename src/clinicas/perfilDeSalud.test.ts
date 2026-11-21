@@ -13,6 +13,7 @@ import {
 import {
   INSTRUCCION_SALUD,
   INSTRUCCION_SALUD_DE_ESTETICA,
+  TERMINOS_CLINICOS_DE_ESTETICA,
   TERMINOS_DE_URGENCIA,
   TERMINOS_DE_URGENCIA_DE_ESTETICA,
   clasificarMensajeDeSalud,
@@ -83,17 +84,29 @@ test("la urgencia de ESTETICA es la de siempre menos exactamente lo decidido, m�
   const deSiempre = new Set(TERMINOS_DE_URGENCIA.map(clave));
   const sumados = TERMINOS_DE_URGENCIA_DE_ESTETICA.filter((t) => !deSiempre.has(clave(t)));
   assert.deepEqual(sumados, [["cortar*", "venas"]]);
+  // Lo que en ESTETICA se deriva a una persona (decisión de Rocco del
+  // 2026-11-21), en lugar de la lista clínica del código.
+  assert.deepEqual(TERMINOS_CLINICOS_DE_ESTETICA.map(clave), [
+    '["hinch*","ojo*"]',
+    '["inflam*","ojo*"]',
+    '["hinch*","parpado*"]',
+    '["inflam*","parpado*"]',
+    '["alergi*","tintura*"]',
+    '["alergi*","tinte*"]',
+    '["alergi*","pegamento*"]',
+    '["alergi*","pestan*"]',
+  ]);
 });
 
 const FRASES_DE_UN_SALON = [
   "Hola, quiero cortarme el pelo el sábado",
   "Quería cortarle el pelo a mi hijo",
   "¿Tienen shock de keratina?",
-  "Me quedaron los ojos hinchados después del lifting de pestañas",
   "Quiero un masaje, tengo dolor de espalda",
   "¿Hacen masajes para embarazadas?",
   "Perdón la molestia, ¿tienen turno mañana?",
-  "Soy alérgica a la tintura, ¿qué me recomiendan?",
+  "¿Hacen tintura sin amoníaco?",
+  "Quiero extensiones de pestañas",
   "Tengo manchas en la cara, ¿qué tratamiento hacen?",
   "Hacen alisado sin químicos?",
   "Tengo una emergencia con el color, ¿me pueden atender hoy?",
@@ -106,6 +119,32 @@ test("ESTETICA: las frases de un salón no disparan nada; en MEDICO siguen como 
   // MEDICO, sin cambios (lo fija también guardrailsDeSalud.test.ts).
   assert.equal(clasificarMensajeDeSalud("Hola, quiero cortarme el pelo el sábado"), "URGENCIA");
   assert.equal(clasificarMensajeDeSalud("Quiero un masaje, tengo dolor de espalda"), "CLINICA");
+});
+
+test("ESTETICA: la hinchazón de ojos o párpados y la alergia a la tintura, el tinte, el pegamento o las pestañas se derivan (sin el mensaje del 911)", () => {
+  for (const frase of [
+    "Me quedaron los ojos hinchados después del lifting de pestañas",
+    "Se me inflamaron los párpados con el tinte",
+    "Soy alérgica a la tintura, ¿qué me recomiendan?",
+    "Creo que tengo alergia al pegamento de las pestañas",
+    "Me dio una reacción alérgica con el tinte",
+  ]) {
+    assert.equal(clasificarMensajeDeSalud(frase, undefined, "ESTETICA"), "CLINICA", frase);
+  }
+});
+
+test("ESTETICA: el shock anafiláctico y la anafilaxia siguen siendo urgencias (sale solo 'shock' suelto)", () => {
+  for (const frase of [
+    "me dio un shock anafiláctico",
+    "tuve anafilaxia con un tinte",
+    "creo que es un shock anafilactico, se me hincha la garganta",
+  ]) {
+    assert.equal(clasificarMensajeDeSalud(frase, undefined, "ESTETICA"), "URGENCIA", frase);
+  }
+  assert.equal(
+    clasificarMensajeDeSalud("¿Tienen shock de keratina?", undefined, "ESTETICA"),
+    "NINGUNO",
+  );
 });
 
 test("ESTETICA: las urgencias reales siguen siendo urgencias", () => {

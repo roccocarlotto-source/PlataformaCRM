@@ -461,10 +461,15 @@ export const SIN_TERMINOS_DE_LA_CLINICA: TerminosDeLaClinica = { urgencia: [], c
 //     con ["cortar*", "venas"] y el resto de la sección.
 //   - "shock": "shock de keratina".
 //   - "emergencia": "tengo una emergencia con el color".
-//   - hinchazón de ojos y párpados: "ojos hinchados después del lifting de
-//     pestañas". La de cara, labios, lengua, boca y garganta (vía aérea) sigue.
-// CLINICA: la lista del código no corre; solo los términos que la clínica
-// agregó a mano. En un salón, "dolor de espalda" es un pedido de masaje.
+//   - hinchazón de ojos y párpados: no es urgencia ("ojos hinchados después
+//     del lifting de pestañas"), pero se DERIVA a una persona (abajo). La de
+//     cara, labios, lengua, boca y garganta (vía aérea) sigue como urgencia.
+//   - "anafila*" (shock anafiláctico, anafilaxia) sigue como urgencia: sale
+//     solo la palabra "shock" suelta.
+// CLINICA (derivar a una persona, sin el mensaje del 911): la lista del
+// código no corre ("dolor de espalda" es un pedido de masaje). En su lugar,
+// TERMINOS_CLINICOS_DE_ESTETICA: las reacciones más probables en un salón.
+// Más los términos que la clínica agregó a mano.
 //
 // La lista la revisa Rocco en el PR (docs/primera-clinica.md §4): es una
 // decisión de seguridad, no de estilo.
@@ -489,6 +494,18 @@ export const TERMINOS_DE_URGENCIA_DE_ESTETICA: readonly Termino[] = [
   ["cortar*", "venas"],
 ];
 
+/** Lo que en un salón se deriva a una persona (decisión de Rocco del
+ *  2026-11-21): la hinchazón de ojos o párpados, y una alergia o reacción
+ *  alérgica junto a la tintura, el tinte, el pegamento o las pestañas. Las
+ *  partes van en cualquier lugar del mensaje, como el resto de las listas. */
+export const TERMINOS_CLINICOS_DE_ESTETICA: readonly Termino[] = [
+  ...["ojo*", "parpado*"].flatMap((parte) => [
+    ["hinch*", parte] as const,
+    ["inflam*", parte] as const,
+  ]),
+  ...["tintura*", "tinte*", "pegamento*", "pestan*"].map((causa) => ["alergi*", causa] as const),
+];
+
 /** MEDICO, el de siempre, si no se indica (docs/primera-clinica.md §4). */
 export type PerfilDeSalud = "MEDICO" | "ESTETICA";
 
@@ -504,7 +521,7 @@ export function clasificarMensajeDeSalud(
   if (urgencia.some(coincide) || deLaClinica.urgencia.some(coincide)) {
     return "URGENCIA";
   }
-  const clinicos = perfil === "ESTETICA" ? [] : TERMINOS_CLINICOS;
+  const clinicos = perfil === "ESTETICA" ? TERMINOS_CLINICOS_DE_ESTETICA : TERMINOS_CLINICOS;
   if (clinicos.some(coincide) || deLaClinica.clinicos.some(coincide)) return "CLINICA";
   return "NINGUNO";
 }
