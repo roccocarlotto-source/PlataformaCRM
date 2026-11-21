@@ -4,6 +4,11 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import { readFileSync } from "node:fs";
+
+const FRONTERA = JSON.parse(
+  readFileSync(`${import.meta.dirname}/frontera-de-productos.json`, "utf8"),
+);
 
 // ---------------------------------------------------------------------------
 // ESLint del FRONTEND (React + Vite + TypeScript). El backend tiene la suya en
@@ -41,6 +46,33 @@ export default tseslint.config(
     plugins: { "react-refresh": reactRefresh },
     rules: {
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+    },
+  },
+  // Frontera de productos (docs/ordenamiento-productos.md §0.2, P2): las
+  // pantallas del núcleo no importan de features/clinica. Las dependencias de
+  // hoy están en frontera-de-productos.json, una lista que solo se achica (la
+  // vigila src/compartido/fronteraDeProductos.test.ts, en el backend). Cuando
+  // exista features/automotora (P9), se suma acá.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/features/clinica/**",
+      "src/**/*.test.{ts,tsx}",
+      ...FRONTERA.nucleoQueImportaProductos,
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "(^|/)clinica/",
+              message:
+                "El núcleo no importa de un producto (docs/ordenamiento-productos.md §0.2). Usá un punto de registro.",
+            },
+          ],
+        },
+      ],
     },
   },
   // Scripts de Node que no son parte del bundle (check-mobile-overflow). Con

@@ -1,0 +1,14 @@
+{
+  "nota": "Excepciones de la regla de ESLint de la frontera de productos (docs/ordenamiento-productos.md §0.2 y P2). Esta lista solo se achica: cada PR que saca una dependencia borra su archivo de acá. src/compartido/fronteraDeProductos.test.ts falla si un archivo de la lista ya no la necesita, y si la lista crece.",
+  "nucleoQueImportaProductos": [
+    "src/app/router.tsx",
+    "src/features/booking/BookingCalendarPage.tsx",
+    "src/features/booking/BookingListPage.tsx",
+    "src/features/booking/format.ts",
+    "src/features/branch/BranchFormPage.tsx",
+    "src/features/conversation/ConversationListPage.tsx",
+    "src/features/invitation/InvitationFormPage.tsx",
+    "src/features/user/UserListPage.tsx",
+    "src/layout/AppLayout.tsx"
+  ]
+}
