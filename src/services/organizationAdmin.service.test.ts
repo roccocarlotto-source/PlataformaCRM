@@ -40,6 +40,8 @@ interface Registro {
   usersCreated: Record<string, unknown>[];
   procesosFijos: string[];
   configuracionesDeClinica: string[];
+  // docs/primera-clinica.md §4: el perfil con que se creó cada una (null = sin perfil, MEDICO).
+  perfilesDeClinica: (string | null)[];
 }
 
 interface Escenario {
@@ -70,6 +72,7 @@ function armar(opciones: Opciones = {}): Escenario {
     usersCreated: [],
     procesosFijos: [],
     configuracionesDeClinica: [],
+    perfilesDeClinica: [],
   };
 
   const supabaseAdmin = {
@@ -114,8 +117,9 @@ function armar(opciones: Opciones = {}): Escenario {
       return { id: "pipeline-fijo" };
     },
     esencialHabilitada: opciones.esencialHabilitada ?? false,
-    createClinicSettings: async (organizationId) => {
+    createClinicSettings: async (organizationId, _db, healthProfile) => {
       registro.configuracionesDeClinica.push(organizationId);
+      registro.perfilesDeClinica.push(healthProfile ?? null);
       return { organizationId };
     },
     clinicaHabilitada: opciones.clinicaHabilitada ?? false,
@@ -462,6 +466,36 @@ test("CLINICA con la llave en true: nace CLINICA con su configuración, en la mi
   assert.equal(registro.organizationsCreated[0].industry, "CLINICA");
   assert.deepEqual(registro.configuracionesDeClinica, ["org-nueva"]);
   assert.deepEqual(registro.procesosFijos, [], "COMPLETA: sin proceso fijo");
+});
+
+test("perfil de salud (docs/primera-clinica.md §4): CLINICA con ESTETICA lo pasa a su configuración; sin él, ninguno (MEDICO)", async () => {
+  const conPerfil = armar({ clinicaHabilitada: true });
+  await createOrganizationWithFoundingAdmin(
+    { ...INPUT, industry: "CLINICA", healthProfile: "ESTETICA" },
+    conPerfil.deps,
+  );
+  assert.deepEqual(conPerfil.registro.perfilesDeClinica, ["ESTETICA"]);
+
+  const sinPerfil = armar({ clinicaHabilitada: true });
+  await createOrganizationWithFoundingAdmin({ ...INPUT, industry: "CLINICA" }, sinPerfil.deps);
+  assert.deepEqual(sinPerfil.registro.perfilesDeClinica, [null]);
+});
+
+test("perfil de salud sin CLINICA: 400 antes de escribir nada", async () => {
+  for (const industry of [undefined, "AUTOMOTORA"] as const) {
+    const { deps, registro } = armar({ clinicaHabilitada: true });
+    const err = await esperarAppError(
+      () =>
+        createOrganizationWithFoundingAdmin(
+          { ...INPUT, industry, healthProfile: "ESTETICA" },
+          deps,
+        ),
+      400,
+    );
+    assert.match(err.message, /solo se elige para una organización CLINICA/);
+    assert.deepEqual(registro.invites, []);
+    assert.deepEqual(registro.organizationsCreated, []);
+  }
 });
 
 test("CLINICA y ESENCIAL: la configuración de la clínica y el proceso fijo, los dos", async () => {

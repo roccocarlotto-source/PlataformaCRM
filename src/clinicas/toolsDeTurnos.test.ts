@@ -5,7 +5,7 @@ import {
   textosDeAutomotora,
   type ToolCallDelTurno,
 } from "../services/agentOrchestration.service";
-import { reglasDelRubro } from "../services/reglasDelRubro";
+import { instruccionesDelRubro, reglasDelRubro } from "../services/reglasDelRubro";
 import {
   CUERPO_DE_LA_TAREA_FUERA_DE_PLAZO,
   INSTRUCCION_DE_FECHAS_DE_CLINICA,
@@ -133,7 +133,7 @@ test("tono: el prompt de una clínica pide voseo y fechas de las tools; el de un
     undefined,
     [],
     null,
-    reglasDelRubro("CLINICA").instruccionesDelPrompt,
+    instruccionesDelRubro(reglasDelRubro("CLINICA"), { nombreDeLaOrganizacion: "Clínica Ejemplo" }),
   );
   assert.ok(clinica.includes(INSTRUCCION_DE_TONO_DE_CLINICA));
   assert.ok(clinica.includes(INSTRUCCION_DE_FECHAS_DE_CLINICA));

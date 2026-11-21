@@ -46,6 +46,24 @@ opción disponible, ese campo no aparece y la organización se crea con esa.
 > creada, solo se puede cambiar mientras la organización todavía no tenga
 > contactos, turnos, conversaciones ni vehículos.
 
+Si elegís **Clínica**, aparece también **Perfil de salud**, obligatorio y sin
+ninguna opción elegida. Decide qué mensajes de un cliente el asistente toma
+como urgencia o como consulta de salud:
+
+- **Clínica médica o de estética médica**: el asistente deriva cualquier
+  síntoma, medicación o consulta clínica, y no da indicaciones de cuidado.
+- **Centro de belleza (peluquería, spa, estética no médica)**: trata como
+  urgencia solo las reales (no puede respirar, se desmayó, se le hinchó la
+  cara). Deriva a una persona, sin el mensaje de emergencias, la hinchazón de
+  ojos o párpados y una alergia a la tintura, el tinte, el pegamento o las
+  pestañas. Más lo que la clínica agregue a mano. Puede dar consejos generales de
+  cuidado del pelo, la piel y las uñas, pero nunca medicamentos, dosis ni
+  diagnósticos. Así, "quiero cortarme el pelo" o "tengo dolor de espalda"
+  (para un masaje) son pedidos comunes y no una consulta de salud.
+
+La clínica no puede cambiar el perfil. Elegilo con cuidado: si te equivocás,
+avisá antes de que la organización cargue datos.
+
 Al terminar, la pantalla muestra **Organización creada**, con el nombre, un
 **Identificador** corto (el nombre abreviado con el que el sistema distingue a
 esa organización) y a qué email se mandó la invitación. Avisale al cliente que

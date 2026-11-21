@@ -615,6 +615,9 @@ test("las reglas del rubro de una automotora están vacías: ningún verificador
     toolsDelSistema: null,
     callaDespuesDeDerivar: false,
     instruccionesDelPrompt: [],
+    // docs/primera-clinica.md §4: ninguna instrucción que dependa de la
+    // organización (la de salud por perfil es solo de clínica).
+    instruccionesDeLaOrganizacion: null,
     camposFueraDeLasTools: {},
     // R5: ninguna tool con versión propia (las de agenda de una clínica).
     toolsPropias: {},

@@ -302,6 +302,14 @@ enum ContactTerm {
   CLIENTE
 }
 
+// docs/primera-clinica.md §4 (PR2): el perfil de salud de una clínica. MEDICO
+// es el de siempre (todo el detector); ESTETICA, un centro de belleza: urgencia
+// acotada, sin derivación por términos clínicos y capa 3 relajada.
+enum HealthProfile {
+  MEDICO
+  ESTETICA
+}
+
 // Qué hacer con el recordatorio de un turno que se agenda con menos
 // anticipación que reminderHoursBefore (docs/rubros.md §6.2, D8). Lo usa el
 // PR de recordatorios (R13); R3 solo guarda la configuración.
@@ -5210,12 +5218,16 @@ model ImportSync {
 // ---------------------------------------------------------------------------
 
 model ClinicSettings {
-  organizationId    String      @id @map("organization_id") @db.Uuid
+  organizationId    String        @id @map("organization_id") @db.Uuid
   // Paciente o cliente (§3). Default PACIENTE.
-  contactTerm       ContactTerm @default(PACIENTE) @map("contact_term")
+  contactTerm       ContactTerm   @default(PACIENTE) @map("contact_term")
+  // El perfil de salud (docs/primera-clinica.md §4). Lo elige el platform
+  // admin en el alta; la clínica no lo cambia. Default MEDICO: todo igual que
+  // antes de que existiera.
+  healthProfile     HealthProfile @default(MEDICO) @map("health_profile")
   // El aviso de privacidad del primer contacto (§8.1). Lo usa R16.
-  privacyNoticeText String?     @map("privacy_notice_text") @db.VarChar(1000)
-  privacyPolicyUrl  String?     @map("privacy_policy_url") @db.VarChar(500)
+  privacyNoticeText String?       @map("privacy_notice_text") @db.VarChar(1000)
+  privacyPolicyUrl  String?       @map("privacy_policy_url") @db.VarChar(500)
 
   // Los mensajes de salud editados por el ADMIN (§5.3, D11 revisada). NULL =
   // el texto por defecto del código (src/clinicas/config/mensajesDeSalud.ts):

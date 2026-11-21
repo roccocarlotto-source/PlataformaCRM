@@ -27,7 +27,7 @@ import {
   mensajeDeConsultaClinica,
   mensajeDeUrgencia,
 } from "./config/mensajesDeSalud";
-import { INSTRUCCION_SALUD } from "./guardrailsDeSalud";
+import { INSTRUCCION_SALUD, INSTRUCCION_SALUD_DE_ESTETICA } from "./guardrailsDeSalud";
 
 // ---------------------------------------------------------------------------
 // Guardrails de salud en el loop real (docs/rubros.md §5.3, PR R4), contra
@@ -444,6 +444,31 @@ test("update_lead en una clínica: sin notes ni aiData, ni en la definición ni 
 // ---------------------------------------------------------------------------
 // Suite "automotora sin cambios" (caso de R4, docs/rubros.md §14.1)
 // ---------------------------------------------------------------------------
+
+// docs/primera-clinica.md §4 (PR2): el perfil de salud se lee de la base en
+// cada turno. Con ESTETICA, un pedido de salón llega al modelo con la
+// instrucción de un centro de belleza; una urgencia real sigue resolviéndose
+// sin el modelo.
+test("perfil ESTETICA: un pedido de salón llega al modelo con la instrucción de estética, y una urgencia real sigue sin modelo", async () => {
+  const e = await montar("estetica", "CLINICA");
+  await prisma.clinicSettings.upsert({
+    where: { organizationId: e.organizationId },
+    create: { organizationId: e.organizationId, healthProfile: "ESTETICA" },
+    update: { healthProfile: "ESTETICA" },
+  });
+
+  const doble = proveedorGuionado({ text: "¡Claro! ¿Qué día te queda bien?", toolCalls: [] });
+  const r = await turno(e, "Hola, quiero cortarme el pelo el sábado", doble.proveedor);
+  assert.equal(r.respuesta, "¡Claro! ¿Qué día te queda bien?");
+  assert.equal(r.handoff, false);
+  assert.equal(doble.requests.length, 1);
+  assert.ok(doble.requests[0].systemPrompt.includes(INSTRUCCION_SALUD_DE_ESTETICA));
+  assert.ok(!doble.requests[0].systemPrompt.includes(INSTRUCCION_SALUD));
+
+  const urgencia = await turno(e, "no puedo respirar");
+  assert.equal(urgencia.respuesta, mensajeDeUrgencia(e.nombre));
+  assert.equal(urgencia.handoff, true);
+});
 
 test("automotora sin cambios: 'me arde la garganta' llega al modelo como hoy, sin la instrucción de salud", async () => {
   const e = await montar("automotora", "AUTOMOTORA");

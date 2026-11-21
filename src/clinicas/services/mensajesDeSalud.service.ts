@@ -2,25 +2,40 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { AppError } from "../../utils/AppError";
 import {
-  MENSAJE_DE_CONSULTA_CLINICA_POR_DEFECTO,
   MENSAJE_DE_URGENCIA_POR_DEFECTO,
   incluyeUnTelefono,
+  mensajeDeConsultaPorDefecto,
 } from "../config/mensajesDeSalud";
 import {
   TERMINOS_CLINICOS,
   TERMINOS_DE_URGENCIA,
+  TERMINOS_CLINICOS_DE_ESTETICA,
+  TERMINOS_DE_URGENCIA_DE_ESTETICA,
   describirTermino,
   esTerminoDelCodigo,
   normalizarTerminoDeLaClinica,
+  type PerfilDeSalud,
   type Termino,
 } from "../guardrailsDeSalud";
 import {
   contarCambiosDeSalud,
   guardarSaludDeLaClinica,
   leerSaludDeLaClinica,
+  leerSaludYPerfilDeLaClinica,
   listarCambiosDeSalud,
   type SaludDeLaClinica,
 } from "../repositories/clinicSettings.repository";
+
+/** Las listas del código según el perfil de salud (docs/primera-clinica.md
+ *  §4): en ESTETICA, la urgencia acotada y la derivación de un salón. */
+function listasDelCodigo(perfil: PerfilDeSalud): {
+  urgencia: readonly Termino[];
+  clinicos: readonly Termino[];
+} {
+  return perfil === "ESTETICA"
+    ? { urgencia: TERMINOS_DE_URGENCIA_DE_ESTETICA, clinicos: TERMINOS_CLINICOS_DE_ESTETICA }
+    : { urgencia: TERMINOS_DE_URGENCIA, clinicos: TERMINOS_CLINICOS };
+}
 
 // ---------------------------------------------------------------------------
 // Los mensajes de salud que edita el ADMIN de una clínica (docs/rubros.md
@@ -50,6 +65,9 @@ export interface CambioDeSaludVisible {
 }
 
 export interface MensajesDeSalud extends SaludDeLaClinica {
+  // El perfil de salud de la clínica (docs/primera-clinica.md §4): decide los
+  // textos y las listas por defecto. Solo lectura: lo elige el platform admin.
+  perfil: PerfilDeSalud;
   porDefecto: {
     urgencyMessageText: string;
     clinicalMessageText: string;
@@ -64,17 +82,19 @@ function descripcionesDe(lista: readonly Termino[]): string[] {
 }
 
 export async function obtenerMensajesDeSalud(organizationId: string): Promise<MensajesDeSalud> {
-  const [salud, [ultimo]] = await Promise.all([
-    leerSaludDeLaClinica(organizationId),
+  const [{ salud, perfil }, [ultimo]] = await Promise.all([
+    leerSaludYPerfilDeLaClinica(organizationId),
     listarCambiosDeSalud(organizationId, { skip: 0, take: 1 }),
   ]);
+  const listas = listasDelCodigo(perfil);
   return {
     ...salud,
+    perfil,
     porDefecto: {
       urgencyMessageText: MENSAJE_DE_URGENCIA_POR_DEFECTO,
-      clinicalMessageText: MENSAJE_DE_CONSULTA_CLINICA_POR_DEFECTO,
-      urgencyTerms: descripcionesDe(TERMINOS_DE_URGENCIA),
-      clinicalTerms: descripcionesDe(TERMINOS_CLINICOS),
+      clinicalMessageText: mensajeDeConsultaPorDefecto(perfil),
+      urgencyTerms: descripcionesDe(listas.urgencia),
+      clinicalTerms: descripcionesDe(listas.clinicos),
     },
     ultimoCambio: ultimo ? { changedBy: ultimo.changedBy, createdAt: ultimo.createdAt } : null,
   };
@@ -122,8 +142,13 @@ export function terminosAGuardar(
   return resultado;
 }
 
-/** Lo que valida y normaliza el PUT, sin tocar la base. Puro. */
-export function normalizarMensajesDeSalud(input: SaludDeLaClinica): SaludDeLaClinica {
+/** Lo que valida y normaliza el PUT, sin tocar la base. Puro. Los textos y
+ *  las listas del código son los del perfil de salud (MEDICO si no se indica). */
+export function normalizarMensajesDeSalud(
+  input: SaludDeLaClinica,
+  perfil: PerfilDeSalud = "MEDICO",
+): SaludDeLaClinica {
+  const listas = listasDelCodigo(perfil);
   const urgencyMessageText = textoAGuardar(
     input.urgencyMessageText,
     MENSAJE_DE_URGENCIA_POR_DEFECTO,
@@ -135,10 +160,10 @@ export function normalizarMensajesDeSalud(input: SaludDeLaClinica): SaludDeLaCli
     urgencyMessageText,
     clinicalMessageText: textoAGuardar(
       input.clinicalMessageText,
-      MENSAJE_DE_CONSULTA_CLINICA_POR_DEFECTO,
+      mensajeDeConsultaPorDefecto(perfil),
     ),
-    extraUrgencyTerms: terminosAGuardar(input.extraUrgencyTerms, TERMINOS_DE_URGENCIA),
-    extraClinicalTerms: terminosAGuardar(input.extraClinicalTerms, TERMINOS_CLINICOS),
+    extraUrgencyTerms: terminosAGuardar(input.extraUrgencyTerms, listas.urgencia),
+    extraClinicalTerms: terminosAGuardar(input.extraClinicalTerms, listas.clinicos),
   };
 }
 
@@ -161,7 +186,8 @@ export async function guardarMensajesDeSalud(
   changedById: string,
   input: SaludDeLaClinica,
 ): Promise<MensajesDeSalud> {
-  const nuevo = normalizarMensajesDeSalud(input);
+  const { perfil } = await leerSaludYPerfilDeLaClinica(organizationId);
+  const nuevo = normalizarMensajesDeSalud(input, perfil);
   await prisma.$transaction(async (tx) => {
     const actual = await leerSaludDeLaClinica(organizationId, tx);
     const changes = diferenciasDeSalud(actual, nuevo);
