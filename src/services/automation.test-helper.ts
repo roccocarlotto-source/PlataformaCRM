@@ -14,7 +14,7 @@ import { createStage } from "./stage.service";
 // Escenarios del motor de automatizaciones para sus tests de integración
 // (automationDispatch, automationOpportunityWon, automationOpportunityStale,
 // opportunityStaleWorker). SOLO PARA TESTS: el nombre
-// *.test-helper.ts lo deja fuera del build, igual que vehicle.test-helper.ts.
+// *.test-helper.ts lo deja fuera del build, igual que escenario.test-helper.ts.
 //
 // Una organización con su ADMIN (usuario real de Supabase Auth: users.id
 // comparte valor con auth.users.id, y createActivity exige que el assignee

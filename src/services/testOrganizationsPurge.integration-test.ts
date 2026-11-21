@@ -252,7 +252,7 @@ test("simulación: solo A, con sus filas e identidades, y sin escribir nada", as
     [fx.a],
   );
   const a = plan.organizaciones[0];
-  assert.ok(a.patrones.some((p) => p.origen === "src/services/vehicle.test-helper.ts"));
+  assert.ok(a.patrones.some((p) => p.origen === "src/services/escenario.test-helper.ts"));
   assert.equal(a.filasPorTabla.users, 3);
   assert.equal(a.filasPorTabla.invitations, 1);
   assert.equal(a.filasPorTabla.vehicles, 1);

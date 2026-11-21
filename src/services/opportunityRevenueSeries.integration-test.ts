@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma";
 import { getRevenueSeries, type RevenueSeries } from "./opportunity.service";
 import { createPipeline } from "./pipeline.service";
 import { createStage } from "./stage.service";
-import { desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import { desmontar, montar, type Escenario } from "./escenario.test-helper";
 import { periodWindowInZone } from "../utils/zonedWindow";
 
 // ---------------------------------------------------------------------------

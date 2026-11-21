@@ -7,7 +7,13 @@ import {
   proximaAperturaDeLaSucursal,
   replaceBusinessHoursForBranch,
 } from "./branchBusinessHours.service";
-import { assertAppError, capturar, desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import {
+  assertAppError,
+  capturar,
+  desmontar,
+  montar,
+  type Escenario,
+} from "./escenario.test-helper";
 
 // ---------------------------------------------------------------------------
 // Horario de atención de la sucursal — G-07 de
@@ -122,7 +128,7 @@ test("la sucursal de OTRA organización es 404 al leer y al escribir, y su horar
 
 test("la próxima apertura usa el horario guardado en la zona de la sucursal", async () => {
   // Cerrado todo el día salvo el sábado de 9 a 13; desde un lunes, la próxima
-  // apertura es el sábado a las 9 locales. vehicle.test-helper crea la
+  // apertura es el sábado a las 9 locales. escenario.test-helper crea la
   // sucursal en America/Argentina/Buenos_Aires (UTC-3 sin horario de verano).
   await replaceBusinessHoursForBranch(a.organizationId, a.branchId, [
     { weekday: "SATURDAY", startMinute: 540, endMinute: 780 },

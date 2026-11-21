@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import { AppError } from "../utils/AppError";
 import { createBranch, getBranchById, updateBranch } from "./branch.service";
-import { desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import { desmontar, montar, type Escenario } from "./escenario.test-helper";
 
 // ---------------------------------------------------------------------------
 // El teléfono al que el agente de voz transfiere una llamada (PR 7), contra

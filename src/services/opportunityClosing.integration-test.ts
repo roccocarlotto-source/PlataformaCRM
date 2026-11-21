@@ -13,7 +13,13 @@ import {
   ETAPA_CON_OPORTUNIDADES_NO_CAMBIA_CIERRE,
   updateStage,
 } from "./stage.service";
-import { assertAppError, capturar, desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import {
+  assertAppError,
+  capturar,
+  desmontar,
+  montar,
+  type Escenario,
+} from "./escenario.test-helper";
 
 // ---------------------------------------------------------------------------
 // Ítem 154 de docs/matriz-de-datos-crm.md contra Postgres real: la etapa manda
