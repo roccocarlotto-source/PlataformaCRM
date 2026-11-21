@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { armarSystemPrompt } from "../../services/agentOrchestration.service";
+import {
+  ENCABEZADO_INDICACIONES,
+  armarSystemPrompt,
+} from "../../services/agentOrchestration.service";
 import { reglasDelRubro } from "../../services/reglasDelRubro";
 import { TOOLS_DE_TURNOS_DE_CLINICA } from "../toolsDeTurnos";
 import {
@@ -9,7 +12,12 @@ import {
   daIndicacionClinica,
 } from "../guardrailsDeSalud";
 import { TERMINO_DEL_CONTACTO } from "./rubro";
-import { textosDeClinica } from "./textosDelAgente";
+import {
+  INSTRUCCION_DE_TONO_DE_CLINICA,
+  MENSAJE_TOPE_DE_TURNOS,
+  SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA,
+  textosDeClinica,
+} from "./textosDelAgente";
 
 // ---------------------------------------------------------------------------
 // Los textos del prompt de una clínica (docs/rubros.md §3.2, R11).
@@ -88,5 +96,42 @@ test("los textos de clínica no contradicen los guardrails de salud: ninguno da 
         clave,
       );
     }
+  }
+});
+
+// docs/primera-clinica.md §4 (PR3): lo que lee el modelo y lo que lee el
+// cliente final no dicen "paciente" ni "clínica" fijos, porque la primera
+// organización del rubro es un centro de belleza. Con el término CLIENTE, los
+// textos del prompt de clínica y las definiciones de sus tools son neutros. La
+// instrucción de salud (INSTRUCCION_SALUD) queda afuera: la cambia el perfil
+// de salud (PR2).
+const FIJO_DE_CLINICA = /paciente|cl[ií]nica/i;
+
+test("con el término CLIENTE, los textos del prompt de clínica no dicen paciente ni clínica", () => {
+  const textos = textosDeClinica(TERMINO_DEL_CONTACTO.CLIENTE, true);
+  for (const [clave, texto] of Object.entries(textos)) {
+    if (texto === null) continue;
+    assert.doesNotMatch(texto, FIJO_DE_CLINICA, clave);
+  }
+  for (const [nombre, texto] of Object.entries({
+    INSTRUCCION_DE_TONO_DE_CLINICA,
+    SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA,
+    MENSAJE_TOPE_DE_TURNOS,
+    ENCABEZADO_INDICACIONES,
+  })) {
+    assert.doesNotMatch(texto, FIJO_DE_CLINICA, nombre);
+  }
+});
+
+test("las definiciones de las tools de una clínica no dicen paciente ni clínica", () => {
+  const reglas = reglasDelRubro("CLINICA");
+  const tools = [
+    ...Object.values(reglas.toolsPropias),
+    ...Object.values(reglas.toolsExclusivas),
+    ...(reglas.toolsDelSistema ? reglas.toolsDelSistema([]) : []),
+  ];
+  assert.ok(tools.length >= 5, `solo ${String(tools.length)} tools`);
+  for (const tool of tools) {
+    assert.doesNotMatch(JSON.stringify(tool.definition), FIJO_DE_CLINICA, tool.definition.name);
   }
 });

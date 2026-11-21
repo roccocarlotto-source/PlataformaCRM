@@ -70,7 +70,7 @@ export function toolsDeIndicaciones(entradas: readonly EntradaDeKnowledgeBase[])
       definition: {
         name: TOOL_DE_INDICACIONES,
         description:
-          "Le manda al paciente, tal cual, el texto de una de las indicaciones de la clínica (antes o después de una prestación). Usala cuando el paciente pide una indicación o pregunta qué tiene que hacer antes o después de una prestación de la lista de indicaciones. El sistema le manda el texto exacto que cargó la clínica: no lo escribas ni lo resumas vos.",
+          "Le manda a la persona, tal cual, el texto de una de las indicaciones cargadas (antes o después de una prestación). Usala cuando la persona pide una indicación o pregunta qué tiene que hacer antes o después de una prestación de la lista de indicaciones. El sistema le manda el texto exacto que cargó el negocio: no lo escribas ni lo resumas vos.",
         parameters: {
           type: "object",
           properties: {
@@ -91,7 +91,7 @@ export function toolsDeIndicaciones(entradas: readonly EntradaDeKnowledgeBase[])
           const titulos = indicaciones.map((e) => `"${e.title.trim()}"`).join(", ");
           return Promise.resolve(
             fallo(
-              `No hay ninguna indicación con el título "${validacion.value.titulo}". Las cargadas son: ${titulos}. Usá uno de esos títulos tal cual. Si ninguna corresponde a lo que pidió el paciente, no la escribas vos: decile que esa indicación se la da una persona del equipo y derivá.`,
+              `No hay ninguna indicación con el título "${validacion.value.titulo}". Las cargadas son: ${titulos}. Usá uno de esos títulos tal cual. Si ninguna corresponde a lo que pidió la persona, no la escribas vos: decile que esa indicación se la da una persona del equipo y derivá.`,
             ),
           );
         }

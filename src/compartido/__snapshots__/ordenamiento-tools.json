@@ -76,7 +76,7 @@
     "habilitadas": [
       {
         "nombre": "create_booking",
-        "definicion": "d999b1805791d493"
+        "definicion": "6d795f49f2b1f3b6"
       },
       {
         "nombre": "create_lead",
@@ -84,7 +84,7 @@
       },
       {
         "nombre": "get_availability",
-        "definicion": "9dedec4a2d4965ac"
+        "definicion": "6ad2edd19eec052a"
       },
       {
         "nombre": "get_contact_activities",
@@ -96,7 +96,7 @@
       },
       {
         "nombre": "get_service_types",
-        "definicion": "c3ee098f8ea635ff"
+        "definicion": "a0417e158bcb8667"
       },
       {
         "nombre": "mark_no_interest",
@@ -112,15 +112,15 @@
       },
       {
         "nombre": "cancel_booking",
-        "definicion": "00198a4e84e44bae"
+        "definicion": "8d6ab95f09bae95f"
       },
       {
         "nombre": "get_contact_bookings",
-        "definicion": "ba5bea6bec032c71"
+        "definicion": "a918f9cf13f86c3b"
       },
       {
         "nombre": "reschedule_booking",
-        "definicion": "38ecbdd3030856e4"
+        "definicion": "eeba4f892f1f32e6"
       }
     ],
     "delSistema": []
@@ -202,7 +202,7 @@
     "habilitadas": [
       {
         "nombre": "create_booking",
-        "definicion": "d999b1805791d493"
+        "definicion": "6d795f49f2b1f3b6"
       },
       {
         "nombre": "create_lead",
@@ -210,7 +210,7 @@
       },
       {
         "nombre": "get_availability",
-        "definicion": "9dedec4a2d4965ac"
+        "definicion": "6ad2edd19eec052a"
       },
       {
         "nombre": "get_contact_activities",
@@ -222,7 +222,7 @@
       },
       {
         "nombre": "get_service_types",
-        "definicion": "c3ee098f8ea635ff"
+        "definicion": "a0417e158bcb8667"
       },
       {
         "nombre": "mark_no_interest",
@@ -238,15 +238,15 @@
       },
       {
         "nombre": "cancel_booking",
-        "definicion": "00198a4e84e44bae"
+        "definicion": "8d6ab95f09bae95f"
       },
       {
         "nombre": "get_contact_bookings",
-        "definicion": "ba5bea6bec032c71"
+        "definicion": "a918f9cf13f86c3b"
       },
       {
         "nombre": "reschedule_booking",
-        "definicion": "38ecbdd3030856e4"
+        "definicion": "eeba4f892f1f32e6"
       }
     ],
     "delSistema": []

@@ -89,7 +89,7 @@ test("un título que no está (o que coincide con dos) da la lista, y nunca el t
   }
   const vacio = await tool.ejecutar({ titulo: "  " }, contexto);
   assert.equal(vacio.ok, false);
-  assert.match(vacio.ok ? "" : vacio.error, /al paciente/);
+  assert.match(vacio.ok ? "" : vacio.error, /a la persona/);
 });
 
 function llamada(name: string, result: ToolCallDelTurno["result"]): ToolCallDelTurno {

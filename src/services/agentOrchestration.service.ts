@@ -1255,7 +1255,7 @@ export interface EntradaDeKnowledgeBase {
 // clínica, sin pasar por el modelo, que con el texto a la vista lo
 // parafraseaba (src/clinicas/toolDeIndicaciones.ts, docs/rubros.md §5.4). Una
 // consulta de salud no llega acá (la deriva la capa 1, §5.3).
-export const ENCABEZADO_INDICACIONES = `Indicaciones de la clínica antes y después de cada prestación. Son textos que la clínica escribió y que el paciente tiene que recibir TAL CUAL, así que no los escribas, no los resumas ni los expliques vos: si el paciente pide una, o pregunta qué tiene que hacer antes o después de una de estas prestaciones, llamá a ${TOOL_DE_INDICACIONES} con el título exacto de la lista, y el sistema le manda el texto de la clínica. Si pregunta algo que no está en esta lista, o cuenta cómo se siente, no lo respondas: derivá a una persona del equipo. Las indicaciones cargadas son:`;
+export const ENCABEZADO_INDICACIONES = `Indicaciones del negocio antes y después de cada prestación. Son textos que el negocio escribió y que la persona tiene que recibir TAL CUAL, así que no los escribas, no los resumas ni los expliques vos: si la persona pide una, o pregunta qué tiene que hacer antes o después de una de estas prestaciones, llamá a ${TOOL_DE_INDICACIONES} con el título exacto de la lista, y el sistema le manda el texto cargado. Si pregunta algo que no está en esta lista, o cuenta cómo se siente, no lo respondas: derivá a una persona del equipo. Las indicaciones cargadas son:`;
 
 // Ítem 132 (B-04/I-01): el tope GLOBAL de caracteres de la base de
 // conocimiento en el prompt, sumando todas las entradas que entran. No corta

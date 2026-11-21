@@ -600,7 +600,7 @@ describe("recordatorio de turno (clínica)", () => {
     ).toMatch(/no va en este mensaje/);
     expect(accionConMensajeDeWhatsapp("booking.send_reminder")).toBe(true);
     expect(previewDePlantilla(TEXTO_INICIAL_DEL_RECORDATORIO)).toContain(
-      "Clínica Ejemplo (sede Centro)",
+      "Centro Ejemplo (sede Centro)",
     );
   });
 });

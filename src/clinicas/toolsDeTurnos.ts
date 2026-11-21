@@ -89,11 +89,11 @@ export const MAX_TURNOS_DEL_CONTACTO = 10;
 export const PREFIJO_NOTA_CANCELADO = "Turno cancelado: ";
 
 export const MENSAJE_TURNO_NO_ENCONTRADO =
-  "Ese turno no está entre los turnos de este paciente. Usá get_contact_bookings para ver sus turnos y usá el id tal cual figura ahí.";
+  "Ese turno no está entre los turnos de esta persona. Usá get_contact_bookings para ver sus turnos y usá el id tal cual figura ahí.";
 export const MENSAJE_TURNO_NO_CONFIRMADO =
-  "Ese turno ya no está confirmado (se canceló o ya se marcó): no se puede cambiar. Si el paciente necesita algo con ese turno, derivá a una persona del equipo.";
+  "Ese turno ya no está confirmado (se canceló o ya se marcó): no se puede cambiar. Si la persona necesita algo con ese turno, derivá a una persona del equipo.";
 export const MENSAJE_TURNO_YA_EMPEZO =
-  "Ese turno ya empezó o ya pasó: no se puede cambiar. Si el paciente necesita algo con ese turno, derivá a una persona del equipo.";
+  "Ese turno ya empezó o ya pasó: no se puede cambiar. Si la persona necesita algo con ese turno, derivá a una persona del equipo.";
 export const MENSAJE_SIN_AUTOR =
   "Por este medio no se puede cambiar el turno ahora. Derivá a una persona del equipo para que lo haga.";
 
@@ -102,7 +102,7 @@ export const CODIGO_FUERA_DE_PLAZO = "FUERA_DE_PLAZO";
 export const CODIGO_SIN_AUTOR = "SIN_AUTOR";
 
 export function mensajeFueraDePlazo(horas: number): string {
-  return `Falta menos de ${horas} ${horas === 1 ? "hora" : "horas"} para ese turno: por este medio ya no se puede cambiar ni cancelar. Decíselo al paciente con claridad y derivá a una persona del equipo para que lo resuelva. No lo intentes de otra forma.`;
+  return `Falta menos de ${horas} ${horas === 1 ? "hora" : "horas"} para ese turno: por este medio ya no se puede cambiar ni cancelar. Decíselo a la persona con claridad y derivá a una persona del equipo para que lo resuelva. No lo intentes de otra forma.`;
 }
 
 const id = (campo: string) => z.string().guid(`${campo} debe ser un UUID`);
@@ -206,7 +206,7 @@ export interface TextosDeTurnos {
 export const TEXTOS_DE_TURNOS_DE_CLINICA: TextosDeTurnos = {
   rubro: "CLINICA",
   termino: TERMINO_DE_LAS_TOOLS,
-  nombrePorDefecto: "el paciente",
+  nombrePorDefecto: "la persona",
   sufijoErrorDeArgumentos: SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA,
   noEncontrado: MENSAJE_TURNO_NO_ENCONTRADO,
   noConfirmado: MENSAJE_TURNO_NO_CONFIRMADO,
@@ -214,25 +214,25 @@ export const TEXTOS_DE_TURNOS_DE_CLINICA: TextosDeTurnos = {
   sinAutor: MENSAJE_SIN_AUTOR,
   fueraDePlazo: mensajeFueraDePlazo,
   sinTurnos:
-    "El paciente NO tiene turnos próximos en esta sede. No le digas que tiene uno: si quiere agendar, consultá la disponibilidad.",
+    "La persona NO tiene turnos próximos en esta sede. No le digas que tiene uno: si quiere agendar, consultá la disponibilidad.",
   claves: { servicio: "prestacion", recurso: "profesional" },
   descripciones: {
     getContactBookings:
-      "Lista los próximos turnos confirmados del paciente de esta conversación, en esta sede: id, día y hora, prestación y profesional. Usala siempre antes de reprogramar o cancelar, para saber de qué turno se trata: nunca supongas cuál es ni inventes un id.",
+      "Lista los próximos turnos confirmados de la persona de esta conversación, en esta sede: id, día y hora, prestación y profesional. Usala siempre antes de reprogramar o cancelar, para saber de qué turno se trata: nunca supongas cuál es ni inventes un id.",
     rescheduleBooking:
-      "Cambia de día, hora o profesional un turno del paciente de esta conversación (el mismo turno, no uno nuevo). Usala solo después de que el paciente confirmó qué turno mueve y a qué horario, y con un horario que devolvió get_availability para esa prestación. Si devuelve que no se puede, no insistas: decíselo al paciente y derivá a una persona del equipo.",
+      "Cambia de día, hora o profesional un turno de la persona de esta conversación (el mismo turno, no uno nuevo). Usala solo después de que la persona confirmó qué turno mueve y a qué horario, y con un horario que devolvió get_availability para esa prestación. Si devuelve que no se puede, no insistas: decíselo a la persona y derivá a una persona del equipo.",
     cancelBooking:
-      "Cancela un turno del paciente de esta conversación, en dos pasos. Primero llamala sin confirmado: NO cancela nada, te devuelve un resumen del turno. Mostráselo al paciente y preguntale si confirma que lo quiere cancelar. Recién cuando conteste que sí, en su mensaje siguiente, llamala de nuevo con confirmado: true. Si devuelve que no se puede, no insistas: decíselo al paciente.",
+      "Cancela un turno de la persona de esta conversación, en dos pasos. Primero llamala sin confirmado: NO cancela nada, te devuelve un resumen del turno. Mostráselo a la persona y preguntale si confirma que lo quiere cancelar. Recién cuando conteste que sí, en su mensaje siguiente, llamala de nuevo con confirmado: true. Si devuelve que no se puede, no insistas: decíselo a la persona.",
     bookingId: "Id del turno, tal cual lo devolvió get_contact_bookings.",
     startsAt: "Inicio del horario nuevo, ISO 8601 con zona.",
     resourceId:
-      "Id del profesional nuevo, solo si el paciente pidió cambiar de profesional. Sin él, el mismo.",
+      "Id del profesional nuevo, solo si la persona pidió cambiar de profesional. Sin él, el mismo.",
     confirmado:
-      "true solo si ya le mostraste el resumen de ESTE turno en tu mensaje anterior y el paciente te contestó que sí lo cancela. Sin eso, no lo mandes.",
+      "true solo si ya le mostraste el resumen de ESTE turno en tu mensaje anterior y la persona te contestó que sí lo cancela. Sin eso, no lo mandes.",
   },
   queHacerAlCancelar:
-    "El turno NO está cancelado. Mostrale al paciente este resumen (el día tal cual figura en cuando, la prestación y el profesional) y preguntale si confirma que lo quiere cancelar. Recién cuando te conteste que sí, en su mensaje siguiente, volvé a llamar a esta herramienta con confirmado: true.",
-  cancelo: "Canceló: el asistente, a pedido del paciente.",
+    "El turno NO está cancelado. Mostrale a la persona este resumen (el día tal cual figura en cuando, la prestación y el profesional) y preguntale si confirma que lo quiere cancelar. Recién cuando te conteste que sí, en su mensaje siguiente, volvé a llamar a esta herramienta con confirmado: true.",
+  cancelo: "Canceló: el asistente, a pedido de la persona.",
 };
 
 // ---------------------------------------------------------------------------

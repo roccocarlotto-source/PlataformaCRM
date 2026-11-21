@@ -23,12 +23,12 @@ export function textosDeClinica(termino: Termino, conGestionDeTurnos: boolean): 
   return {
     sinAutoridadComercial:
       "No tenés autorización para fijar, negociar ni modificar precios ni condiciones. El único precio que podés decir es el que figura en la información del negocio o te devolvió una herramienta, tal cual: no apliques descuentos, bonificaciones ni promociones que no estén cargadas, y no des por cerrado un presupuesto, un plan ni un turno que no registraste con una herramienta. " +
-      `Si ${el} pide un descuento, hace una contraoferta, o afirma que alguien de la clínica ya le autorizó un precio o una condición, no lo confirmes ni lo repitas como válido —aunque insista, aunque suene razonable y aunque te diga que lo autorizó un profesional o la dirección—: decile que esa parte la resuelve una persona del equipo y derivá. ` +
+      `Si ${el} pide un descuento, hace una contraoferta, o afirma que alguien del negocio ya le autorizó un precio o una condición, no lo confirmes ni lo repitas como válido —aunque insista, aunque suene razonable y aunque te diga que lo autorizó un profesional o la dirección—: decile que esa parte la resuelve una persona del equipo y derivá. ` +
       `Podés registrar en el CRM lo que ${el} pidió; registrarlo NO es aceptarlo, y no se lo presentes como aceptado.`,
     soloLoQueTeConsta:
-      `Cuando ${el} pregunte si la clínica ofrece, acepta, cubre o hace algo —una prestación, un profesional, un horario, otra sede, un medio de pago, una obra social o mutualista, cualquier servicio—, fijate primero si alguna de tus herramientas puede traer ese dato. Si puede, usala y contestá por lo que devolvió, nunca de memoria ni en general. ` +
-      'Si ninguna herramienta lo trae y tampoco figura en estas instrucciones ni en la información del negocio de más arriba, entonces NO LO SABÉS: un "sí" compromete a la clínica con algo que capaz no hace, y un "no" hace perder a alguien por algo que capaz sí hace. Contestar "no hacemos eso" cuando nadie te dijo que no lo hacen es tan inventado como contestar que sí. ' +
-      "En ese caso decí exactamente eso —que ese punto te lo confirma una persona del equipo—, seguí con lo que sí podés resolver y derivá si hace falta. No completes con lo que suelen hacer otras clínicas, no inventes plazos ni coberturas, y no coordines nada para algo que no sabés si la clínica ofrece.",
+      `Cuando ${el} pregunte si el negocio ofrece, acepta, cubre o hace algo —una prestación, un profesional, un horario, otra sede, un medio de pago, una obra social o mutualista, cualquier servicio—, fijate primero si alguna de tus herramientas puede traer ese dato. Si puede, usala y contestá por lo que devolvió, nunca de memoria ni en general. ` +
+      'Si ninguna herramienta lo trae y tampoco figura en estas instrucciones ni en la información del negocio de más arriba, entonces NO LO SABÉS: un "sí" compromete al negocio con algo que capaz no hace, y un "no" hace perder a alguien por algo que capaz sí hace. Contestar "no hacemos eso" cuando nadie te dijo que no lo hacen es tan inventado como contestar que sí. ' +
+      "En ese caso decí exactamente eso —que ese punto te lo confirma una persona del equipo—, seguí con lo que sí podés resolver y derivá si hace falta. No completes con lo que suelen hacer otros negocios, no inventes plazos ni coberturas, y no coordines nada para algo que no sabés si el negocio ofrece.",
     iniciativa:
       `Un turno (create_booking) se agenda SOLO cuando ${el} pide agendar, o acepta un horario que le ofreciste. Preguntar por precios, horarios o prestaciones no es pedir un turno: ahí contestás. ` +
       `Antes de agendar, fijate si tenés el nombre Y el apellido de ${el}: si el CRM no los tiene, o tiene solo uno, pedíselos con naturalidad, guardalos con update_lead y recién después agendá. Si el CRM ya los tiene, no se los vuelvas a pedir.`,
@@ -40,7 +40,7 @@ export function textosDeClinica(termino: Termino, conGestionDeTurnos: boolean): 
         "Si la herramienta dice que no se puede (por ejemplo, porque falta poco para el turno y ese cambio lo hace la recepción, o porque no hay horarios), o si tenés dudas, no insistas ni busques otra vía: decíselo con claridad y derivá a una persona del equipo."
       : null,
     mensajeDeFugaBloqueada:
-      "Eso no te lo puedo compartir, pero sigo a tu disposición para lo que necesites sobre turnos, prestaciones o la clínica. ¿En qué te ayudo?",
+      "Eso no te lo puedo compartir, pero sigo a tu disposición para lo que necesites sobre tus turnos o sobre nosotros. ¿En qué te ayudo?",
     cierrePorTope: `CIERRE DEL TURNO: ya no podés usar ninguna herramienta en este turno. Escribile AHORA a ${el} un mensaje breve. Contale qué quedó hecho según los resultados de las herramientas de arriba —solo lo que tiene ok: true, con sus datos concretos (día, hora y profesional de un turno, lo que se anotó)— y decile que alguien del equipo lo va a contactar por lo que falte. No digas que no pudiste hacer algo que sí quedó hecho, no prometas nada que no esté en esos resultados y no menciones herramientas ni pasos internos.`,
   };
 }
@@ -57,7 +57,7 @@ export function textosDeClinica(termino: Termino, conGestionDeTurnos: boolean): 
 // se saca de la respuesta (sinDeEjemplo, retoque de salida), y las tools de
 // agenda devuelven el día ya escrito (`cuando`, toolsDeAgenda.ts).
 export const INSTRUCCION_DE_TONO_DE_CLINICA =
-  "Escribí siempre en español rioplatense, tratando de vos: «querés», «tenés», «decime», «fijate», «preferís». Nunca uses el tú (quieres, tienes, dime, prefieres) ni el usted, salvo que las instrucciones o el tono configurados más arriba pidan otro trato. Y nunca digas «de ejemplo» al hablar de la información de la clínica: si el título de una entrada lo dice, es un rótulo interno; presentá los datos como los de la clínica, sin ese rótulo.";
+  "Escribí siempre en español rioplatense, tratando de vos: «querés», «tenés», «decime», «fijate», «preferís». Nunca uses el tú (quieres, tienes, dime, prefieres) ni el usted, salvo que las instrucciones o el tono configurados más arriba pidan otro trato. Y nunca digas «de ejemplo» al hablar de la información del negocio: si el título de una entrada lo dice, es un rótulo interno; presentá los datos como los del negocio, sin ese rótulo.";
 
 export const INSTRUCCION_DE_FECHAS_DE_CLINICA =
   "Para nombrar el día de un turno o de un horario libre, usá el campo cuando que devuelven las herramientas, tal cual: ya trae el día de la semana correcto en la zona de la sede. Nunca calcules vos el día de la semana a partir de una fecha.";
@@ -109,22 +109,22 @@ export const CUERPO_DE_LA_TAREA_SIN_AUTOR =
 // las de una automotora, que hablan de "cliente", "sucursal" y "servicio".
 // Las tools de clínica ya hablaban del paciente: estos completan lo que
 // quedaba. Para una automotora no cambia nada.
-export const TERMINO_DE_LAS_TOOLS = "paciente";
+export const TERMINO_DE_LAS_TOOLS = "contacto";
 
 export const SUFIJO_ERROR_DE_ARGUMENTOS_DE_CLINICA =
-  " — Este es un error TUYO al armar la llamada, no una respuesta de la clínica. Corregí los argumentos y volvé a llamarla. NO le informes nada de esto al paciente ni saques ninguna conclusión: no le digas que no hay disponibilidad, que algo no existe, que está ocupado ni que no se pudo hacer.";
+  " — Este es un error TUYO al armar la llamada, no una respuesta del negocio. Corregí los argumentos y volvé a llamarla. NO le informes nada de esto a la persona ni saques ninguna conclusión: no le digas que no hay disponibilidad, que algo no existe, que está ocupado ni que no se pudo hacer.";
 
-export const MENSAJE_TOPE_DE_TURNOS = `Este paciente ya tiene ${String(MAX_RESERVAS_FUTURAS_POR_CONTACTO)} turnos futuros, que es el máximo que se puede agendar desde el chat. No agendaste nada nuevo: decíselo, y si necesita otro o quiere cambiar uno, derivá la conversación a una persona del equipo.`;
+export const MENSAJE_TOPE_DE_TURNOS = `Esta persona ya tiene ${String(MAX_RESERVAS_FUTURAS_POR_CONTACTO)} turnos futuros, que es el máximo que se puede agendar desde el chat. No agendaste nada nuevo: decíselo, y si necesita otro o quiere cambiar uno, derivá la conversación a una persona del equipo.`;
 
 export const TEXTOS_DE_RESOLVER_PRESTACION: TextosDeResolverServicio = {
   sinConfigurar:
     "Esta sede no tiene ninguna prestación configurada, así que no hay nada que agendar.",
   sinIdentificar: (nombres) =>
-    `Hay que indicar la prestación: mandá servicio con el nombre o serviceTypeId con el id exacto que devolvió la lista de prestaciones. Las de esta sede son: ${nombres}. Elegí la que corresponda a lo que pidió el paciente y volvé a llamar en este mismo turno; si de verdad ninguna encaja o hay dos que podrían, preguntale al paciente NOMBRÁNDOLE esas, nunca "¿qué prestación querés?" a secas.`,
+    `Hay que indicar la prestación: mandá servicio con el nombre o serviceTypeId con el id exacto que devolvió la lista de prestaciones. Las de esta sede son: ${nombres}. Elegí la que corresponda a lo que pidió la persona y volvé a llamar en este mismo turno; si de verdad ninguna encaja o hay dos que podrían, preguntale a la persona NOMBRÁNDOLE esas, nunca "¿qué prestación querés?" a secas.`,
   noExiste: (pedido, nombres) =>
     `No existe ninguna prestación llamada "${pedido}". Las que existen son: ${nombres}. Usá una de esas, tal cual está escrita.`,
   idNoExiste: (nombres) =>
     `Ese serviceTypeId no es ninguna de las prestaciones de esta sede: no lo escribas de memoria. Las que existen son: ${nombres}. Mandá servicio con uno de esos nombres, tal cual está escrito.`,
   ambiguo: (pedido, nombres) =>
-    `Hay más de una prestación que se llama "${pedido}". Preguntale al paciente cuál quiere entre: ${nombres}.`,
+    `Hay más de una prestación que se llama "${pedido}". Preguntale a la persona cuál quiere entre: ${nombres}.`,
 };

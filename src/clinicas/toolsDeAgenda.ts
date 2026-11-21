@@ -94,7 +94,7 @@ const getServiceTypesDeClinica: ToolDelAgente = {
   definition: {
     name: "get_service_types",
     description:
-      "Lista las prestaciones de esta sede, con su duración y los profesionales que atienden cada una (id y nombre). Usala antes de consultar la disponibilidad para saber qué prestaciones existen y quién las hace. Si el paciente pide un profesional en particular, su id sale de acá.",
+      "Lista las prestaciones de esta sede, con su duración y los profesionales que atienden cada una (id y nombre). Usala antes de consultar la disponibilidad para saber qué prestaciones existen y quién las hace. Si la persona pide un profesional en particular, su id sale de acá.",
     parameters: sinParametros,
   },
 
@@ -108,7 +108,7 @@ const getServiceTypesDeClinica: ToolDelAgente = {
     if (prestaciones.length === 0) {
       return exitoVacio(
         { serviceTypes: [] },
-        "Esta sede NO tiene ninguna prestación configurada. NO le ofrezcas al paciente ningún turno ni prestación: no existe ninguna cargada. Decile que por este medio todavía no podés agendar y ofrecé que lo coordine alguien del equipo.",
+        "Esta sede NO tiene ninguna prestación configurada. NO le ofrezcas a la persona ningún turno ni prestación: no existe ninguna cargada. Decile que por este medio todavía no podés agendar y ofrecé que lo coordine alguien del equipo.",
       );
     }
     const profesionales = await profesionalesDeLasPrestaciones(
@@ -117,7 +117,7 @@ const getServiceTypesDeClinica: ToolDelAgente = {
     );
     return exito({
       proximosPasos:
-        "Estas son las ÚNICAS prestaciones que existen: no ofrezcas ninguna que no esté acá. Para consultar disponibilidad y para reservar, referite a la prestación por su NOMBRE tal cual figura acá (campo `servicio`). Si el paciente quiere un profesional en particular, mandá su id como resourceId; si le da lo mismo, no lo mandes y se le ofrecen todos. NO le digas que el turno quedó agendado hasta que la reserva te devuelva un resultado exitoso.",
+        "Estas son las ÚNICAS prestaciones que existen: no ofrezcas ninguna que no esté acá. Para consultar disponibilidad y para reservar, referite a la prestación por su NOMBRE tal cual figura acá (campo `servicio`). Si la persona quiere un profesional en particular, mandá su id como resourceId; si le da lo mismo, no lo mandes y se le ofrecen todos. NO le digas que el turno quedó agendado hasta que la reserva te devuelva un resultado exitoso.",
       serviceTypes: prestaciones.map((p) => ({
         id: p.id,
         name: p.name,
@@ -132,14 +132,14 @@ const getAvailabilityDeClinica: ToolDelAgente = {
   definition: {
     name: "get_availability",
     description:
-      "Consulta los turnos disponibles de una prestación. Devuelve los horarios libres, cada uno con el profesional que lo atiende. Sin resourceId, se miran TODOS los profesionales de la prestación; con resourceId, solo ese (el que pidió el paciente). Alcanza con el nombre de la prestación y el desde; sin hasta, se miran las 24 horas siguientes. Usala antes de reservar, y también cuando el paciente pregunta cuándo puede ir: no le pidas que proponga él un día antes de mirar la agenda.",
+      "Consulta los turnos disponibles de una prestación. Devuelve los horarios libres, cada uno con el profesional que lo atiende. Sin resourceId, se miran TODOS los profesionales de la prestación; con resourceId, solo ese (el que pidió la persona). Alcanza con el nombre de la prestación y el desde; sin hasta, se miran las 24 horas siguientes. Usala antes de reservar, y también cuando la persona pregunta cuándo puede ir: no le pidas que proponga él un día antes de mirar la agenda.",
     parameters: {
       type: "object",
       properties: {
         resourceId: {
           type: "string",
           description:
-            "Id del profesional, solo si el paciente pidió uno en particular. Sale de la lista de prestaciones. Si le da lo mismo, no lo mandes.",
+            "Id del profesional, solo si la persona pidió uno en particular. Sale de la lista de prestaciones. Si le da lo mismo, no lo mandes.",
         },
         servicio: {
           type: "string",
@@ -202,14 +202,14 @@ const createBookingDeClinica: ToolDelAgente = {
   definition: {
     name: "create_booking",
     description:
-      "Reserva de verdad un turno para el paciente de esta conversación: hasta que esta tool no devuelva un resultado exitoso, el turno NO existe y no se lo podés confirmar. Si el paciente solo preguntó por un día o un horario, todavía no aceptó: ofrecéselo y preguntale si se lo reservás, sin reservarlo en ese turno. Reservá en el mismo turno en que el paciente acepta un horario que le ofreciste o te pide que se lo reserves, sin volver a pedirle que confirme. Si el paciente eligió un profesional, mandá su id como resourceId; si le da lo mismo, no lo mandes y se asigna el primero libre en ese horario. El horario tiene que ser uno de los que devolvió la consulta de disponibilidad.",
+      "Reserva de verdad un turno para la persona de esta conversación: hasta que esta tool no devuelva un resultado exitoso, el turno NO existe y no se lo podés confirmar. Si la persona solo preguntó por un día o un horario, todavía no aceptó: ofrecéselo y preguntale si se lo reservás, sin reservarlo en ese turno. Reservá en el mismo turno en que la persona acepta un horario que le ofreciste o te pide que se lo reserves, sin volver a pedirle que confirme. Si la persona eligió un profesional, mandá su id como resourceId; si le da lo mismo, no lo mandes y se asigna el primero libre en ese horario. El horario tiene que ser uno de los que devolvió la consulta de disponibilidad.",
     parameters: {
       type: "object",
       properties: {
         resourceId: {
           type: "string",
           description:
-            "Id del profesional que eligió el paciente. Sin él, el primero libre en ese horario.",
+            "Id del profesional que eligió la persona. Sin él, el primero libre en ese horario.",
         },
         servicio: {
           type: "string",
