@@ -2,6 +2,9 @@ const js = require("@eslint/js");
 const globals = require("globals");
 const tseslint = require("typescript-eslint");
 const eslintConfigPrettier = require("eslint-config-prettier");
+const FRONTERA = require("./frontera-de-productos.json");
+
+const TESTS = ["src/**/*.test.ts", "src/**/*.integration-test.ts", "src/**/*.test-helper.ts"];
 
 // ---------------------------------------------------------------------------
 // ESLint del BACKEND (Node + Express + TypeScript). El frontend tiene su propia
@@ -57,6 +60,75 @@ module.exports = tseslint.config(
       ecmaVersion: 2022,
       sourceType: "module",
       globals: { ...globals.node },
+    },
+  },
+
+  // Frontera de productos (docs/ordenamiento-productos.md §0.2, P2): el núcleo
+  // no importa de las carpetas de producto, y un producto no importa del otro.
+  // `servicios/` es parte de automotora (D2). Solo código de producción: los
+  // tests del núcleo prueban los dos rubros y pueden importar de los dos.
+  // Las dependencias de hoy están en frontera-de-productos.json, una lista que
+  // solo se achica (la vigila src/compartido/fronteraDeProductos.test.ts).
+  // no-restricted-imports no mira los import() dinámicos: no hay ninguno, y el
+  // test de la lista también los busca.
+  {
+    files: ["src/**/*.ts"],
+    ignores: [
+      "src/automotora/**",
+      "src/clinicas/**",
+      "src/servicios/**",
+      ...TESTS,
+      ...FRONTERA.nucleoQueImportaProductos,
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "(^|/)(automotora|clinicas|servicios)/",
+              message:
+                "El núcleo no importa de un producto (docs/ordenamiento-productos.md §0.2). Usá un punto de registro.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/clinicas/**/*.ts"],
+    ignores: [...TESTS, ...FRONTERA.crucesEntreProductos],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "(^|/)(automotora|servicios)/",
+              message:
+                "Un producto no importa del otro (docs/ordenamiento-productos.md §0.2). Lo común va a src/compartido/.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/automotora/**/*.ts", "src/servicios/**/*.ts"],
+    ignores: [...TESTS, ...FRONTERA.crucesEntreProductos],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "(^|/)clinicas/",
+              message:
+                "Un producto no importa del otro (docs/ordenamiento-productos.md §0.2). Lo común va a src/compartido/.",
+            },
+          ],
+        },
+      ],
     },
   },
 
