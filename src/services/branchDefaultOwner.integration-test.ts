@@ -5,7 +5,13 @@ import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { createBranch, getBranchById, updateBranch } from "./branch.service";
 import { resolverOwnerDelContacto } from "./ownership.service";
-import { assertAppError, capturar, desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import {
+  assertAppError,
+  capturar,
+  desmontar,
+  montar,
+  type Escenario,
+} from "./escenario.test-helper";
 
 // ---------------------------------------------------------------------------
 // El vendedor por defecto por sucursal (ítem 69 de
@@ -24,7 +30,7 @@ import { assertAppError, capturar, desmontar, montar, type Escenario } from "./v
 // La forma de los schemas del borde (UUID opcional y nullable) está en
 // branch.controller.test.ts, sin base.
 //
-// DOS ORGANIZACIONES REALES (vehicle.test-helper): A es la de trabajo, B solo
+// DOS ORGANIZACIONES REALES (escenario.test-helper): A es la de trabajo, B solo
 // existe para el caso cross-tenant — un usuario de B nunca puede ser el
 // vendedor por defecto de una sucursal de A, ni siquiera mandando su UUID.
 // ---------------------------------------------------------------------------
@@ -52,7 +58,7 @@ before(async () => {
 // Un usuario más de A. CON identidad real en Supabase Auth aunque nunca se
 // autentique: el trigger trg_set_user_email_from_auth completa users.email
 // leyendo auth.users, así que una fila sin su par en auth queda con email NULL
-// y viola el NOT NULL. Mismo motivo por el que vehicle.test-helper crea el ADMIN
+// y viola el NOT NULL. Mismo motivo por el que escenario.test-helper crea el ADMIN
 // así.
 async function crearUsuario(roleId: string, fullName: string, isActive: boolean) {
   const email = `bdo-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;

@@ -7,7 +7,7 @@ import {
   type ContextoDeEjecucionDeTool,
 } from "./agentTools.service";
 import { createBranch, getBranchById, updateBranch } from "./branch.service";
-import { desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import { desmontar, montar, type Escenario } from "./escenario.test-helper";
 
 // ---------------------------------------------------------------------------
 // Datos de cobro por sucursal (ítem 74 de docs/frontend-cambios-pendientes.md)
@@ -23,7 +23,7 @@ import { desmontar, montar, type Escenario } from "./vehicle.test-helper";
 // La validación del borde (http(s)://, topes de largo) está en
 // branch.controller.test.ts, sin base.
 //
-// DOS ORGANIZACIONES (vehicle.test-helper): B solo existe para el caso
+// DOS ORGANIZACIONES (escenario.test-helper): B solo existe para el caso
 // cross-tenant — una conversación de A que apuntara a la sucursal de B no ve
 // sus datos de cobro.
 // ---------------------------------------------------------------------------

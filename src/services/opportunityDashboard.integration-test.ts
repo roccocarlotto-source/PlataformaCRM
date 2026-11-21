@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma";
 import { getDashboardSummary } from "./opportunity.service";
 import { createPipeline } from "./pipeline.service";
 import { createStage } from "./stage.service";
-import { desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import { desmontar, montar, type Escenario } from "./escenario.test-helper";
 
 // ---------------------------------------------------------------------------
 // Resumen del Dashboard (§30 de docs/frontend-cambios-pendientes.md, con las
@@ -14,7 +14,7 @@ import { desmontar, montar, type Escenario } from "./vehicle.test-helper";
 // actual_close_date (date), status, moneda, soft delete— lo ejecute Prisma
 // igual que la base en memoria de
 // opportunity.service.test.ts, y que una oportunidad de OTRA organización
-// nunca sume acá. Dos organizaciones (vehicle.test-helper): una con moneda
+// nunca sume acá. Dos organizaciones (escenario.test-helper): una con moneda
 // preferida configurada y otra sin (fallback USD).
 //
 // Las filas se insertan con prisma.opportunity.create y no con

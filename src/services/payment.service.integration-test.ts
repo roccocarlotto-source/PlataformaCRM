@@ -13,7 +13,13 @@ import {
 } from "./payment.service";
 import { createPipeline } from "./pipeline.service";
 import { createStage } from "./stage.service";
-import { assertAppError, capturar, desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import {
+  assertAppError,
+  capturar,
+  desmontar,
+  montar,
+  type Escenario,
+} from "./escenario.test-helper";
 
 // ---------------------------------------------------------------------------
 // Pago del cliente contra Postgres real (§43 de
@@ -24,7 +30,7 @@ import { assertAppError, capturar, desmontar, montar, type Escenario } from "./v
 // y FK compuesta). El borde zod está en payment.controller.test.ts; el WHERE
 // de cada escritura del repository, en tenant-isolation.integration-test.ts.
 //
-// Dos organizaciones con sucursal y ADMIN reales (vehicle.test-helper): A es
+// Dos organizaciones con sucursal y ADMIN reales (escenario.test-helper): A es
 // la de trabajo, B solo existe para los casos cross-tenant.
 // ---------------------------------------------------------------------------
 

@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma";
 import { createOpportunity, getOpportunityById, updateOpportunity } from "./opportunity.service";
 import { createPipeline } from "./pipeline.service";
 import { createStage } from "./stage.service";
-import { desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import { desmontar, montar, type Escenario } from "./escenario.test-helper";
 
 // ---------------------------------------------------------------------------
 // Detalle de financiación (§42 de docs/frontend-cambios-pendientes.md) contra

@@ -61,7 +61,7 @@ async function crearOrganizacion(etiqueta: string) {
 }
 
 // Con un usuario REAL de Supabase Auth: el email de public.users lo sincroniza
-// un trigger desde auth.users (mismo criterio que vehicle.test-helper.ts).
+// un trigger desde auth.users (mismo criterio que escenario.test-helper.ts).
 async function montar(etiqueta: string): Promise<Escenario> {
   const org = await crearOrganizacion(etiqueta);
   const email = `campos-${etiqueta}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
