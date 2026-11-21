@@ -12,10 +12,11 @@ import {
 // llave, los rubros que se ofrecen, los roles por rubro y el vocabulario.
 // ---------------------------------------------------------------------------
 
-test("CLINICA_HABILITADA está en false: nadie puede crear una clínica a medias", () => {
-  // Se pone en true en un PR posterior, a propósito y con este test cambiado.
-  assert.equal(CLINICA_HABILITADA, false);
-  assert.deepEqual(rubrosDisponibles(), ["AUTOMOTORA"]);
+test("CLINICA_HABILITADA está en true: el alta ofrece los dos rubros", () => {
+  // docs/primera-clinica.md §1.3 (PR4). Apagarla es a propósito y con este
+  // test cambiado.
+  assert.equal(CLINICA_HABILITADA, true);
+  assert.deepEqual(rubrosDisponibles(), ["AUTOMOTORA", "CLINICA"]);
 });
 
 test("rubrosDisponibles: con la llave en true, AUTOMOTORA primero y después CLINICA", () => {
@@ -64,5 +65,9 @@ test("vocabulario de una clínica: paciente por defecto, cliente si lo eligió, 
   assert.equal(conPaciente.reserva.pluralTitulo, "Turnos");
   assert.equal(conPaciente.agenda.singularTitulo, "Agenda");
   assert.equal(conPaciente.responsable.singularTitulo, "Responsable");
-  assert.equal(conPaciente.marca, VOCABULARIO_AUTOMOTORA.marca);
+  // docs/primera-clinica.md §6: las clínicas ven "Xentech"; la automotora, la
+  // de siempre (la fija "automotora sin cambios").
+  assert.equal(conPaciente.marca, "Xentech");
+  assert.equal(vocabularioDe("CLINICA", "CLIENTE").marca, "Xentech");
+  assert.notEqual(conPaciente.marca, VOCABULARIO_AUTOMOTORA.marca);
 });

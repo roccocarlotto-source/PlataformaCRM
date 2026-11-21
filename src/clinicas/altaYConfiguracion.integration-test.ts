@@ -29,11 +29,11 @@ import {
 // Alta y configuración de la clínica (docs/rubros.md §15, R3), contra Postgres
 // y GoTrue reales y la app real.
 //
-// La llave CLINICA_HABILITADA está en false: por la API, CLINICA se rechaza.
-// Los caminos con la llave en true se prueban llamando a los services con la
-// llave inyectada, igual que hizo ediciones con ESENCIAL_HABILITADA. Las
-// organizaciones CLINICA de los demás casos se crean directo en la base (hasta
-// que se abra la llave, nadie puede crearlas por la app).
+// La llave CLINICA_HABILITADA está en true (docs/primera-clinica.md §1.3): por
+// la API, el endpoint de rubros ofrece CLINICA y el cambio de rubro la acepta.
+// Los dos caminos de la llave también se prueban llamando a los services con
+// la llave inyectada, igual que hizo ediciones con ESENCIAL_HABILITADA. Las
+// organizaciones CLINICA de los demás casos se crean directo en la base.
 // ---------------------------------------------------------------------------
 
 let baseUrl: string;
@@ -120,24 +120,19 @@ test("alta CLINICA (llave inyectada en true): nace CLINICA con su ClinicSettings
   }
 });
 
-test("por la API: GET /industries da solo AUTOMOTORA y el alta CLINICA es 400 sin crear nada (la llave en false)", async () => {
+test("por la API: GET /industries ofrece AUTOMOTORA y CLINICA, y el cambio de rubro a CLINICA se acepta (la llave en true)", async () => {
   const plataforma = await org("COMPLETA", "AUTOMOTORA");
   await prisma.platformAdmin.create({ data: { userId: plataforma.authIds[0] } });
 
   const rubros = await pedir(plataforma, "GET", "/api/admin/organizations/industries");
   assert.equal(rubros.status, 200);
-  assert.deepEqual(rubros.json, { industries: ["AUTOMOTORA"] });
+  assert.deepEqual(rubros.json, { industries: ["AUTOMOTORA", "CLINICA"] });
 
-  const email = `clinica-cerrada-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
-  const alta = await pedir(plataforma, "POST", "/api/admin/organizations", {
-    organizationName: `Clinica Cerrada ${Date.now()}`,
-    adminFullName: "Persona de Prueba",
-    adminEmail: email,
-    industry: "CLINICA",
-  });
-  assert.equal(alta.status, 400);
-  assert.match(String(alta.json.error?.message), /CLINICA todavía no está disponible/);
-  assert.equal(await prisma.user.findUnique({ where: { email } }), null);
+  // El alta CLINICA con la llave en true la prueba el caso "alta CLINICA (llave
+  // inyectada en true)", llamando al service: por la API crearía una
+  // organización con un slug fuera del catálogo de la purga. El 400 con la
+  // llave en false, organizationAdmin.service.test.ts.
+  const email = `clinica-rubro-raro-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
 
   const rubroRaro = await pedir(plataforma, "POST", "/api/admin/organizations", {
     organizationName: "x",
@@ -147,7 +142,8 @@ test("por la API: GET /industries da solo AUTOMOTORA y el alta CLINICA es 400 si
   });
   assert.equal(rubroRaro.status, 400);
 
-  // El cambio de rubro a CLINICA también queda cerrado por la llave.
+  // El cambio de rubro a CLINICA, con la llave abierta y sin datos de negocio:
+  // se acepta y crea su configuración.
   const destino = await org("COMPLETA", "AUTOMOTORA");
   const cambio = await pedir(
     plataforma,
@@ -155,8 +151,10 @@ test("por la API: GET /industries da solo AUTOMOTORA y el alta CLINICA es 400 si
     `/api/admin/organizations/${destino.id}/industry`,
     { industry: "CLINICA" },
   );
-  assert.equal(cambio.status, 400);
-  // Pedir el que ya tiene: 200 sin cambios.
+  assert.equal(cambio.status, 200);
+  assert.deepEqual(cambio.json, { id: destino.id, industry: "CLINICA" });
+  assert.ok(await prisma.clinicSettings.findUnique({ where: { organizationId: destino.id } }));
+  // Y de vuelta a AUTOMOTORA: 200.
   const mismo = await pedir(
     plataforma,
     "PATCH",

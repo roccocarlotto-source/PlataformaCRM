@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { DateTime } from "luxon";
-import { CLINICA_HABILITADA } from "../config/ediciones";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import {
@@ -37,8 +36,8 @@ import {
 // La Clínica Demo (docs/rubros.md §12, R19), contra la app real, Postgres y
 // GoTrue locales.
 //
-// La llave CLINICA_HABILITADA está en false y así se prueba: la demo se crea
-// igual por su endpoint, y el alta común de una clínica sigue en 400.
+// La demo se crea por su propio endpoint, que no depende de la llave
+// CLINICA_HABILITADA (§12.1): funciona igual con la llave abierta o cerrada.
 //
 // LIMPIEZA. La demo tiene el slug `clinica-demo-…`, que la purga de
 // organizaciones de test nunca toca (§12.1, y lo prueba este archivo). Para
@@ -201,24 +200,10 @@ test("sin sesión 401 y un ADMIN que no es platform admin 403, sin crear nada", 
   );
 });
 
-test("la llave sigue en false: el alta común de una clínica da 400 y no crea nada", async () => {
-  assert.equal(CLINICA_HABILITADA, false);
+test("el body del endpoint de la demo no elige rubro ni nombre", async () => {
+  // El alta común de una clínica (con la llave CLINICA_HABILITADA) la prueban
+  // altaYConfiguracion.integration-test.ts y organizationAdmin.service.test.ts.
   const email = emailDePrueba("alta-comun");
-  const alta = await pedir(plataforma, "POST", "/api/admin/organizations", {
-    organizationName: "Clinica Comun R19",
-    adminFullName: "Persona de Prueba",
-    adminEmail: email,
-    industry: "CLINICA",
-  });
-  assert.equal(alta.status, 400);
-  assert.match(String(alta.json.error?.message), /CLINICA todavía no está disponible/);
-  assert.equal(await prisma.user.findUnique({ where: { email } }), null);
-  assert.equal(
-    await prisma.organization.findUnique({ where: { slug: "clinica-comun-r19" } }),
-    null,
-  );
-
-  // El body del endpoint de la demo no elige rubro ni nombre.
   const conRubro = await pedir(plataforma, "POST", ruta, {
     adminFullName: "Persona de Prueba",
     adminEmail: email,
@@ -231,7 +216,7 @@ test("la llave sigue en false: el alta común de una clínica da 400 y no crea n
 // La demo
 // ---------------------------------------------------------------------------
 
-test("el platform admin crea la Clínica Demo con la llave en false: 201 con los datos de §12.2", async () => {
+test("el platform admin crea la Clínica Demo: 201 con los datos de §12.2", async () => {
   const antesOtra = await conteos(otraClinica.id);
   const antesPlataforma = await conteos(plataforma.id);
   const email = emailDePrueba("feliz");
