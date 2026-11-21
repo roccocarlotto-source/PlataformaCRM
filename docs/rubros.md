@@ -67,7 +67,9 @@ plan que toca código compartido lleva un test que lo demuestra (la suite
 pueden tener su propio nombre de producto y su propio dominio, sin tocar código.
 Para que eso sea posible, el PR de pantallas de clínica (R17) saca el nombre
 "Plataforma CRM", que hoy está escrito en `AppLayout.tsx:269` y `:567`, a la
-configuración de marca. Esa configuración se resuelve por rubro y, el día que
+configuración de marca. (Hecho en R17: la marca sale de `MARCA` en
+`src/config/terminos.ts`, viaja en `/me` y `AppLayout` la lee con `marcaDe(me)`.
+Dónde más aparece el nombre: `docs/ordenamiento-productos.md` §3.) Esa configuración se resuelve por rubro y, el día que
 haga falta, por dominio. Sumar el dominio después es configuración: el dominio
 en Vercel, los orígenes permitidos (`CORS_ORIGIN`) y las URLs de redirección de
 Supabase y de Google.
