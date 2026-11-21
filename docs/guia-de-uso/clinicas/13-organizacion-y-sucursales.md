@@ -76,6 +76,12 @@ dos mensajes y te pasa la conversación (ver
 Acá podés cambiar el texto de los dos mensajes y sumar palabras a las que ya
 detecta.
 
+Qué detecta depende del **perfil de salud** de tu organización, que se elige
+al darla de alta. En una clínica médica, cualquier síntoma, medicación o
+consulta clínica. En un centro de belleza, solo las urgencias reales: por
+eso **Ver las que ya detecta** muestra menos palabras y la lista de consulta
+clínica viene vacía (podés sumar las tuyas igual).
+
 > **El contenido de estos mensajes es responsabilidad de la clínica.**
 > Revisalos con un profesional antes de usarlos con pacientes.
 

@@ -1,4 +1,4 @@
-import type { OrganizationIndustry } from "@prisma/client";
+import type { HealthProfile, OrganizationIndustry } from "@prisma/client";
 import { TOOLS_DE_TURNOS_DE_AUTOMOTORA } from "../automotora/toolsDeTurnos";
 import { REGLAS_DE_CLINICA } from "../clinicas/reglasDeClinica";
 import type { SaludDeLaClinica } from "../clinicas/repositories/clinicSettings.repository";
@@ -46,6 +46,9 @@ export interface ContextoDeLaRegla {
   // D11 revisada). Sin él, los textos y los términos del código. Solo lo
   // carga el rubro CLINICA (contextoDeLaOrganizacion).
   saludDeLaClinica?: SaludDeLaClinica;
+  // El perfil de salud de una clínica (docs/primera-clinica.md §4): MEDICO,
+  // el de siempre, o ESTETICA. Sin él, MEDICO. Solo lo carga CLINICA.
+  perfilDeSalud?: HealthProfile;
 }
 
 export type VerificadorDeEntrada = (
@@ -117,6 +120,10 @@ export interface ReglasDelRubro {
   /** Instrucciones fijas que se suman al system prompt, antes de la de
    *  identidad (que siempre va última). */
   instruccionesDelPrompt: readonly string[];
+  /** Instrucciones que dependen de la organización (de su contexto del turno):
+   *  van ANTES de instruccionesDelPrompt. En una clínica, la instrucción de
+   *  salud de su perfil (docs/primera-clinica.md §4). null = ninguna. */
+  instruccionesDeLaOrganizacion: ((contexto: ContextoDeLaRegla) => readonly string[]) | null;
   /** Argumentos que una tool no ofrece ni recibe en este rubro. */
   camposFueraDeLasTools: Readonly<Record<string, readonly string[]>>;
   /** Versiones propias del rubro de tools del catálogo, por nombre: si el
@@ -149,6 +156,7 @@ export const SIN_REGLAS: ReglasDelRubro = {
   toolsDelSistema: null,
   callaDespuesDeDerivar: false,
   instruccionesDelPrompt: [],
+  instruccionesDeLaOrganizacion: null,
   camposFueraDeLasTools: {},
   toolsPropias: {},
   toolsExclusivas: {},
@@ -185,6 +193,20 @@ export async function armarContextoDeLaRegla(
     ? await reglas.contextoDeLaOrganizacion(organizationId)
     : {};
   return { ...delRubro, nombreDeLaOrganizacion };
+}
+
+/** Las instrucciones del rubro para el system prompt de este turno: las que
+ *  dependen de la organización y después las fijas. En AUTOMOTORA, ninguna;
+ *  en una clínica MEDICO, las mismas y en el mismo orden que antes de que
+ *  existiera el perfil de salud. Pura. */
+export function instruccionesDelRubro(
+  reglas: ReglasDelRubro,
+  contexto: ContextoDeLaRegla,
+): string[] {
+  return [
+    ...(reglas.instruccionesDeLaOrganizacion ? reglas.instruccionesDeLaOrganizacion(contexto) : []),
+    ...reglas.instruccionesDelPrompt,
+  ];
 }
 
 /** La primera decisión de una lista de verificadores, o null. */

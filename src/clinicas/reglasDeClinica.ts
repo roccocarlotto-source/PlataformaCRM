@@ -15,9 +15,10 @@ import {
   mensajeDeUrgencia,
 } from "./config/mensajesDeSalud";
 import {
-  INSTRUCCION_SALUD,
   clasificarMensajeDeSalud,
   daIndicacionClinica,
+  instruccionDeSalud,
+  type PerfilDeSalud,
   type TerminosDeLaClinica,
 } from "./guardrailsDeSalud";
 import { TOOLS_DE_AGENDA_DE_CLINICA } from "./toolsDeAgenda";
@@ -44,7 +45,7 @@ import {
 import { CODIGO_FUERA_DE_PLAZO, CODIGO_SIN_AUTOR } from "./toolsDeTurnos";
 import {
   leerConfiguracionDeClinica,
-  leerSaludDeLaClinica,
+  leerSaludYPerfilDeLaClinica,
 } from "./repositories/clinicSettings.repository";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,12 @@ import {
 // detector de la capa 1; llegan en contexto.saludDeLaClinica. Los términos del
 // código, la capa 2 y la capa 3 no se configuran.
 // ---------------------------------------------------------------------------
+
+/** El perfil de salud del turno (docs/primera-clinica.md §4). Sin él, MEDICO:
+ *  todo como antes de que existiera. */
+function perfil(contexto: ContextoDeLaRegla): PerfilDeSalud {
+  return contexto.perfilDeSalud ?? "MEDICO";
+}
 
 function terminosDeLaClinica(contexto: ContextoDeLaRegla): TerminosDeLaClinica {
   return {
@@ -82,6 +89,7 @@ function consultaClinica(regla: string, contexto: ContextoDeLaRegla): DecisionDe
     mensaje: mensajeDeConsultaClinica(
       contexto.nombreDeLaOrganizacion,
       contexto.saludDeLaClinica?.clinicalMessageText ?? null,
+      perfil(contexto),
     ),
     aviso: { cuerpo: CUERPO_DE_LA_TAREA_CLINICA, urgente: false },
   };
@@ -134,7 +142,9 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
   entradaPrioritaria: [
     (textos, contexto) =>
       textos.some(
-        (texto) => clasificarMensajeDeSalud(texto, terminosDeLaClinica(contexto)) === "URGENCIA",
+        (texto) =>
+          clasificarMensajeDeSalud(texto, terminosDeLaClinica(contexto), perfil(contexto)) ===
+          "URGENCIA",
       )
         ? urgencia(contexto)
         : null,
@@ -143,7 +153,9 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
   entrada: [
     (textos, contexto) =>
       textos.some(
-        (texto) => clasificarMensajeDeSalud(texto, terminosDeLaClinica(contexto)) === "CLINICA",
+        (texto) =>
+          clasificarMensajeDeSalud(texto, terminosDeLaClinica(contexto), perfil(contexto)) ===
+          "CLINICA",
       )
         ? consultaClinica("consulta_clinica", contexto)
         : null,
@@ -151,7 +163,7 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
   // Capa 3, la respuesta del modelo.
   salida: [
     (respuesta, contexto) =>
-      daIndicacionClinica(respuesta)
+      daIndicacionClinica(respuesta, perfil(contexto))
         ? consultaClinica("indicacion_clinica_saliente", contexto)
         : null,
   ],
@@ -171,12 +183,12 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
   // §5.4: mandar una indicación tal cual (solo si la sede tiene alguna).
   toolsDelSistema: toolsDeIndicaciones,
   callaDespuesDeDerivar: true,
-  // Capa 2, más el tono y las fechas de una clínica.
-  instruccionesDelPrompt: [
-    INSTRUCCION_SALUD,
-    INSTRUCCION_DE_TONO_DE_CLINICA,
-    INSTRUCCION_DE_FECHAS_DE_CLINICA,
-  ],
+  // El tono y las fechas de una clínica. La capa 2 (la instrucción de salud)
+  // depende del perfil y va primero, en instruccionesDeLaOrganizacion: en
+  // MEDICO, el mismo prompt y en el mismo orden que antes del perfil.
+  instruccionesDelPrompt: [INSTRUCCION_DE_TONO_DE_CLINICA, INSTRUCCION_DE_FECHAS_DE_CLINICA],
+  // Capa 2: la instrucción de salud del perfil (docs/primera-clinica.md §4).
+  instruccionesDeLaOrganizacion: (contexto) => [instruccionDeSalud(perfil(contexto))],
   // §8.2: sin texto libre del agente sobre el paciente.
   camposFueraDeLasTools: {
     create_lead: ["notes", "aiData"],
@@ -191,8 +203,10 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
     const { contactTerm } = await leerConfiguracionDeClinica(organizationId);
     return textosDeClinica(TERMINO_DEL_CONTACTO[contactTerm], conGestionDeTurnos);
   },
-  // §5.3 (D11 revisada): los mensajes y los términos que configuró el ADMIN.
+  // §5.3 (D11 revisada): los mensajes y los términos que configuró el ADMIN,
+  // y el perfil de salud (docs/primera-clinica.md §4), en una consulta.
   async contextoDeLaOrganizacion(organizationId) {
-    return { saludDeLaClinica: await leerSaludDeLaClinica(organizationId) };
+    const { salud, perfil } = await leerSaludYPerfilDeLaClinica(organizationId);
+    return { saludDeLaClinica: salud, perfilDeSalud: perfil };
   },
 };

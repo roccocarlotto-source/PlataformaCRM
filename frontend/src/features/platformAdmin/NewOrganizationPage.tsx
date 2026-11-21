@@ -14,6 +14,7 @@ import type {
   CreateOrganizationInput,
   CreateOrganizationResponse,
   CreateTallerDemoResponse,
+  HealthProfile,
   OrganizationEdition,
   OrganizationIndustry,
 } from "./types";
@@ -24,6 +25,7 @@ interface NewOrganizationFormValues {
   adminEmail: string;
   edition: OrganizationEdition | "";
   industry: OrganizationIndustry | "";
+  healthProfile: HealthProfile | "";
   defaultPhoneCountryCode: string;
   preferredCurrency: string;
   timezone: string;
@@ -35,6 +37,7 @@ const EMPTY_FORM: NewOrganizationFormValues = {
   adminEmail: "",
   edition: "",
   industry: "",
+  healthProfile: "",
   // Con qué nace (src/config/organizacionNueva.ts del backend): hasta el
   // 2026-10-14 el alta no los pedía y la organización quedaba sin país (los
   // teléfonos locales daban error), sin moneda y en UTC. Editables.
@@ -65,6 +68,14 @@ const NOMBRE_DE_RUBRO: Record<OrganizationIndustry, string> = {
   AUTOMOTORA: "Automotora",
   CLINICA: "Clínica",
 };
+
+// El perfil de salud de una clínica (docs/primera-clinica.md §4): qué deriva
+// el asistente como urgencia o consulta de salud. Lo elige el platform admin
+// en el alta; la clínica no lo cambia.
+const PERFILES_DE_SALUD: { value: HealthProfile; label: string }[] = [
+  { value: "MEDICO", label: "Clínica médica o de estética médica" },
+  { value: "ESTETICA", label: "Centro de belleza (peluquería, spa, estética no médica)" },
+];
 
 // Alta de una organización nueva (cliente/automotora) con su primer ADMIN —
 // Fase 4a del módulo SaaS. Herramienta interna del platform admin: se usa
@@ -156,11 +167,12 @@ export function NewOrganizationPage() {
         setUsuariosCreados(result.usuarios);
         return;
       }
-      const { edition, industry, ...resto } = values;
+      const { edition, industry, healthProfile, ...resto } = values;
       const input: CreateOrganizationInput = {
         ...resto,
         ...(eligeEdicion && edition !== "" ? { edition } : {}),
         ...(eligeRubro && industry !== "" ? { industry } : {}),
+        ...(eligeRubro && industry === "CLINICA" && healthProfile !== "" ? { healthProfile } : {}),
       };
       const result = await createOrganizationMutation.mutateAsync(input);
       setCreated(result);
@@ -358,6 +370,7 @@ export function NewOrganizationPage() {
                           setValues({
                             ...values,
                             industry: event.target.value as OrganizationIndustry | "",
+                            healthProfile: "",
                           })
                         }
                         required
@@ -366,6 +379,29 @@ export function NewOrganizationPage() {
                         {rubros.map((rubro) => (
                           <option key={rubro} value={rubro}>
                             {NOMBRE_DE_RUBRO[rubro]}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  </div>
+                ) : null}
+                {eligeRubro && values.industry === "CLINICA" ? (
+                  <div className="ds-field-grid--full">
+                    <FormField label={<span className="ds-required">Perfil de salud</span>}>
+                      <select
+                        value={values.healthProfile}
+                        onChange={(event) =>
+                          setValues({
+                            ...values,
+                            healthProfile: event.target.value as HealthProfile | "",
+                          })
+                        }
+                        required
+                      >
+                        <option value="">Elegí un perfil</option>
+                        {PERFILES_DE_SALUD.map((perfil) => (
+                          <option key={perfil.value} value={perfil.value}>
+                            {perfil.label}
                           </option>
                         ))}
                       </select>

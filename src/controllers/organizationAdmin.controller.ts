@@ -1,5 +1,5 @@
 import type { Response } from "express";
-import { OrganizationEdition, OrganizationIndustry } from "@prisma/client";
+import { HealthProfile, OrganizationEdition, OrganizationIndustry } from "@prisma/client";
 import { z } from "zod";
 import { enumNativo, mensajesDeTipo } from "../utils/erroresDeZod";
 import { edicionesDisponibles, rubrosDisponibles } from "../config/ediciones";
@@ -56,6 +56,12 @@ export const createOrganizationSchema = z.object({
   industry: enumNativo(
     OrganizationIndustry,
     mensajesDeTipo({ tipo: "industry inválido" }),
+  ).optional(),
+  // docs/primera-clinica.md §4. Opcional: sin él, MEDICO. Solo con industry
+  // CLINICA (si no, el service responde 400).
+  healthProfile: enumNativo(
+    HealthProfile,
+    mensajesDeTipo({ tipo: "healthProfile inválido" }),
   ).optional(),
   // País, moneda y zona de la organización. Opcionales: sin ellos, Uruguay,
   // USD y America/Montevideo (config/organizacionNueva.ts). Mismas reglas

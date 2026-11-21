@@ -452,17 +452,60 @@ export interface TerminosDeLaClinica {
 
 export const SIN_TERMINOS_DE_LA_CLINICA: TerminosDeLaClinica = { urgencia: [], clinicos: [] };
 
+// ---------------------------------------------------------------------------
+// Perfil de salud ESTETICA (docs/primera-clinica.md §4): un centro de belleza.
+//
+// URGENCIA: la misma lista, MENOS los términos que en un salón son pedidos
+// comunes. Lo que queda son emergencias reales con frases inequívocas.
+//   - "cortarme": "quiero cortarme el pelo". La autolesión explícita sigue
+//     con ["cortar*", "venas"] y el resto de la sección.
+//   - "shock": "shock de keratina".
+//   - "emergencia": "tengo una emergencia con el color".
+//   - hinchazón de ojos y párpados: "ojos hinchados después del lifting de
+//     pestañas". La de cara, labios, lengua, boca y garganta (vía aérea) sigue.
+// CLINICA: la lista del código no corre; solo los términos que la clínica
+// agregó a mano. En un salón, "dolor de espalda" es un pedido de masaje.
+//
+// La lista la revisa Rocco en el PR (docs/primera-clinica.md §4): es una
+// decisión de seguridad, no de estilo.
+// ---------------------------------------------------------------------------
+
+const clave = (t: Termino): string => JSON.stringify(t);
+
+const FUERA_DE_LA_URGENCIA_DE_ESTETICA: ReadonlySet<string> = new Set(
+  [
+    "cortarme",
+    "shock",
+    "emergencia",
+    ...["ojo*", "parpado*"].flatMap((parte) => [
+      ["hinch*", parte] as const,
+      ["inflam*", parte] as const,
+    ]),
+  ].map(clave),
+);
+
+export const TERMINOS_DE_URGENCIA_DE_ESTETICA: readonly Termino[] = [
+  ...TERMINOS_DE_URGENCIA.filter((t) => !FUERA_DE_LA_URGENCIA_DE_ESTETICA.has(clave(t))),
+  ["cortar*", "venas"],
+];
+
+/** MEDICO, el de siempre, si no se indica (docs/primera-clinica.md §4). */
+export type PerfilDeSalud = "MEDICO" | "ESTETICA";
+
 export function clasificarMensajeDeSalud(
   texto: string,
   deLaClinica: TerminosDeLaClinica = SIN_TERMINOS_DE_LA_CLINICA,
+  perfil: PerfilDeSalud = "MEDICO",
 ): ClasificacionDeSalud {
   const palabras = palabrasDe(texto);
   if (palabras.length === 0) return "NINGUNO";
   const coincide = (t: Termino) => contieneTermino(palabras, t);
-  if (TERMINOS_DE_URGENCIA.some(coincide) || deLaClinica.urgencia.some(coincide)) {
+  const urgencia = perfil === "ESTETICA" ? TERMINOS_DE_URGENCIA_DE_ESTETICA : TERMINOS_DE_URGENCIA;
+  if (urgencia.some(coincide) || deLaClinica.urgencia.some(coincide)) {
     return "URGENCIA";
   }
-  if (TERMINOS_CLINICOS.some(coincide) || deLaClinica.clinicos.some(coincide)) return "CLINICA";
+  const clinicos = perfil === "ESTETICA" ? [] : TERMINOS_CLINICOS;
+  if (clinicos.some(coincide) || deLaClinica.clinicos.some(coincide)) return "CLINICA";
   return "NINGUNO";
 }
 
@@ -526,12 +569,51 @@ const PATRONES_DE_INDICACION_CLINICA: readonly RegExp[] = [
   /\bsintomas? de\b/,
 ];
 
+// Perfil ESTETICA (docs/primera-clinica.md §4): sigue bloqueando dosis,
+// medicamentos y diagnósticos, y deja pasar los consejos de cuidado del pelo,
+// la piel y las uñas. Es una lista APARTE, escrita entera, para que la de
+// MEDICO (la de arriba) no cambie ni por accidente. Lo que sale respecto de
+// MEDICO, con el motivo:
+//   - ml, mililitros y gotas: tamaños de producto ("shampoo de 300 ml") y
+//     sérums ("2 gotas en las puntas").
+//   - "N veces al día": rutinas de cuidado de la piel.
+//   - aplicate, untate, frotate, lavate; ponete o pasate crema, hielo, frío o
+//     calor; poné o aplicá hielo, crema o compresas; no te rasques, toques,
+//     laves o expongas: cuidados después de un servicio.
+//   - "dejá de usar" o "de aplicar" (la plancha, un producto).
+//   - "es normal", "parece ser/una/un", "se trata de una/un": demasiado
+//     generales en un salón ("es normal que el color baje").
+// La pomada sigue bloqueada: es medicación.
+const PATRONES_DE_INDICACION_DE_ESTETICA: readonly RegExp[] = [
+  // Dosis.
+  /\b\d+([.,]\d+)? ?(mg|mcg|miligramos|comprimidos|capsulas|pastilas|grageas)\b/,
+  new RegExp(`\\bcada ${NUMEROS} horas\\b`),
+  /\bdosis\b/,
+  // Medicación.
+  /\b(ibuprofeno|paracetamol|aspirina|diclofenac\w*|antibiotic\w*|antinflamatori\w*|antihistamini\w*|corticoid\w*|cortisona|isotretinoina)\b/,
+  /\btomate (una|un|el|la|los|las|dos|tres)\b/,
+  /\btoma (una|un|el|la) (pastila|comprimido|capsula|remedio|medicamento|ibuprofeno|paracetamol|aspirina)\b/,
+  /\b(suspende|suspendas|deja de tomar|no dejes de tomar)\b/,
+  /\b(ponete|pasate|pone|pone te|aplica|aplicale) pomada\b/,
+  /\bhace reposo\b/,
+  // Frases diagnósticas.
+  /\b(no )?es grave\b/,
+  /\bprobablemente (sea|es|tengas|se trate)\b/,
+  /\bpuede ser (una|un) (alergia|infecion|reacion|iritacion|dermatitis|hongo|quemadura)\b/,
+  /\b(tenes|tendrias|seguro tenes) (una|un) (alergia|infecion|reacion|iritacion|dermatitis|hongo)\b/,
+  /\bes (una|un) (alergia|infecion|reacion|iritacion|dermatitis|hongo|quemadura)\b/,
+  /\bsintomas? de\b/,
+];
+
 /** Si la respuesta del modelo da una indicación clínica: una dosis, una
  *  indicación sobre el cuerpo o una frase diagnóstica. Si da positivo, la
- *  respuesta no sale (docs/rubros.md §5.3, capa 3). */
-export function daIndicacionClinica(texto: string): boolean {
+ *  respuesta no sale (docs/rubros.md §5.3, capa 3). Con el perfil ESTETICA,
+ *  los consejos de cuidado pasan (docs/primera-clinica.md §4). */
+export function daIndicacionClinica(texto: string, perfil: PerfilDeSalud = "MEDICO"): boolean {
   const normalizado = normalizar(texto);
-  return PATRONES_DE_INDICACION_CLINICA.some((patron) => patron.test(normalizado));
+  const patrones =
+    perfil === "ESTETICA" ? PATRONES_DE_INDICACION_DE_ESTETICA : PATRONES_DE_INDICACION_CLINICA;
+  return patrones.some((patron) => patron.test(normalizado));
 }
 
 // ---------------------------------------------------------------------------
@@ -540,3 +622,15 @@ export function daIndicacionClinica(texto: string): boolean {
 
 export const INSTRUCCION_SALUD =
   'Atendés a pacientes de un centro de salud o estética. No sos un profesional de la salud y no podés actuar como uno: no diagnostiques, no interpretes síntomas ni fotos, no indiques tratamientos, cuidados, medicación ni dosis, y no digas si algo es normal o grave. Si el paciente cuenta un síntoma, una reacción o un malestar, pregunta por medicación, embarazo o lactancia, o hace cualquier consulta clínica, no la respondas: derivá con request_human_handoff con el motivo "consulta clínica", sin resumir lo que contó. Si describe una urgencia, decile que llame a emergencias y derivá. Podés ayudar con turnos, horarios, precios y lo que esté en la información del negocio.';
+
+/** La del perfil ESTETICA (docs/primera-clinica.md §4): sin "pacientes" ni
+ *  "centro de salud", con los consejos de cuidado permitidos (los deja pasar
+ *  la capa 3 de ESTETICA) y la misma derivación ante un problema de salud o
+ *  una urgencia. */
+export const INSTRUCCION_SALUD_DE_ESTETICA =
+  'Atendés a las personas que escriben a un centro de belleza y bienestar. No sos un profesional de la salud y no podés actuar como uno: no diagnostiques, no interpretes síntomas, reacciones ni fotos de la piel, no recomiendes medicamentos ni dosis, y no digas si algo es grave. Sí podés dar consejos generales de cuidado del pelo, la piel y las uñas que estén en la información del negocio. Si alguien cuenta una reacción, un malestar o un problema de salud después de un servicio, o pregunta si un servicio es seguro con una medicación, un embarazo o una condición de salud, no lo respondas: derivá con request_human_handoff con el motivo "consulta de salud", sin resumir lo que contó. Si describe una urgencia, decile que llame a emergencias y derivá. Podés ayudar con turnos, horarios, precios, servicios y lo que esté en la información del negocio.';
+
+/** La instrucción de salud del perfil de la clínica. */
+export function instruccionDeSalud(perfil: PerfilDeSalud = "MEDICO"): string {
+  return perfil === "ESTETICA" ? INSTRUCCION_SALUD_DE_ESTETICA : INSTRUCCION_SALUD;
+}

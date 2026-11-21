@@ -4,7 +4,7 @@ import {
   ENCABEZADO_INDICACIONES,
   armarSystemPrompt,
 } from "../../services/agentOrchestration.service";
-import { reglasDelRubro } from "../../services/reglasDelRubro";
+import { instruccionesDelRubro, reglasDelRubro } from "../../services/reglasDelRubro";
 import { TOOLS_DE_TURNOS_DE_CLINICA } from "../toolsDeTurnos";
 import {
   INSTRUCCION_SALUD,
@@ -38,7 +38,8 @@ function promptDeClinica(termino: "PACIENTE" | "CLIENTE", conGestionDeTurnos: bo
     "WHATSAPP",
     [],
     null,
-    reglasDelRubro("CLINICA").instruccionesDelPrompt,
+    // Las mismas que arma el orquestador; sin perfil en el contexto, MEDICO.
+    instruccionesDelRubro(reglasDelRubro("CLINICA"), { nombreDeLaOrganizacion: "Clínica Ejemplo" }),
     true,
     textosDeClinica(TERMINO_DEL_CONTACTO[termino], conGestionDeTurnos),
   );

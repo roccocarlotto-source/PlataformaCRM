@@ -295,7 +295,13 @@ describe("NewOrganizationPage", () => {
     expect(await screen.findByLabelText("Edición")).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("Edición"), "COMPLETA");
+    // El perfil de salud (docs/primera-clinica.md §4) aparece recién con CLINICA.
+    expect(screen.queryByLabelText("Perfil de salud")).not.toBeInTheDocument();
     await user.selectOptions(rubro, "CLINICA");
+    const perfil = screen.getByLabelText("Perfil de salud");
+    expect(perfil).toBeRequired();
+    expect(perfil).toHaveValue("");
+    await user.selectOptions(perfil, "ESTETICA");
     await completarYEnviar(user);
 
     await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
@@ -305,8 +311,34 @@ describe("NewOrganizationPage", () => {
       adminEmail: "juan@perez.test",
       edition: "COMPLETA",
       industry: "CLINICA",
+      healthProfile: "ESTETICA",
       ...CON_QUE_NACE,
     });
+  });
+
+  it("perfil de salud: con Automotora no aparece y el alta no lo manda", async () => {
+    let postedBody: unknown;
+    server.use(
+      http.get(industriesUrl, () => HttpResponse.json({ industries: ["AUTOMOTORA", "CLINICA"] })),
+      http.post(url, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(CREATED, { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    const rubro = await screen.findByLabelText("Rubro");
+    await user.selectOptions(rubro, "CLINICA");
+    expect(screen.getByLabelText("Perfil de salud")).toBeInTheDocument();
+    await user.selectOptions(rubro, "AUTOMOTORA");
+    expect(screen.queryByLabelText("Perfil de salud")).not.toBeInTheDocument();
+    await completarYEnviar(user);
+
+    await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({ industry: "AUTOMOTORA" });
+    expect(postedBody).not.toHaveProperty("healthProfile");
   });
 
   // R19 (docs/rubros.md §12.1): la Clínica Demo, por su propio endpoint,

@@ -1,4 +1,9 @@
-import { Prisma, type OrganizationEdition, type OrganizationIndustry } from "@prisma/client";
+import {
+  Prisma,
+  type HealthProfile,
+  type OrganizationEdition,
+  type OrganizationIndustry,
+} from "@prisma/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { esSlugDeTallerDemo } from "../automotora/demo/config";
 import { esSlugDeClinicaDemo } from "../clinicas/demo/config";
@@ -90,6 +95,8 @@ export interface CreateOrganizationWithFoundingAdminInput {
   edition?: OrganizationEdition;
   // docs/rubros.md §1.1. Opcional por compatibilidad: sin él, AUTOMOTORA.
   industry?: OrganizationIndustry;
+  // docs/primera-clinica.md §4. Solo con industry CLINICA; sin él, MEDICO.
+  healthProfile?: HealthProfile;
   // País, moneda y zona: sin ellos, los de config/organizacionNueva.ts.
   defaultPhoneCountryCode?: string;
   preferredCurrency?: string;
@@ -148,7 +155,11 @@ export interface OrganizationAdminDeps {
   esencialHabilitada: boolean;
   // La configuración de la clínica (docs/rubros.md §1.3), en la transacción
   // del alta.
-  createClinicSettings: (organizationId: string, db: Db) => Promise<unknown>;
+  createClinicSettings: (
+    organizationId: string,
+    db: Db,
+    healthProfile?: HealthProfile,
+  ) => Promise<unknown>;
   // La llave CLINICA_HABILITADA, inyectable por lo mismo que la de ESENCIAL.
   clinicaHabilitada: boolean;
   createUser: (
@@ -346,6 +357,10 @@ export async function createOrganizationWithFoundingAdmin(
   } else if (!rubrosDisponibles(deps.clinicaHabilitada).includes(industry)) {
     throw new AppError(`El rubro ${industry} todavía no está disponible.`, 400);
   }
+  // El perfil de salud es de una clínica (docs/primera-clinica.md §4).
+  if (input.healthProfile !== undefined && industry !== "CLINICA") {
+    throw new AppError("El perfil de salud solo se elige para una organización CLINICA.", 400);
+  }
 
   // ---------------------------------------------------------------------
   // 1. Pre-chequeos, antes de escribir nada en ningún lado. Cada uno
@@ -444,7 +459,7 @@ export async function createOrganizationWithFoundingAdmin(
       // Una clínica nace con su configuración (docs/rubros.md §1.3). Una
       // automotora, como siempre, sin nada de clínica.
       if (industry === "CLINICA") {
-        await deps.createClinicSettings(organization.id, tx);
+        await deps.createClinicSettings(organization.id, tx, input.healthProfile);
       }
       const user = await deps.createUser(
         {

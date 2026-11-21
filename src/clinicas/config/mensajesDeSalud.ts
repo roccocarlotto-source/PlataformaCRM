@@ -13,6 +13,8 @@
 // clínica con un profesional antes del primer cliente (docs/rubros.md §10).
 // ---------------------------------------------------------------------------
 
+import type { PerfilDeSalud } from "../guardrailsDeSalud";
+
 /** Los motivos de derivación de los guardrails. Son texto (el motivo de una
  *  derivación no es un enum de la base). */
 export const MOTIVO_URGENCIA_DE_SALUD = "URGENCIA_DE_SALUD";
@@ -24,6 +26,17 @@ export const VARIABLE_CLINICA = "{clinica}";
 export const MENSAJE_DE_URGENCIA_POR_DEFECTO = `Si es una urgencia, llamá ya al 911 o a tu servicio de emergencia móvil. Este chat no puede ayudarte con eso. Ya le avisamos al equipo de ${VARIABLE_CLINICA}.`;
 
 export const MENSAJE_DE_CONSULTA_CLINICA_POR_DEFECTO = `Esa consulta la tiene que ver un profesional. Por acá no podemos darte indicaciones médicas. Ya le pasamos tu mensaje al equipo de ${VARIABLE_CLINICA} para que te contacte.`;
+
+/** El del perfil ESTETICA (docs/primera-clinica.md §4): sin "indicaciones
+ *  médicas". El de urgencia es el mismo para los dos perfiles. */
+export const MENSAJE_DE_CONSULTA_DE_ESTETICA_POR_DEFECTO = `Esa consulta te la tiene que responder una persona del equipo de ${VARIABLE_CLINICA}. Ya le pasamos tu mensaje para que te contacte.`;
+
+/** El texto por defecto de la consulta según el perfil de salud. */
+export function mensajeDeConsultaPorDefecto(perfil: PerfilDeSalud = "MEDICO"): string {
+  return perfil === "ESTETICA"
+    ? MENSAJE_DE_CONSULTA_DE_ESTETICA_POR_DEFECTO
+    : MENSAJE_DE_CONSULTA_CLINICA_POR_DEFECTO;
+}
 
 /** El texto (el de la clínica o el por defecto) con el nombre de la clínica. */
 export function componerMensajeDeSalud(plantilla: string, nombreDeLaClinica: string): string {
@@ -43,9 +56,10 @@ export function mensajeDeUrgencia(
 export function mensajeDeConsultaClinica(
   nombreDeLaClinica: string,
   textoDeLaClinica: string | null = null,
+  perfil: PerfilDeSalud = "MEDICO",
 ): string {
   return componerMensajeDeSalud(
-    textoDeLaClinica ?? MENSAJE_DE_CONSULTA_CLINICA_POR_DEFECTO,
+    textoDeLaClinica ?? mensajeDeConsultaPorDefecto(perfil),
     nombreDeLaClinica,
   );
 }
