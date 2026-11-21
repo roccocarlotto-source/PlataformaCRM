@@ -1,0 +1,254 @@
+{
+  "COMPLETA/AUTOMOTORA": {
+    "habilitadas": [
+      {
+        "nombre": "create_booking",
+        "definicion": "9a7a17aed93a1389"
+      },
+      {
+        "nombre": "create_lead",
+        "definicion": "b84fe781cb8dd5bd"
+      },
+      {
+        "nombre": "create_opportunity",
+        "definicion": "17674c3b1ea78e83"
+      },
+      {
+        "nombre": "get_availability",
+        "definicion": "becc686480e32693"
+      },
+      {
+        "nombre": "get_contact_activities",
+        "definicion": "ee1e3ddd9aa9acd8"
+      },
+      {
+        "nombre": "get_contact_info",
+        "definicion": "29db8092db1cde19"
+      },
+      {
+        "nombre": "get_payment_info",
+        "definicion": "44d8ce5d1e4d80ba"
+      },
+      {
+        "nombre": "get_service_types",
+        "definicion": "05ed817bf3ddc7e0"
+      },
+      {
+        "nombre": "mark_no_interest",
+        "definicion": "ab41afa583755a41"
+      },
+      {
+        "nombre": "reserve_vehicle",
+        "definicion": "cb82a274ea2baa53"
+      },
+      {
+        "nombre": "search_vehicles",
+        "definicion": "bd23850d88db6f91"
+      },
+      {
+        "nombre": "update_contact_custom_fields",
+        "definicion": "a2eea99f221b7330"
+      },
+      {
+        "nombre": "update_lead",
+        "definicion": "d95b62662071999a"
+      },
+      {
+        "nombre": "update_opportunity",
+        "definicion": "5603c76389157f35"
+      },
+      {
+        "nombre": "cancel_booking",
+        "definicion": "6321d5632d536210"
+      },
+      {
+        "nombre": "get_contact_bookings",
+        "definicion": "7f924f34524c08ef"
+      },
+      {
+        "nombre": "reschedule_booking",
+        "definicion": "0696e11783b6326d"
+      }
+    ],
+    "delSistema": []
+  },
+  "COMPLETA/CLINICA": {
+    "habilitadas": [
+      {
+        "nombre": "create_booking",
+        "definicion": "d999b1805791d493"
+      },
+      {
+        "nombre": "create_lead",
+        "definicion": "ae2774b495c365f0"
+      },
+      {
+        "nombre": "get_availability",
+        "definicion": "9dedec4a2d4965ac"
+      },
+      {
+        "nombre": "get_contact_activities",
+        "definicion": "ee1e3ddd9aa9acd8"
+      },
+      {
+        "nombre": "get_contact_info",
+        "definicion": "29db8092db1cde19"
+      },
+      {
+        "nombre": "get_service_types",
+        "definicion": "c3ee098f8ea635ff"
+      },
+      {
+        "nombre": "mark_no_interest",
+        "definicion": "ab41afa583755a41"
+      },
+      {
+        "nombre": "update_contact_custom_fields",
+        "definicion": "a2eea99f221b7330"
+      },
+      {
+        "nombre": "update_lead",
+        "definicion": "1f2cbb216f917cde"
+      },
+      {
+        "nombre": "cancel_booking",
+        "definicion": "00198a4e84e44bae"
+      },
+      {
+        "nombre": "get_contact_bookings",
+        "definicion": "ba5bea6bec032c71"
+      },
+      {
+        "nombre": "reschedule_booking",
+        "definicion": "38ecbdd3030856e4"
+      }
+    ],
+    "delSistema": []
+  },
+  "ESENCIAL/AUTOMOTORA": {
+    "habilitadas": [
+      {
+        "nombre": "create_booking",
+        "definicion": "9a7a17aed93a1389"
+      },
+      {
+        "nombre": "create_lead",
+        "definicion": "b84fe781cb8dd5bd"
+      },
+      {
+        "nombre": "create_opportunity",
+        "definicion": "17674c3b1ea78e83"
+      },
+      {
+        "nombre": "get_availability",
+        "definicion": "becc686480e32693"
+      },
+      {
+        "nombre": "get_contact_activities",
+        "definicion": "ee1e3ddd9aa9acd8"
+      },
+      {
+        "nombre": "get_contact_info",
+        "definicion": "29db8092db1cde19"
+      },
+      {
+        "nombre": "get_payment_info",
+        "definicion": "44d8ce5d1e4d80ba"
+      },
+      {
+        "nombre": "get_service_types",
+        "definicion": "05ed817bf3ddc7e0"
+      },
+      {
+        "nombre": "mark_no_interest",
+        "definicion": "ab41afa583755a41"
+      },
+      {
+        "nombre": "reserve_vehicle",
+        "definicion": "cb82a274ea2baa53"
+      },
+      {
+        "nombre": "search_vehicles",
+        "definicion": "bd23850d88db6f91"
+      },
+      {
+        "nombre": "update_contact_custom_fields",
+        "definicion": "a2eea99f221b7330"
+      },
+      {
+        "nombre": "update_lead",
+        "definicion": "d95b62662071999a"
+      },
+      {
+        "nombre": "update_opportunity",
+        "definicion": "5603c76389157f35"
+      },
+      {
+        "nombre": "cancel_booking",
+        "definicion": "6321d5632d536210"
+      },
+      {
+        "nombre": "get_contact_bookings",
+        "definicion": "7f924f34524c08ef"
+      },
+      {
+        "nombre": "reschedule_booking",
+        "definicion": "0696e11783b6326d"
+      }
+    ],
+    "delSistema": []
+  },
+  "ESENCIAL/CLINICA": {
+    "habilitadas": [
+      {
+        "nombre": "create_booking",
+        "definicion": "d999b1805791d493"
+      },
+      {
+        "nombre": "create_lead",
+        "definicion": "ae2774b495c365f0"
+      },
+      {
+        "nombre": "get_availability",
+        "definicion": "9dedec4a2d4965ac"
+      },
+      {
+        "nombre": "get_contact_activities",
+        "definicion": "ee1e3ddd9aa9acd8"
+      },
+      {
+        "nombre": "get_contact_info",
+        "definicion": "29db8092db1cde19"
+      },
+      {
+        "nombre": "get_service_types",
+        "definicion": "c3ee098f8ea635ff"
+      },
+      {
+        "nombre": "mark_no_interest",
+        "definicion": "ab41afa583755a41"
+      },
+      {
+        "nombre": "update_contact_custom_fields",
+        "definicion": "a2eea99f221b7330"
+      },
+      {
+        "nombre": "update_lead",
+        "definicion": "1f2cbb216f917cde"
+      },
+      {
+        "nombre": "cancel_booking",
+        "definicion": "00198a4e84e44bae"
+      },
+      {
+        "nombre": "get_contact_bookings",
+        "definicion": "ba5bea6bec032c71"
+      },
+      {
+        "nombre": "reschedule_booking",
+        "definicion": "38ecbdd3030856e4"
+      }
+    ],
+    "delSistema": []
+  }
+}

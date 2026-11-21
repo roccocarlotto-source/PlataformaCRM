@@ -1,0 +1,699 @@
+[
+  {
+    "path": "/login",
+    "element": {
+      "componente": "LoginPage"
+    }
+  },
+  {
+    "path": "/forgot-password",
+    "element": {
+      "componente": "ForgotPasswordPage"
+    }
+  },
+  {
+    "path": "/reset-password",
+    "element": {
+      "componente": "ResetPasswordPage"
+    }
+  },
+  {
+    "path": "/invite/accept",
+    "element": {
+      "componente": "AcceptInvitationPage"
+    }
+  },
+  {
+    "element": {
+      "componente": "ProtectedRoute"
+    },
+    "children": [
+      {
+        "element": {
+          "componente": "AppLayout"
+        },
+        "children": [
+          {
+            "path": "/internal-agent",
+            "element": {
+              "componente": "InternalAgentChatPage"
+            }
+          },
+          {
+            "path": "/vouchers/scan",
+            "element": {
+              "componente": "VoucherScanPage"
+            }
+          },
+          {
+            "path": "/ayuda",
+            "element": {
+              "componente": "GuiaPage"
+            }
+          },
+          {
+            "path": "/ayuda/:seccion",
+            "element": {
+              "componente": "GuiaPage"
+            }
+          },
+          {
+            "path": "/",
+            "element": {
+              "componente": "DashboardPage"
+            }
+          },
+          {
+            "element": {
+              "componente": "ModuloRoute",
+              "props": {
+                "modulo": "empresas"
+              }
+            },
+            "children": [
+              {
+                "path": "/companies",
+                "element": {
+                  "componente": "CompanyListPage"
+                }
+              }
+            ]
+          },
+          {
+            "path": "/contacts",
+            "element": {
+              "componente": "ContactListPage"
+            }
+          },
+          {
+            "path": "/contacts/new",
+            "element": {
+              "componente": "ContactFormPage"
+            }
+          },
+          {
+            "path": "/contacts/:id/edit",
+            "element": {
+              "componente": "ContactFormPage"
+            }
+          },
+          {
+            "element": {
+              "componente": "ModuloRoute",
+              "props": {
+                "modulo": "oportunidades"
+              }
+            },
+            "children": [
+              {
+                "path": "/opportunities",
+                "element": {
+                  "componente": "OpportunityListPage"
+                }
+              },
+              {
+                "path": "/opportunities/new",
+                "element": {
+                  "componente": "OpportunityFormPage"
+                }
+              },
+              {
+                "path": "/opportunities/:id/edit",
+                "element": {
+                  "componente": "OpportunityFormPage"
+                }
+              }
+            ]
+          },
+          {
+            "path": "/conversations",
+            "element": {
+              "componente": "ConversationListPage"
+            }
+          },
+          {
+            "path": "/conversations/:id",
+            "element": {
+              "componente": "ConversationDetail"
+            }
+          },
+          {
+            "element": {
+              "componente": "ModuloRoute",
+              "props": {
+                "modulo": "procesos_de_venta"
+              }
+            },
+            "children": [
+              {
+                "path": "/pipelines",
+                "element": {
+                  "componente": "PipelineListPage"
+                }
+              },
+              {
+                "path": "/pipelines/:pipelineId/stages",
+                "element": {
+                  "componente": "StageListPage"
+                }
+              }
+            ]
+          },
+          {
+            "path": "/tasks",
+            "element": {
+              "componente": "MyTasksPage"
+            }
+          },
+          {
+            "path": "/envios-que-no-salieron",
+            "element": {
+              "componente": "EnviosQueNoSalieronPage"
+            }
+          },
+          {
+            "path": "/activities/new",
+            "element": {
+              "componente": "ActivityFormPage"
+            }
+          },
+          {
+            "path": "/activities/:id/edit",
+            "element": {
+              "componente": "ActivityFormPage"
+            }
+          },
+          {
+            "path": "/qr",
+            "element": {
+              "componente": "QrListPage"
+            }
+          },
+          {
+            "element": {
+              "componente": "ModuloRoute",
+              "props": {
+                "modulo": "stock"
+              }
+            },
+            "children": [
+              {
+                "path": "/vehicles",
+                "element": {
+                  "componente": "VehicleListPage"
+                }
+              }
+            ]
+          },
+          {
+            "element": {
+              "componente": "ModuloRoute",
+              "props": {
+                "modulo": "servicios"
+              }
+            },
+            "children": [
+              {
+                "path": "/taller",
+                "element": {
+                  "componente": "TallerResumenPage"
+                }
+              },
+              {
+                "path": "/taller/vehiculos",
+                "element": {
+                  "componente": "VehiculosDeClientesPage"
+                }
+              },
+              {
+                "path": "/taller/vehiculos/nuevo",
+                "element": {
+                  "componente": "VehiculoDeClienteFormPage"
+                }
+              },
+              {
+                "path": "/taller/vehiculos/:id",
+                "element": {
+                  "componente": "VehiculoDeClienteDetailPage"
+                }
+              },
+              {
+                "path": "/taller/vehiculos/:id/editar",
+                "element": {
+                  "componente": "VehiculoDeClienteFormPage"
+                }
+              },
+              {
+                "path": "/taller/ordenes",
+                "element": {
+                  "componente": "OrdenesPage"
+                }
+              },
+              {
+                "path": "/taller/ordenes/nueva",
+                "element": {
+                  "componente": "NuevaOrdenPage"
+                }
+              },
+              {
+                "path": "/taller/ordenes/:id",
+                "element": {
+                  "componente": "OrdenPage"
+                }
+              },
+              {
+                "path": "/taller/recambios",
+                "element": {
+                  "componente": "RecambiosPage"
+                }
+              },
+              {
+                "element": {
+                  "componente": "AdminRoute"
+                },
+                "children": [
+                  {
+                    "path": "/taller/configuracion",
+                    "element": {
+                      "componente": "ConfiguracionDelTallerPage"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "path": "/bookings",
+            "element": {
+              "componente": "BookingListPage"
+            }
+          },
+          {
+            "path": "/agenda",
+            "element": {
+              "componente": "BookingCalendarPage"
+            }
+          },
+          {
+            "path": "/clinica/bloqueos",
+            "element": {
+              "componente": "BloqueosPage"
+            }
+          },
+          {
+            "path": "/clinica/sobreturnos",
+            "element": {
+              "componente": "SobreturnosPage"
+            }
+          },
+          {
+            "element": {
+              "componente": "AdminRoute"
+            },
+            "children": [
+              {
+                "path": "/users",
+                "element": {
+                  "componente": "UserListPage"
+                }
+              },
+              {
+                "path": "/invitations",
+                "element": {
+                  "componente": "InvitationListPage"
+                }
+              },
+              {
+                "path": "/invitations/new",
+                "element": {
+                  "componente": "InvitationFormPage"
+                }
+              },
+              {
+                "path": "/sources",
+                "element": {
+                  "componente": "SourceListPage"
+                }
+              },
+              {
+                "path": "/sources/new",
+                "element": {
+                  "componente": "SourceFormPage"
+                }
+              },
+              {
+                "path": "/sources/:id/edit",
+                "element": {
+                  "componente": "SourceFormPage"
+                }
+              },
+              {
+                "path": "/sources/:id/import",
+                "element": {
+                  "componente": "ImportPage"
+                }
+              },
+              {
+                "path": "/api-keys",
+                "element": {
+                  "componente": "ApiKeyListPage"
+                }
+              },
+              {
+                "path": "/ingestion-events",
+                "element": {
+                  "componente": "IngestionEventListPage"
+                }
+              },
+              {
+                "path": "/organization",
+                "element": {
+                  "componente": "OrganizationSettingsPage"
+                }
+              },
+              {
+                "path": "/whatsapp-template",
+                "element": {
+                  "componente": "WhatsappTemplateRedirect"
+                }
+              },
+              {
+                "path": "/whatsapp-template/:automationId",
+                "element": {
+                  "componente": "WhatsappTemplateRedirect"
+                }
+              },
+              {
+                "path": "/branches",
+                "element": {
+                  "componente": "BranchListPage"
+                }
+              },
+              {
+                "path": "/branches/new",
+                "element": {
+                  "componente": "BranchFormPage"
+                }
+              },
+              {
+                "path": "/branches/:id/edit",
+                "element": {
+                  "componente": "BranchFormPage"
+                }
+              },
+              {
+                "path": "/agents",
+                "element": {
+                  "componente": "AgentListPage"
+                }
+              },
+              {
+                "path": "/agents/new",
+                "element": {
+                  "componente": "AgentFormPage"
+                }
+              },
+              {
+                "path": "/agents/:id/edit",
+                "element": {
+                  "componente": "AgentFormPage"
+                }
+              },
+              {
+                "path": "/agents/:id/embed",
+                "element": {
+                  "componente": "AgentEmbedPage"
+                }
+              },
+              {
+                "path": "/agents/:id/playground",
+                "element": {
+                  "componente": "AgentPlaygroundPage"
+                }
+              },
+              {
+                "path": "/knowledge-base",
+                "element": {
+                  "componente": "KnowledgeBaseListPage"
+                }
+              },
+              {
+                "path": "/knowledge-base/new",
+                "element": {
+                  "componente": "KnowledgeBaseFormPage"
+                }
+              },
+              {
+                "path": "/knowledge-base/:id/edit",
+                "element": {
+                  "componente": "KnowledgeBaseFormPage"
+                }
+              },
+              {
+                "path": "/automations",
+                "element": {
+                  "componente": "AutomationListPage"
+                }
+              },
+              {
+                "path": "/automations/new",
+                "element": {
+                  "componente": "AutomationFormPage"
+                }
+              },
+              {
+                "path": "/automations/:id/edit",
+                "element": {
+                  "componente": "AutomationFormPage"
+                }
+              },
+              {
+                "path": "/internal-agent/settings",
+                "element": {
+                  "componente": "InternalAgentSettingsPage"
+                }
+              },
+              {
+                "path": "/resources",
+                "element": {
+                  "componente": "ResourceListPage"
+                }
+              },
+              {
+                "path": "/resources/new",
+                "element": {
+                  "componente": "ResourceFormPage"
+                }
+              },
+              {
+                "path": "/resources/:id/edit",
+                "element": {
+                  "componente": "ResourceFormPage"
+                }
+              },
+              {
+                "path": "/service-types",
+                "element": {
+                  "componente": "ServiceTypeListPage"
+                }
+              },
+              {
+                "path": "/service-types/new",
+                "element": {
+                  "componente": "ServiceTypeFormPage"
+                }
+              },
+              {
+                "path": "/service-types/:id/edit",
+                "element": {
+                  "componente": "ServiceTypeFormPage"
+                }
+              },
+              {
+                "path": "/clinica/prestaciones",
+                "element": {
+                  "componente": "PrestacionesPage"
+                }
+              },
+              {
+                "path": "/clinica/profesionales",
+                "element": {
+                  "componente": "ProfesionalesPage"
+                }
+              },
+              {
+                "path": "/contact-custom-fields",
+                "element": {
+                  "componente": "ContactCustomFieldListPage"
+                }
+              },
+              {
+                "path": "/contact-custom-fields/new",
+                "element": {
+                  "componente": "ContactCustomFieldFormPage"
+                }
+              },
+              {
+                "path": "/contact-custom-fields/:id/edit",
+                "element": {
+                  "componente": "ContactCustomFieldFormPage"
+                }
+              },
+              {
+                "element": {
+                  "componente": "ModuloRoute",
+                  "props": {
+                    "modulo": "empresas"
+                  }
+                },
+                "children": [
+                  {
+                    "path": "/companies/new",
+                    "element": {
+                      "componente": "CompanyFormPage"
+                    }
+                  },
+                  {
+                    "path": "/companies/:id/edit",
+                    "element": {
+                      "componente": "CompanyFormPage"
+                    }
+                  }
+                ]
+              },
+              {
+                "element": {
+                  "componente": "ModuloRoute",
+                  "props": {
+                    "modulo": "procesos_de_venta"
+                  }
+                },
+                "children": [
+                  {
+                    "path": "/pipelines/new",
+                    "element": {
+                      "componente": "PipelineFormPage"
+                    }
+                  },
+                  {
+                    "path": "/pipelines/:id/edit",
+                    "element": {
+                      "componente": "PipelineFormPage"
+                    }
+                  },
+                  {
+                    "path": "/pipelines/:pipelineId/stages/new",
+                    "element": {
+                      "componente": "StageFormPage"
+                    }
+                  },
+                  {
+                    "path": "/pipelines/:pipelineId/stages/:stageId/edit",
+                    "element": {
+                      "componente": "StageFormPage"
+                    }
+                  }
+                ]
+              },
+              {
+                "path": "/activities",
+                "element": {
+                  "componente": "ActivityListPage"
+                }
+              },
+              {
+                "element": {
+                  "componente": "ModuloRoute",
+                  "props": {
+                    "modulo": "stock"
+                  }
+                },
+                "children": [
+                  {
+                    "path": "/vehicles/new",
+                    "element": {
+                      "componente": "VehicleFormPage"
+                    }
+                  },
+                  {
+                    "path": "/vehicles/:id/edit",
+                    "element": {
+                      "componente": "VehicleFormPage"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "element": {
+              "componente": "PlatformAdminRoute"
+            },
+            "children": [
+              {
+                "path": "/admin/organizations/new",
+                "element": {
+                  "componente": "NewOrganizationPage"
+                }
+              },
+              {
+                "path": "/admin/organizations",
+                "element": {
+                  "componente": "OrganizationsPage"
+                }
+              },
+              {
+                "path": "/admin/agents/whatsapp-number",
+                "element": {
+                  "componente": "AgentWhatsappNumberPage"
+                }
+              },
+              {
+                "path": "/admin/organizations/whatsapp-business",
+                "element": {
+                  "componente": "WabaDeLaClinicaPage"
+                }
+              },
+              {
+                "path": "/admin/agents/facebook-page",
+                "element": {
+                  "componente": "AgentFacebookPagePage"
+                }
+              },
+              {
+                "path": "/admin/agents/model",
+                "element": {
+                  "componente": "AgentModelPage"
+                }
+              },
+              {
+                "path": "/admin/llm-usage",
+                "element": {
+                  "componente": "LlmUsagePage"
+                }
+              },
+              {
+                "path": "/admin/help-assistant",
+                "element": {
+                  "componente": "PreguntasALaAyudaPage"
+                }
+              },
+              {
+                "path": "/admin/imports",
+                "element": {
+                  "componente": "ImportarDatosPage"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "path": "*",
+    "element": {
+      "componente": "NotFoundPlaceholder"
+    }
+  }
+]
