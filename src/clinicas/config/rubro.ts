@@ -1,5 +1,5 @@
 import type { ContactTerm } from "@prisma/client";
-import { MARCA, termino, type Termino, type Vocabulario } from "../../config/terminos";
+import { termino, type Termino, type Vocabulario } from "../../config/terminos";
 
 // ---------------------------------------------------------------------------
 // Configuración del rubro CLINICA (docs/rubros.md §1.3). Es parte del
@@ -15,6 +15,12 @@ import { MARCA, termino, type Termino, type Vocabulario } from "../../config/ter
 // VOCABULARIO (§3)
 // ---------------------------------------------------------------------------
 
+/** El nombre del producto que ve una clínica en el menú (`vocabulario.marca`
+ *  de /me). Mientras no se decida el nombre definitivo
+ *  (docs/ordenamiento-productos.md, D4), las clínicas ven "Xentech" y las
+ *  automotoras siguen con MARCA (docs/primera-clinica.md §6). */
+export const MARCA_DE_CLINICA = "Xentech";
+
 /** Cómo una clínica llama a sus contactos: lo elige su ADMIN
  *  (ClinicSettings.contactTerm, default PACIENTE). */
 export const TERMINO_DEL_CONTACTO: Readonly<Record<ContactTerm, Termino>> = {
@@ -24,7 +30,7 @@ export const TERMINO_DEL_CONTACTO: Readonly<Record<ContactTerm, Termino>> = {
 
 export function vocabularioDeClinica(contactTerm: ContactTerm): Vocabulario {
   return {
-    marca: MARCA,
+    marca: MARCA_DE_CLINICA,
     contacto: TERMINO_DEL_CONTACTO[contactTerm],
     recurso: termino("profesional", "profesionales"),
     tipoDeServicio: termino("prestación", "prestaciones", "femenino"),

@@ -235,14 +235,15 @@ export function edicionesDisponibles(
 }
 
 // ---------------------------------------------------------------------------
-// CLINICA todavía no se ofrece (docs/rubros.md §15, R3): el alta y la
-// configuración existen, pero sin el resto del plan una clínica quedaría a
-// medias. Mismo molde que ESENCIAL_HABILITADA: es la ÚNICA llave, el alta y el
-// cambio de rubro la consultan por rubrosDisponibles() y la pantalla de
-// Plataforma se entera por GET /api/admin/organizations/industries. Se pone en
-// true en un PR posterior, cuando haya un mínimo usable.
+// CLINICA se ofrece desde la primera organización real del rubro
+// (docs/primera-clinica.md §1.3, PR4). Mismo molde que ESENCIAL_HABILITADA: es
+// la ÚNICA llave, el alta y el cambio de rubro la consultan por
+// rubrosDisponibles() y la pantalla de Plataforma se entera por
+// GET /api/admin/organizations/industries. A las organizaciones que ya existen
+// no les cambia nada: solo habilita crear una CLINICA o cambiarle el rubro a
+// una. En false, el alta y el cambio de rubro vuelven a rechazar CLINICA con 400.
 // ---------------------------------------------------------------------------
-export const CLINICA_HABILITADA = false;
+export const CLINICA_HABILITADA = true;
 
 /** Los rubros que se pueden elegir al dar de alta una organización (o al
  *  cambiarle el rubro), en el orden en que se muestran. */

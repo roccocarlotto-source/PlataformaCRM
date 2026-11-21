@@ -1,6 +1,6 @@
 # Primeros pasos
 
-Plataforma CRM es la herramienta con la que el equipo de la clínica lleva la
+Xentech es la herramienta con la que el equipo de la clínica lleva la
 agenda, los turnos, los pacientes, las conversaciones y el asistente de IA que
 atiende por WhatsApp y por la web. Esta sección cubre lo primero que vas a
 necesitar: entrar, moverte por el menú y entender qué muestra la pantalla de
@@ -146,7 +146,7 @@ Las tarjetas:
 ## El menú {#menu}
 
 El menú está en la columna de la izquierda. Arriba de todo, el nombre del
-producto (**Plataforma CRM**) te lleva siempre al Dashboard. Después vienen:
+producto (**Xentech**) te lleva siempre al Dashboard. Después vienen:
 
 - **Dashboard**.
 - **Agente interno**: el chat con el asistente de IA del equipo. Solo
