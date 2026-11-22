@@ -146,7 +146,7 @@ días se configuran en cada prestación (ver
 ## Retomar la consulta {#retomar-la-consulta}
 
 La regla **Consulta sin avance → Retomar la consulta** le escribe a un paciente
-que consultó y lleva unos días sin responder. En una clínica tiene tres
+que consultó y lleva unos días sin responder. En una clínica tiene cuatro
 particularidades:
 
 - **No le escribe a quien ya tiene un turno.** Si el paciente tiene un turno
@@ -154,9 +154,12 @@ particularidades:
   días de la regla), no recibe el mensaje. Si sacó un turno después de que se
   programó el mensaje, el mensaje se cancela antes de salir. Un turno marcado
   como **No vino** o uno cancelado no lo frenan.
+- **Los botones del recordatorio no son una consulta.** Si el paciente solo
+  tocó **Confirmo** o **Necesito cancelar**, no recibe este mensaje. Y si había
+  consultado antes, tocar un botón no cuenta como que volvió a escribir.
 - **Habla de la prestación.** En el texto del mensaje usá `{prestacion}`: va la
   prestación que consultó (por ejemplo, "limpieza facial") o, si no se sabe,
-  "lo que consultaste". `{saludo}` sigue siendo obligatorio y va primero.
+  "nuestros servicios". `{saludo}` sigue siendo obligatorio y va primero.
 - **Siempre sale el mensaje aprobado por WhatsApp**, aunque el asistente esté en
   el nivel **Responde sola** y el paciente haya escrito hace menos de 24 horas.
   El asistente nunca redacta este mensaje por su cuenta.

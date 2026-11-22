@@ -1931,6 +1931,13 @@ respuesta y **sin oportunidad OPEN**, y no mira los turnos.
 >   `TEXTO_POR_DEFECTO_DE_CLINICA`; la tarea de los otros canales dice "Le
 >   interesa: <prestación>".
 > - **D7:** en CLINICA el worker nunca manda texto libre.
+> - **Los botones del recordatorio no son consulta** (decisión de Rocco del
+>   2026-11-22, ISSUE-012 de la QA): en CLINICA, un entrante que es exactamente
+>   el texto de un botón ("Confirmo", "Necesito cancelar") no cuenta para el
+>   barrido (`noEsBotonDelRecordatorio`) ni como "volvió a escribir" en la
+>   acción y el worker (`existsInboundSince` con `sinBotones`). Por el texto
+>   y no por `booking_messages`: la marca de la respuesta es CAS y un segundo
+>   toque queda como un mensaje común. Una automotora, igual que antes.
 
 ### 9.2 Qué hace cada nivel con lo nuevo
 

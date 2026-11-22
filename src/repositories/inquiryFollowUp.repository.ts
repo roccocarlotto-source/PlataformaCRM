@@ -6,7 +6,11 @@ import {
   type ConversationStatus,
 } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
-import { sinTurnoQueFrene } from "../clinicas/seguimientoDeConsultas";
+import {
+  filtroSinBotones,
+  noEsBotonDelRecordatorio,
+  sinTurnoQueFrene,
+} from "../clinicas/seguimientoDeConsultas";
 import { VENTANA_DE_WHATSAPP_MS } from "../utils/ventanaDeWhatsapp";
 
 // ---------------------------------------------------------------------------
@@ -62,12 +66,14 @@ export async function findStalledInquiries(
   maxFollowUps: number,
   db: Db = prisma,
   // R15 (docs/rubros.md §9.1): solo en una clínica, sin turno CONFIRMED futuro
-  // ni atendido en los últimos `dias`. Sin pasarlo, la consulta de siempre.
+  // ni atendido en los últimos `dias`, y sin contar los botones del
+  // recordatorio como mensaje del cliente. Sin pasarlo, la consulta de siempre.
   filtroDeTurnos?: { ahora: Date; dias: number },
 ): Promise<ConsultaEstancada[]> {
   const turnos = filtroDeTurnos
     ? sinTurnoQueFrene(filtroDeTurnos.ahora, filtroDeTurnos.dias)
     : Prisma.empty;
+  const sinBotones = filtroDeTurnos ? noEsBotonDelRecordatorio() : Prisma.empty;
   const filas = await db.$queryRaw<FilaEstancada[]>`
     SELECT c.id AS contact_id,
       c.owner_id,
@@ -90,6 +96,7 @@ export async function findStalledInquiries(
       WHERE m.organization_id = c.organization_id
         AND m.conversation_id = cv.id
         AND m.direction = 'INBOUND'
+        ${sinBotones}
       ORDER BY m.created_at DESC, m.id DESC
       LIMIT 1
     ) m ON true
@@ -167,6 +174,8 @@ export async function existsInboundSince(
   contactId: string,
   desde: Date,
   db: Db = prisma,
+  // Clínica: los botones del recordatorio no son "volvió a escribir".
+  sinBotones = false,
 ): Promise<boolean> {
   const mensaje = await db.message.findFirst({
     where: {
@@ -174,6 +183,7 @@ export async function existsInboundSince(
       direction: "INBOUND",
       createdAt: { gt: desde },
       conversation: { contactId },
+      ...(sinBotones ? filtroSinBotones() : {}),
     },
     select: { id: true },
   });

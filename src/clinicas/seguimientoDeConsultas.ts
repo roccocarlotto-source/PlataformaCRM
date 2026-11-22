@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 import { configDeConsultaSinAvanceSchema } from "../services/automationTriggers";
+import { BOTONES_DEL_RECORDATORIO } from "./recordatorios/config";
 
 // ---------------------------------------------------------------------------
 // El seguimiento de consultas estancadas (#446) en una CLÍNICA (docs/rubros.md
@@ -15,9 +16,41 @@ import { configDeConsultaSinAvanceSchema } from "../services/automationTriggers"
 //   2. TEXTO Y VARIABLES: {prestacion} (de leadServiceOfInterest, con el
 //      respaldo RESPALDO_DE_LA_PRESTACION) en lugar de {vehiculo}.
 //   3. SIEMPRE LA PLANTILLA (D7): nunca texto libre de la IA, ni en AUTONOMA.
+//   4. LOS BOTONES DEL RECORDATORIO NO SON CONSULTA (decisión de Rocco del
+//      2026-11-22, ISSUE-012 de la QA): un entrante que es exactamente el texto
+//      de un botón ("Confirmo", "Necesito cancelar") no cuenta, ni para
+//      encontrar la consulta (el barrido) ni como "volvió a escribir" (la
+//      acción y el worker). Por el texto y no por booking_messages: la marca
+//      de la respuesta es CAS y un segundo toque queda como un mensaje común.
 // ---------------------------------------------------------------------------
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
+
+/** Los textos de los botones del recordatorio, en minúscula. */
+const TEXTOS_DE_LOS_BOTONES: readonly string[] = BOTONES_DEL_RECORDATORIO.map((b) =>
+  b.texto.toLowerCase(),
+);
+
+/** Pura: si un entrante es solo el texto de un botón del recordatorio. */
+export function esBotonDelRecordatorio(texto: string): boolean {
+  return TEXTOS_DE_LOS_BOTONES.includes(texto.trim().toLowerCase());
+}
+
+/** La condición del barrido sobre el mensaje `m`: que no sea un botón. */
+export function noEsBotonDelRecordatorio(): Prisma.Sql {
+  return Prisma.sql`AND lower(btrim(m.content)) NOT IN (${Prisma.join([...TEXTOS_DE_LOS_BOTONES])})`;
+}
+
+/** Lo mismo para un findFirst/findMany de Prisma sobre messages. */
+export function filtroSinBotones(): Prisma.MessageWhereInput {
+  return {
+    NOT: {
+      OR: BOTONES_DEL_RECORDATORIO.map((b) => ({
+        content: { equals: b.texto, mode: "insensitive" as const },
+      })),
+    },
+  };
+}
 
 export const MOTIVO_TURNO_DEL_PACIENTE =
   "El paciente tiene un turno próximo o fue atendido en los últimos días";

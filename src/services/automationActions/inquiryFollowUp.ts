@@ -233,7 +233,13 @@ export interface DependenciasDelSeguimientoDeConsulta {
   ) => Promise<{ status: ConversationStatus; assignedUserId: string | null } | null>;
   humanoHabloUltimo: (conversationId: string, organizationId: string) => Promise<boolean>;
   hayOportunidadAbierta: (contactId: string, organizationId: string) => Promise<boolean>;
-  respondioDespues: (organizationId: string, contactId: string, desde: Date) => Promise<boolean>;
+  /** `sinBotones` (clínica): los botones del recordatorio no cuentan. */
+  respondioDespues: (
+    organizationId: string,
+    contactId: string,
+    desde: Date,
+    sinBotones?: boolean,
+  ) => Promise<boolean>;
   mensajesDelCliente: (
     conversationId: string,
     organizationId: string,
@@ -299,7 +305,8 @@ const dependenciasReales: DependenciasDelSeguimientoDeConsulta = {
   humanoHabloUltimo: humanSpokeLast,
   hayOportunidadAbierta: (contactId, organizationId) =>
     countOpenOpportunitiesOf({ contactId }, organizationId).then((n) => n > 0),
-  respondioDespues: existsInboundSince,
+  respondioDespues: (organizationId, contactId, desde, sinBotones) =>
+    existsInboundSince(organizationId, contactId, desde, prisma, sinBotones === true),
   mensajesDelCliente: (conversationId, organizationId) =>
     findLastMessages(conversationId, organizationId, 40).then((mensajes) =>
       mensajes
@@ -374,15 +381,21 @@ export function crearAccionSeguimientoDeConsulta(
         );
         return;
       }
-      if (await deps.respondioDespues(organizationId, consulta.contactId, consulta.lastInboundAt)) {
+      const clinica = await deps.esClinica(organizationId);
+      if (
+        await deps.respondioDespues(
+          organizationId,
+          consulta.contactId,
+          consulta.lastInboundAt,
+          clinica,
+        )
+      ) {
         logger.info(
           contexto,
           "Seguimiento de consulta: el cliente volvió a escribir; no hace falta",
         );
         return;
       }
-
-      const clinica = await deps.esClinica(organizationId);
       if (
         clinica &&
         (await deps.turnoFrena(organizationId, automationId, consulta.contactId, deps.ahora()))

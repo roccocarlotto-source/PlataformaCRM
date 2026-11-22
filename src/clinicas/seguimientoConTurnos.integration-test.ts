@@ -20,7 +20,10 @@ import {
 } from "../workers/inquiryFollowUpWorker";
 import { barrerConsultasSinAvance } from "../workers/inquiryStalledWorker";
 import { drenarOutbox } from "../workers/outboxWorker";
-import { claimNextInquiryFollowUp } from "../repositories/inquiryFollowUp.repository";
+import {
+  claimNextInquiryFollowUp,
+  existsInboundSince,
+} from "../repositories/inquiryFollowUp.repository";
 import {
   MOTIVO_TURNO_DEL_PACIENTE,
   TEXTO_POR_DEFECTO_DE_CLINICA,
@@ -224,6 +227,61 @@ test("barrido en una clínica: sin turno futuro ni atendido reciente se le escri
     new Set(emitidos),
     new Set([sinTurno.id, atendidoViejo.id, noVino.id, cancelado.id]),
   );
+});
+
+// Un entrante más en la conversación del contacto, hace `dias` días.
+async function escribe(e: Montado, contactId: string, content: string, dias: number) {
+  const conversation = await prisma.conversation.findFirstOrThrow({
+    where: { organizationId: e.organizationId, contactId },
+  });
+  await prisma.message.create({
+    data: {
+      organizationId: e.organizationId,
+      conversationId: conversation.id,
+      direction: "INBOUND",
+      senderType: "CONTACT",
+      content,
+      createdAt: new Date(AHORA.getTime() - dias * DIA),
+    },
+  });
+}
+
+// ISSUE-012 de la QA (decisión de Rocco del 2026-11-22): tocar un botón del
+// recordatorio no es una consulta, ni "volvió a escribir".
+test("barrido en una clínica: los botones del recordatorio no cuentan como mensaje del cliente", async () => {
+  const e = await escenario("r15-botones", "CLINICA");
+  // Solo tocó botones (dos veces, como en la QA): no hay consulta.
+  const soloBotones = await consulta(e, "Soloboton");
+  await prisma.message.updateMany({
+    where: { organizationId: e.organizationId, conversation: { contactId: soloBotones.id } },
+    data: { content: "Necesito cancelar" },
+  });
+  await escribe(e, soloBotones.id, "necesito cancelar ", 3.5);
+  // Consultó hace 4 días y ayer tocó "Confirmo": la consulta sigue sin avance.
+  const consultaYBoton = await consulta(e, "Consultayboton");
+  await escribe(e, consultaYBoton.id, "Confirmo", 1);
+  // Consultó hace 4 días y ayer escribió de verdad: no.
+  const volvioAEscribir = await consulta(e, "Volvio");
+  await escribe(e, volvioAEscribir.id, "¿Y el sábado atienden?", 1);
+
+  await barrerConsultasSinAvance({ organizationId: e.organizationId, ahora: AHORA });
+  assert.deepEqual(await emitidosA(e), [consultaYBoton.id]);
+
+  // La acción y el worker vuelven a mirar si escribió después: en una clínica
+  // el botón no cuenta.
+  const cuatroDias = new Date(AHORA.getTime() - 4 * DIA);
+  const org = e.organizationId;
+  assert.equal(await existsInboundSince(org, consultaYBoton.id, cuatroDias, prisma, true), false);
+  assert.equal(await existsInboundSince(org, consultaYBoton.id, cuatroDias), true);
+  assert.equal(await existsInboundSince(org, volvioAEscribir.id, cuatroDias, prisma, true), true);
+});
+
+test('automotora: un mensaje que dice "Confirmo" sigue contando como que volvió a escribir', async () => {
+  const e = await escenario("r15-botones-auto", "AUTOMOTORA");
+  const contacto = await consulta(e, "Confirmo");
+  await escribe(e, contacto.id, "Confirmo", 1);
+  await barrerConsultasSinAvance({ organizationId: e.organizationId, ahora: AHORA });
+  assert.deepEqual(await emitidosA(e), []);
 });
 
 test("tieneTurnoQueFrena: CONFIRMED futuro y atendido dentro de los días, nada más", async () => {
