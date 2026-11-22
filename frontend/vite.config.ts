@@ -30,6 +30,8 @@ export default defineConfig({
       // Deliberadamente sin overlap de substring con VITE_API_URL de arriba:
       // publicUrl.test.ts afirma que el link del QR NO contiene env.apiUrl.
       VITE_QR_PUBLIC_BASE_URL: "https://qr.test.local",
+      // La zona del CI, también en una PC en otra zona (src/test/localeFijo.ts).
+      TZ: "UTC",
     },
   },
 });
