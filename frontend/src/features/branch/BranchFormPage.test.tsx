@@ -1059,6 +1059,56 @@ function horarioDeAtencion(businessHours: FranjaDePrueba[]) {
 }
 
 describe("BranchFormPage — Horario de atención", () => {
+  // Decisión de Rocco (2026-11-22): sin horario propio, la agenda de una
+  // clínica no se limita al horario de la sede; se le avisa. Una automotora no.
+  const configDeClinica = () =>
+    http.get(`${env.apiUrl}/api/clinica/sedes/:id/configuracion`, () =>
+      HttpResponse.json({
+        minHoursToChangeBooking: null,
+        reminderHoursBefore: 24,
+        lateBookingReminder: "NO_ENVIAR",
+        lateBookingHoursBefore: 2,
+      }),
+    );
+
+  it("en una clínica sin horario propio avisa que la agenda no se limita; con horario, no", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", "CLINICA"));
+    renderForm("/branches/b1/edit", sucursalB1(), configDeClinica());
+    expect(
+      await screen.findByText(
+        "Cargá el horario de la sede: hasta entonces la agenda no se limita.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("en una clínica con horario propio no hay aviso", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", "CLINICA"));
+    renderForm(
+      "/branches/b1/edit",
+      sucursalB1(),
+      configDeClinica(),
+      http.get(`${baseUrl}/:id/business-hours`, () =>
+        HttpResponse.json(
+          horarioDeAtencion([{ weekday: "TUESDAY", startTime: "09:00", endTime: "19:00" }]),
+        ),
+      ),
+    );
+    expect(await screen.findByLabelText("Martes, franja 1: desde")).toHaveValue("09:00");
+    expect(
+      screen.queryByText("Cargá el horario de la sede: hasta entonces la agenda no se limita."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("una automotora sin horario propio no ve el aviso de la agenda", async () => {
+    renderForm("/branches/b1/edit", sucursalB1());
+    expect(
+      await screen.findByText("Usa el horario por defecto: lunes a sábado de 9:00 a 20:00."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Cargá el horario de la sede: hasta entonces la agenda no se limita."),
+    ).not.toBeInTheDocument();
+  });
+
   it("no aparece en el alta: el horario cuelga del id de la sucursal", () => {
     renderForm("/branches/new");
     expect(screen.queryByRole("heading", { name: "Horario de atención" })).not.toBeInTheDocument();
