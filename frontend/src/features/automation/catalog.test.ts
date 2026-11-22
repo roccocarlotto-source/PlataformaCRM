@@ -769,3 +769,16 @@ describe("recambio (módulo Servicios)", () => {
     });
   });
 });
+
+describe("accionesParaTrigger en una clínica (ISSUE-025)", () => {
+  it("la tarea de seguimiento no habla del dueño de la oportunidad; la automotora, como siempre", () => {
+    const deClinica = accionesParaTrigger("booking.completed", true).find(
+      (o) => o.value === ACTION_CREATE_FOLLOW_UP,
+    );
+    expect(deClinica?.subtitle).toBe("Una tarea para el equipo");
+    const deAutomotora = accionesParaTrigger("opportunity.won").find(
+      (o) => o.value === ACTION_CREATE_FOLLOW_UP,
+    );
+    expect(deAutomotora?.subtitle).toBe("Una tarea para el dueño de la oportunidad");
+  });
+});

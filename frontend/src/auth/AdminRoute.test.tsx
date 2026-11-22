@@ -85,6 +85,53 @@ function renderAt(initialPath: string) {
   );
 }
 
+// ISSUE-020: en una clínica, Recepción que abre una pantalla de administrador
+// vuelve con un aviso. La automotora, como siempre: sin aviso.
+function renderConAvisos(initialPath: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[initialPath]}>
+          <Routes>
+            <Route path="/companies" element={<div>lista de empresas</div>} />
+            <Route element={<AdminRoute />}>
+              <Route path="/companies/new" element={<div>formulario</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
+    </QueryClientProvider>,
+  );
+}
+
+describe("AdminRoute — aviso al volver (ISSUE-020)", () => {
+  it("clínica: quien no es ADMIN vuelve con el aviso de que es solo para administradores", async () => {
+    const base = mockAuth("USER");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, industry: "CLINICA" } });
+    renderConAvisos("/companies/new");
+    expect(await screen.findByText("lista de empresas")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Esa pantalla es solo para administradores.",
+    );
+  });
+
+  it("automotora: vuelve como siempre, sin aviso", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderConAvisos("/companies/new");
+    expect(await screen.findByText("lista de empresas")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("clínica: un ADMIN entra sin aviso", async () => {
+    const base = mockAuth("ADMIN");
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, industry: "CLINICA" } });
+    renderConAvisos("/companies/new");
+    expect(await screen.findByText("formulario")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+});
+
 describe("AdminRoute — protección visual de rutas de escritura de Company", () => {
   it("USER entrando directamente a /companies/new no renderiza el formulario", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));

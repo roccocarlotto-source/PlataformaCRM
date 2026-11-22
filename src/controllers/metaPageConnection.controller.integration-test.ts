@@ -365,8 +365,10 @@ test("las rutas viejas de escritura del tenant ya no existen: 404 aun con la ses
   assert.equal((await conexionDe(orgA))?.status, "ACTIVE");
 });
 
-test("el tenant lee el estado de SU organización (404 si no hay conexión), sin el token", async () => {
-  assert.equal((await call("GET", "/api/integrations/meta", userA.accessToken)).status, 404);
+test("el tenant lee el estado de SU organización (null si no hay conexión), sin el token", async () => {
+  const sin = await call("GET", "/api/integrations/meta", userA.accessToken);
+  assert.equal(sin.status, 200);
+  assert.equal(await sin.json(), null);
 
   await exito(await conectar(orgA));
 
@@ -377,12 +379,16 @@ test("el tenant lee el estado de SU organización (404 si no hay conexión), sin
   assert.equal(cuerpo.status, "ACTIVE");
   assert.equal("pageAccessToken" in cuerpo, false);
 
-  // La otra organización no ve la de A.
-  assert.equal((await call("GET", "/api/integrations/meta", adminB.accessToken)).status, 404);
+  // La otra organización no ve la de A: para ella no hay conexión.
+  const deB = await call("GET", "/api/integrations/meta", adminB.accessToken);
+  assert.equal(deB.status, 200);
+  assert.equal(await deB.json(), null);
 });
 
 test("el platform admin lee el estado de la organización elegida, sin el token", async () => {
-  assert.equal((await call("GET", rutaAdmin(orgA), plataforma.accessToken)).status, 404);
+  const sin = await call("GET", rutaAdmin(orgA), plataforma.accessToken);
+  assert.equal(sin.status, 200);
+  assert.equal(await sin.json(), null);
 
   await exito(await conectar(orgA));
 
@@ -391,7 +397,9 @@ test("el platform admin lee el estado de la organización elegida, sin el token"
   const cuerpo = (await res.json()) as Record<string, unknown>;
   assert.equal(cuerpo.organizationId, orgA);
   assert.equal("pageAccessToken" in cuerpo, false);
-  assert.equal((await call("GET", rutaAdmin(orgB), plataforma.accessToken)).status, 404);
+  const deB = await call("GET", rutaAdmin(orgB), plataforma.accessToken);
+  assert.equal(deB.status, 200);
+  assert.equal(await deB.json(), null);
 });
 
 test("una conexión sin nombres (anterior a las columnas): la primera lectura los completa con el token guardado y los graba; la segunda no vuelve a Meta", async () => {

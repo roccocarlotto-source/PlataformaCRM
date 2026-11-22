@@ -35,7 +35,10 @@ días) y **Retomar la consulta**. Vienen con textos de ejemplo que podés
 cambiar.
 
 - Las que mandan WhatsApp se activan cuando la clínica tenga su número de
-  WhatsApp conectado.
+  WhatsApp conectado. Mientras tanto podés editarlas y guardarlas inactivas:
+  al guardar, un aviso te recuerda que el mensaje se manda a aprobación de
+  WhatsApp recién cuando se conecte el número. No hace falta volver a
+  guardarlas.
 - **Pedir una reseña con un QR** viene sin QR: antes de activarla, editala y
   elegí el QR de reseñas.
 - **Tarea después del turno** no manda nada al paciente, así que la podés

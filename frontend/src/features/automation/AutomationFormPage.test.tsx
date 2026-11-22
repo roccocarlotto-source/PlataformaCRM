@@ -17,6 +17,7 @@ import { AutomationFormPage } from "./AutomationFormPage";
 import { textoInicial } from "./catalog";
 import type { WhatsappSync, WhatsappApproval } from "./types";
 import { edicionDeMe } from "../../test/edicionFixtures";
+import { ToastProvider } from "../../design-system/Toast";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -60,13 +61,15 @@ function renderForm(ruta: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[ruta]}>
-        <Routes>
-          <Route path="/automations/new" element={<AutomationFormPage />} />
-          <Route path="/automations/:id/edit" element={<AutomationFormPage />} />
-          <Route path="/automations" element={<p>listado</p>} />
-        </Routes>
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[ruta]}>
+          <Routes>
+            <Route path="/automations/new" element={<AutomationFormPage />} />
+            <Route path="/automations/:id/edit" element={<AutomationFormPage />} />
+            <Route path="/automations" element={<p>listado</p>} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -825,16 +828,18 @@ function renderUnderAdminRoute(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialPath]}>
-        <Routes>
-          <Route element={<ProtectedRoute />}>
-            <Route path="/companies" element={<div>lista de empresas</div>} />
-            <Route element={<AdminRoute />}>
-              <Route path="/automations/new" element={<AutomationFormPage />} />
+      <ToastProvider>
+        <MemoryRouter initialEntries={[initialPath]}>
+          <Routes>
+            <Route element={<ProtectedRoute />}>
+              <Route path="/companies" element={<div>lista de empresas</div>} />
+              <Route element={<AdminRoute />}>
+                <Route path="/automations/new" element={<AutomationFormPage />} />
+              </Route>
             </Route>
-          </Route>
-        </Routes>
-      </MemoryRouter>
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -1050,6 +1055,31 @@ describe("AutomationFormPage — mensaje de WhatsApp y aprobación", () => {
       await screen.findByText(/La regla se guardó, pero el mensaje no se pudo mandar/),
     ).toBeInTheDocument();
     expect(screen.queryByText("listado")).not.toBeInTheDocument();
+  });
+
+  it("ISSUE-021: una regla de clínica inactiva sin número vuelve al listado con un aviso, sin 'Guardá de nuevo'", async () => {
+    servirRegla(aprobacion({ estado: "SIN_PLANTILLA", bodyText: null, formato: null }));
+    const aviso =
+      "La plantilla se manda a aprobación cuando la clínica tenga su número de WhatsApp conectado.";
+    server.use(
+      http.patch(`${baseUrl}/a1`, () =>
+        HttpResponse.json({
+          ...makeAutomation({ id: "a1" }),
+          whatsappApproval: aprobacion({ estado: "SIN_PLANTILLA" }),
+          whatsappSyncError: null,
+          whatsappSyncAviso: aviso,
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/a1/edit");
+    await screen.findByLabelText("Texto del mensaje");
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    expect(await screen.findByText("listado")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(`Automatización guardada. ${aviso}`);
+    expect(screen.queryByText(/Guardá de nuevo/)).not.toBeInTheDocument();
   });
 
   it("un alta cuyo mensaje no llegó a Meta pasa a la edición de la regla creada, con el motivo", async () => {

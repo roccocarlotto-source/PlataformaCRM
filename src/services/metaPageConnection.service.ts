@@ -306,15 +306,19 @@ export async function desconectar(
 // si Meta falla, se loguea y se devuelve la conexión con los ids, sin error —
 // la pantalla los muestra como antes. Solo ACTIVE: una en ERROR tiene el token
 // rechazado y una REVOKED no tiene token.
+//
+// null = la organización nunca conectó una página. Es un estado normal de la
+// pantalla, no un error (ISSUE-023 de la QA de la primera clínica): con un 404
+// cada visita a Organización dejaba un error en la consola del navegador.
 // ---------------------------------------------------------------------------
 export async function obtenerConexion(
   organizationId: string,
   cliente?: ClienteInyectado,
-): Promise<ConexionMetaPublica> {
+): Promise<ConexionMetaPublica | null> {
   const conexion = await findMetaConnectionByOrganization(organizationId);
 
   if (!conexion) {
-    throw new AppError("Esta organización no tiene una página de Facebook conectada", 404);
+    return null;
   }
 
   if (conexion.status !== "ACTIVE" || conexion.pageName !== null) {

@@ -6,8 +6,8 @@ En el menú, **Agenda** junta todo lo de los turnos:
   mano y se abre cada turno para reprogramarlo, marcarlo o cancelarlo.
 - [Turnos](/bookings): la lista de todos los turnos, para buscar y cancelar.
 - [Bloqueos](/clinica/bloqueos) y [Sobreturnos](/clinica/sobreturnos).
-- Para administradores, la configuración: **Profesionales**, **Prestaciones**
-  y **Configurar prestaciones**.
+- Para administradores, la configuración: **Profesionales** y
+  **Prestaciones**.
 
 El menú **Tareas** tiene **Mis tareas** (cada persona, las suyas), **Envíos
 que no salieron** (administradores y Recepción) y, para administradores,
@@ -78,8 +78,8 @@ Hay dos formas:
    profesional.
 2. Se abre **Nuevo turno** con el profesional, la fecha y la hora ya fijos.
 3. Elegí la **Prestación**. Aparecen las prestaciones que atiende ese
-   profesional: las que lo tienen como principal (el que se eligió al crearla
-   en **Configurar prestaciones**) y las que lo suman en **Elegir
+   profesional: las que lo tienen como principal (el que se eligió al
+   [crearla](#tipos-de-servicio)) y las que lo suman en **Elegir
    profesionales** (ver [Prestaciones](#prestaciones)). La hora de fin se
    calcula con la duración de la
    prestación. Si dice "Este profesional todavía no tiene prestaciones.", un
@@ -383,25 +383,22 @@ Al dar un turno de esa prestación, el paciente puede elegir a uno de ellos o
 tomar [el primero libre](#primero-libre).
 
 El profesional **principal** (el que se eligió al crear la prestación) queda
-siempre marcado: para cambiarlo, editá la prestación en **Configurar
-prestaciones**. Crear, cambiar la duración o eliminar una prestación también se
-hace ahí.
+siempre marcado: para cambiarlo, editá la prestación (menú de la fila,
+**Editar**).
 
-## Configurar prestaciones {#tipos-de-servicio}
+## Crear, editar y eliminar prestaciones {#tipos-de-servicio}
 
-[Configurar prestaciones](/service-types) (solo administradores) define cada
-prestación: su nombre, su sede, su profesional principal, cuánto dura y
-cuántos pacientes entran por turno. Por ejemplo: "Limpieza facial" de 45
-minutos con la Dra. Lucía Ejemplo, en Sede Centro.
+Todo se hace desde [Prestaciones](/clinica/prestaciones) (solo
+administradores). Cada prestación tiene su nombre, su sede, su profesional
+principal, cuánto dura y cuántos pacientes entran por turno. Por ejemplo:
+"Limpieza facial" de 45 minutos con la Dra. Lucía Ejemplo, en Sede Centro.
 
-La lista muestra el nombre, el profesional principal, la sede, la
-**Duración** y el **Cupo**; se filtra por nombre, sede y profesional, y se
-ordena por **Fecha de creación**, **Nombre** o **Duración**. En el menú de
-cada fila: **Editar** y **Eliminar**.
+En el menú de cada fila están **Editar** (el mismo formulario del alta) y
+**Eliminar**, que pide confirmación. Al guardar, volvés a Prestaciones.
 
 ### Crear una prestación
 
-1. Tocá el botón de alta, arriba de la lista.
+1. Tocá **Nueva prestación**, arriba de la lista.
 2. Poné el **Nombre** (obligatorio), por ejemplo "Limpieza facial".
 3. Elegí la sede y después el profesional principal (los dos obligatorios):
    solo se ofrecen los profesionales de la sede elegida. Si cambiás la sede,

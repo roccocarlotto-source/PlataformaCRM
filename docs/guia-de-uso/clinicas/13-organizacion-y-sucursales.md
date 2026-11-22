@@ -90,7 +90,9 @@ menos palabras (podés sumar las tuyas igual).
   urgencia, llamá ya al 911…"). **Tiene que incluir un teléfono de
   emergencia** (por ejemplo, 911): sin un número, el sistema no lo guarda.
 - **Mensaje de consulta clínica**: el que recibe un paciente que pregunta por
-  un síntoma, una medicación o "¿es normal que…?".
+  un síntoma, una medicación o "¿es normal que…?". En un centro de belleza se
+  llama **Mensaje cuando el asistente deriva al equipo**, y la lista de
+  palabras, **Palabras que también se derivan al equipo**.
 - En los dos, donde escribas `{clinica}` va el nombre de la clínica. Cada
   uno va de 20 a 500 caracteres. **Volver al texto por defecto** lo deja como
   venía.
@@ -103,13 +105,6 @@ menos palabras (podés sumar las tuyas igual).
 Los cambios se guardan con **Guardar mensajes de salud**, aparte del
 **Guardar** de la página. Abajo queda **quién hizo el último cambio y
 cuándo**; cada cambio queda registrado.
-
-### Cotización vigente
-
-Solo lectura. Muestra la cotización del dólar que usa el sistema (por
-ejemplo, "1 USD = 40,50 UYU") y de qué fecha es. Se actualiza sola una vez
-por día; hasta que eso pase, la tarjeta dice **"Todavía no hay cotización
-cargada."**
 
 ### Facebook e Instagram
 

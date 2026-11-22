@@ -1,5 +1,7 @@
 import { ETIQUETA_DE_ESTADO } from "../servicios/formato";
 import { useAuth } from "../../auth/AuthContext";
+import { ejemplosDe } from "../../auth/vocabulario";
+import { useToast } from "../../design-system/useToast";
 import { useModulo } from "../../auth/useModulo";
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -655,6 +657,7 @@ export function AutomationFormPage() {
         : EMPTY_FORM,
   );
   const location = useLocation();
+  const toast = useToast();
   // Un alta cuyo mensaje no llegó a Meta vuelve a esta pantalla, ya en
   // edición, con el motivo (ver handleSubmit).
   const estadoDeNavegacion = location.state as {
@@ -721,6 +724,11 @@ export function AutomationFormPage() {
         }
         return;
       }
+      // ISSUE-021: una regla de clínica guardada inactiva sin su número
+      // conectado. No es un error: guardar de nuevo no cambiaría nada.
+      if (guardada.whatsappSyncAviso) {
+        toast.show(`Automatización guardada. ${guardada.whatsappSyncAviso}`, { tono: "aviso" });
+      }
       navigate("/automations");
     } catch (err) {
       // El mensaje del backend se muestra tal cual y NO se toca nada de lo
@@ -762,7 +770,7 @@ export function AutomationFormPage() {
                 type="text"
                 value={values.name}
                 maxLength={MAX_NAME}
-                placeholder="Seguimiento post-venta"
+                placeholder={ejemplosDe(me).nombreDeAutomatizacion}
                 onChange={(event) => setValues({ ...values, name: event.target.value })}
                 required
               />
@@ -800,7 +808,7 @@ export function AutomationFormPage() {
                 // caso se pasa a la primera que sí, con su config vacía, en
                 // vez de dejar armada una combinación que el backend rechaza.
                 const configDeTrigger = CONFIG_DE_TRIGGER[triggerType];
-                const permitidas = accionesParaTrigger(triggerType);
+                const permitidas = accionesParaTrigger(triggerType, esClinica);
                 // Un evento con acción propia (ACCION_AL_ELEGIR_EL_TRIGGER) la
                 // elige aunque la anterior también valga.
                 const propia = ACCION_AL_ELEGIR_EL_TRIGGER[triggerType];
@@ -840,7 +848,10 @@ export function AutomationFormPage() {
               id="automation-form-action"
               label="Acción"
               value={values.actionType}
-              options={opcionesCon(accionesParaTrigger(values.triggerType), values.actionType)}
+              options={opcionesCon(
+                accionesParaTrigger(values.triggerType, esClinica),
+                values.actionType,
+              )}
               onChange={(actionType) => {
                 if (!actionType) return;
                 // Cambiar de acción cambia la FORMA de la config: el borrador

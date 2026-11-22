@@ -13,13 +13,26 @@ import { createContext, useContext } from "react";
 // hay un toast visible ni cerrarlo — el toast se cierra solo (ver Toast.tsx).
 // ---------------------------------------------------------------------------
 
+// "confirmacion" (el de siempre, con la tilde) o "aviso": algo que la persona
+// tiene que saber y no es un error (ISSUE-020 e ISSUE-021), con el ícono de
+// información.
+export type TonoDeToast = "confirmacion" | "aviso";
+
 export interface ToastContextValue {
   // Muestra un toast con ese mensaje. Si ya había uno visible, lo reemplaza y
   // el tiempo de vida arranca de nuevo.
-  show: (message: string) => void;
+  show: (message: string, opciones?: { tono?: TonoDeToast }) => void;
 }
 
 export const ToastContext = createContext<ToastContextValue | null>(null);
+
+// Para una pieza de infraestructura que se monta en muchos lugares (un guard
+// de rutas, AdminRoute): si no hay provider, no avisa en vez de romper. En la
+// app el provider siempre está (App.tsx); sin él solo se renderiza en tests
+// que no miran el aviso. Las pantallas usan useToast().
+export function useToastSiHay(): ToastContextValue | null {
+  return useContext(ToastContext);
+}
 
 export function useToast(): ToastContextValue {
   const context = useContext(ToastContext);

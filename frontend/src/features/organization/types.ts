@@ -40,6 +40,8 @@ export interface OrganizationSettings {
   edition: OrganizationEdition;
   industry: OrganizationIndustry;
   contactTerm: ContactTerm | null;
+  // Solo en una clínica (docs/primera-clinica.md §4). Solo lectura.
+  healthProfile?: "MEDICO" | "ESTETICA";
   // R16 (docs/rubros.md §8.1): el aviso de privacidad. Solo llega en una
   // clínica; null = sin cargar.
   privacyNoticeText?: string | null;

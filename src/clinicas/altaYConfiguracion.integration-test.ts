@@ -122,6 +122,34 @@ test("alta CLINICA (llave inyectada en true): nace CLINICA con su ClinicSettings
     assert.equal(fila.contactTerm, "PACIENTE");
     assert.equal(fila.privacyNoticeText, null);
 
+    // ISSUE-024: el término y el perfil elegidos en el alta llegan a la fila.
+    const conTermino = await createOrganizationWithFoundingAdmin(
+      {
+        // Mismo patrón (clinica-alta-{ts}); otro milisegundo que el de arriba,
+        // que ya esperó su alta entera.
+        organizationName: `Clinica Alta ${Date.now()}`,
+        adminFullName: "Persona de Prueba",
+        adminEmail: `clinica-alta-t-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`,
+        industry: "CLINICA",
+        healthProfile: "ESTETICA",
+        contactTerm: "CLIENTE",
+      },
+      { ...defaultOrganizationAdminDeps, clinicaHabilitada: true },
+    );
+    try {
+      const filaConTermino = await prisma.clinicSettings.findUniqueOrThrow({
+        where: { organizationId: conTermino.organization.id },
+      });
+      assert.equal(filaConTermino.contactTerm, "CLIENTE");
+      assert.equal(filaConTermino.healthProfile, "ESTETICA");
+    } finally {
+      const otraOrg = conTermino.organization.id;
+      await prisma.automation.deleteMany({ where: { organizationId: otraOrg } });
+      await prisma.user.deleteMany({ where: { id: conTermino.admin.id } });
+      await prisma.organization.deleteMany({ where: { id: otraOrg } });
+      await getSupabaseAdmin().auth.admin.deleteUser(conTermino.admin.id);
+    }
+
     // Nace con las cinco reglas de clínica, apagadas y sin plantilla en Meta.
     const organizationId = creado.organization.id;
     const reglas = await prisma.automation.findMany({
@@ -413,6 +441,7 @@ test("clínica: /me trae contactTerm y el vocabulario del rubro; /organization m
   assert.equal(me.status, 200);
   assert.equal(me.json.industry, "CLINICA");
   assert.equal(me.json.contactTerm, "PACIENTE");
+  assert.equal(me.json.healthProfile, "MEDICO");
   const vocabulario = me.json.vocabulario as Record<string, Record<string, string>>;
   assert.equal(vocabulario.contacto.pluralTitulo, "Pacientes");
   assert.equal(vocabulario.reserva.pluralTitulo, "Turnos");

@@ -28,7 +28,10 @@ const MAX_MENSAJE = 500;
 // con el por defecto. Mandar el por defecto (o vacío) es lo mismo que null: la
 // clínica vuelve a seguir el texto del código.
 // ---------------------------------------------------------------------------
-export function MensajesDeSaludSection() {
+type Perfil = "MEDICO" | "ESTETICA";
+
+// `perfil`: el de la clínica (GET /organization); sin él, MEDICO.
+export function MensajesDeSaludSection({ perfil }: { perfil?: Perfil }) {
   const query = useMensajesDeSalud();
 
   return (
@@ -46,6 +49,7 @@ export function MensajesDeSaludSection() {
         <FormularioDeMensajes
           key={JSON.stringify(valoresIniciales(query.data))}
           datos={query.data}
+          perfil={perfil}
         />
       ) : null}
     </Card>
@@ -73,7 +77,22 @@ function textoAEnviar(texto: string, porDefecto: string): string | null {
   return recortado === "" || recortado === porDefecto ? null : recortado;
 }
 
-function FormularioDeMensajes({ datos }: { datos: MensajesDeSalud }) {
+// ISSUE-025: en un centro de belleza (perfil ESTETICA) "consulta clínica" no
+// se entiende; es lo que el asistente deriva al equipo.
+function etiquetasDeConsulta(perfil: Perfil | undefined) {
+  return perfil === "ESTETICA"
+    ? {
+        mensaje: "Mensaje cuando el asistente deriva al equipo",
+        terminos: "Palabras que también se derivan al equipo",
+      }
+    : {
+        mensaje: "Mensaje de consulta clínica",
+        terminos: "Palabras que también son consulta clínica",
+      };
+}
+
+function FormularioDeMensajes({ datos, perfil }: { datos: MensajesDeSalud; perfil?: Perfil }) {
+  const etiquetas = etiquetasDeConsulta(perfil);
   const guardar = useGuardarMensajesDeSalud();
   const toast = useToast();
   const [valores, setValores] = useState<Valores>(() => valoresIniciales(datos));
@@ -122,7 +141,7 @@ function FormularioDeMensajes({ datos }: { datos: MensajesDeSalud }) {
           ) : null}
         </div>
         <div className="ds-field-grid--full ds-stack">
-          <FormField label="Mensaje de consulta clínica">
+          <FormField label={etiquetas.mensaje}>
             <textarea
               rows={3}
               maxLength={MAX_MENSAJE}
@@ -150,7 +169,7 @@ function FormularioDeMensajes({ datos }: { datos: MensajesDeSalud }) {
         </div>
         <div className="ds-field-grid--full">
           <TerminosField
-            label="Palabras que también son consulta clínica"
+            label={etiquetas.terminos}
             value={valores.terminosClinicos}
             onChange={(terminosClinicos) => setValores({ ...valores, terminosClinicos })}
           />

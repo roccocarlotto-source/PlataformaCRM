@@ -153,7 +153,7 @@ producto (**Xentech**) te lleva siempre al Dashboard. Después vienen:
   aparece si tenés acceso (ver [El agente interno](#agente-interno)).
 - **Agenda**: el calendario de turnos. Debajo cuelgan **Turnos** (la lista
   de turnos), **Bloqueos** y **Sobreturnos**; un administrador ve además
-  **Profesionales**, **Prestaciones** y **Configurar prestaciones**.
+  **Profesionales** y **Prestaciones**.
 - **Conversaciones**: la bandeja, con el número de las que esperan a una
   persona (ver [Lo que te espera](/ayuda/conversaciones#pendientes)).
 - **Pacientes**: la lista de pacientes.

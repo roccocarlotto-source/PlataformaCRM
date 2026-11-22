@@ -343,22 +343,28 @@ export function OrganizationSettingsPage() {
         ) : null}
 
         {/* D11 revisada (docs/rubros.md §5.3): con su propio guardado. */}
-        {settings.industry === "CLINICA" ? <MensajesDeSaludSection /> : null}
+        {settings.industry === "CLINICA" ? (
+          <MensajesDeSaludSection perfil={settings.healthProfile} />
+        ) : null}
 
-        <Card heading="Cotización vigente">
-          {settings.exchangeRates.length === 0 ? (
-            <p className="ds-hint">Todavía no hay cotización cargada.</p>
-          ) : (
-            <ul className="ds-stack" aria-label="Cotizaciones vigentes">
-              {settings.exchangeRates.map((rate) => (
-                <li key={rate.targetCurrency}>
-                  {formatExchangeRate(rate)}{" "}
-                  <span className="ds-hint">(cotización del {formatDate(rate.rateDate)})</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+        {/* La cotización sirve para los precios de la automotora (vehículos,
+            cotizaciones). Una clínica no la usa (ISSUE-025). */}
+        {settings.industry === "CLINICA" ? null : (
+          <Card heading="Cotización vigente">
+            {settings.exchangeRates.length === 0 ? (
+              <p className="ds-hint">Todavía no hay cotización cargada.</p>
+            ) : (
+              <ul className="ds-stack" aria-label="Cotizaciones vigentes">
+                {settings.exchangeRates.map((rate) => (
+                  <li key={rate.targetCurrency}>
+                    {formatExchangeRate(rate)}{" "}
+                    <span className="ds-hint">(cotización del {formatDate(rate.rateDate)})</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
 
         {settings.whatsappTokenInvalidoDesde ? (
           <Card heading="WhatsApp">

@@ -43,6 +43,69 @@ function renderPage() {
   );
 }
 
+describe("PrestacionesPage: la única pantalla de prestaciones (ISSUE-027)", () => {
+  function handlers() {
+    return [
+      http.get(`${env.apiUrl}/api/clinica/prestaciones`, () =>
+        HttpResponse.json({ prestaciones: [LIMPIEZA] }),
+      ),
+      http.get(`${env.apiUrl}/api/branches`, () =>
+        HttpResponse.json({
+          data: [makeBranch({ id: "b1", name: "Sede Centro" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    ];
+  }
+
+  it("tiene 'Nueva prestación' y, por fila, Editar (al formulario) y Eliminar (con confirmación)", async () => {
+    let eliminada = false;
+    server.use(
+      ...handlers(),
+      http.delete(`${env.apiUrl}/api/service-types/st1`, () => {
+        eliminada = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: "Nueva prestación" })).toHaveAttribute(
+      "href",
+      "/service-types/new",
+    );
+    await screen.findByText("Limpieza facial");
+    await user.click(screen.getByRole("button", { name: /acciones/i }));
+    expect(screen.getByRole("menuitem", { name: "Editar" })).toHaveAttribute(
+      "href",
+      "/service-types/st1/edit",
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Eliminar" }));
+
+    expect(confirmar).toHaveBeenCalledWith('¿Eliminar la prestación "Limpieza facial"?');
+    await waitFor(() => expect(eliminada).toBe(true));
+    confirmar.mockRestore();
+  });
+
+  it("si el backend no deja eliminarla (turnos activos), muestra su mensaje", async () => {
+    server.use(
+      ...handlers(),
+      http.delete(`${env.apiUrl}/api/service-types/st1`, () =>
+        HttpResponse.json({ error: { message: "Tiene reservas activas" } }, { status: 409 }),
+      ),
+    );
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Limpieza facial");
+    await user.click(screen.getByRole("button", { name: /acciones/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Eliminar" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Tiene reservas activas/);
+    confirmar.mockRestore();
+  });
+});
+
 describe("PrestacionesPage (R5)", () => {
   it("lista las prestaciones con sus profesionales y guarda los elegidos (el principal queda fijo)", async () => {
     let enviado: unknown;

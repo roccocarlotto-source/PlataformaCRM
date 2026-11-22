@@ -89,11 +89,10 @@ export function MenuDeClinica({
             <SidebarLink to="/clinica/profesionales" icon={Shapes}>
               {v.recurso.pluralTitulo}
             </SidebarLink>
+            {/* ISSUE-027: una sola entrada. /service-types redirige acá en
+                una clínica; el alta y la edición siguen en su formulario. */}
             <SidebarLink to="/clinica/prestaciones" icon={Clock}>
               {v.tipoDeServicio.pluralTitulo}
-            </SidebarLink>
-            <SidebarLink to="/service-types" icon={Clock}>
-              {`Configurar ${v.tipoDeServicio.plural}`}
             </SidebarLink>
           </>
         ) : null}

@@ -255,7 +255,8 @@ function rutaMeta(organizationId: string): string {
   return `/admin/organizations/${encodeURIComponent(organizationId)}/integrations/meta`;
 }
 
-// null = la organización nunca se conectó (el backend responde 404).
+// null = la organización nunca se conectó (el backend responde 200 con null
+// desde ISSUE-023; un backend anterior, 404).
 export async function getOrganizationMetaConnection(
   organizationId: string,
   signal?: AbortSignal,

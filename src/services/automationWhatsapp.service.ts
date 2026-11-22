@@ -126,6 +126,10 @@ export type ReglaConAprobacion = ReglaSinSincronizacion & {
   // Solo al guardar: por qué no se pudo mandar la versión nueva a Meta. La
   // regla quedó guardada igual.
   whatsappSyncError?: string | null;
+  // Solo al guardar una regla de clínica inactiva sin su número conectado
+  // (ISSUE-021): no es un error ni hay nada que reintentar; la plantilla se
+  // manda sola cuando se conecte el número. La pantalla lo muestra como aviso.
+  whatsappSyncAviso?: string;
 };
 
 async function conSincronizacion(
@@ -156,7 +160,8 @@ async function conSincronizacion(
 }
 
 // Una regla de clínica guardada sin WABA propio: sin llamar a Meta, con el
-// estado de lo que ya tenga y el motivo para la pantalla.
+// estado de lo que ya tenga y el aviso para la pantalla (no un error:
+// guardar de nuevo no cambia nada hasta que se conecte el número).
 async function sinSincronizar(
   organizationId: string,
   regla: ReglaGuardada,
@@ -166,7 +171,8 @@ async function sinSincronizar(
     ...resto,
     whatsappApproval: await getAprobacionDeLaRegla(organizationId, regla.id),
     whatsappSync: sincronizacion,
-    whatsappSyncError: SIN_PLANTILLA_HASTA_CONECTAR,
+    whatsappSyncError: null,
+    whatsappSyncAviso: SIN_PLANTILLA_HASTA_CONECTAR,
   };
 }
 

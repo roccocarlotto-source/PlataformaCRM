@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { sesionDePrueba } from "../../test/sesionFixtures";
+import { clinicaDeMe } from "../../test/rubroFixtures";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -57,6 +58,7 @@ function renderForm(ruta: string, ...handlers: HttpHandler[]) {
           <Route path="/service-types/new" element={<ServiceTypeFormPage />} />
           <Route path="/service-types/:id/edit" element={<ServiceTypeFormPage />} />
           <Route path="/service-types" element={<p>listado</p>} />
+          <Route path="/clinica/prestaciones" element={<p>prestaciones de clínica</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -142,6 +144,18 @@ describe("ServiceTypeFormPage — edición", () => {
       }),
     ];
   }
+
+  it("ISSUE-027: en una clínica, guardar vuelve a Prestaciones (su única pantalla)", async () => {
+    useAuthMock.mockReturnValue(sesionDePrueba(clinicaDeMe("ESENCIAL")));
+    const captura: { body?: unknown } = {};
+    const user = userEvent.setup();
+    renderForm("/service-types/s1/edit", ...editHandlers(captura));
+
+    await screen.findByLabelText("Nombre");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("prestaciones de clínica")).toBeInTheDocument());
+  });
 
   it("hidrata los campos y el PATCH manda sucursal y recurso JUNTOS", async () => {
     const captura: { body?: unknown } = {};

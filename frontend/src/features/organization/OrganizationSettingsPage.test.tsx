@@ -472,6 +472,21 @@ describe("OrganizationSettingsPage — mensajes de salud", () => {
   });
 });
 
+describe("OrganizationSettingsPage — cotización (ISSUE-025)", () => {
+  it("clínica: no ve la cotización, que es de la automotora", async () => {
+    mockSettings(makeOrganizationSettings({ industry: "CLINICA", contactTerm: "CLIENTE" }));
+    renderPage();
+    await screen.findByLabelText("Mensaje de urgencia");
+    expect(screen.queryByText("Cotización vigente")).not.toBeInTheDocument();
+  });
+
+  it("automotora: la sigue viendo", async () => {
+    mockSettings(makeOrganizationSettings());
+    renderPage();
+    expect(await screen.findByText("Cotización vigente")).toBeInTheDocument();
+  });
+});
+
 describe("OrganizationSettingsPage — aviso de WhatsApp (OPS-03)", () => {
   it("con el token de la plataforma rechazado, muestra la tarjeta WhatsApp con el aviso", async () => {
     mockSettings(

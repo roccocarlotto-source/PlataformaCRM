@@ -64,6 +64,11 @@ export interface MeResponse {
   // pantallas los adopta con R17.
   industry?: "AUTOMOTORA" | "CLINICA";
   vocabulario?: Vocabulario;
+  // El perfil de salud de una clínica (docs/primera-clinica.md §4), solo en
+  // una clínica. Decide los textos de ejemplo y algunas etiquetas
+  // (auth/vocabulario.ts, ejemplosDe). Opcional: un backend anterior no lo
+  // manda, y entonces es MEDICO, el default.
+  healthProfile?: "MEDICO" | "ESTETICA";
   // R20 (docs/rubros.md §11.5): las sedes de quien entra, solo en una clínica.
   // "todas" para un ADMIN; para una Recepción, las suyas ([] = sin sedes). Una
   // automotora no tiene la clave. Ver features/clinica/sedes.ts.

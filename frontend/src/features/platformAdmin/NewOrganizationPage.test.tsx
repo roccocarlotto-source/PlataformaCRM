@@ -60,19 +60,23 @@ async function completarYEnviar(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("Nombre de la organización"), "Automotora Pérez");
   await user.type(screen.getByLabelText("Nombre completo"), "Juan Pérez");
   await user.type(screen.getByLabelText("Email"), "juan@perez.test");
+  // ISSUE-024: la moneda no viene elegida; si el caso no la eligió, UYU.
+  const moneda = screen.getByLabelText("Moneda");
+  if ((moneda as HTMLSelectElement).value === "") await user.selectOptions(moneda, "UYU");
   await user.click(screen.getByRole("button", { name: /crear organización/i }));
 }
 
-// País, moneda y zona con que nace una organización: el formulario los trae
-// precargados (Uruguay, USD, Montevideo) y los manda siempre (2026-10-14).
+// País, moneda y zona con que nace una organización: país y zona vienen
+// precargados (Uruguay, Montevideo), la moneda se elige (ISSUE-024), y el
+// formulario los manda siempre (2026-10-14).
 const CON_QUE_NACE = {
   defaultPhoneCountryCode: "598",
-  preferredCurrency: "USD",
+  preferredCurrency: "UYU",
   timezone: "America/Montevideo",
 };
 
 describe("NewOrganizationPage", () => {
-  it("país, moneda y zona vienen precargados y se pueden cambiar", async () => {
+  it("país y zona vienen precargados; la moneda se elige a mano, con UYU sugerida (ISSUE-024)", async () => {
     let postedBody: unknown;
     server.use(
       http.post(url, async ({ request }) => {
@@ -84,11 +88,14 @@ describe("NewOrganizationPage", () => {
     renderPage();
     const codigo = await screen.findByLabelText("Código de país");
     expect(codigo).toHaveValue("598");
-    expect(screen.getByLabelText("Moneda")).toHaveValue("USD");
+    const moneda = screen.getByLabelText("Moneda");
+    expect(moneda).toHaveValue("");
+    expect(moneda).toBeRequired();
+    expect(screen.getByRole("option", { name: "UYU (sugerida)" })).toBeInTheDocument();
     expect(screen.getByLabelText("Zona horaria")).toHaveValue("America/Montevideo");
     await user.clear(codigo);
     await user.type(codigo, "54");
-    await user.selectOptions(screen.getByLabelText("Moneda"), "UYU");
+    await user.selectOptions(moneda, "USD");
     await user.selectOptions(
       screen.getByLabelText("Zona horaria"),
       "America/Argentina/Buenos_Aires",
@@ -97,7 +104,7 @@ describe("NewOrganizationPage", () => {
     await waitFor(() => expect(postedBody).toBeDefined());
     expect(postedBody).toMatchObject({
       defaultPhoneCountryCode: "54",
-      preferredCurrency: "UYU",
+      preferredCurrency: "USD",
       timezone: "America/Argentina/Buenos_Aires",
     });
   });
@@ -302,6 +309,14 @@ describe("NewOrganizationPage", () => {
     expect(perfil).toBeRequired();
     expect(perfil).toHaveValue("");
     await user.selectOptions(perfil, "ESTETICA");
+    // ISSUE-024: el término, obligatorio y sin preselección, con el sugerido
+    // según el perfil.
+    const termino = screen.getByLabelText("Cómo llama a sus contactos");
+    expect(termino).toBeRequired();
+    expect(termino).toHaveValue("");
+    expect(screen.getByRole("option", { name: "Cliente (sugerido)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Paciente" })).toBeInTheDocument();
+    await user.selectOptions(termino, "CLIENTE");
     await completarYEnviar(user);
 
     await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
@@ -312,6 +327,7 @@ describe("NewOrganizationPage", () => {
       edition: "COMPLETA",
       industry: "CLINICA",
       healthProfile: "ESTETICA",
+      contactTerm: "CLIENTE",
       ...CON_QUE_NACE,
     });
   });
@@ -334,11 +350,13 @@ describe("NewOrganizationPage", () => {
     expect(screen.getByLabelText("Perfil de salud")).toBeInTheDocument();
     await user.selectOptions(rubro, "AUTOMOTORA");
     expect(screen.queryByLabelText("Perfil de salud")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Cómo llama a sus contactos")).not.toBeInTheDocument();
     await completarYEnviar(user);
 
     await waitFor(() => expect(screen.getByText("Organización creada")).toBeInTheDocument());
     expect(postedBody).toMatchObject({ industry: "AUTOMOTORA" });
     expect(postedBody).not.toHaveProperty("healthProfile");
+    expect(postedBody).not.toHaveProperty("contactTerm");
   });
 
   // R19 (docs/rubros.md §12.1): la Clínica Demo, por su propio endpoint,

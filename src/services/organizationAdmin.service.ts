@@ -1,5 +1,6 @@
 import {
   Prisma,
+  type ContactTerm,
   type HealthProfile,
   type OrganizationEdition,
   type OrganizationIndustry,
@@ -98,6 +99,9 @@ export interface CreateOrganizationWithFoundingAdminInput {
   industry?: OrganizationIndustry;
   // docs/primera-clinica.md §4. Solo con industry CLINICA; sin él, MEDICO.
   healthProfile?: HealthProfile;
+  // ISSUE-024: el término del contacto. Solo con industry CLINICA; sin él,
+  // PACIENTE.
+  contactTerm?: ContactTerm;
   // País, moneda y zona: sin ellos, los de config/organizacionNueva.ts.
   defaultPhoneCountryCode?: string;
   preferredCurrency?: string;
@@ -160,6 +164,7 @@ export interface OrganizationAdminDeps {
     organizationId: string,
     db: Db,
     healthProfile?: HealthProfile,
+    contactTerm?: ContactTerm,
   ) => Promise<unknown>;
   // Las cinco automatizaciones apagadas de una clínica nueva
   // (automatizacionesDeLaClinicaNueva.ts), en la misma transacción.
@@ -366,6 +371,10 @@ export async function createOrganizationWithFoundingAdmin(
   if (input.healthProfile !== undefined && industry !== "CLINICA") {
     throw new AppError("El perfil de salud solo se elige para una organización CLINICA.", 400);
   }
+  // El término del contacto, también (una automotora siempre dice "cliente").
+  if (input.contactTerm !== undefined && industry !== "CLINICA") {
+    throw new AppError("El término del contacto solo se elige para una organización CLINICA.", 400);
+  }
 
   // ---------------------------------------------------------------------
   // 1. Pre-chequeos, antes de escribir nada en ningún lado. Cada uno
@@ -464,7 +473,12 @@ export async function createOrganizationWithFoundingAdmin(
       // Una clínica nace con su configuración (docs/rubros.md §1.3). Una
       // automotora, como siempre, sin nada de clínica.
       if (industry === "CLINICA") {
-        await deps.createClinicSettings(organization.id, tx, input.healthProfile);
+        await deps.createClinicSettings(
+          organization.id,
+          tx,
+          input.healthProfile,
+          input.contactTerm,
+        );
         // Nace con sus reglas apagadas, listas para prender cuando tenga su
         // número de WhatsApp. La Clínica Demo no: crea las suyas, con su QR.
         if (opciones.clinicaDemo !== true) {

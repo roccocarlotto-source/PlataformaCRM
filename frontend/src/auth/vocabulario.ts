@@ -102,6 +102,32 @@ export function concordancia(t: { genero?: Genero }) {
   };
 }
 
+/** Los textos de ejemplo (placeholders) de los formularios que comparten los
+ *  dos rubros (ISSUE-025 de la QA de la primera clínica): un centro de
+ *  belleza no tiene "Consultorio 1" ni "Consulta general". En una automotora,
+ *  los de siempre. */
+export interface Ejemplos {
+  nombreDeRecurso: string;
+  nombreDeTipoDeServicio: string;
+  nombreDeAutomatizacion: string;
+}
+
+const EJEMPLOS_DE_AUTOMOTORA: Ejemplos = {
+  nombreDeRecurso: "Consultorio 1",
+  nombreDeTipoDeServicio: "Consulta general",
+  nombreDeAutomatizacion: "Seguimiento post-venta",
+};
+
+export function ejemplosDe(me: MeResponse | null | undefined): Ejemplos {
+  if (!esClinica(me)) return EJEMPLOS_DE_AUTOMOTORA;
+  return {
+    // En una clínica el recurso es una persona.
+    nombreDeRecurso: "Ana Pérez",
+    nombreDeTipoDeServicio: me?.healthProfile === "ESTETICA" ? "Corte de pelo" : "Consulta general",
+    nombreDeAutomatizacion: "Pedido de reseña después del turno",
+  };
+}
+
 /** El nombre del producto (docs/rubros.md §0.3): de la configuración de marca
  *  del backend, no escrito en cada pantalla. */
 export function marcaDe(me: MeResponse | null | undefined): string {

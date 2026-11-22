@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { sesionDePrueba } from "../../test/sesionFixtures";
+import { clinicaDeMe } from "../../test/rubroFixtures";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -47,6 +48,7 @@ function renderForm(ruta: string, ...handlers: HttpHandler[]) {
           <Route path="/resources/new" element={<ResourceFormPage />} />
           <Route path="/resources/:id/edit" element={<ResourceFormPage />} />
           <Route path="/resources" element={<p>listado</p>} />
+          <Route path="/clinica/profesionales" element={<p>profesionales de clínica</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -103,6 +105,24 @@ describe("ResourceFormPage — creación", () => {
 
     await waitFor(() => expect(body).toEqual({ branchId: "b2", name: "Sala 2", type: "ROOM" }));
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+  });
+
+  it("ISSUE-017: en una clínica, guardar vuelve a Profesionales y el ejemplo es un nombre de persona", async () => {
+    useAuthMock.mockReturnValue(sesionDePrueba(clinicaDeMe("ESENCIAL")));
+    const user = userEvent.setup();
+    renderForm(
+      "/resources/new",
+      http.post(baseUrl, () => HttpResponse.json(makeResource(), { status: 201 })),
+    );
+
+    const nombre = screen.getByLabelText("Nombre");
+    expect(nombre).toHaveAttribute("placeholder", "Ana Pérez");
+    await user.type(nombre, "Lucía");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Persona");
+    await chooseSelectOption(user, await screen.findByLabelText("Sede"), "Sucursal Chuy");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("profesionales de clínica")).toBeInTheDocument());
   });
 
   it("sin sucursal no manda nada: el combobox obligatorio frena el envío", async () => {

@@ -25,9 +25,9 @@ un mail para elegir su contraseña y, cuando lo complete, entra como
 1. Entrá a **Plataforma → Nueva organización**.
 2. En **Organización**, escribí el **Nombre de la organización**, tal como se
    llama el negocio (por ejemplo, *Automotores del Sur*).
-3. Revisá **Código de país**, **Moneda** y **Zona horaria**. Vienen con los
-   de Uruguay (598, USD y Montevideo); cambialos si el cliente es de otro
-   país o trabaja en otra moneda. El código de país completa los teléfonos
+3. Revisá **Código de país** y **Zona horaria**: vienen con los de Uruguay
+   (598 y Montevideo); cambialos si el cliente es de otro país. Elegí la
+   **Moneda**: viene sin ninguna elegida, y la lista marca **UYU (sugerida)**. El código de país completa los teléfonos
    que se cargan en formato local. Los tres se pueden cambiar después en
    [Organización](/organization).
 4. En **Primer administrador**, completá el **Nombre completo** y el **Email**
@@ -50,9 +50,10 @@ Si elegís **Clínica**, aparece también **Perfil de salud**, obligatorio y sin
 ninguna opción elegida. Decide qué mensajes de un cliente el asistente toma
 como urgencia o como consulta de salud:
 
-- **Clínica médica o de estética médica**: el asistente deriva cualquier
-  síntoma, medicación o consulta clínica, y no da indicaciones de cuidado.
-- **Centro de belleza (peluquería, spa, estética no médica)**: trata como
+- **Salud: clínica, consultorio o tratamientos con médico**: el asistente
+  deriva cualquier síntoma, medicación o consulta clínica, y no da
+  indicaciones de cuidado.
+- **Belleza: peluquería, spa, uñas o masajes**: trata como
   urgencia solo las reales (no puede respirar, se desmayó, se le hinchó la
   cara). Deriva a una persona, sin el mensaje de emergencias, la hinchazón de
   ojos o párpados y una alergia a la tintura, el tinte, el pegamento o las
@@ -63,6 +64,11 @@ como urgencia o como consulta de salud:
 
 La clínica no puede cambiar el perfil. Elegilo con cuidado: si te equivocás,
 avisá antes de que la organización cargue datos.
+
+Con **Clínica** aparece también **Cómo llama a sus contactos**: **Paciente**
+o **Cliente**. Es obligatorio y viene sin ninguno elegido; la lista marca el
+sugerido según el perfil (**Paciente** para salud, **Cliente** para belleza).
+La clínica lo puede cambiar después en Organización.
 
 Al terminar, la pantalla muestra **Organización creada**, con el nombre, un
 **Identificador** corto (el nombre abreviado con el que el sistema distingue a

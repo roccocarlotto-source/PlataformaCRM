@@ -302,10 +302,22 @@ export const ACCION_AL_ELEGIR_EL_TRIGGER: Readonly<Record<string, string>> = {
 
 // Las acciones que el selector ofrece para un trigger. Un trigger que este
 // espejo todavía no conoce no restringe nada: quien decide es el backend.
-export function accionesParaTrigger(triggerType: string): SelectOption<string>[] {
+// `esClinica` (ISSUE-025): en una clínica no hay "dueño de la oportunidad";
+// la tarea va al equipo (en un turno, a la recepción de la sede).
+export function accionesParaTrigger(
+  triggerType: string,
+  esClinica = false,
+): SelectOption<string>[] {
   const permitidas = ACCIONES_POR_TRIGGER[triggerType];
-  if (!permitidas) return ACTION_OPTIONS;
-  return TODAS_LAS_ACCIONES.filter((option) => permitidas.includes(option.value));
+  const opciones = permitidas
+    ? TODAS_LAS_ACCIONES.filter((option) => permitidas.includes(option.value))
+    : ACTION_OPTIONS;
+  if (!esClinica) return opciones;
+  return opciones.map((option) =>
+    option.value === ACTION_CREATE_FOLLOW_UP
+      ? { ...option, subtitle: "Una tarea para el equipo" }
+      : option,
+  );
 }
 
 // ---------------------------------------------------------------------------

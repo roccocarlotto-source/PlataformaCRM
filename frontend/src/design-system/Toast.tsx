@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CircleCheck } from "lucide-react";
-import { ToastContext, type ToastContextValue } from "./useToast";
+import { CircleCheck, Info } from "lucide-react";
+import { ToastContext, type ToastContextValue, type TonoDeToast } from "./useToast";
 
 // ---------------------------------------------------------------------------
 // Toast: un cartelito chico que confirma que algo se guardó ("Pipeline
@@ -66,9 +66,19 @@ export interface ToastProps {
   // memoiza): cambiarlo reinicia el temporizador.
   onDismiss: () => void;
   duration?: number;
+  tono?: TonoDeToast;
 }
 
-export function Toast({ message, onDismiss, duration = TOAST_DURATION_MS }: ToastProps) {
+// Un aviso es más largo que una confirmación ("Automatización guardada"):
+// tiene una oración entera para leer.
+const DURACION_DE_UN_AVISO_MS = 8000;
+
+export function Toast({
+  message,
+  onDismiss,
+  tono = "confirmacion",
+  duration = tono === "aviso" ? DURACION_DE_UN_AVISO_MS : TOAST_DURATION_MS,
+}: ToastProps) {
   useEffect(() => {
     const timer = window.setTimeout(onDismiss, duration);
     return () => window.clearTimeout(timer);
@@ -76,7 +86,11 @@ export function Toast({ message, onDismiss, duration = TOAST_DURATION_MS }: Toas
 
   return (
     <div className="ds-toast">
-      <CircleCheck {...ICON} className="ds-toast-icon" />
+      {tono === "aviso" ? (
+        <Info {...ICON} className="ds-toast-icon" />
+      ) : (
+        <CircleCheck {...ICON} className="ds-toast-icon" />
+      )}
       <span className="ds-toast-message">{message}</span>
       <button
         type="button"
@@ -93,6 +107,7 @@ export function Toast({ message, onDismiss, duration = TOAST_DURATION_MS }: Toas
 interface ActiveToast {
   id: number;
   message: string;
+  tono?: TonoDeToast;
 }
 
 // Sin la API de popover (jsdom), el atributo solo la escondería.
@@ -105,9 +120,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   // ser dos ids distintos igual.
   const nextIdRef = useRef(0);
 
-  const show = useCallback((message: string) => {
+  const show = useCallback((message: string, opciones?: { tono?: TonoDeToast }) => {
     nextIdRef.current += 1;
-    setActive({ id: nextIdRef.current, message });
+    setActive({ id: nextIdRef.current, message, tono: opciones?.tono });
   }, []);
 
   const dismiss = useCallback(() => setActive(null), []);
@@ -137,7 +152,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         role="status"
         popover={SOPORTA_POPOVER ? "manual" : undefined}
       >
-        {active ? <Toast key={active.id} message={active.message} onDismiss={dismiss} /> : null}
+        {active ? (
+          <Toast key={active.id} message={active.message} tono={active.tono} onDismiss={dismiss} />
+        ) : null}
       </div>
     </ToastContext.Provider>
   );

@@ -263,7 +263,6 @@ const MENU_DE_CLINICA_ADMIN = [
   "  Sobreturnos -> /clinica/sobreturnos",
   "  Profesionales -> /clinica/profesionales",
   "  Prestaciones -> /clinica/prestaciones",
-  "  Configurar prestaciones -> /service-types",
   "Conversaciones -> /conversations",
   "Pacientes -> /contacts",
   "[Tareas]",
