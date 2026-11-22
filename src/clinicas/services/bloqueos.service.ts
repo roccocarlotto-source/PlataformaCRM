@@ -14,6 +14,12 @@ import {
   guardarSobreturnosDelProfesional,
 } from "../repositories/bloqueos.repository";
 import { recepcionistaParaElAviso } from "./sedesDeUsuarios.service";
+import {
+  cerrarTareasDeBloqueo,
+  NOTA_BLOQUEO_QUITADO,
+  PREFIJO_TAREA_DE_BLOQUEO,
+  turnosFueraDeBloqueos,
+} from "./tareasDeBloqueo";
 
 // ---------------------------------------------------------------------------
 // Bloqueos y sobreturnos de un profesional de clínica (docs/rubros.md §4.4,
@@ -27,11 +33,15 @@ import { recepcionistaParaElAviso } from "./sedesDeUsuarios.service";
 // una oportunidad (activities_related_entity_check), y así cada una se completa
 // cuando se resuelve ese paciente.
 //
+// La tarea vence en el momento (hay que avisarle al paciente cuanto antes) y
+// cuelga de su turno: se cierra sola al quitar el bloqueo, al cancelar el turno
+// o al reprogramarlo fuera del bloqueo (tareasDeBloqueo.ts, ISSUE-027).
+//
 // Sobreturnos: el permiso y el tope del profesional los fija un ADMIN.
 // ---------------------------------------------------------------------------
 
 export const MENSAJE_PROFESIONAL_NO_ENCONTRADO = "Profesional no encontrado";
-export const PREFIJO_TAREA_DE_BLOQUEO = "Turno dentro de un bloqueo: ";
+export { PREFIJO_TAREA_DE_BLOQUEO };
 
 /** El profesional de la organización, de las sedes del actor; si no, 404. */
 async function profesionalDelActor(
@@ -84,6 +94,7 @@ export async function crearBloqueoDeProfesional(
   ]);
   const asignadoId = recepcionista ?? actor.userId;
   const reason = input.reason?.trim() ? input.reason.trim() : null;
+  const ahora = new Date();
 
   return prisma.$transaction(async (tx) => {
     await lockResourceForUpdate(resourceId, organizationId, tx);
@@ -118,6 +129,8 @@ export async function crearBloqueoDeProfesional(
           body:
             `${recurso.name} tiene un bloqueo y ${nombre} tiene un turno de ${turno.serviceType.name} ` +
             `el ${cuando}. El turno sigue en pie: reprogramalo o cancelalo, y avisale.`,
+          dueDate: ahora,
+          sourceBookingId: turno.id,
         },
         tx,
       );
@@ -143,7 +156,21 @@ export async function borrarBloqueoDeProfesional(
   const bloqueo = await findBloqueoById(id, organizationId);
   if (!bloqueo) throw new AppError("Bloqueo no encontrado", 404);
   exigirSedeDelActor(actor, bloqueo.resource.branchId, "Bloqueo no encontrado");
-  await borrarBloqueo(id, organizationId);
+  // Con el lock del profesional, como al crearlo: los turnos que quedaban
+  // adentro y ya no quedan dentro de otro bloqueo cierran su tarea.
+  await prisma.$transaction(async (tx) => {
+    await lockResourceForUpdate(bloqueo.resourceId, organizationId, tx);
+    const turnos = await findTurnosAfectados(
+      organizationId,
+      bloqueo.resourceId,
+      bloqueo.startsAt,
+      bloqueo.endsAt,
+      tx,
+    );
+    await borrarBloqueo(id, organizationId, tx);
+    const liberados = await turnosFueraDeBloqueos(organizationId, bloqueo.resourceId, turnos, tx);
+    await cerrarTareasDeBloqueo(organizationId, liberados, NOTA_BLOQUEO_QUITADO, tx);
+  }, OPCIONES_DE_TRANSACCION_LARGA);
 }
 
 /** El permiso de sobreturnos y su tope (ADMIN). Bajar el tope no toca los ya

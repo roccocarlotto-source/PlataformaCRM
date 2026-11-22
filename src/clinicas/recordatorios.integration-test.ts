@@ -30,6 +30,7 @@ import {
   type WhatsappWebhookPayload,
 } from "../services/whatsappWebhook.service";
 import { replaceWorkingHoursForResource } from "../services/workingHours.service";
+import { replaceBusinessHours } from "../repositories/branchBusinessHours.repository";
 import { drenarTurnosPendientes, type DepsDeEnvio } from "../workers/agentInboundWorker";
 import { drenarOutbox } from "../workers/outboxWorker";
 import {
@@ -71,6 +72,9 @@ const LUNES = (hora: number) =>
   new Date(`2027-03-01T${String(hora + 3).padStart(2, "0")}:00:00.000Z`);
 const AHORA_FIJO = new Date("2027-02-25T12:00:00Z");
 const LUNES_9_A_13 = [{ weekday: "MONDAY" as const, startMinute: 540, endMinute: 780 }];
+const TODO_EL_DIA = (
+  ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const
+).map((weekday) => ({ weekday, startMinute: 0, endMinute: 1440 }));
 
 const ADMIN = 0;
 const RECEPCION = 1;
@@ -208,6 +212,10 @@ async function montarClinica(prefijo: string): Promise<Clinica> {
   await prisma.userBranch.create({
     data: { organizationId: org.id, userId: org.authIds[RECEPCION], branchId: centro },
   });
+  // ISSUE-029: la tarea "sin respuesta" respeta el horario de la sede. Centro
+  // atiende todos los días a toda hora, para que los casos que no miran el
+  // horario no dependan del día (el recordatorio del lunes sale el domingo).
+  await replaceBusinessHours(centro, org.id, TODO_EL_DIA, prisma);
   return { org, centro, norte, ana, consulta, paciente, waId, phoneNumberId, regla, agente };
 }
 
@@ -241,6 +249,7 @@ after(async () => {
     await prisma.workingHours.deleteMany({ where });
     await prisma.resource.deleteMany({ where });
     await prisma.contactChannelIdentity.deleteMany({ where });
+    await prisma.branchBusinessHours.deleteMany({ where });
     await borrarOrgDePrueba(c.org);
   }
 });
@@ -634,6 +643,32 @@ test("con el término cliente, la nota y las tareas del recordatorio dicen clien
     );
   } finally {
     await termino("PACIENTE");
+  }
+});
+
+// ISSUE-029: la sede atiende solo el lunes de 9 a 13. El recordatorio del turno
+// del lunes a las 10 sale el domingo a las 10; las 4 h caen el domingo a las 14,
+// con la sede cerrada: la tarea va a la apertura del lunes (9:00), aunque para
+// entonces falte 1 h para el turno.
+test("sin respuesta con la sede cerrada: la tarea va a la próxima apertura, aunque falten menos de 2 h", async () => {
+  await replaceBusinessHours(a.centro, a.org.id, LUNES_9_A_13, prisma);
+  try {
+    const { fila } = await enviado(a, 10);
+    const domingo10 = new Date(LUNES(10).getTime() - 24 * HORA);
+    await prisma.bookingMessage.update({ where: { id: fila.id }, data: { sentAt: domingo10 } });
+
+    assert.equal(
+      await crearTareasSinRespuesta(new Date(domingo10.getTime() + 4 * HORA), a.org.id),
+      0,
+      "el domingo la sede está cerrada",
+    );
+    assert.equal(await crearTareasSinRespuesta(LUNES(9), a.org.id), 1);
+    const tarea = await prisma.activity.findFirstOrThrow({
+      where: { organizationId: a.org.id, subject: { startsWith: PREFIJO_TAREA_SIN_RESPUESTA } },
+    });
+    assert.equal(tarea.dueDate?.toISOString(), LUNES(9).toISOString(), "vence a la apertura");
+  } finally {
+    await replaceBusinessHours(a.centro, a.org.id, TODO_EL_DIA, prisma);
   }
 });
 

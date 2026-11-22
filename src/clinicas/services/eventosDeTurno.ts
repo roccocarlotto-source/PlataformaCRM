@@ -8,6 +8,10 @@ import {
   type RegistroDeHandlers,
 } from "../../services/outboxHandlers";
 import { alCancelarse, alProgramarse, alNoVenir } from "../recordatorios/programacion.service";
+import {
+  alCancelarseCerrarTareasDeBloqueo,
+  alReprogramarseCerrarTareasDeBloqueo,
+} from "./tareasDeBloqueo";
 
 // ---------------------------------------------------------------------------
 // Los eventos del turno de una clínica (docs/rubros.md §4.8, R10). SOLO
@@ -98,12 +102,24 @@ export async function emitirEventoDeTurno(
  *     recordatorio, cancelled lo anula;
  *   - R14 (§7): no_show (también una corrección a No vino) cancela el QR y el
  *     control pendientes del turno.
+ *   - ISSUE-027: cancelled y rescheduled (fuera de un bloqueo) cierran las
+ *     tareas "Turno dentro de un bloqueo" del turno.
  * booking.completed es un trigger del motor (R14): lo registra
  * registrarAutomatizaciones, que lo despacha a las acciones de post_turno.
+ *
+ * Un handler por tipo de evento (outboxHandlers): los que hacen dos cosas las
+ * encadenan. Las dos partes son idempotentes, así que un reintento del evento
+ * no duplica nada.
  */
 export function registrarEventosDeTurno(handlers: RegistroDeHandlers = handlersPorDefecto): void {
   handlers.registrar(EVENTO_TURNO_CREADO, alProgramarse);
-  handlers.registrar(EVENTO_TURNO_REPROGRAMADO, alProgramarse);
-  handlers.registrar(EVENTO_TURNO_CANCELADO, alCancelarse);
+  handlers.registrar(EVENTO_TURNO_REPROGRAMADO, async (evento) => {
+    await alProgramarse(evento);
+    await alReprogramarseCerrarTareasDeBloqueo(evento);
+  });
+  handlers.registrar(EVENTO_TURNO_CANCELADO, async (evento) => {
+    await alCancelarse(evento);
+    await alCancelarseCerrarTareasDeBloqueo(evento);
+  });
   handlers.registrar(EVENTO_TURNO_NO_VINO, alNoVenir);
 }

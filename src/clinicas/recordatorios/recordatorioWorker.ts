@@ -48,6 +48,7 @@ import {
   MOTIVO_SIN_TELEFONO,
   MOTIVO_TURNO_NO_VIGENTE,
   PREFIJO_TAREA_SIN_RESPUESTA,
+  venceLaTareaSinRespuesta,
   cuandoVaLaTareaSinRespuesta,
   diaYHora,
   lugarDelTurno,
@@ -405,8 +406,17 @@ export async function crearTareasSinRespuesta(
       m.organizationId,
       m.booking.branchId,
     );
-    const cuando = m.sentAt
+    const base = m.sentAt
       ? cuandoVaLaTareaSinRespuesta(m.sentAt, m.bookingStartsAt, noResponseTaskHours)
+      : null;
+    if (base && base.getTime() > ahora.getTime()) continue;
+    // ISSUE-029: con la sede cerrada, la tarea va a la próxima apertura.
+    const cuando = base
+      ? venceLaTareaSinRespuesta(
+          base,
+          await proximaAperturaDeLaSucursal(m.organizationId, m.booking.branchId, base),
+          m.bookingStartsAt,
+        )
       : null;
     if (cuando && cuando.getTime() > ahora.getTime()) continue;
     const vigente =
@@ -444,7 +454,9 @@ export async function crearTareasSinRespuesta(
             255,
           ),
           body: `${elContactoAlEmpezar(termino)} no respondió el recordatorio por WhatsApp. El turno sigue en pie: llamalo para confirmarlo.`,
-          dueDate: ahora,
+          // El momento calculado (dentro del horario de la sede), no el del
+          // barrido, que puede llegar unos segundos después.
+          dueDate: cuando,
         },
         tx,
       );

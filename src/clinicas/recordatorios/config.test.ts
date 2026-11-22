@@ -10,6 +10,7 @@ import {
   TEXTO_POR_DEFECTO_DEL_RECORDATORIO,
   cuandoSaleElRecordatorio,
   cuandoVaLaTareaSinRespuesta,
+  venceLaTareaSinRespuesta,
   diaYHora,
   esRespuestaDelBoton,
   lugarDelTurno,
@@ -65,6 +66,25 @@ test("cuandoSaleElRecordatorio: con tiempo, 24 h antes; con poca anticipación, 
     cuandoSaleElRecordatorio(TURNO, TURNO, { ...base, lateBookingReminder: "EN_EL_MOMENTO" }),
     null,
   );
+});
+
+test("venceLaTareaSinRespuesta (ISSUE-029): con la sede abierta, el momento de siempre; cerrada, la apertura, aunque falten menos de 2 h", () => {
+  const base = new Date(TURNO.getTime() - 20 * H);
+  // Abierta: la apertura es el mismo momento.
+  assert.equal(venceLaTareaSinRespuesta(base, base, TURNO)?.toISOString(), base.toISOString());
+  // Cerrada: a la apertura.
+  const apertura = new Date(TURNO.getTime() - 4 * H);
+  assert.equal(
+    venceLaTareaSinRespuesta(base, apertura, TURNO)?.toISOString(),
+    apertura.toISOString(),
+  );
+  // La apertura es 1 h antes del turno (menos de 2 h): igual hay tarea.
+  const tarde = new Date(TURNO.getTime() - 1 * H);
+  assert.equal(venceLaTareaSinRespuesta(base, tarde, TURNO)?.toISOString(), tarde.toISOString());
+  // Abre recién a la hora del turno (o después): no hay a quién confirmarle.
+  assert.equal(venceLaTareaSinRespuesta(base, TURNO, TURNO), null);
+  // Sin momento base (el recordatorio salió a menos de 2 h): nada, como antes.
+  assert.equal(venceLaTareaSinRespuesta(null, apertura, TURNO), null);
 });
 
 test("cuandoVaLaTareaSinRespuesta: 4 h después o 2 h antes del turno; a menos de 2 h, no hay", () => {

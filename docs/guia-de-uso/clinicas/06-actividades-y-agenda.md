@@ -257,8 +257,13 @@ ves sus bloqueos de los próximos dos meses y cargás uno nuevo con **Desde**,
 - Si ya había turnos dados dentro del bloqueo, **no se cancelan solos**. Al
   guardar, la pantalla los lista para que los canceles o los reprogrames, y a
   la recepción de esa sede le queda una tarea por cada turno para avisarle al
-  paciente. **Cancelar turno** pide confirmación (**Cancelar turno** o
-  **Volver**), como en la lista de turnos: un turno cancelado no se recupera.
+  paciente, que vence ese mismo día. **Cancelar turno** pide confirmación
+  (**Cancelar turno** o **Volver**), como en la lista de turnos: un turno
+  cancelado no se recupera.
+- La tarea "Turno dentro de un bloqueo" **se cierra sola**, con una nota que
+  dice por qué, cuando se cancela el turno, cuando se reprograma a un horario
+  fuera de todo bloqueo o cuando se quita el bloqueo (si el turno no queda
+  dentro de otro).
 - Para sacar un bloqueo, tocá **Quitar** en su fila. Los horarios vuelven a
   estar disponibles.
 
