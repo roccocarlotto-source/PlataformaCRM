@@ -13,6 +13,7 @@ import { AYUDA } from "../guia/anclas";
 import { Select } from "../../design-system/Select";
 import { Table } from "../../design-system/Table";
 import { formatDateTime } from "../../design-system/detailFormat";
+import { useConfirm } from "../../design-system/useConfirm";
 import { useCancelBooking } from "../booking/mutations";
 import { useResources } from "../resource/queries";
 import type { BloqueoCreado } from "./agendaApi";
@@ -224,7 +225,24 @@ function NuevoBloqueo({ resourceId }: { resourceId: string }) {
 function TurnosAfectados({ resultado }: { resultado: BloqueoCreado }) {
   const vocabulario = useVocabularioDeClinica();
   const cancelar = useCancelBooking();
+  const confirm = useConfirm();
   const [cancelados, setCancelados] = useState<string[]>([]);
+  // La misma confirmación que la lista de Turnos y el detalle del turno: un
+  // turno cancelado no vuelve (QA de la primera clínica, 2026-11-21: acá se
+  // cancelaba sin preguntar).
+  async function cancelarTurno(bookingId: string) {
+    if (
+      !(await confirm("¿Cancelar este turno? El turno queda libre y no se puede deshacer.", {
+        confirmLabel: "Cancelar turno",
+        cancelLabel: "Volver",
+        danger: true,
+      }))
+    )
+      return;
+    cancelar.mutate(bookingId, {
+      onSuccess: () => setCancelados((c) => [...c, bookingId]),
+    });
+  }
   return (
     <Card heading="Turnos dentro del bloqueo">
       <Notice tone="warning" alert={false}>
@@ -252,11 +270,7 @@ function TurnosAfectados({ resultado }: { resultado: BloqueoCreado }) {
                   <Button
                     variant="secondary"
                     disabled={cancelar.isPending}
-                    onClick={() =>
-                      cancelar.mutate(t.bookingId, {
-                        onSuccess: () => setCancelados((c) => [...c, t.bookingId]),
-                      })
-                    }
+                    onClick={() => void cancelarTurno(t.bookingId)}
                   >
                     Cancelar turno
                   </Button>
