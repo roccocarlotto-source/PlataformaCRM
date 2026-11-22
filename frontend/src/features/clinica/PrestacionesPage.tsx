@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Clock } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Clock, Plus } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
+import { useDeleteServiceType } from "../serviceType/mutations";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -22,9 +25,12 @@ const SIN_RESOLVER = "—";
 // Prestaciones de una clínica con quién las atiende (docs/rubros.md §4.3, R5).
 // Una prestación la pueden hacer varios profesionales: el paciente elige uno o
 // "el primero libre". El profesional principal (el de la prestación) queda
-// siempre. Crear, editar y borrar la prestación sigue siendo la pantalla de
-// tipos de servicio; acá solo se define quién la atiende. Vive dentro de
-// AdminRoute, como la de tipos de servicio.
+// siempre. Vive dentro de AdminRoute, como la de tipos de servicio.
+//
+// ES LA ÚNICA PANTALLA DE PRESTACIONES de una clínica (ISSUE-027): antes había
+// también "Configurar prestaciones" (la lista de tipos de servicio), que ahora
+// redirige acá. El alta y la edición siguen en el formulario de tipos de
+// servicio, que vuelve a esta pantalla al guardar.
 export function PrestacionesPage() {
   const vocabulario = useVocabularioDeClinica();
   const prestacionesQuery = usePrestaciones();
@@ -37,10 +43,42 @@ export function PrestacionesPage() {
   const prestaciones = prestacionesQuery.data?.prestaciones ?? [];
   const profesionales = vocabulario.recurso;
   const prestacion = vocabulario.tipoDeServicio;
+  const cp = concordancia(prestacion);
+  const confirm = useConfirm();
+  const eliminar = useDeleteServiceType();
+
+  async function handleEliminar(p: PrestacionConProfesionales) {
+    // Con turnos activos el backend la frena (RESTRICT) y el error se muestra
+    // tal cual, como en la lista de tipos de servicio.
+    if (
+      !(await confirm(`¿Eliminar ${cp.el} ${prestacion.singular} "${p.name}"?`, {
+        confirmLabel: "Eliminar",
+        danger: true,
+      }))
+    )
+      return;
+    eliminar.mutate(p.id);
+  }
 
   return (
     <div>
-      <PageHeader help={AYUDA.prestaciones} title={prestacion.pluralTitulo} />
+      <PageHeader
+        help={AYUDA.prestaciones}
+        title={prestacion.pluralTitulo}
+        actions={
+          <Link to="/service-types/new" className="ds-link-button">
+            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+            {`${cp.Nuevo} ${prestacion.singular}`}
+          </Link>
+        }
+      />
+
+      {eliminar.isError ? (
+        <ErrorState>
+          No pudimos eliminar {cp.el} {prestacion.singular}
+          {eliminar.error instanceof Error ? `: ${eliminar.error.message}` : "."}
+        </ErrorState>
+      ) : null}
 
       <div className="ds-list-card">
         {prestacionesQuery.isLoading ? <LoadingState variant="rows" /> : null}
@@ -92,6 +130,13 @@ export function PrestacionesPage() {
                         {
                           label: "Recordar control",
                           onClick: () => setControl(p),
+                        },
+                        { label: "Editar", to: `/service-types/${p.id}/edit` },
+                        {
+                          label: "Eliminar",
+                          onClick: () => void handleEliminar(p),
+                          destructive: true,
+                          disabled: eliminar.isPending,
                         },
                       ]}
                     />

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
-import { concordancia, vocabularioDe } from "../../auth/vocabulario";
+import { concordancia, ejemplosDe, esClinica, vocabularioDe } from "../../auth/vocabulario";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
@@ -80,6 +80,9 @@ export function ResourceFormPage() {
   const { recurso, sucursal } = vocabularioDe(me);
   const cr = concordancia(recurso);
   const cs = concordancia(sucursal);
+  // ISSUE-017: en una clínica los profesionales se ven en su pantalla; la de
+  // recursos no está en su menú.
+  const listado = esClinica(me) ? "/clinica/profesionales" : "/resources";
 
   const resourceQuery = useResource(isEditMode ? id : undefined);
   const hoursQuery = useWorkingHours(isEditMode ? id : undefined);
@@ -130,7 +133,7 @@ export function ResourceFormPage() {
           name: values.name,
           type: values.type,
         });
-        navigate("/resources");
+        navigate(listado);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : `No pudimos guardar ${cr.el} ${recurso.singular}`,
@@ -158,7 +161,7 @@ export function ResourceFormPage() {
 
     try {
       await replaceHoursMutation.mutateAsync(aplanar(values.horario));
-      navigate("/resources");
+      navigate(listado);
     } catch (err) {
       setError(
         `Los datos ${cr.del} ${recurso.singular} se guardaron, pero el horario no${
@@ -196,7 +199,7 @@ export function ResourceFormPage() {
                 type="text"
                 value={values.name}
                 maxLength={MAX_NAME}
-                placeholder="Consultorio 1"
+                placeholder={ejemplosDe(me).nombreDeRecurso}
                 onChange={(event) => setValues({ ...values, name: event.target.value })}
                 required
               />

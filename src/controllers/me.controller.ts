@@ -86,8 +86,10 @@ export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: 
     ),
     // Rubros (docs/rubros.md §3): el término del contacto, solo en una clínica
     // (una automotora no tiene la clave), y el vocabulario armado acá, por el
-    // mismo motivo que `modulos`.
-    ...(clinica ? { contactTerm: clinica.contactTerm } : {}),
+    // mismo motivo que `modulos`. El perfil de salud (docs/primera-clinica.md
+    // §4), también solo en una clínica: los textos de ejemplo y las etiquetas
+    // de las pantallas de clínica dependen de él (ISSUE-025).
+    ...(clinica ? { contactTerm: clinica.contactTerm, healthProfile: clinica.healthProfile } : {}),
     vocabulario: vocabularioDe(industry, clinica?.contactTerm ?? null),
     // R12 (docs/rubros.md §11.1): los roles que el ADMIN puede asignar en esta
     // organización, en el orden en que se muestran. Mismo criterio que

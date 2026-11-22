@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { sesionDePrueba } from "../../test/sesionFixtures";
+import { clinicaDeMe } from "../../test/rubroFixtures";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
@@ -70,6 +71,24 @@ function renderPage() {
     </QueryClientProvider>,
   );
 }
+
+describe("ServiceTypeListPage en una clínica (ISSUE-027)", () => {
+  it("lleva a Prestaciones, la única pantalla de prestaciones de una clínica", async () => {
+    useAuthMock.mockReturnValue(sesionDePrueba(clinicaDeMe("ESENCIAL")));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/service-types"]}>
+          <Routes>
+            <Route path="/service-types" element={<ServiceTypeListPage />} />
+            <Route path="/clinica/prestaciones" element={<p>prestaciones de clínica</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("prestaciones de clínica")).toBeInTheDocument();
+  });
+});
 
 describe("ServiceTypeListPage", () => {
   it("resuelve recurso y sucursal por nombre, y muestra la duración legible y el cupo", async () => {

@@ -206,6 +206,9 @@ interface Pantalla {
   url: string;
   patron: string;
   elemento: ReactNode;
+  // Una pantalla que en una clínica redirige a la suya (ISSUE-027): solo se
+  // mira en la automotora.
+  soloAutomotora?: true;
 }
 
 const PANTALLAS: Pantalla[] = [
@@ -267,7 +270,12 @@ const PANTALLAS: Pantalla[] = [
     nombre: "automatización nueva",
     url: "/automations/new",
     patron: "/automations/new",
-    elemento: <AutomationFormPage />,
+    // Usa useToast (ISSUE-021): con su provider.
+    elemento: (
+      <ToastProvider>
+        <AutomationFormPage />
+      </ToastProvider>
+    ),
   },
   { nombre: "agentes", url: "/agents", patron: "/agents", elemento: <AgentListPage /> },
   {
@@ -294,6 +302,8 @@ const PANTALLAS: Pantalla[] = [
     url: "/service-types",
     patron: "/service-types",
     elemento: <ServiceTypeListPage />,
+    // En una clínica lleva a Prestaciones (/clinica/prestaciones).
+    soloAutomotora: true,
   },
   {
     nombre: "prestación",
@@ -419,8 +429,10 @@ const conPalabra = (textos: string[], palabras: RegExp) =>
 const VOCABULARIO_DE_AUTOMOTORA =
   /\b(vendedor(es)?|reservas?|recursos?|tipos? de servicio|sucursal(es)?|oportunidad(es)?)\b/i;
 
+const PANTALLAS_DE_CLINICA = PANTALLAS.filter((p) => !p.soloAutomotora);
+
 describe("textos de una clínica (§3.1): nada de autos", () => {
-  for (const pantalla of PANTALLAS) {
+  for (const pantalla of PANTALLAS_DE_CLINICA) {
     it(pantalla.nombre, async () => {
       const textos = await textosDe(pantalla, sesion("ADMIN", clinicaDeMe("COMPLETA")));
       expect(textos.length).toBeGreaterThan(0);
@@ -447,7 +459,7 @@ const CLINICA_CON_CLIENTE: Partial<MeResponse> = {
 };
 
 describe('textos de una clínica con contactTerm CLIENTE: nada de "paciente" fijo', () => {
-  for (const pantalla of PANTALLAS) {
+  for (const pantalla of PANTALLAS_DE_CLINICA) {
     it(pantalla.nombre, async () => {
       const textos = await textosDe(pantalla, sesion("ADMIN", CLINICA_CON_CLIENTE));
       expect(textos.length).toBeGreaterThan(0);

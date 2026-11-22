@@ -42,6 +42,9 @@ export interface Automation {
   // Solo al guardar: por qué no se pudo mandar el mensaje a aprobación. La
   // regla quedó guardada igual.
   whatsappSyncError?: string | null;
+  // Solo al guardar una regla de clínica inactiva sin su número de WhatsApp
+  // conectado (ISSUE-021): un aviso, no un error.
+  whatsappSyncAviso?: string;
   // H-1: si el último intento de mandar el mensaje a aprobación falló, por qué
   // y si se reintenta solo. Null sin error.
   whatsappSync?: WhatsappSync | null;

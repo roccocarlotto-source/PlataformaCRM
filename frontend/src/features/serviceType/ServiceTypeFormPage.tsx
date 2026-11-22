@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
-import { concordancia, esClinica, vocabularioDe } from "../../auth/vocabulario";
+import { concordancia, ejemplosDe, esClinica, vocabularioDe } from "../../auth/vocabulario";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Button } from "../../design-system/Button";
@@ -133,7 +133,8 @@ export function ServiceTypeFormPage() {
       } else {
         await createMutation.mutateAsync(input);
       }
-      navigate("/service-types");
+      // ISSUE-027: en una clínica, la única pantalla de prestaciones.
+      navigate(esClinica(me) ? "/clinica/prestaciones" : "/service-types");
     } catch (err) {
       setError(
         err instanceof Error
@@ -174,7 +175,7 @@ export function ServiceTypeFormPage() {
                 type="text"
                 value={values.name}
                 maxLength={MAX_NAME}
-                placeholder="Consulta general"
+                placeholder={ejemplosDe(me).nombreDeTipoDeServicio}
                 onChange={(event) => setValues({ ...values, name: event.target.value })}
                 required
               />

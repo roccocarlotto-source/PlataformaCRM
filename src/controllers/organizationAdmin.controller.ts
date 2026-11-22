@@ -1,5 +1,10 @@
 import type { Response } from "express";
-import { HealthProfile, OrganizationEdition, OrganizationIndustry } from "@prisma/client";
+import {
+  ContactTerm,
+  HealthProfile,
+  OrganizationEdition,
+  OrganizationIndustry,
+} from "@prisma/client";
 import { z } from "zod";
 import { enumNativo, mensajesDeTipo } from "../utils/erroresDeZod";
 import { edicionesDisponibles, rubrosDisponibles } from "../config/ediciones";
@@ -63,6 +68,10 @@ export const createOrganizationSchema = z.object({
     HealthProfile,
     mensajesDeTipo({ tipo: "healthProfile inválido" }),
   ).optional(),
+  // Cómo llama la clínica a sus contactos (ISSUE-024 de la QA de la primera
+  // clínica). Opcional: sin él, PACIENTE. Solo con industry CLINICA (si no,
+  // el service responde 400). La pantalla del alta lo pide siempre.
+  contactTerm: enumNativo(ContactTerm, mensajesDeTipo({ tipo: "contactTerm inválido" })).optional(),
   // País, moneda y zona de la organización. Opcionales: sin ellos, Uruguay,
   // USD y America/Montevideo (config/organizacionNueva.ts). Mismas reglas
   // que el PATCH de /api/organization.

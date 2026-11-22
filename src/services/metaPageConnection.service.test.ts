@@ -584,16 +584,16 @@ test("D-11: si Meta rechaza la baja (token ya inválido), se desconecta igual", 
   assert.equal(base.revocaciones.length, 1);
 });
 
-test("obtenerConexion sin conexión → 404; con conexión, la devuelve", async () => {
+test("obtenerConexion sin conexión → null (ISSUE-023); con conexión, la devuelve", async () => {
   baseFalsa({ conexion: null });
-  assertAppError(await capturar(() => obtenerConexion(ORG)), 404);
+  assert.equal(await obtenerConexion(ORG), null);
 
   mock.restoreAll();
   baseFalsa({
     conexion: { organizationId: ORG, pageId: "111", status: "ACTIVE", pageName: "Demo" },
   });
   const conexion = await obtenerConexion(ORG);
-  assert.equal(conexion.pageId, "111");
+  assert.equal(conexion?.pageId, "111");
 });
 
 // Una conexión de antes de las columnas page_name / instagram_username.
@@ -619,8 +619,8 @@ test("obtenerConexion: una ACTIVE sin nombres los pide a Meta con el token desci
       data: { pageName: "Demo", instagramUsername: "demo.uy" },
     },
   ]);
-  assert.equal(conexion.pageName, "Demo");
-  assert.equal(conexion.instagramUsername, "demo.uy");
+  assert.equal(conexion?.pageName, "Demo");
+  assert.equal(conexion?.instagramUsername, "demo.uy");
 });
 
 test("obtenerConexion: con el nombre ya guardado no habla con Meta", async () => {
@@ -640,8 +640,8 @@ test("obtenerConexion: si Meta falla al pedir los nombres, devuelve la conexión
 
   const conexion = await obtenerConexion(ORG, meta.cliente);
 
-  assert.equal(conexion.pageId, "111");
-  assert.equal(conexion.pageName, null);
+  assert.equal(conexion?.pageId, "111");
+  assert.equal(conexion?.pageName, null);
   assert.deepEqual(base.revocaciones, []);
 });
 

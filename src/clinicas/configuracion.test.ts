@@ -32,6 +32,7 @@ test("ROLES_POR_RUBRO: una automotora admite los roles de hoy; una clínica, ADM
 test("los defaults del código son los de las columnas de la migración", () => {
   assert.deepEqual(CONFIGURACION_DE_CLINICA_POR_DEFECTO, {
     contactTerm: "PACIENTE",
+    healthProfile: "MEDICO",
     privacyNoticeText: null,
     privacyPolicyUrl: null,
   });

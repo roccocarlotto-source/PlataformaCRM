@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MeResponse } from "./AuthContext";
 import {
   concordancia,
+  ejemplosDe,
   marcaDe,
   VOCABULARIO_AUTOMOTORA_POR_DEFECTO,
   VOCABULARIO_DE_CLINICA_POR_DEFECTO,
@@ -18,6 +19,26 @@ const BASE: MeResponse = {
   isPlatformAdmin: false,
   canUseInternalAgent: false,
 };
+
+describe("ejemplosDe (ISSUE-025)", () => {
+  it("automotora: los ejemplos de siempre", () => {
+    expect(ejemplosDe(BASE)).toEqual({
+      nombreDeRecurso: "Consultorio 1",
+      nombreDeTipoDeServicio: "Consulta general",
+      nombreDeAutomatizacion: "Seguimiento post-venta",
+    });
+  });
+
+  it("clínica: un nombre de persona, y la prestación según el perfil (sin perfil, MEDICO)", () => {
+    const clinica: MeResponse = { ...BASE, industry: "CLINICA" };
+    expect(ejemplosDe(clinica).nombreDeRecurso).toBe("Ana Pérez");
+    expect(ejemplosDe(clinica).nombreDeTipoDeServicio).toBe("Consulta general");
+    expect(ejemplosDe({ ...clinica, healthProfile: "ESTETICA" }).nombreDeTipoDeServicio).toBe(
+      "Corte de pelo",
+    );
+    expect(ejemplosDe(clinica).nombreDeAutomatizacion).not.toMatch(/venta/);
+  });
+});
 
 describe("vocabularioDe (docs/rubros.md §3)", () => {
   it("con el vocabulario de /me, es ese, término por término", () => {

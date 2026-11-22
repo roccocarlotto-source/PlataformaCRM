@@ -14,12 +14,14 @@ import { prisma, type Db } from "../../lib/prisma";
 
 export interface ConfiguracionDeClinica {
   contactTerm: ContactTerm;
+  healthProfile: HealthProfile;
   privacyNoticeText: string | null;
   privacyPolicyUrl: string | null;
 }
 
 export const CONFIGURACION_DE_CLINICA_POR_DEFECTO: ConfiguracionDeClinica = {
   contactTerm: "PACIENTE",
+  healthProfile: "MEDICO",
   privacyNoticeText: null,
   privacyPolicyUrl: null,
 };
@@ -43,15 +45,21 @@ export const CONFIGURACION_DE_SEDE_POR_DEFECTO: ConfiguracionDeSede = {
 /** Crea la fila de la clínica con los defaults, si no la tiene. Idempotente:
  *  el cambio de rubro puede ir y volver, y la fila vieja se conserva. El
  *  perfil de salud solo se fija al crearla (el alta lo elige; sin él, MEDICO,
- *  el default de la columna). */
+ *  el default de la columna). El término del contacto, igual: el alta lo
+ *  pide (ISSUE-024); sin él, PACIENTE. */
 export function crearConfiguracionDeClinica(
   organizationId: string,
   db: Db,
   healthProfile?: HealthProfile,
+  contactTerm?: ContactTerm,
 ) {
   return db.clinicSettings.upsert({
     where: { organizationId },
-    create: healthProfile ? { organizationId, healthProfile } : { organizationId },
+    create: {
+      organizationId,
+      ...(healthProfile ? { healthProfile } : {}),
+      ...(contactTerm ? { contactTerm } : {}),
+    },
     update: {},
   });
 }
@@ -62,7 +70,12 @@ export async function leerConfiguracionDeClinica(
 ): Promise<ConfiguracionDeClinica> {
   const fila = await db.clinicSettings.findUnique({
     where: { organizationId },
-    select: { contactTerm: true, privacyNoticeText: true, privacyPolicyUrl: true },
+    select: {
+      contactTerm: true,
+      healthProfile: true,
+      privacyNoticeText: true,
+      privacyPolicyUrl: true,
+    },
   });
   return fila ?? CONFIGURACION_DE_CLINICA_POR_DEFECTO;
 }

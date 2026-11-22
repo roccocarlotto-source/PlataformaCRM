@@ -34,9 +34,10 @@ export function updateOrganizationSettings(
 // (features/platformAdmin/api.ts). La organización sale del JWT.
 // ---------------------------------------------------------------------------
 
-// null = la organización nunca se conectó. El backend lo dice con un 404, que
-// acá es un estado normal de la pantalla y no un error: se traduce a null
-// para que la sección muestre "Sin conectar". Cualquier otro error sigue siendo
+// null = la organización nunca se conectó. El backend lo dice con un 200 y
+// null desde ISSUE-023 (antes, con un 404, que dejaba un error en la consola);
+// el 404 se sigue traduciendo a null por un backend anterior. Es un estado
+// normal: la sección muestra "Sin conectar". Cualquier otro error sigue siendo
 // error.
 export async function getMetaConnection(signal?: AbortSignal): Promise<MetaPageConnection | null> {
   try {

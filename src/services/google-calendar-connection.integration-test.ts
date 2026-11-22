@@ -618,8 +618,8 @@ test("obtenerConexion NUNCA devuelve el refresh token, ni cifrado", async () => 
     assert.ok(!serializado.includes("v1."), "ni el ciphertext");
 
     // Y sí devuelve lo que tiene que devolver.
-    assert.equal(conexion.status, "ACTIVE");
-    assert.equal(conexion.branchId, branch.id);
+    assert.equal(conexion?.status, "ACTIVE");
+    assert.equal(conexion?.branchId, branch.id);
   } finally {
     await desmontar(escenario);
   }

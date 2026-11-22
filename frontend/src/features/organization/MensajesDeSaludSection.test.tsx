@@ -40,18 +40,28 @@ function respuesta(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function renderSection() {
+function renderSection(perfil?: "MEDICO" | "ESTETICA") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <MensajesDeSaludSection />
+        <MensajesDeSaludSection perfil={perfil} />
       </ToastProvider>
     </QueryClientProvider>,
   );
 }
 
 describe("MensajesDeSaludSection", () => {
+  it("ISSUE-025: con el perfil ESTETICA, las etiquetas hablan de derivar al equipo, no de consulta clínica", async () => {
+    server.use(http.get(url, () => HttpResponse.json(respuesta())));
+    renderSection("ESTETICA");
+    expect(
+      await screen.findByLabelText("Mensaje cuando el asistente deriva al equipo"),
+    ).toHaveValue(CONSULTA);
+    expect(screen.getByLabelText("Palabras que también se derivan al equipo")).toBeInTheDocument();
+    expect(screen.queryByText(/consulta clínica/)).not.toBeInTheDocument();
+  });
+
   it("precarga los textos por defecto, muestra el aviso de responsabilidad y los términos que no se sacan", async () => {
     server.use(http.get(url, () => HttpResponse.json(respuesta())));
     renderSection();

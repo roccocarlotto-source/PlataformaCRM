@@ -123,6 +123,9 @@ export async function getOrganizationSettings(
       ? {
           privacyNoticeText: clinica.privacyNoticeText,
           privacyPolicyUrl: clinica.privacyPolicyUrl,
+          // Solo lectura: lo elige el admin de plataforma. La pantalla ajusta
+          // las etiquetas de los mensajes de salud (ISSUE-025).
+          healthProfile: clinica.healthProfile,
         }
       : {}),
   };

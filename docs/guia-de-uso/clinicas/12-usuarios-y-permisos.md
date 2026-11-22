@@ -24,6 +24,10 @@ roles. Los profesionales no son usuarios: son parte de la agenda.
 | Asignarle una tarea a otra persona | No |
 | Usuarios, invitaciones, asistente, automatizaciones, base de conocimiento, organización y sedes | No |
 
+> Si alguien de Recepción abre una pantalla de configuración (por ejemplo,
+> con un link guardado), vuelve al inicio con el aviso "Esa pantalla es solo
+> para administradores."
+
 > Recepción puede editar cualquier paciente, pero no lo puede asignar a otra
 > persona. Para cambiar a quién está asignado un paciente, pedíselo a un
 > administrador.

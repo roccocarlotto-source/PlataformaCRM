@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { Clock, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { concordancia, esClinica, vocabularioDe } from "../../auth/vocabulario";
@@ -88,11 +88,18 @@ export function ServiceTypeListPage() {
 
   const serviceTypes = serviceTypesQuery.data?.data ?? [];
 
+  // ISSUE-027: una clínica tiene una sola pantalla de prestaciones, la de
+  // clínica (con quién las atiende y el alta). Esta lista lleva ahí. Después de
+  // todos los hooks, por las reglas de React.
+  if (esClinica(me)) {
+    return <Navigate to="/clinica/prestaciones" replace />;
+  }
+
   return (
     <div>
       <PageHeader
         help={AYUDA.tiposDeServicio}
-        title={esClinica(me) ? `Configurar ${tipoDeServicio.plural}` : tipoDeServicio.pluralTitulo}
+        title={tipoDeServicio.pluralTitulo}
         actions={
           <>
             <Link to="/service-types/new" className="ds-link-button">

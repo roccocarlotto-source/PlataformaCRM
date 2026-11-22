@@ -304,20 +304,18 @@ export async function desconectar(
 // construido, así que la fila ES el canal — y algo tiene que poder leerla.
 // Nunca devuelve el token: findConnectionByBranch usa un `select` que no lo
 // incluye.
+//
+// null = la sucursal nunca conectó Google Calendar: un estado normal de la
+// pantalla, no un error (ISSUE-023). Una sucursal de otra organización sigue
+// siendo 404 (getBranchById).
 // ---------------------------------------------------------------------------
 export async function obtenerConexion(
   organizationId: string,
   branchId: string,
-): Promise<ConexionPublica> {
+): Promise<ConexionPublica | null> {
   await getBranchById(organizationId, branchId);
 
-  const conexion = await findConnectionByBranch(branchId, organizationId);
-
-  if (!conexion) {
-    throw new AppError("Esta sucursal no tiene Google Calendar conectado", 404);
-  }
-
-  return conexion;
+  return (await findConnectionByBranch(branchId, organizationId)) ?? null;
 }
 
 // ---------------------------------------------------------------------------

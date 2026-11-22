@@ -11,6 +11,7 @@ export type OrganizationEdition = "COMPLETA" | "ESENCIAL";
 export type OrganizationIndustry = "AUTOMOTORA" | "CLINICA";
 // El perfil de salud de una clínica (docs/primera-clinica.md §4).
 export type HealthProfile = "MEDICO" | "ESTETICA";
+export type ContactTerm = "PACIENTE" | "CLIENTE";
 
 export interface CreateOrganizationInput {
   organizationName: string;
@@ -22,6 +23,9 @@ export interface CreateOrganizationInput {
   industry?: OrganizationIndustry;
   // Solo con industry CLINICA (docs/primera-clinica.md §4). Sin él, MEDICO.
   healthProfile?: HealthProfile;
+  // Solo con industry CLINICA (ISSUE-024). Sin él, PACIENTE; el formulario lo
+  // pide siempre en una clínica.
+  contactTerm?: ContactTerm;
   // País (código, sin "+"), moneda y zona. Sin ellos el backend usa Uruguay,
   // USD y America/Montevideo; el formulario los manda siempre.
   defaultPhoneCountryCode?: string;

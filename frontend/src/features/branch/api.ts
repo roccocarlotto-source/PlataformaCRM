@@ -71,10 +71,11 @@ export function deleteBranch(id: string): Promise<void> {
 // Google Calendar de la sucursal (ítem 75).
 // ---------------------------------------------------------------------------
 
-// null = la sucursal nunca se conectó. El backend lo dice con un 404 ("Esta
-// sucursal no tiene Google Calendar conectado"), que acá es un estado normal
-// de la pantalla y no un error: se traduce a null para que la sección muestre
-// "Conectar" en vez de un ErrorState. Cualquier otro error sigue siendo error.
+// null = la sucursal nunca se conectó. El backend lo dice con un 200 y null
+// desde ISSUE-023 (antes, con un 404 que dejaba un error en la consola); el
+// 404 se sigue traduciendo a null por un backend anterior. Es un estado normal
+// de la pantalla: la sección muestra "Conectar" en vez de un ErrorState.
+// Cualquier otro error sigue siendo error.
 export async function getGoogleCalendarConnection(
   branchId: string,
   signal?: AbortSignal,

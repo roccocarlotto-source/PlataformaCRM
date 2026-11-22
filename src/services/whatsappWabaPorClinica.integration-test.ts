@@ -181,7 +181,9 @@ test("clínica sin WABA propio: activa es 409 y no llama a Meta; inactiva se gua
   assert.equal(await prisma.automation.count({ where: { organizationId: org } }), 0);
 
   const inactiva = await crearReglaConMensaje(org, reglaDeRecordatorio(false), deps);
-  assert.ok(inactiva.whatsappSyncError);
+  // ISSUE-021: no es un error para reintentar, es un aviso.
+  assert.equal(inactiva.whatsappSyncError, null);
+  assert.match(inactiva.whatsappSyncAviso ?? "", /cuando la clínica tenga su número/);
   assert.equal(altas.length, 0, "no se llamó a Meta");
   assert.equal(await prisma.whatsappTemplate.count({ where: { organizationId: org } }), 0);
 

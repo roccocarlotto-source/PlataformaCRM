@@ -43,6 +43,8 @@ interface Registro {
   automatizacionesDeClinica: string[];
   // docs/primera-clinica.md §4: el perfil con que se creó cada una (null = sin perfil, MEDICO).
   perfilesDeClinica: (string | null)[];
+  // ISSUE-024: el término con que se creó cada una (null = sin término, PACIENTE).
+  terminosDeClinica: (string | null)[];
 }
 
 interface Escenario {
@@ -75,6 +77,7 @@ function armar(opciones: Opciones = {}): Escenario {
     configuracionesDeClinica: [],
     automatizacionesDeClinica: [],
     perfilesDeClinica: [],
+    terminosDeClinica: [],
   };
 
   const supabaseAdmin = {
@@ -119,9 +122,10 @@ function armar(opciones: Opciones = {}): Escenario {
       return { id: "pipeline-fijo" };
     },
     esencialHabilitada: opciones.esencialHabilitada ?? false,
-    createClinicSettings: async (organizationId, _db, healthProfile) => {
+    createClinicSettings: async (organizationId, _db, healthProfile, contactTerm) => {
       registro.configuracionesDeClinica.push(organizationId);
       registro.perfilesDeClinica.push(healthProfile ?? null);
+      registro.terminosDeClinica.push(contactTerm ?? null);
       return { organizationId };
     },
     createAutomatizacionesDeClinica: async (organizationId, db) => {
@@ -502,6 +506,33 @@ test("perfil de salud sin CLINICA: 400 antes de escribir nada", async () => {
       400,
     );
     assert.match(err.message, /solo se elige para una organización CLINICA/);
+    assert.deepEqual(registro.invites, []);
+    assert.deepEqual(registro.organizationsCreated, []);
+  }
+});
+
+test("término del contacto (ISSUE-024): CLINICA con CLIENTE lo pasa a su configuración; sin él, ninguno (PACIENTE)", async () => {
+  const conTermino = armar({ clinicaHabilitada: true });
+  await createOrganizationWithFoundingAdmin(
+    { ...INPUT, industry: "CLINICA", contactTerm: "CLIENTE" },
+    conTermino.deps,
+  );
+  assert.deepEqual(conTermino.registro.terminosDeClinica, ["CLIENTE"]);
+
+  const sinTermino = armar({ clinicaHabilitada: true });
+  await createOrganizationWithFoundingAdmin({ ...INPUT, industry: "CLINICA" }, sinTermino.deps);
+  assert.deepEqual(sinTermino.registro.terminosDeClinica, [null]);
+});
+
+test("término del contacto sin CLINICA: 400 antes de escribir nada", async () => {
+  for (const industry of [undefined, "AUTOMOTORA"] as const) {
+    const { deps, registro } = armar({ clinicaHabilitada: true });
+    const err = await esperarAppError(
+      () =>
+        createOrganizationWithFoundingAdmin({ ...INPUT, industry, contactTerm: "CLIENTE" }, deps),
+      400,
+    );
+    assert.match(err.message, /término del contacto solo se elige para una organización CLINICA/);
     assert.deepEqual(registro.invites, []);
     assert.deepEqual(registro.organizationsCreated, []);
   }

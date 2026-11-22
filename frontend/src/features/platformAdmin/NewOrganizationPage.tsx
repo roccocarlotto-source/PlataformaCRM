@@ -13,6 +13,7 @@ import { useEdicionesDisponibles, useRubrosDisponibles } from "./queries";
 import type {
   CreateOrganizationInput,
   CreateOrganizationResponse,
+  ContactTerm,
   CreateTallerDemoResponse,
   HealthProfile,
   OrganizationEdition,
@@ -26,6 +27,7 @@ interface NewOrganizationFormValues {
   edition: OrganizationEdition | "";
   industry: OrganizationIndustry | "";
   healthProfile: HealthProfile | "";
+  contactTerm: ContactTerm | "";
   defaultPhoneCountryCode: string;
   preferredCurrency: string;
   timezone: string;
@@ -38,11 +40,14 @@ const EMPTY_FORM: NewOrganizationFormValues = {
   edition: "",
   industry: "",
   healthProfile: "",
+  contactTerm: "",
   // Con qué nace (src/config/organizacionNueva.ts del backend): hasta el
   // 2026-10-14 el alta no los pedía y la organización quedaba sin país (los
   // teléfonos locales daban error), sin moneda y en UTC. Editables.
   defaultPhoneCountryCode: "598",
-  preferredCurrency: "USD",
+  // ISSUE-024: la moneda se elige a mano (antes arrancaba en USD y quedaba
+  // así sin que nadie lo decidiera). La lista marca UYU como sugerida.
+  preferredCurrency: "",
   timezone: "America/Montevideo",
 };
 
@@ -72,10 +77,26 @@ const NOMBRE_DE_RUBRO: Record<OrganizationIndustry, string> = {
 // El perfil de salud de una clínica (docs/primera-clinica.md §4): qué deriva
 // el asistente como urgencia o consulta de salud. Lo elige el platform admin
 // en el alta; la clínica no lo cambia.
+// ISSUE-025: las dos etiquetas compartían la palabra "estética" y se
+// confundían.
 const PERFILES_DE_SALUD: { value: HealthProfile; label: string }[] = [
-  { value: "MEDICO", label: "Clínica médica o de estética médica" },
-  { value: "ESTETICA", label: "Centro de belleza (peluquería, spa, estética no médica)" },
+  { value: "MEDICO", label: "Salud: clínica, consultorio o tratamientos con médico" },
+  { value: "ESTETICA", label: "Belleza: peluquería, spa, uñas o masajes" },
 ];
+
+// ISSUE-024: cómo llama la clínica a sus contactos. Se elige a mano, con el
+// sugerido según el perfil marcado en la lista.
+const TERMINOS_DEL_CONTACTO: { value: ContactTerm; label: string }[] = [
+  { value: "PACIENTE", label: "Paciente" },
+  { value: "CLIENTE", label: "Cliente" },
+];
+
+const TERMINO_SUGERIDO: Record<HealthProfile, ContactTerm> = {
+  MEDICO: "PACIENTE",
+  ESTETICA: "CLIENTE",
+};
+
+const MONEDA_SUGERIDA = "UYU";
 
 // Alta de una organización nueva (cliente/automotora) con su primer ADMIN —
 // Fase 4a del módulo SaaS. Herramienta interna del platform admin: se usa
@@ -167,12 +188,14 @@ export function NewOrganizationPage() {
         setUsuariosCreados(result.usuarios);
         return;
       }
-      const { edition, industry, healthProfile, ...resto } = values;
+      const { edition, industry, healthProfile, contactTerm, ...resto } = values;
+      const esClinicaNueva = eligeRubro && industry === "CLINICA";
       const input: CreateOrganizationInput = {
         ...resto,
         ...(eligeEdicion && edition !== "" ? { edition } : {}),
         ...(eligeRubro && industry !== "" ? { industry } : {}),
-        ...(eligeRubro && industry === "CLINICA" && healthProfile !== "" ? { healthProfile } : {}),
+        ...(esClinicaNueva && healthProfile !== "" ? { healthProfile } : {}),
+        ...(esClinicaNueva && contactTerm !== "" ? { contactTerm } : {}),
       };
       const result = await createOrganizationMutation.mutateAsync(input);
       setCreated(result);
@@ -339,9 +362,10 @@ export function NewOrganizationPage() {
                     }
                     required
                   >
+                    <option value="">Elegí una moneda</option>
                     {CURRENCY_OPTIONS.map((moneda) => (
                       <option key={moneda} value={moneda}>
-                        {moneda}
+                        {moneda === MONEDA_SUGERIDA ? `${moneda} (sugerida)` : moneda}
                       </option>
                     ))}
                   </select>
@@ -371,6 +395,7 @@ export function NewOrganizationPage() {
                             ...values,
                             industry: event.target.value as OrganizationIndustry | "",
                             healthProfile: "",
+                            contactTerm: "",
                           })
                         }
                         required
@@ -402,6 +427,34 @@ export function NewOrganizationPage() {
                         {PERFILES_DE_SALUD.map((perfil) => (
                           <option key={perfil.value} value={perfil.value}>
                             {perfil.label}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  </div>
+                ) : null}
+                {eligeRubro && values.industry === "CLINICA" ? (
+                  <div className="ds-field-grid--full">
+                    <FormField
+                      label={<span className="ds-required">Cómo llama a sus contactos</span>}
+                    >
+                      <select
+                        value={values.contactTerm}
+                        onChange={(event) =>
+                          setValues({
+                            ...values,
+                            contactTerm: event.target.value as ContactTerm | "",
+                          })
+                        }
+                        required
+                      >
+                        <option value="">Elegí un término</option>
+                        {TERMINOS_DEL_CONTACTO.map((termino) => (
+                          <option key={termino.value} value={termino.value}>
+                            {values.healthProfile !== "" &&
+                            TERMINO_SUGERIDO[values.healthProfile] === termino.value
+                              ? `${termino.label} (sugerido)`
+                              : termino.label}
                           </option>
                         ))}
                       </select>
