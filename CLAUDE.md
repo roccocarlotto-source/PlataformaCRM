@@ -253,6 +253,16 @@ el CI no puede juzgarlo:
 En esos casos el PR queda abierto y el reporte dice explícitamente por qué
 no se mergeó.
 
+**PRs que tocan el agente, sus tools o las guardas de salida** (decisión de
+Rocco, 22/11/2026, después de que #641 llegó a producción con dos falsos
+positivos que solo aparecieron con el modelo real): antes del merge se corren
+los escenarios de `scripts/eval-agente-real.ts` que cubren el cambio, contra
+el Supabase LOCAL y con el modelo que usa producción en ese rubro
+(`OPENROUTER_MODEL=...`). En el cuerpo del PR van qué escenarios se corrieron,
+con qué modelo, el resultado y el costo en USD. Si falla uno, no se mergea:
+se muestra qué respondió el modelo y se decide con Rocco. Esto es además del
+CI, que no llama al modelo real.
+
 **Al mergear se reporta**: qué PR, qué ítems cierra, y el resultado real de
 `gh pr checks` que habilitó el merge. Después del merge se borra la rama.
 

@@ -177,8 +177,8 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
   // este turno (src/services/afirmacionesDeTurnos.ts): va un mensaje fijo, sin
   // derivar.
   correccionesDeSalida: [
-    (respuesta, toolsDelTurno) =>
-      afirmacionesSinRespaldo(respuesta, toolsDelTurno).length > 0
+    (respuesta, toolsDelTurno, contexto) =>
+      afirmacionesSinRespaldo(respuesta, toolsDelTurno, contexto.turnosDelContacto).length > 0
         ? { regla: REGLA_AFIRMACION_SIN_ACCION, mensaje: MENSAJE_AFIRMACION_SIN_ACCION }
         : null,
   ],

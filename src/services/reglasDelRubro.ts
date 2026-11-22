@@ -8,7 +8,11 @@ import type {
   ToolCallDelTurno,
 } from "./agentOrchestration.service";
 import type { ToolDelAgente } from "./agentTools.service";
-import { afirmacionesSinRespaldo, REGLA_AFIRMACION_SIN_ACCION } from "./afirmacionesDeTurnos";
+import {
+  afirmacionesSinRespaldo,
+  REGLA_AFIRMACION_SIN_ACCION,
+  type TurnosDelContacto,
+} from "./afirmacionesDeTurnos";
 import { desenlacePorTurnoRepetido } from "./turnoRepetido";
 
 // ---------------------------------------------------------------------------
@@ -54,6 +58,11 @@ export interface ContextoDeLaRegla {
   // El perfil de salud de una clínica (docs/primera-clinica.md §4): MEDICO,
   // el de siempre, o ESTETICA. Sin él, MEDICO. Solo lo carga CLINICA.
   perfilDeSalud?: HealthProfile;
+  // Los turnos futuros confirmados de la persona (los que ya se leen para el
+  // prompt), para la guarda de turnos: una afirmación de agendar que repite
+  // uno que existe no se corrige (src/services/afirmacionesDeTurnos.ts). Solo
+  // en la salida del turno; sin el dato, la guarda actúa como antes.
+  turnosDelContacto?: TurnosDelContacto;
 }
 
 export type VerificadorDeEntrada = (
@@ -185,8 +194,8 @@ export const MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA =
 export const REGLAS_DE_AUTOMOTORA: ReglasDelRubro = {
   ...SIN_REGLAS,
   correccionesDeSalida: [
-    (respuesta, toolsDelTurno) =>
-      afirmacionesSinRespaldo(respuesta, toolsDelTurno).length > 0
+    (respuesta, toolsDelTurno, contexto) =>
+      afirmacionesSinRespaldo(respuesta, toolsDelTurno, contexto.turnosDelContacto).length > 0
         ? {
             regla: REGLA_AFIRMACION_SIN_ACCION,
             mensaje: MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA,

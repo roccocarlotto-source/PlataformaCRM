@@ -36,7 +36,11 @@ test("los dos rubros corrigen una afirmación o una promesa sin respaldo, cada u
     ["AUTOMOTORA", MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA],
   ] as const) {
     const correcciones = reglasDelRubro(rubro).correccionesDeSalida;
-    for (const respuesta of ["Te reservé el lunes.", PROMESA, "Te reservé el test drive."]) {
+    for (const respuesta of [
+      "Te reservé el turno del lunes.",
+      PROMESA,
+      "Te reservé el test drive.",
+    ]) {
       assert.deepEqual(
         primeraCorreccionDeSalida(correcciones, respuesta, [], contexto),
         { regla: REGLA_AFIRMACION_SIN_ACCION, mensaje },

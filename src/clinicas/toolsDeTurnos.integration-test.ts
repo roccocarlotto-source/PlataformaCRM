@@ -1017,7 +1017,7 @@ test("turno repetido: desde el panel sí se da un segundo turno de la misma pres
 test("en el loop: prometer un turno ('te reservo', 'en un momento te confirmo') sin la tool no sale; va el mensaje fijo", async () => {
   for (const promesa of [
     "¡Buenísimo! Te reservo el turno del lunes a las 9 con Ana. En un momento te confirmo la reserva.",
-    "Ya te agendo para el lunes.",
+    "Ya te agendo el turno para el lunes.",
   ]) {
     const r = await mensaje(
       ids.otro,

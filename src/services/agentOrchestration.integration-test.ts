@@ -3644,8 +3644,8 @@ test("la guarda de turnos aplica a una automotora: 'te reservo' o 'en un momento
     await agendaDeLunes(e);
     for (const promesa of [
       "Te reservo el test drive del lunes a las 9.",
-      "Perfecto. En un momento te confirmo la reserva.",
-      "Listo, te reservé el lunes a las 9.",
+      "Perfecto. En un momento te confirmo la reserva del test drive.",
+      "Listo, te reservé el test drive del lunes a las 9.",
     ]) {
       const resultado = await turno(
         e,
@@ -3656,6 +3656,31 @@ test("la guarda de turnos aplica a una automotora: 'te reservo' o 'en un momento
       assert.notEqual(resultado.status, "TRANSFERRED_TO_HUMAN", "la corrección no deriva");
     }
     assert.equal(await turnosActivosDelContacto(e), 0);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// Eval con el modelo real, 2026-11-22: el turno se creó en un mensaje anterior
+// y el modelo lo vuelve a confirmar con la verdad. La guarda lo deja pasar si
+// coincide con un turno futuro de la persona; con otra hora, actúa igual.
+test("la guarda de turnos deja pasar la reconfirmación de un turno que ya existe, y no la de una hora que no coincide", async () => {
+  const e = await montar("guarda-turno-existente", { enabledTools: ["create_booking"] });
+  try {
+    // El lunes 07/09/2026 a las 10:00 (13:00Z) en la zona de la sucursal.
+    await conUnTurnoFuturo(e);
+    const bien = "Ya quedó reservado tu test drive del lunes 7 a las 10:00. ¡Te esperamos!";
+    const r = await turno(e, "¿Me confirmás el turno?", doblarProveedor([texto(bien)]).proveedor);
+    assert.equal(r.respuesta, bien);
+
+    const otraHora = "Ya quedó reservado tu test drive del lunes 7 a las 11:00.";
+    const r2 = await turno(
+      e,
+      "¿Me confirmás el turno?",
+      doblarProveedor([texto(otraHora)]).proveedor,
+    );
+    assert.equal(r2.respuesta, MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA);
+    assert.equal(await turnosActivosDelContacto(e), 1);
   } finally {
     await desmontar(e);
   }
