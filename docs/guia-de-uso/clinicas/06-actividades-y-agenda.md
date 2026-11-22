@@ -297,7 +297,10 @@ en la misma pantalla, con un solo **Guardar**.
 
 Al editar un profesional aparece la tarjeta **Horario laboral**: en qué días y
 horas atiende, en la zona horaria de su sede. Es lo que la agenda muestra como
-abierto y lo que el asistente de IA ofrece como turnos.
+abierto y lo que el asistente de IA ofrece como turnos. Si la sede tiene un
+[horario de atención](/ayuda/organizacion-y-sucursales#horario) propio, solo
+cuenta lo que cae dentro de él: si el profesional tiene horario un día que la
+sede no abre, ese día no tiene turnos.
 
 Para cada día de la semana, de lunes a domingo:
 

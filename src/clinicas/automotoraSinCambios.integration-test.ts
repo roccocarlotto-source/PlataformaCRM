@@ -10,6 +10,9 @@ import { registrarAutomatizaciones } from "../services/automationRegistrations";
 import { crearRegistroDeHandlers } from "../services/outboxHandlers";
 import { findRoleByName } from "../repositories/role.repository";
 import { createBranch } from "../services/branch.service";
+import { replaceBusinessHoursForBranch } from "../services/branchBusinessHours.service";
+import { createResource } from "../services/resource.service";
+import { createServiceType } from "../services/serviceType.service";
 import { replaceWorkingHoursForResource } from "../services/workingHours.service";
 import { cerrarTurnosVencidos } from "./services/atendido.service";
 import { createAutomation } from "../services/automation.service";
@@ -1217,4 +1220,86 @@ test("S8: sin el módulo Servicios, los eventos de la orden no existen (el 400 d
     }),
     0,
   );
+});
+
+// ---------------------------------------------------------------------------
+// QA de la primera clínica (2026-11-21): una clínica ya no ofrece ni acepta
+// turnos con la sede cerrada (src/clinicas/horarioDeLaSede.integration-test.ts).
+// El recorte vive en resolverContexto (núcleo) pero solo lo pide una clínica:
+// una automotora con horario de atención cargado sigue ofreciendo y reservando
+// según el horario de trabajo del recurso, y su horario no trae el de la sede.
+// ---------------------------------------------------------------------------
+
+test("horario de la sede: una automotora sigue ofreciendo y reservando fuera de él, y el horario del recurso no lo trae", async () => {
+  const [comoAdmin] = conSucursales.tokens;
+  const sucursal = await createBranch(conSucursales.id, {
+    name: `Sucursal Horario ${randomUUID().slice(0, 8)}`,
+    timezone: "America/Montevideo",
+  });
+  // La sucursal abre de martes a sábado; el vendedor trabaja el lunes.
+  await replaceBusinessHoursForBranch(
+    conSucursales.id,
+    sucursal.id,
+    (["TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"] as const).map((weekday) => ({
+      weekday,
+      startMinute: 540,
+      endMinute: 1140,
+    })),
+  );
+  const vendedor = await createResource(conSucursales.id, {
+    branchId: sucursal.id,
+    name: "Vendedor",
+    type: "PERSON",
+  });
+  await replaceWorkingHoursForResource(conSucursales.id, vendedor.id, [
+    { weekday: "MONDAY", startMinute: 540, endMinute: 780 },
+  ]);
+  const testDrive = await createServiceType(conSucursales.id, {
+    branchId: sucursal.id,
+    resourceId: vendedor.id,
+    name: "Test drive",
+    durationMin: 60,
+  });
+  const contacto = await prisma.contact.create({
+    data: {
+      organizationId: conSucursales.id,
+      firstName: "Cliente",
+      lastName: "Horario",
+      phone: "+59899000031",
+    },
+  });
+  // Lunes 08/03/2027, de 9 a 13 en Montevideo (UTC-3).
+  const disponibilidad = await pedir(
+    conSucursales,
+    "GET",
+    `/api/availability?resourceId=${vendedor.id}&serviceTypeId=${testDrive.id}&from=2027-03-08T12:00:00.000Z&to=2027-03-08T16:00:00.000Z`,
+    undefined,
+    comoAdmin,
+  );
+  assert.equal(disponibilidad.status, 200, JSON.stringify(disponibilidad.json));
+  assert.equal((disponibilidad.json.availability as unknown[]).length, 4);
+  const reserva = await pedir(
+    conSucursales,
+    "POST",
+    "/api/bookings",
+    {
+      resourceId: vendedor.id,
+      serviceTypeId: testDrive.id,
+      contactId: contacto.id,
+      startsAt: "2027-03-08T12:00:00.000Z",
+    },
+    comoAdmin,
+  );
+  assert.equal(reserva.status, 201, JSON.stringify(reserva.json));
+  const horario = await pedir(
+    conSucursales,
+    "GET",
+    `/api/resources/${vendedor.id}/working-hours`,
+    undefined,
+    comoAdmin,
+  );
+  assert.deepEqual(Object.keys(horario.json), ["workingHours"]);
+  await prisma.booking.delete({ where: { id: reserva.json.id as string } });
+  await prisma.contact.delete({ where: { id: contacto.id } });
+  await replaceBusinessHoursForBranch(conSucursales.id, sucursal.id, []);
 });

@@ -141,6 +141,8 @@ export async function reprogramarTurno(
     serviceTypeId: original.serviceTypeId,
     desde: input.startsAt,
     hasta: new Date(input.startsAt.getTime() + 24 * 60 * 60 * 1000),
+    // Con la sede cerrada no se mueve un turno ahí (QA de la primera clínica).
+    limitarAlHorarioDeLaSede: true,
   });
   if (destino.branchId !== original.branchId) {
     throw new AppError("El profesional tiene que ser de la misma sede que el turno", 400);

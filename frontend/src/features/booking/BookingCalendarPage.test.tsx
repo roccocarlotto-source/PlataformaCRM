@@ -261,6 +261,39 @@ describe("BookingCalendarPage", () => {
     ).not.toBeInTheDocument();
   });
 
+  // QA de la primera clínica (2026-11-21): con el horario de la sede (solo lo
+  // manda el backend de una clínica), la profesional que trabaja el lunes no
+  // tiene huecos si la sede no abre los lunes; el martes, desde que abre.
+  it("USER: con el horario de la sede, un día que la sede no abre no tiene huecos", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      // Antes que los del catálogo: en un mismo server.use gana el primero.
+      http.get(`${env.apiUrl}/api/resources/:id/working-hours`, () =>
+        HttpResponse.json({
+          workingHours: [
+            { weekday: "MONDAY", startTime: "09:00", endTime: "13:00" },
+            { weekday: "TUESDAY", startTime: "09:00", endTime: "13:00" },
+          ],
+          horarioDeLaSede: [{ weekday: "TUESDAY", startTime: "10:00", endTime: "19:00" }],
+        }),
+      ),
+      ...catalogHandlers(),
+      bookingsHandler({}),
+    );
+    renderPage();
+    // El martes (24/09/2030), desde que abre la sede: 10:00 sí, 09:00 no.
+    fireEvent.change(await screen.findByLabelText("Fecha"), { target: { value: "2030-09-24" } });
+    await screen.findByRole("button", { name: "Reservar Dra. López a las 10:00" });
+    expect(
+      screen.queryByRole("button", { name: "Reservar Dra. López a las 09:00" }),
+    ).not.toBeInTheDocument();
+
+    // El lunes, con el horario ya cargado: la sede no abre, ningún hueco.
+    await irAlLunes();
+    await screen.findAllByText("Dra. López");
+    expect(screen.queryByRole("button", { name: /^Reservar Dra\. López/ })).not.toBeInTheDocument();
+  });
+
   it("USER: si el backend rechaza el turno, el panel muestra su mensaje y no se cierra", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(

@@ -9,6 +9,7 @@ import {
   generarGrilla,
   horaLocalDesdeMinutos,
   minutosDesdeHoraLocal,
+  recortarAlHorario,
   seSuperponen,
   weekdayDesdeIso,
   type FranjaSemanal,
@@ -620,4 +621,40 @@ test("HH:MM -> minutos -> HH:MM es la identidad", () => {
   for (let m = 0; m <= 1440; m += 7) {
     assert.equal(minutosDesdeHoraLocal(horaLocalDesdeMinutos(m)), m);
   }
+});
+
+// QA de la primera clínica (2026-11-21): el horario de trabajo recortado al de
+// la sede. Lo que está dentro de los dos; un día sin sede queda vacío.
+test("recortarAlHorario: lo que está dentro de los dos, ordenado; sin cruce, nada", () => {
+  const h = (hora: number, min = 0) => new Date(Date.UTC(2026, 8, 7, hora, min));
+  const trabajo = [
+    { inicio: h(9), fin: h(13) },
+    { inicio: h(15), fin: h(19) },
+  ];
+  // La sede abre de 10 a 17.
+  assert.deepEqual(recortarAlHorario(trabajo, [{ inicio: h(10), fin: h(17) }]), [
+    { inicio: h(10), fin: h(13) },
+    { inicio: h(15), fin: h(17) },
+  ]);
+  // Sede cerrada (sin franjas ese día): nada.
+  assert.deepEqual(recortarAlHorario(trabajo, []), []);
+  // Solo se tocan en un borde: nada (el fin es exclusivo).
+  assert.deepEqual(
+    recortarAlHorario([{ inicio: h(9), fin: h(10) }], [{ inicio: h(10), fin: h(12) }]),
+    [],
+  );
+  // La sede con dos franjas parte una de trabajo en dos.
+  assert.deepEqual(
+    recortarAlHorario(
+      [{ inicio: h(9), fin: h(19) }],
+      [
+        { inicio: h(14), fin: h(18) },
+        { inicio: h(9), fin: h(12) },
+      ],
+    ),
+    [
+      { inicio: h(9), fin: h(12) },
+      { inicio: h(14), fin: h(18) },
+    ],
+  );
 });

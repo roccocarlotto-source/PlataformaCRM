@@ -83,4 +83,8 @@ export interface WorkingHoursSlot {
 // La misma forma para el GET, el cuerpo del PUT y su respuesta.
 export interface WorkingHoursPayload {
   workingHours: WorkingHoursSlot[];
+  // Solo en el GET de una clínica: el horario de atención PROPIO de la sede, o
+  // null si no cargó uno. La agenda no ofrece huecos fuera de él (QA de la
+  // primera clínica, 2026-11-21). Una automotora no lo recibe.
+  horarioDeLaSede?: WorkingHoursSlot[] | null;
 }

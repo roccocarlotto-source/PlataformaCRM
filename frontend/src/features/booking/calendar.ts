@@ -129,6 +129,25 @@ export function franjasDelDia(
     .sort((a, b) => a.inicio - b.inicio);
 }
 
+// Las franjas de trabajo recortadas al horario de la sede: lo que está dentro
+// de las dos. Lo que el backend llama recortarAlHorario (QA de la primera
+// clínica, 2026-11-21: una profesional con horario el lunes no tiene huecos si
+// la sede no abre los lunes).
+export function recortarFranjas(
+  trabajo: readonly FranjaEnMinutos[],
+  sede: readonly FranjaEnMinutos[],
+): FranjaEnMinutos[] {
+  const recortadas: FranjaEnMinutos[] = [];
+  for (const a of trabajo) {
+    for (const b of sede) {
+      const inicio = Math.max(a.inicio, b.inicio);
+      const fin = Math.min(a.fin, b.fin);
+      if (inicio < fin) recortadas.push({ inicio, fin });
+    }
+  }
+  return recortadas.sort((x, y) => x.inicio - y.inicio);
+}
+
 // ¿[inicio, fin) cae entero dentro de alguna franja? Lo que el backend llama
 // estaDentroDelHorario.
 export function estaAbierto(inicio: number, fin: number, franjas: readonly FranjaEnMinutos[]) {
