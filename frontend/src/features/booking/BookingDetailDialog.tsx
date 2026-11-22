@@ -129,14 +129,18 @@ export function BookingDetailDialog({
           Reprogramar
         </Button>
       ) : null}
-      <Button
-        variant="danger"
-        onClick={handleCancel}
-        disabled={cancelBookingMutation.isPending}
-        loading={cancelBookingMutation.isPending}
-      >
-        {`Cancelar ${reserva.singular}`}
-      </Button>
+      {/* Solo un turno confirmado se cancela: uno atendido o "No vino" se
+          corrige, no se cancela (QA de la primera clínica, ISSUE-016). */}
+      {booking.status === "CONFIRMED" ? (
+        <Button
+          variant="danger"
+          onClick={handleCancel}
+          disabled={cancelBookingMutation.isPending}
+          loading={cancelBookingMutation.isPending}
+        >
+          {`Cancelar ${reserva.singular}`}
+        </Button>
+      ) : null}
     </Modal>
   );
 }

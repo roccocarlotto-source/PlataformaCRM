@@ -68,3 +68,36 @@ describe("BookingDetailDialog — confirmación del paciente", () => {
     expect(screen.queryByText("Confirmación")).not.toBeInTheDocument();
   });
 });
+
+// ISSUE-016 de la QA: un turno ya atendido ofrecía "Cancelar turno" y el
+// backend respondía con un mensaje técnico.
+describe("BookingDetailDialog — cancelar", () => {
+  const conEstado = (status: "CONFIRMED" | "COMPLETED" | "NO_SHOW") =>
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <BookingDetailDialog
+          vocabulario={VOCABULARIO_DE_CLINICA_POR_DEFECTO}
+          esClinica
+          booking={makeBooking({ status })}
+          contactName="Paciente Ejemplo"
+          serviceName="Consulta"
+          resourceName="Ana"
+          zona="America/Montevideo"
+          onClose={() => undefined}
+        />
+      </QueryClientProvider>,
+    );
+
+  it("un turno confirmado se puede cancelar", () => {
+    conEstado("CONFIRMED");
+    expect(screen.getByRole("button", { name: /^Cancelar / })).toBeInTheDocument();
+  });
+
+  it("uno atendido o que no vino, no", () => {
+    for (const status of ["COMPLETED", "NO_SHOW"] as const) {
+      const { unmount } = conEstado(status);
+      expect(screen.queryByRole("button", { name: /^Cancelar / })).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+});

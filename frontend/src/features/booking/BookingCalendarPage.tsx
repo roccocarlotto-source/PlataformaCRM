@@ -433,7 +433,15 @@ function CalendarColumn({
         const hora = formatearMinuto(minuto);
         const abierto = estaAbierto(minuto, minuto + MINUTOS_POR_RENGLON, franjas);
         const yaEmpezo = instanteLocal(fecha, minuto, zona).getTime() < ahora;
-        const clickeable = workingHoursQuery.isSuccess && !yaEmpezo && (abierto || isAdmin);
+        // En una clínica, un hueco tapado por un turno no se elige: con el mouse
+        // no se llega y con el teclado daba un error técnico (QA de la primera
+        // clínica, ISSUE-022). Los sobreturnos van por "Nuevo turno". En una
+        // automotora un recurso puede tener varios lugares: sin cambios.
+        const tapado =
+          esClinica &&
+          bloques.some((b) => b.inicio < minuto + MINUTOS_POR_RENGLON && b.fin > minuto);
+        const clickeable =
+          workingHoursQuery.isSuccess && !yaEmpezo && !tapado && (abierto || isAdmin);
         const clase = [
           "ds-calendar-slot",
           abierto ? "ds-calendar-slot--open" : "ds-calendar-slot--closed",

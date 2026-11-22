@@ -194,8 +194,12 @@ export async function disponibilidadDeLaPrestacion(
         ),
       )
     : [];
+  // Un horario que ya empezó no se ofrece: reservarlo da "El horario
+  // solicitado ya pasó" (QA de la primera clínica, ISSUE-015).
+  const ahora = relojDeReservas.ahora().getTime();
   return [...porProfesional, ...sobreturnos]
     .flat()
+    .filter((t) => t.inicio.getTime() >= ahora)
     .sort(
       (a, b) =>
         a.inicio.getTime() - b.inicio.getTime() ||

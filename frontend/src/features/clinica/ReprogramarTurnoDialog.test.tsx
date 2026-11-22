@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
+import { ToastProvider } from "../../design-system/Toast";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { Booking } from "../booking/types";
 import { ReprogramarTurnoDialog } from "./ReprogramarTurnoDialog";
@@ -81,7 +82,9 @@ describe("ReprogramarTurnoDialog (R9)", () => {
       <QueryClientProvider
         client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
       >
-        <ReprogramarTurnoDialog booking={TURNO} onClose={onClose} />
+        <ToastProvider>
+          <ReprogramarTurnoDialog booking={TURNO} onClose={onClose} />
+        </ToastProvider>
       </QueryClientProvider>,
     );
 

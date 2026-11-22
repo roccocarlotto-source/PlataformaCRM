@@ -51,6 +51,22 @@ export function formatRangoDeReserva(startsAt: string, endsAt: string, timeZone?
   return `${fecha}, ${hora.format(new Date(startsAt))}–${hora.format(new Date(endsAt))}`;
 }
 
+// "lun 24/11/2026, 10:00": un instante con la hora en 24 h y sin segundos,
+// como el resto de la agenda (QA de la primera clínica, ISSUE-019: en
+// Reprogramar y Bloqueos salía "10:00:00 a. m."). Sin zona, la del navegador.
+export function formatFechaYHora(iso: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat("es-UY", {
+    timeZone,
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(iso));
+}
+
 // "AAAA-MM-DD" de un <input type="date"> → instante ISO con zona para el
 // filtro `from`/`to`. La fecha se interpreta en la zona del NAVEGADOR (es la
 // que la persona tiene en la cabeza al elegir el día). `to` es exclusivo en el
