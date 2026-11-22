@@ -47,12 +47,19 @@ export const payloadDelTurnoAtendidoSchema = z.object({
 });
 
 /** La misma configuración que el QR de una automotora (qrCodeId, demora,
- *  formato y texto), con la demora mínima de 3 h de §7.1. */
+ *  formato y texto), con la demora mínima de 3 h de §7.1. El QR es opcional
+ *  mientras la regla está apagada: la clínica nace con esta regla sin QR
+ *  (automatizacionesDeLaClinicaNueva.ts) y lo elige para prenderla
+ *  (faltaParaActivar). */
+export const QR_DE_RESENA_REQUERIDO_PARA_ACTIVAR =
+  "Elegí el QR de reseñas antes de activar la regla";
+
 export const configDelQrDeResenaSchema = z
   .object({
     qrCodeId: z
-      .string(mensajesDeTipo({ requerido: "qrCodeId es requerido" }))
-      .guid("qrCodeId debe ser un UUID"),
+      .string(mensajesDeTipo({ tipo: "qrCodeId debe ser un UUID" }))
+      .guid("qrCodeId debe ser un UUID")
+      .optional(),
     ...camposDeLaDemora,
     ...camposDelMensajeDeWhatsapp,
   })
@@ -112,9 +119,15 @@ export const accionQrDeResena: AccionRegistrada = {
   schema: configDelQrDeResenaSchema,
   triggers: [TRIGGER_BOOKING_COMPLETED],
   modulo: "post_turno",
+  faltaParaActivar: (config) =>
+    typeof config.qrCodeId === "string" ? null : QR_DE_RESENA_REQUERIDO_PARA_ACTIVAR,
   async handler({ organizationId, automationId, config, payload }) {
     const { qrCodeId, delayMinutes } = configDelQrDeResenaSchema.parse(config);
     const { bookingId, automatico } = payloadDelTurnoAtendidoSchema.parse(payload);
+    // Defensa: el CRUD no deja prender la regla sin QR.
+    if (!qrCodeId) {
+      throw new Error("la regla no tiene QR: editá la automatización y elegí uno");
+    }
     // El QR de la regla tiene que existir: si no, es un problema de la regla y
     // queda en AutomationExecution.error (mismo criterio que la de automotoras).
     const qr = await findQrCodeById(qrCodeId, organizationId);

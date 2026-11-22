@@ -1795,6 +1795,15 @@ model ServiceType {
 | `booking.completed` | "Cuando se atiende un turno" | `booking.send_qr_review`, `booking.schedule_control`, `activity.create_follow_up` |
 | `contact.inquiry_stalled` | "Cuando una consulta queda sin respuesta" | `inquiry.follow_up` (con el filtro de turnos, §9) |
 
+- **Una clínica nace con las cinco, apagadas** (QA de la primera clínica,
+  2026-11-21). Se crean en la transacción del alta desde Plataforma
+  (`src/clinicas/automatizacionesDeLaClinicaNueva.ts`), con los textos por
+  defecto y sin plantilla en Meta. Se prenden cuando la clínica tenga su
+  número. El QR de reseña nace **sin QR**: `qrCodeId` es opcional en el schema
+  y `faltaParaActivar` (en `AccionRegistrada`) da un 400 al activarla sin él.
+  No aplica a la Clínica Demo (crea sus tres reglas, con su QR) ni al cambio de
+  rubro. Una automotora nace sin reglas, como siempre.
+
 - **Tarea después del turno** (`activity.create_follow_up` sobre
   `booking.completed`, PR aparte de R14 por decisión de Rocco del 2026-10-10):
   la misma acción de la venta ganada, que con el evento de un turno delega en

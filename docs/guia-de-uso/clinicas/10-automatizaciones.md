@@ -26,6 +26,21 @@ Para cada una se ve:
 Podés buscar por nombre, filtrar por estado y ordenar por fecha de creación o
 por nombre. El menú de cada fila ofrece **Editar** y **Eliminar**.
 
+### Las reglas con las que arranca la clínica {#reglas-de-inicio}
+
+Una clínica nueva ya trae cinco reglas creadas, todas **inactivas**:
+**Recordatorio antes del turno**, **Pedir una reseña con un QR**, **Recordar
+el control**, **Tarea después del turno** ("Llamar para ver cómo le fue", a 2
+días) y **Retomar la consulta**. Vienen con textos de ejemplo que podés
+cambiar.
+
+- Las que mandan WhatsApp se activan cuando la clínica tenga su número de
+  WhatsApp conectado.
+- **Pedir una reseña con un QR** viene sin QR: antes de activarla, editala y
+  elegí el QR de reseñas.
+- **Tarea después del turno** no manda nada al paciente, así que la podés
+  activar cuando quieras.
+
 > **Eliminar** una regla la deja de ejecutar de inmediato. Lo que ya generó
 > (tareas creadas, mensajes mandados) no se toca. Para pausarla unos días sin
 > perder la configuración, editala y desmarcá **Activa**.
@@ -115,7 +130,7 @@ Le manda al paciente un WhatsApp con un [código QR](/ayuda/cupones-y-qr),
 típicamente el de reseñas de Google, después del turno atendido.
 
 - **QR a enviar**: uno de los QR de la clínica. Si todavía no hay ninguno, la
-  pantalla te manda a crearlo.
+  pantalla te manda a crearlo. Sin QR, la regla no se puede activar.
 - **Esperar** y **Unidad**: cuánto esperar desde que se atiende el turno, en
   minutos, horas o días. Viene en 3 horas, que es también el mínimo: así hay
   tiempo de corregir un **No vino**. Si el turno se cerró solo, sale 24 horas

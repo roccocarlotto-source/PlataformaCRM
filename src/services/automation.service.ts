@@ -170,6 +170,20 @@ function assertAccionAdmiteTrigger(
   }
 }
 
+// Una regla activa no puede quedar con una config a la que le falta algo para
+// funcionar (AccionRegistrada.faltaParaActivar): 400 al crearla activa, al
+// activarla o al sacarle lo que faltaba estando activa. Apagada, se guarda.
+function assertSePuedeActivar(
+  actionType: string,
+  actionConfig: Record<string, unknown>,
+  isActive: boolean,
+  registro: RegistroDeAcciones,
+): void {
+  if (!isActive) return;
+  const falta = registro.obtener(actionType)?.faltaParaActivar?.(actionConfig);
+  if (falta) throw new AppError(falta, 400);
+}
+
 // Ver TRIGGERS_DE_REGLA_UNICA en automationTriggers.ts. 409 y no 400: la regla
 // en sí es válida, lo que choca es el estado de la organización — y se
 // resuelve desactivando o borrando la otra. Sin lock: dos altas CONCURRENTES
@@ -259,6 +273,7 @@ export async function createAutomation(
   const triggerConfig = validarConfigDeTrigger(input.triggerType, input.triggerConfig ?? {});
   const actionConfig = validarAccion(input.actionType, input.actionConfig, registro, rubro);
   assertAccionAdmiteTrigger(input.actionType, input.triggerType, registro);
+  assertSePuedeActivar(input.actionType, actionConfig, input.isActive ?? true, registro);
   await assertReglaUnica(organizationId, input.triggerType, input.isActive ?? true);
 
   return createAutomationRepo({
@@ -333,6 +348,12 @@ export async function updateAutomation(
   if (input.triggerType !== undefined || input.actionType !== undefined) {
     assertAccionAdmiteTrigger(input.actionType ?? existente.actionType, triggerEfectivo, registro);
   }
+  assertSePuedeActivar(
+    input.actionType ?? existente.actionType,
+    actionConfig ?? (existente.actionConfig as Record<string, unknown>),
+    input.isActive ?? existente.isActive,
+    registro,
+  );
   await assertReglaUnica(organizationId, triggerEfectivo, input.isActive ?? existente.isActive, id);
 
   // R13: desactivar la regla del recordatorio cancela sus pendientes, en la
