@@ -577,6 +577,8 @@ test("el alta de una automotora no crea nada de clínica, aunque CLINICA se habi
       createClinicSettings: async (organizationId) => {
         configuraciones.push(organizationId);
       },
+      createAutomatizacionesDeClinica: async () =>
+        assert.fail("una automotora no nace con reglas de clínica"),
       clinicaHabilitada: true,
       createUser: async (data) => ({ ...data }),
       transaction: (fn) => fn({} as never),

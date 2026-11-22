@@ -83,6 +83,11 @@ export interface AccionRegistrada {
   // trigger porque es la acción la que sabe si cumple el contrato del trigger
   // (en este caso, dejar la marca anti-redraft).
   triggers?: readonly TriggerType[];
+  // Lo que le falta a una config válida para poder ACTIVAR la regla (el
+  // mensaje del 400), o null si no le falta nada. Sin la clave, una config
+  // válida se puede activar siempre. Hoy: el QR de reseña de una clínica, que
+  // nace sin QR (postTurno/acciones.ts).
+  faltaParaActivar?: (config: Record<string, unknown>) => string | null;
 }
 
 // Si la acción se puede colgar de ese trigger. Una sola definición para los

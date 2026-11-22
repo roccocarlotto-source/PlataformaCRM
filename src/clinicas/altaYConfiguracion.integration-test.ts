@@ -11,6 +11,14 @@ import {
   levantarApp,
   type OrgDePrueba,
 } from "../routes/gateDeModulos.test-helper";
+import { updateAutomation } from "../services/automation.service";
+import { crearRegistroDeAcciones } from "../services/automationActions";
+import { registrarAutomatizaciones } from "../services/automationRegistrations";
+import { crearRegistroDeHandlers } from "../services/outboxHandlers";
+import {
+  CONECTA_EL_NUMERO_DE_LA_CLINICA,
+  actualizarReglaConMensaje,
+} from "../services/automationWhatsapp.service";
 import { createBranch } from "../services/branch.service";
 import {
   RUBRO_CON_DATOS,
@@ -20,6 +28,8 @@ import {
   type CambiarRubroDeps,
 } from "../services/organizationAdmin.service";
 import { AppError } from "../utils/AppError";
+import { AUTOMATIZACIONES_DE_LA_CLINICA_NUEVA } from "./automatizacionesDeLaClinicaNueva";
+import { QR_DE_RESENA_REQUERIDO_PARA_ACTIVAR } from "./postTurno/acciones";
 import {
   CONFIGURACION_DE_SEDE_POR_DEFECTO,
   leerConfiguracionDeSede,
@@ -93,7 +103,7 @@ async function esperarAppError(fn: () => Promise<unknown>, status: number): Prom
 // Alta
 // ---------------------------------------------------------------------------
 
-test("alta CLINICA (llave inyectada en true): nace CLINICA con su ClinicSettings en PACIENTE", async () => {
+test("alta CLINICA (llave inyectada en true): nace CLINICA con su ClinicSettings en PACIENTE y sus cinco reglas apagadas", async () => {
   let creado: Awaited<ReturnType<typeof createOrganizationWithFoundingAdmin>> | undefined;
   try {
     creado = await createOrganizationWithFoundingAdmin(
@@ -111,8 +121,50 @@ test("alta CLINICA (llave inyectada en true): nace CLINICA con su ClinicSettings
     });
     assert.equal(fila.contactTerm, "PACIENTE");
     assert.equal(fila.privacyNoticeText, null);
+
+    // Nace con las cinco reglas de clínica, apagadas y sin plantilla en Meta.
+    const organizationId = creado.organization.id;
+    const reglas = await prisma.automation.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: "asc" },
+    });
+    assert.deepEqual(
+      reglas.map((r) => [r.name, r.triggerType, r.actionType, r.isActive]).sort(),
+      AUTOMATIZACIONES_DE_LA_CLINICA_NUEVA.map((r) => [
+        r.name,
+        r.triggerType,
+        r.actionType,
+        false,
+      ]).sort(),
+    );
+    assert.equal(await prisma.whatsappTemplate.count({ where: { organizationId } }), 0);
+
+    // El QR de reseña no se prende sin QR; sin número, la pantalla frena antes.
+    // El registro de acciones como lo arma server.ts.
+    const acciones = crearRegistroDeAcciones();
+    registrarAutomatizaciones({ acciones, handlers: crearRegistroDeHandlers() });
+    const qr = reglas.find((r) => r.actionType === "booking.send_qr_review");
+    assert.ok(qr);
+    const sinQr = await esperarAppError(
+      () => updateAutomation(organizationId, qr.id, { isActive: true }, { registro: acciones }),
+      400,
+    );
+    assert.equal(sinQr.message, QR_DE_RESENA_REQUERIDO_PARA_ACTIVAR);
+    const sinNumero = await esperarAppError(
+      () => actualizarReglaConMensaje(organizationId, qr.id, { isActive: true }),
+      409,
+    );
+    assert.equal(sinNumero.message, CONECTA_EL_NUMERO_DE_LA_CLINICA);
+    // Una regla sin WhatsApp (la tarea después del turno) se prende ya.
+    const tarea = reglas.find((r) => r.actionType === "activity.create_follow_up");
+    assert.ok(tarea);
+    const prendida = await actualizarReglaConMensaje(organizationId, tarea.id, {
+      isActive: true,
+    });
+    assert.equal(prendida.isActive, true);
   } finally {
     if (creado) {
+      await prisma.automation.deleteMany({ where: { organizationId: creado.organization.id } });
       await prisma.user.deleteMany({ where: { id: creado.admin.id } });
       await prisma.organization.deleteMany({ where: { id: creado.organization.id } });
       await getSupabaseAdmin().auth.admin.deleteUser(creado.admin.id);

@@ -7,6 +7,7 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { esSlugDeTallerDemo } from "../automotora/demo/config";
 import { esSlugDeClinicaDemo } from "../clinicas/demo/config";
+import { crearAutomatizacionesDeLaClinicaNueva } from "../clinicas/automatizacionesDeLaClinicaNueva";
 import { crearConfiguracionDeClinica } from "../clinicas/repositories/clinicSettings.repository";
 import {
   CLINICA_HABILITADA,
@@ -160,6 +161,9 @@ export interface OrganizationAdminDeps {
     db: Db,
     healthProfile?: HealthProfile,
   ) => Promise<unknown>;
+  // Las cinco automatizaciones apagadas de una clínica nueva
+  // (automatizacionesDeLaClinicaNueva.ts), en la misma transacción.
+  createAutomatizacionesDeClinica: (organizationId: string, db: Db) => Promise<unknown>;
   // La llave CLINICA_HABILITADA, inyectable por lo mismo que la de ESENCIAL.
   clinicaHabilitada: boolean;
   createUser: (
@@ -288,6 +292,7 @@ export const defaultOrganizationAdminDeps: OrganizationAdminDeps = {
     return ESENCIAL_HABILITADA;
   },
   createClinicSettings: crearConfiguracionDeClinica,
+  createAutomatizacionesDeClinica: crearAutomatizacionesDeLaClinicaNueva,
   get clinicaHabilitada() {
     return CLINICA_HABILITADA;
   },
@@ -460,6 +465,11 @@ export async function createOrganizationWithFoundingAdmin(
       // automotora, como siempre, sin nada de clínica.
       if (industry === "CLINICA") {
         await deps.createClinicSettings(organization.id, tx, input.healthProfile);
+        // Nace con sus reglas apagadas, listas para prender cuando tenga su
+        // número de WhatsApp. La Clínica Demo no: crea las suyas, con su QR.
+        if (opciones.clinicaDemo !== true) {
+          await deps.createAutomatizacionesDeClinica(organization.id, tx);
+        }
       }
       const user = await deps.createUser(
         {
