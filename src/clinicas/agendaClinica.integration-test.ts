@@ -183,6 +183,33 @@ test("definir los profesionales de una prestación: el principal queda siempre; 
 // Disponibilidad: la unión, o la de un profesional
 // ---------------------------------------------------------------------------
 
+// ISSUE-015 de la QA: "Nuevo turno" ofrecía horarios que ya habían pasado, y
+// reservarlos daba "El horario solicitado ya pasó".
+test("disponibilidad de la prestación: no ofrece los horarios que ya empezaron", async () => {
+  const reloj = (
+    relojDeReservas.ahora as unknown as {
+      mock: { mockImplementation: (fn: () => Date) => void };
+    }
+  ).mock;
+  // El lunes a las 10:30: el turno de las 10 ya empezó.
+  reloj.mockImplementation(() => new Date(new Date(A_LAS(10)).getTime() + 30 * 60 * 1000));
+  try {
+    const r = await pedir(
+      clinica,
+      "GET",
+      `/api/clinica/disponibilidad?serviceTypeId=${agenda.limpieza}&from=${A_LAS(9)}&to=${A_LAS(13)}`,
+    );
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    const inicios = new Set((r.json.availability as { startsAt: string }[]).map((t) => t.startsAt));
+    assert.deepEqual(
+      [...inicios],
+      [new Date(A_LAS(11)).toISOString(), new Date(A_LAS(12)).toISOString()],
+    );
+  } finally {
+    reloj.mockImplementation(() => AHORA_FIJO);
+  }
+});
+
 test("disponibilidad de la prestación: la unión de los dos profesionales, o la del elegido", async () => {
   const consulta = (extra: string) =>
     pedir(

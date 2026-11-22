@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
+import { ToastProvider } from "../../design-system/Toast";
 import type { Booking } from "../booking/types";
 import { MarcarTurno } from "./MarcarTurno";
 
@@ -31,7 +32,9 @@ const TURNO: Booking = {
 function renderizar(booking: Booking, onDone = vi.fn()) {
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <MarcarTurno booking={booking} onDone={onDone} />
+      <ToastProvider>
+        <MarcarTurno booking={booking} onDone={onDone} />
+      </ToastProvider>
     </QueryClientProvider>,
   );
   return onDone;
@@ -46,6 +49,8 @@ describe("MarcarTurno (R10)", () => {
         return HttpResponse.json({ ...TURNO, status: "NO_SHOW" });
       }),
     );
+    // ISSUE-026: No vino pide confirmación (sin ConfirmProvider, window.confirm).
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     const onDone = renderizar(TURNO);
     expect(screen.getByText(/No cargues datos de salud/)).toBeInTheDocument();
@@ -53,6 +58,9 @@ describe("MarcarTurno (R10)", () => {
     await user.click(screen.getByRole("button", { name: "No vino" }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(enviado).toEqual({ nota: "Avisó tarde" });
+    expect(confirmar).toHaveBeenCalledWith(expect.stringMatching(/no vino/i));
+    expect(await screen.findByText("Marcado como No vino")).toBeInTheDocument();
+    confirmar.mockRestore();
   });
 
   it("un turno ya atendido ofrece solo la corrección a No vino", () => {

@@ -12,7 +12,7 @@ import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "../guia/anclas";
 import { Select } from "../../design-system/Select";
 import { Table } from "../../design-system/Table";
-import { formatDateTime } from "../../design-system/detailFormat";
+import { formatFechaYHora } from "../booking/format";
 import { useConfirm } from "../../design-system/useConfirm";
 import { useCancelBooking } from "../booking/mutations";
 import { useResources } from "../resource/queries";
@@ -106,8 +106,8 @@ export function BloqueosPage() {
               <tbody>
                 {bloqueosQuery.data.bloqueos.map((b) => (
                   <tr key={b.id}>
-                    <td>{formatDateTime(b.startsAt)}</td>
-                    <td>{formatDateTime(b.endsAt)}</td>
+                    <td>{formatFechaYHora(b.startsAt)}</td>
+                    <td>{formatFechaYHora(b.endsAt)}</td>
                     <td className="ds-cell-muted">{b.reason ?? "—"}</td>
                     <td>
                       <Button
@@ -262,7 +262,7 @@ function TurnosAfectados({ resultado }: { resultado: BloqueoCreado }) {
             <tr key={t.bookingId}>
               <td className="ds-cell-primary">{t.paciente.nombre}</td>
               <td>{t.prestacion.name}</td>
-              <td>{formatDateTime(t.startsAt)}</td>
+              <td>{formatFechaYHora(t.startsAt)}</td>
               <td>
                 {cancelados.includes(t.bookingId) ? (
                   "Cancelado"

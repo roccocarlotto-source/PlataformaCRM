@@ -5,7 +5,8 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { InlineLoading } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { Select } from "../../design-system/Select";
-import { formatDateTime } from "../../design-system/detailFormat";
+import { useToast } from "../../design-system/useToast";
+import { formatFechaYHora } from "../booking/format";
 import { request } from "../../lib/api";
 import { bookingKeys } from "../booking/queries";
 import type { Booking } from "../booking/types";
@@ -57,18 +58,21 @@ export function ReprogramarTurnoDialog({
   });
 
   const queryClient = useQueryClient();
+  const toast = useToast();
   const reprogramar = useMutation({
     mutationFn: (body: { startsAt: string; resourceId: string; isOverbooking?: boolean }) =>
       request(`/bookings/${booking.id}/reschedule`, { method: "PATCH", body, getAccessToken }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: bookingKeys.lists() });
+      // QA de la primera clínica (ISSUE-026): avisar que quedó hecho.
+      toast.show("Turno reprogramado");
       onClose();
     },
   });
 
   const opciones = (horarios.data?.availability ?? []).map((h) => ({
     value: h.startsAt,
-    label: `${formatDateTime(h.startsAt)}${h.overbooking ? " (sobreturno)" : ""}`,
+    label: `${formatFechaYHora(h.startsAt)}${h.overbooking ? " (sobreturno)" : ""}`,
   }));
 
   return (
@@ -91,7 +95,7 @@ export function ReprogramarTurnoDialog({
         },
       }}
     >
-      <p className="ds-hint">Ahora: {formatDateTime(booking.startsAt)}</p>
+      <p className="ds-hint">Ahora: {formatFechaYHora(booking.startsAt)}</p>
       <Select
         label={vocabulario.recurso.singularTitulo}
         value={resourceId}

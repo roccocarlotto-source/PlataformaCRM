@@ -146,7 +146,10 @@ Cuando un turno ya empezó, en la **Agenda** abrí el turno y marcá
 **Atendido** o **No vino**. Podés sumar una nota corta (opcional). **No cargues
 datos de salud** ni el motivo de la consulta.
 
-- En el calendario el turno queda marcado como **Atendido** o **No vino**.
+- En el calendario el turno queda marcado como **Atendido** o **No vino**, y
+  aparece un aviso de que quedó hecho. **No vino** te pide confirmarlo antes,
+  porque a ese paciente no se le pide la reseña ni se le recuerda el control.
+- Un turno ya marcado no se cancela: si te equivocaste, se corrige.
 - Si te equivocaste, abrilo de nuevo y tocá **Corregir a No vino** (o a
   Atendido). La corrección queda en la ficha del paciente, con quién la hizo.
 - Si nadie lo marca, **3 horas después de terminar** el turno se cierra solo

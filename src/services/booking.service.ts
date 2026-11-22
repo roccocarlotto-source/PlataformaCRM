@@ -603,7 +603,11 @@ export async function cancelBooking(
     throw new AppError(
       booking.status === "CANCELLED"
         ? "Esta reserva ya estaba cancelada"
-        : `No se puede cancelar una reserva en estado ${booking.status}`,
+        : booking.status === "COMPLETED"
+          ? "Ya se marcó como atendido: no se puede cancelar"
+          : booking.status === "NO_SHOW"
+            ? 'Ya se marcó como "No vino": no se puede cancelar'
+            : `No se puede cancelar una reserva en estado ${booking.status}`,
       409,
     );
   }

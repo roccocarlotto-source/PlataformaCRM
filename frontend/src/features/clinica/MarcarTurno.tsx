@@ -4,6 +4,8 @@ import { getAccessToken } from "../../auth/getAccessToken";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
+import { useConfirm } from "../../design-system/useConfirm";
+import { useToast } from "../../design-system/useToast";
 import { request } from "../../lib/api";
 import { bookingKeys } from "../booking/queries";
 import type { Booking } from "../booking/types";
@@ -21,6 +23,11 @@ const LARGO_MAXIMO = 200;
 export function MarcarTurno({ booking, onDone }: { booking: Booking; onDone: () => void }) {
   const [nota, setNota] = useState("");
   const queryClient = useQueryClient();
+  // QA de la primera clínica (ISSUE-026): "No vino" pide confirmación (no
+  // se le pide la reseña ni el control) y las dos acciones avisan que
+  // quedaron hechas.
+  const confirm = useConfirm();
+  const toast = useToast();
   const marcar = useMutation({
     mutationFn: (que: "attended" | "no-show") =>
       request(`/bookings/${booking.id}/${que}`, {
@@ -28,8 +35,9 @@ export function MarcarTurno({ booking, onDone }: { booking: Booking; onDone: () 
         body: nota.trim() ? { nota: nota.trim() } : {},
         getAccessToken,
       }),
-    onSuccess: () => {
+    onSuccess: (_data, que) => {
       queryClient.invalidateQueries({ queryKey: bookingKeys.lists() });
+      toast.show(que === "attended" ? "Marcado como Atendido" : "Marcado como No vino");
       onDone();
     },
   });
@@ -62,7 +70,16 @@ export function MarcarTurno({ booking, onDone }: { booking: Booking; onDone: () 
         <Button
           variant="secondary"
           disabled={marcar.isPending}
-          onClick={() => marcar.mutate("no-show")}
+          onClick={async () => {
+            if (
+              await confirm(
+                "¿Marcar que no vino? No se le va a pedir la reseña ni recordar el control.",
+                { confirmLabel: "No vino", cancelLabel: "Volver" },
+              )
+            ) {
+              marcar.mutate("no-show");
+            }
+          }}
         >
           {esCorreccion ? "Corregir a No vino" : "No vino"}
         </Button>
