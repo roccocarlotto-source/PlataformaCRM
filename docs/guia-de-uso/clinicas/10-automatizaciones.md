@@ -235,8 +235,11 @@ Van en ese orden.
   como cualquier otro mensaje, y la tarea de "sin respuesta" sigue su curso.
 - **Si no responde**, el turno **no se cancela**: 4 horas después del
   recordatorio (o 2 horas antes del turno, si eso es antes) la recepción de la
-  sede recibe una tarea "Confirmar por teléfono el turno de…". Si el turno es a
-  menos de 2 horas, no hay tarea. Si después confirma, la tarea se cierra sola.
+  sede recibe una tarea "Confirmar por teléfono el turno de…". Si para ese
+  momento la sede está cerrada, la tarea llega (y vence) cuando abre, aunque
+  para entonces falten menos de 2 horas para el turno; si abre recién a la
+  hora del turno, no hay tarea. Si el recordatorio salió a menos de 2 horas
+  del turno, tampoco. Si después confirma, la tarea se cierra sola.
 - **Si el recordatorio no se pudo mandar** (WhatsApp lo rechazó o falló varias
   veces seguidas), la recepción de la sede recibe una tarea "Llamar a… : no le
   llegó el recordatorio del turno del…", para confirmarlo por teléfono. Si en

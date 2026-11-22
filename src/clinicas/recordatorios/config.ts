@@ -120,6 +120,25 @@ export function cuandoVaLaTareaSinRespuesta(
   return despues.getTime() < tope.getTime() ? despues : tope;
 }
 
+/**
+ * Pura (ISSUE-029): cuándo vence la tarea "sin respuesta" teniendo en cuenta
+ * el horario de la sede. `base` es cuandoVaLaTareaSinRespuesta; `apertura`, la
+ * próxima apertura de la sede a partir de `base` (el mismo `base` si está
+ * abierta o no tiene horario). Si la sede está cerrada, la tarea va a la
+ * apertura, aunque para entonces falten menos de 2 h para el turno: es cuando
+ * hay alguien para llamar. null = no hay tarea: `base` es null o la apertura
+ * llega recién con el turno empezado.
+ */
+export function venceLaTareaSinRespuesta(
+  base: Date | null,
+  apertura: Date,
+  inicio: Date,
+): Date | null {
+  if (!base) return null;
+  const cuando = apertura.getTime() > base.getTime() ? apertura : base;
+  return cuando.getTime() < inicio.getTime() ? cuando : null;
+}
+
 /** Pura: el {lugar}. El nombre de la clínica si tiene una sola sede; si tiene
  *  más, "Clínica X (sede Y)". */
 export function lugarDelTurno(clinica: string, sede: string, sedesDeLaClinica: number): string {
