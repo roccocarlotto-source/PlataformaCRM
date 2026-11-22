@@ -30,6 +30,7 @@ import {
   registrarErrorDelCanal,
 } from "../repositories/googlePorProfesional.repository";
 import { recepcionistaParaElAviso } from "./sedesDeUsuarios.service";
+import { nombreDelContactoEnLaClinica } from "../textosDelContacto";
 
 // ---------------------------------------------------------------------------
 // Un calendario de Google por profesional de clínica (docs/rubros.md §4.6, D4,
@@ -284,7 +285,7 @@ export async function avisarCambioEnGoogle(
       select: { name: true },
     }),
   ]);
-  const paciente = contacto ? `${contacto.firstName} ${contacto.lastName}`.trim() : "el paciente";
+  const paciente = await nombreDelContactoEnLaClinica(contacto, organizationId);
   const quien = profesional?.name ?? "el profesional";
   const formato = (fecha: Date) =>
     DateTime.fromJSDate(fecha, { zone: sede.timezone })
@@ -300,10 +301,10 @@ export async function avisarCambioEnGoogle(
   const body =
     cambio.tipo === "borrado"
       ? `El turno de ${paciente} con ${quien} del ${enLaPlataforma} se borró en Google Calendar. ` +
-        "En la plataforma sigue en pie: confirmá con el paciente y cancelalo acá si corresponde."
+        "En la plataforma sigue en pie: confirmalo y cancelalo acá si corresponde."
       : `El turno de ${paciente} con ${quien} se movió en Google Calendar` +
         (cambio.inicioEnGoogle ? ` al ${formato(cambio.inicioEnGoogle)}` : "") +
-        `. En la plataforma sigue el ${enLaPlataforma}: reprogramalo o avisale al paciente.`;
+        `. En la plataforma sigue el ${enLaPlataforma}: reprogramalo o avisale.`;
 
   // Una notificación se puede reprocesar: no se repite la tarea si ya hay una
   // abierta igual para ese paciente.

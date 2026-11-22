@@ -22,6 +22,7 @@ import { estaDentroDelHorario, estaEnLaGrilla } from "../../utils/workingHours";
 import { findBloqueosQueSeSuperponen } from "../repositories/bloqueos.repository";
 import { EVENTO_TURNO_REPROGRAMADO, emitirEventoDeTurno } from "./eventosDeTurno";
 import { recepcionistaParaElAviso } from "./sedesDeUsuarios.service";
+import { nombreDelContactoEnLaClinica } from "../textosDelContacto";
 
 // ---------------------------------------------------------------------------
 // Reprogramar un turno de clínica (docs/rubros.md §4.7, R9).
@@ -170,7 +171,7 @@ export async function reprogramarTurno(
     where: { id: original.contactId, organizationId },
     select: { firstName: true, lastName: true },
   });
-  const paciente = contacto ? `${contacto.firstName} ${contacto.lastName}`.trim() : "el paciente";
+  const paciente = await nombreDelContactoEnLaClinica(contacto, organizationId);
   const cambiaDeProfesional = destinoId !== original.resourceId;
 
   const actualizado = await prisma.$transaction(async (tx) => {
@@ -464,7 +465,7 @@ export async function tareasPorTurnosFuturosDelProfesional(
         body:
           `${profesional.name} se archivó y ${paciente} tiene un turno con ` +
           `${profesional.name} el ${formato(t.startsAt, t.branch.timezone)}. El turno sigue en ` +
-          "pie: reprogramalo con otro profesional o cancelalo, y avisale al paciente.",
+          "pie: reprogramalo con otro profesional o cancelalo, y avisale.",
       },
       db,
     );

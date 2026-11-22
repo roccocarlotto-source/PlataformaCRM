@@ -890,7 +890,8 @@ const configDelQrDeResena: ConfigDeAccion = {
   }),
   draftDesde: configDeSeguimientoQr.draftDesde,
   validar: (draft) => {
-    if ((draft.qrCodeId ?? "") === "") return "Elegí el QR que se le va a mandar al paciente.";
+    // Sin nombrar al contacto: vale con cualquier término (ISSUE-014 de la QA).
+    if ((draft.qrCodeId ?? "") === "") return "Elegí el QR de reseñas que se va a mandar.";
     const demora = validarDemoraDelDraft(draft);
     if (demora) return demora;
     if (

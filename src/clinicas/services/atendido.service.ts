@@ -9,6 +9,7 @@ import { relojDeReservas } from "../../services/booking.service";
 import { exigirSedeDelActor, type ActorConSedes } from "../../services/permisos";
 import { AppError } from "../../utils/AppError";
 import { EVENTO_TURNO_ATENDIDO, EVENTO_TURNO_NO_VINO, emitirEventoDeTurno } from "./eventosDeTurno";
+import { nombreDelContactoEnLaClinica } from "../textosDelContacto";
 
 // ---------------------------------------------------------------------------
 // Atendido / No vino de un turno de clínica (docs/rubros.md §4.8, D6, R10).
@@ -92,7 +93,7 @@ export async function marcarTurno(
         select: { timezone: true },
       }),
     ]);
-    const paciente = contacto ? `${contacto.firstName} ${contacto.lastName}`.trim() : "el paciente";
+    const paciente = await nombreDelContactoEnLaClinica(contacto, organizationId, tx);
     const titulo = esCorreccion
       ? `${PREFIJO_NOTA_CORRECCION}de ${ROTULO[anterior as EstadoDeCierre]} a ${ROTULO[estado]}`
       : `${estado === "COMPLETED" ? PREFIJO_NOTA_ATENDIDO : PREFIJO_NOTA_NO_VINO}${paciente}`;
@@ -214,9 +215,7 @@ export async function cerrarTurnosVencidos(
             where: { id: fila.contactId, organizationId: v.organizationId },
             select: { firstName: true, lastName: true },
           });
-          const paciente = contacto
-            ? `${contacto.firstName} ${contacto.lastName}`.trim()
-            : "el paciente";
+          const paciente = await nombreDelContactoEnLaClinica(contacto, v.organizationId, tx);
           await createActivityRepo(
             {
               organizationId: v.organizationId,

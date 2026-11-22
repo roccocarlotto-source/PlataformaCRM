@@ -600,6 +600,43 @@ test("sin respuesta: una sola tarea para Recepción a las 4 h; si después confi
   assert.ok(cerrada.completedAt, "la tarea se cierra sola");
 });
 
+// ISSUE-014 de la QA: un centro de belleza con el término "cliente" leía
+// "Turno confirmado por el paciente".
+test("con el término cliente, la nota y las tareas del recordatorio dicen cliente", async () => {
+  const termino = (contactTerm: "CLIENTE" | "PACIENTE") =>
+    prisma.clinicSettings.upsert({
+      where: { organizationId: a.org.id },
+      create: { organizationId: a.org.id, contactTerm },
+      update: { contactTerm },
+    });
+  await termino("CLIENTE");
+  try {
+    const confirma = await enviado(a, 9);
+    await responder(a, confirma.fila.externalMessageId!, "CONFIRMAR");
+    const nota = await prisma.activity.findFirstOrThrow({
+      where: { organizationId: a.org.id, type: "NOTE" },
+      orderBy: { createdAt: "desc" },
+    });
+    assert.match(nota.subject ?? "", /^Turno confirmado por el cliente: /);
+
+    const calla = await enviado(a, 11);
+    await crearTareasSinRespuesta(new Date(calla.fila.sentAt!.getTime() + 4 * HORA), a.org.id);
+    const tarea = await prisma.activity.findFirstOrThrow({
+      where: { organizationId: a.org.id, subject: { startsWith: PREFIJO_TAREA_SIN_RESPUESTA } },
+    });
+    assert.match(tarea.body ?? "", /^El cliente no respondió el recordatorio/);
+
+    // "el/al paciente" (el contacto de prueba se llama "Paciente Ejemplo").
+    const todo = await prisma.activity.findMany({ where: { organizationId: a.org.id } });
+    assert.ok(
+      todo.every((x) => !/\b(el|al) paciente\b/i.test(`${x.subject ?? ""} ${x.body ?? ""}`)),
+      JSON.stringify(todo.map((x) => x.subject)),
+    );
+  } finally {
+    await termino("PACIENTE");
+  }
+});
+
 test("sin respuesta con el turno a menos de 2 h: no hay tarea", async () => {
   await configurar(a, { lateBookingReminder: "EN_EL_MOMENTO" });
   const t = await turno(a, 9);

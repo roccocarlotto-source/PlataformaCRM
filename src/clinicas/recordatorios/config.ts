@@ -39,7 +39,9 @@ export const TEXTO_TURNO_YA_NO_VIGENTE =
   "Gracias por responder. Ese turno ya no está vigente: si necesitás algo, escribinos por acá.";
 
 // Los asuntos de las notas y tareas. Sin datos de salud: el nombre del
-// paciente, el día y la hora.
+// paciente, el día y la hora. Los que nombran al contacto se arman con el
+// término de la organización (textosDelContacto.ts); estas dos constantes son
+// la versión con "paciente".
 export const PREFIJO_NOTA_CONFIRMADO = "Turno confirmado por el paciente: ";
 export const PREFIJO_TAREA_SIN_RESPUESTA = "Confirmar por teléfono el turno de ";
 export const PREFIJO_TAREA_CANCELO_POR_RECORDATORIO = "Turno cancelado por el paciente: ";
@@ -50,8 +52,10 @@ export const MOTIVO_TURNO_CANCELADO = "El turno se canceló";
 export const MOTIVO_TURNO_REPROGRAMADO = "El turno se reprogramó: hay otro recordatorio";
 export const MOTIVO_REGLA_INACTIVA = "La regla del recordatorio está desactivada o se borró";
 export const MOTIVO_TURNO_NO_VIGENTE = "El turno ya no está confirmado o cambió de horario";
-export const MOTIVO_SIN_TELEFONO = "El paciente no tiene teléfono de WhatsApp";
-export const MOTIVO_DATOS_BORRADOS = "Se borraron los datos personales del paciente";
+// Sin nombrar al contacto: se leen al lado de su nombre ("Envíos que no
+// salieron") y así valen con cualquier término (ISSUE-014 de la QA).
+export const MOTIVO_SIN_TELEFONO = "No tiene teléfono de WhatsApp";
+export const MOTIVO_DATOS_BORRADOS = "Se borraron sus datos personales";
 
 /** Las tareas "sin respuesta" no se crean si para entonces faltan menos de
  *  estas horas (§6.5 y decisión de Rocco del 2026-10-10: un turno a menos de
