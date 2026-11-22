@@ -92,7 +92,13 @@ export interface DepsDelSeguimientoDeConsulta {
   ) => Promise<{ name: string; languageCode: string; bodyText: string } | null>;
   numeroDeLaSucursal: (organizationId: string, branchId: string) => Promise<string | null>;
   proximaApertura: (organizationId: string, branchId: string, ahora: Date) => Promise<Date>;
-  respondioDespues: (organizationId: string, contactId: string, desde: Date) => Promise<boolean>;
+  /** `sinBotones` (clínica): los botones del recordatorio no cuentan. */
+  respondioDespues: (
+    organizationId: string,
+    contactId: string,
+    desde: Date,
+    sinBotones?: boolean,
+  ) => Promise<boolean>;
   hayOportunidadAbierta: (contactId: string, organizationId: string) => Promise<boolean>;
   sendTemplate: SendWhatsappTemplate;
   sendText: SendWhatsappText;
@@ -126,7 +132,8 @@ export const depsDelSeguimientoDeConsultaReales: DepsDelSeguimientoDeConsulta = 
   },
   numeroDeLaSucursal: findBranchWhatsappPhoneNumberId,
   proximaApertura: proximaAperturaDeLaSucursal,
-  respondioDespues: existsInboundSince,
+  respondioDespues: (organizationId, contactId, desde, sinBotones) =>
+    existsInboundSince(organizationId, contactId, desde, prisma, sinBotones === true),
   hayOportunidadAbierta: (contactId, organizationId) =>
     countOpenOpportunitiesOf({ contactId }, organizationId).then((n) => n > 0),
   sendTemplate: sendWhatsappTemplateReal,
@@ -237,7 +244,12 @@ export async function procesarSeguimientoDeConsulta(
 
   const clinica = await deps.esClinica(fila.organizationId);
   const motivo = motivoDeCancelacion(fila, {
-    respondio: await deps.respondioDespues(fila.organizationId, fila.contactId, fila.lastInboundAt),
+    respondio: await deps.respondioDespues(
+      fila.organizationId,
+      fila.contactId,
+      fila.lastInboundAt,
+      clinica,
+    ),
     oportunidadAbierta: await deps.hayOportunidadAbierta(fila.contactId, fila.organizationId),
     // R15: solo una clínica lee los turnos.
     ...(clinica
