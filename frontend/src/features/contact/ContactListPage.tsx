@@ -1,3 +1,4 @@
+import { nombreCompleto } from "../../lib/nombreCompleto";
 import { tieneModulo, useModulo } from "../../auth/useModulo";
 import { vocabularioDe } from "../../auth/vocabulario";
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "../vehicle/labels";
@@ -296,7 +297,7 @@ export function ContactListPage() {
               </thead>
               <tbody>
                 {contactsQuery.data.data.map((contact) => {
-                  const fullName = `${contact.firstName} ${contact.lastName}`;
+                  const fullName = nombreCompleto(contact);
                   // Sin nombre no hay avatar: un círculo con "—" adentro no
                   // representa a nadie.
                   const ownerName = nombreDeAsignado(contact.ownerId);

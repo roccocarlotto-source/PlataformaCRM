@@ -1,3 +1,4 @@
+import { nombreCompleto } from "../../lib/nombreCompleto";
 import { useModulo } from "../../auth/useModulo";
 import { useAuth } from "../../auth/AuthContext";
 import { formatDateTime } from "../../design-system/detailFormat";
@@ -73,9 +74,7 @@ export function ActivityFeed() {
               // 2026-10-17): sin un GET por cada uno. Borrados, "—".
               activity.contactId
                 ? textoDeLaRelacion(
-                    activity.contact
-                      ? `${activity.contact.firstName} ${activity.contact.lastName}`
-                      : undefined,
+                    activity.contact ? nombreCompleto(activity.contact) : undefined,
                     false,
                   )
                 : null,
