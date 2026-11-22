@@ -40,6 +40,7 @@ interface Registro {
   usersCreated: Record<string, unknown>[];
   procesosFijos: string[];
   configuracionesDeClinica: string[];
+  automatizacionesDeClinica: string[];
   // docs/primera-clinica.md §4: el perfil con que se creó cada una (null = sin perfil, MEDICO).
   perfilesDeClinica: (string | null)[];
 }
@@ -72,6 +73,7 @@ function armar(opciones: Opciones = {}): Escenario {
     usersCreated: [],
     procesosFijos: [],
     configuracionesDeClinica: [],
+    automatizacionesDeClinica: [],
     perfilesDeClinica: [],
   };
 
@@ -121,6 +123,11 @@ function armar(opciones: Opciones = {}): Escenario {
       registro.configuracionesDeClinica.push(organizationId);
       registro.perfilesDeClinica.push(healthProfile ?? null);
       return { organizationId };
+    },
+    createAutomatizacionesDeClinica: async (organizationId, db) => {
+      assert.equal(db, TX, "en la transacción del alta");
+      registro.automatizacionesDeClinica.push(organizationId);
+      return { count: 5 };
     },
     clinicaHabilitada: opciones.clinicaHabilitada ?? false,
     transaction: async (fn) => {
@@ -441,6 +448,7 @@ test("sin rubro: AUTOMOTORA, sin nada de clínica (el alta de siempre)", async (
   assert.equal(result.organization.industry, "AUTOMOTORA");
   assert.equal(registro.organizationsCreated[0].industry, "AUTOMOTORA");
   assert.deepEqual(registro.configuracionesDeClinica, []);
+  assert.deepEqual(registro.automatizacionesDeClinica, [], "una automotora nace sin reglas");
 });
 
 test("CLINICA con la llave en false: 400 antes de escribir nada (ni el mail de invitación)", async () => {
@@ -465,6 +473,7 @@ test("CLINICA con la llave en true: nace CLINICA con su configuración, en la mi
   assert.equal(result.organization.industry, "CLINICA");
   assert.equal(registro.organizationsCreated[0].industry, "CLINICA");
   assert.deepEqual(registro.configuracionesDeClinica, ["org-nueva"]);
+  assert.deepEqual(registro.automatizacionesDeClinica, ["org-nueva"], "con sus reglas apagadas");
   assert.deepEqual(registro.procesosFijos, [], "COMPLETA: sin proceso fijo");
 });
 
@@ -508,6 +517,7 @@ test("CLINICA y ESENCIAL: la configuración de la clínica y el proceso fijo, lo
 
   assert.deepEqual(registro.procesosFijos, ["org-nueva"]);
   assert.deepEqual(registro.configuracionesDeClinica, ["org-nueva"]);
+  assert.deepEqual(registro.automatizacionesDeClinica, ["org-nueva"]);
 });
 
 // R19 (docs/rubros.md §12.1): la opción clinicaDemo es la única que crea una
@@ -524,6 +534,11 @@ test("clinicaDemo con la llave en false: la Clínica Demo nace CLINICA con su co
   assert.equal(result.organization.industry, "CLINICA");
   assert.equal(registro.organizationsCreated[0].slug, "clinica-demo-norte");
   assert.deepEqual(registro.configuracionesDeClinica, ["org-nueva"]);
+  assert.deepEqual(
+    registro.automatizacionesDeClinica,
+    [],
+    "la demo crea sus propias reglas (con su QR)",
+  );
 });
 
 test("clinicaDemo no es un bypass: otro nombre u otro rubro dan 400 sin invitar a nadie", async () => {
