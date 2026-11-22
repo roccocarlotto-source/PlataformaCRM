@@ -125,10 +125,12 @@ async function medir(
   tool: string,
   args: () => Record<string, unknown>,
   tope: number,
+  antesDeMedir?: () => Promise<unknown>,
 ): Promise<ResultadoDeTool> {
   const ejecutar = () => CATALOGO_DE_TOOLS.get(tool)!.ejecutar(args(), contexto);
   const enFrio = await ejecutar();
   assert.ok(enFrio.ok, JSON.stringify(enFrio));
+  await antesDeMedir?.();
   const { resultado, consultas } = await contarConsultas(ejecutar);
   assert.ok(resultado.ok, JSON.stringify(resultado));
   medidas.push({ tool, consultas: consultas.length, tope });
@@ -152,14 +154,19 @@ test("get_availability: presupuesto de consultas (por nombre de servicio, un dí
 
 test("create_booking: presupuesto de consultas (por nombre de servicio)", async () => {
   // Dos horarios distintos: la ejecución en frío y la medida reservan cada una
-  // el suyo (el tope de reservas futuras por contacto es 2).
+  // el suyo. Entre las dos se borra la reserva en frío: desde la QA de la
+  // primera clínica (2026-11-21) un segundo turno del mismo servicio se rechaza
+  // (src/services/turnoRepetido.ts), y lo que se mide es la reserva normal.
   let hora = 10;
   const r = await medir(
     "create_booking",
     () => ({ servicio: "Prueba de manejo", startsAt: LUNES(hora++) }),
     // Eran 25 (2026-10-31); 24 sin la relectura del servicio. La ganancia
     // grande no se ve acá sino en el tiempo: las lecturas previas van juntas.
+    // El chequeo del turno repetido no suma: sale de la misma lectura que el
+    // tope de reservas futuras.
     24,
+    () => prisma.booking.deleteMany({ where: { organizationId: org.id } }),
   );
   assert.ok(r.ok);
 });

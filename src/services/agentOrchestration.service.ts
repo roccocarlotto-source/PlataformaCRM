@@ -509,8 +509,15 @@ export const INSTRUCCION_USAR_HERRAMIENTAS =
 // Es la contracara de la del ítem 88: aquella empuja a ACTUAR en vez de
 // preguntar; esta pone el límite de que actuar es ejecutar la herramienta, no
 // narrar que se ejecutó.
+//
+// QA de la primera clínica (2026-11-21): la instrucción proponía decir "te
+// confirmo el turno en un momento" si la acción no estaba hecha, y el modelo
+// lo copió: "Te reservo el turno … En un momento te confirmo la reserva", sin
+// reservar nada y sin volver a escribir. Ahora no promete nada para después: lo
+// hace en el mismo mensaje, pide el dato o deriva. La guarda de salida
+// (src/services/afirmacionesDeTurnos.ts) frena la promesa si igual la escribe.
 export const INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO =
-  'No le digas nunca al cliente que hiciste algo —que reservaste un turno, que cargaste sus datos, que creaste una oportunidad, que generaste un link de pago— si no ejecutaste la herramienta correspondiente en esta misma conversación y te devolvió un resultado exitoso. Leer información NO es haber actuado: consultar qué servicios existen o qué horarios hay libres no reserva nada. Si todavía no ejecutaste la acción, hablá en futuro y decí qué falta ("te confirmo el turno en un momento", "necesito tal dato para reservarlo"), nunca en pasado. Una confirmación falsa hace que la persona se presente a un turno que no existe o espere un pago que nadie registró. Las herramientas que usaste en mensajes anteriores de esta conversación no las ves acá, pero lo que le contestaste en esos mensajes salió de ellas: no desmientas ni "corrijas" lo que dijiste antes solo porque ahora no ves esas llamadas; corregí algo solo si una herramienta de este mensaje devuelve un dato distinto. Si es una reserva o una oportunidad, la fuente es lo que el CRM ya tiene registrado de esta persona, más arriba: lo que figura ahí está hecho. Ahí figuran solo las reservas de esta sucursal, y nada si todavía faltan datos de la persona, así que si pregunta por algo que no figura, no lo niegues ni lo des por hecho: decile que acá no lo ves y que se lo confirma alguien del equipo, o pedile primero los datos que faltan.';
+  'No le digas nunca al cliente que hiciste algo —que reservaste un turno, que cargaste sus datos, que creaste una oportunidad, que generaste un link de pago— si no ejecutaste la herramienta correspondiente en esta misma conversación y te devolvió un resultado exitoso. Leer información NO es haber actuado: consultar qué servicios existen o qué horarios hay libres no reserva nada. Si todavía no ejecutaste la acción, ejecutala ahora, en este mismo mensaje, o pedí el dato que falta ("necesito tal dato para reservarlo"). No prometas hacerlo después ("te confirmo en un momento", "enseguida te aviso"): después de tu respuesta no volvés a escribir hasta que la persona conteste, así que esa promesa no se cumple nunca. Si la herramienta falló o no podés hacerlo por este medio, decíselo con claridad y derivá a una persona del equipo. Una confirmación falsa hace que la persona se presente a un turno que no existe o espere un pago que nadie registró. Las herramientas que usaste en mensajes anteriores de esta conversación no las ves acá, pero lo que le contestaste en esos mensajes salió de ellas: no desmientas ni "corrijas" lo que dijiste antes solo porque ahora no ves esas llamadas; corregí algo solo si una herramienta de este mensaje devuelve un dato distinto. Si es una reserva o una oportunidad, la fuente es lo que el CRM ya tiene registrado de esta persona, más arriba: lo que figura ahí está hecho. Ahí figuran solo las reservas de esta sucursal, y nada si todavía faltan datos de la persona, así que si pregunta por algo que no figura, no lo niegues ni lo des por hecho: decile que acá no lo ves y que se lo confirma alguien del equipo, o pedile primero los datos que faltan.';
 
 // Instrucción fija del ítem 92. Va con las otras fijas y NO es configurable
 // por el negocio: un agente que regala plata es un problema del producto, no
@@ -3004,6 +3011,9 @@ async function responderSinMedir(
       agentId: conversation.agentId,
       channel: conversation.channel,
     },
+    // create_booking decide con esto si manda al modelo a reprogramar
+    // (src/services/turnoRepetido.ts).
+    toolsOfrecidas: nombresOfrecidos,
   };
 
   const llm = options.llmProvider ?? getLlmProvider();
@@ -3417,7 +3427,7 @@ async function responderSinMedir(
   //
   // Y después de la capa 3, las correcciones del rubro: en una clínica, una
   // respuesta que da por agendado, movido o cancelado un turno que la tool no
-  // tocó en este turno no sale (src/clinicas/afirmacionesDeTurnos.ts).
+  // tocó en este turno no sale (src/services/afirmacionesDeTurnos.ts).
   //
   // Un texto fijo del rubro (respuestaFija: una derivación decidida por una
   // tool o una indicación tal cual) no lo escribió el modelo: no pasa por

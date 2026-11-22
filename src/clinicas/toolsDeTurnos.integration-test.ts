@@ -23,7 +23,12 @@ import { createResource } from "../services/resource.service";
 import { createServiceType } from "../services/serviceType.service";
 import { replaceWorkingHoursForResource } from "../services/workingHours.service";
 import { mensajeDeConsultaClinica, mensajeDeUrgencia } from "./config/mensajesDeSalud";
-import { definirProfesionales } from "./services/agendaClinica.service";
+import { crearTurnoDeClinica, definirProfesionales } from "./services/agendaClinica.service";
+import {
+  CODIGO_TURNO_REPETIDO,
+  CUERPO_DE_LA_TAREA_TURNO_REPETIDO,
+  mensajeDeTurnoRepetido,
+} from "../services/turnoRepetido";
 import { MARCA_DEL_ASISTENTE, PREFIJO_NOTA_REPROGRAMADO } from "./services/reprogramar.service";
 import {
   CUERPO_DE_LA_TAREA_FUERA_DE_PLAZO,
@@ -912,4 +917,115 @@ test("en el loop: el prompt pide voseo, y «de ejemplo» no sale en la respuesta
   const r = await mensaje(ids.otro, "¿cuánto sale la consulta?", doble.proveedor);
   assert.equal(r.respuesta, "Los precios son: Consulta $1.500.");
   assert.ok(doble.requests[0].systemPrompt.includes(INSTRUCCION_DE_TONO_DE_CLINICA));
+});
+
+// ---------------------------------------------------------------------------
+// Turno repetido (QA de la primera clínica, 2026-11-21; src/services/
+// turnoRepetido.ts): con un turno futuro de la misma prestación, create_booking
+// no reserva otro. La misma regla en una automotora, en
+// src/services/agentOrchestration.integration-test.ts.
+// ---------------------------------------------------------------------------
+
+function pideReservar(id: string, inicio: Date): LlmCompletionResult {
+  return {
+    text: null,
+    toolCalls: [
+      {
+        id,
+        name: "create_booking",
+        arguments: { serviceTypeId: ids.consulta, startsAt: inicio.toISOString() },
+      },
+    ],
+  };
+}
+
+const turnosActivos = (contactId: string) =>
+  prisma.booking.count({ where: { organizationId: clinica.id, contactId, status: "CONFIRMED" } });
+
+test("turno repetido, con reschedule_booking: no crea otro y le dice al modelo que reprograme ese bookingId", async () => {
+  const t = await turno(ids.paciente, LUNES(9));
+  const doble = proveedorGuionado([
+    pideReservar("c1", LUNES(11)),
+    { text: "Ya tenés un turno el lunes a las 9. ¿Querés que lo pase a las 11?", toolCalls: [] },
+  ]);
+  const r = await mensaje(ids.paciente, "Pasame el turno al lunes a las 11", doble.proveedor);
+  const rechazo = r.toolCalls[0].result;
+  assert.equal(rechazo?.ok, false);
+  assert.equal(rechazo?.ok === false ? rechazo.codigo : "sin rechazo", undefined);
+  assert.match(error(rechazo as ResultadoDeTool) ?? "", /usá reschedule_booking con ese bookingId/);
+  assert.ok((error(rechazo as ResultadoDeTool) ?? "").includes(t.id));
+  assert.equal(await turnosActivos(ids.paciente), 1);
+  assert.equal(doble.requests.length, 2, "el modelo sigue");
+  assert.equal(r.handoff, false);
+});
+
+test("turno repetido, sin reschedule_booking: no crea otro y deriva desde el código, con la tarea 'quiere cambiar su turno' para la Recepción", async () => {
+  const sinReprogramar = await prisma.agent.create({
+    data: {
+      organizationId: clinica.id,
+      branchId: ids.centro,
+      name: "Asistente sin reprogramar",
+      instructions: "Sos el asistente de la clínica.",
+      modelProvider: "openrouter",
+      modelName: "doble/modelo",
+      enabledTools: ["get_service_types", "get_availability", "create_booking"],
+      channels: ["WHATSAPP"],
+      guardrails: {} as Prisma.InputJsonValue,
+      participation: "AUTONOMA",
+      participationChosenAt: new Date(),
+    },
+  });
+  try {
+    await turno(ids.otro, LUNES(9));
+    const doble = proveedorGuionado([
+      pideReservar("c1", LUNES(11)),
+      { text: "Listo, te lo pasé a las 11.", toolCalls: [] },
+    ]);
+    const r = await mensaje(
+      ids.otro,
+      "Pasame el turno a las 11",
+      doble.proveedor,
+      sinReprogramar.id,
+    );
+    const rechazo = r.toolCalls[0].result;
+    assert.equal(rechazo?.ok === false ? rechazo.codigo : undefined, CODIGO_TURNO_REPETIDO);
+    assert.equal(await turnosActivos(ids.otro), 1, "no se creó un segundo turno");
+    assert.equal(doble.requests.length, 1, "no se vuelve al modelo");
+    assert.equal(r.respuesta, mensajeDeTurnoRepetido(await nombreDeLaClinica()));
+    assert.equal(r.handoff, true);
+    const [tarea] = await tareas();
+    assert.equal(tarea.body, CUERPO_DE_LA_TAREA_TURNO_REPETIDO);
+    assert.equal(tarea.assigneeId, clinica.authIds[RECEPCION_CENTRO]);
+  } finally {
+    await prisma.message.deleteMany({ where: { organizationId: clinica.id } });
+    await prisma.conversation.deleteMany({ where: { organizationId: clinica.id } });
+    await prisma.agent.delete({ where: { id: sinReprogramar.id } });
+  }
+});
+
+test("turno repetido: desde el panel sí se da un segundo turno de la misma prestación (sesiones a propósito)", async () => {
+  await turno(ids.paciente, LUNES(9));
+  const segundo = await crearTurnoDeClinica(clinica.id, {
+    serviceTypeId: ids.consulta,
+    contactId: ids.paciente,
+    startsAt: LUNES(11),
+  });
+  assert.equal(segundo.status, "CONFIRMED");
+  assert.equal(await turnosActivos(ids.paciente), 2);
+});
+
+test("en el loop: prometer un turno ('te reservo', 'en un momento te confirmo') sin la tool no sale; va el mensaje fijo", async () => {
+  for (const promesa of [
+    "¡Buenísimo! Te reservo el turno del lunes a las 9 con Ana. En un momento te confirmo la reserva.",
+    "Ya te agendo para el lunes.",
+  ]) {
+    const r = await mensaje(
+      ids.otro,
+      "Quiero turno el lunes a las 9",
+      proveedorGuionado([{ text: promesa, toolCalls: [] }]).proveedor,
+    );
+    assert.equal(r.respuesta, MENSAJE_AFIRMACION_SIN_ACCION, promesa);
+    assert.equal(r.handoff, false);
+  }
+  assert.equal(await turnosActivos(ids.otro), 0);
 });

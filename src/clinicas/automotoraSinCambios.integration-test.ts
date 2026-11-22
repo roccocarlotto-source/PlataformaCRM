@@ -35,6 +35,7 @@ import {
 import { espiarInvitaciones, invitar, invitarYAceptar } from "../routes/invitacion.test-helper";
 import { urlParaAceptarLaInvitacion } from "../services/invitation.service";
 import { NO_ES_UNA_DEMO } from "./demo/reinicioDeLaDemo.service";
+import { MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA } from "../services/reglasDelRubro";
 
 // ---------------------------------------------------------------------------
 // Suite "automotora sin cambios" (docs/rubros.md §0.3 y §14.1), contra la app
@@ -722,7 +723,7 @@ test("R11 (2026-10-31): el agente de una automotora recibe las tools de turnos c
   assert.equal(llamada?.result?.ok, false, "un id que no es de este cliente: no encontrado");
 });
 
-test("hallazgos de la demo: el agente de una automotora contesta como antes (sin corrección, sin retoques, sin tool de indicaciones) y una derivación sin vendedor sigue siendo silenciosa", async () => {
+test("hallazgos de la demo: el agente de una automotora contesta como antes (sin retoques, sin tool de indicaciones), salvo la guarda de turnos, y una derivación sin vendedor sigue siendo silenciosa", async () => {
   const sucursal = await createBranch(conSucursales.id, {
     name: `Sucursal Demo ${randomUUID().slice(0, 8)}`,
     timezone: "America/Montevideo",
@@ -758,12 +759,18 @@ test("hallazgos de la demo: el agente de una automotora contesta como antes (sin
       participationChosenAt: new Date(),
     },
   });
-  // En una clínica, esto se corregiría (afirma una reserva sin la tool) y se
-  // le sacaría "de ejemplo". En una automotora sale tal cual, como siempre.
-  const texto = "Listo, te reservé el test drive. Los precios de ejemplo son los de la lista.";
+  // En una clínica se le sacaría "de ejemplo". En una automotora sale tal
+  // cual, como siempre.
+  const texto = "Los precios de ejemplo son los de la lista.";
+  // CAMBIO A PROPÓSITO (QA de la primera clínica, 2026-11-21, autorizado por
+  // Rocco para los dos rubros): afirmar una reserva sin create_booking ya no
+  // sale en una automotora; va su mensaje fijo, sin derivar
+  // (src/services/afirmacionesDeTurnos.ts). Antes salía tal cual.
+  const afirmaSinReservar = "Listo, te reservé el test drive.";
   const requests: LlmCompletionRequest[] = [];
   const respuestas: LlmCompletionResult[] = [
     { text: texto, toolCalls: [] },
+    { text: afirmaSinReservar, toolCalls: [] },
     {
       text: null,
       toolCalls: [
@@ -804,6 +811,10 @@ test("hallazgos de la demo: el agente de una automotora contesta como antes (sin
     );
     assert.ok(requests[0].systemPrompt.includes("### Precios de ejemplo"));
     assert.doesNotMatch(requests[0].systemPrompt, /tratando de vos|send_care_instructions/);
+
+    const corregida = await turno("¿me lo reservás?");
+    assert.equal(corregida.respuesta, MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA);
+    assert.equal(corregida.handoff, false, "la corrección no deriva");
 
     const derivada = await turno("quiero hablar con alguien");
     assert.equal(derivada.handoff, true);

@@ -201,11 +201,18 @@ cuándo puede ir.
 horarios que encontró libres. Si el paciente eligió un profesional, va con
 ese; si no, con el primero libre en ese horario. La duración la define la
 prestación. Le confirma el turno al paciente recién cuando quedó agendado. Un
-paciente puede tener como mucho dos turnos futuros agendados por el agente.
+paciente puede tener como mucho dos turnos futuros agendados por el agente, y
+no más de uno de la misma prestación: si ya tiene uno y pide otro igual (o
+"pasarlo a otro día"), el asistente lo reprograma con **Reprogramar turno**; si
+no tiene esa acción, pasa la conversación a la Recepción con la tarea "Quiere
+cambiar su turno". Dos turnos de la misma prestación a propósito (por ejemplo,
+sesiones semanales) se dan desde la **Agenda**.
 
 > El asistente **nunca le confirma al paciente un turno que no agendó,
-> cambió o canceló en ese mismo momento**. Si llega a escribir algo como "Ya
-> te reservé el turno" sin haberlo hecho, ese mensaje no sale: el paciente
+> cambió o canceló en ese mismo momento**, ni le promete confirmárselo
+> después. Si llega a escribir algo como "Ya te reservé el turno", "Te
+> reservo el turno" o "En un momento te confirmo la reserva" sin haberlo
+> hecho, ese mensaje no sale: el paciente
 > recibe "Perdón, me expresé mal y no quiero confirmarte algo que no hice…" y
 > la conversación sigue con el asistente.
 

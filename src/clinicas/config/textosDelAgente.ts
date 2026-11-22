@@ -73,7 +73,7 @@ export function sinDeEjemplo(respuesta: string): string {
 // ---------------------------------------------------------------------------
 // El reemplazo de una respuesta que afirma un turno agendado, movido o
 // cancelado sin que la tool lo haya hecho en ese turno
-// (afirmacionesDeTurnos.ts). Es honesto en los dos casos posibles: que no se
+// (src/services/afirmacionesDeTurnos.ts). Es honesto en los dos casos posibles: que no se
 // haya hecho nada, o que el turno sea de un mensaje anterior y el modelo lo
 // haya repetido de memoria.
 export const MENSAJE_AFIRMACION_SIN_ACCION =

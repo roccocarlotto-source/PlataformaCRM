@@ -260,7 +260,12 @@ El agente de IA también reserva turnos por chat, con el mismo criterio de
 horarios y cupos. Antes de reservar necesita el nombre y el apellido del
 cliente (y, si escribe desde el sitio web, un teléfono o un email), y desde el
 chat cada contacto puede tener como máximo dos reservas futuras activas; para
-más, deriva la conversación a una persona.
+más, deriva la conversación a una persona. Tampoco le reserva un segundo turno
+de un servicio que ya tiene reservado: si el agente puede reprogramar, mueve
+el que tiene; si no, pasa la conversación a una persona y deja una tarea
+("Quiere cambiar su turno"). Dos turnos del mismo servicio a propósito se dan
+desde esta pantalla. Y nunca le promete al cliente confirmarle algo "en un
+momento": si no pudo hacerlo en ese mensaje, se lo dice y deriva.
 
 ## Recursos {#recursos}
 

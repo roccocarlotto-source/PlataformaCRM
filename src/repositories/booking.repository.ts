@@ -169,18 +169,22 @@ export function countConfirmedBookingsOf(
   return db.booking.count({ where: { ...where, organizationId, status: "CONFIRMED" } });
 }
 
-// Reservas vivas y FUTURAS de un contacto: el tope de reservas que el agente
-// de IA puede acumularle a una misma persona (create_booking en
-// agentTools.service.ts). Las pasadas no cuentan aunque nadie las haya
-// cerrado: ya no ocupan agenda.
-export function countFutureConfirmedBookingsOfContact(
+// Reservas vivas y FUTURAS de un contacto, en todas las sedes: el tope de
+// reservas que el agente de IA puede acumularle a una misma persona y el
+// control de "ya tiene un turno de ese servicio" (create_booking en
+// agentTools.service.ts y en clinicas/toolsDeAgenda.ts; ver
+// src/services/turnoRepetido.ts). Una sola consulta para las dos cosas. Las
+// pasadas no cuentan aunque nadie las haya cerrado: ya no ocupan agenda.
+export function listFutureConfirmedBookingsOfContact(
   contactId: string,
   organizationId: string,
   ahora: Date,
   db: Db = prisma,
 ) {
-  return db.booking.count({
+  return db.booking.findMany({
     where: { contactId, organizationId, status: "CONFIRMED", startsAt: { gt: ahora } },
+    select: { id: true, serviceTypeId: true, startsAt: true },
+    orderBy: { startsAt: "asc" },
   });
 }
 

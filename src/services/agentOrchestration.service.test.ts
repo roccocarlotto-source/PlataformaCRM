@@ -721,8 +721,18 @@ test("la instrucción de no afirmar lo no hecho va siempre y nombra el caso real
   // Lo que la distingue de la del ítem 88: aquella empuja a actuar, esta pone
   // el límite de que actuar es ejecutar, no narrar.
   assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /Leer información NO es haber actuado/);
-  assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /hablá en futuro/);
   assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /turno que no existe/);
+  // QA de la primera clínica (2026-11-21): ya no propone una promesa para
+  // después, que el modelo copiaba ("en un momento te confirmo la reserva");
+  // lo hace en el mismo mensaje, pide el dato o deriva.
+  assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /ejecutala ahora, en este mismo mensaje/);
+  assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /No prometas hacerlo después/);
+  assert.match(
+    INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
+    /falló o no podés hacerlo por este medio, decíselo con claridad y derivá a una persona del equipo/,
+  );
+  assert.doesNotMatch(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /te confirmo el turno en un momento/);
+  assert.doesNotMatch(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /hablá en futuro/);
 });
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,8 @@ import type {
   ToolCallDelTurno,
 } from "./agentOrchestration.service";
 import type { ToolDelAgente } from "./agentTools.service";
+import { afirmacionesSinRespaldo, REGLA_AFIRMACION_SIN_ACCION } from "./afirmacionesDeTurnos";
+import { desenlacePorTurnoRepetido } from "./turnoRepetido";
 
 // ---------------------------------------------------------------------------
 // Puntos de extensión del loop del agente por rubro (docs/rubros.md §0.3 y
@@ -16,9 +18,12 @@ import type { ToolDelAgente } from "./agentTools.service";
 // (derivarEntranteSinAgente) preguntan acá, y no hay `if (industry ===
 // "CLINICA")` en ellos.
 //
-// AUTOMOTORA no tiene reglas: todas las listas vacías, ninguna instrucción y
-// ningún campo recortado. El loop de una automotora es exactamente el de
-// antes (lo fija src/clinicas/automotoraSinCambios.test.ts).
+// AUTOMOTORA tiene pocas reglas: las tools de turnos, la guarda de salida que
+// no deja afirmar ni prometer un turno que no se hizo y la derivación por un
+// turno repetido (las dos últimas desde la QA de la primera clínica,
+// 2026-11-21, porque usa la misma create_booking). Ninguna instrucción y
+// ningún campo recortado. Lo que tiene y lo que no lo fija
+// src/clinicas/automotoraSinCambios.test.ts.
 // ---------------------------------------------------------------------------
 
 /** La tarea de una derivación decidida por una regla: cuerpo fijo, sin el
@@ -164,12 +169,31 @@ export const SIN_REGLAS: ReglasDelRubro = {
   contextoDeLaOrganizacion: null,
 };
 
-/** AUTOMOTORA: ninguna regla propia, salvo las tools de turnos (ver, reprogramar
- *  y cancelar; src/automotora/toolsDeTurnos.ts, decisión de Rocco del
- *  2026-10-31). Sus textos del prompt son las constantes de siempre
+/** El reemplazo de una respuesta de una automotora que afirma o promete un
+ *  turno que la tool no hizo en este turno (src/services/afirmacionesDeTurnos.ts).
+ *  Honesto en los dos casos posibles: que no se haya hecho nada, o que el
+ *  turno sea de un mensaje anterior y el modelo lo haya repetido de memoria. */
+export const MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA =
+  "Perdón, me expresé mal y no quiero confirmarte algo que no hice. ¿Me decís qué necesitás con tu turno y lo reviso ahora en la agenda?";
+
+/** AUTOMOTORA: las tools de turnos (ver, reprogramar y cancelar;
+ *  src/automotora/toolsDeTurnos.ts, decisión de Rocco del 2026-10-31), la
+ *  guarda de salida de los turnos y la derivación por un turno repetido (QA de
+ *  la primera clínica, 2026-11-21: usa la misma create_booking que una
+ *  clínica). Sus textos del prompt son las constantes de siempre
  *  (textosDeAutomotora), con el de gestión de turnos solo si se ofrecen. */
 export const REGLAS_DE_AUTOMOTORA: ReglasDelRubro = {
   ...SIN_REGLAS,
+  correccionesDeSalida: [
+    (respuesta, toolsDelTurno) =>
+      afirmacionesSinRespaldo(respuesta, toolsDelTurno).length > 0
+        ? {
+            regla: REGLA_AFIRMACION_SIN_ACCION,
+            mensaje: MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA,
+          }
+        : null,
+  ],
+  desenlaceDeLasTools: desenlacePorTurnoRepetido,
   toolsExclusivas: TOOLS_DE_TURNOS_DE_AUTOMOTORA,
 };
 

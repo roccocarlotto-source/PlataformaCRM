@@ -39,6 +39,7 @@ import {
   PRUEBA_DE_MANEJO,
   SUCURSALES as SUCURSALES_DEL_TALLER_DEMO,
 } from "../src/automotora/demo/config";
+import { definirProfesionales } from "../src/clinicas/services/agendaClinica.service";
 
 const TZ = "America/Montevideo";
 
@@ -155,7 +156,11 @@ interface Escenario {
   // una copia del Taller Demo: sucursal CON horario de atención cargado (lun-vie
   // 9-18, sáb 9-13), la agenda de pruebas de manejo y la base de conocimiento
   // de la demo. Es donde el agente negó horarios libres (2026-10-18).
-  agente?: "taller";
+  // "taller-turnos" es el mismo agente con las tools de ver, reprogramar y
+  // cancelar turnos; el "taller" sin ellas es como la automotora real hoy.
+  // "clinica" es un centro de belleza (CLINICA, perfil ESTETICA) con una
+  // manicura de Lucía (QA de la primera clínica, 2026-11-21).
+  agente?: "taller" | "taller-turnos" | "clinica";
   // Filtros permitidos por tool: cualquier otro argumento es un filtro
   // inventado (ítem 87).
   argsPermitidos?: Record<string, string[]>;
@@ -213,6 +218,13 @@ const PREGUNTA_SI_RESERVA =
   /¿[^?]{0,40}\b(reservo|reserve|reservamos|agendo|agende|agendamos|anoto|confirmo)\b[^?]{0,160}\?/i;
 // "10:00", "10 h", "10 hs", "a las 10", "las 10 de la mañana".
 const OFRECE_LAS_10 = /\b10:00\b|\b10 ?h(s|oras)?\b|\blas 10\b/i;
+// "en un momento te confirmo la reserva", "te confirmo el turno enseguida":
+// una promesa que nadie cumple, porque el agente no vuelve a escribir solo.
+const PROMETE_PARA_DESPUES = [
+  /\ben un (momento|momentito|rato|ratito|minuto)\b[^.?!\n]{0,20}\bte (lo |la )?(confirmo|aviso)\b/i,
+  /\bte (lo |la )?confirmo\b[^.?!\n]{0,40}\b(en un (momento|rato|minuto)|enseguida|en breve)\b/i,
+  /\benseguida te (lo |la )?(confirmo|aviso)\b/i,
+];
 
 const ESCENARIOS: Escenario[] = [
   // ---- Horario de atención (Taller Demo, 2026-10-18) ----
@@ -871,6 +883,90 @@ const ESCENARIOS: Escenario[] = [
     toolsEsperadas: ["search_vehicles"],
     argsPermitidos: { search_vehicles: ["priceMaxUsd"] },
   },
+
+  // ---- Turnos: no prometer ni duplicar (QA de la primera clínica, 2026-11-21) ----
+  // El agente dijo "te reservo el turno … en un momento te confirmo la
+  // reserva" sin reservar, y ante "pasalo al sábado" creó un segundo turno.
+  // El código ya no lo deja (create_booking rechaza el mismo servicio, la
+  // guarda de salida frena la promesa); esto mide qué hace el modelo con eso.
+  {
+    id: "TR1",
+    agente: "taller",
+    criterio:
+      "Sin reschedule_booking (la automotora real hoy): 'pasala al martes' no deja dos pruebas; deriva",
+    msgs: [
+      "Hola, quiero probar el Kwid el lunes a las 10.",
+      "Sí, reservámela.",
+      "Uy, me surgió algo. ¿La podemos pasar al martes a la misma hora?",
+    ],
+    toolsEsperadas: ["create_booking"],
+    noDebeContener: [...PROMETE_PARA_DESPUES],
+    chequeoDeDatos: async (contactId) => {
+      const n = await prisma.booking.count({ where: { contactId, status: "CONFIRMED" } });
+      return n <= 1 ? null : `quedaron ${String(n)} pruebas de manejo (esperaba como mucho 1)`;
+    },
+  },
+  {
+    id: "TR2",
+    agente: "taller-turnos",
+    criterio: "Con reschedule_booking: 'pasala al martes' mueve la prueba y queda una sola",
+    msgs: [
+      "Hola, quiero probar el Kwid el lunes a las 10.",
+      "Sí, reservámela.",
+      "Uy, me surgió algo. ¿La podemos pasar al martes a la misma hora?",
+      "Sí, confirmo el cambio.",
+    ],
+    toolsEsperadas: ["create_booking", "reschedule_booking"],
+    noDebeContener: [...PROMETE_PARA_DESPUES],
+    chequeoDeDatos: async (contactId) => {
+      const n = await prisma.booking.count({ where: { contactId, status: "CONFIRMED" } });
+      return n === 1 ? null : `quedaron ${String(n)} pruebas de manejo (esperaba 1)`;
+    },
+  },
+  {
+    id: "TR3",
+    agente: "taller",
+    criterio:
+      "Pide la prueba y acepta: la reserva queda hecha en ese turno, sin promesas para después",
+    msgs: ["Hola, quiero probar el Kwid el lunes a las 10.", "Sí, dale, reservámela."],
+    toolsEsperadas: ["create_booking"],
+    noDebeContener: [...PROMETE_PARA_DESPUES],
+    chequeoDeDatos: async (contactId) => {
+      const n = await prisma.booking.count({ where: { contactId, status: "CONFIRMED" } });
+      return n === 1 ? null : `quedaron ${String(n)} reservas (esperaba 1)`;
+    },
+  },
+  {
+    id: "CL1",
+    agente: "clinica",
+    criterio: "Centro de belleza: 'pasalo al sábado' mueve la manicura y queda un solo turno",
+    msgs: [
+      "Hola, quiero turno de manicura el viernes a las 10.",
+      "Sí, reservámelo.",
+      "Uy, me surgió algo. ¿Lo podemos pasar al sábado a la misma hora?",
+      "Sí, confirmo el cambio.",
+    ],
+    toolsEsperadas: ["create_booking"],
+    toolsEsperadasAlgunaDe: ["reschedule_booking"],
+    noDebeContener: [...PROMETE_PARA_DESPUES],
+    chequeoDeDatos: async (contactId) => {
+      const n = await prisma.booking.count({ where: { contactId, status: "CONFIRMED" } });
+      return n === 1 ? null : `quedaron ${String(n)} turnos (esperaba 1)`;
+    },
+  },
+  {
+    id: "CL2",
+    agente: "clinica",
+    criterio:
+      "Centro de belleza: 'sí' a un horario ofrecido reserva en ese turno, sin 'te reservo' vacío",
+    msgs: ["Hola, quiero turno de manicura el viernes a las 10.", "Sí, dale."],
+    toolsEsperadas: ["create_booking"],
+    noDebeContener: [...PROMETE_PARA_DESPUES],
+    chequeoDeDatos: async (contactId) => {
+      const n = await prisma.booking.count({ where: { contactId, status: "CONFIRMED" } });
+      return n === 1 ? null : `quedaron ${String(n)} turnos (esperaba 1)`;
+    },
+  },
 ];
 
 async function montarOrganizacion() {
@@ -1055,13 +1151,147 @@ async function montarOrganizacion() {
     },
   });
 
+  // El mismo agente del taller con las tools de turnos (escenarios con agente
+  // "taller-turnos"): la automotora real hoy NO las tiene, el "taller" de
+  // arriba tampoco.
+  const agenteDelTallerConTurnos = await prisma.agent.create({
+    data: {
+      organizationId: org.id,
+      branchId: taller.id,
+      name: `${AGENTE_DEL_TALLER_DEMO.name} (con turnos)`,
+      goal: AGENTE_DEL_TALLER_DEMO.goal,
+      instructions: AGENTE_DEL_TALLER_DEMO.instructions,
+      tone: AGENTE_DEL_TALLER_DEMO.tone,
+      modelProvider: "openrouter",
+      modelName: env.OPENROUTER_MODEL,
+      enabledTools: [
+        ...AGENTE_DEL_TALLER_DEMO.enabledTools,
+        "get_contact_bookings",
+        "reschedule_booking",
+        "cancel_booking",
+      ],
+      channels: ["WEB"],
+      guardrails: {},
+      isActive: true,
+    },
+  });
+
   return {
     orgId: org.id,
     branchId: branch.id,
     userId: user.id,
     agentId: agent.id,
     agenteDelTallerId: agenteDelTaller.id,
+    agenteDelTallerConTurnosId: agenteDelTallerConTurnos.id,
   };
+}
+
+// La clínica de los escenarios "clinica": un centro de belleza (perfil
+// ESTETICA) con Lucía, que hace manicura de martes a sábado de 9 a 17. Su
+// propia organización, porque el rubro es de la organización.
+async function montarClinica() {
+  const adminRole = await findRoleByName("ADMIN");
+  if (!adminRole) throw new Error("Falta el rol ADMIN: corré `npx prisma db seed`.");
+  const sufijo = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const org = await prisma.organization.create({
+    data: {
+      name: `EvalBelleza ${sufijo}`,
+      slug: `evalbelleza-${sufijo}`,
+      industry: "CLINICA",
+      edition: "ESENCIAL",
+    },
+  });
+  await prisma.clinicSettings.create({
+    data: { organizationId: org.id, contactTerm: "CLIENTE", healthProfile: "ESTETICA" },
+  });
+  const email = `evalbelleza-${sufijo}@example.test`;
+  const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
+  if (error || !data.user) throw new Error(`Supabase Auth: ${error?.message}`);
+  const user = await prisma.user.create({
+    data: {
+      id: data.user.id,
+      organizationId: org.id,
+      roleId: adminRole.id,
+      email,
+      fullName: "Dueña Eval",
+    },
+  });
+  const sede = await createBranch(org.id, { name: "Centro", timezone: TZ }, "CLINICA");
+  await prisma.branch.update({ where: { id: sede.id }, data: { defaultOwnerId: user.id } });
+  const MAR_A_SAB = ["TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"] as const;
+  const horario = MAR_A_SAB.map((weekday) => ({
+    weekday,
+    startMinute: 9 * 60,
+    endMinute: 17 * 60,
+  }));
+  await replaceBusinessHoursForBranch(org.id, sede.id, horario);
+  const lucia = await createResource(org.id, {
+    branchId: sede.id,
+    name: "Lucía",
+    type: "PERSON",
+  });
+  await replaceWorkingHoursForResource(org.id, lucia.id, horario);
+  const manicura = await createServiceType(org.id, {
+    branchId: sede.id,
+    resourceId: lucia.id,
+    name: "Manicura y uñas",
+    durationMin: 40,
+  });
+  await definirProfesionales(org.id, manicura.id, [lucia.id]);
+  const agente = await prisma.agent.create({
+    data: {
+      organizationId: org.id,
+      branchId: sede.id,
+      name: "Asistente Belleza",
+      goal: "Dar turnos, reprogramarlos y cancelarlos.",
+      instructions:
+        "Sos la recepción virtual de un centro de belleza: peluquería, masajes, faciales y uñas. Ayudás a reservar, cambiar o cancelar turnos.",
+      tone: "cercano",
+      modelProvider: "openrouter",
+      modelName: env.OPENROUTER_MODEL,
+      enabledTools: [
+        "get_service_types",
+        "get_availability",
+        "create_booking",
+        "get_contact_bookings",
+        "reschedule_booking",
+        "cancel_booking",
+        "update_lead",
+      ],
+      channels: ["WEB"],
+      guardrails: {},
+      participation: "AUTONOMA",
+      participationChosenAt: new Date(),
+      isActive: true,
+    },
+  });
+  return { orgId: org.id, userId: user.id, agentId: agente.id };
+}
+
+async function desmontarClinica(organizationId: string) {
+  const where = { organizationId };
+  await prisma.message.deleteMany({ where });
+  await prisma.conversation.deleteMany({ where });
+  await prisma.activity.deleteMany({ where });
+  await prisma.outboxEvent.deleteMany({ where });
+  await prisma.bookingMessage.deleteMany({ where });
+  await prisma.booking.deleteMany({ where });
+  await prisma.contact.deleteMany({ where });
+  await prisma.agent.deleteMany({ where });
+  await prisma.serviceTypeResource.deleteMany({ where });
+  await prisma.serviceType.deleteMany({ where });
+  await prisma.workingHours.deleteMany({ where });
+  await prisma.resource.deleteMany({ where });
+  await prisma.branchBusinessHours.deleteMany({ where });
+  await prisma.clinicBranchSettings.deleteMany({ where });
+  await prisma.branch.updateMany({ where, data: { defaultOwnerId: null } });
+  await prisma.user.deleteMany({ where });
+  await prisma.branch.deleteMany({ where });
+  await prisma.clinicSettings.deleteMany({ where });
+  await prisma.organization.delete({ where: { id: organizationId } });
 }
 
 // Lo que costó y tardó un escenario: el costo es el que informó OpenRouter en
@@ -1161,6 +1391,21 @@ async function main() {
   const topeUsd = Number(process.env.TOPE_USD ?? 1.5);
   let gastoUsd = 0;
   const e = await montarOrganizacion();
+  // La clínica solo si algún escenario la usa: es otra organización.
+  const c = sel.some((esc) => esc.agente === "clinica") ? await montarClinica() : null;
+  const destino = (esc: Escenario) => {
+    if (esc.agente === "clinica") {
+      if (!c) throw new Error("La clínica no se montó");
+      return { orgId: c.orgId, userId: c.userId, agentId: c.agentId };
+    }
+    const agentId =
+      esc.agente === "taller"
+        ? e.agenteDelTallerId
+        : esc.agente === "taller-turnos"
+          ? e.agenteDelTallerConTurnosId
+          : e.agentId;
+    return { orgId: e.orgId, userId: e.userId, agentId };
+  };
   const resumen: { id: string; motivos: string[]; medicion: Medicion }[] = [];
 
   try {
@@ -1172,8 +1417,8 @@ async function main() {
       // La agenda del taller arranca vacía en cada escenario: si una
       // repetición ya reservó las 10, la siguiente que dice "a las 10 no hay"
       // tiene razón, y el chequeo de T1 la contaría como falla.
-      if (esc.agente === "taller") {
-        await prisma.booking.deleteMany({ where: { organizationId: e.orgId } });
+      if (esc.agente !== undefined) {
+        await prisma.booking.deleteMany({ where: { organizationId: destino(esc).orgId } });
       }
       const medicion: Medicion = { ms: 0, costUsd: 0, llamadasSinCosto: 0 };
       let conversationId: string | null = null;
@@ -1182,15 +1427,15 @@ async function main() {
       // probador: con "Eval T1#1" de apellido el modelo lo pedía y no seguía el
       // camino de producción (registrar la oportunidad y agendar).
       const nombre =
-        esc.agente === "taller"
+        esc.agente !== undefined
           ? NOMBRES_DEL_TALLER[resumen.length % NOMBRES_DEL_TALLER.length]!
           : (["Martín", `Eval ${esc.id}`] as const);
       const contacto = await prisma.contact.create({
         data: {
-          organizationId: e.orgId,
+          organizationId: destino(esc).orgId,
           firstName: nombre[0],
           lastName: nombre[1],
-          ownerId: e.userId,
+          ownerId: destino(esc).userId,
           phone: `+549${Math.floor(Math.random() * 1e9)}`,
         },
       });
@@ -1201,8 +1446,8 @@ async function main() {
         try {
           const inicio = Date.now();
           const r = await runAgentTurn({
-            organizationId: e.orgId,
-            agentId: esc.agente === "taller" ? e.agenteDelTallerId : e.agentId,
+            organizationId: destino(esc).orgId,
+            agentId: destino(esc).agentId,
             contactId: contacto.id,
             channel: "WEB",
             texto: msg,
@@ -1251,6 +1496,7 @@ async function main() {
       resumen.push({ id: esc.id, motivos, medicion });
     }
   } finally {
+    if (c) await desmontarClinica(c.orgId);
     // Limpieza: la organización entera, en orden de FK.
     const organizationId = e.orgId;
     await prisma.message.deleteMany({ where: { organizationId } });
