@@ -58,6 +58,13 @@ profesionales, prestaciones, turnos, agenda, sedes y responsable. Sin nada de
 autos: un test falla si aparecen "cliente", "vehículo", "stock",
 "oportunidad" o "vendedor". Los roles son **Administrador** y **Recepción**.
 
+Si la clínica eligió otro término de contacto en Organización (un centro de
+belleza: "cliente"), la Ayuda cambia "paciente" y "pacientes" por ese término
+al mostrarse, solo en el texto y los títulos: las anclas no cambian
+(`frontend/src/features/guia/terminoDeContacto.ts`). Por eso se escribe
+siempre "paciente", en masculino ("el paciente", "los pacientes"), para que
+la concordancia sirva con cualquier término.
+
 ## Qué ve cada rol
 
 Un usuario (USER en una automotora, Recepción en una clínica) no ve los

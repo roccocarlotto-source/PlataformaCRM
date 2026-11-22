@@ -219,6 +219,52 @@ describe("GuiaPage — por rubro", () => {
     expect(titulos).toContain("Organización y sedes -> /ayuda/organizacion-y-sucursales");
     expect(titulos).not.toMatch(/\/ayuda\/(stock|oportunidades-y-procesos-de-venta)/);
   });
+
+  // QA de la primera clínica (2026-11-21): con el término en "cliente", el menú
+  // decía "Clientes" y la Ayuda, "Pacientes". Las anclas no cambian.
+  it("una clínica con el término en cliente ve 'clientes' en la Ayuda, con las mismas anclas", async () => {
+    const base = mockAuth(false);
+    const clinica = clinicaDeMe("COMPLETA");
+    useAuthMock.mockReturnValue({
+      ...base,
+      me: {
+        ...base.me!,
+        ...clinica,
+        vocabulario: {
+          ...clinica.vocabulario!,
+          contacto: {
+            singular: "cliente",
+            plural: "clientes",
+            singularTitulo: "Cliente",
+            pluralTitulo: "Clientes",
+            genero: "masculino",
+          },
+        },
+      },
+    });
+    const { container, unmount } = renderEn("/ayuda");
+    const indiceConCliente = container.textContent ?? "";
+    expect(indiceConCliente).toContain("Clientes y consultas");
+    expect(indiceConCliente).not.toMatch(/paciente/i);
+    // La búsqueda encuentra por el término nuevo.
+    await userEvent.type(screen.getByRole("searchbox"), "unir clientes");
+    expect(screen.getByRole("link", { name: /Unir clientes/ })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/ayuda\/contactos-y-consultas#unir-contactos$/),
+    );
+    unmount();
+
+    const seccion = renderEn("/ayuda/contactos-y-consultas");
+    const articulo = seccion.container.querySelector("article")!;
+    expect(articulo.textContent).toMatch(/cliente/);
+    expect(articulo.textContent).not.toMatch(/paciente/i);
+    // Los ids siguen siendo los del markdown original.
+    // "### Qué muestra la lista de pacientes" no tiene ancla explícita: la suya
+    // sale del texto original y no cambia.
+    expect(articulo.querySelector("#que-muestra-la-lista-de-pacientes")?.textContent).toBe(
+      "Qué muestra la lista de clientes",
+    );
+  });
 });
 
 // Roles (asistente de ayuda, P6): USER y RECEPCION no ven los bloques de

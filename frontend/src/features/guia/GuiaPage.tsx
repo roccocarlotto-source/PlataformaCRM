@@ -5,7 +5,7 @@ import { LARGO_MAXIMO_DE_LA_PREGUNTA, useAsistente } from "../../asistente/conte
 import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
 import { tieneModulo } from "../../auth/useModulo";
-import { esClinica } from "../../auth/vocabulario";
+import { esClinica, vocabularioDe, type Termino } from "../../auth/vocabulario";
 import { EmptyState } from "../../design-system/EmptyState";
 import { PageHeader } from "../../design-system/PageHeader";
 import { AYUDA } from "./anclas";
@@ -16,6 +16,7 @@ import {
   type Seccion,
   type ResultadoDeBusqueda,
 } from "./secciones";
+import { htmlConElTermino, seccionesConElTermino } from "./terminoDeContacto";
 
 // La guía de uso dentro de la app: /ayuda es el índice (todas las secciones
 // con sus temas y un buscador sobre los títulos) y /ayuda/<slug> es una
@@ -28,11 +29,19 @@ export function GuiaPage() {
   // organización no tiene. En COMPLETA, la guía de siempre.
   // Rubros (docs/rubros.md §1.3, R17): una clínica ve la guía de clinicas/.
   // Roles: USER y RECEPCION, sin los bloques de administrador.
-  const secciones = seccionesVisibles(
-    me?.isPlatformAdmin === true,
-    (modulo) => tieneModulo(me, modulo),
-    esClinica(me),
-    me?.role === "ADMIN",
+  // El término de contacto de la organización ("cliente" en un centro de
+  // belleza) en vez del "paciente" con que está escrita la guía de clínicas.
+  // Solo en una clínica: la guía de la automotora nombra a los pacientes cuando
+  // habla de las clínicas (Plataforma, agentes), y ahí tienen que quedar.
+  const contacto = esClinica(me) ? vocabularioDe(me).contacto : null;
+  const secciones = seccionesConElTermino(
+    seccionesVisibles(
+      me?.isPlatformAdmin === true,
+      (modulo) => tieneModulo(me, modulo),
+      esClinica(me),
+      me?.role === "ADMIN",
+    ),
+    contacto,
   );
 
   if (!slug) return <Indice secciones={secciones} />;
@@ -46,7 +55,7 @@ export function GuiaPage() {
       </div>
     );
   }
-  return <SeccionDeGuia seccion={seccion} />;
+  return <SeccionDeGuia seccion={seccion} contacto={contacto} />;
 }
 
 // El asistente "¿Cómo se hace?" arriba del buscador de títulos: la pregunta
@@ -140,13 +149,14 @@ function Indice({ secciones }: { secciones: Seccion[] }) {
   );
 }
 
-function SeccionDeGuia({ seccion }: { seccion: Seccion }) {
+function SeccionDeGuia({ seccion, contacto }: { seccion: Seccion; contacto: Termino | null }) {
   const { hash } = useLocation();
   const navigate = useNavigate();
   // Sin el `# Título` del archivo: ya lo muestra PageHeader.
   const html = useMemo(
-    () => renderizarMarkdown(seccion.markdown.replace(/^# .*\r?\n/, "")),
-    [seccion],
+    () =>
+      htmlConElTermino(renderizarMarkdown(seccion.markdown.replace(/^# .*\r?\n/, "")), contacto),
+    [seccion, contacto],
   );
   const temas = seccion.encabezados.filter((e) => e.nivel === 2);
 
