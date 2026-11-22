@@ -30,7 +30,8 @@ export const CAMPOS_DE_CLINICA = {
   // R18: indicaciones de la base de conocimiento.
   knowledgeBaseEntry: ["kind"],
   // R16: cuándo se le mandó el aviso de privacidad de la clínica.
-  contact: ["privacyNoticeSentAt"],
+  // ISSUE-010: el nombre lo puso el canal (el agente lo puede reemplazar).
+  contact: ["privacyNoticeSentAt", "nameSetByChannel"],
   // R14: "Recordar control a los N días".
   serviceType: ["followUpAfterDays"],
 } as const;

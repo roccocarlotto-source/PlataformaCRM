@@ -319,6 +319,8 @@ export interface CreateContactData {
   source?: string | null;
   // B6: los valores de los campos personalizados, ya validados (service).
   customFields?: Prisma.InputJsonValue;
+  // ISSUE-010: el nombre lo puso el canal (el perfil de WhatsApp).
+  nameSetByChannel?: boolean;
 }
 
 export function createContact(data: CreateContactData, db: Db = prisma) {
@@ -340,6 +342,8 @@ export interface UpdateContactData {
   source?: string | null;
   // B6: el JSON entero que queda (el service ya mezcló y validó).
   customFields?: Prisma.InputJsonValue;
+  // ISSUE-010: una persona editó el nombre: deja de ser el del canal.
+  nameSetByChannel?: boolean;
 }
 
 // B6: la escritura del agente sobre los campos personalizados, y NADA más
@@ -598,6 +602,8 @@ export interface UpdateLeadQualificationData {
   // cuándo lo decide qualifyLead, no este repositorio.
   firstName?: string;
   lastName?: string;
+  // ISSUE-010: el agente reemplazó el nombre del canal (una sola vez).
+  nameSetByChannel?: boolean;
   email?: string;
   // Ya normalizado por el service.
   phone?: string;

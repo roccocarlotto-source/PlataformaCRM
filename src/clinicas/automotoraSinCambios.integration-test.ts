@@ -874,6 +874,7 @@ test("R16: contactos y configuración de una automotora sin el aviso de privacid
   assert.equal(lista.status, 200);
   for (const c of lista.json.data as Record<string, unknown>[]) {
     assert.ok(!("privacyNoticeSentAt" in c), "la lista no trae la fecha del aviso");
+    assert.ok(!("nameSetByChannel" in c), "ni la marca del nombre del canal (ISSUE-010)");
   }
   const uno = await pedir(
     conSucursales,
@@ -884,6 +885,7 @@ test("R16: contactos y configuración de una automotora sin el aviso de privacid
   );
   assert.equal(uno.status, 200);
   assert.ok(!("privacyNoticeSentAt" in uno.json));
+  assert.ok(!("nameSetByChannel" in uno.json));
 
   const config = await pedir(conSucursales, "GET", "/api/organization", undefined, comoAdmin);
   assert.equal(config.status, 200);

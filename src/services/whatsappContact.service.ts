@@ -118,6 +118,9 @@ export async function resolverContactoPorTelefono(
         // "+" y solo dígitos: la forma única de Contact.phone (F5).
         phone: telefono,
         source: nuevo.source,
+        // ISSUE-010: el nombre es el del perfil (o el provisorio): lo puso el
+        // canal, y en una clínica el agente lo puede reemplazar una vez.
+        nameSetByChannel: true,
       },
       tx,
     );

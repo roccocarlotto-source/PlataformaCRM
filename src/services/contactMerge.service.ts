@@ -239,6 +239,8 @@ export function datosDelQueQueda(
     leadBudgetAmount: presupuesto.leadBudgetAmount,
     leadBudgetCurrency: presupuesto.leadBudgetCurrency,
     leadLocation: de("leadLocation").leadLocation,
+    // ISSUE-010: una persona eligió el nombre: deja de ser el del canal.
+    nameSetByChannel: false,
   };
   // El vehículo de interés no se elige: si el que queda no tiene uno y el
   // unido sí, se conserva el del unido (con quién lo cargó, que va junto por

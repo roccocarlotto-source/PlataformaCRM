@@ -1214,6 +1214,12 @@ model Contact {
   // automotora no lo ve (CAMPOS_DE_CLINICA).
   privacyNoticeSentAt DateTime? @map("privacy_notice_sent_at")
   noInterestNote      String?   @map("no_interest_note") @db.VarChar(200)
+  // ISSUE-010 de la QA de la primera clínica (2026-11-21): el nombre lo puso
+  // el canal (el perfil de WhatsApp) y nadie lo tocó todavía. En una clínica,
+  // el agente puede reemplazarlo UNA vez por el que da la persona; lo apaga
+  // reemplazarlo y que una persona edite el nombre en el panel. Una
+  // automotora no lo ve (CAMPOS_DE_CLINICA).
+  nameSetByChannel    Boolean   @default(false) @map("name_set_by_channel")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
