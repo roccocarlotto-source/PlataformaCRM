@@ -2,6 +2,11 @@ import { afterAll, afterEach, beforeAll } from "vitest";
 import { cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { server } from "./msw/server";
+import { fijarLocaleDeLosTests } from "./localeFijo";
+
+// El idioma de los tests es el del CI (en-US), no el de la máquina: ver
+// localeFijo.ts. La zona (UTC) va en vite.config.ts.
+fijarLocaleDeLosTests();
 
 // jsdom no implementa window.matchMedia. Sin un default, los números del
 // Dashboard que cuentan desde 0 (§37, useCountUp) animarían de verdad con
