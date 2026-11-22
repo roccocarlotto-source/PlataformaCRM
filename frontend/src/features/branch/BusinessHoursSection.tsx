@@ -9,6 +9,7 @@ import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Notice } from "../../design-system/Notice";
 import { WorkingHoursEditor } from "../resource/WorkingHoursEditor";
 import {
   agruparPorDia,
@@ -23,6 +24,9 @@ interface BusinessHoursSectionProps {
   branchId: string;
   // "Sucursal" o "sede" (docs/rubros.md §3). Sin el prop, "sucursal".
   sucursal?: Termino;
+  // En una clínica, sin horario propio la agenda no se limita al de la sede:
+  // se avisa (decisión de Rocco, 2026-11-22). Una automotora, como siempre.
+  esClinica?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,6 +53,7 @@ interface BusinessHoursSectionProps {
 export function BusinessHoursSection({
   branchId,
   sucursal = VOCABULARIO_AUTOMOTORA_POR_DEFECTO.sucursal,
+  esClinica = false,
 }: BusinessHoursSectionProps) {
   const cs = concordancia(sucursal);
   const confirm = useConfirm();
@@ -135,6 +140,11 @@ export function BusinessHoursSection({
   return (
     <Card heading="Horario de atención">
       <div className="ds-stack">
+        {datos.configured || !esClinica ? null : (
+          <Notice tone="warning" alert={false}>
+            Cargá el horario de la sede: hasta entonces la agenda no se limita.
+          </Notice>
+        )}
         {datos.configured ? null : (
           <p className="ds-hint">Usa el horario por defecto: lunes a sábado de 9:00 a 20:00.</p>
         )}

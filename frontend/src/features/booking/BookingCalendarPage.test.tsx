@@ -259,6 +259,10 @@ describe("BookingCalendarPage", () => {
     expect(
       screen.queryByRole("button", { name: /Dra\. López a las 20:00/ }),
     ).not.toBeInTheDocument();
+    // Una automotora no ve el aviso del horario de la sede.
+    expect(
+      screen.queryByText("Cargá el horario de la sede: hasta entonces la agenda no se limita."),
+    ).not.toBeInTheDocument();
   });
 
   // QA de la primera clínica (2026-11-21): con el horario de la sede (solo lo
@@ -692,6 +696,39 @@ describe("BookingCalendarPage en una clínica", () => {
     await within(dialogo).findByText(/Seleccionado: Ana/);
     await user.click(within(dialogo).getByRole("button", { name: "Reservar" }));
   }
+
+  // Decisión de Rocco (2026-11-22): una clínica sin horario de sede propio ve
+  // que la agenda no se limita; con horario, o en una automotora, no.
+  it("sin horario de sede propio, la agenda de una clínica avisa; con horario, no", async () => {
+    useAuthMock.mockReturnValue(mockAuthDeClinica());
+    let horarioDeLaSede: unknown = null;
+    server.use(
+      http.get(`${env.apiUrl}/api/resources/:id/working-hours`, () =>
+        HttpResponse.json({
+          workingHours: [{ weekday: "MONDAY", startTime: "09:00", endTime: "13:00" }],
+          horarioDeLaSede,
+        }),
+      ),
+      ...catalogHandlers(),
+      prestacionesHandler(),
+      bookingsHandler({}),
+    );
+    const { unmount } = renderPage();
+    expect(
+      await screen.findByText(
+        "Cargá el horario de la sede: hasta entonces la agenda no se limita.",
+      ),
+    ).toBeInTheDocument();
+    unmount();
+
+    horarioDeLaSede = [{ weekday: "MONDAY", startTime: "09:00", endTime: "20:00" }];
+    renderPage();
+    await irAlLunes();
+    await screen.findByRole("button", { name: "Reservar Dra. López a las 09:00" });
+    expect(
+      screen.queryByText("Cargá el horario de la sede: hasta entonces la agenda no se limita."),
+    ).not.toBeInTheDocument();
+  });
 
   it("Nuevo turno: horarios de todos los profesionales y el primero libre (sin resourceId)", async () => {
     useAuthMock.mockReturnValue(mockAuthDeClinica());

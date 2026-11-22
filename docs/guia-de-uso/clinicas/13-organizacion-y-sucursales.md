@@ -206,7 +206,9 @@ limita. Tampoco es el horario de cada profesional, que se carga en
 **El horario por defecto.** Si nunca cargaste uno, la sede usa lunes a
 sábado de 9:00 a 20:00 para los mensajes y la tarjeta lo avisa. Ese horario
 por defecto no limita la agenda: los turnos siguen solo el horario de cada
-profesional. Cargar uno propio es opcional.
+profesional. Mientras no cargues uno propio, la tarjeta y la [Agenda](/agenda)
+lo avisan: **"Cargá el horario de la sede: hasta entonces la agenda no se
+limita."** Cargar uno propio es opcional.
 
 **Cargar un horario propio.**
 

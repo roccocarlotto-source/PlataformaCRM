@@ -15,6 +15,7 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Notice } from "../../design-system/Notice";
 import { BranchSelect } from "../branch/BranchSelect";
 import { BRANCHES_PARA_SELECT, useBranches } from "../branch/queries";
 import { useContactNames } from "../opportunity/relationResolution";
@@ -139,6 +140,11 @@ export function BookingCalendarPage() {
   // para ofrecerlas también a quien no es el principal.
   const esClinica = me?.industry === "CLINICA";
   const prestaciones = usePrestaciones({ enabled: esClinica }).data?.prestaciones;
+  // Clínica sin horario de sede propio: la agenda no se limita a él (el
+  // horario de cualquier profesional de la sede lo trae; la columna ya lo
+  // pidió, así que es la misma consulta en caché). Una automotora no lo pide.
+  const horarioDeLaSede = useWorkingHours(esClinica ? recursos[0]?.id : undefined).data
+    ?.horarioDeLaSede;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -171,6 +177,12 @@ export function BookingCalendarPage() {
           ) : undefined
         }
       />
+
+      {esClinica && horarioDeLaSede === null ? (
+        <Notice tone="warning" alert={false}>
+          Cargá el horario de la sede: hasta entonces la agenda no se limita.
+        </Notice>
+      ) : null}
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>
