@@ -2771,6 +2771,18 @@ async function responderSinMedir(
   // En una clínica, con los mensajes y los términos que configuró el ADMIN
   // (una consulta); en una automotora, solo el nombre.
   const contextoDeLaRegla = await armarContextoDeLaRegla(reglas, organizationId, organizacion.name);
+  // Para la guarda de turnos de la salida: los turnos futuros que ya se leyeron
+  // para el prompt (src/services/afirmacionesDeTurnos.ts). Sin la sucursal, sin
+  // el dato: la guarda actúa como antes.
+  const contextoDeLaSalida = sucursal
+    ? {
+        ...contextoDeLaRegla,
+        turnosDelContacto: {
+          inicios: reservasDelContacto.map((r) => r.startsAt),
+          zona: sucursal.timezone,
+        },
+      }
+    : contextoDeLaRegla;
   const entrantesDelTurno = textosEntrantesDelTurno(ultimosMensajes, texto);
   const sinRespuesta: RespuestaEnLaConversacion = {
     resultado: {
@@ -3078,7 +3090,7 @@ async function responderSinMedir(
       reglas.correccionesDeSalida,
       escrito,
       auditoria,
-      contextoDeLaRegla,
+      contextoDeLaSalida,
     ) === null &&
     !devuelveElMensajeDelCliente(escrito, texto);
   // Un rubro con retoques de forma no suelta texto a medida que se escribe: los
@@ -3442,7 +3454,7 @@ async function responderSinMedir(
           reglas.correccionesDeSalida,
           respuestaFinal,
           auditoria,
-          contextoDeLaRegla,
+          contextoDeLaSalida,
         );
   if (respuestaFija) {
     // Ver arriba: sale tal cual.

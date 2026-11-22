@@ -959,7 +959,10 @@ const ESCENARIOS: Escenario[] = [
     agente: "clinica",
     criterio:
       "Centro de belleza: 'sí' a un horario ofrecido reserva en ese turno, sin 'te reservo' vacío",
-    msgs: ["Hola, quiero turno de manicura el viernes a las 10.", "Sí, dale."],
+    // Un horario que existe (Lucía, 40 min desde las 9: 09:00, 09:40, 10:20…). Con
+    // "a las 10" el modelo ofrecía dos y ante "sí" preguntaba cuál, con razón
+    // (eval del 2026-11-22).
+    msgs: ["Hola, quiero turno de manicura el viernes a las 9:40.", "Sí, dale."],
     toolsEsperadas: ["create_booking"],
     noDebeContener: [...PROMETE_PARA_DESPUES],
     chequeoDeDatos: async (contactId) => {
@@ -1420,6 +1423,21 @@ async function main() {
       if (esc.agente !== undefined) {
         await prisma.booking.deleteMany({ where: { organizationId: destino(esc).orgId } });
       }
+      // Y el stock vuelve a estar disponible: un reserve_vehicle de un escenario
+      // anterior deja la unidad RESERVED y fuera de la búsqueda, y el siguiente
+      // contesta "no hay ninguna publicada" (TR2 y TR3 del 2026-11-22). Las
+      // oportunidades (y sus actividades) se borran antes porque la reserva
+      // cuelga de ellas.
+      if (esc.agente === "taller" || esc.agente === "taller-turnos") {
+        await prisma.activity.deleteMany({
+          where: { organizationId: e.orgId, opportunityId: { not: null } },
+        });
+        await prisma.opportunity.deleteMany({ where: { organizationId: e.orgId } });
+        await prisma.vehicle.updateMany({
+          where: { organizationId: e.orgId, status: "RESERVED" },
+          data: { status: "AVAILABLE" },
+        });
+      }
       const medicion: Medicion = { ms: 0, costUsd: 0, llamadasSinCosto: 0 };
       let conversationId: string | null = null;
       console.log(`${"=".repeat(72)}\n${esc.id}: ${esc.criterio}\n${"=".repeat(72)}`);
@@ -1515,6 +1533,8 @@ async function main() {
       // Los dos juntos: un CHECK exige la unidad y quién la cargó, o ninguno.
       data: { vehicleOfInterestId: null, vehicleOfInterestSetBy: null },
     });
+    // reserve_vehicle deja su registro de cambios: va antes que el stock.
+    await prisma.vehicleChangeLog.deleteMany({ where: { organizationId } });
     await prisma.vehicle.deleteMany({ where: { organizationId } });
     await prisma.contact.deleteMany({ where: { organizationId } });
     await prisma.knowledgeBaseEntry.deleteMany({ where: { organizationId } });
