@@ -97,7 +97,9 @@ after(async () => {
   const where = { organizationId: clinica.id };
   await prisma.activity.deleteMany({ where });
   await prisma.outboxEvent.deleteMany({ where });
+  await prisma.bookingMessage.deleteMany({ where });
   await prisma.booking.deleteMany({ where });
+  await prisma.automation.deleteMany({ where });
   await prisma.userBranch.deleteMany({ where });
   await prisma.serviceType.deleteMany({ where });
   await prisma.workingHours.deleteMany({ where });
@@ -110,6 +112,7 @@ async function limpiar() {
   const where = { organizationId: clinica.id };
   await prisma.activity.deleteMany({ where });
   await prisma.outboxEvent.deleteMany({ where });
+  await prisma.bookingMessage.deleteMany({ where });
   await prisma.booking.deleteMany({ where });
 }
 
@@ -331,4 +334,88 @@ test("cierre automático: cierra lo que terminó hace más de 3 h, una sola vez,
   assert.equal(corregido.json.status, "NO_SHOW");
   const [noVino] = await eventos("booking.no_show");
   assert.equal((noVino.payload as { esCorreccion: boolean }).esCorreccion, true);
+});
+
+test("cierre automático: un turno con pedido de cancelación pendiente no se cierra ni dispara la reseña; reprogramado, sí", async () => {
+  await limpiar();
+  const regla = await prisma.automation.create({
+    data: {
+      organizationId: clinica.id,
+      name: "Recordatorio antes del turno",
+      triggerType: "booking.reminder_due",
+      actionType: "booking.send_reminder",
+      actionConfig: { messageText: "Recordatorio" },
+      isActive: false,
+    },
+  });
+  // El recordatorio de ese turno, respondido con un botón.
+  const respondido = (
+    t: { id: string; startsAt: Date },
+    response: "CONFIRMAR" | "CANCELAR",
+    bookingStartsAt = t.startsAt,
+  ) =>
+    prisma.bookingMessage.create({
+      data: {
+        organizationId: clinica.id,
+        bookingId: t.id,
+        contactId: ids.contactId,
+        automationId: regla.id,
+        kind: "REMINDER",
+        bookingStartsAt,
+        scheduledFor: LUNES(0),
+        nextAttemptAt: LUNES(0),
+        status: "SENT",
+        sentAt: LUNES(0),
+        response,
+        respondedAt: LUNES(1),
+        responseExternalId: `wamid.respuesta-${t.id}`,
+      },
+    });
+
+  // Tocó "Necesito cancelar" fuera de plazo: el turno siguió CONFIRMED.
+  const pidioCancelar = await turno(7);
+  await respondido(pidioCancelar, "CANCELAR");
+  // Pidió cancelar el horario anterior y Recepción lo reprogramó: es otro horario.
+  const reprogramado = await turno(6);
+  await respondido(reprogramado, "CANCELAR", LUNES(4));
+  // Confirmó: se cierra como siempre.
+  const confirmo = await turno(5);
+  await respondido(confirmo, "CONFIRMAR");
+
+  const r = await cerrarTurnosVencidos({ organizationId: clinica.id });
+  assert.equal(r.cerrados, 2);
+  const estado = async (id: string) =>
+    (await prisma.booking.findUniqueOrThrow({ where: { id } })).status;
+  assert.equal(await estado(pidioCancelar.id), "CONFIRMED", "lo decide Recepción");
+  assert.equal(await estado(reprogramado.id), "COMPLETED");
+  assert.equal(await estado(confirmo.id), "COMPLETED");
+
+  // Sin booking.completed no hay reseña ni control (R14 cuelga de ese evento).
+  const cerradosPorEvento = (await eventos("booking.completed")).map(
+    (e) => (e.payload as { bookingId: string }).bookingId,
+  );
+  assert.deepEqual(new Set(cerradosPorEvento), new Set([reprogramado.id, confirmo.id]));
+  assert.equal(
+    await prisma.bookingMessage.count({
+      where: { organizationId: clinica.id, bookingId: pidioCancelar.id, kind: { not: "REMINDER" } },
+    }),
+    0,
+  );
+  assert.equal(
+    await prisma.activity.count({
+      where: {
+        organizationId: clinica.id,
+        contactId: ids.contactId,
+        subject: { startsWith: PREFIJO_NOTA_CIERRE_AUTOMATICO },
+      },
+    }),
+    2,
+  );
+
+  // La pasada siguiente tampoco lo toca, y Recepción lo puede marcar a mano.
+  assert.equal((await cerrarTurnosVencidos({ organizationId: clinica.id })).cerrados, 0);
+  const marcado = await marcar(RECEPCION_CENTRO, pidioCancelar.id, "attended");
+  assert.equal(marcado.status, 200, JSON.stringify(marcado.json));
+  assert.equal(marcado.json.status, "COMPLETED");
+  assert.equal(marcado.json.completedBy, "PERSONA");
 });

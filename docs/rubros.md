@@ -1032,7 +1032,12 @@ las automotoras. **El comportamiento es el mismo**, y lo prueban los tests de
 >   R14:** puede esperar o tratar distinto un cierre automático antes de pedir la
 >   reseña. Si Recepción corrige después a No vino, llega como corrección.
 >   Idempotente por el CAS sobre `CONFIRMED`. Una automotora nunca cambia
->   sola.
+>   sola. **No cierra** un turno con pedido de cancelación pendiente: un
+>   recordatorio de ese mismo horario respondido con `CANCELAR` y el turno
+>   todavía `CONFIRMED` (tocó "Necesito cancelar" fuera de plazo). Lo decide
+>   Recepción, y sin `booking.completed` no hay reseña ni control. Si se
+>   reprograma, el pedido queda en el horario viejo y el cierre vuelve a
+>   aplicar (QA del 2026-11-21).
 
 - `PATCH /api/bookings/:id/attended` y `/no-show`, transiciones con el verbo en
   el path, como `cancel`. Solo desde `CONFIRMED` y después de `startsAt`.
