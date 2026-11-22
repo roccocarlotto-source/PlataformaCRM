@@ -196,6 +196,7 @@ export function ContactFormPage() {
   // Rubros (docs/rubros.md §3.1): los textos del contacto, y sin vehículo de
   // interés donde no hay stock (una clínica).
   const vocabulario = vocabularioDe(me);
+  const apellidoOpcional = esClinica(me);
   const etiquetaDeEtapa = etiquetasDeEtapa(vocabulario.contacto);
   const conStock = tieneModulo(me, "stock");
 
@@ -449,12 +450,18 @@ export function ContactFormPage() {
                   required
                 />
               </FormField>
-              <FormField label={<span className="ds-required">Apellido</span>}>
+              {/* ISSUE-028: en una clínica el apellido es opcional (en una
+                  peluquería es habitual tener solo el nombre). */}
+              <FormField
+                label={
+                  apellidoOpcional ? "Apellido" : <span className="ds-required">Apellido</span>
+                }
+              >
                 <input
                   type="text"
                   value={values.lastName}
                   onChange={(event) => setValues({ ...values, lastName: event.target.value })}
-                  required
+                  required={!apellidoOpcional}
                 />
               </FormField>
               <FormField label="Email">
