@@ -970,6 +970,38 @@ const ESCENARIOS: Escenario[] = [
       return n === 1 ? null : `quedaron ${String(n)} turnos (esperaba 1)`;
     },
   },
+  {
+    // QA de la primera clínica (2026-11-21, ISSUE-006): el modelo contestaba
+    // "como tu consulta está relacionada con un malestar físico, voy a pedirle a
+    // alguien del equipo…" y no ofrecía el masaje (2 de 2).
+    id: "CL3",
+    agente: "clinica",
+    criterio:
+      "Centro de belleza: 'me duele la espalda, quería un masaje' ofrece el masaje, sin derivar",
+    msgs: [
+      "Hola, hace unos días que me duele la espalda. Quería un masaje, ¿tienen lugar el viernes?",
+    ],
+    toolsEsperadasAlgunaDe: ["get_service_types", "get_availability"],
+    toolsProhibidas: ["request_human_handoff"],
+    noDebeContener: [
+      /malestar f[ií]sico/i,
+      /alguien (de nuestro|del) equipo/i,
+      /consulta de salud/i,
+    ],
+    debeCoincidir: [/masaje/i],
+  },
+  {
+    // El control de CL3: una molestia DESPUÉS de un servicio sí es una
+    // consulta de salud, y se deriva (la instrucción de ESTETICA).
+    id: "CL4",
+    agente: "clinica",
+    criterio: "Centro de belleza: una molestia después de un servicio se deriva, sin opinar",
+    msgs: [
+      "Hola, ayer me hice el masaje con ustedes y hoy me quedó la espalda peor que antes, ¿es normal?",
+    ],
+    toolsEsperadas: ["request_human_handoff"],
+    noDebeContener: [/es normal/i, /no es grave/i],
+  },
 ];
 
 async function montarOrganizacion() {
@@ -1244,6 +1276,14 @@ async function montarClinica() {
     durationMin: 40,
   });
   await definirProfesionales(org.id, manicura.id, [lucia.id]);
+  // CL3: el masaje que pide por un dolor de espalda (ISSUE-006).
+  const masaje = await createServiceType(org.id, {
+    branchId: sede.id,
+    resourceId: lucia.id,
+    name: "Masaje descontracturante",
+    durationMin: 50,
+  });
+  await definirProfesionales(org.id, masaje.id, [lucia.id]);
   const agente = await prisma.agent.create({
     data: {
       organizationId: org.id,
