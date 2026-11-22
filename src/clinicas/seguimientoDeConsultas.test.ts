@@ -21,6 +21,7 @@ import {
   MOTIVO_TURNO_DEL_PACIENTE,
   TEXTO_POR_DEFECTO_DE_CLINICA,
   prestacionParaElMensaje,
+  prestacionParaLaTarea,
 } from "./seguimientoDeConsultas";
 
 // ---------------------------------------------------------------------------
@@ -31,7 +32,9 @@ import {
 const AHORA = new Date("2027-03-01T15:00:00.000Z");
 const DIA = 24 * 60 * 60 * 1000;
 
-function contacto(): ContactoParaSeguimiento {
+function contacto(
+  leadServiceOfInterest: string | null = "Limpieza facial",
+): ContactoParaSeguimiento {
   return {
     id: "c1",
     firstName: "Ana",
@@ -39,7 +42,7 @@ function contacto(): ContactoParaSeguimiento {
     ownerId: "recepcion",
     deletedAt: null,
     noInterestAt: null,
-    leadServiceOfInterest: "Limpieza facial",
+    leadServiceOfInterest,
     vehicleOfInterest: null,
   };
 }
@@ -110,6 +113,12 @@ test("acción en una clínica sin turno: agenda, y la tarea nombra la prestació
   assert.doesNotMatch(registro.tareas[0].body, /vehículo/);
 });
 
+test("acción en una clínica sin prestación cargada: la tarea dice que no se sabe", async () => {
+  const { deps: d, registro } = deps({ leerContacto: async () => contacto(null) });
+  await correr(d, "MESSENGER");
+  assert.match(registro.tareas[0].body, /Le interesa: no se sabe./);
+});
+
 test("acción en una automotora: no lee turnos y la tarea es la de siempre", async () => {
   const { deps: d, registro } = deps({ esClinica: async () => false });
   await correr(d, "MESSENGER");
@@ -154,10 +163,23 @@ test("variables de la plantilla por rubro: sin rubro, las de siempre", () => {
   assert.ok(!VARIABLES_DE_CONSULTA_DE_CLINICA.some((v) => v.token === TOKEN_VEHICULO));
 });
 
+test("el texto por defecto sin prestación se lee bien (QA: «tu consulta sobre lo que consultaste»)", () => {
+  const texto = TEXTO_POR_DEFECTO_DE_CLINICA.replace("{saludo}", "Hola Flor").replace(
+    "{prestacion}",
+    prestacionParaElMensaje({ leadServiceOfInterest: null }),
+  );
+  assert.equal(
+    texto,
+    "¡Hola Flor! Te escribimos por tu consulta sobre nuestros servicios. ¿Querés que te ayudemos a coordinar un turno?",
+  );
+  assert.equal(prestacionParaLaTarea({ leadServiceOfInterest: " Peeling " }), "Peeling");
+  assert.equal(prestacionParaLaTarea({ leadServiceOfInterest: null }), "no se sabe");
+});
+
 test("prestacionParaElMensaje y el motivo del worker", () => {
   assert.equal(prestacionParaElMensaje({ leadServiceOfInterest: " Peeling " }), "Peeling");
-  assert.equal(prestacionParaElMensaje({ leadServiceOfInterest: null }), "lo que consultaste");
-  assert.equal(prestacionParaElMensaje({ leadServiceOfInterest: "  " }), "lo que consultaste");
+  assert.equal(prestacionParaElMensaje({ leadServiceOfInterest: null }), "nuestros servicios");
+  assert.equal(prestacionParaElMensaje({ leadServiceOfInterest: "  " }), "nuestros servicios");
   const fila = {
     automation: { isActive: true, deletedAt: null },
     contact: {
