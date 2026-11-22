@@ -67,6 +67,20 @@ export function cuandoEnLaSede(fecha: Date, zona: string): string {
     .toFormat("cccc d 'de' LLLL, HH:mm");
 }
 
+// ---------------------------------------------------------------------------
+// QUÉ PRESTACIÓN Y CUÁNTOS HORARIOS (ISSUE-018 de la QA de la primera clínica)
+// ---------------------------------------------------------------------------
+// A "quiero cortarme el pelo" el modelo eligió solo "Corte masculino" (había
+// también otro corte) y le listó 32 horarios a la clienta. Las dos tools le
+// dicen qué hacer en ese momento, que es cuando el modelo mira la lista.
+export const PREGUNTAR_SI_HAY_MAS_DE_UNA =
+  "Si lo que pidió la persona puede ser más de una de estas prestaciones (por ejemplo, pide un corte y hay más de un corte), preguntale cuál quiere, nombrando las opciones, ANTES de consultar la disponibilidad: no elijas vos.";
+
+/** Cuántos horarios ofrecerle de una vez. */
+export const MAX_HORARIOS_PARA_OFRECER = 4;
+
+export const OFRECER_POCOS = `Hay muchos horarios libres: NO se los listes todos. Ofrecé como mucho ${String(MAX_HORARIOS_PARA_OFRECER)}, los más cercanos a lo que pidió la persona (o repartidos en el día, si no pidió una hora), y decile que hay más. Si ninguno le sirve, ofrecé otros de esta misma lista.`;
+
 export const MENSAJE_PRESTACION_DE_OTRA_SEDE =
   "Esa prestación es de otra sede: solo podés agendar en la sede de esta conversación.";
 
@@ -118,7 +132,9 @@ const getServiceTypesDeClinica: ToolDelAgente = {
     );
     return exito({
       proximosPasos:
-        "Estas son las ÚNICAS prestaciones que existen: no ofrezcas ninguna que no esté acá. Para consultar disponibilidad y para reservar, referite a la prestación por su NOMBRE tal cual figura acá (campo `servicio`). Si la persona quiere un profesional en particular, mandá su id como resourceId; si le da lo mismo, no lo mandes y se le ofrecen todos. NO le digas que el turno quedó agendado hasta que la reserva te devuelva un resultado exitoso.",
+        "Estas son las ÚNICAS prestaciones que existen: no ofrezcas ninguna que no esté acá. " +
+        PREGUNTAR_SI_HAY_MAS_DE_UNA +
+        " Para consultar disponibilidad y para reservar, referite a la prestación por su NOMBRE tal cual figura acá (campo `servicio`). Si la persona quiere un profesional en particular, mandá su id como resourceId; si le da lo mismo, no lo mandes y se le ofrecen todos. NO le digas que el turno quedó agendado hasta que la reserva te devuelva un resultado exitoso.",
       serviceTypes: prestaciones.map((p) => ({
         id: p.id,
         name: p.name,
@@ -187,6 +203,7 @@ const getAvailabilityDeClinica: ToolDelAgente = {
       });
       const zona = await zonaDeLaSucursal(contexto);
       return exito({
+        ...(turnos.length > MAX_HORARIOS_PARA_OFRECER ? { proximosPasos: OFRECER_POCOS } : {}),
         zonaHoraria: zona,
         turnos: turnos.map((t) => ({
           cuando: cuandoEnLaSede(t.inicio, zona),

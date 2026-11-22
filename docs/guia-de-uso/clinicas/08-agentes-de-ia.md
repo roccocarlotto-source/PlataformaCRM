@@ -188,13 +188,16 @@ Estas son las acciones que ve una clínica:
 **Ver prestaciones.** Lista las prestaciones de la sede, con su duración y los
 profesionales que las atienden. La usa antes de consultar disponibilidad, para
 saber qué prestación pide el paciente. Solo ofrece las prestaciones que están
-en esa lista.
+en esa lista. Si lo que pide puede ser más de una (por ejemplo, "cortarme el
+pelo" y hay **Corte de dama** y **Corte masculino**), le pregunta cuál, con
+las opciones, en vez de elegir por su cuenta.
 
 **Consultar disponibilidad.** Busca los horarios libres de una prestación en
 un rango de fechas. Si el paciente pidió un profesional, mira solo el de ese
 profesional; si le da lo mismo, mira los de todos los profesionales de la
 prestación. La usa antes de agendar, y también cuando el paciente pregunta
-cuándo puede ir.
+cuándo puede ir. Si hay muchos horarios libres, ofrece unos pocos (hasta
+cuatro, los más cercanos a lo que pidió) y avisa que hay más.
 
 **La acción de agendar el turno.** En la lista aparece justo después de
 **Consultar disponibilidad**. Agenda el turno para el paciente en uno de los

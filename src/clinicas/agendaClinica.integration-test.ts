@@ -19,7 +19,11 @@ import { createResource } from "../services/resource.service";
 import { createServiceType } from "../services/serviceType.service";
 import { replaceWorkingHoursForResource } from "../services/workingHours.service";
 import { MENSAJE_NINGUN_PROFESIONAL_LIBRE } from "./services/agendaClinica.service";
-import { TOOLS_DE_AGENDA_DE_CLINICA } from "./toolsDeAgenda";
+import {
+  MAX_HORARIOS_PARA_OFRECER,
+  OFRECER_POCOS,
+  TOOLS_DE_AGENDA_DE_CLINICA,
+} from "./toolsDeAgenda";
 
 // ---------------------------------------------------------------------------
 // Agenda de clínica contra la app real y Postgres (docs/rubros.md §4.3, R5).
@@ -325,6 +329,26 @@ test("tools de clínica: get_service_types con profesionales; get_availability c
   assert.deepEqual(
     turnos.map((t) => t.profesional.name),
     ["Ana Profesional", "Bruno Profesional"],
+  );
+  // ISSUE-018: con pocos horarios no hay indicación; con muchos, ofrecer pocos.
+  assert.equal("proximosPasos" in (disponibilidad as { data: object }).data, false);
+  // Una prestación de 15 minutos con Bruno: 16 horarios de 9 a 13.
+  await createServiceType(clinica.id, {
+    branchId: agenda.branchId,
+    resourceId: agenda.bruno,
+    name: "Retoque de cejas",
+    durationMin: 15,
+  });
+  const todoElDia = await TOOLS_DE_AGENDA_DE_CLINICA.get_availability.ejecutar(
+    { servicio: "Retoque de cejas", desde: A_LAS(0), hasta: A_LAS(20) },
+    contexto,
+  );
+  const delDia = (todoElDia as { data: { turnos: unknown[]; proximosPasos?: string } }).data;
+  assert.ok(delDia.turnos.length > MAX_HORARIOS_PARA_OFRECER, String(delDia.turnos.length));
+  assert.equal(delDia.proximosPasos, OFRECER_POCOS);
+  assert.match(
+    (tipos as { data: { proximosPasos: string } }).data.proximosPasos,
+    /preguntale cuál quiere/,
   );
 
   const reserva = await TOOLS_DE_AGENDA_DE_CLINICA.create_booking.ejecutar(
