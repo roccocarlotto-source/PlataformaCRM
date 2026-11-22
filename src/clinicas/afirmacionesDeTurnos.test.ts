@@ -1,127 +1,104 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ToolCallDelTurno } from "../services/agentOrchestration.service";
-import { reglasDelRubro, primeraCorreccionDeSalida } from "../services/reglasDelRubro";
+import { accionesAfirmadas, REGLA_AFIRMACION_SIN_ACCION } from "../services/afirmacionesDeTurnos";
 import {
-  accionesAfirmadas,
-  accionesHechas,
-  afirmacionesSinRespaldo,
-  type AccionSobreTurnos,
-} from "./afirmacionesDeTurnos";
+  MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA,
+  primeraCorreccionDeSalida,
+  reglasDelRubro,
+} from "../services/reglasDelRubro";
+import {
+  CODIGO_TURNO_REPETIDO,
+  CUERPO_DE_LA_TAREA_TURNO_REPETIDO,
+  MOTIVO_CAMBIO_DE_TURNO_POR_EL_CHAT,
+  mensajeDeTurnoRepetido,
+} from "../services/turnoRepetido";
 import { MENSAJE_AFIRMACION_SIN_ACCION } from "./config/textosDelAgente";
 import { daIndicacionClinica } from "./guardrailsDeSalud";
+import { CODIGO_FUERA_DE_PLAZO } from "./toolsDeTurnos";
 
 // ---------------------------------------------------------------------------
-// El agente de una clínica no afirma un turno agendado, movido o cancelado
-// que la tool no hizo en ese turno (prueba de la Clínica Demo, 2026-10-11).
-// Sin base: el detector y la regla.
+// Las reglas de cada rubro sobre los turnos del agente (el detector, en
+// src/services/afirmacionesDeTurnos.test.ts):
+//   - la guarda de salida: un turno afirmado o prometido sin la tool que lo
+//     hace no sale, y va el mensaje fijo del rubro (los dos rubros desde la QA
+//     de la primera clínica, 2026-11-21);
+//   - la derivación desde el código cuando create_booking rechaza por un turno
+//     repetido (src/services/turnoRepetido.ts), en los dos rubros.
 // ---------------------------------------------------------------------------
 
-const AFIRMAN: [string, AccionSobreTurnos][] = [
-  // El caso real de la demo.
-  ["He reservado para vos un turno con la Dra. Ejemplo. ¿Querés que te lo confirme?", "AGENDAR"],
-  ["Listo, te reservé el lunes 12 a las 9:30.", "AGENDAR"],
-  ["Ya agendé tu turno para el martes.", "AGENDAR"],
-  ["Tu turno quedó agendado para el lunes.", "AGENDAR"],
-  ["Quedó confirmado tu turno del lunes a las 10.", "AGENDAR"],
-  ["Hemos reservado tu lugar.", "AGENDAR"],
-  ["Reprogramé tu turno para el jueves.", "REPROGRAMAR"],
-  ["Cambié tu turno al jueves a las 11.", "REPROGRAMAR"],
-  ["Listo, lo pasé para el viernes a las 10.", "REPROGRAMAR"],
-  ["Tu turno quedó reprogramado.", "REPROGRAMAR"],
-  ["Cancelé tu turno del lunes.", "CANCELAR"],
-  ["Tu turno quedó cancelado.", "CANCELAR"],
-  ["El turno ha sido cancelado.", "CANCELAR"],
-  ["Tu turno fue cancelado, cualquier cosa escribime.", "CANCELAR"],
-  ["Listo, se canceló el turno.", "CANCELAR"],
-];
+const contexto = { nombreDeLaOrganizacion: "Negocio Ejemplo" };
+const PROMESA = "Te reservo el turno del viernes a las 9:40. En un momento te confirmo la reserva.";
 
-const NO_AFIRMAN = [
-  "¿Querés que te reserve el lunes a las 9:30?",
-  "¿Lo cancelamos?",
-  "Todavía no quedó reservado: necesito tu apellido.",
-  "No reservé nada todavía.",
-  "Aún no cancelé el turno; ¿me confirmás?",
-  "Tenés un turno el lunes 12 de octubre a las 9:30 con la Dra. Ejemplo.",
-  "Hay lugar el lunes a las 9:30 y a las 10:30. ¿Cuál preferís?",
-  "Si querés, lo reservamos ahora.",
-  "Te pasé los precios más arriba.",
-  "Quedó registrado tu email, gracias.",
-  "He cambiado tus datos de contacto.",
-  "Para cancelar, decime cuál de tus turnos es.",
-  "Este es el resumen: lunes 12 de octubre, 09:30, Limpieza facial. ¿Confirmás que lo querés cancelar?",
-];
-
-test("detecta las afirmaciones de un turno hecho", () => {
-  for (const [frase, accion] of AFIRMAN) {
-    assert.ok(accionesAfirmadas(frase).has(accion), frase);
+test("los dos rubros corrigen una afirmación o una promesa sin respaldo, cada uno con su mensaje fijo", () => {
+  for (const [rubro, mensaje] of [
+    ["CLINICA", MENSAJE_AFIRMACION_SIN_ACCION],
+    ["AUTOMOTORA", MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA],
+  ] as const) {
+    const correcciones = reglasDelRubro(rubro).correccionesDeSalida;
+    for (const respuesta of ["Te reservé el lunes.", PROMESA, "Te reservé el test drive."]) {
+      assert.deepEqual(
+        primeraCorreccionDeSalida(correcciones, respuesta, [], contexto),
+        { regla: REGLA_AFIRMACION_SIN_ACCION, mensaje },
+        `${rubro}: ${respuesta}`,
+      );
+    }
+    // Una pregunta, o la reserva hecha en este turno, salen.
+    assert.equal(
+      primeraCorreccionDeSalida(correcciones, "¿Te reservo el lunes a las 9?", [], contexto),
+      null,
+    );
+    const reserva: ToolCallDelTurno = {
+      id: "c1",
+      name: "create_booking",
+      arguments: {},
+      allowed: true,
+      result: { ok: true, data: { bookingId: "b1" } },
+    };
+    assert.equal(primeraCorreccionDeSalida(correcciones, PROMESA, [reserva], contexto), null);
+    // El mensaje fijo no afirma nada.
+    assert.deepEqual([...accionesAfirmadas(mensaje)], [], mensaje);
   }
+  // Y el de una clínica tampoco dispara la capa 3.
+  assert.equal(daIndicacionClinica(MENSAJE_AFIRMACION_SIN_ACCION), false);
 });
 
-test("no confunde preguntas, negaciones, turnos que ya existen ni otras acciones", () => {
-  for (const frase of NO_AFIRMAN) {
-    assert.deepEqual([...accionesAfirmadas(frase)], [], frase);
-  }
-});
-
-function llamada(
-  name: string,
-  result: ToolCallDelTurno["result"],
-  allowed = true,
-): ToolCallDelTurno {
-  return { id: `c-${name}`, name, arguments: {}, allowed, result };
+function rechazo(codigo: string): ToolCallDelTurno {
+  return {
+    id: "c1",
+    name: "create_booking",
+    arguments: {},
+    allowed: true,
+    result: { ok: false, error: "ya tiene un turno de ese servicio", codigo },
+  };
 }
 
-test("lo respalda solo la tool que lo hace, con ok y en este turno", () => {
-  const reserva = llamada("create_booking", { ok: true, data: { bookingId: "b1" } });
-  const movido = llamada("reschedule_booking", { ok: true, data: { bookingId: "b1" } });
-  const resumen = llamada("cancel_booking", {
-    ok: true,
-    data: { bookingId: "b1", requiereConfirmacion: true, cancelado: false },
-  });
-  const cancelado = llamada("cancel_booking", {
-    ok: true,
-    data: { bookingId: "b1", cancelado: true },
-  });
-  const fallida = llamada("create_booking", { ok: false, error: "Ocupado" });
-  const bloqueada = llamada("create_booking", undefined, false);
-  const consulta = llamada("get_availability", { ok: true, data: { turnos: [] } });
-
-  assert.deepEqual([...accionesHechas([reserva])], ["AGENDAR"]);
-  assert.deepEqual([...accionesHechas([movido])].sort(), ["AGENDAR", "REPROGRAMAR"]);
-  assert.deepEqual([...accionesHechas([resumen, fallida, bloqueada, consulta])], []);
-  assert.deepEqual([...accionesHechas([cancelado])], ["CANCELAR"]);
-
-  const caso = "He reservado para vos un turno con la Dra. Ejemplo.";
-  assert.deepEqual(afirmacionesSinRespaldo(caso, []), ["AGENDAR"]);
-  assert.deepEqual(afirmacionesSinRespaldo(caso, [consulta]), ["AGENDAR"]);
-  assert.deepEqual(afirmacionesSinRespaldo(caso, [reserva]), []);
-  assert.deepEqual(afirmacionesSinRespaldo("Tu turno quedó cancelado.", [resumen]), ["CANCELAR"]);
-  assert.deepEqual(afirmacionesSinRespaldo("Tu turno quedó cancelado.", [cancelado]), []);
-  assert.deepEqual(afirmacionesSinRespaldo("Cancelé tu turno.", [reserva]), ["CANCELAR"]);
-});
-
-test("la regla de clínica corrige con el mensaje fijo, y el de una automotora no tiene ninguna", () => {
-  const contexto = { nombreDeLaOrganizacion: "Clínica Ejemplo" };
-  const clinica = reglasDelRubro("CLINICA").correccionesDeSalida;
-  assert.deepEqual(primeraCorreccionDeSalida(clinica, "Te reservé el lunes.", [], contexto), {
-    regla: "afirmacion_de_turno_sin_accion",
-    mensaje: MENSAJE_AFIRMACION_SIN_ACCION,
-  });
+test("un turno repetido sin reschedule_booking deriva desde el código, con tarea 'quiere cambiar su turno', en los dos rubros", () => {
+  for (const rubro of ["CLINICA", "AUTOMOTORA"] as const) {
+    const desenlace = reglasDelRubro(rubro).desenlaceDeLasTools;
+    assert.ok(desenlace, rubro);
+    assert.deepEqual(desenlace([rechazo(CODIGO_TURNO_REPETIDO)], contexto), {
+      tipo: "derivar",
+      decision: {
+        regla: "turno_del_mismo_servicio",
+        motivo: MOTIVO_CAMBIO_DE_TURNO_POR_EL_CHAT,
+        mensaje: mensajeDeTurnoRepetido("Negocio Ejemplo"),
+        aviso: { cuerpo: CUERPO_DE_LA_TAREA_TURNO_REPETIDO, urgente: false },
+      },
+    });
+    // Un rechazo sin código (con reschedule_booking, el modelo la usa) no deriva.
+    const sinCodigo: ToolCallDelTurno = {
+      ...rechazo(CODIGO_TURNO_REPETIDO),
+      result: { ok: false, error: "usá reschedule_booking" },
+    };
+    assert.equal(desenlace([sinCodigo], contexto), null, rubro);
+  }
+  assert.match(CUERPO_DE_LA_TAREA_TURNO_REPETIDO, /^Quiere cambiar su turno/);
+  // El "fuera de plazo" sigue siendo solo de clínica.
   assert.equal(
-    primeraCorreccionDeSalida(clinica, "¿Te reservo el lunes a las 9?", [], contexto),
+    reglasDelRubro("AUTOMOTORA").desenlaceDeLasTools?.([rechazo(CODIGO_FUERA_DE_PLAZO)], contexto),
     null,
   );
-  assert.equal(
-    primeraCorreccionDeSalida(
-      reglasDelRubro("AUTOMOTORA").correccionesDeSalida,
-      "Te reservé el test drive.",
-      [],
-      contexto,
-    ),
-    null,
-  );
-  // El mensaje fijo no afirma nada ni dispara la capa 3.
-  assert.deepEqual([...accionesAfirmadas(MENSAJE_AFIRMACION_SIN_ACCION)], []);
-  assert.equal(daIndicacionClinica(MENSAJE_AFIRMACION_SIN_ACCION), false);
+  // El mensaje a la persona no afirma un turno hecho.
+  assert.deepEqual([...accionesAfirmadas(mensajeDeTurnoRepetido("Negocio Ejemplo"))], []);
 });

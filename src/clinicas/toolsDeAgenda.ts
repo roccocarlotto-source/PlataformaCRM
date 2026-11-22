@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { countFutureConfirmedBookingsOfContact } from "../repositories/booking.repository";
+import { listFutureConfirmedBookingsOfContact } from "../repositories/booking.repository";
 import { findManyServiceTypes, findServiceTypeById } from "../repositories/serviceType.repository";
 import {
   MAX_RESERVAS_FUTURAS_POR_CONTACTO,
@@ -11,6 +11,7 @@ import {
   exitoVacio,
   fallo,
   getAvailabilityArgs,
+  rechazoPorTurnoRepetido,
   resolverServicio,
   sinParametros,
   validarArgs,
@@ -236,16 +237,20 @@ const createBookingDeClinica: ToolDelAgente = {
     return conErroresDeNegocio(async () => {
       const bloqueo = await bloqueoPorIdentidad(contexto, TERMINO_DE_LAS_TOOLS);
       if (bloqueo) return bloqueo;
-      const futuras = await countFutureConfirmedBookingsOfContact(
+      const futuras = await listFutureConfirmedBookingsOfContact(
         contexto.conversation.contactId,
         contexto.organizationId,
         relojDeReservas.ahora(),
       );
-      if (futuras >= MAX_RESERVAS_FUTURAS_POR_CONTACTO) {
+      if (futuras.length >= MAX_RESERVAS_FUTURAS_POR_CONTACTO) {
         return fallo(MENSAJE_TOPE_DE_TURNOS);
       }
       const prestacion = await prestacionDeLaSede(input, contexto);
       if (!prestacion.ok) return prestacion.resultado;
+      // Ya tiene un turno futuro de esa prestación: no se crea otro
+      // (src/services/turnoRepetido.ts).
+      const repetido = await rechazoPorTurnoRepetido(futuras, prestacion.serviceTypeId, contexto);
+      if (repetido) return repetido;
 
       const booking = await crearTurnoDeClinica(contexto.organizationId, {
         serviceTypeId: prestacion.serviceTypeId,

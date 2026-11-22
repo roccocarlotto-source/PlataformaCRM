@@ -66,5 +66,16 @@ test("solo CLINICA tiene tools propias; una automotora, ninguna (solo sus tools 
   // Desde el 2026-10-31, lo único que una automotora suma: ver, reprogramar y
   // cancelar turnos (src/automotora/toolsDeTurnos.ts).
   assert.equal(reglasDelRubro("AUTOMOTORA").toolsExclusivas, TOOLS_DE_TURNOS_DE_AUTOMOTORA);
-  assert.deepEqual({ ...reglasDelRubro("AUTOMOTORA"), toolsExclusivas: {} }, SIN_REGLAS);
+  // Desde la QA de la primera clínica (2026-11-21) también la guarda de los
+  // turnos y la derivación por turno repetido; lo fija
+  // src/clinicas/automotoraSinCambios.test.ts. Acá, que no tiene tools propias.
+  assert.deepEqual(
+    {
+      ...reglasDelRubro("AUTOMOTORA"),
+      toolsExclusivas: {},
+      correccionesDeSalida: [],
+      desenlaceDeLasTools: null,
+    },
+    SIN_REGLAS,
+  );
 });

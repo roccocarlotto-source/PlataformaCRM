@@ -52,7 +52,13 @@ import {
 import { createPipeline } from "./pipeline.service";
 import { createResource } from "./resource.service";
 import { createServiceType } from "./serviceType.service";
+import { MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA } from "./reglasDelRubro";
 import { createStage } from "./stage.service";
+import {
+  CODIGO_TURNO_REPETIDO,
+  CUERPO_DE_LA_TAREA_TURNO_REPETIDO,
+  mensajeDeTurnoRepetido,
+} from "./turnoRepetido";
 import { replaceWorkingHoursForResource } from "./workingHours.service";
 
 // ---------------------------------------------------------------------------
@@ -3444,10 +3450,23 @@ test("D4: el agente no le agenda a un contacto más de 2 reservas futuras activa
   const e = await montar("d4-tope", { enabledTools: ["create_booking"] });
   try {
     const serviceType = await agendaDeLunes(e);
-    const fila = (startsAt: string, status: "CONFIRMED" | "CANCELLED") => ({
+    // La futura activa es de OTRO servicio: desde la QA de la primera clínica
+    // (2026-11-21) una del mismo servicio ya se rechaza antes del tope
+    // (src/services/turnoRepetido.ts, tests "turno repetido" más abajo).
+    const otroServicio = await createServiceType(e.organizationId, {
+      branchId: e.branchId,
+      resourceId: serviceType.resourceId,
+      name: "Tasación",
+      durationMin: 60,
+    });
+    const fila = (
+      startsAt: string,
+      status: "CONFIRMED" | "CANCELLED",
+      serviceTypeId = serviceType.id,
+    ) => ({
       organizationId: e.organizationId,
       branchId: e.branchId,
-      serviceTypeId: serviceType.id,
+      serviceTypeId,
       resourceId: serviceType.resourceId,
       contactId: e.contactId,
       startsAt: new Date(startsAt),
@@ -3459,7 +3478,7 @@ test("D4: el agente no le agenda a un contacto más de 2 reservas futuras activa
       data: [
         fila("2026-08-31T12:00:00Z", "CONFIRMED"), // el lunes pasado: ya pasó
         fila("2026-09-07T15:00:00Z", "CANCELLED"), // futura pero cancelada
-        fila("2026-09-07T13:00:00Z", "CONFIRMED"), // la única futura activa
+        fila("2026-09-07T13:00:00Z", "CONFIRMED", otroServicio.id), // la única futura activa
       ],
     });
 
@@ -3489,6 +3508,154 @@ test("D4: el agente no le agenda a un contacto más de 2 reservas futuras activa
       },
     });
     assert.equal(futurasActivas, MAX_RESERVAS_FUTURAS_POR_CONTACTO);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Turno repetido (QA de la primera clínica, 2026-11-21; src/services/
+// turnoRepetido.ts). Una persona con un turno futuro pidió "pasarlo a otro
+// día" y el agente llamó a create_booking: quedaron dos. Ahora create_booking
+// no reserva otro del mismo servicio. Acá, en una AUTOMOTORA (la misma tool
+// del catálogo); en una clínica, src/clinicas/toolsDeTurnos.integration-test.ts.
+// ---------------------------------------------------------------------------
+
+async function conUnTurnoFuturo(e: Escenario) {
+  const serviceType = await agendaDeLunes(e);
+  // El reloj de las reservas está fijo en el domingo 06/09/2026 12:00Z: el
+  // lunes 07 a las 10 (13:00Z) es futuro.
+  const existente = await prisma.booking.create({
+    data: {
+      organizationId: e.organizationId,
+      branchId: e.branchId,
+      serviceTypeId: serviceType.id,
+      resourceId: serviceType.resourceId,
+      contactId: e.contactId,
+      startsAt: new Date("2026-09-07T13:00:00Z"),
+      endsAt: new Date("2026-09-07T14:00:00Z"),
+    },
+  });
+  return { serviceType, existente };
+}
+
+async function turnosActivosDelContacto(e: Escenario) {
+  return prisma.booking.count({
+    where: { organizationId: e.organizationId, contactId: e.contactId, status: "CONFIRMED" },
+  });
+}
+
+test("turno repetido sin reschedule_booking (la automotora de hoy): no crea otro, el código deriva con la tarea 'quiere cambiar su turno' y no vuelve al modelo", async () => {
+  const e = await montar("repetido-deriva", { enabledTools: ["create_booking"] });
+  try {
+    const { serviceType } = await conUnTurnoFuturo(e);
+    const doble = doblarProveedor([
+      pideTool("c1", "create_booking", { serviceTypeId: serviceType.id, startsAt: LUNES_9_LOCAL }),
+      texto("Listo, te lo pasé a las 9."),
+    ]);
+    const resultado = await turno(e, "Pasame el test drive a las 9", doble.proveedor);
+
+    const rechazo = resultado.toolCalls[0].result;
+    assert.equal(rechazo?.ok, false);
+    assert.equal(rechazo?.ok === false ? rechazo.codigo : undefined, CODIGO_TURNO_REPETIDO);
+    assert.equal(await turnosActivosDelContacto(e), 1, "no se creó un segundo turno");
+    // El código cerró el turno: una sola llamada al modelo, y el mensaje fijo.
+    assert.equal(doble.requests.length, 1);
+    const org = await prisma.organization.findUniqueOrThrow({ where: { id: e.organizationId } });
+    assert.equal(resultado.respuesta, mensajeDeTurnoRepetido(org.name));
+    assert.equal(resultado.status, "TRANSFERRED_TO_HUMAN");
+    const tareas = await prisma.activity.findMany({
+      where: { organizationId: e.organizationId, contactId: e.contactId, type: "TASK" },
+    });
+    assert.equal(tareas.length, 1);
+    assert.equal(tareas[0].body, CUERPO_DE_LA_TAREA_TURNO_REPETIDO);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("turno repetido con reschedule_booking ofrecida: no crea otro y le devuelve al modelo el turno para que lo reprograme; no deriva", async () => {
+  const e = await montar("repetido-reprograma", {
+    enabledTools: ["create_booking", "get_contact_bookings", "reschedule_booking"],
+  });
+  try {
+    const { serviceType, existente } = await conUnTurnoFuturo(e);
+    const doble = doblarProveedor([
+      pideTool("c1", "create_booking", { serviceTypeId: serviceType.id, startsAt: LUNES_9_LOCAL }),
+      texto("Ya tenés un test drive el lunes a las 10. ¿Querés que lo pase a las 9?"),
+    ]);
+    const resultado = await turno(e, "Pasame el test drive a las 9", doble.proveedor);
+
+    const rechazo = resultado.toolCalls[0].result;
+    assert.equal(rechazo?.ok, false);
+    assert.equal(rechazo?.ok === false ? rechazo.codigo : "sin rechazo", undefined);
+    assert.match(errorDe(resultado.toolCalls[0]), /usá reschedule_booking con ese bookingId/);
+    assert.ok(errorDe(resultado.toolCalls[0]).includes(existente.id));
+    assert.equal(await turnosActivosDelContacto(e), 1);
+    // El modelo siguió: segunda llamada, su respuesta, sin derivar.
+    assert.equal(doble.requests.length, 2);
+    assert.equal(
+      resultado.respuesta,
+      "Ya tenés un test drive el lunes a las 10. ¿Querés que lo pase a las 9?",
+    );
+    assert.notEqual(resultado.status, "TRANSFERRED_TO_HUMAN");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("turno repetido: un turno de OTRO servicio sí se reserva, y los cancelados o pasados del mismo no cuentan", async () => {
+  const e = await montar("repetido-otro", { enabledTools: ["create_booking"] });
+  try {
+    const { serviceType, existente } = await conUnTurnoFuturo(e);
+    const otroServicio = await createServiceType(e.organizationId, {
+      branchId: e.branchId,
+      resourceId: serviceType.resourceId,
+      name: "Tasación",
+      durationMin: 60,
+    });
+    const doble = doblarProveedor([
+      pideTool("c1", "create_booking", { serviceTypeId: otroServicio.id, startsAt: LUNES_9_LOCAL }),
+      texto("Te reservé la tasación el lunes a las 9."),
+    ]);
+    const resultado = await turno(e, "Y tasame el auto el lunes a las 9", doble.proveedor);
+    assert.equal(resultado.toolCalls[0].result?.ok, true, JSON.stringify(resultado.toolCalls[0]));
+    assert.equal(await turnosActivosDelContacto(e), 2);
+
+    // Cancelado el del mismo servicio, se puede reservar otro.
+    await prisma.booking.update({ where: { id: existente.id }, data: { status: "CANCELLED" } });
+    const doble2 = doblarProveedor([
+      pideTool("c1", "create_booking", {
+        serviceTypeId: serviceType.id,
+        startsAt: "2026-09-07T14:00:00Z",
+      }),
+      texto("Te reservé el test drive el lunes a las 11."),
+    ]);
+    const segundo = await turno(e, "Quiero el test drive a las 11", doble2.proveedor);
+    assert.equal(segundo.toolCalls[0].result?.ok, true, JSON.stringify(segundo.toolCalls[0]));
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("la guarda de turnos aplica a una automotora: 'te reservo' o 'en un momento te confirmo' sin create_booking no sale", async () => {
+  const e = await montar("guarda-automotora", { enabledTools: ["create_booking"] });
+  try {
+    await agendaDeLunes(e);
+    for (const promesa of [
+      "Te reservo el test drive del lunes a las 9.",
+      "Perfecto. En un momento te confirmo la reserva.",
+      "Listo, te reservé el lunes a las 9.",
+    ]) {
+      const resultado = await turno(
+        e,
+        "Quiero probarlo el lunes a las 9",
+        doblarProveedor([texto(promesa)]).proveedor,
+      );
+      assert.equal(resultado.respuesta, MENSAJE_AFIRMACION_SIN_ACCION_DE_AUTOMOTORA, promesa);
+      assert.notEqual(resultado.status, "TRANSFERRED_TO_HUMAN", "la corrección no deriva");
+    }
+    assert.equal(await turnosActivosDelContacto(e), 0);
   } finally {
     await desmontar(e);
   }

@@ -1304,7 +1304,7 @@ agenda", y el formulario del agente de clínicas lo dice así.
 >   turno que no hizo.** Si la respuesta da por agendado, reprogramado o
 >   cancelado un turno ("He reservado…", "quedó cancelado") y la tool que lo
 >   hace no devolvió ok en ESE turno (`cancel_booking` además con `cancelado:
->   true`), la respuesta no sale (`src/clinicas/afirmacionesDeTurnos.ts`,
+>   true`), la respuesta no sale (`src/services/afirmacionesDeTurnos.ts`,
 >   detector determinístico: verbos en pasado de primera persona y "quedó" +
 >   participio; preguntas y negaciones no cuentan). **Se reemplaza por un
 >   mensaje fijo y no se le vuelve a pedir al modelo:** es lo único que

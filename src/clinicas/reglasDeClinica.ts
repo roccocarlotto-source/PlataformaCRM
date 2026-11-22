@@ -5,7 +5,10 @@ import type {
   DesenlaceDeLasTools,
   ReglasDelRubro,
 } from "../services/reglasDelRubro";
-import { afirmacionesSinRespaldo } from "./afirmacionesDeTurnos";
+import {
+  afirmacionesSinRespaldo,
+  REGLA_AFIRMACION_SIN_ACCION,
+} from "../services/afirmacionesDeTurnos";
 import {
   CUERPO_DE_LA_TAREA_CLINICA,
   CUERPO_DE_LA_TAREA_DE_URGENCIA,
@@ -43,6 +46,7 @@ import {
   toolsDeIndicaciones,
 } from "./toolDeIndicaciones";
 import { CODIGO_FUERA_DE_PLAZO, CODIGO_SIN_AUTOR } from "./toolsDeTurnos";
+import { CODIGO_TURNO_REPETIDO, derivacionPorTurnoRepetido } from "../services/turnoRepetido";
 import {
   leerConfiguracionDeClinica,
   leerSaludYPerfilDeLaClinica,
@@ -96,7 +100,8 @@ function consultaClinica(regla: string, contexto: ContextoDeLaRegla): DecisionDe
 }
 
 // Los rechazos de las tools de turnos que derivan desde el código, por su
-// `codigo` (toolsDeTurnos.ts, docs/rubros.md §5.1). Sin aviso urgente.
+// `codigo` (toolsDeTurnos.ts, docs/rubros.md §5.1). Sin aviso urgente. El del
+// turno repetido es el mismo que en una automotora (src/services/turnoRepetido.ts).
 const DERIVACION_POR_CODIGO: Readonly<
   Record<string, (contexto: ContextoDeLaRegla) => DecisionDelRubro>
 > = {
@@ -112,6 +117,7 @@ const DERIVACION_POR_CODIGO: Readonly<
     mensaje: mensajeDeCambioSinAutor(contexto.nombreDeLaOrganizacion),
     aviso: { cuerpo: CUERPO_DE_LA_TAREA_SIN_AUTOR, urgente: false },
   }),
+  [CODIGO_TURNO_REPETIDO]: derivacionPorTurnoRepetido,
 };
 
 /** Después de una ronda de tools: primero una derivación por un rechazo con
@@ -168,11 +174,12 @@ export const REGLAS_DE_CLINICA: ReglasDelRubro = {
         : null,
   ],
   // No afirmar un turno agendado, movido o cancelado que la tool no hizo en
-  // este turno (afirmacionesDeTurnos.ts): va un mensaje fijo, sin derivar.
+  // este turno (src/services/afirmacionesDeTurnos.ts): va un mensaje fijo, sin
+  // derivar.
   correccionesDeSalida: [
     (respuesta, toolsDelTurno) =>
       afirmacionesSinRespaldo(respuesta, toolsDelTurno).length > 0
-        ? { regla: "afirmacion_de_turno_sin_accion", mensaje: MENSAJE_AFIRMACION_SIN_ACCION }
+        ? { regla: REGLA_AFIRMACION_SIN_ACCION, mensaje: MENSAJE_AFIRMACION_SIN_ACCION }
         : null,
   ],
   // Nunca "de ejemplo" (prueba de la Clínica Demo).

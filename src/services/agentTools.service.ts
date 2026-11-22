@@ -13,7 +13,7 @@ import { enumNativo, mensajesDeTipo } from "../utils/erroresDeZod";
 import { toolDelRubro } from "../config/ediciones";
 import { logger } from "../lib/logger";
 import { findManyActivities } from "../repositories/activity.repository";
-import { countFutureConfirmedBookingsOfContact } from "../repositories/booking.repository";
+import { listFutureConfirmedBookingsOfContact } from "../repositories/booking.repository";
 import { findBranchById } from "../repositories/branch.repository";
 import {
   findContactById,
@@ -72,6 +72,13 @@ import type { OrganizacionDelAgente } from "./agentPermissions.service";
 import type { LlmToolDefinition } from "./llmProvider.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
 import { resolverOwnerDelContacto } from "./ownership.service";
+import {
+  CODIGO_TURNO_REPETIDO,
+  mensajeSinReprogramar,
+  mensajeUsaReprogramar,
+  turnoDelMismoServicio,
+  type TurnoFuturo,
+} from "./turnoRepetido";
 import { MAX_OPCIONES } from "../utils/camposPersonalizados";
 
 // ---------------------------------------------------------------------------
@@ -117,6 +124,12 @@ export interface ContextoDeEjecucionDeTool {
     // origen de la oportunidad.
     channel: ConversationChannel;
   };
+  // Las tools que se le ofrecieron al modelo en este turno (las de
+  // enabledTools que valen para el rubro, la edición, el nivel y el canal, más
+  // las del sistema). create_booking lo mira para saber si puede mandar al
+  // modelo a reprogramar (src/services/turnoRepetido.ts). Sin el dato, como si
+  // no las tuviera: el camino que no depende del modelo.
+  toolsOfrecidas?: ReadonlySet<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +241,24 @@ export async function bloqueoDelCierrePorWeb(
 // ---------------------------------------------------------------------------
 export const MAX_RESERVAS_FUTURAS_POR_CONTACTO = 2;
 export const MENSAJE_TOPE_DE_RESERVAS = `Este cliente ya tiene ${String(MAX_RESERVAS_FUTURAS_POR_CONTACTO)} reservas futuras activas, que es el máximo que se puede agendar desde el chat. No reservaste nada nuevo: decíselo, y si necesita otra o quiere cambiar una, derivá la conversación a una persona.`;
+
+/** create_booking (la del catálogo y la de clínica): el rechazo si el
+ *  contacto ya tiene un turno futuro del mismo servicio, o null. Con
+ *  reschedule_booking ofrecida, el modelo la usa; sin ella, el código deriva
+ *  (src/services/turnoRepetido.ts). La zona se lee solo si hace falta. */
+export async function rechazoPorTurnoRepetido(
+  futuros: readonly TurnoFuturo[],
+  serviceTypeId: string,
+  contexto: ContextoDeEjecucionDeTool,
+  zona?: string,
+): Promise<ResultadoDeTool | null> {
+  const existente = turnoDelMismoServicio(futuros, serviceTypeId);
+  if (!existente) return null;
+  const cuando = isoEnZona(existente.startsAt, zona ?? (await zonaDeLaSucursal(contexto)));
+  return contexto.toolsOfrecidas?.has("reschedule_booking") === true
+    ? fallo(mensajeUsaReprogramar(cuando, existente.id))
+    : fallo(mensajeSinReprogramar(cuando), CODIGO_TURNO_REPETIDO);
+}
 
 // FABLE-I-06 / B-15 (docs-privados, local): de dónde vino la oportunidad que
 // crea el agente. Desde B2 (migración 20261022120000) el enum tiene valor para
@@ -1819,7 +1850,8 @@ const createBookingTool: ToolDelAgente = {
         // D4: el tope de reservas futuras del contacto. Bajo el lock de la
         // conversación (un turno a la vez por contacto y canal), así que dos
         // reservas de la misma ronda se cuentan una después de la otra.
-        countFutureConfirmedBookingsOfContact(
+        // La misma lectura sirve para el turno repetido (abajo).
+        listFutureConfirmedBookingsOfContact(
           contexto.conversation.contactId,
           contexto.organizationId,
           // El mismo reloj con el que createBooking decide qué es pasado.
@@ -1833,11 +1865,22 @@ const createBookingTool: ToolDelAgente = {
       if (bloqueo) {
         return bloqueo;
       }
-      if (futuras >= MAX_RESERVAS_FUTURAS_POR_CONTACTO) {
+      if (futuras.length >= MAX_RESERVAS_FUTURAS_POR_CONTACTO) {
         return fallo(MENSAJE_TOPE_DE_RESERVAS);
       }
       if (!servicio.ok) {
         return servicio.resultado;
+      }
+      // Ya tiene un turno futuro de ese servicio: no se crea otro
+      // (src/services/turnoRepetido.ts).
+      const repetido = await rechazoPorTurnoRepetido(
+        futuras,
+        servicio.serviceTypeId,
+        contexto,
+        zona,
+      );
+      if (repetido) {
+        return repetido;
       }
       const recurso = await resolverRecursoDelServicio(servicio, input.resourceId, contexto);
       if (!recurso.ok) {

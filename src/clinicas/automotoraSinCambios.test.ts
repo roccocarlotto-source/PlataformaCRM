@@ -47,6 +47,7 @@ import {
   defaultOrganizationAdminDeps,
 } from "../services/organizationAdmin.service";
 import { SIN_REGLAS, armarContextoDeLaRegla, reglasDelRubro } from "../services/reglasDelRubro";
+import { desenlacePorTurnoRepetido } from "../services/turnoRepetido";
 import { calcularTurnos } from "../services/availability.service";
 import { CAMPOS_DE_CLINICA, sinCamposDeClinica } from "./camposDeClinica";
 import { canReadActivity, scopeActivityFiltersToActor } from "../services/activity.service";
@@ -595,14 +596,35 @@ test("el alta de una automotora no crea nada de clínica, aunque CLINICA se habi
 
 const TOOLS_DE_TURNOS = ["get_contact_bookings", "reschedule_booking", "cancel_booking"];
 
-test("las reglas del rubro de una automotora están vacías: ningún verificador, instrucción ni campo recortado (salvo sus tools de turnos)", () => {
+test("las reglas del rubro de una automotora: sus tools de turnos, la guarda de turnos y la derivación por turno repetido; nada más", () => {
   // Desde el 2026-10-31 una automotora tiene las tools de turnos (ver, reprogramar,
-  // cancelar; decisión de Rocco). Todo lo demás, vacío como siempre.
+  // cancelar; decisión de Rocco).
   assert.deepEqual(
     Object.keys(reglasDelRubro("AUTOMOTORA").toolsExclusivas).sort(),
     TOOLS_DE_TURNOS.slice().sort(),
   );
-  assert.deepEqual({ ...reglasDelRubro("AUTOMOTORA"), toolsExclusivas: {} }, SIN_REGLAS);
+  // CAMBIO A PROPÓSITO (QA de la primera clínica, 2026-11-21, autorizado por
+  // Rocco para los dos rubros). La automotora usa la misma create_booking que
+  // una clínica y no tenía ninguna red: el agente puede decir "te reservo el
+  // turno" sin reservarlo, y crear un segundo turno del mismo servicio cuando
+  // le piden "pasarlo a otro día". Desde ahora tiene:
+  //   - la guarda de salida de los turnos (src/services/afirmacionesDeTurnos.ts),
+  //     con su propio mensaje fijo;
+  //   - la derivación desde el código cuando create_booking rechaza por un
+  //     turno repetido sin reschedule_booking (src/services/turnoRepetido.ts).
+  // Lo demás sigue vacío.
+  const automotora = reglasDelRubro("AUTOMOTORA");
+  assert.equal(automotora.correccionesDeSalida.length, 1);
+  assert.equal(automotora.desenlaceDeLasTools, desenlacePorTurnoRepetido);
+  assert.deepEqual(
+    {
+      ...automotora,
+      toolsExclusivas: {},
+      correccionesDeSalida: [],
+      desenlaceDeLasTools: null,
+    },
+    SIN_REGLAS,
+  );
   assert.deepEqual(SIN_REGLAS, {
     entradaPrioritaria: [],
     entrada: [],
