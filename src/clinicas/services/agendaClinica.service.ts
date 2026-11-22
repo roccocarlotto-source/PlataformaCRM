@@ -180,6 +180,8 @@ export async function disponibilidadDeLaPrestacion(
           hasta: params.hasta,
           // R8: a cada profesional, solo su propio calendario de Google.
           googlePorProfesional: true,
+          // Con la sede cerrada no se ofrece nada (QA de la primera clínica).
+          limitarAlHorarioDeLaSede: true,
         },
         cliente,
       ).then((turnos) => turnos.map((t) => ({ ...t, profesional: { id: p.id, name: p.name } }))),
@@ -222,6 +224,7 @@ async function sobreturnosOfrecibles(
     serviceTypeId: prestacion.id,
     desde: rango.desde,
     hasta: rango.hasta,
+    limitarAlHorarioDeLaSede: true,
   });
   const zona = branch.timezone;
   const primerDia = DateTime.fromJSDate(rango.desde, { zone: zona }).startOf("day");
@@ -326,6 +329,8 @@ export async function crearTurnoDeClinica(
         ...(input.opportunityId ? { opportunityId: input.opportunityId } : {}),
         ...(input.force !== undefined ? { force: input.force } : {}),
         ...(input.isOverbooking ? { isOverbooking: true } : {}),
+        // Lo que se acepta, con el mismo recorte que lo que se ofrece.
+        limitarAlHorarioDeLaSede: true,
       },
       cliente,
       actor,

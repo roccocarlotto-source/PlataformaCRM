@@ -192,15 +192,21 @@ clínica atiende, y el sistema la usa para:
   del turno) solo dentro de ese horario;
 - decirle al paciente cuándo le van a escribir, cuando el asistente le pasa
   la conversación a una persona y nadie responde fuera de hora (ver
-  [Derivar a una persona](/ayuda/agentes-de-ia#derivar)).
+  [Derivar a una persona](/ayuda/agentes-de-ia#derivar));
+- si la sede tiene un horario **propio**, no dar turnos fuera de él: la
+  agenda, el **Nuevo turno** y el asistente solo ofrecen los horarios en que
+  el profesional trabaja **y** la sede está abierta (un día que la sede no
+  abre no tiene turnos, aunque el profesional tenga horario). Un
+  administrador puede igual forzar un turno desde la agenda.
 
 El asistente responde a los pacientes a cualquier hora: este horario no lo
 limita. Tampoco es el horario de cada profesional, que se carga en
 [Profesionales](/ayuda/actividades-y-agenda#profesionales).
 
 **El horario por defecto.** Si nunca cargaste uno, la sede usa lunes a
-sábado de 9:00 a 20:00 y la tarjeta lo avisa. Cargar uno propio es
-opcional.
+sábado de 9:00 a 20:00 para los mensajes y la tarjeta lo avisa. Ese horario
+por defecto no limita la agenda: los turnos siguen solo el horario de cada
+profesional. Cargar uno propio es opcional.
 
 **Cargar un horario propio.**
 

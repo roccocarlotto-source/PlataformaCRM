@@ -304,6 +304,29 @@ export function expandirFranjas({
 }
 
 // ---------------------------------------------------------------------------
+// El horario de trabajo recortado al horario de la sede (QA de la primera
+// clínica, 2026-11-21): una profesional con horario el lunes no ofrece turnos
+// si la sede no abre los lunes. Cada franja de trabajo se corta con cada franja
+// de la sede; lo que queda es lo que está dentro de las dos. Ordenado. PURA.
+//
+// La grilla de turnos arranca en el borde de cada franja (generarGrilla): si la
+// sede abre después que la profesional, sus turnos arrancan a la hora en que
+// abre la sede. Por eso el recorte se hace UNA vez, en resolverContexto, y lo
+// usan igual lo que se ofrece y lo que se acepta.
+// ---------------------------------------------------------------------------
+export function recortarAlHorario(trabajo: Intervalo[], sede: Intervalo[]): Intervalo[] {
+  const recortadas: Intervalo[] = [];
+  for (const a of trabajo) {
+    for (const b of sede) {
+      const inicio = Math.max(a.inicio.getTime(), b.inicio.getTime());
+      const fin = Math.min(a.fin.getTime(), b.fin.getTime());
+      if (inicio < fin) recortadas.push({ inicio: new Date(inicio), fin: new Date(fin) });
+    }
+  }
+  return recortadas.sort((x, y) => x.inicio.getTime() - y.inicio.getTime());
+}
+
+// ---------------------------------------------------------------------------
 // Validación de un horario semanal completo
 // ---------------------------------------------------------------------------
 

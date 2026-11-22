@@ -6,6 +6,7 @@ import {
   franjasDelDia,
   instanteLocal,
   minutoDelDia,
+  recortarFranjas,
   sumarDias,
 } from "./calendar";
 
@@ -71,5 +72,20 @@ describe("calendar", () => {
     expect(estaEnLaGrilla(600, 30, franjas)).toBe(false);
     // Excede el cierre.
     expect(estaEnLaGrilla(765, 30, franjas)).toBe(false);
+  });
+
+  // QA de la primera clínica (2026-11-21): la grilla de una clínica no tiene
+  // huecos con la sede cerrada.
+  it("recortarFranjas: lo que está dentro del horario de trabajo y del de la sede", () => {
+    const trabajo = [
+      { inicio: 540, fin: 780 },
+      { inicio: 900, fin: 1140 },
+    ];
+    expect(recortarFranjas(trabajo, [{ inicio: 600, fin: 1020 }])).toEqual([
+      { inicio: 600, fin: 780 },
+      { inicio: 900, fin: 1020 },
+    ]);
+    expect(recortarFranjas(trabajo, [])).toEqual([]);
+    expect(recortarFranjas([{ inicio: 540, fin: 600 }], [{ inicio: 600, fin: 700 }])).toEqual([]);
   });
 });

@@ -38,6 +38,7 @@ import {
   MINUTOS_DEL_DIA,
   MINUTOS_POR_RENGLON,
   minutoDelDia,
+  recortarFranjas,
   sumarDias,
   type FranjaEnMinutos,
 } from "./calendar";
@@ -401,7 +402,11 @@ function CalendarColumn({
     sortOrder: "asc",
   });
 
-  const franjas = franjasDelDia(workingHoursQuery.data?.workingHours ?? [], fecha);
+  // En una clínica con horario de sede propio, solo lo que está dentro de los
+  // dos: con la sede cerrada no hay huecos (un ADMIN igual puede forzar).
+  const deTrabajo = franjasDelDia(workingHoursQuery.data?.workingHours ?? [], fecha);
+  const deLaSede = workingHoursQuery.data?.horarioDeLaSede;
+  const franjas = deLaSede ? recortarFranjas(deTrabajo, franjasDelDia(deLaSede, fecha)) : deTrabajo;
   const bookings = (bookingsQuery.data?.data ?? []).filter((b) => b.status !== "CANCELLED");
   const contactNames = useContactNames(bookings.map((b) => b.contactId));
   const bloques = ubicarEnCarriles(bookings, fecha, zona);

@@ -133,6 +133,11 @@ export interface CreateBookingInput {
   // profesional; valida todo lo demás (horario salvo `force`, grilla, pasado,
   // bloqueos).
   isOverbooking?: boolean;
+  // QA de la primera clínica (2026-11-21): el horario de trabajo se recorta al
+  // de atención de la sede, si tiene uno propio (resolverContexto). Lo pasa
+  // solo una clínica (crearTurnoDeClinica); `force` lo saltea como al horario
+  // de trabajo. Sin pasarlo, lo de siempre.
+  limitarAlHorarioDeLaSede?: boolean;
 }
 
 // Quién pide, para la única regla de rol que tiene la creación: `force` es
@@ -269,6 +274,7 @@ export async function createBooking(
       // cierre — la validación no probaría nada de ese lado. Con el margen, la
       // franja llega entera y la contención es real.
       hasta: new Date(startsAt.getTime() + 24 * 60 * 60 * 1000),
+      ...(input.limitarAlHorarioDeLaSede ? { limitarAlHorarioDeLaSede: true } : {}),
     }),
     // R10: si es una clínica (emite booking.created). Se lee acá, con las
     // demás, y no dentro de la transacción: es una ida y vuelta menos con los

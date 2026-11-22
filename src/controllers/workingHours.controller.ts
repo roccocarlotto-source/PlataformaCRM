@@ -2,7 +2,11 @@ import { Weekday } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
 import { enumNativo } from "../utils/erroresDeZod";
-import { getWorkingHours, replaceWorkingHoursForResource } from "../services/workingHours.service";
+import {
+  getHorarioDeLaSedeDelRecurso,
+  getWorkingHours,
+  replaceWorkingHoursForResource,
+} from "../services/workingHours.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -56,8 +60,22 @@ const reemplazarHorarioSchema = z.object({
 export const getWorkingHoursHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const resourceId = parseOrThrow(resourceIdParamSchema, req.params.resourceId);
-    const franjas = await getWorkingHours(req.auth.organizationId, resourceId);
-    res.status(200).json({ workingHours: franjas });
+    // En una clínica, además, el horario propio de la sede (o null): la agenda
+    // no ofrece huecos con la sede cerrada. Una automotora recibe lo de
+    // siempre, sin consultas de más.
+    const [franjas, horarioDeLaSede] = await Promise.all([
+      getWorkingHours(req.auth.organizationId, resourceId),
+      req.auth.industry === "CLINICA"
+        ? getHorarioDeLaSedeDelRecurso(req.auth.organizationId, resourceId)
+        : Promise.resolve(undefined),
+    ]);
+    res
+      .status(200)
+      .json(
+        horarioDeLaSede === undefined
+          ? { workingHours: franjas }
+          : { workingHours: franjas, horarioDeLaSede },
+      );
   },
 );
 

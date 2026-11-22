@@ -2,6 +2,7 @@ import { findBloqueosQueSeSuperponen } from "../clinicas/repositories/bloqueos.r
 import { esProfesionalDeLaPrestacion } from "../clinicas/repositories/serviceTypeResource.repository";
 import { logger } from "../lib/logger";
 import { findConfirmedBookingsInRange } from "../repositories/booking.repository";
+import { findBusinessHoursByBranch } from "../repositories/branchBusinessHours.repository";
 import { findResourceById } from "../repositories/resource.repository";
 import { findWorkingHoursByResource } from "../repositories/workingHours.repository";
 import { AppError } from "../utils/AppError";
@@ -10,6 +11,7 @@ import {
   estaDentroDelHorario,
   expandirFranjas,
   generarGrilla,
+  recortarAlHorario,
   seSuperponen,
   type Intervalo,
 } from "../utils/workingHours";
@@ -63,6 +65,11 @@ export interface ParametrosDeDisponibilidad {
   // resta. Sin pasarlo (o false), lo de siempre: el calendario de la sede,
   // para cualquier recurso (D17: el freebusy de una automotora no se toca).
   googlePorProfesional?: boolean;
+  // QA de la primera clínica (2026-11-21): recortar el horario de trabajo al
+  // horario de atención de la sede, si la sede tiene uno propio cargado. Lo
+  // pasa solo una clínica (src/clinicas/services/agendaClinica.service.ts);
+  // sin pasarlo, lo de siempre (la automotora no cambia).
+  limitarAlHorarioDeLaSede?: boolean;
 }
 
 export interface TurnoDisponible {
@@ -287,7 +294,14 @@ async function ocupadosEnGoogleOVacio(
 // ---------------------------------------------------------------------------
 export async function resolverContexto(
   organizationId: string,
-  params: { resourceId: string; serviceTypeId: string; desde: Date; hasta: Date },
+  params: {
+    resourceId: string;
+    serviceTypeId: string;
+    desde: Date;
+    hasta: Date;
+    // Ver ParametrosDeDisponibilidad. Una consulta más, solo si se pide.
+    limitarAlHorarioDeLaSede?: boolean;
+  },
 ) {
   // F6 (PR "menos idas a la base"): el servicio, el recurso y el horario de
   // trabajo se leen EN PARALELO — los tres salen de los ids del pedido, no uno
@@ -322,12 +336,32 @@ export async function resolverContexto(
   // La zona horaria sale de la SUCURSAL del recurso, nunca del servidor.
   const branch = await getBranchById(organizationId, resource.branchId);
 
-  const franjasDeTrabajo = expandirFranjas({
+  const trabajo = expandirFranjas({
     franjas,
     zona: branch.timezone,
     desde: params.desde,
     hasta: params.hasta,
   });
+
+  // El horario de la sede, solo si la sede tiene uno PROPIO: sin cargarlo rige
+  // el de por defecto (lunes a sábado de 9 a 20), que sirve para no mandar
+  // mensajes de madrugada pero no se eligió para la agenda. Una clínica que
+  // nunca cargó su horario no pierde turnos sin enterarse.
+  let franjasDeTrabajo = trabajo;
+  if (params.limitarAlHorarioDeLaSede === true) {
+    const deLaSede = await findBusinessHoursByBranch(branch.id, organizationId);
+    if (deLaSede.length > 0) {
+      franjasDeTrabajo = recortarAlHorario(
+        trabajo,
+        expandirFranjas({
+          franjas: deLaSede,
+          zona: branch.timezone,
+          desde: params.desde,
+          hasta: params.hasta,
+        }),
+      );
+    }
+  }
 
   return { serviceType, resource, branch, franjasDeTrabajo };
 }

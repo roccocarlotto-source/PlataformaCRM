@@ -1,5 +1,6 @@
 import type { Weekday } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { findBusinessHoursByBranch } from "../repositories/branchBusinessHours.repository";
 import { findResourceById, lockResourceForUpdate } from "../repositories/resource.repository";
 import {
   findWorkingHoursByResource,
@@ -54,6 +55,19 @@ export async function getWorkingHours(
   const franjas = await findWorkingHoursByResource(resourceId, organizationId);
 
   return franjas.map(serializarFranja);
+}
+
+/** El horario de atención PROPIO de la sede del recurso, o null si la sede no
+ *  cargó uno (rige el de por defecto, que no limita la agenda). Lo pide la
+ *  agenda de una clínica para no ofrecer huecos con la sede cerrada (QA de la
+ *  primera clínica, 2026-11-21; el mismo recorte que resolverContexto). */
+export async function getHorarioDeLaSedeDelRecurso(
+  organizationId: string,
+  resourceId: string,
+): Promise<FranjaPublica[] | null> {
+  const resource = await validarResource(organizationId, resourceId);
+  const franjas = await findBusinessHoursByBranch(resource.branchId, organizationId);
+  return franjas.length > 0 ? franjas.map(serializarFranja) : null;
 }
 
 export interface FranjaEntrante {
