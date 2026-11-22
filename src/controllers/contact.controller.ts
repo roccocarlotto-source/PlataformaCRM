@@ -77,50 +77,69 @@ export const createContactSchema = z.object({
 // contacto de su empresa. Sin .nullable(), rebotaban con 400 de Zod antes de
 // llegar al service. Mismo patrón que opportunity y activity. El resto del
 // camino para `email` y `companyId` está en updateContact (contact.service.ts).
-export const updateContactSchema = z
-  .object({
-    ...contactFields,
-    email: z
-      .string()
-      .trim()
-      .email("email inválido")
-      .max(255, "email no puede superar los 255 caracteres")
-      .nullable()
-      .optional(),
-    phone: z
-      .string()
-      .trim()
-      .max(30, "Teléfono: no puede superar los 30 caracteres")
-      .nullable()
-      .optional(),
-    jobTitle: z
-      .string()
-      .trim()
-      .max(100, "jobTitle no puede superar los 100 caracteres")
-      .nullable()
-      .optional(),
-    source: z
-      .string()
-      .trim()
-      .max(100, "source no puede superar los 100 caracteres")
-      .nullable()
-      .optional(),
-    companyId: z.string().guid("companyId inválido").nullable().optional(),
-    // El vehículo de interés, desde la ficha. null lo quita.
-    vehicleOfInterestId: z.string().guid("vehicleOfInterestId inválido").nullable().optional(),
-    // La marca "sin interés" (ítem 185): true la pone, false la quita.
-    noInterest: z.boolean().optional(),
-    noInterestNote: z
-      .string()
-      .trim()
-      .max(200, "noInterestNote no puede superar los 200 caracteres")
-      .nullable()
-      .optional(),
-  })
+const updateContactObject = z.object({
+  ...contactFields,
+  email: z
+    .string()
+    .trim()
+    .email("email inválido")
+    .max(255, "email no puede superar los 255 caracteres")
+    .nullable()
+    .optional(),
+  phone: z
+    .string()
+    .trim()
+    .max(30, "Teléfono: no puede superar los 30 caracteres")
+    .nullable()
+    .optional(),
+  jobTitle: z
+    .string()
+    .trim()
+    .max(100, "jobTitle no puede superar los 100 caracteres")
+    .nullable()
+    .optional(),
+  source: z
+    .string()
+    .trim()
+    .max(100, "source no puede superar los 100 caracteres")
+    .nullable()
+    .optional(),
+  companyId: z.string().guid("companyId inválido").nullable().optional(),
+  // El vehículo de interés, desde la ficha. null lo quita.
+  vehicleOfInterestId: z.string().guid("vehicleOfInterestId inválido").nullable().optional(),
+  // La marca "sin interés" (ítem 185): true la pone, false la quita.
+  noInterest: z.boolean().optional(),
+  noInterestNote: z
+    .string()
+    .trim()
+    .max(200, "noInterestNote no puede superar los 200 caracteres")
+    .nullable()
+    .optional(),
+});
+
+const alMenosUnCampo = {
+  message: "Debe enviar al menos un campo para actualizar",
+};
+
+export const updateContactSchema = updateContactObject
   .partial()
-  .refine((data) => Object.keys(data).length > 0, {
-    message: "Debe enviar al menos un campo para actualizar",
-  });
+  .refine((data) => Object.keys(data).length > 0, alMenosUnCampo);
+
+// ISSUE-028 (QA de la primera clínica): en una clínica el apellido es
+// opcional (en una peluquería es habitual tener solo "Gabi" y el teléfono).
+// La columna no admite null: sin apellido se guarda "". La automotora sigue
+// con los schemas de arriba, con el apellido obligatorio. Lo que el agente
+// pide para identificar a alguien no pasa por acá (sus tools) y no cambia.
+const apellidoOpcional = z.string().trim().max(100, "lastName no puede superar los 100 caracteres");
+
+export const createContactSchemaDeClinica = createContactSchema.extend({
+  lastName: apellidoOpcional.optional().default(""),
+});
+
+export const updateContactSchemaDeClinica = updateContactObject
+  .extend({ lastName: apellidoOpcional })
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, alMenosUnCampo);
 
 // Exportado para probar su frontera sin base ni HTTP (B-21), mismo criterio
 // que createContactSchema/updateContactSchema con M-10.
@@ -149,7 +168,10 @@ export const listContactsQuerySchema = z.object({
 
 export const createContactHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
-    const input = parseOrThrow(createContactSchema, req.body);
+    const input = parseOrThrow(
+      req.auth.industry === "CLINICA" ? createContactSchemaDeClinica : createContactSchema,
+      req.body,
+    );
     // D2: un USER crea contactos, y quedan a su nombre (permisosDelVendedor.ts).
     const contact = await createContact(req.auth.organizationId, req.auth.userId, {
       ...input,
@@ -176,7 +198,10 @@ export const getContactHandler = asyncHandler<AuthenticatedRequest>(async (req, 
 export const updateContactHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    const input = parseOrThrow(updateContactSchema, req.body);
+    const input = parseOrThrow(
+      req.auth.industry === "CLINICA" ? updateContactSchemaDeClinica : updateContactSchema,
+      req.body,
+    );
     // D2: un USER edita solo los contactos que tiene asignados, y no los
     // reasigna. Recepción (R12) edita cualquiera, pero tampoco reasigna. La lectura extra es solo para un USER; el 404 de un contacto
     // que no existe sale de acá igual que antes salía del service.

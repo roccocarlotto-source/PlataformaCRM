@@ -119,7 +119,16 @@ export async function cerrarTareasDelTurno(
   ahora: Date = new Date(),
 ): Promise<number> {
   const abiertas = await prisma.activity.findMany({
-    where: { organizationId, sourceBookingId: bookingId, completedAt: null, deletedAt: null },
+    where: {
+      organizationId,
+      sourceBookingId: bookingId,
+      // Solo las de una regla (la tarea después del turno): las de un bloqueo
+      // también cuelgan del turno, pero se cierran por su cuenta
+      // (tareasDeBloqueo.ts).
+      sourceAutomationId: { not: null },
+      completedAt: null,
+      deletedAt: null,
+    },
     select: { id: true, body: true },
   });
   for (const a of abiertas) {

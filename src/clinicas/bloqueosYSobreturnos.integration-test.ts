@@ -15,6 +15,13 @@ import { createResource } from "../services/resource.service";
 import { createServiceType } from "../services/serviceType.service";
 import { replaceWorkingHoursForResource } from "../services/workingHours.service";
 import { PREFIJO_TAREA_DE_BLOQUEO } from "./services/bloqueos.service";
+import {
+  alCancelarseCerrarTareasDeBloqueo,
+  alReprogramarseCerrarTareasDeBloqueo,
+  NOTA_BLOQUEO_QUITADO,
+  NOTA_TURNO_CANCELADO,
+  NOTA_TURNO_REPROGRAMADO,
+} from "./services/tareasDeBloqueo";
 
 // ---------------------------------------------------------------------------
 // Bloqueos y sobreturnos de un profesional de clínica contra la app real
@@ -298,6 +305,118 @@ test("un bloqueo encima de turnos ya dados no los cancela: los lista y crea una 
     como(clinica, RECEPCION_NORTE),
   );
   assert.equal(deNorte.status, 404);
+});
+
+// ISSUE-027: la tarea vence en el momento, cuelga del turno y se cierra sola.
+async function bloqueoConTurno(desde: number, hasta: number, horaDelTurno = 11) {
+  const dado = await turno(RECEPCION_CENTRO, horaDelTurno);
+  assert.equal(dado.status, 201, JSON.stringify(dado.json));
+  const creado = await pedir(
+    clinica,
+    "POST",
+    `/api/clinica/profesionales/${agenda.ana}/bloqueos`,
+    { startsAt: LUNES(desde), endsAt: LUNES(hasta) },
+    como(clinica, ADMIN),
+  );
+  assert.equal(creado.status, 201, JSON.stringify(creado.json));
+  const [afectado] = creado.json.turnosAfectados as { bookingId: string; tareaId: string }[];
+  return {
+    bookingId: dado.json.id as string,
+    bloqueoId: (creado.json.bloqueo as { id: string }).id,
+    tareaId: afectado.tareaId,
+  };
+}
+
+const tareaDe = (id: string) => prisma.activity.findUniqueOrThrow({ where: { id } });
+
+test("la tarea de un bloqueo vence en el momento y cuelga del turno; quitar el bloqueo la cierra con una nota", async () => {
+  await limpiarTurnosYBloqueos();
+  const antes = Date.now();
+  const { bookingId, bloqueoId, tareaId } = await bloqueoConTurno(11, 13);
+  const tarea = await tareaDe(tareaId);
+  assert.ok(tarea.dueDate, "tiene fecha");
+  assert.ok(tarea.dueDate.getTime() >= antes - 1000 && tarea.dueDate.getTime() <= Date.now());
+  assert.equal(tarea.sourceBookingId, bookingId);
+  assert.equal(tarea.sourceAutomationId, null);
+
+  const borrado = await pedir(
+    clinica,
+    "DELETE",
+    `/api/clinica/bloqueos/${bloqueoId}`,
+    undefined,
+    como(clinica, RECEPCION_CENTRO),
+  );
+  assert.equal(borrado.status, 204);
+  const cerrada = await tareaDe(tareaId);
+  assert.ok(cerrada.completedAt, "se cerró sola");
+  assert.match(cerrada.body ?? "", new RegExp(`${NOTA_BLOQUEO_QUITADO}$`));
+});
+
+test("quitar un bloqueo con el turno todavía dentro de otro: la tarea sigue abierta", async () => {
+  await limpiarTurnosYBloqueos();
+  const { bloqueoId, tareaId } = await bloqueoConTurno(11, 13);
+  const otro = await pedir(
+    clinica,
+    "POST",
+    `/api/clinica/profesionales/${agenda.ana}/bloqueos`,
+    { startsAt: LUNES(10), endsAt: LUNES(12) },
+    como(clinica, ADMIN),
+  );
+  assert.equal(otro.status, 201, JSON.stringify(otro.json));
+
+  const borrado = await pedir(
+    clinica,
+    "DELETE",
+    `/api/clinica/bloqueos/${bloqueoId}`,
+    undefined,
+    como(clinica, ADMIN),
+  );
+  assert.equal(borrado.status, 204);
+  assert.equal((await tareaDe(tareaId)).completedAt, null, "el turno sigue bloqueado");
+});
+
+test("cancelar el turno cierra su tarea de bloqueo; una cerrada a mano no se toca", async () => {
+  await limpiarTurnosYBloqueos();
+  const { bookingId, tareaId } = await bloqueoConTurno(11, 13);
+  const evento = {
+    organizationId: clinica.id,
+    payload: {
+      bookingId,
+      resourceId: agenda.ana,
+      startsAt: LUNES(11),
+      endsAt: LUNES(12),
+    },
+  };
+  await alCancelarseCerrarTareasDeBloqueo(evento);
+  const cerrada = await tareaDe(tareaId);
+  assert.ok(cerrada.completedAt);
+  assert.match(cerrada.body ?? "", new RegExp(`${NOTA_TURNO_CANCELADO}$`));
+
+  // Un reintento del evento no la vuelve a tocar.
+  await alCancelarseCerrarTareasDeBloqueo(evento);
+  assert.equal((await tareaDe(tareaId)).body, cerrada.body);
+});
+
+test("reprogramar el turno fuera del bloqueo cierra la tarea; dentro de otro bloqueo, no", async () => {
+  await limpiarTurnosYBloqueos();
+  const { bookingId, tareaId } = await bloqueoConTurno(11, 13);
+  const evento = (desde: number) => ({
+    organizationId: clinica.id,
+    payload: {
+      bookingId,
+      resourceId: agenda.ana,
+      startsAt: LUNES(desde),
+      endsAt: LUNES(desde + 1),
+    },
+  });
+  // Todavía dentro del bloqueo (12 a 13): sigue abierta.
+  await alReprogramarseCerrarTareasDeBloqueo(evento(12));
+  assert.equal((await tareaDe(tareaId)).completedAt, null);
+  // A las 9, fuera de todo bloqueo: se cierra.
+  await alReprogramarseCerrarTareasDeBloqueo(evento(9));
+  const cerrada = await tareaDe(tareaId);
+  assert.ok(cerrada.completedAt);
+  assert.match(cerrada.body ?? "", new RegExp(`${NOTA_TURNO_REPROGRAMADO}$`));
 });
 
 // ---------------------------------------------------------------------------

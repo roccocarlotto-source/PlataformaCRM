@@ -78,8 +78,10 @@ El menú de tres puntos de cada fila ofrece:
 ## Nuevo paciente {#nuevo-contacto}
 
 1. En [Contactos](/contacts), tocá **Nuevo contacto**.
-2. Completá **Nombre** y **Apellido**. Son los únicos campos obligatorios
-   (los marcados con asterisco).
+2. Completá el **Nombre**: es el único campo obligatorio (el marcado con
+   asterisco). El **Apellido** es opcional: alcanza con "Gabi" y el teléfono.
+   El asistente, en cambio, sigue pidiendo nombre y apellido cuando agenda un
+   turno por chat.
 3. Si los tenés, cargá **Email**, **Teléfono** y **Puesto** (opcional; en una
    clínica casi nunca hace falta).
 4. **Fuente**: por dónde llegó el paciente, en texto libre. Por ejemplo

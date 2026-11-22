@@ -3,9 +3,36 @@ import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import {
   createContactSchema,
+  createContactSchemaDeClinica,
   listContactsQuerySchema,
   updateContactSchema,
+  updateContactSchemaDeClinica,
 } from "./contact.controller";
+
+// ISSUE-028: el apellido es opcional solo en una clínica.
+test("clínica: el apellido es opcional al crear (queda vacío) y se puede vaciar al editar", () => {
+  const sinApellido = createContactSchemaDeClinica.safeParse({ firstName: "Gabi", phone: "099" });
+  assert.equal(sinApellido.success, true);
+  assert.equal(sinApellido.success && sinApellido.data.lastName, "");
+  const enBlanco = createContactSchemaDeClinica.safeParse({ firstName: "Gabi", lastName: "  " });
+  assert.equal(enBlanco.success && enBlanco.data.lastName, "");
+  assert.equal(updateContactSchemaDeClinica.safeParse({ lastName: "" }).success, true);
+  // El nombre sigue obligatorio, y el tope del apellido sigue.
+  assert.equal(createContactSchemaDeClinica.safeParse({ lastName: "Pérez" }).success, false);
+  assert.equal(
+    createContactSchemaDeClinica.safeParse({ firstName: "Gabi", lastName: "x".repeat(101) })
+      .success,
+    false,
+  );
+  // Ni en la clínica se manda un PATCH vacío.
+  assert.equal(updateContactSchemaDeClinica.safeParse({}).success, false);
+});
+
+test("automotora: el apellido sigue obligatorio", () => {
+  assert.equal(createContactSchema.safeParse({ firstName: "Gabi" }).success, false);
+  assert.equal(createContactSchema.safeParse({ firstName: "Gabi", lastName: "" }).success, false);
+  assert.equal(updateContactSchema.safeParse({ lastName: "" }).success, false);
+});
 
 // M-10 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — PATCH tiene que poder vaciar los
 // campos opcionales de Contact. email/phone/jobTitle/source/companyId eran
