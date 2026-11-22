@@ -1,3 +1,4 @@
+import { nombreCompleto } from "../../lib/nombreCompleto";
 import { useQueries } from "@tanstack/react-query";
 import { getContact } from "../contact/api";
 import { contactKeys } from "../contact/queries";
@@ -33,7 +34,7 @@ export function useContactNames(ids: readonly string[]) {
   uniqueIds.forEach((id, index) => {
     const contact = results[index]?.data;
     if (contact) {
-      byId.set(id, `${contact.firstName} ${contact.lastName}`);
+      byId.set(id, nombreCompleto(contact));
     }
   });
 
@@ -52,9 +53,7 @@ export function useContactNames(ids: readonly string[]) {
 // módulo empresas (sin él el GET daba 403 y se veía "—").
 export function nombreDelContacto(opportunity: OpportunityListItem): string | null {
   if (!opportunity.contactId) return null;
-  return opportunity.contact
-    ? `${opportunity.contact.firstName} ${opportunity.contact.lastName}`
-    : "—";
+  return opportunity.contact ? nombreCompleto(opportunity.contact) : "—";
 }
 
 export function nombreDeLaEmpresa(

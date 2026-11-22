@@ -1,3 +1,4 @@
+import { nombreCompleto } from "../../lib/nombreCompleto";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { contactKeys, useContact, useContacts } from "../contact/queries";
@@ -74,7 +75,7 @@ export function ContactSelect({ id, label, value, onChange }: ContactSelectProps
           ? {
               prefix: "Seleccionado",
               content: selectedContactQuery.data ? (
-                `${selectedContactQuery.data.firstName} ${selectedContactQuery.data.lastName}`
+                nombreCompleto(selectedContactQuery.data)
               ) : selectedContactQuery.isLoading ? (
                 <InlineLoading />
               ) : (
@@ -94,7 +95,7 @@ export function ContactSelect({ id, label, value, onChange }: ContactSelectProps
           : undefined
       }
       getKey={(contact) => contact.id}
-      renderItem={(contact) => `${contact.firstName} ${contact.lastName}`}
+      renderItem={(contact) => nombreCompleto(contact)}
       onSelect={(contact) => {
         onChange(contact.id);
         setTerm("");

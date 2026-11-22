@@ -1,3 +1,4 @@
+import { nombreCompleto } from "../../lib/nombreCompleto";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -138,7 +139,7 @@ function respondidoDesdeMeta(message: ConversationMessage, conversation: Convers
 function autorDelMensaje(message: ConversationMessage, conversation: Conversation): string {
   switch (message.senderType) {
     case "CONTACT":
-      return `${conversation.contact.firstName} ${conversation.contact.lastName}`;
+      return nombreCompleto(conversation.contact);
     case "AGENT":
       return conversation.agent.name;
     case "AUTOMATION":
@@ -228,7 +229,7 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
     if (!confirmado) return;
     cerrar.mutate();
   }
-  const nombreDelContacto = `${conversation.contact.firstName} ${conversation.contact.lastName}`;
+  const nombreDelContacto = nombreCompleto(conversation.contact);
   const visibles = conversation.messages.flatMap((message) => {
     const texto = textoVisible(message);
     return texto === null ? [] : [{ message, texto }];
