@@ -1020,6 +1020,29 @@ const ESCENARIOS: Escenario[] = [
       return nombre === "Pablo Gómez" ? null : `el contacto quedó como "${nombre}"`;
     },
   },
+  {
+    // QA de la primera clínica (2026-11-21, ISSUE-018): a "cortarme el pelo"
+    // eligió solo "Corte masculino" y listó 32 horarios.
+    id: "CL6",
+    agente: "clinica",
+    criterio:
+      "Centro de belleza: 'quiero cortarme el pelo' con dos cortes pregunta cuál, nombrando los dos, sin reservar",
+    msgs: ["Hola, quiero cortarme el pelo el viernes, ¿tienen lugar?"],
+    toolsEsperadasAlgunaDe: ["get_service_types"],
+    toolsProhibidas: ["create_booking"],
+    debeCoincidir: [/dama/i, /masculino/i],
+  },
+  {
+    // ISSUE-018, la otra mitad: con muchos horarios libres, ofrece pocos.
+    id: "CL7",
+    agente: "clinica",
+    criterio: "Centro de belleza: con 16 horarios libres ofrece unos pocos, no la lista entera",
+    msgs: ["Hola, quiero un corte masculino el viernes, ¿qué horarios tenés?"],
+    toolsEsperadasAlgunaDe: ["get_availability"],
+    toolsProhibidas: ["create_booking"],
+    // Siete horas o más en la respuesta es la lista entera (o casi).
+    noDebeContener: [/(?:\b\d{1,2}[:.]\d{2}\b[\s\S]*?){7}/],
+  },
 ];
 
 async function montarOrganizacion() {
@@ -1302,6 +1325,19 @@ async function montarClinica() {
     durationMin: 50,
   });
   await definirProfesionales(org.id, masaje.id, [lucia.id]);
+  // CL6 y CL7: dos cortes, para que "cortarme el pelo" sea ambiguo (ISSUE-018).
+  for (const [name, durationMin] of [
+    ["Corte de dama", 45],
+    ["Corte masculino", 30],
+  ] as const) {
+    const corte = await createServiceType(org.id, {
+      branchId: sede.id,
+      resourceId: lucia.id,
+      name,
+      durationMin,
+    });
+    await definirProfesionales(org.id, corte.id, [lucia.id]);
+  }
   const agente = await prisma.agent.create({
     data: {
       organizationId: org.id,
