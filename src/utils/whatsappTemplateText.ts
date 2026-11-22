@@ -58,7 +58,7 @@ export const TOKEN_LINK = "{link}";
 export const TOKEN_SALUDO = "{saludo}";
 export const TOKEN_VEHICULO = "{vehiculo}";
 // R15 (docs/rubros.md §9.1): en una clínica, la prestación que consultó (o
-// "lo que consultaste"), en lugar del vehículo. Solo la acepta una clínica.
+// "nuestros servicios", RESPALDO_DE_LA_PRESTACION), en lugar del vehículo. Solo la acepta una clínica.
 export const TOKEN_PRESTACION = "{prestacion}";
 // R13 (docs/rubros.md §6.3): el recordatorio de un turno de clínica. {lugar}
 // lo arma el backend (la clínica, o "Clínica X (sede Y)" con más de una sede).

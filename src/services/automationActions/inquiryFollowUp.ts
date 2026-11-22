@@ -34,7 +34,7 @@ import {
 import { diaEnLaZona, vencimientoAlFinDelDia } from "../../utils/timezone";
 import {
   MOTIVO_TURNO_DEL_PACIENTE,
-  prestacionParaElMensaje,
+  prestacionParaLaTarea,
   turnoFrenaElSeguimiento,
 } from "../../clinicas/seguimientoDeConsultas";
 import { VARIABLES_DE_CONSULTA_DE_CLINICA } from "../../utils/whatsappTemplateText";
@@ -440,7 +440,7 @@ export function crearAccionSeguimientoDeConsulta(
         mensajes,
         consulta.lastInboundAt,
         ahora,
-        clinica ? prestacionParaElMensaje(contacto) : undefined,
+        clinica ? prestacionParaLaTarea(contacto) : undefined,
         await deps.zonaDe(organizationId),
       );
       const creada = await deps.agendarYCrearTarea(

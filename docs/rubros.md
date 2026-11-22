@@ -1904,7 +1904,10 @@ respuesta y **sin oportunidad OPEN**, y no mira los turnos.
    corre para una automotora es la de hoy (test con una automotora con un
    test drive agendado: el seguimiento sale igual que hoy).
 2. **Texto y variables del rubro:** en CLINICA, `{prestacion}` (de
-   `leadServiceOfInterest`), con el respaldo "lo que consultaste". El texto por
+   `leadServiceOfInterest`), con el respaldo "nuestros servicios" (hasta la QA
+   del 2026-11-21 era "lo que consultaste", y el texto por defecto decía "tu
+   consulta sobre lo que consultaste"). En la tarea de los otros canales, sin
+   prestación dice "Le interesa: no se sabe". El texto por
    defecto de una automotora (`inquiryFollowUp.ts:61`) no cambia.
 3. **Siempre la plantilla (D7):** en CLINICA el seguimiento nunca manda texto
    libre de la IA, tampoco en AUTONOMA. Es más estricto que ediciones D9 y lo

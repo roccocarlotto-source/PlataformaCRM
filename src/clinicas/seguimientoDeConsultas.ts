@@ -13,7 +13,7 @@ import { configDeConsultaSinAvanceSchema } from "../services/automationTriggers"
 //      acción y en el worker antes de mandar, donde ya se mira la oportunidad.
 //      Un "No vino" no frena: §9.1 solo nombra el atendido.
 //   2. TEXTO Y VARIABLES: {prestacion} (de leadServiceOfInterest, con el
-//      respaldo "lo que consultaste") en lugar de {vehiculo}.
+//      respaldo RESPALDO_DE_LA_PRESTACION) en lugar de {vehiculo}.
 //   3. SIEMPRE LA PLANTILLA (D7): nunca texto libre de la IA, ni en AUTONOMA.
 // ---------------------------------------------------------------------------
 
@@ -27,13 +27,27 @@ export const MOTIVO_TURNO_DEL_PACIENTE =
 export const TEXTO_POR_DEFECTO_DE_CLINICA =
   "¡{saludo}! Te escribimos por tu consulta sobre {prestacion}. ¿Querés que te ayudemos a coordinar un turno?";
 
+/** Lo que va en {prestacion} cuando no se sabe qué consultó, que es lo normal
+ *  si nadie cargó la prestación de interés. Tiene que leerse bien después de
+ *  "tu consulta sobre" (el texto por defecto) y no puede ser vacío (Meta no
+ *  acepta un parámetro vacío). Antes era "lo que consultaste", y el mensaje
+ *  decía "tu consulta sobre lo que consultaste" (QA del 2026-11-21). */
+export const RESPALDO_DE_LA_PRESTACION = "nuestros servicios";
+
 /** Pura: con qué se nombra lo que consultó: la prestación que buscó, o un
  *  texto genérico. */
 export function prestacionParaElMensaje(contacto: {
   leadServiceOfInterest: string | null;
 }): string {
   const buscada = contacto.leadServiceOfInterest?.trim();
-  return buscada && buscada.length > 0 ? buscada : "lo que consultaste";
+  return buscada && buscada.length > 0 ? buscada : RESPALDO_DE_LA_PRESTACION;
+}
+
+/** Pura: lo mismo para la TAREA de Recepción (otros canales): ahí lo lee el
+ *  equipo, así que sin prestación dice que no se sabe. */
+export function prestacionParaLaTarea(contacto: { leadServiceOfInterest: string | null }): string {
+  const buscada = contacto.leadServiceOfInterest?.trim();
+  return buscada && buscada.length > 0 ? buscada : "no se sabe";
 }
 
 /** Desde cuándo un turno atendido frena el seguimiento. */

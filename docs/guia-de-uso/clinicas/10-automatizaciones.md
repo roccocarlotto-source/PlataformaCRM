@@ -164,7 +164,7 @@ particularidades:
 | Variable | Qué va | |
 |---|---|---|
 | `{saludo}` | El saludo con el nombre del paciente ("Hola Ana"), o "Hola" a secas si no lo dio. | Obligatoria. |
-| `{prestacion}` | La prestación que consultó, o "lo que consultaste". | Opcional, a lo sumo una vez, después de `{saludo}`. |
+| `{prestacion}` | La prestación que consultó, o "nuestros servicios" si no se sabe. | Opcional, a lo sumo una vez, después de `{saludo}`. |
 
 El texto con el que arranca una regla nueva es:
 
