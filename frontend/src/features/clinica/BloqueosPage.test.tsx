@@ -103,4 +103,74 @@ describe("BloqueosPage (R6)", () => {
     expect(screen.getByRole("button", { name: "Cancelar turno" })).toBeInTheDocument();
     expect(enviado).toMatchObject({ startsAt: expect.any(String), endsAt: expect.any(String) });
   });
+
+  // QA de la primera clínica (2026-11-21): "Cancelar turno" en esta tarjeta
+  // cancelaba sin preguntar. Ahora pide la misma confirmación que la lista de
+  // Turnos; "Volver" no cancela nada.
+  it("cancelar un turno de la tarjeta pide confirmación; sin confirmar no se cancela", async () => {
+    const cancelados: string[] = [];
+    server.use(
+      http.get(`${env.apiUrl}/api/resources`, () =>
+        HttpResponse.json({
+          data: [makeResource({ id: "r1", name: "Ana Profesional", branchId: "b1" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${env.apiUrl}/api/clinica/profesionales/r1/bloqueos`, () =>
+        HttpResponse.json({ bloqueos: [] }),
+      ),
+      http.post(`${env.apiUrl}/api/clinica/profesionales/r1/bloqueos`, () =>
+        HttpResponse.json(
+          {
+            bloqueo: {
+              id: "t1",
+              resourceId: "r1",
+              startsAt: "2027-03-01T13:00:00.000Z",
+              endsAt: "2027-03-01T15:00:00.000Z",
+              reason: null,
+              createdAt: "2027-02-28T12:00:00.000Z",
+            },
+            turnosAfectados: [
+              {
+                bookingId: "bk1",
+                startsAt: "2027-03-01T14:00:00.000Z",
+                endsAt: "2027-03-01T15:00:00.000Z",
+                isOverbooking: false,
+                paciente: { id: "c1", nombre: "Paciente Ejemplo" },
+                prestacion: { id: "st1", name: "Consulta" },
+                tareaId: "a1",
+              },
+            ],
+          },
+          { status: 201 },
+        ),
+      ),
+      http.patch(`${env.apiUrl}/api/bookings/:id/cancel`, ({ params }) => {
+        cancelados.push(String(params.id));
+        return HttpResponse.json({ id: String(params.id), status: "CANCELLED" });
+      }),
+    );
+    const confirmar = vi.spyOn(window, "confirm");
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("No hay bloqueos en los próximos dos meses");
+    await user.type(screen.getByLabelText("Desde"), "2027-03-01T10:00");
+    await user.type(screen.getByLabelText("Hasta"), "2027-03-01T12:00");
+    await user.click(screen.getByRole("button", { name: "Bloquear" }));
+    await screen.findByText("Turnos dentro del bloqueo");
+
+    confirmar.mockReturnValueOnce(false);
+    await user.click(screen.getByRole("button", { name: "Cancelar turno" }));
+    expect(confirmar).toHaveBeenCalledWith(
+      "¿Cancelar este turno? El turno queda libre y no se puede deshacer.",
+    );
+    expect(cancelados).toEqual([]);
+    expect(screen.getByRole("button", { name: "Cancelar turno" })).toBeInTheDocument();
+
+    confirmar.mockReturnValueOnce(true);
+    await user.click(screen.getByRole("button", { name: "Cancelar turno" }));
+    expect(await screen.findByText("Cancelado")).toBeInTheDocument();
+    expect(cancelados).toEqual(["bk1"]);
+    confirmar.mockRestore();
+  });
 });
