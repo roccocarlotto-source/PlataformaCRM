@@ -136,6 +136,36 @@ describe("ContactFormPage", () => {
     });
   });
 
+  it("ISSUE-028: en una clínica el apellido es opcional y se guarda con solo nombre y teléfono", async () => {
+    const base = mockAuth();
+    useAuthMock.mockReturnValue({ ...base, me: { ...base.me!, ...clinicaDeMe("ESENCIAL") } });
+    let postedBody: unknown;
+    server.use(
+      usersHandler(),
+      http.post(contactsUrl, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(makeContact({ firstName: "Gabi", lastName: "" }), {
+          status: 201,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/contacts/new");
+
+    expect(screen.getByLabelText("Apellido")).not.toBeRequired();
+    await user.type(screen.getByLabelText("Nombre"), "Gabi");
+    await user.type(screen.getByLabelText("Teléfono"), "099000101");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(postedBody).toMatchObject({ firstName: "Gabi", lastName: "" }));
+  });
+
+  it("automotora: el apellido sigue obligatorio", async () => {
+    server.use(usersHandler());
+    renderForm("/contacts/new");
+    expect(screen.getByLabelText("Apellido")).toBeRequired();
+  });
+
   it("create: el select Etapa muestra los rótulos traducidos y manda el valor interno del enum", async () => {
     // Ítem 9 de docs/frontend-cambios-pendientes.md: el texto de cada opción
     // sale de labels.ts, pero el value sigue siendo el enum crudo — es lo que

@@ -473,6 +473,32 @@ test("clínica: /me trae contactTerm y el vocabulario del rubro; /organization m
   );
 });
 
+// ISSUE-028: en una clínica el apellido es opcional; en una automotora, no.
+test("clínica: un contacto con solo nombre y teléfono se crea (apellido vacío) y se puede vaciar al editar; automotora: 400", async () => {
+  const clinica = await org("ESENCIAL", "CLINICA");
+  const creado = await pedir(clinica, "POST", "/api/contacts", {
+    firstName: "Gabi",
+    phone: "099000101",
+  });
+  assert.equal(creado.status, 201, JSON.stringify(creado.json));
+  assert.equal(creado.json.lastName, "");
+
+  const conApellido = await pedir(clinica, "POST", "/api/contacts", {
+    firstName: "Ana",
+    lastName: "Ejemplo",
+  });
+  assert.equal(conApellido.status, 201);
+  const vaciado = await pedir(clinica, "PATCH", `/api/contacts/${conApellido.json.id as string}`, {
+    lastName: "",
+  });
+  assert.equal(vaciado.status, 200, JSON.stringify(vaciado.json));
+  assert.equal(vaciado.json.lastName, "");
+
+  const automotora = await org("COMPLETA", "AUTOMOTORA");
+  const sinApellido = await pedir(automotora, "POST", "/api/contacts", { firstName: "Gabi" });
+  assert.equal(sinApellido.status, 400);
+});
+
 test("automotora: el término del contacto no existe (400) y /organization lo devuelve en null", async () => {
   const automotora = await org("COMPLETA", "AUTOMOTORA");
   const cambio = await pedir(automotora, "PATCH", "/api/organization", { contactTerm: "PACIENTE" });
