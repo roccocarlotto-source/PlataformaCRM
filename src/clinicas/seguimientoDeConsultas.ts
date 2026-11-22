@@ -53,7 +53,7 @@ export function filtroSinBotones(): Prisma.MessageWhereInput {
 }
 
 export const MOTIVO_TURNO_DEL_PACIENTE =
-  "El paciente tiene un turno próximo o fue atendido en los últimos días";
+  "Tiene un turno próximo o fue atendido en los últimos días";
 
 /** El texto por defecto de una regla nueva en una clínica (espejo en
  *  frontend/src/features/automation/catalog.ts). */

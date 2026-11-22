@@ -6,9 +6,7 @@ import { AppError } from "../../utils/AppError";
 import { leerConfiguracionDeSede } from "../repositories/clinicSettings.repository";
 import { asignadoParaLaSede } from "../services/reprogramar.service";
 import {
-  PREFIJO_NOTA_CONFIRMADO,
   PREFIJO_TAREA_CANCELAR_FUERA_DE_PLAZO,
-  PREFIJO_TAREA_CANCELO_POR_RECORDATORIO,
   PREFIJO_TAREA_SIN_RESPUESTA,
   TEXTO_CANCELADO,
   TEXTO_CANCELAR_FUERA_DE_PLAZO,
@@ -17,6 +15,12 @@ import {
   diaYHora,
 } from "./config";
 import { recordatorioRespondidoPor } from "./repository";
+import {
+  nombreOElContacto,
+  prefijoNotaConfirmado,
+  prefijoTareaCanceloPorRecordatorio,
+  terminoDeLaClinica,
+} from "../textosDelContacto";
 
 // ---------------------------------------------------------------------------
 // Lo que pasa cuando el paciente toca un botón del recordatorio
@@ -45,10 +49,6 @@ const MS_POR_HORA = 60 * 60 * 1000;
 export interface RespuestaResuelta {
   texto: string;
   accion: "CONFIRMADO" | "CANCELADO" | "FUERA_DE_PLAZO" | "NO_VIGENTE" | "YA_RESUELTO";
-}
-
-function nombreDe(contacto: { firstName: string; lastName: string }): string {
-  return `${contacto.firstName} ${contacto.lastName}`.trim() || "el paciente";
 }
 
 /** Cierra la tarea "sin respuesta" abierta de ese turno, si la hay. */
@@ -94,7 +94,9 @@ export async function resolverRespuestaDelRecordatorio(
   const m = await recordatorioRespondidoPor(organizationId, entranteWamid);
   if (!m || !m.response) return null;
   const turno = m.booking;
-  const paciente = nombreDe(m.contact);
+  // ISSUE-014: las notas y tareas con el término de la organización.
+  const termino = await terminoDeLaClinica(organizationId);
+  const paciente = nombreOElContacto(m.contact, termino);
   const { dia, hora } = diaYHora(m.bookingStartsAt, turno.branch.timezone);
   const cuando = `${dia} a las ${hora}`;
 
@@ -127,7 +129,7 @@ export async function resolverRespuestaDelRecordatorio(
             contactId: turno.contactId,
             opportunityId: null,
             branchId: turno.branchId,
-            subject: `${PREFIJO_NOTA_CONFIRMADO}${paciente}`.slice(0, 255),
+            subject: `${prefijoNotaConfirmado(termino)}${paciente}`.slice(0, 255),
             body: `Confirmó por WhatsApp el turno del ${cuando}.`,
           },
           tx,
@@ -173,7 +175,7 @@ export async function resolverRespuestaDelRecordatorio(
   }
 
   const datos = tarea(
-    PREFIJO_TAREA_CANCELO_POR_RECORDATORIO,
+    prefijoTareaCanceloPorRecordatorio(termino),
     'Tocó "Necesito cancelar" en el recordatorio y el turno se canceló. Ofrecele otro día u horario.',
   );
   try {

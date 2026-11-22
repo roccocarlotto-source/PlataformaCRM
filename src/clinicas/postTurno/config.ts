@@ -35,9 +35,8 @@ export const TEXTO_POR_DEFECTO_DEL_QR_DE_RESENA =
 // Los motivos con que se cancela una fila (last_error).
 export const MOTIVO_NO_VINO = "El turno se marcó como No vino";
 export const MOTIVO_TURNO_NO_ATENDIDO = "El turno ya no está como atendido";
-export const MOTIVO_TURNO_FUTURO_DE_LA_PRESTACION =
-  "El paciente ya tiene un turno futuro de esa prestación";
-export const MOTIVO_SIN_INTERES = "El paciente está marcado sin interés";
+export const MOTIVO_TURNO_FUTURO_DE_LA_PRESTACION = "Ya tiene un turno futuro de esa prestación";
+export const MOTIVO_SIN_INTERES = "Está marcado sin interés";
 export const MOTIVO_QR_BORRADO = "El QR de la regla ya no existe";
 
 /** Pura: cuándo sale el QR de reseña. Cierre automático: 24 h después del

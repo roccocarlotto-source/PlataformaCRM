@@ -117,7 +117,7 @@ export async function crearBloqueoDeProfesional(
           subject: `${PREFIJO_TAREA_DE_BLOQUEO}${nombre}`.slice(0, 255),
           body:
             `${recurso.name} tiene un bloqueo y ${nombre} tiene un turno de ${turno.serviceType.name} ` +
-            `el ${cuando}. El turno sigue en pie: reprogramalo o cancelalo, y avisale al paciente.`,
+            `el ${cuando}. El turno sigue en pie: reprogramalo o cancelalo, y avisale.`,
         },
         tx,
       );

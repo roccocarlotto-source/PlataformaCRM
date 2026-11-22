@@ -67,6 +67,7 @@ import {
 } from "./repository";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
 import { avisarColaFallida } from "../../services/tareaPorColaFallida";
+import { elContactoAlEmpezar, nombreOElContacto, terminoDeLaClinica } from "../textosDelContacto";
 
 // ---------------------------------------------------------------------------
 // El worker de los mensajes de un turno de clínica: el recordatorio
@@ -418,7 +419,9 @@ export async function crearTareasSinRespuesta(
     }
     const asignado = await asignadoParaLaSede(m.organizationId, m.booking.branchId);
     if (!asignado) continue;
-    const paciente = `${m.contact.firstName} ${m.contact.lastName}`.trim() || "el paciente";
+    // ISSUE-014: la tarea con el término de la organización.
+    const termino = await terminoDeLaClinica(m.organizationId);
+    const paciente = nombreOElContacto(m.contact, termino);
     const { dia, hora } = diaYHora(m.bookingStartsAt, m.booking.branch.timezone);
     const hecha = await prisma.$transaction(async (tx) => {
       const { count } = await tx.bookingMessage.updateMany({
@@ -440,7 +443,7 @@ export async function crearTareasSinRespuesta(
             0,
             255,
           ),
-          body: "El paciente no respondió el recordatorio por WhatsApp. El turno sigue en pie: llamalo para confirmarlo.",
+          body: `${elContactoAlEmpezar(termino)} no respondió el recordatorio por WhatsApp. El turno sigue en pie: llamalo para confirmarlo.`,
           dueDate: ahora,
         },
         tx,
