@@ -71,6 +71,7 @@ import { anonimizarVehiculosDelContacto } from "../servicios/repositories/custom
 import { anonimizarOrdenesDelContacto } from "../servicios/repositories/serviceOrder.repository";
 import {
   findDefaultPhoneCountryCode,
+  findEdicionYRubro,
   findOrganizationById,
   findZonaDeLaOrganizacion,
   lockOrganizationForUpdate,
@@ -531,6 +532,10 @@ export async function updateContact(
 
   const { vehicleOfInterestId, customFields, noInterest, noInterestNote, ...resto } = input;
   const data: UpdateContactData = { ...resto };
+  // ISSUE-010: una persona escribió el nombre: el agente ya no lo reemplaza.
+  if (input.firstName !== undefined || input.lastName !== undefined) {
+    data.nameSetByChannel = false;
+  }
   Object.assign(
     data,
     await vehiculoDeInteresDeUnaPersona(organizationId, actual, vehicleOfInterestId),
@@ -1150,11 +1155,15 @@ export function identidadAplicable(
     source?: string | null;
   },
   input: Pick<QualifyLeadInput, "firstName" | "lastName" | "email" | "phone">,
+  // ISSUE-010: en una clínica, el nombre que puso el canal (el perfil de
+  // WhatsApp, Contact.nameSetByChannel) se reemplaza entero, una vez.
+  opciones: { nombreDelCanalReemplazable?: boolean } = {},
 ): { aplica: UpdateLeadQualificationData; ignorados: string[] } {
   const aplica: UpdateLeadQualificationData = {};
   const ignorados: string[] = [];
 
-  const puedeNombre = nombreReemplazableDesdeElChat(contacto);
+  const puedeNombre =
+    opciones.nombreDelCanalReemplazable === true || nombreReemplazableDesdeElChat(contacto);
   for (const campo of ["firstName", "lastName"] as const) {
     const valor = input[campo]?.trim();
     if (valor === undefined || valor.length === 0) continue;
@@ -1193,7 +1202,20 @@ export async function qualifyLead(
   // 404 si no existe, no es de esta organización, o está borrado.
   const contacto = await getContactById(organizationId, contactId);
 
-  const { aplica: identidad, ignorados: identidadIgnorada } = identidadAplicable(contacto, input);
+  // ISSUE-010: el nombre que puso el canal, en una clínica, se reemplaza una
+  // vez. El rubro se lee solo si el contacto tiene la marca y vino un nombre.
+  const traeNombre = Boolean(input.firstName?.trim() || input.lastName?.trim());
+  const nombreDelCanalReemplazable =
+    contacto.nameSetByChannel &&
+    traeNombre &&
+    (await findEdicionYRubro(organizationId))?.industry === "CLINICA";
+  const { aplica: identidad, ignorados: identidadIgnorada } = identidadAplicable(contacto, input, {
+    nombreDelCanalReemplazable,
+  });
+  // Reemplazado una vez, el nombre ya es el que dio la persona.
+  if (contacto.nameSetByChannel && (identidad.firstName || identidad.lastName)) {
+    identidad.nameSetByChannel = false;
+  }
   let motivoDelTelefono: MotivoDelTelefono | undefined;
   if (identidad.phone !== undefined) {
     // Misma forma normalizada que el resto de las escrituras de Contact.phone.

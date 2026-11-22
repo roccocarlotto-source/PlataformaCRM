@@ -141,6 +141,10 @@ Algunas cosas a tener en cuenta:
   (por ejemplo "WhatsApp +54 11 …" o "Visitante a1b2c3d4"). Si la persona le
   dice su nombre al asistente, el asistente lo reemplaza. Si lo cargás vos a
   mano, el asistente ya no lo toca.
+- Lo mismo con el nombre que trae el **perfil de WhatsApp** (por ejemplo, un
+  apodo): si la persona le dice al asistente cómo se llama, lo reemplaza **una
+  sola vez**. Después, o si lo editaste vos en la ficha, el asistente ya no lo
+  cambia.
 
 ### Lo que anota el asistente de IA
 

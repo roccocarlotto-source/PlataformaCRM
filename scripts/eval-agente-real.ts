@@ -170,6 +170,9 @@ interface Escenario {
   // Devolvé el motivo de la falla, o null si quedó bien. Corre una vez, al
   // final, con el contacto de este escenario.
   chequeoDeDatos?: (contactId: string) => Promise<string | null>;
+  // El contacto arranca con el nombre que puso el perfil de WhatsApp
+  // (nameSetByChannel), como uno que creó el webhook (ISSUE-010).
+  contactoDelPerfil?: { firstName: string; lastName: string };
 }
 
 // Lo que el agente contestó en producción el 2026-10-18 (Taller Demo, un
@@ -1002,6 +1005,21 @@ const ESCENARIOS: Escenario[] = [
     toolsEsperadas: ["request_human_handoff"],
     noDebeContener: [/es normal/i, /no es grave/i],
   },
+  {
+    // QA de la primera clínica (2026-11-21, ISSUE-010): "Me llamo Pablo Gómez"
+    // no reemplazaba el nombre del perfil de WhatsApp ("Cliente QA").
+    id: "CL5",
+    agente: "clinica",
+    criterio: "Centro de belleza: el nombre real que da la persona reemplaza el del perfil",
+    contactoDelPerfil: { firstName: "Cliente", lastName: "QA" },
+    msgs: ["Hola, me llamo Pablo Gómez. Quiero turno de manicura el viernes a las 9:40."],
+    toolsEsperadasAlgunaDe: ["update_lead"],
+    chequeoDeDatos: async (contactId) => {
+      const c = await prisma.contact.findUniqueOrThrow({ where: { id: contactId } });
+      const nombre = `${c.firstName} ${c.lastName}`;
+      return nombre === "Pablo Gómez" ? null : `el contacto quedó como "${nombre}"`;
+    },
+  },
 ];
 
 async function montarOrganizacion() {
@@ -1491,10 +1509,11 @@ async function main() {
       const contacto = await prisma.contact.create({
         data: {
           organizationId: destino(esc).orgId,
-          firstName: nombre[0],
-          lastName: nombre[1],
+          firstName: esc.contactoDelPerfil?.firstName ?? nombre[0],
+          lastName: esc.contactoDelPerfil?.lastName ?? nombre[1],
           ownerId: destino(esc).userId,
           phone: `+549${Math.floor(Math.random() * 1e9)}`,
+          ...(esc.contactoDelPerfil ? { nameSetByChannel: true, source: "WhatsApp" } : {}),
         },
       });
 

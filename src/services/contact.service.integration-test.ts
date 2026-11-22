@@ -15,6 +15,7 @@ import {
   TELEFONO_DUPLICADO,
   updateContact,
 } from "./contact.service";
+import { resolveWhatsappContact } from "./whatsappContact.service";
 
 // Desde el ítem 116 qualifyLead devuelve { contacto, identidadIgnorada }: los
 // tests de este archivo solo miran el contacto, así que lo desenvuelven acá y
@@ -790,6 +791,68 @@ test("F5: dos altas simultáneas con el mismo teléfono — la segunda espera el
 
     await assert.rejects(b, assertTelefonoDuplicado);
     assert.equal(await prisma.contact.count({ where: { organizationId: escenario.orgId } }), 1);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ISSUE-010 de la QA de la primera clínica (2026-11-21): la clienta dijo "Me
+// llamo Pablo Gómez" y el contacto siguió con el nombre del perfil de WhatsApp.
+test("ISSUE-010: en una clínica, el nombre que puso WhatsApp se reemplaza una vez; en una automotora o editado por una persona, no", async () => {
+  const escenario = await montar();
+  try {
+    const delPerfil = await resolveWhatsappContact(escenario.orgId, "59899000101", "Cliente QA");
+    const fila = await prisma.contact.findUniqueOrThrow({ where: { id: delPerfil } });
+    assert.equal(fila.nameSetByChannel, true, "el alta desde WhatsApp marca el nombre");
+
+    // Automotora: como siempre, el perfil completo no se pisa.
+    const enAutomotora = await qualifyLead(escenario.orgId, delPerfil, {
+      firstName: "Pablo",
+      lastName: "Gómez",
+    });
+    assert.deepEqual(enAutomotora.identidadIgnorada, ["firstName", "lastName"]);
+    assert.equal(enAutomotora.contacto.firstName, "Cliente");
+
+    // Clínica: se reemplaza entero, y la marca se apaga.
+    await prisma.organization.update({
+      where: { id: escenario.orgId },
+      data: { industry: "CLINICA" },
+    });
+    const enClinica = await qualifyLead(escenario.orgId, delPerfil, {
+      firstName: "Pablo",
+      lastName: "Gómez",
+    });
+    assert.deepEqual(enClinica.identidadIgnorada, []);
+    assert.equal(`${enClinica.contacto.firstName} ${enClinica.contacto.lastName}`, "Pablo Gómez");
+    assert.equal(enClinica.contacto.nameSetByChannel, false);
+
+    // Una sola vez: después, el chat ya no lo cambia.
+    const otraVez = await qualifyLead(escenario.orgId, delPerfil, {
+      firstName: "Pedro",
+      lastName: "Ruiz",
+    });
+    assert.deepEqual(otraVez.identidadIgnorada, ["firstName", "lastName"]);
+    assert.equal(otraVez.contacto.firstName, "Pablo");
+
+    // Si una persona editó el nombre en el panel, tampoco.
+    const editado = await resolveWhatsappContact(escenario.orgId, "59899000102", "Flor Perfil");
+    await updateContact(escenario.orgId, escenario.userId, editado, { firstName: "Florencia" });
+    assert.equal(
+      (await prisma.contact.findUniqueOrThrow({ where: { id: editado } })).nameSetByChannel,
+      false,
+    );
+    const trasEditar = await qualifyLead(escenario.orgId, editado, {
+      firstName: "Flor",
+      lastName: "Otra",
+    });
+    assert.deepEqual(trasEditar.identidadIgnorada, ["firstName", "lastName"]);
+
+    // Un contacto cargado en el panel nace sin la marca.
+    const delPanel = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Ana",
+      lastName: "Pérez",
+    });
+    assert.equal(delPanel.nameSetByChannel, false);
   } finally {
     await desmontar(escenario);
   }
