@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
@@ -136,6 +137,15 @@ export async function marcarTurno(
 // IDEMPOTENTE: el CAS sobre CONFIRMED hace que dos pasadas (o dos procesos) no
 // cierren dos veces el mismo turno. Una automotora nunca cambia sola: el
 // barrido filtra por rubro.
+//
+// PEDIDO DE CANCELACIÓN PENDIENTE: si el paciente tocó "Necesito cancelar" en
+// el recordatorio de ESE horario y el turno sigue CONFIRMED (fuera de plazo:
+// no se canceló y Recepción tiene la tarea), no se cierra solo. Lo decide
+// Recepción (Atendido, No vino o cancelar), y mientras tanto no hay
+// booking.completed, así que tampoco reseña ni control. Si Recepción lo
+// reprograma, el recordatorio viejo es de otro horario y el cierre vuelve a
+// aplicar. El filtro va en la consulta, no en el bucle: si no, esos turnos
+// ocuparían el lote para siempre.
 // ---------------------------------------------------------------------------
 
 export const HORAS_HASTA_EL_CIERRE_AUTOMATICO = 3;
@@ -146,23 +156,50 @@ export async function cerrarTurnosVencidos(
 ): Promise<{ cerrados: number }> {
   const ahora = opciones.ahora ?? relojDeReservas.ahora();
   const limite = new Date(ahora.getTime() - HORAS_HASTA_EL_CIERRE_AUTOMATICO * 60 * 60 * 1000);
-  const vencidos = await prisma.booking.findMany({
-    where: {
-      status: "CONFIRMED",
-      endsAt: { lt: limite },
-      organization: { industry: "CLINICA" },
-      ...(opciones.organizationId ? { organizationId: opciones.organizationId } : {}),
-    },
-    select: { id: true, organizationId: true },
-    orderBy: { endsAt: "asc" },
-    take: LOTE_DEL_CIERRE,
-  });
+  // SQL directo porque el pedido se cruza por horario (booking_starts_at =
+  // starts_at), y Prisma no compara dos columnas.
+  const vencidos = await prisma.$queryRaw<{ id: string; organizationId: string; startsAt: Date }[]>`
+    SELECT b.id, b.organization_id AS "organizationId", b.starts_at AS "startsAt"
+    FROM bookings b
+    JOIN organizations o ON o.id = b.organization_id
+    WHERE b.status = 'CONFIRMED'
+      AND b.ends_at < ${limite}
+      AND o.industry = 'CLINICA'
+      ${opciones.organizationId ? Prisma.sql`AND b.organization_id = ${opciones.organizationId}::uuid` : Prisma.empty}
+      AND NOT EXISTS (
+        SELECT 1 FROM booking_messages m
+        WHERE m.organization_id = b.organization_id
+          AND m.booking_id = b.id
+          AND m.kind = 'REMINDER'
+          AND m.response = 'CANCELAR'
+          AND m.booking_starts_at = b.starts_at
+      )
+    ORDER BY b.ends_at ASC
+    LIMIT ${LOTE_DEL_CIERRE}`;
   let cerrados = 0;
   for (const v of vencidos) {
     try {
       const cerro = await prisma.$transaction(async (tx) => {
+        // El pedido pudo llegar entre la consulta y acá: se vuelve a mirar
+        // dentro de la transacción, y el CAS exige el mismo horario.
+        const pedido = await tx.bookingMessage.findFirst({
+          where: {
+            organizationId: v.organizationId,
+            bookingId: v.id,
+            kind: "REMINDER",
+            response: "CANCELAR",
+            bookingStartsAt: v.startsAt,
+          },
+          select: { id: true },
+        });
+        if (pedido) return false;
         const { count } = await tx.booking.updateMany({
-          where: { id: v.id, organizationId: v.organizationId, status: "CONFIRMED" },
+          where: {
+            id: v.id,
+            organizationId: v.organizationId,
+            status: "CONFIRMED",
+            startsAt: v.startsAt,
+          },
           data: { status: "COMPLETED", completedAt: ahora, completedBy: "AUTO" },
         });
         if (count === 0) return false;

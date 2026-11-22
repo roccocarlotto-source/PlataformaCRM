@@ -152,6 +152,10 @@ datos de salud** ni el motivo de la consulta.
 - Si nadie lo marca, **3 horas después de terminar** el turno se cierra solo
   como atendido, con una nota en la ficha. Si el paciente no vino, corregilo a
   **No vino**.
+- **Excepción:** si el paciente tocó **Necesito cancelar** en el recordatorio
+  cuando ya no se podía cancelar, el turno **no se cierra solo** ni se le pide
+  la reseña. Queda la tarea "Quiere cancelar su turno": marcalo vos como
+  Atendido o No vino, o cancelalo.
 - Lo pueden hacer los administradores y la recepción, en los turnos de sus
   sedes. Un turno cancelado no se marca.
 
