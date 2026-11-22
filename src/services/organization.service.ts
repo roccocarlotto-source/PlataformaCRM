@@ -80,6 +80,13 @@ async function avisoDelTokenDeWhatsapp(organizationId: string): Promise<string |
   return propio === null && conNumero > 0 ? desde.toISOString() : null;
 }
 
+/** El término del contacto de una clínica (ClinicSettings.contactTerm; sin
+ *  configuración, PACIENTE). Una lectura, sin el resto de la configuración:
+ *  lo usa el asistente "¿Cómo se hace?". */
+export async function terminoDelContactoDeLaClinica(organizationId: string): Promise<ContactTerm> {
+  return (await leerConfiguracionDeClinica(organizationId)).contactTerm;
+}
+
 export async function getOrganizationSettings(
   organizationId: string,
 ): Promise<OrganizationSettings> {

@@ -16,6 +16,7 @@
  *                                       # (1000) Haiku 5.5 se corta razonando
  *   npx tsx scripts/eval-asistente-ayuda.ts                       # los dos modelos
  *   npx tsx scripts/eval-asistente-ayuda.ts anthropic/claude-haiku-5.5
+ *   EVAL_CASOS=10-,11-,24-,25- npx tsx scripts/eval-asistente-ayuda.ts …  # solo esos
  *
  * Por modelo: REPETICIONES pasadas con el caché prendido (como en producción)
  * y una sin caché, para medir el costo de una pregunta que no encuentra nada
@@ -40,6 +41,8 @@ const SALIDA = process.env.EVAL_SALIDA ?? "eval-asistente-ayuda.json";
 interface Caso {
   id: string;
   rubro: "AUTOMOTORA" | "CLINICA";
+  /** Clínica: el término del contacto (sin él, "paciente"). */
+  termino?: "CLIENTE";
   edicion: "COMPLETA" | "ESENCIAL";
   conTaller?: boolean;
   rol: "ADMIN" | "USER" | "RECEPCION";
@@ -324,6 +327,31 @@ const CASOS: Caso[] = [
       /como (ya )?(dije|expliqu[eé]|mencion[eé]) (antes|reci[eé]n)/i,
     ],
   },
+  // QA de la primera clínica (2026-11-21): un centro de belleza con el término
+  // "cliente" recibía "paciente" en las respuestas.
+  {
+    id: "24-unir-clientes-belleza",
+    rubro: "CLINICA",
+    termino: "CLIENTE",
+    edicion: "ESENCIAL",
+    rol: "ADMIN",
+    pantalla: "contactos",
+    pregunta: "Tengo una clienta cargada dos veces, ¿cómo la unifico?",
+    fuentes: ["contactos-y-consultas#unir-contactos"],
+    tiene: [/client/i],
+    noTiene: [/pacient/i, /\bveh[ií]culos?\b/i],
+  },
+  {
+    id: "25-no-vino-belleza",
+    rubro: "CLINICA",
+    termino: "CLIENTE",
+    edicion: "ESENCIAL",
+    rol: "RECEPCION",
+    pantalla: "calendario",
+    pregunta: "Una clienta no vino al turno, ¿dónde lo marco?",
+    fuentes: ["actividades-y-agenda#atendido-no-vino"],
+    noTiene: [/pacient/i],
+  },
 ];
 
 // Los casos nuevos de la prueba en producción: tienen que salir bien todos.
@@ -399,7 +427,9 @@ function percentil(valores: number[], p: number): number {
 
 async function correr(modelo: string, cache: boolean): Promise<Corrida[]> {
   const corridas: Corrida[] = [];
-  for (const caso of CASOS) {
+  const filtro = process.env.EVAL_CASOS?.split(",").filter(Boolean);
+  const casos = filtro ? CASOS.filter((c) => filtro.some((p) => c.id.startsWith(p))) : CASOS;
+  for (const caso of casos) {
     let usage: LlmUsage | null = null;
     let ms = 0;
     const deps: DepsDelAsistente = {
@@ -422,6 +452,12 @@ async function correr(modelo: string, cache: boolean): Promise<Corrida[]> {
         return resultado;
       },
       registrar: () => Promise.resolve("eval"),
+      terminoDelContacto: () =>
+        Promise.resolve(
+          caso.termino === "CLIENTE"
+            ? { singular: "cliente", plural: "clientes", genero: "masculino" as const }
+            : { singular: "paciente", plural: "pacientes", genero: "masculino" as const },
+        ),
     };
     try {
       const r = await preguntarAlAsistente(

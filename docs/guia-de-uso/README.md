@@ -59,9 +59,10 @@ autos: un test falla si aparecen "cliente", "vehículo", "stock",
 "oportunidad" o "vendedor". Los roles son **Administrador** y **Recepción**.
 
 Si la clínica eligió otro término de contacto en Organización (un centro de
-belleza: "cliente"), la Ayuda cambia "paciente" y "pacientes" por ese término
-al mostrarse, solo en el texto y los títulos: las anclas no cambian
-(`frontend/src/features/guia/terminoDeContacto.ts`). Por eso se escribe
+belleza: "cliente"), la Ayuda y las respuestas de "¿Cómo se hace?" cambian
+"paciente" y "pacientes" por ese término, solo en el texto y los títulos: las
+anclas no cambian, ni los destinos de los links ni el código en línea
+(`src/compartido/guia/terminoDeContacto.ts`). Por eso se escribe
 siempre "paciente", en masculino ("el paciente", "los pacientes"), para que
 la concordancia sirva con cualquier término.
 

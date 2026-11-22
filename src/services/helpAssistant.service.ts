@@ -1,7 +1,12 @@
 import type { HelpAssistantFeedback } from "@prisma/client";
 import { AYUDA } from "../compartido/guia/anclas";
 import type { Seccion } from "../compartido/guia/guia";
+import {
+  seccionesConElTermino,
+  type TerminoDelContacto,
+} from "../compartido/guia/terminoDeContacto";
 import { modulosDe } from "../config/ediciones";
+import { vocabularioDe } from "../config/vocabulario";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { contactosConNombreEntre } from "../repositories/contact.repository";
@@ -20,6 +25,7 @@ import type { AuthContext } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { periodWindowInZone } from "../utils/zonedWindow";
 import { guiaVisible } from "./guiaDeUso.service";
+import { terminoDelContactoDeLaClinica } from "./organization.service";
 import { bloquesDe, elegirBloques } from "./helpAssistantBusqueda";
 import { getFirmanteDelHistorial, type Firmante } from "./helpAssistantFirma";
 import {
@@ -108,6 +114,8 @@ export interface DepsDelAsistente {
   /** AGE-04: los contactos de la organización cuyo nombre y apellido pueden
    *  estar entre estas palabras. */
   contactosEntre: (organizationId: string, palabras: string[]) => Promise<NombreDeContacto[]>;
+  /** Clínica: cómo nombra a sus contactos (la guía dice "paciente"). */
+  terminoDelContacto: (organizationId: string) => Promise<TerminoDelContacto>;
 }
 
 async function tieneAgenteInterno(
@@ -145,6 +153,8 @@ export const depsDelAsistente: DepsDelAsistente = {
     return getFirmanteDelHistorial();
   },
   contactosEntre: (organizationId, palabras) => contactosConNombreEntre(organizationId, palabras),
+  terminoDelContacto: async (organizationId) =>
+    vocabularioDe("CLINICA", await terminoDelContactoDeLaClinica(organizationId)).contacto,
 };
 
 /** El asistente está disponible para esta persona (lo que muestra /api/me). */
@@ -212,13 +222,15 @@ export async function preguntarAlAsistente(
     .filter((par) => deps.firmante.verificar(delPar(par.pregunta, par.respuesta), par.firma))
     .slice(-PARES_DE_HISTORIAL);
   const preguntaCruda = entrada.pregunta.trim().slice(0, LARGO_MAXIMO_DE_LA_PREGUNTA);
-  const [esPlatformAdmin, conAgenteInterno, contactos] = await Promise.all([
+  const esClinica = auth.industry === "CLINICA";
+  const [esPlatformAdmin, conAgenteInterno, contactos, terminoDelContacto] = await Promise.all([
     deps.esPlatformAdmin(auth.userId),
     deps.tieneAgenteInterno(auth, modulos),
     deps.contactosEntre(
       auth.organizationId,
       palabrasDe([preguntaCruda, ...historial.map((p) => p.pregunta)].join(" ")),
     ),
+    esClinica ? deps.terminoDelContacto(auth.organizationId) : Promise.resolve(null),
   ]);
   // AGE-04: emails, teléfonos, documentos, patentes y nombres de contactos.
   const tapar = (texto: string) => enmascarar(enmascararNombres(texto, contactos));
@@ -229,16 +241,22 @@ export async function preguntarAlAsistente(
     entrada.pantalla !== undefined &&
     Object.hasOwn(AYUDA, entrada.pantalla) &&
     AYUDA[entrada.pantalla as keyof typeof AYUDA].startsWith("plataforma#");
-  const secciones = guiaVisible(
-    {
-      industry: auth.industry,
-      modulos,
-      role: auth.role,
-      isPlatformAdmin: esPlatformAdmin && desdePlataforma,
-    },
-    { conAvisosDeAdmin: true },
+  // La guía de clínicas dice "paciente": con otro término (un centro de
+  // belleza, "cliente"), el modelo lee la guía ya con el suyo, y las anclas no
+  // cambian (los links y las fuentes siguen siendo los de la pantalla Ayuda).
+  const secciones = seccionesConElTermino(
+    guiaVisible(
+      {
+        industry: auth.industry,
+        modulos,
+        role: auth.role,
+        isPlatformAdmin: esPlatformAdmin && desdePlataforma,
+      },
+      { conAvisosDeAdmin: true },
+    ),
+    terminoDelContacto,
+    { markdown: true },
   );
-  const esClinica = auth.industry === "CLINICA";
   const pregunta = tapar(preguntaCruda);
   const pantalla = pantallaDe(entrada.pantalla, secciones);
   // La búsqueda mira la pregunta y, en una charla, la anterior: "¿y cómo la
@@ -251,6 +269,7 @@ export async function preguntarAlAsistente(
   );
   const prompt = armarPrompt(secciones, elegidos, {
     esClinica,
+    contacto: terminoDelContacto,
     edicion: auth.edition,
     rol: auth.role,
     tieneAgenteInterno: conAgenteInterno,

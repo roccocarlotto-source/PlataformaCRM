@@ -1,4 +1,7 @@
+import { ContactTerm } from "@prisma/client";
 import { AVISO_DE_ADMIN, type Seccion } from "../compartido/guia/guia";
+import type { TerminoDelContacto } from "../compartido/guia/terminoDeContacto";
+import { vocabularioDe } from "../config/vocabulario";
 import { patronDeNombre } from "../utils/mencionDeLaPersona";
 import { indiceDe, textoDeLosBloques, type Bloque } from "./helpAssistantBusqueda";
 
@@ -90,6 +93,9 @@ export function enmascararNombres(texto: string, nombres: NombreDeContacto[]): s
 
 export interface ContextoDeLaPregunta {
   esClinica: boolean;
+  /** Clínica: cómo nombra a sus contactos (ClinicSettings.contactTerm). Sin
+   *  él, "paciente", el default del rubro. */
+  contacto?: TerminoDelContacto | null;
   edicion: "COMPLETA" | "ESENCIAL";
   /** "ADMIN", "USER" o "RECEPCION". */
   rol: string;
@@ -133,8 +139,25 @@ FUENTES: las anclas de la guía que usaste, como slug#ancla separadas por coma (
 TIPO: guia | no-cubierta | datos | fuera-de-tema`;
 
 // Las reglas de clínica: el mismo vocabulario que su guía (README de
-// docs/guia-de-uso, "La guía de una clínica").
-const REGLA_DE_CLINICA = `10. Esta cuenta es una clínica. Usá su vocabulario: pacientes, profesionales, prestaciones, turnos, agenda, sedes. Nunca digas "cliente", "vehículo", "stock", "oportunidad" ni "vendedor".`;
+// docs/guia-de-uso, "La guía de una clínica"), con el término que eligió para
+// sus contactos (QA de la primera clínica, 2026-11-21: un centro de belleza
+// con "cliente" recibía "paciente", porque esta regla lo prohibía).
+const TERMINOS_DE_CONTACTO: readonly TerminoDelContacto[] = Object.values(ContactTerm).map(
+  (termino) => vocabularioDe("CLINICA", termino).contacto,
+);
+
+function reglaDeClinica(contacto: TerminoDelContacto | null | undefined): string {
+  const elegido = contacto ?? vocabularioDe("CLINICA", "PACIENTE").contacto;
+  const prohibidas = [
+    ...TERMINOS_DE_CONTACTO.filter((t) => t.singular !== elegido.singular).map((t) => t.singular),
+    "vehículo",
+    "stock",
+    "oportunidad",
+  ]
+    .map((palabra) => `"${palabra}"`)
+    .join(", ");
+  return `10. Esta cuenta es una clínica. Usá su vocabulario: ${elegido.plural}, profesionales, prestaciones, turnos, agenda, sedes. Nunca digas ${prohibidas} ni "vendedor".`;
+}
 
 export interface Prompt {
   /** Las reglas y el índice de la guía: igual para todas las preguntas de
@@ -152,7 +175,7 @@ export function armarPrompt(
   elegidos: Bloque[],
   contexto: ContextoDeLaPregunta,
 ): Prompt {
-  const reglas = contexto.esClinica ? `${REGLAS}\n${REGLA_DE_CLINICA}` : REGLAS;
+  const reglas = contexto.esClinica ? `${REGLAS}\n${reglaDeClinica(contexto.contacto)}` : REGLAS;
   const prefijoCacheable = `${reglas}\n\n<indice>\n${indiceDe(secciones)}\n</indice>`;
 
   const lineas = [
@@ -331,10 +354,13 @@ function palabras(texto: string): string[] {
 }
 
 const TROZOS_DE_LAS_REGLAS: ReadonlySet<string> = (() => {
-  const todas = palabras(`${REGLAS}\n${REGLA_DE_CLINICA}`);
+  // Las reglas con cada término de contacto: cualquiera puede filtrarse.
   const trozos = new Set<string>();
-  for (let i = 0; i + PALABRAS_DE_FUGA <= todas.length; i++) {
-    trozos.add(todas.slice(i, i + PALABRAS_DE_FUGA).join(" "));
+  for (const contacto of TERMINOS_DE_CONTACTO) {
+    const todas = palabras(`${REGLAS}\n${reglaDeClinica(contacto)}`);
+    for (let i = 0; i + PALABRAS_DE_FUGA <= todas.length; i++) {
+      trozos.add(todas.slice(i, i + PALABRAS_DE_FUGA).join(" "));
+    }
   }
   return trozos;
 })();

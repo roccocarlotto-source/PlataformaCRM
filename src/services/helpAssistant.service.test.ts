@@ -76,6 +76,7 @@ function armar(
     },
     firmante: FIRMANTE,
     contactosEntre: () => Promise.resolve([]),
+    terminoDelContacto: () => Promise.resolve({ singular: "paciente", plural: "pacientes" }),
     ...cambios,
   };
   return { deps, pedidos, registros };
@@ -188,6 +189,50 @@ test("camino feliz: la guía va cacheable, la pregunta enmascarada, y se registr
   assert.deepEqual(registros[0].sources, ["contactos-y-consultas#contactos"]);
   assert.equal(registros[0].cacheReadTokens, 29_000);
   assert.equal(registros[0].costUsd, 0.004);
+});
+
+// QA de la primera clínica (2026-11-21): un centro de belleza con el término
+// "cliente" recibía respuestas con "paciente".
+test("una clínica con el término cliente: la guía y las reglas del prompt dicen cliente; las anclas no cambian", async () => {
+  const clinica: AuthContext = { ...AUTH, industry: "CLINICA", edition: "ESENCIAL", role: "ADMIN" };
+  const conCliente = armar({
+    terminoDelContacto: () => Promise.resolve({ singular: "cliente", plural: "clientes" }),
+  });
+  await preguntarAlAsistente(
+    clinica,
+    { pregunta: "¿Cómo uno dos clientes repetidos?" },
+    conCliente.deps,
+  );
+  const pedido = conCliente.pedidos[0];
+  const prompt = [pedido.systemPromptCacheable ?? "", pedido.systemPrompt].join("\n");
+  assert.match(prompt, /Usá su vocabulario: clientes,/);
+  assert.match(prompt, /Nunca digas "paciente", "vehículo"/);
+  assert.match(prompt, /Unir clientes \(contactos-y-consultas#unir-contactos\)/);
+  // Fuera de la regla, de las anclas y de los links, ni un "paciente".
+  const leible = prompt
+    .replace(/Nunca digas "paciente"/, "")
+    .replace(/\{#[^}]*\}|\]\([^)]*\)|\([a-z0-9-]+#[a-z0-9-]+\)|`[^`]*`/g, "");
+  assert.doesNotMatch(leible, /aciente/i);
+
+  // Con paciente (el default), la regla de siempre.
+  const conPaciente = armar();
+  await preguntarAlAsistente(
+    clinica,
+    { pregunta: "¿Cómo uno dos pacientes repetidos?" },
+    conPaciente.deps,
+  );
+  assert.match(
+    conPaciente.pedidos[0].systemPromptCacheable ?? "",
+    /Usá su vocabulario: pacientes, .*Nunca digas "cliente", "vehículo"/,
+  );
+});
+
+test("una automotora no lee el término del contacto", async () => {
+  const { deps } = armar({
+    terminoDelContacto: () => Promise.reject(new Error("no se tiene que llamar")),
+  });
+  const r = await preguntarAlAsistente(AUTH, { pregunta: "hola" }, deps);
+  assert.equal(r.tipo, "ANSWERED");
 });
 
 test("nada de la persona entra al prompt: ni su nombre ni su email", async () => {
