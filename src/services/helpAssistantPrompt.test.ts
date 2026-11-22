@@ -92,8 +92,26 @@ test("armarPrompt: a una automotora se le dice qué no incluye su cuenta; a una 
     noIncluye: ["cotizaciones"],
   });
   assert.doesNotMatch(clinica.sistema, /NO incluye/);
-  assert.match(clinica.prefijoCacheable, /Nunca digas "cliente"/);
+  // Con "paciente" (el default), la regla exactamente como era.
+  assert.ok(
+    clinica.prefijoCacheable.includes(
+      '10. Esta cuenta es una clínica. Usá su vocabulario: pacientes, profesionales, prestaciones, turnos, agenda, sedes. Nunca digas "cliente", "vehículo", "stock", "oportunidad" ni "vendedor".',
+    ),
+  );
   assert.match(clinica.sistema, /Rol: recepción/);
+});
+
+test("armarPrompt: una clínica con otro término usa el suyo y prohíbe paciente", () => {
+  const { prefijoCacheable } = armarPrompt(GUIA, BLOQUES, {
+    ...CONTEXTO,
+    esClinica: true,
+    contacto: { singular: "cliente", plural: "clientes" },
+  });
+  assert.ok(
+    prefijoCacheable.includes(
+      'Usá su vocabulario: clientes, profesionales, prestaciones, turnos, agenda, sedes. Nunca digas "paciente", "vehículo", "stock", "oportunidad" ni "vendedor".',
+    ),
+  );
 });
 
 test("armarPrompt: la pantalla con el tema de la guía que la explica", () => {
@@ -177,6 +195,16 @@ test("guarda de fuga: una respuesta que copia las reglas se reemplaza por la fra
     repiteLasReglas("1. Abrí **Contactos**.\n2. Tocá **Nuevo contacto** y completá el nombre."),
     false,
   );
+  // La regla de clínica con cualquiera de los dos términos también es fuga.
+  for (const termino of ["pacientes", "clientes"]) {
+    assert.equal(
+      repiteLasReglas(
+        `Esta cuenta es una clínica. Usá su vocabulario: ${termino}, profesionales, prestaciones, turnos, agenda, sedes.`,
+      ),
+      true,
+      termino,
+    );
+  }
 });
 
 test("procesarRespuesta: si pedía datos y tiene el Agente interno, el link lo pone el servidor", () => {
