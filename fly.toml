@@ -1,0 +1,55 @@
+# Despliegue del backend en Fly.io. Sin secretos: las credenciales se cargan
+# con `fly secrets` y nunca van en este archivo. Ver docs/deployment.md.
+#
+# Una sola máquina, siempre prendida: los rate limiters, la caché de auth, el
+# anti-duplicado de voz y los workers viven dentro del proceso
+# (docs/deployment.md §1). Por eso:
+#   - el primer deploy va con `fly deploy --ha=false` (sin eso Fly crea dos);
+#   - nunca `fly scale count 2`;
+#   - la máquina no se apaga por falta de tráfico (se apagarían los workers).
+#
+# Cada deploy pasa el commit para que /health lo muestre en "version":
+#   fly deploy --remote-only --ha=false --build-arg GIT_COMMIT="$(git rev-parse HEAD)"
+
+app = "plataformacrm-api"
+primary_region = "gru"
+
+# server.ts maneja SIGTERM y SIGINT; el default de Fly es SIGINT. SIGTERM es lo
+# mismo que mandan Render y el job `docker` del CI.
+kill_signal = "SIGTERM"
+# El default de Fly es 5 s y el apagado ordenado puede tardar hasta
+# SHUTDOWN_TIMEOUT_MS (8 s por defecto): con 5 s Fly lo cortaría a la mitad.
+kill_timeout = "15s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # Con una sola máquina, "rolling" la reemplaza en el lugar: un corte de
+  # segundos, pero nunca dos procesos con workers a la vez. "bluegreen" y
+  # "canary" levantan una segunda máquina al lado, así que no se usan.
+  strategy = "rolling"
+
+[env]
+  NODE_ENV = "production"
+  # Tiene que coincidir con internal_port.
+  PORT = "4000"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # /health va sin prefijo /api. Responde 503 cuando no alcanza la base.
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
