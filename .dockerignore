@@ -38,3 +38,11 @@ npm-audit.json
 
 Dockerfile
 .dockerignore
+
+# Carpeta local, fuera de git (.gitignore). `docs` y `*.md` de arriba no la
+# cubren: sin esta línea, `fly deploy` (o un `docker build` desde la carpeta
+# del repo) la subiría entera al contexto de build.
+docs-privados
+
+# Configuración de Fly: la lee flyctl, no hace falta dentro de la imagen.
+fly.toml
