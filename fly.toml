@@ -39,7 +39,8 @@ kill_timeout = "15s"
   internal_port = 4000
   force_https = true
   auto_stop_machines = "off"
-  auto_start_machines = true
+  # Una máquina parada a mano no se prende sola con un pedido (si se cae, la reinicia restart on-failure).
+  auto_start_machines = false
   min_machines_running = 1
 
   # /health va sin prefijo /api. Responde 503 cuando no alcanza la base.
