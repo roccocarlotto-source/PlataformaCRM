@@ -293,8 +293,9 @@ los dos casos):
     - el apellido se pide solo si falta;
   - **sin textos de transición** ("Perfecto, ahora te muestro los
     horarios…"): la lista lleva su propio cuerpo;
-  - **opcional:** el aviso de privacidad dentro del cuerpo de la bienvenida,
-    que tiene hasta 1024 caracteres, en lugar de un mensaje aparte (D13).
+  - el aviso de privacidad dentro del cuerpo de la bienvenida ahorraría un
+    mensaje en cada primer contacto. **Por ahora no** (D13): sigue aparte
+    hasta la revisión legal del aviso.
 - Con esas reglas, una reserva típica queda en **4 o 5 mensajes**:
   1. bienvenida;
   2. lista de prestaciones (se saltea si hay una sola o si ya se sabe);
