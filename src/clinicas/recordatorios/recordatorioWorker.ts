@@ -15,7 +15,6 @@ import {
 } from "../postTurno/config";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
-import { soloDigitos } from "../../lib/telefono";
 import { createActivity as createActivityRepo } from "../../repositories/activity.repository";
 import { findBranchWhatsappPhoneNumberId } from "../../repositories/agent.repository";
 import { findApprovedWhatsappTemplate } from "../../repositories/whatsappTemplate.repository";
@@ -69,6 +68,7 @@ import {
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
 import { avisarColaFallida } from "../../services/tareaPorColaFallida";
 import { elContactoAlEmpezar, nombreOElContacto, terminoDeLaClinica } from "../textosDelContacto";
+import { bsuidDelContacto, destinoDeWhatsapp } from "../../services/whatsappContact.service";
 
 // ---------------------------------------------------------------------------
 // El worker de los mensajes de un turno de clínica: el recordatorio
@@ -105,6 +105,9 @@ export interface PlantillaDelMensaje {
 }
 
 export interface DepsDelRecordatorio {
+  // B (PR0): el BSUID de un contacto sin teléfono, para mandarle la plantilla.
+  // Opcional: sin ella (los dobles de los tests unitarios), solo el teléfono.
+  bsuidDelContacto?: (organizationId: string, contactId: string) => Promise<string | null>;
   accessToken: () => string | undefined;
   plantillaDeLaRegla: (
     organizationId: string,
@@ -121,6 +124,7 @@ export interface DepsDelRecordatorio {
 }
 
 export const depsDelRecordatorioReales: DepsDelRecordatorio = {
+  bsuidDelContacto: (organizationId, contactId) => bsuidDelContacto(organizationId, contactId),
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
   plantillaDeLaRegla: async (organizationId, automationId) => {
     const p = await findApprovedWhatsappTemplate(organizationId, automationId);
@@ -150,6 +154,7 @@ export const depsDelRecordatorioReales: DepsDelRecordatorio = {
 export async function motivoParaNoMandar(
   fila: RecordatorioParaEnviar,
   ahora: Date = new Date(),
+  buscarBsuid?: DepsDelRecordatorio["bsuidDelContacto"],
 ): Promise<string | null> {
   if (!fila.automation.isActive || fila.automation.deletedAt !== null) return MOTIVO_REGLA_INACTIVA;
   if (fila.booking.branch.deletedAt !== null) return MOTIVO_TURNO_NO_VIGENTE;
@@ -164,7 +169,13 @@ export async function motivoParaNoMandar(
     if (fila.booking.status === "NO_SHOW") return MOTIVO_NO_VINO;
     if (fila.booking.status !== "COMPLETED") return MOTIVO_TURNO_NO_ATENDIDO;
   }
-  if (fila.contact.deletedAt !== null || soloDigitos(fila.contact.phone ?? "") === "") {
+  if (
+    fila.contact.deletedAt !== null ||
+    (await destinoDeWhatsapp(
+      fila.contact.phone,
+      buscarBsuid && (() => buscarBsuid(fila.organizationId, fila.contactId)),
+    )) === ""
+  ) {
     return MOTIVO_SIN_TELEFONO;
   }
   if (fila.kind === "CONTROL") {
@@ -220,7 +231,7 @@ export async function procesarRecordatorio(
 ): Promise<ResultadoDelRecordatorio> {
   const fila = await leerRecordatorioParaEnviar(reclamo.id, reclamo.organizationId);
   if (!fila) throw new ErrorPermanenteDelSeguimiento("La fila del mensaje del turno ya no existe");
-  const motivo = await motivoParaNoMandar(fila, ahora);
+  const motivo = await motivoParaNoMandar(fila, ahora, deps.bsuidDelContacto);
   if (motivo) return { resultado: "CANCELADO", motivo };
 
   // El QR y el control los inicia la clínica sin urgencia: dentro del horario
@@ -238,7 +249,11 @@ export async function procesarRecordatorio(
     if (!qr) return { resultado: "CANCELADO", motivo: MOTIVO_QR_BORRADO };
   }
 
-  const destino = soloDigitos(fila.contact.phone ?? "");
+  // B (PR0): el teléfono o, si no tiene, el BSUID del contacto.
+  const destino = await destinoDeWhatsapp(
+    fila.contact.phone,
+    deps.bsuidDelContacto && (() => deps.bsuidDelContacto!(fila.organizationId, fila.contactId)),
+  );
   const phoneNumberId = await deps.numeroDeLaSede(fila.organizationId, fila.booking.branchId);
   if (!phoneNumberId) {
     throw new ErrorPermanenteDelSeguimiento(

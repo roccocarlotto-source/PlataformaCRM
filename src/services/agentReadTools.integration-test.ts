@@ -2845,8 +2845,15 @@ function contactoDePerfil(
   e: Escenario,
   datos: { firstName: string; lastName: string; source: string },
 ) {
+  // El contacto que crea WhatsApp tiene el teléfono del canal. Sin él sería el
+  // que llegó solo con su BSUID (PR0), al que además se le pide un teléfono o
+  // un email: otro caso, con su propio test en agentTools.service.test.ts.
+  const delCanal =
+    datos.source === "WhatsApp"
+      ? { phone: `+59899${String(Math.floor(Math.random() * 900000) + 100000)}` }
+      : {};
   return prisma.contact.create({
-    data: { organizationId: e.organizationId, ownerId: e.userId, ...datos },
+    data: { organizationId: e.organizationId, ownerId: e.userId, ...datos, ...delCanal },
   });
 }
 

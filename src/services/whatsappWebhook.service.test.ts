@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   esEntranteNoSoportado,
+  leerCambioDeIdentidad,
+  leerContactoDelPayload,
   leerMensaje,
   MARCADORES_NO_SOPORTADOS,
   MARCADOR_DE_AUDIO,
@@ -251,4 +253,188 @@ test("esEntranteNoSoportado: un texto común, o uno que solo contiene un marcado
   assert.equal(esEntranteNoSoportado("Hola"), false);
   assert.equal(esEntranteNoSoportado("te mando el [video] ahora"), false);
   assert.equal(esEntranteNoSoportado(" [video] "), true);
+});
+
+// ---------------------------------------------------------------------------
+// PR0 (docs/mensajes-con-opciones.md §10.1): el BSUID. Meta lo manda en todo
+// mensaje como `from_user_id`; con los nombres de usuario de WhatsApp, el
+// teléfono (`from`) puede no venir. Payloads con la forma de la documentación
+// de Meta (business-scoped user IDs) y valores ficticios.
+// ---------------------------------------------------------------------------
+
+const BSUID = "UY.1234567890123456789";
+
+test("leerMensaje: con teléfono y BSUID, el teléfono sigue siendo el remitente y el BSUID viaja aparte", () => {
+  assert.deepEqual(
+    leerMensaje({
+      from: "598991",
+      from_user_id: BSUID,
+      id: "wamid.b1",
+      type: "text",
+      text: { body: "Hola" },
+    }),
+    { wamid: "wamid.b1", waId: "598991", bsuid: BSUID, texto: "Hola" },
+  );
+});
+
+test("leerMensaje: sin teléfono, el BSUID es el remitente (antes el mensaje se descartaba)", () => {
+  assert.deepEqual(
+    leerMensaje({ from_user_id: BSUID, id: "wamid.b2", type: "text", text: { body: "Hola" } }),
+    { wamid: "wamid.b2", waId: BSUID, bsuid: BSUID, texto: "Hola" },
+  );
+  // Todos los tipos: audio, imagen, ubicación, botón, no soportado.
+  const audio = leerMensaje({
+    from_user_id: BSUID,
+    id: "wamid.b3",
+    type: "audio",
+    audio: { id: "media.1", mime_type: "audio/ogg" },
+  });
+  assert.equal(audio?.waId, BSUID);
+  assert.equal(audio?.texto, MARCADOR_DE_AUDIO);
+  const imagen = leerMensaje({
+    from_user_id: BSUID,
+    id: "wamid.b4",
+    type: "image",
+    image: { id: "media.2", mime_type: "image/jpeg" },
+  });
+  assert.equal(imagen?.waId, BSUID);
+  const ubicacion = leerMensaje({
+    from_user_id: BSUID,
+    id: "wamid.b5",
+    type: "location",
+    location: { latitude: -34.9, longitude: -56.16 },
+  });
+  assert.equal(ubicacion?.waId, BSUID);
+  const boton = leerMensaje({
+    from_user_id: BSUID,
+    id: "wamid.b6",
+    type: "button",
+    button: { text: "Confirmo", payload: "CONFIRMAR" },
+    context: { id: "wamid.plantilla" },
+  });
+  assert.equal(boton?.waId, BSUID);
+  assert.deepEqual(boton?.boton, { payload: "CONFIRMAR", contextId: "wamid.plantilla" });
+  const video = leerMensaje({ from_user_id: BSUID, id: "wamid.b7", type: "video", video: {} });
+  assert.equal(video?.texto, MARCADORES_NO_SOPORTADOS.video);
+});
+
+test("leerMensaje: sin teléfono ni BSUID, o con un BSUID mal formado, no se procesa", () => {
+  assert.equal(leerMensaje({ id: "wamid.b8", type: "text", text: { body: "Hola" } }), null);
+  assert.equal(
+    leerMensaje({
+      from_user_id: "no-es-bsuid",
+      id: "wamid.b9",
+      type: "text",
+      text: { body: "Hola" },
+    }),
+    null,
+  );
+  // Con teléfono, un BSUID mal formado se ignora y el mensaje sigue por el teléfono.
+  assert.deepEqual(
+    leerMensaje({
+      from: "598991",
+      from_user_id: "no-es-bsuid",
+      id: "wamid.b10",
+      type: "text",
+      text: { body: "Hola" },
+    }),
+    { wamid: "wamid.b10", waId: "598991", texto: "Hola" },
+  );
+});
+
+test("leerMensaje: un mensaje de un grupo se ignora (fuera de alcance)", () => {
+  assert.equal(
+    leerMensaje({
+      from: "598991",
+      from_user_id: BSUID,
+      group_id: "grupo.1",
+      id: "wamid.b11",
+      type: "text",
+      text: { body: "Hola a todos" },
+    }),
+    null,
+  );
+});
+
+test("leerContactoDelPayload: lee teléfono, BSUID, nombre y usuario; sin wa_id ya no se pierde", () => {
+  assert.deepEqual(
+    leerContactoDelPayload({ profile: { name: "Ana Pérez" }, wa_id: "598991", user_id: BSUID }),
+    { waId: "598991", bsuid: BSUID, nombre: "Ana Pérez" },
+  );
+  assert.deepEqual(
+    leerContactoDelPayload({ profile: { name: "Ana", username: "ana.perez" }, user_id: BSUID }),
+    { bsuid: BSUID, nombre: "Ana", usuario: "ana.perez" },
+  );
+  assert.deepEqual(leerContactoDelPayload({ wa_id: "598991" }), { waId: "598991" });
+  assert.equal(leerContactoDelPayload({ profile: { name: "Sin ids" } }), null);
+  assert.equal(leerContactoDelPayload("basura"), null);
+});
+
+test("leerCambioDeIdentidad: cambio de número (user_changed_number)", () => {
+  assert.deepEqual(
+    leerCambioDeIdentidad({
+      from: "598991",
+      id: "wamid.s1",
+      type: "system",
+      system: {
+        body: "User A changed from 598991 to 598992",
+        wa_id: "598992",
+        user_id: "UY.9999999999",
+        previous_user_id: BSUID,
+        type: "user_changed_number",
+      },
+    }),
+    {
+      wamid: "wamid.s1",
+      tipo: "user_changed_number",
+      waIdAnterior: "598991",
+      bsuidAnterior: BSUID,
+      waIdNuevo: "598992",
+      bsuidNuevo: "UY.9999999999",
+    },
+  );
+});
+
+test("leerCambioDeIdentidad: cambio de BSUID sin teléfono (user_changed_user_id)", () => {
+  assert.deepEqual(
+    leerCambioDeIdentidad({
+      id: "wamid.s2",
+      type: "system",
+      system: {
+        body: "User changed from a to b",
+        user_id: "UY.9999999999",
+        previous_user_id: BSUID,
+        type: "user_changed_user_id",
+      },
+    }),
+    {
+      wamid: "wamid.s2",
+      tipo: "user_changed_user_id",
+      bsuidAnterior: BSUID,
+      bsuidNuevo: "UY.9999999999",
+    },
+  );
+});
+
+test("leerCambioDeIdentidad: otro tipo de sistema, o sin BSUID nuevo, no es un cambio de identidad", () => {
+  assert.equal(
+    leerCambioDeIdentidad({
+      id: "wamid.s3",
+      type: "system",
+      system: { type: "customer_identity_changed" },
+    }),
+    null,
+  );
+  assert.equal(
+    leerCambioDeIdentidad({
+      id: "wamid.s4",
+      type: "system",
+      system: { type: "user_changed_number", wa_id: "598992" },
+    }),
+    null,
+  );
+  assert.equal(
+    leerCambioDeIdentidad({ from: "598991", id: "wamid.s5", type: "text", text: { body: "x" } }),
+    null,
+  );
 });

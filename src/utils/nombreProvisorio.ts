@@ -26,6 +26,11 @@
 // ---------------------------------------------------------------------------
 
 export const WHATSAPP_CONTACT_FALLBACK_FIRST_NAME = "WhatsApp";
+// PR0 (docs/mensajes-con-opciones.md §10.1, D de Rocco 2026-11-27): un
+// contacto que llega por WhatsApp sin teléfono (solo con su BSUID), sin nombre
+// de perfil ni de usuario. Provisorio como los demás: el agente le pide el
+// nombre antes de reservar.
+export const WHATSAPP_SIN_TELEFONO = { firstName: "Contacto", lastName: "de WhatsApp" } as const;
 export const WIDGET_CONTACT_FIRST_NAME = "Visitante";
 export const LLAMADA_CONTACT_FIRST_NAME = "Llamada";
 export const LLAMADA_CONTACT_SOURCE = "Llamada telefónica";
@@ -54,6 +59,12 @@ export function esNombreProvisorio(contacto: {
   const nombre = contacto.firstName.trim();
   const apellido = contacto.lastName ?? "";
   if (nombre.length === 0 || nombre === WHATSAPP_CONTACT_FALLBACK_FIRST_NAME) {
+    return true;
+  }
+  if (
+    nombre === WHATSAPP_SIN_TELEFONO.firstName &&
+    apellido.trim() === WHATSAPP_SIN_TELEFONO.lastName
+  ) {
     return true;
   }
   if (nombre === LLAMADA_CONTACT_FIRST_NAME && apellido.startsWith("+")) {

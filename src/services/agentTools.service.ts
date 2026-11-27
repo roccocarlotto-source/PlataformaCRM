@@ -49,7 +49,11 @@ import {
   PREFIJO_NOTA_DE_MOTIVO,
   type IniciativaDelCliente,
 } from "../utils/iniciativaDelCliente";
-import { esNombreProvisorio, tieneLetras } from "../utils/nombreProvisorio";
+import {
+  esNombreProvisorio,
+  tieneLetras,
+  WHATSAPP_CONTACT_SOURCE,
+} from "../utils/nombreProvisorio";
 import { isoEnZona } from "../utils/timezone";
 import {
   BODY_TYPE_LABELS,
@@ -164,6 +168,7 @@ export function datosQueFaltanParaActuar(
     lastName: string | null;
     email: string | null;
     phone: string | null;
+    source?: string | null;
   },
   canal: ConversationChannel,
 ): string[] {
@@ -175,8 +180,16 @@ export function datosQueFaltanParaActuar(
   }
   const tiene = (valor: string | null) => valor !== null && valor.trim().length > 0;
   // Una llamada trae el teléfono, salvo que venga oculto: ahí es como la web.
+  // WhatsApp también, salvo el contacto que nació por WhatsApp sin teléfono
+  // (solo con su BSUID: PR0, docs/mensajes-con-opciones.md §10.1; A, Rocco
+  // 2026-11-27). Se mira el origen para no tocar a los contactos cargados a
+  // mano que después escriben por WhatsApp: esos siguen como siempre.
+  const deWhatsappSinTelefono =
+    canal === ConversationChannel.WHATSAPP && contacto.source === WHATSAPP_CONTACT_SOURCE;
   const canalSinDatoPropio =
-    canal === ConversationChannel.WEB || canal === ConversationChannel.VOICE;
+    canal === ConversationChannel.WEB ||
+    canal === ConversationChannel.VOICE ||
+    deWhatsappSinTelefono;
   if (canalSinDatoPropio && !tiene(contacto.email) && !tiene(contacto.phone)) {
     faltan.push("un teléfono o un email");
   }

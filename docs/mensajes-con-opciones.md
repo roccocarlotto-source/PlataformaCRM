@@ -687,19 +687,30 @@ to process their messages"*
 Hoy el contacto de WhatsApp se identifica por el teléfono. Un mensaje sin
 `from` no podría atarse a nadie. El alcance de PR0:
 
-- **🗄 guardar el BSUID del contacto:** columna nueva en `contacts`, única por
-  organización. El portafolio de Meta es el de la organización, porque cada
-  clínica tiene su WABA;
+- **🗄 guardar el BSUID del contacto** en la tabla que ya existía para las
+  identidades de canal (`contact_channel_identities`, canal `WHATSAPP`, única
+  por organización), sin columna nueva en `contacts`. La migración solo agranda
+  `external_id` de 128 a 160 caracteres: un BSUID llega a 135;
 - **leerlo en el webhook:**
   - `messages[].from_user_id` / `contacts[].user_id`;
-  - `statuses[].recipient_user_id`;
-  - el mensaje de sistema de cambio de número, porque el BSUID se regenera;
-- **resolver el contacto por teléfono o por BSUID.** El que llega sin teléfono
-  se crea con el BSUID y queda sin identidad para turnos, porque
-  `datosQueFaltanParaActuar` pide teléfono o email;
-- **mandar a un BSUID** (`recipient` en lugar de `to`) cuando no hay teléfono,
-  salvo plantillas de autenticación, que lo exigen;
-- **revisar las salidas de modo demo** y el aviso de "nadie respondió".
+  - los mensajes de sistema de cambio de número (`user_changed_number`) y de
+    BSUID (`user_changed_user_id`), porque el BSUID se regenera;
+  - los estados de entrega no cambian: se atan por wamid;
+- **resolver el contacto por teléfono o por BSUID**, en ese orden:
+  - si el BSUID es de otro contacto que el del teléfono, gana el teléfono y
+    queda un aviso en el log (decisión C);
+  - el que llega sin teléfono se crea con el nombre del perfil, si no con el
+    usuario, si no "Contacto de WhatsApp" (decisión D);
+  - no puede reservar hasta dar un teléfono o un email (decisión A);
+  - cuando Meta empieza a mandar su teléfono, se le guarda;
+- **mandar a un BSUID** (`recipient` en lugar de `to`) cuando no hay teléfono:
+  - las respuestas, como siempre;
+  - el recordatorio, la reseña y los seguimientos (decisión B);
+- **los logs nuevos no llevan el teléfono ni el BSUID completos**, sino
+  enmascarados (`src/utils/bsuid.ts`);
+- **los mensajes de grupos** (`group_id`) se ignoran.
+
+Decisiones de PR0 (Rocco, 2026-11-27): A, B, C y D como se recomendaron.
 
 Va antes de PR1 para que el parser nuevo de opciones ya lea el usuario por los
 dos lados.

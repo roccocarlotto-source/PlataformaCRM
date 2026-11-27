@@ -2,7 +2,6 @@ import { env } from "../../config/env";
 import { salidasPara } from "../../services/modoDemo.service";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
-import { soloDigitos } from "../../lib/telefono";
 import { findBranchWhatsappPhoneNumberId } from "../../repositories/agent.repository";
 import { findApprovedWhatsappTemplate } from "../../repositories/whatsappTemplate.repository";
 import {
@@ -59,6 +58,7 @@ import {
 import { crearTareaDelAviso } from "./tarea";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "../../workers/esperaDeLaBase";
 import { avisarColaFallida, CUERPO_DE_WHATSAPP_FALLIDO } from "../../services/tareaPorColaFallida";
+import { bsuidDelContacto, destinoDeWhatsapp } from "../../services/whatsappContact.service";
 
 // ---------------------------------------------------------------------------
 // El envío del recordatorio del próximo service (docs/servicios.md §6.3, S7),
@@ -85,6 +85,9 @@ export interface PlantillaDelMensaje {
 }
 
 export interface DepsDelEnvio {
+  // B (PR0): el BSUID de un contacto sin teléfono, para mandarle la plantilla.
+  // Opcional: sin ella (los dobles de los tests unitarios), solo el teléfono.
+  bsuidDelContacto?: (organizationId: string, contactId: string) => Promise<string | null>;
   accessToken: () => string | undefined;
   plantillaDeLaRegla: (
     organizationId: string,
@@ -99,6 +102,7 @@ export interface DepsDelEnvio {
 }
 
 export const depsDelEnvioReales: DepsDelEnvio = {
+  bsuidDelContacto: (organizationId, contactId) => bsuidDelContacto(organizationId, contactId),
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
   plantillaDeLaRegla: async (organizationId, automationId) => {
     const p = await findApprovedWhatsappTemplate(organizationId, automationId);
@@ -188,7 +192,11 @@ export async function procesarMensaje(
       return { resultado: "FUERA_DE_HORARIO", hasta: apertura };
   }
 
-  const destino = soloDigitos(fila.contact.phone ?? "");
+  // B (PR0): el teléfono o, si no tiene, el BSUID del contacto.
+  const destino = await destinoDeWhatsapp(
+    fila.contact.phone,
+    deps.bsuidDelContacto && (() => deps.bsuidDelContacto!(fila.organizationId, fila.contactId)),
+  );
   if (destino === "") return { resultado: "SIN_WHATSAPP", motivo: MOTIVO_SIN_WHATSAPP, tarea };
   const phoneNumberId =
     (sucursalDelEnvio

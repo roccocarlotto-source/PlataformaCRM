@@ -98,6 +98,7 @@ porque la respuesta de una no es evidencia de la otra.
 | `Contact.jobTitle` | **Regulated** | Menos identificatorio por sí solo, pero es un atributo de la persona y viaja siempre junto a su nombre |
 | `Contact.source` | **Internal** | Texto libre de hasta 100; hoy lo escribe la ingesta con el nombre de la `Source` |
 | `Contact.lifecycleStage` | **Internal** | |
+| `ContactChannelIdentity.externalId` | **Regulated** | El PSID/IGSID de Messenger e Instagram y, en WhatsApp, el BSUID que manda Meta (PR0, `docs/mensajes-con-opciones.md` §10.1) o los dígitos del teléfono que dejó una unión. Identifica a la persona igual que el teléfono: los logs lo enmascaran (`src/utils/bsuid.ts`) y el borrado a pedido lo elimina (§5.2) |
 
 Los cuatro primeros eran **Sensitive** hasta el cierre de `Q-1` (§6.1).
 Subieron de clase por la jurisdicción, no porque cambiara el dato ni el

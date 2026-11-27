@@ -11,6 +11,7 @@ import {
   createWhatsappTemplateReal,
   cuerpoDeAltaDePlantilla,
   cuerpoDePlantilla,
+  cuerpoDeTexto,
   deleteWhatsappTemplateReal,
   downloadWhatsappMediaReal,
   getWhatsappTemplateStatusReal,
@@ -564,4 +565,34 @@ test("OPS-03: otro 4xx de Meta (no 190) no toca el estado del token", async () =
   );
   await assert.rejects(sendWhatsappTemplateReal(PLANTILLA));
   assert.equal(tokenDeWhatsappInvalidoDesde(), null);
+});
+
+// ---------------------------------------------------------------------------
+// PR0 (docs/mensajes-con-opciones.md §10.1): a un contacto que llegó sin
+// teléfono se le manda a su BSUID, con `recipient` en lugar de `to` (Meta lo
+// admite desde julio de 2026; si vienen los dos, usa `to`). Valores ficticios.
+// ---------------------------------------------------------------------------
+
+test("cuerpoDeTexto: a un teléfono va con `to`; a un BSUID, con `recipient`", () => {
+  assert.deepEqual(cuerpoDeTexto({ to: "59899000000", body: "Hola" }), {
+    to: "59899000000",
+    type: "text",
+    text: { body: "Hola" },
+  });
+  assert.deepEqual(cuerpoDeTexto({ to: "UY.1234567890123456789", body: "Hola" }), {
+    recipient: "UY.1234567890123456789",
+    type: "text",
+    text: { body: "Hola" },
+  });
+});
+
+test("cuerpoDePlantilla: a un BSUID va con `recipient` y sin `to`", () => {
+  const cuerpo = cuerpoDePlantilla({
+    to: "UY.1234567890123456789",
+    templateName: "recordatorio",
+    languageCode: "es",
+    bodyParameters: [],
+  });
+  assert.equal("to" in cuerpo, false);
+  assert.equal((cuerpo as { recipient?: string }).recipient, "UY.1234567890123456789");
 });
