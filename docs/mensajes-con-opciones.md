@@ -217,11 +217,7 @@ sigue con plantilla, como hoy.
 cobrar los mensajes de servicio, con **1.000 gratis por mes por número**. Sin
 medio de pago, pasado ese tope Meta **deja de entregarlos** ([pricing](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing)).
 
-Cada mensaje con opciones cuenta. Una reserva por botones son unos 5
-mensajes salientes (bienvenida, lista de prestaciones, lista de horarios,
-confirmación, turno confirmado). Por la IA son 3 o 4. **Se ahorran tokens pero
-se pueden gastar más mensajes de Meta.** Por eso §6 mide las dos cosas, y §9
-(P11) lo deja como decisión.
+Cada mensaje con opciones cuenta. Los números y el criterio están en §2.1.
 
 **Qué implica para el diseño:**
 
@@ -236,6 +232,102 @@ se pueden gastar más mensajes de Meta.** Por eso §6 mide las dos cosas, y §9
 - **Botones de 20:** "Agendar un turno" (16), "Más información" (15) y
   "Hablar con alguien" (18) entran. La pantalla de configuración valida el
   largo al guardar.
+
+### 2.1 Costos: reserva por IA vs. por botones
+
+**Tarifa de Meta para Uruguay** (mercado "Rest of Latin America"), de la
+planilla oficial en USD enlazada en la
+[página de precios](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing)
+("Cost per message in USD on the WhatsApp Business Platform, effective
+October 1, 2026"). Es por mensaje entregado:
+
+| Categoría | US$ por mensaje |
+|---|---|
+| Servicio (respuestas dentro de la ventana, incluidos botones y listas) | 0,0113. Los primeros 1.000 por mes y por número son gratis |
+| Utilidad (plantillas: recordatorio, reseña) | 0,0113. Desde el 1/10/2026 se cobra aunque la ventana esté abierta. Con volumen baja a 0,0107 (más de 100.000 por mes) |
+| Marketing | 0,0740 |
+
+**Costo de IA medido** en `llm_turn_usages`, en una prueba real por WhatsApp
+de una organización de demostración del rubro clínica (2026-11-27,
+`claude-haiku-5.5`, 17 turnos):
+
+- **por turno:** US$ 0,0020 en promedio (entre 0,0009 y 0,0042), con unos
+  18.000 tokens de entrada y 470 de salida;
+- **una reserva completa:** **US$ 0,0099**, en 4 turnos y con 4 mensajes del
+  agente.
+
+Es el costo que informa el proveedor del modelo, con caché del prompt
+incluida.
+
+**Costo por reserva** (sin contar el aviso de privacidad, que sale igual en
+los dos casos):
+
+| Reserva | Mensajes de servicio | Tokens (US$) | Dentro de los 1.000 gratis | Pasados los 1.000 |
+|---|---|---|---|---|
+| Por IA, 3 mensajes | 3 | 0,0099 | **0,0099** | **0,0438** |
+| Por IA, 4 mensajes (lo medido) | 4 | 0,0099 | **0,0099** | **0,0551** |
+| Por botones, 5 mensajes | 5 | 0 | **0,0000** | **0,0565** |
+| Por botones, 6 mensajes (con el pedido de apellido) | 6 | 0 | **0,0000** | **0,0678** |
+
+**Criterio:**
+
+- **Los botones se justifican por velocidad y confiabilidad, no por costo.**
+  Hay que tener en cuenta tres cosas:
+  - un solo mensaje de Meta (US$ 0,0113) cuesta más que todos los tokens de
+    una reserva (US$ 0,0099);
+  - pasados los 1.000 gratis, cada mensaje de más cuesta más de lo que se
+    ahorra en IA;
+  - la diferencia es de ±1 centavo por reserva, en cualquier sentido.
+- **Los 1.000 gratis son por número y para todos los mensajes de servicio**,
+  no solo para los flujos. Una clínica con movimiento los pasa igual.
+- **El diseño tiene que minimizar mensajes:**
+  - **un mensaje por decisión:** el resumen del turno va en el mismo mensaje
+    que los botones **Confirmar** / **Cambiar**, no en uno aparte;
+  - **la confirmación final lleva los datos del turno y las indicaciones**
+    (llegar antes, medios de pago) en un solo mensaje, no en "listo" + detalle;
+  - **sin pasos que no deciden nada:**
+    - si hay una sola prestación, no se pregunta cuál;
+    - si el primer mensaje ya nombra la prestación ("quiero una consulta
+      dermatológica") o la IA ya la sabe, se arranca en el horario;
+    - el apellido se pide solo si falta;
+  - **sin textos de transición** ("Perfecto, ahora te muestro los
+    horarios…"): la lista lleva su propio cuerpo;
+  - **opcional:** el aviso de privacidad dentro del cuerpo de la bienvenida,
+    que tiene hasta 1024 caracteres, en lugar de un mensaje aparte (§9, P13).
+- Con esas reglas, una reserva típica queda en **4 o 5 mensajes**:
+  1. bienvenida;
+  2. lista de prestaciones (se saltea si hay una sola o si ya se sabe);
+  3. lista de horarios;
+  4. resumen con Confirmar / Cambiar;
+  5. turno confirmado con sus datos.
+
+  Son los mismos mensajes que por la IA, pero sin tokens ni errores de
+  interpretación.
+
+**Política de "AI Providers" de Meta.** No cambia esta cuenta, según los textos
+oficiales leídos el 2026-11-27:
+
+- **La página de precios define el servicio así:** "Any non-template message
+  _not_ powered by the Meta Business Agent Platform. These can be powered by a
+  3rd-party AI solution or people (like customer service representatives)."
+  ([pricing](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing)).
+- **La política de AI Providers apunta a otra cosa:**
+  - empieza aclarando que "This does NOT change how Meta charges all other
+    businesses";
+  - "AI Providers are only permitted to offer general-purpose AI assistants on
+    the WhatsApp Business Platform where Meta is legally required to permit this
+    use case";
+  - cobra solo en los mercados donde la ley obliga a Meta a permitirlo, con
+    categoría propia `general_purpose_ai`. Uruguay no está en la lista
+  ([AI Providers](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing/ai-providers)).
+- **Lectura:** un negocio que usa IA de terceros para atender a sus propios
+  clientes desde su propio número manda mensajes de servicio comunes.
+  - La definición de "AI Provider" en los términos (enero 2026) es amplia, y
+    Meta decide a su criterio.
+  - Para no acercarse a esa definición, el agente se mantiene acotado al
+    negocio y no funciona como asistente de propósito general. Hoy ya es así,
+    con las reglas y guardas del agente.
+  - Queda como punto a confirmar en la revisión legal (§9, P11).
 
 ---
 
@@ -440,7 +532,7 @@ contacto.
   - turnos resueltos por código (las marcas de arriba);
   - turnos con modelo (`llm_turn_usages`);
   - por organización y por mes.
-- **Mensajes de Meta (nuevo, por el cobro de §2):** contar los salientes de
+- **Mensajes de Meta (nuevo, por el cobro de §2.1):** contar los salientes de
   servicio por número y por mes, para ver cuánto falta para los 1.000 gratis.
   Al principio alcanza con una consulta sobre `messages`. Si hace falta, se
   suma una tarjeta en el panel de admin de plataforma, junto a
@@ -512,7 +604,7 @@ siguiente libre. El flujo:
   - si no hay nombre, pide nombre y apellido juntos.
   - Esto también resuelve, en el flujo, el problema de saludar por un nombre y
     después pedir "nombre y apellido".
-- **Costo de Meta:** ver §2. Si una organización pasa los 1.000 mensajes
+- **Costo de Meta:** ver §2.1. Si una organización pasa los 1.000 mensajes
   gratis sin medio de pago, Meta deja de entregar. Hay que medir antes de
   prenderlo a muchas.
 - **Modo demo:** el envío nuevo se simula en modo demo. Se fija en
@@ -561,5 +653,6 @@ Este plan reemplaza los PR10 y PR11 de la segunda fase de
 | P8 | ¿Paso de confirmación antes de reservar? | (a) sí: resumen y botones **Confirmar** / **Cambiar**; (b) se reserva al tocar el horario | **(a)**: un toque por error en una lista larga no tiene que crear un turno |
 | P9 | Canal sin botones (Instagram en escritorio, versiones viejas) | (a) texto numerado ("Respondé 1, 2 o 3") interpretado por código; (b) degradar a la IA | **(a)** solo para la bienvenida; en mitad de flujo, **(b)** |
 | P10 | ¿Funciona con la IA apagada (nivel manual)? | (a) sí: menú y reserva por código, y el texto libre se deriva como hoy; (b) no, solo con IA | **(a)**: es una forma de vender reservas por WhatsApp sin IA, por ejemplo en ESENCIAL |
-| P11 | Costo de Meta (§2) | (a) prender por organización y medir 1 mes antes de ampliar; (b) prender a todas; (c) tope de mensajes por flujo | **(a)** |
+| P11 | Costo de Meta y política de AI Providers (§2.1) | (a) prender por organización, medir 1 mes (mensajes por reserva, embudo, cuánto falta para los 1.000) y confirmar en la revisión legal que no somos "AI Provider"; (b) prender a todas; (c) además, tope de mensajes por flujo | **(a)**: el costo es parecido al de la IA, y lo que falta saber es si el flujo ayuda (embudo) y cómo queda la clasificación de Meta |
 | P12 | Identidad por `user_id` (BSUID) de WhatsApp | (a) tarea aparte, antes de PR1; (b) dentro de PR1 | **(a)**: no es de este diseño, pero conviene no sumarle otro parser encima sin resolverlo |
+| P13 | ¿El aviso de privacidad, dentro de la bienvenida? | (a) en el cuerpo de la bienvenida, con el link (un mensaje menos en cada primer contacto); (b) aparte, como hoy | **(b)** hasta la revisión legal del aviso, porque un mensaje propio es más claro como constancia. Pasar a **(a)** si el abogado lo acepta |
