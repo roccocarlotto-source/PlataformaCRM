@@ -35,6 +35,7 @@ En producción (backend en Render, frontend en Vercel, base y autenticación en 
 | [`docs/booking-architecture.md`](./docs/booking-architecture.md) | Agenda, turnos y Google Calendar. |
 | [`docs/rubros.md`](./docs/rubros.md) · [`docs/ediciones.md`](./docs/ediciones.md) · [`docs/servicios.md`](./docs/servicios.md) | Rubros, ediciones y módulo de taller. |
 | [`docs/ordenamiento-productos.md`](./docs/ordenamiento-productos.md) | Plan para ordenar el repo en un núcleo y dos productos (automotoras y clínicas). |
+| [`docs/mensajes-con-opciones.md`](./docs/mensajes-con-opciones.md) | Botones y listas de WhatsApp resueltos por código (bienvenida, reserva, más información, derivación) y la IA para el texto libre. Propuesta. |
 | [`docs/primera-clinica.md`](./docs/primera-clinica.md) | Plan para poner en producción la primera organización CLINICA (centro de belleza): reserva en línea, confirmación, perfil de salud, WhatsApp y métricas. |
 | [`docs/data-classification.md`](./docs/data-classification.md) | Datos personales, terceros y retención. |
 | [`docs/deployment.md`](./docs/deployment.md) · [`docs/supabase-setup.md`](./docs/supabase-setup.md) | Despliegue y configuración de Supabase. |
