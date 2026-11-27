@@ -623,6 +623,12 @@ CLAUDE.md). Los que tocan el agente corren antes del merge los escenarios de
 `scripts/eval-agente-real.ts` con el modelo de producción. Cada PR que cambia
 lo que ve un usuario actualiza `docs/guia-de-uso/`.
 
+**Congelamiento de migraciones (Rocco, 2026-11-27):** mientras dure el ensayo
+y el corte de la mudanza a Fly.io (plan en `docs-privados/`, local), ningún PR
+con migración se mergea. **PR0, PR1 y el resto de los 🗄** pueden quedar
+abiertos con el CI en verde, pero se mergean recién al terminar el ensayo y el
+corte, o cuando Rocco levante el congelamiento por escrito.
+
 | # | PR | 🗄 | Contenido |
 |---|---|---|---|
 | PR0 | `feat(whatsapp): identidad por BSUID (user_id)` | 🗄 | Tarea aparte de D12, antes de PR1 (§10.1) |
