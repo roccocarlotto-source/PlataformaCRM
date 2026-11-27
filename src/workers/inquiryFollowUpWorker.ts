@@ -1,7 +1,6 @@
 import { env } from "../config/env";
 import { salidasPara } from "../services/modoDemo.service";
 import { logger } from "../lib/logger";
-import { soloDigitos } from "../lib/telefono";
 import {
   findAgentDeLaConversacionParaElNivel,
   findBranchWhatsappPhoneNumberId,
@@ -57,6 +56,7 @@ import {
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 import { avisarColaFallida, CUERPO_DE_WHATSAPP_FALLIDO } from "../services/tareaPorColaFallida";
 import { prisma } from "../lib/prisma";
+import { bsuidDelContacto, destinoDeWhatsapp } from "../services/whatsappContact.service";
 
 // ---------------------------------------------------------------------------
 // El worker de seguimientos de consultas por WhatsApp (ítem 185 de
@@ -85,6 +85,9 @@ import { prisma } from "../lib/prisma";
 // ---------------------------------------------------------------------------
 
 export interface DepsDelSeguimientoDeConsulta {
+  // B (PR0): el BSUID de un contacto sin teléfono, para mandarle la plantilla.
+  // Opcional: sin ella (los dobles de los tests unitarios), solo el teléfono.
+  bsuidDelContacto?: (organizationId: string, contactId: string) => Promise<string | null>;
   accessToken: () => string | undefined;
   plantillaDeLaRegla: (
     organizationId: string,
@@ -123,6 +126,7 @@ export interface DepsDelSeguimientoDeConsulta {
 }
 
 export const depsDelSeguimientoDeConsultaReales: DepsDelSeguimientoDeConsulta = {
+  bsuidDelContacto: (organizationId, contactId) => bsuidDelContacto(organizationId, contactId),
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
   plantillaDeLaRegla: async (organizationId, automationId) => {
     const plantilla = await findApprovedWhatsappTemplate(organizationId, automationId);
@@ -273,7 +277,11 @@ export async function procesarSeguimientoDeConsulta(
     return { resultado: "FUERA_DE_HORARIO", hasta: apertura };
   }
 
-  const destino = soloDigitos(fila.contact.phone ?? "");
+  // B (PR0): el teléfono o, si no tiene, el BSUID del contacto.
+  const destino = await destinoDeWhatsapp(
+    fila.contact.phone,
+    deps.bsuidDelContacto && (() => deps.bsuidDelContacto!(fila.organizationId, fila.contactId)),
+  );
   if (destino === "") {
     throw new ErrorPermanenteDelSeguimiento("El contacto no tiene un teléfono cargado");
   }

@@ -1066,3 +1066,33 @@ test("08/10/2026: por WhatsApp, Messenger e Instagram hace falta nombre y apelli
   assert.match(mensaje, /volvé a llamar a esta herramienta/);
   assert.match(mensaje, /No le digas que quedó reservado ni registrado/);
 });
+
+test("PR0 (A, Rocco 2026-11-27): por WhatsApp sin teléfono (solo BSUID) hace falta un teléfono o un email, como por WEB", () => {
+  const sinTelefono = {
+    firstName: "Martín",
+    lastName: "Pérez",
+    email: null,
+    phone: null,
+    source: "WhatsApp",
+  };
+  // Un contacto cargado a mano, sin teléfono, que escribe por WhatsApp: como siempre.
+  assert.deepEqual(datosQueFaltanParaActuar({ ...sinTelefono, source: null }, "WHATSAPP"), []);
+  assert.deepEqual(datosQueFaltanParaActuar(sinTelefono, "WHATSAPP"), ["un teléfono o un email"]);
+  assert.deepEqual(
+    datosQueFaltanParaActuar({ ...sinTelefono, email: "m@example.test" }, "WHATSAPP"),
+    [],
+  );
+  assert.deepEqual(
+    datosQueFaltanParaActuar(
+      {
+        firstName: "Contacto",
+        lastName: "de WhatsApp",
+        email: null,
+        phone: null,
+        source: "WhatsApp",
+      },
+      "WHATSAPP",
+    ),
+    ["el nombre y el apellido", "un teléfono o un email"],
+  );
+});

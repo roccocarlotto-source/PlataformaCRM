@@ -13,6 +13,7 @@ import { updateAutomation } from "../services/automation.service";
 import { cancelBooking, relojDeReservas } from "../services/booking.service";
 import { createBranch } from "../services/branch.service";
 import { erasePersonalData } from "../services/contact.service";
+import { bsuidDelContacto } from "../services/whatsappContact.service";
 import {
   resetLlmProviderParaTests,
   setLlmProviderForTests,
@@ -461,6 +462,41 @@ test("el worker manda la plantilla con los botones y sus variables; dos pasadas 
     where: { organizationId: a.org.id, senderType: "AUTOMATION" },
   });
   assert.ok(saliente, "el recordatorio queda en la conversación");
+});
+
+// B (PR0, docs/mensajes-con-opciones.md §10.1): un paciente que llegó por
+// WhatsApp solo con su BSUID (sin teléfono) recibe el recordatorio en su BSUID.
+// Sin la búsqueda del BSUID en las deps, el mismo caso se cancela por falta de
+// teléfono, como antes.
+test("B (PR0): sin teléfono pero con BSUID, el recordatorio sale a su BSUID", async () => {
+  const bsuid = `UY.${randomUUID().replace(/-/g, "")}`;
+  await prisma.contact.update({ where: { id: a.paciente }, data: { phone: null } });
+  await prisma.contactChannelIdentity.create({
+    data: {
+      organizationId: a.org.id,
+      channel: "WHATSAPP",
+      externalId: bsuid,
+      contactId: a.paciente,
+    },
+  });
+  try {
+    const t = await turno(a, 9);
+    const [r] = await recordatoriosDe(t.id);
+    await drenarRecordatorios({
+      ahora: r.scheduledFor,
+      organizationId: a.org.id,
+      deps: { ...depsDelRecordatorio(a), bsuidDelContacto },
+    });
+    const fila = await prisma.bookingMessage.findUniqueOrThrow({ where: { id: r.id } });
+    assert.equal(fila.status, "SENT");
+    assert.equal(plantillas.length, 1);
+    assert.equal(plantillas[0].to, bsuid);
+  } finally {
+    await prisma.contactChannelIdentity.deleteMany({
+      where: { organizationId: a.org.id, externalId: bsuid },
+    });
+    await prisma.contact.update({ where: { id: a.paciente }, data: { phone: `+${a.waId}` } });
+  }
 });
 
 test("al mandar revalida: un turno cancelado sin procesar su evento y una regla desactivada cancelan", async () => {

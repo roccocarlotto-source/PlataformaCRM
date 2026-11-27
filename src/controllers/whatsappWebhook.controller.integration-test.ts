@@ -374,6 +374,8 @@ after(async () => {
   await prisma.conversation.deleteMany({ where });
   await prisma.activity.deleteMany({ where });
   await prisma.agent.deleteMany({ where });
+  // PR0: las identidades por BSUID (FK RESTRICT al contacto).
+  await prisma.contactChannelIdentity.deleteMany({ where });
   await prisma.contact.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
   await prisma.user.deleteMany({ where });
@@ -2285,4 +2287,141 @@ test("borrado a pedido: si la persona vuelve a escribir, entra como contacto nue
   assert.equal(vieja.status, "CLOSED");
   assert.equal(vieja.messages.length, 1);
   assert.match(vieja.messages[0].content, /^Datos borrados a pedido del titular el /);
+});
+
+// ---------------------------------------------------------------------------
+// PR0 (docs/mensajes-con-opciones.md §10.1): un mensaje SIN teléfono, solo con
+// el BSUID (el remitente activó su nombre de usuario de WhatsApp). Antes se
+// descartaba sin aviso; ahora crea el contacto sin teléfono, encola y la
+// respuesta sale a su BSUID (`recipient`, ver whatsappGraph.service.ts).
+// Valores ficticios.
+// ---------------------------------------------------------------------------
+
+function bsuidAlAzar(): string {
+  return `UY.${randomUUID().replace(/-/g, "")}`;
+}
+
+function payloadSoloConBsuid(opts: { bsuid: string; wamid: string; nombre?: string }) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "waba-id",
+        changes: [
+          {
+            field: "messages",
+            value: {
+              messaging_product: "whatsapp",
+              metadata: { phone_number_id: fx.phoneNumberId, display_phone_number: "59820000000" },
+              contacts: [
+                {
+                  profile: { name: opts.nombre ?? "Ana Pérez", username: "ana.perez" },
+                  user_id: opts.bsuid,
+                },
+              ],
+              messages: [
+                {
+                  from_user_id: opts.bsuid,
+                  id: opts.wamid,
+                  timestamp: String(Math.floor(Date.now() / 1000)),
+                  type: "text",
+                  text: { body: "Hola, quiero info" },
+                } as Record<string, unknown>,
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+test("PR0: un mensaje solo con BSUID crea el contacto sin teléfono, encola y la respuesta va a su BSUID", async () => {
+  const bsuid = bsuidAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  const res = await enviar(payloadSoloConBsuid({ bsuid, wamid }));
+  assert.equal(res.status, 200);
+
+  const entrante = await entranteConWamid(wamid);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.externalUserId, bsuid);
+
+  const identidad = await prisma.contactChannelIdentity.findUniqueOrThrow({
+    where: {
+      organizationId_channel_externalId: {
+        organizationId: fx.orgId,
+        channel: "WHATSAPP",
+        externalId: bsuid,
+      },
+    },
+  });
+  const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: identidad.contactId } });
+  assert.equal(contacto.phone, null);
+  assert.equal(`${contacto.firstName} ${contacto.lastName}`, "Ana Pérez");
+
+  const resumen = await drenar();
+  assert.equal(resumen.respondidos, 1);
+  assert.deepEqual(enviados, [
+    {
+      phoneNumberId: fx.phoneNumberId,
+      to: bsuid,
+      body: RESPUESTA_DEL_AGENTE,
+      accessToken: ACCESS_TOKEN,
+    },
+  ]);
+  const conversacion = await prisma.conversation.findFirstOrThrow({
+    where: { organizationId: fx.orgId, contactId: contacto.id },
+  });
+  assert.equal(conversacion.externalThreadId, bsuid);
+
+  // El siguiente mensaje, ahora con teléfono y el mismo BSUID: mismo
+  // contacto, que guarda el teléfono.
+  const waId = waIdAlAzar();
+  const conTelefono = payloadDeTexto({ waId, wamid: `wamid.${randomUUID()}` });
+  const valor = conTelefono.entry[0].changes[0].value as { messages: Record<string, unknown>[] };
+  valor.messages[0].from_user_id = bsuid;
+  assert.equal((await enviar(conTelefono)).status, 200);
+  const despues = await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } });
+  assert.equal(despues.phone, `+${waId}`);
+  assert.equal(
+    await prisma.contact.count({ where: { organizationId: fx.orgId, phone: `+${waId}` } }),
+    1,
+  );
+  await drenar();
+});
+
+test("PR0: un cambio de BSUID (mensaje de sistema) ata el nuevo al mismo contacto y no entra a la conversación", async () => {
+  const anterior = bsuidAlAzar();
+  const nuevo = bsuidAlAzar();
+  await enviar(payloadSoloConBsuid({ bsuid: anterior, wamid: `wamid.${randomUUID()}` }));
+  await drenar();
+
+  const sistema = payloadSoloConBsuid({ bsuid: anterior, wamid: `wamid.${randomUUID()}` });
+  const wamidSistema = `wamid.${randomUUID()}`;
+  sistema.entry[0].changes[0].value.messages = [
+    {
+      id: wamidSistema,
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      type: "system",
+      system: {
+        body: "User changed",
+        user_id: nuevo,
+        previous_user_id: anterior,
+        type: "user_changed_user_id",
+      },
+    },
+  ];
+  assert.equal((await enviar(sistema)).status, 200);
+  const ids = await prisma.contactChannelIdentity.findMany({
+    where: { organizationId: fx.orgId, externalId: { in: [anterior, nuevo] } },
+    select: { contactId: true },
+  });
+  assert.equal(ids.length, 2);
+  assert.equal(ids[0].contactId, ids[1].contactId);
+  assert.equal(
+    await prisma.message.count({
+      where: { organizationId: fx.orgId, externalMessageId: wamidSistema },
+    }),
+    0,
+  );
 });

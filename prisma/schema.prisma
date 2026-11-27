@@ -3176,7 +3176,10 @@ model AgentInboundJob {
 // resolveWhatsappContact). Instagram y Messenger lo identifican por un id
 // OPACO por página —el PSID o el IGSID—, que no es un teléfono y no se puede
 // representar en Contact.phone sin inventar números falsos. Esta tabla es el
-// mapeo (organizationId, channel, externalId) → contactId. WhatsApp NO la usa.
+// mapeo (organizationId, channel, externalId) → contactId. WhatsApp la usa
+// para dos cosas: el teléfono que quedó de una unión de contactos
+// (contactMerge.service.ts) y el BSUID (PR0, docs/mensajes-con-opciones.md
+// §10.1), con el que Meta identifica al remitente cuando no manda el teléfono.
 //
 // Sin updatedAt ni deletedAt: una fila es un hecho ("este PSID es este
 // contacto"), no configuración que se edita. Nace vacía: la llena el webhook
@@ -3187,8 +3190,10 @@ model ContactChannelIdentity {
   organizationId String              @map("organization_id") @db.Uuid
   channel        ConversationChannel
   // El PSID o IGSID tal cual lo manda Meta, sin normalizar: se compara por
-  // igualdad exacta contra el del próximo webhook.
-  externalId     String              @map("external_id") @db.VarChar(128)
+  // igualdad exacta contra el del próximo webhook. En WHATSAPP: el BSUID
+  // ("UY.123…", hasta 135 caracteres con el padre) o los dígitos del teléfono
+  // que dejó una unión de contactos; nunca chocan (el BSUID lleva punto).
+  externalId     String              @map("external_id") @db.VarChar(160)
   contactId      String              @map("contact_id") @db.Uuid
   createdAt      DateTime            @default(now()) @map("created_at")
 

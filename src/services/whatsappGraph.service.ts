@@ -4,6 +4,7 @@ import {
   CODIGO_DE_TOKEN_INVALIDO,
 } from "./estadoDelTokenDeWhatsapp";
 import { esTransitorio } from "./llmProvider.service";
+import { esBsuid } from "../utils/bsuid";
 // ---------------------------------------------------------------------------
 // Cliente mínimo de la Graph API de Meta para el canal WhatsApp: mandar UNA
 // respuesta de texto (ítem 81) o UNA plantilla aprobada (ítem 159, el
@@ -26,7 +27,8 @@ const TIMEOUT_MS = 10_000;
 
 export interface SendWhatsappTextInput {
   phoneNumberId: string;
-  // El wa_id del destinatario (solo dígitos, sin "+"), tal cual lo mandó Meta.
+  // El wa_id del destinatario (solo dígitos, sin "+"), tal cual lo mandó Meta,
+  // o su BSUID si llegó sin teléfono (PR0): se manda con `recipient`.
   to: string;
   body: string;
   accessToken: string;
@@ -180,12 +182,20 @@ export function wamidDeLaRespuesta(respuesta: unknown): string | null {
   return typeof id === "string" && id.trim() !== "" ? id : null;
 }
 
+// PR0 (docs/mensajes-con-opciones.md §10.1): el destino es el wa_id (dígitos)
+// o, para un contacto que llegó sin teléfono, su BSUID. A un BSUID se le manda
+// con `recipient` en lugar de `to` (si vinieran los dos, Meta usa `to`).
+export function destinoDeMeta(destino: string): { to: string } | { recipient: string } {
+  return esBsuid(destino) ? { recipient: destino } : { to: destino };
+}
+
+// El cuerpo exacto que viaja, sin messaging_product. Pura, para probar sin red.
+export function cuerpoDeTexto(input: { to: string; body: string }) {
+  return { ...destinoDeMeta(input.to), type: "text", text: { body: input.body } };
+}
+
 export const sendWhatsappTextReal: SendWhatsappText = async (input) => {
-  const respuesta = await postMessage(input.phoneNumberId, input.accessToken, {
-    to: input.to,
-    type: "text",
-    text: { body: input.body },
-  });
+  const respuesta = await postMessage(input.phoneNumberId, input.accessToken, cuerpoDeTexto(input));
   return { wamid: wamidDeLaRespuesta(respuesta) };
 };
 
@@ -205,7 +215,8 @@ export const sendWhatsappTextReal: SendWhatsappText = async (input) => {
 
 export interface SendWhatsappTemplateInput {
   phoneNumberId: string;
-  // Solo dígitos, con código de país, sin "+" (el formato del wa_id).
+  // Solo dígitos, con código de país, sin "+" (el formato del wa_id), o el
+  // BSUID de un contacto sin teléfono (PR0).
   to: string;
   // Nombre y código de idioma exactamente como quedaron aprobados en Meta.
   templateName: string;
@@ -274,7 +285,7 @@ export function cuerpoDePlantilla(
     });
   });
   return {
-    to: input.to,
+    ...destinoDeMeta(input.to),
     type: "template",
     template: {
       name: input.templateName,

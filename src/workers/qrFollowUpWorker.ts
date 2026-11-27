@@ -20,7 +20,6 @@ import {
   type EnvioDePlantilla,
 } from "../services/automationWhatsappConversation.service";
 import { proximaAperturaDeLaSucursal } from "../services/branchBusinessHours.service";
-import { soloDigitos } from "../lib/telefono";
 import {
   sendWhatsappTemplateReal,
   WhatsappGraphError,
@@ -32,6 +31,7 @@ import { parametrosDelCuerpo } from "../utils/whatsappTemplateText";
 import { anotarSiLaBaseNoResponde, laBaseEstaCaida } from "./esperaDeLaBase";
 import { avisarColaFallida, CUERPO_DE_WHATSAPP_FALLIDO } from "../services/tareaPorColaFallida";
 import { prisma } from "../lib/prisma";
+import { bsuidDelContacto, destinoDeWhatsapp } from "../services/whatsappContact.service";
 
 // ---------------------------------------------------------------------------
 // El worker de seguimientos por WhatsApp con el QR (ítem 159 de
@@ -107,6 +107,9 @@ export function armarEnvioDeLaPlantilla(
 }
 
 export interface DepsDelSeguimiento {
+  // B (PR0): el BSUID de un contacto sin teléfono, para mandarle la plantilla.
+  // Opcional: sin ella (los dobles de los tests unitarios), solo el teléfono.
+  bsuidDelContacto?: (organizationId: string, contactId: string) => Promise<string | null>;
   accessToken: () => string | undefined;
   // La plantilla APROBADA y activa de la REGLA que agendó el envío, o null
   // (ítem 160; por regla desde el 181).
@@ -130,6 +133,7 @@ export interface DepsDelSeguimiento {
 }
 
 export const depsDelSeguimientoReales: DepsDelSeguimiento = {
+  bsuidDelContacto: (organizationId, contactId) => bsuidDelContacto(organizationId, contactId),
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
   plantillaDeLaRegla: async (organizationId, automationId) => {
     const plantilla = await findApprovedWhatsappTemplate(organizationId, automationId);
@@ -238,7 +242,12 @@ export async function procesarSeguimiento(
   config: ConfiguracionDeEnvio,
   deps: Pick<
     DepsDelSeguimiento,
-    "plantillaDeLaRegla" | "numeroDeLaSucursal" | "proximaApertura" | "sendTemplate" | "baseDeLaApi"
+    | "plantillaDeLaRegla"
+    | "numeroDeLaSucursal"
+    | "proximaApertura"
+    | "sendTemplate"
+    | "baseDeLaApi"
+    | "bsuidDelContacto"
   >,
   leer: (id: string, organizationId: string) => Promise<QrFollowUpParaEnviar | null> = (
     id,
@@ -270,7 +279,11 @@ export async function procesarSeguimiento(
   // El wa_id de Meta: solo dígitos, con código de país. Contact.phone es texto
   // libre; si se cargó sin código de país Meta lo rechaza con un 4xx, que
   // queda en lastError tal cual lo explica Meta.
-  const destino = soloDigitos(fila.contact.phone ?? "");
+  // B (PR0): el teléfono o, si no tiene, el BSUID del contacto.
+  const destino = await destinoDeWhatsapp(
+    fila.contact.phone,
+    deps.bsuidDelContacto && (() => deps.bsuidDelContacto!(fila.organizationId, fila.contactId)),
+  );
   if (destino === "") {
     throw new ErrorPermanenteDelSeguimiento("El contacto no tiene un teléfono cargado");
   }

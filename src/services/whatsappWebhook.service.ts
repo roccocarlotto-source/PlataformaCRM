@@ -8,6 +8,7 @@ import {
   findMessageByExternalId,
 } from "../repositories/message.repository";
 import { esFalloReintentable } from "../utils/falloDeEntrante";
+import { esBsuid } from "../utils/bsuid";
 import {
   agenteAtiendeElCanal,
   derivarEntranteSinAgente,
@@ -15,7 +16,7 @@ import {
   respondeSinAgente,
 } from "./agentOrchestration.service";
 import { aplicarEstadosRetenidos, retenerEstado } from "./estadosDeEntregaRetenidos.service";
-import { resolveWhatsappContact } from "./whatsappContact.service";
+import { aplicarCambioDeIdentidad, resolveWhatsappContact } from "./whatsappContact.service";
 import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service";
 import { esRespuestaDelBoton, type RespuestaDelBoton } from "../clinicas/recordatorios/config";
 import { esRecordatorioSinResponder, marcarRespuesta } from "../clinicas/recordatorios/repository";
@@ -80,7 +81,6 @@ export type WhatsappWebhookPayload = z.infer<typeof whatsappWebhookPayloadSchema
 // ignoran sin error.
 const mensajeDeTextoSchema = z.object({
   id: z.string().min(1),
-  from: z.string().min(1),
   type: z.literal("text"),
   text: z.object({ body: z.string() }),
 });
@@ -90,7 +90,6 @@ const mensajeDeTextoSchema = z.object({
 // voice: true, que acá no cambia nada.
 const mensajeDeAudioSchema = z.object({
   id: z.string().min(1),
-  from: z.string().min(1),
   type: z.literal("audio"),
   audio: z.object({ id: z.string().min(1), mime_type: z.string().min(1) }),
 });
@@ -104,7 +103,6 @@ export const MARCADOR_DE_AUDIO = "[audio]";
 // opcional — WhatsApp deja mandar la imagen con un texto al pie.
 const mensajeDeImagenSchema = z.object({
   id: z.string().min(1),
-  from: z.string().min(1),
   type: z.literal("image"),
   image: z.object({
     id: z.string().min(1),
@@ -123,7 +121,6 @@ export const MARCADOR_DE_IMAGEN = "[imagen]";
 // address vienen cuando el cliente elige un lugar en vez de su posición.
 const mensajeDeUbicacionSchema = z.object({
   id: z.string().min(1),
-  from: z.string().min(1),
   type: z.literal("location"),
   location: z.object({
     latitude: z.number(),
@@ -199,7 +196,6 @@ export function esEntranteNoSoportado(contenido: string): boolean {
 
 const mensajeBaseSchema = z.object({
   id: z.string().min(1),
-  from: z.string().min(1),
   type: z.string(),
 });
 
@@ -217,7 +213,14 @@ const interactivoSchema = z.object({
 
 export interface MensajeLeido {
   wamid: string;
+  // El remitente: los dígitos del teléfono (el wa_id de Meta) o, si Meta no lo
+  // mandó, su BSUID (PR0, docs/mensajes-con-opciones.md §10.1). Es el id del
+  // hilo y el destino de la respuesta; whatsappGraph.service.ts manda a un
+  // BSUID con `recipient` en vez de `to`.
   waId: string;
+  // El BSUID, cuando vino (con o sin teléfono). Se guarda como identidad del
+  // contacto para reconocerlo el día que Meta deje de mandar el teléfono.
+  bsuid?: string;
   texto: string;
   media?: { id: string; mimeType: string };
   // R13: el botón de respuesta rápida de una plantilla (su payload y el wamid
@@ -228,16 +231,38 @@ export interface MensajeLeido {
 
 // Pura, para probar sin base qué se procesa y cómo. null = tipo que no se
 // procesa, o sin la forma esperada: se ignora sin error.
+// El remitente de un mensaje: `from` (el teléfono) y `from_user_id` (el
+// BSUID). Sin ninguno de los dos, no hay a quién atarlo. Un BSUID mal formado
+// se ignora: si vino el teléfono, sigue por el teléfono. Los mensajes de un
+// grupo (`group_id`) quedan fuera: no son una conversación con una persona.
+const remitenteSchema = z.object({
+  from: z.string().min(1).optional(),
+  from_user_id: z.string().optional(),
+  group_id: z.string().optional(),
+});
+
+function leerRemitente(crudo: unknown): { waId: string; bsuid?: string } | null {
+  const r = remitenteSchema.safeParse(crudo);
+  if (!r.success || r.data.group_id !== undefined) return null;
+  const bsuid =
+    r.data.from_user_id && esBsuid(r.data.from_user_id) ? r.data.from_user_id : undefined;
+  const waId = r.data.from ?? bsuid;
+  if (!waId) return null;
+  return bsuid ? { waId, bsuid } : { waId };
+}
+
 export function leerMensaje(crudo: unknown): MensajeLeido | null {
+  const remitente = leerRemitente(crudo);
+  if (!remitente) return null;
   const texto = mensajeDeTextoSchema.safeParse(crudo);
   if (texto.success) {
-    return { wamid: texto.data.id, waId: texto.data.from, texto: texto.data.text.body };
+    return { wamid: texto.data.id, ...remitente, texto: texto.data.text.body };
   }
   const audio = mensajeDeAudioSchema.safeParse(crudo);
   if (audio.success) {
     return {
       wamid: audio.data.id,
-      waId: audio.data.from,
+      ...remitente,
       texto: MARCADOR_DE_AUDIO,
       media: { id: audio.data.audio.id, mimeType: audio.data.audio.mime_type },
     };
@@ -249,7 +274,7 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
     const caption = imagen.data.image.caption;
     return {
       wamid: imagen.data.id,
-      waId: imagen.data.from,
+      ...remitente,
       texto: caption?.trim() ? caption : MARCADOR_DE_IMAGEN,
       media: { id: imagen.data.image.id, mimeType: imagen.data.image.mime_type },
     };
@@ -259,7 +284,7 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
     // Sin media a propósito: para el resto del camino es un texto más.
     return {
       wamid: ubicacion.data.id,
-      waId: ubicacion.data.from,
+      ...remitente,
       texto: textoDeUbicacion(ubicacion.data.location),
     };
   }
@@ -269,7 +294,7 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
   if (!base.success) {
     return null;
   }
-  const { id: wamid, from: waId, type } = base.data;
+  const { id: wamid, type } = base.data;
 
   if (type === "button" || type === "interactive") {
     let tocado: string | undefined;
@@ -288,7 +313,7 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
     }
     return {
       wamid,
-      waId,
+      ...remitente,
       texto: tocado?.trim() ? tocado.trim() : MARCADOR_BOTON_SIN_TEXTO,
       ...(delBoton ? { boton: delBoton } : {}),
     };
@@ -297,7 +322,7 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
   if (type in MARCADORES_NO_SOPORTADOS) {
     return {
       wamid,
-      waId,
+      ...remitente,
       texto: MARCADORES_NO_SOPORTADOS[type as keyof typeof MARCADORES_NO_SOPORTADOS],
     };
   }
@@ -308,9 +333,77 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
 }
 
 const contactoDelPayloadSchema = z.object({
-  wa_id: z.string(),
-  profile: z.object({ name: z.string().optional() }).optional(),
+  wa_id: z.string().min(1).optional(),
+  user_id: z.string().optional(),
+  profile: z.object({ name: z.string().optional(), username: z.string().optional() }).optional(),
 });
+
+export interface ContactoDelPayload {
+  waId?: string;
+  bsuid?: string;
+  nombre?: string;
+  usuario?: string;
+}
+
+// El bloque `contacts` del webhook: de quién es el nombre del perfil. Antes
+// exigía `wa_id`; sin teléfono (PR0) se perdía el nombre. null sin ningún id.
+export function leerContactoDelPayload(crudo: unknown): ContactoDelPayload | null {
+  const c = contactoDelPayloadSchema.safeParse(crudo);
+  if (!c.success) return null;
+  const bsuid = c.data.user_id && esBsuid(c.data.user_id) ? c.data.user_id : undefined;
+  if (!c.data.wa_id && !bsuid) return null;
+  const nombre = c.data.profile?.name?.trim();
+  const usuario = c.data.profile?.username?.trim();
+  return {
+    ...(c.data.wa_id ? { waId: c.data.wa_id } : {}),
+    ...(bsuid ? { bsuid } : {}),
+    ...(nombre ? { nombre } : {}),
+    ...(usuario ? { usuario } : {}),
+  };
+}
+
+// Los mensajes de sistema de un cambio de identidad (PR0): Meta regenera el
+// BSUID cuando el usuario cambia de número (`user_changed_number`) o le
+// cambia el BSUID sin poder compartir el teléfono (`user_changed_user_id`).
+// Trae el BSUID anterior para atar el nuevo al mismo contacto.
+const cambioDeIdentidadSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("system"),
+  from: z.string().min(1).optional(),
+  system: z.object({
+    type: z.string(),
+    wa_id: z.string().min(1).optional(),
+    user_id: z.string().optional(),
+    previous_user_id: z.string().optional(),
+  }),
+});
+
+export interface CambioDeIdentidad {
+  wamid: string;
+  tipo: "user_changed_number" | "user_changed_user_id";
+  waIdAnterior?: string;
+  bsuidAnterior?: string;
+  waIdNuevo?: string;
+  bsuidNuevo: string;
+}
+
+export function leerCambioDeIdentidad(crudo: unknown): CambioDeIdentidad | null {
+  const c = cambioDeIdentidadSchema.safeParse(crudo);
+  if (!c.success) return null;
+  const tipo = c.data.system.type;
+  if (tipo !== "user_changed_number" && tipo !== "user_changed_user_id") return null;
+  const nuevo = c.data.system.user_id;
+  if (!nuevo || !esBsuid(nuevo)) return null;
+  const anterior = c.data.system.previous_user_id;
+  return {
+    wamid: c.data.id,
+    tipo,
+    ...(c.data.from ? { waIdAnterior: c.data.from } : {}),
+    ...(anterior && esBsuid(anterior) ? { bsuidAnterior: anterior } : {}),
+    ...(c.data.system.wa_id ? { waIdNuevo: c.data.system.wa_id } : {}),
+    bsuidNuevo: nuevo,
+  };
+}
 
 // "derivado": el agente del número está apagado o no atiende WhatsApp; el
 // mensaje quedó en la conversación para una persona, sin job (OPUS-I-01).
@@ -464,6 +557,9 @@ interface MensajeEntrante {
   phoneNumberId: string;
   wamid: string;
   waId: string;
+  // PR0: el BSUID y el nombre de usuario de WhatsApp, cuando vinieron.
+  bsuid?: string;
+  usuario?: string;
   profileName: string | undefined;
   texto: string;
   media?: { id: string; mimeType: string };
@@ -518,8 +614,16 @@ async function procesarMensaje(
     return "duplicado";
   }
 
-  // 3. El Contact, por teléfono.
-  const contactId = await resolveWhatsappContact(organizationId, mensaje.waId, mensaje.profileName);
+  // 3. El Contact, por teléfono o por BSUID (PR0).
+  const contactId = await resolveWhatsappContact(
+    organizationId,
+    mensaje.waId,
+    mensaje.profileName,
+    {
+      ...(mensaje.bsuid ? { bsuid: mensaje.bsuid } : {}),
+      ...(mensaje.usuario ? { usuario: mensaje.usuario } : {}),
+    },
+  );
 
   // 4. El Message entrante con su wamid y, en la misma transacción, el job
   //    que el worker va a tomar. Sin el lock de la conversación a propósito:
@@ -685,26 +789,50 @@ export async function procesarWebhookDeWhatsapp(
       const mensajes = Array.isArray(value.messages) ? (value.messages as unknown[]) : [];
       if (mensajes.length === 0) continue;
 
+      // El nombre del perfil de cada remitente, por teléfono y por BSUID: sin
+      // teléfono (PR0), el bloque contacts trae solo el user_id.
       const contactos = Array.isArray(value.contacts) ? (value.contacts as unknown[]) : [];
-      const nombres = new Map<string, string | undefined>();
+      const delPayload = new Map<string, ContactoDelPayload>();
       for (const c of contactos) {
-        const parsed = contactoDelPayloadSchema.safeParse(c);
-        if (parsed.success) nombres.set(parsed.data.wa_id, parsed.data.profile?.name);
+        const leido = leerContactoDelPayload(c);
+        if (!leido) continue;
+        if (leido.waId) delPayload.set(leido.waId, leido);
+        if (leido.bsuid) delPayload.set(leido.bsuid, leido);
       }
 
       for (const crudo of mensajes) {
+        // PR0: un mensaje de sistema de cambio de número o de BSUID ata el
+        // BSUID nuevo al mismo contacto. No es un mensaje de la conversación.
+        const cambio = leerCambioDeIdentidad(crudo);
+        if (cambio) {
+          try {
+            const agente = await findAgentByWhatsappPhoneNumberId(phoneNumberId);
+            if (agente) await aplicarCambioDeIdentidad(agente.organizationId, cambio);
+            resumen.ignorado += 1;
+          } catch (err) {
+            logger.error(
+              { err, phoneNumberId, wamid: cambio.wamid },
+              "No se pudo aplicar un cambio de identidad de WhatsApp — se sigue con el resto del lote",
+            );
+            resumen.fallido += 1;
+          }
+          continue;
+        }
         const m = leerMensaje(crudo);
         if (!m) {
           resumen.ignorado += 1;
           continue;
         }
+        const perfil = delPayload.get(m.waId) ?? (m.bsuid ? delPayload.get(m.bsuid) : undefined);
         try {
           const r = await procesarMensaje(
             {
               phoneNumberId,
               wamid: m.wamid,
               waId: m.waId,
-              profileName: nombres.get(m.waId),
+              ...(m.bsuid ? { bsuid: m.bsuid } : {}),
+              ...(perfil?.usuario ? { usuario: perfil.usuario } : {}),
+              profileName: perfil?.nombre,
               texto: m.texto,
               media: m.media,
               ...(m.boton ? { boton: m.boton } : {}),
