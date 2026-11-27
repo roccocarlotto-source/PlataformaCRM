@@ -1,6 +1,7 @@
 # Mensajes con opciones: botones y listas resueltos por código
 
-> Documento de diseño. Estado: **propuesta, sin código**. Fecha: 2026-11-27.
+> Documento de diseño. Estado: **diseño aprobado, sin código** (decisiones de
+> Rocco del 2026-11-27 en §9). Fecha: 2026-11-27.
 > Las referencias `archivo` y `función` son de `master` en d0e1c76 (merge de
 > #663). Los ejemplos usan datos ficticios.
 
@@ -87,7 +88,7 @@ Para comparar, el botón de una plantilla llega como `type: "button"` con
 **Aviso de Meta sobre la identidad:** con los nombres de usuario de WhatsApp
 (BSUID), `from` y `wa_id` pueden no venir, y Meta recomienda identificar al
 usuario con `user_id`. Esto no es de este diseño, pero el parser nuevo no
-debe empeorarlo. Queda como tarea aparte (§9, P12).
+debe empeorarlo. Queda como tarea aparte (D12).
 
 ### 1.3 El id de cada opción
 
@@ -156,7 +157,7 @@ recordatorio, y **no llama al modelo**.
 
 **Por qué el flujo va antes del nivel de IA:** así funciona también con la IA
 apagada o en "solo fuera de horario". Una clínica sin IA podría tener igual el
-menú y la reserva por botones (§9, P10).
+menú y la reserva por botones (D10).
 
 ### 1.6 Estado del flujo
 
@@ -180,7 +181,7 @@ menú y la reserva por botones (§9, P10).
 
 - **Una columna, no una tabla:** hay a lo sumo un flujo activo por
   conversación, y así no hace falta tabla nueva con RLS, diagnóstico y FKs
-  compuestas (§9, P1).
+  compuestas (D1).
 - **Se escribe dentro del lock de la conversación** (`conLockDeConversacion`)
   y con compare-and-swap sobre `paso`, así que dos toques rápidos no avanzan
   dos veces.
@@ -293,7 +294,7 @@ los dos casos):
   - **sin textos de transición** ("Perfecto, ahora te muestro los
     horarios…"): la lista lleva su propio cuerpo;
   - **opcional:** el aviso de privacidad dentro del cuerpo de la bienvenida,
-    que tiene hasta 1024 caracteres, en lugar de un mensaje aparte (§9, P13).
+    que tiene hasta 1024 caracteres, en lugar de un mensaje aparte (D13).
 - Con esas reglas, una reserva típica queda en **4 o 5 mensajes**:
   1. bienvenida;
   2. lista de prestaciones (se saltea si hay una sola o si ya se sabe);
@@ -327,7 +328,7 @@ oficiales leídos el 2026-11-27:
   - Para no acercarse a esa definición, el agente se mantiene acotado al
     negocio y no funciona como asistente de propósito general. Hoy ya es así,
     con las reglas y guardas del agente.
-  - Queda como punto a confirmar en la revisión legal (§9, P11).
+  - Queda como punto a confirmar en la revisión legal (D11).
 
 ---
 
@@ -370,14 +371,14 @@ una sucursal y define los canales, así que cubre "por sucursal" sin otra capa.
 {
   version: 1,
   activo: true,                     // apagado por defecto en los agentes existentes
-  nombreDeLaAsistente: "Sofía",     // opcional (§9, P4)
+  nombreDeLaAsistente: "Sofía",     // opcional (D4)
   bienvenida: {
     texto: "¡Hola! Soy {asistente}, la asistente virtual de {organizacion}. ¿En qué te puedo ayudar?",
     botones: ["agendar", "informacion", "humano"],   // orden y cuáles (máx. 3)
     titulos: { agendar: "Agendar un turno", informacion: "Más información", humano: "Hablar con alguien" },
     volverAMostrarTrasDias: 7       // §4.1
   },
-  reserva: { elegirProfesional: "si_hay_mas_de_uno" },  // §9, P7
+  reserva: { elegirProfesional: "si_hay_mas_de_uno" },  // D7
   informacion: {
     temas: [
       { tipo: "HORARIOS", titulo: "Horarios" },
@@ -400,7 +401,7 @@ una sucursal y define los canales, así que cubre "por sucursal" sin otra capa.
   - `PRECIOS`: la lista de prestaciones con su precio;
   - `MEDIOS_DE_PAGO`: las columnas de `Branch`;
   - `DIRECCION`: **🗄 columna nueva `branches.address`** (texto) más un link
-    de mapa opcional (§9, P6);
+    de mapa opcional (D6);
   - `ENTRADA`: manda tal cual el contenido de una entrada de la base de
     conocimiento, como ya hace `INDICACIONES`;
   - `PREGUNTA`: le dice al contacto "Contame tu pregunta" y su próximo texto
@@ -435,7 +436,7 @@ Se manda si se cumplen **todas** estas condiciones:
    7). Se mide con el último entrante (`findLastInboundAt`);
 3. ninguna persona atiende la conversación, y no hay una urgencia ni un flujo
    en curso;
-4. **el mensaje no pide algo concreto** (§9, P2). Un saludo o un mensaje muy
+4. **el mensaje no pide algo concreto** (D2). Un saludo o un mensaje muy
    corto ("hola", "buenas", "info") recibe la bienvenida. "Quiero un turno
    para mañana a la tarde" va directo a la IA, porque el menú ahí sería un
    paso de más. La detección es por código: hasta 4 palabras y una lista de
@@ -493,7 +494,7 @@ anuncio que lleva al chat)
 **Un solo modelo de opciones para todos los canales:** el flujo arma
 `{ texto, opciones: [{id, titulo, descripcion?}], tipo: "botones" | "lista" }`.
 Cada canal lo traduce a lo suyo y, si no puede, lo degrada a texto numerado
-(§9, P9). **Envío:** `sendWhatsappInteractiveReal` (nueva) en
+(D9). **Envío:** `sendWhatsappInteractiveReal` (nueva) en
 `whatsappGraph.service.ts`, y el equivalente en `metaSend.service.ts`. Las
 dos se clasifican en `modoDemo.catalogo.test.ts` como envío simulado en modo
 demo, como las demás `*Real`.
@@ -550,7 +551,7 @@ contacto.
 - **Mismo lock:** el turno de la IA y el paso del flujo corren bajo
   `conLockDeConversacion`. Un toque que llega mientras la IA redacta se
   encola y corre después, como hoy un mensaje en ráfaga.
-- **Texto libre a mitad del flujo:** va a la IA (§9, P5).
+- **Texto libre a mitad del flujo:** va a la IA (D5).
   - El estado del flujo **se conserva** hasta su vencimiento, así que si el
     contacto vuelve a tocar la lista, sigue.
   - La IA recibe una línea de contexto ("Estaba eligiendo horario para
@@ -623,6 +624,7 @@ lo que ve un usuario actualiza `docs/guia-de-uso/`.
 
 | # | PR | 🗄 | Contenido |
 |---|---|---|---|
+| PR0 | `feat(whatsapp): identidad por BSUID (user_id)` | 🗄 | Tarea aparte de D12, antes de PR1 (§10.1) |
 | PR1 | `feat(whatsapp): enviar mensajes con opciones y leer la opción tocada` | 🗄 | `messages.option_id`, `reply_to_external_id` y `options`. `sendWhatsappInteractiveReal` (botones y lista) y su clasificación en modo demo. El parser lee `id` y `context.id` de `button_reply` y `list_reply`. Sin uso todavía: no cambia nada visible |
 | PR2 | `feat(agente): estado del flujo y enrutador de opciones` | 🗄 | `conversations.flow_state` y `agents.options_config` (los dos en una sola migración). El enrutador en `responderSinMedir`, en el orden de §1.5, apagado salvo `activo`. Registro del aviso de privacidad en las respuestas por código. Tests de orden: urgencia, humano, recordatorio |
 | PR3 | `feat(clinicas): reserva por opciones` | — | Flujo prestación → (profesional) → horario → apellido → confirmación, con las validaciones de `create_booking` extraídas a una función común que usan la tool y el flujo. Casos de §7.2 y §7.3. **Primero en clínicas**, prendido solo con `activo` |
@@ -639,20 +641,69 @@ Este plan reemplaza los PR10 y PR11 de la segunda fase de
 
 ---
 
-## 9. Preguntas abiertas para Rocco
+## 9. Decisiones (Rocco, 2026-11-27)
 
-| # | Pregunta | Opciones | Recomendada |
-|---|---|---|---|
-| P1 | ¿Dónde vive el estado del flujo? | (a) columna JSON `conversations.flow_state`; (b) tabla nueva `conversation_flows` | **(a)**: hay a lo sumo un flujo por conversación, y una tabla nueva pide RLS, diagnóstico y FKs compuestas sin ganar nada |
-| P2 | ¿La bienvenida a todo primer mensaje? | (a) siempre; (b) solo si el mensaje es un saludo o muy corto; (c) nunca automática, solo si escribe "menú" | **(b)**: el que ya pidió algo concreto no tiene que pasar por un menú |
-| P3 | ¿Cada cuánto vuelve a mostrarse? | 7 días / 30 días / solo la primera vez | **7 días**, configurable |
-| P4 | ¿Cómo se llama la asistente en el saludo? | (a) campo opcional `nombreDeLaAsistente`; si falta, "Soy la asistente virtual de {organización}"; (b) usar `agents.name` | **(a)**: `agents.name` es interno ("Recepción virtual"), y el género del texto ("la asistente") queda en el texto configurable |
-| P5 | ¿Texto libre a mitad del flujo? | (a) responde la IA, con contexto, y el flujo se conserva 30 min; (b) se cancela el flujo y responde la IA | **(a)**: el contacto que pregunta "¿y cuánto sale?" puede volver a tocar la lista |
-| P6 | ¿La dirección, estructurada? | (a) columna `branches.address` (+ link de mapa); (b) una entrada de la base marcada como "dirección" | **(a)**: también sirve para la reserva web, los recordatorios y la ficha de la sede |
-| P7 | ¿Se elige profesional? | (a) solo si la prestación tiene más de uno, con la fila "Cualquiera" primero; (b) nunca, siempre el primero libre; (c) siempre | **(a)** |
-| P8 | ¿Paso de confirmación antes de reservar? | (a) sí: resumen y botones **Confirmar** / **Cambiar**; (b) se reserva al tocar el horario | **(a)**: un toque por error en una lista larga no tiene que crear un turno |
-| P9 | Canal sin botones (Instagram en escritorio, versiones viejas) | (a) texto numerado ("Respondé 1, 2 o 3") interpretado por código; (b) degradar a la IA | **(a)** solo para la bienvenida; en mitad de flujo, **(b)** |
-| P10 | ¿Funciona con la IA apagada (nivel manual)? | (a) sí: menú y reserva por código, y el texto libre se deriva como hoy; (b) no, solo con IA | **(a)**: es una forma de vender reservas por WhatsApp sin IA, por ejemplo en ESENCIAL |
-| P11 | Costo de Meta y política de AI Providers (§2.1) | (a) prender por organización, medir 1 mes (mensajes por reserva, embudo, cuánto falta para los 1.000) y confirmar en la revisión legal que no somos "AI Provider"; (b) prender a todas; (c) además, tope de mensajes por flujo | **(a)**: el costo es parecido al de la IA, y lo que falta saber es si el flujo ayuda (embudo) y cómo queda la clasificación de Meta |
-| P12 | Identidad por `user_id` (BSUID) de WhatsApp | (a) tarea aparte, antes de PR1; (b) dentro de PR1 | **(a)**: no es de este diseño, pero conviene no sumarle otro parser encima sin resolverlo |
-| P13 | ¿El aviso de privacidad, dentro de la bienvenida? | (a) en el cuerpo de la bienvenida, con el link (un mensaje menos en cada primer contacto); (b) aparte, como hoy | **(b)** hasta la revisión legal del aviso, porque un mensaje propio es más claro como constancia. Pasar a **(a)** si el abogado lo acepta |
+Rocco aceptó todas las recomendadas. Las opciones descartadas quedan en el
+historial del PR (#664).
+
+| # | Pregunta | Decisión |
+|---|---|---|
+| D1 | ¿Dónde vive el estado del flujo? | Columna JSON `conversations.flow_state` (§1.6). Sin tabla nueva |
+| D2 | ¿La bienvenida a todo primer mensaje? | Solo si el mensaje es un saludo o muy corto (§4.1); el que pide algo concreto va directo a la IA |
+| D3 | ¿Cada cuánto vuelve a mostrarse? | Después de **7 días** sin mensajes del contacto, configurable (`volverAMostrarTrasDias`) |
+| D4 | ¿Cómo se llama la asistente en el saludo? | Campo opcional `nombreDeLaAsistente`. Si falta: "Soy la asistente virtual de {organización}". `agents.name` sigue siendo interno |
+| D5 | ¿Texto libre a mitad del flujo? | Responde la IA, con una línea de contexto. El flujo se conserva 30 min (§7.1) |
+| D6 | ¿La dirección, estructurada? | Columna `branches.address`, más un link de mapa opcional (§3.2, PR6) |
+| D7 | ¿Se elige profesional? | Solo si la prestación tiene más de uno, con la fila "Cualquiera" primero |
+| D8 | ¿Paso de confirmación antes de reservar? | Sí. Resumen y botones **Confirmar** / **Cambiar** en **un solo mensaje** (§2.1) |
+| D9 | Canal sin botones | Texto numerado interpretado por código **en la bienvenida**; **en mitad de flujo**, degradar a la IA |
+| D10 | ¿Funciona con la IA apagada? | Sí. Menú y reserva por código, y el texto libre se deriva como hoy |
+| D11 | Costo de Meta y política de AI Providers | Prender por organización y medir 1 mes: mensajes por reserva, embudo y cuánto falta para los 1.000 gratis. Confirmar en la revisión legal que la plataforma no es "AI Provider" (§2.1) |
+| D12 | Identidad por `user_id` (BSUID) | **Tarea aparte, antes de PR1** (PR0, §10.1) |
+| D13 | ¿El aviso de privacidad, dentro de la bienvenida? | **No por ahora**: va aparte, como hoy. Se revisa cuando el abogado vea el aviso |
+
+---
+
+## 10. Pendientes
+
+### 10.1 PR0: identidad por BSUID (D12)
+
+Meta empezó a mandar en abril de 2026 un identificador nuevo por usuario y por
+portafolio de negocio, el **BSUID** (`user_id`, formato `UY.` + hasta 128
+caracteres alfanuméricos). Lo manda en **todos** los webhooks de mensajes.
+Con los nombres de usuario de WhatsApp, que se despliegan de a poco en 2026 y
+que el usuario adopta si quiere, **el teléfono (`from`, `wa_id`) puede no
+venir**. Meta lo exige: *"you must support BSUID to avoid losing the ability
+to process their messages"*
+([business-scoped user IDs](https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids)).
+
+Hoy el contacto de WhatsApp se identifica por el teléfono. Un mensaje sin
+`from` no podría atarse a nadie. El alcance de PR0:
+
+- **🗄 guardar el BSUID del contacto:** columna nueva en `contacts`, única por
+  organización. El portafolio de Meta es el de la organización, porque cada
+  clínica tiene su WABA;
+- **leerlo en el webhook:**
+  - `messages[].from_user_id` / `contacts[].user_id`;
+  - `statuses[].recipient_user_id`;
+  - el mensaje de sistema de cambio de número, porque el BSUID se regenera;
+- **resolver el contacto por teléfono o por BSUID.** El que llega sin teléfono
+  se crea con el BSUID y queda sin identidad para turnos, porque
+  `datosQueFaltanParaActuar` pide teléfono o email;
+- **mandar a un BSUID** (`recipient` en lugar de `to`) cuando no hay teléfono,
+  salvo plantillas de autenticación, que lo exigen;
+- **revisar las salidas de modo demo** y el aviso de "nadie respondió".
+
+Va antes de PR1 para que el parser nuevo de opciones ya lea el usuario por los
+dos lados.
+
+### 10.2 Otros pendientes
+
+- **[Rocco] Verificar que OpenRouter y sus proveedores no entrenen con
+  nuestros mensajes**, en la configuración de OpenRouter (política de datos y
+  proveedores habilitados). Los términos de WhatsApp Business no permiten usar
+  los datos de la plataforma para entrenar modelos (§2.1).
+- **[Revisión legal] Clasificación de "AI Provider"** de Meta (D11) y el aviso
+  de privacidad dentro de la bienvenida (D13).
+- **Actualizar `docs/primera-clinica.md` §3.3 y §7.2** para que apunten a este
+  documento cuando arranque PR1.
